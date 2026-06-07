@@ -1589,11 +1589,6 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "Al cerrar, resume la sesión en hechos estructurados y los guarda en la colección Qdrant ultron_sessions para recall semántico.",
         ),
         (
-            "mem0-sync.js",
-            "Sincronizar sesión a Mem0",
-            "Al cerrar, envía los últimos mensajes y archivos modificados a la memoria en la nube Mem0.",
-        ),
-        (
             "kanban-update-reminder.js",
             "Recordatorio de Kanban",
             "Si detecta que se completó una tarea, recuerda actualizar el kanban del proyecto activo antes de cerrar.",
@@ -1632,6 +1627,82 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "quota-capture.js",
             "Captura de cuota de Claude",
             "Tras cada herramienta, detecta avisos de límite de la suscripción y los escribe en quota-state.json.",
+        ),
+        // --- Hooks vigentes (iter-10, 2026-06) ---
+        (
+            "ensure-qdrant.ps1",
+            "Arrancar Qdrant",
+            "Al iniciar, comprueba que Qdrant esté vivo en el puerto 6333 y lo lanza si hace falta.",
+        ),
+        (
+            "memory-warmup.js",
+            "Precalentar memoria",
+            "Al iniciar, precarga el índice de memoria y el modelo de embeddings E5 para que el primer recall no tarde.",
+        ),
+        (
+            "project-card.js",
+            "Ficha del proyecto",
+            "Al iniciar, inyecta una ficha cacheada del proyecto actual (estado, decisiones, ubicación de funciones).",
+        ),
+        (
+            "memory-session-resume.js",
+            "Resumen de memoria al iniciar",
+            "Al iniciar, inyecta el resume de tareas abiertas y decisiones recientes desde el sistema de memoria de ULTRON.",
+        ),
+        (
+            "memory-orchestrate.js",
+            "Orquestar memoria por prompt",
+            "En cada prompt, hace prefetch del contexto relevante (recall híbrido sparse+denso) y lo inyecta como orientación.",
+        ),
+        (
+            "deny-secrets.py",
+            "Bloquear secretos",
+            "Antes de cada herramienta, bloquea operaciones que expondrían secretos o credenciales (write-path guard).",
+        ),
+        (
+            "capture-symbols.js",
+            "Capturar grafo de código",
+            "Tras editar código, extrae símbolos y relaciones (calls/imports) y los manda al codegraph (tabla edges).",
+        ),
+        (
+            "posttoolfail-capture.js",
+            "Capturar fallos de herramienta",
+            "Tras un fallo de herramienta, registra el error como patrón para el recall futuro.",
+        ),
+        (
+            "batch-capture.js",
+            "Captura batch al cerrar",
+            "Al cerrar, drena los candidatos de memoria pendientes acumulados durante la sesión.",
+        ),
+        (
+            "qdrant-mirror-sync.js",
+            "Espejar memoria a Qdrant",
+            "Al cerrar, sincroniza los items nuevos de SQLite hacia la colección densa de Qdrant.",
+        ),
+        (
+            "route_quality_aggregator.py",
+            "Agregar calidad de routing",
+            "Al cerrar, agrega la telemetría de routing de la sesión para medir aciertos del dispatcher.",
+        ),
+        (
+            "session-end-summary.js",
+            "Resumen al terminar la sesión",
+            "En SessionEnd, escribe un resumen final de la sesión para arrancar mejor la siguiente.",
+        ),
+        (
+            "precompact-preserve-l0.js",
+            "Preservar contexto L0 antes de compactar",
+            "Antes de compactar, guarda el contexto L0 (<=400 tokens) para que sobreviva a la compactación.",
+        ),
+        (
+            "subagent-harvest.js",
+            "Cosechar subagentes",
+            "Cuando un subagente termina, recoge sus hallazgos hacia el sistema de memoria.",
+        ),
+        (
+            "notify-relay.js",
+            "Relé de notificaciones",
+            "Reenvía las notificaciones de Claude Code hacia el Control Center / sistema operativo.",
         ),
     ];
     meta.iter()

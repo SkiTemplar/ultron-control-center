@@ -517,6 +517,10 @@ function Card({
   // mutating them would invalidate the plugin's signature or wander into
   // a project's repo. Surface this clearly rather than silently failing.
   const readOnly = origin.kind !== "user";
+  // The enable/disable toggle covers user scope (settings.json) AND project
+  // scope (Claude Code's disabledMcpjsonServers). Plugin / unknown origins
+  // stay non-toggleable but show an honest reason instead of a dead switch.
+  const canToggle = origin.kind === "user" || origin.kind === "project";
 
   return (
     <div
@@ -680,7 +684,7 @@ function Card({
             <button
               type="button"
               onClick={onToggleEnabled}
-              disabled={toggleBusy || readOnly}
+              disabled={toggleBusy || !canToggle}
               className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-40"
               style={{
                 background: enabled ? "var(--color-success)" : "var(--color-surface-3)",
@@ -688,15 +692,17 @@ function Card({
                 padding: "1px",
               }}
               title={
-                readOnly
+                !canToggle
                   ? origin.kind === "plugin"
-                    ? `Provided by plugin '${origin.label}'. To disable, remove or disable that plugin.`
-                    : origin.kind === "project"
-                      ? `Declared in project '${origin.label}' .mcp.json. Edit that file to remove it.`
-                      : "Cannot be toggled — unknown origin."
-                  : enabled
-                    ? "Disable this MCP (writes disabled:true to settings.json)"
-                    : "Enable this MCP (removes disabled flag from settings.json)"
+                    ? `Lo provee el plugin '${origin.label}'. Para desactivarlo: /plugin disable ${origin.label}.`
+                    : `Origen '${origin.label}' (user scope en ~/.claude.json). Edita ese fichero para desactivarlo.`
+                  : origin.kind === "project"
+                    ? enabled
+                      ? "Desactivar (añade a disabledMcpjsonServers en settings.json)"
+                      : "Activar (quita de disabledMcpjsonServers)"
+                    : enabled
+                      ? "Desactivar (escribe disabled:true en settings.json)"
+                      : "Activar (quita disabled de settings.json)"
               }
             >
               <span
@@ -713,12 +719,10 @@ function Card({
             >
               {toggleBusy
                 ? "Saving…"
-                : readOnly
+                : !canToggle
                   ? origin.kind === "plugin"
                     ? `plugin: ${origin.label}`
-                    : origin.kind === "project"
-                      ? `project: ${origin.label}`
-                      : "read-only"
+                    : `${origin.label}`
                   : enabled
                     ? "Enabled"
                     : "Disabled"}
@@ -1048,22 +1052,13 @@ export function MCPs() {
       const list = (await invoke("list_mcps")) as McpInfoExt[];
       setMcps(list);
       setError(null);
-      // Reload enabled/disabled state from settings.json in parallel.
-      try {
-        const snap = (await invoke("settings_read")) as SettingsSnapshot;
-        const servers = (snap.content as Record<string, unknown>).mcpServers as
-          | Record<string, { disabled?: boolean }>
-          | undefined;
-        if (servers) {
-          const map: Record<string, boolean> = {};
-          for (const [name, cfg] of Object.entries(servers)) {
-            map[name] = !cfg.disabled;
-          }
-          setEnabledMap(map);
-        }
-      } catch {
-        // Non-fatal: per-card toggles will show as enabled by default.
-      }
+      // Seed enabled/disabled state from the list itself: list_mcps marks
+      // `disabled` both from settings.json mcpServers (user scope) AND from
+      // Claude Code's `disabledMcpjsonServers` (project/.mcp.json scope), so
+      // it's the single authoritative source — no separate settings read.
+      const map: Record<string, boolean> = {};
+      for (const m of list) map[m.name] = !m.disabled;
+      setEnabledMap(map);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1071,21 +1066,41 @@ export function MCPs() {
     }
   }, []);
 
-  async function toggleEnabled(name: string) {
+  async function toggleEnabled(name: string, origin?: string) {
     if (toggleBusy.has(name)) return;
     setToggleBusy((s) => { const n = new Set(s); n.add(name); return n; });
     try {
-      const snap = (await invoke("settings_read")) as SettingsSnapshot;
-      const next = JSON.parse(JSON.stringify(snap.content)) as Record<string, unknown>;
-      const servers = (next.mcpServers ?? {}) as Record<string, { disabled?: boolean }>;
-      const cfg = servers[name];
-      if (!cfg) return;
-      cfg.disabled = !cfg.disabled;
-      next.mcpServers = servers;
-      const nowEnabled = !cfg.disabled; // cfg.disabled was just set to the new value
-      const res = (await invoke("settings_save", { content: next })) as SettingsSaveResult;
-      if (res.success) {
-        setEnabledMap((m) => ({ ...m, [name]: nowEnabled }));
+      const currentlyEnabled = enabledMap[name] !== false;
+      const wantDisabled = currentlyEnabled; // toggling flips the state
+      if (origin && origin.startsWith("project:")) {
+        // Project / .mcp.json scope → Claude Code's own disabledMcpjsonServers
+        // list in settings.json (the only switch that actually disables these).
+        const res = (await invoke("mcp_set_disabled", {
+          name,
+          disabled: wantDisabled,
+        })) as SettingsSaveResult;
+        if (res.success) setEnabledMap((m) => ({ ...m, [name]: !wantDisabled }));
+      } else {
+        // User scope → settings.json mcpServers[name].disabled. If the server
+        // isn't in settings.json (it lives in ~/.claude.json), say so honestly
+        // instead of silently no-op'ing.
+        const snap = (await invoke("settings_read")) as SettingsSnapshot;
+        const next = JSON.parse(JSON.stringify(snap.content)) as Record<string, unknown>;
+        const servers = (next.mcpServers ?? {}) as Record<string, { disabled?: boolean }>;
+        const cfg = servers[name];
+        if (!cfg) {
+          showFlash(
+            `'${name}' vive en ~/.claude.json (user scope); edítalo ahí para desactivarlo.`,
+          );
+          return;
+        }
+        cfg.disabled = !cfg.disabled;
+        next.mcpServers = servers;
+        const nowEnabled = !cfg.disabled; // cfg.disabled was just set to the new value
+        const res = (await invoke("settings_save", { content: next })) as SettingsSaveResult;
+        if (res.success) {
+          setEnabledMap((m) => ({ ...m, [name]: nowEnabled }));
+        }
       }
     } catch (e) {
       showFlash(`Toggle failed: ${e}`);
@@ -1457,7 +1472,7 @@ export function MCPs() {
             pingBusy={pingBusy.has(m.name)}
             enabled={enabledMap[m.name] !== false}
             toggleBusy={toggleBusy.has(m.name)}
-            onToggleEnabled={() => void toggleEnabled(m.name)}
+            onToggleEnabled={() => void toggleEnabled(m.name, m.origin)}
             onAction={(a) => {
               if (a === "hide") toggleHidden(m.name);
               else if (a === "edit") openEdit(m.name);

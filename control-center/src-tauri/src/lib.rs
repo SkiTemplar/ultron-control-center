@@ -202,6 +202,7 @@ pub fn run() {
             commands::mcps::delete_mcp,
             commands::mcps::generate_mcp_from_prompt,
             commands::mcps::mcp_ping,
+            commands::mcps::mcp_set_disabled,
             // -- skills --
             commands::skills::list_skills,
             commands::skills::list_skills_legacy,

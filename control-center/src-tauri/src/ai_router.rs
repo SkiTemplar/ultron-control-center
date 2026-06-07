@@ -765,6 +765,14 @@ fn seed_providers() -> Vec<Provider> {
 }
 
 fn seed_zones() -> Vec<Zone> {
+    // CLI-first policy (2026-06-08, USER): every work zone starts on a CLI
+    // provider (codex-cli for code, gemini-cli for everything else) because the
+    // CLIs auth via the subscription OAuth and are free at the point of use.
+    // The previous cloud primary is kept as fallback[0] so a missing/slow CLI
+    // degrades gracefully to the paid API. Exceptions: 'code-fast-local' stays
+    // on Ollama (its whole purpose is offline). NOTE: 'routing-decision' and
+    // 'utility' are hot internal paths — a CLI cold-start adds ~1-2s each; if
+    // the app feels sluggish on memory/hooks, revert those two to groq.
     vec![
         Zone {
             id: "chat".into(),
@@ -772,15 +780,22 @@ fn seed_zones() -> Vec<Zone> {
             category: "chat".into(),
             task_class: ProviderClass::Light,
             primary: ZoneAssignment {
-                provider_id: "claude-haiku".into(),
-                model: "claude-haiku-4-5-20251001".into(),
+                provider_id: "gemini-cli".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 1024,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
-                max_tokens: 1024,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "claude-haiku".into(),
+                    model: "claude-haiku-4-5-20251001".into(),
+                    max_tokens: 1024,
+                },
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "llama-3.3-70b-versatile".into(),
+                    max_tokens: 1024,
+                },
+            ],
             system_prompt: None,
         },
         Zone {
@@ -814,12 +829,17 @@ fn seed_zones() -> Vec<Zone> {
             label: "Code review".into(),
             category: "code".into(),
             task_class: ProviderClass::Light,
+            // Code zone → codex-cli (gpt-5) primary; claude-haiku as fallback.
             primary: ZoneAssignment {
+                provider_id: "codex-cli".into(),
+                model: "gpt-5".into(),
+                max_tokens: 2048,
+            },
+            fallbacks: vec![ZoneAssignment {
                 provider_id: "claude-haiku".into(),
                 model: "claude-haiku-4-5-20251001".into(),
                 max_tokens: 2048,
-            },
-            fallbacks: vec![],
+            }],
             system_prompt: None,
         },
         Zone {
@@ -854,15 +874,22 @@ fn seed_zones() -> Vec<Zone> {
             category: "chat".into(),
             task_class: ProviderClass::Trivial,
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
-                max_tokens: 1024,
-            },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "gemini".into(),
+                provider_id: "gemini-cli".into(),
                 model: "gemini-2.5-flash".into(),
                 max_tokens: 1024,
-            }],
+            },
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "llama-3.3-70b-versatile".into(),
+                    max_tokens: 1024,
+                },
+                ZoneAssignment {
+                    provider_id: "gemini".into(),
+                    model: "gemini-2.5-flash".into(),
+                    max_tokens: 1024,
+                },
+            ],
             system_prompt: None,
         },
         Zone {
@@ -871,15 +898,22 @@ fn seed_zones() -> Vec<Zone> {
             category: "system".into(),
             task_class: ProviderClass::Trivial,
             primary: ZoneAssignment {
-                provider_id: "claude-haiku".into(),
-                model: "claude-haiku-4-5-20251001".into(),
+                provider_id: "gemini-cli".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 256,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
-                max_tokens: 256,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "claude-haiku".into(),
+                    model: "claude-haiku-4-5-20251001".into(),
+                    max_tokens: 256,
+                },
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "llama-3.3-70b-versatile".into(),
+                    max_tokens: 256,
+                },
+            ],
             system_prompt: Some(
                 "You classify user prompts into one of the configured zones. \
                  Reply with the zone id only."
@@ -891,6 +925,7 @@ fn seed_zones() -> Vec<Zone> {
             label: "Fast offline code completion".into(),
             category: "code".into(),
             task_class: ProviderClass::Light,
+            // Stays on Ollama: the whole point of this zone is offline/local.
             primary: ZoneAssignment {
                 provider_id: "ollama".into(),
                 model: "qwen2.5-coder:32b".into(),
@@ -899,42 +934,54 @@ fn seed_zones() -> Vec<Zone> {
             fallbacks: vec![],
             system_prompt: None,
         },
-        // Internal utility tasks (hook telemetry, workday summaries, etc.)
-        // mapped to the cheapest available cloud model with Groq as fallback.
+        // Internal utility tasks (hook telemetry, workday summaries, etc.).
         Zone {
             id: "utility".into(),
             label: "Utility (internal automation tasks)".into(),
             category: "system".into(),
             task_class: ProviderClass::Trivial,
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
+                provider_id: "gemini-cli".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 512,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "claude-haiku".into(),
-                model: "claude-haiku-4-5-20251001".into(),
-                max_tokens: 512,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "llama-3.3-70b-versatile".into(),
+                    max_tokens: 512,
+                },
+                ZoneAssignment {
+                    provider_id: "claude-haiku".into(),
+                    model: "claude-haiku-4-5-20251001".into(),
+                    max_tokens: 512,
+                },
+            ],
             system_prompt: None,
         },
-        // Light/quick requests (plugins_info, single-turn completions, etc.)
-        // alias to a fast cheap model; Groq primary, Ollama fallback if local.
+        // Light/quick requests (plugins_info, single-turn completions, etc.).
         Zone {
             id: "light".into(),
             label: "Light (fast single-turn completions)".into(),
             category: "chat".into(),
             task_class: ProviderClass::Light,
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
+                provider_id: "gemini-cli".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 1024,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "ollama".into(),
-                model: "qwen2.5-coder:32b".into(),
-                max_tokens: 1024,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "llama-3.3-70b-versatile".into(),
+                    max_tokens: 1024,
+                },
+                ZoneAssignment {
+                    provider_id: "ollama".into(),
+                    model: "qwen2.5-coder:32b".into(),
+                    max_tokens: 1024,
+                },
+            ],
             system_prompt: None,
         },
     ]

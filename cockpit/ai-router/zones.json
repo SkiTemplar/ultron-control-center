@@ -5,14 +5,19 @@
     "category": "chat",
     "task_class": "light",
     "primary": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "provider_id": "gemini-cli",
+      "model": "gemini-2.5-flash",
       "max_tokens": 1024
     },
     "fallbacks": [
       {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider_id": "claude-haiku",
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 1024
+      },
+      {
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
         "max_tokens": 1024
       }
     ]
@@ -46,14 +51,14 @@
     "category": "code",
     "task_class": "light",
     "primary": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "provider_id": "codex-cli",
+      "model": "gpt-5",
       "max_tokens": 2048
     },
     "fallbacks": [
       {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider_id": "claude-haiku",
+        "model": "claude-haiku-4-5-20251001",
         "max_tokens": 2048
       }
     ]
@@ -87,11 +92,16 @@
     "category": "chat",
     "task_class": "trivial",
     "primary": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "provider_id": "gemini-cli",
+      "model": "gemini-2.5-flash",
       "max_tokens": 1024
     },
     "fallbacks": [
+      {
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "max_tokens": 1024
+      },
       {
         "provider_id": "gemini",
         "model": "gemini-2.5-flash",
@@ -105,14 +115,19 @@
     "category": "system",
     "task_class": "trivial",
     "primary": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "provider_id": "gemini-cli",
+      "model": "gemini-2.5-flash",
       "max_tokens": 256
     },
     "fallbacks": [
       {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider_id": "claude-haiku",
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 256
+      },
+      {
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
         "max_tokens": 256
       }
     ],
@@ -136,14 +151,19 @@
     "category": "system",
     "task_class": "trivial",
     "primary": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "provider_id": "gemini-cli",
+      "model": "gemini-2.5-flash",
       "max_tokens": 512
     },
     "fallbacks": [
       {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "max_tokens": 512
+      },
+      {
+        "provider_id": "claude-haiku",
+        "model": "claude-haiku-4-5-20251001",
         "max_tokens": 512
       }
     ]
@@ -154,14 +174,19 @@
     "category": "chat",
     "task_class": "light",
     "primary": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "provider_id": "gemini-cli",
+      "model": "gemini-2.5-flash",
       "max_tokens": 1024
     },
     "fallbacks": [
       {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "max_tokens": 1024
+      },
+      {
+        "provider_id": "ollama",
+        "model": "qwen2.5-coder:32b",
         "max_tokens": 1024
       }
     ]

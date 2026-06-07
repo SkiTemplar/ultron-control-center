@@ -67,3 +67,14 @@ pub async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::Mcp
 pub async fn mcp_ping(name: String) -> mcps::McpPingResult {
     mcps::mcp_ping_inner(name)
 }
+
+/// Enable/disable an MCP server via Claude Code's native `disabledMcpjsonServers`
+/// list in settings.json. Works for project `.mcp.json` and `~/.claude.json`
+/// project-scoped servers; NOT for plugin or top-level user servers.
+#[tauri::command]
+pub async fn mcp_set_disabled(
+    name: String,
+    disabled: bool,
+) -> Result<mcps::McpMutationResult, String> {
+    mcps::set_mcpjson_disabled_inner(name, disabled)
+}

@@ -82,6 +82,11 @@ pub struct McpInfo {
 struct SettingsRoot {
     #[serde(rename = "mcpServers", default)]
     mcp_servers: BTreeMap<String, McpServerCfg>,
+    /// Claude Code's own disable list for `.mcp.json` / project-scoped servers
+    /// (settings.json `disabledMcpjsonServers`). A raw server name in here is
+    /// genuinely disabled by Claude Code, so the UI must reflect it.
+    #[serde(rename = "disabledMcpjsonServers", default)]
+    disabled_mcpjson_servers: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -781,16 +786,63 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
     // projects, or railway-mcp-server vs railway). We keep the FIRST entry
     // per normalised name as the canonical row and fold the rest into its
     // duplicate_count / duplicate_origins so the UI can show "xN".
+    // Reflect Claude Code's own disable list: a raw server name listed in
+    // settings.json `disabledMcpjsonServers` is genuinely disabled by Claude
+    // Code even when the source config didn't carry `disabled: true`.
+    if !settings.disabled_mcpjson_servers.is_empty() {
+        let disabled_set: std::collections::HashSet<&str> = settings
+            .disabled_mcpjson_servers
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        for info in out.iter_mut() {
+            if disabled_set.contains(info.name.as_str()) {
+                info.disabled = true;
+            }
+        }
+    }
+
+    // How editable an origin is FROM ULTRON (lower = more editable). When the
+    // same logical server shows up in several scopes we keep the MOST editable
+    // one as the canonical (visible) row so the user can actually act on it —
+    // previously the first source won, which meant a plugin copy shadowed the
+    // user's own editable copy and the toggle did nothing.
+    fn editability_rank(origin: &str) -> u8 {
+        if origin == "user" || origin == "user-claudejson" {
+            0
+        } else if origin.starts_with("project:") {
+            1
+        } else if origin.starts_with("plugin:") {
+            2
+        } else {
+            3
+        }
+    }
     let mut deduped: Vec<McpInfo> = Vec::with_capacity(out.len());
     let mut idx_by_norm: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     for info in out.into_iter() {
         let norm = normalize_mcp_name(&info.name);
         if let Some(&i) = idx_by_norm.get(&norm) {
-            let canonical = &mut deduped[i];
-            canonical.duplicate_count += 1;
-            if !canonical.duplicate_origins.contains(&info.origin) {
-                canonical.duplicate_origins.push(info.origin.clone());
+            if editability_rank(&info.origin) < editability_rank(&deduped[i].origin) {
+                // Incoming entry is more editable — promote it to canonical and
+                // fold the previous canonical (and its origins) into the count.
+                let prev_count = deduped[i].duplicate_count;
+                let prev_origins = std::mem::take(&mut deduped[i].duplicate_origins);
+                let mut promoted = info;
+                promoted.duplicate_count = prev_count + 1;
+                for o in prev_origins {
+                    if !promoted.duplicate_origins.contains(&o) {
+                        promoted.duplicate_origins.push(o);
+                    }
+                }
+                deduped[i] = promoted;
+            } else {
+                let canonical = &mut deduped[i];
+                canonical.duplicate_count += 1;
+                if !canonical.duplicate_origins.contains(&info.origin) {
+                    canonical.duplicate_origins.push(info.origin.clone());
+                }
             }
         } else {
             idx_by_norm.insert(norm, deduped.len());
@@ -882,6 +934,61 @@ where
     Ok(McpMutationResult {
         success: save.success,
         name: name.to_string(),
+        backup_path: save.backup_path,
+    })
+}
+
+/// Add or remove a raw server name from settings.json `disabledMcpjsonServers`
+/// — Claude Code's native disable switch. It genuinely disables servers defined
+/// in project `.mcp.json` files and in `~/.claude.json` `projects.*.mcpServers`.
+/// It does NOT affect plugin-provided servers (disable the plugin instead) nor
+/// top-level `~/.claude.json` `mcpServers` (those must be edited there); the
+/// frontend only offers this toggle for the scopes it can actually control.
+pub fn set_mcpjson_disabled_inner(
+    name: String,
+    disabled: bool,
+) -> Result<McpMutationResult, String> {
+    // Light guard only: this just toggles membership in a string array (no
+    // command execution), and existing server names may use characters the
+    // strict create-time validator rejects (e.g. `UnityMCP`).
+    let trimmed = name.trim();
+    if trimmed.is_empty() || name.len() > 200 || name.contains(['\n', '\r', '\0']) {
+        return Err("invalid MCP name".to_string());
+    }
+
+    let snapshot = settings::settings_read_inner()?;
+    let mut content = snapshot.content;
+    let root = content
+        .as_object_mut()
+        .ok_or_else(|| "settings.json root is not an object".to_string())?;
+
+    // Read the current list, tolerating a missing or wrong-typed key.
+    let mut list: Vec<String> = root
+        .get("disabledMcpjsonServers")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let present = list.iter().any(|n| n == &name);
+    if disabled && !present {
+        list.push(name.clone());
+    } else if !disabled && present {
+        list.retain(|n| n != &name);
+    }
+
+    root.insert(
+        "disabledMcpjsonServers".to_string(),
+        serde_json::Value::Array(list.into_iter().map(serde_json::Value::String).collect()),
+    );
+
+    let save = settings::settings_save_inner(settings::SettingsSavePayload { content })?;
+    Ok(McpMutationResult {
+        success: save.success,
+        name,
         backup_path: save.backup_path,
     })
 }

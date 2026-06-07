@@ -10,6 +10,10 @@ export type AuthEntry = {
   binary_present: boolean;
   binary_path: string | null;
   note: string | null;
+  /** Real validity from the credential file's expiry timestamp. null = the
+   *  file carries no expiry, so validity is genuinely unverified (amber). */
+  expires_at?: string | null;
+  expired?: boolean | null;
 };
 
 export type AuthReport = {
@@ -165,30 +169,42 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
           };
           const stale = e.age_days != null && e.age_days > 60;
 
-          // HONESTIDAD: el backend solo verifica que el fichero de credenciales
-          // existe y lee su mtime. NO valida el token contra la API. Un token
-          // caducado o revocado con el fichero en disco se reporta como
-          // logged_in=true. Por eso:
-          //   - logged_in=false → rojo (fichero ausente, definitivamente no logueado)
-          //   - logged_in=true, stale → ámbar (credenciales antiguas, mayor riesgo)
-          //   - logged_in=true, reciente → ámbar tenue (fichero presente, token sin verificar)
-          // Nunca usamos verde rotundo porque no tenemos validación real del token.
+          // El backend ahora lee el timestamp de expiración DENTRO del fichero
+          // de credenciales (sin tocar el token). Por eso:
+          //   - logged_in=false            → rojo (no hay fichero)
+          //   - expired=true               → rojo (token caducado, verificado)
+          //   - expired=false              → verde (token válido, verificado)
+          //   - expired=null (sin campo)   → ámbar (presente, validez no verificable)
+          const expired = e.expired; // true | false | null/undefined
           const dot = !e.logged_in
             ? "var(--color-danger)"
-            : "var(--color-warn)";
+            : expired === true
+              ? "var(--color-danger)"
+              : expired === false
+                ? "var(--color-success)"
+                : "var(--color-warn)";
 
-          // Tooltip que aclara la limitación al hacer hover sobre el dot.
-          const dotTooltip = e.logged_in
-            ? stale
-              ? `Fichero de credenciales presente pero con ${e.age_days} días de antigüedad. Validez del token no verificada.`
-              : `Fichero de credenciales presente (${formatRelativeIso(e.last_modified)}). Validez del token no verificada.`
-            : "Fichero de credenciales no encontrado.";
+          // Tooltip que refleja el estado real (o la limitación cuando no hay
+          // campo de expiración).
+          const dotTooltip = !e.logged_in
+            ? "Fichero de credenciales no encontrado."
+            : expired === true
+              ? `Token caducado el ${e.expires_at}. Reautentícate.`
+              : expired === false
+                ? `Token válido hasta ${e.expires_at} (verificado por la expiración del fichero de credenciales).`
+                : stale
+                  ? `Credenciales de ${e.age_days} días sin campo de expiración. Validez del token no verificada.`
+                  : `Fichero de credenciales presente (${formatRelativeIso(e.last_modified)}) sin campo de expiración. Validez del token no verificada.`;
 
           const stateLabel = !e.logged_in
             ? "sin credenciales"
-            : stale
-              ? `credenciales antiguas · ${e.age_days}d`
-              : `credenciales presentes · ${formatRelativeIso(e.last_modified)}`;
+            : expired === true
+              ? "token caducado"
+              : expired === false
+                ? "token válido"
+                : stale
+                  ? `sin expiración · ${e.age_days}d`
+                  : "validez no verificada";
           return (
             <div
               key={e.provider}
@@ -223,7 +239,11 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
                   className="mt-1 text-[10.5px] leading-relaxed"
                   style={{ color: "var(--color-text-faint)" }}
                 >
-                  Fichero de credenciales presente; validez del token no verificada.
+                  {expired === true
+                    ? `Token caducado el ${e.expires_at}.`
+                    : expired === false
+                      ? `Token válido hasta ${e.expires_at}.`
+                      : "Fichero de credenciales presente; sin campo de expiración, validez no verificada."}
                 </p>
               )}
               <div
