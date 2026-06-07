@@ -4,9 +4,9 @@
 // commands/kanban.rs and commands/kg.rs.
 
 use crate::decisions::{
-    add_inner, delete_inner, drain_pending_inner, list_inner, purge_noise_confirmed,
-    reject_all_auto_inner, search_inner, update_inner, DecisionPatch, DecisionPayload,
-    DecisionRecord, DecisionSearchResult, PurgeNoiseResult,
+    add_inner, delete_inner, drain_all_to_inbox, drain_pending_inner, list_inner,
+    purge_noise_confirmed, reject_all_auto_inner, search_inner, update_inner, DecisionPatch,
+    DecisionPayload, DecisionRecord, DecisionSearchResult, DrainAllResult, PurgeNoiseResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -118,4 +118,20 @@ pub async fn decisions_purge_noise(
     tauri::async_runtime::spawn_blocking(move || purge_noise_confirmed(&project_id, confirm))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Drain ALL projects' `decisions-pending.jsonl` files into the governed memory
+/// inbox (`brain.db memory_candidates`). This is the missing bridge between the
+/// Stop-hook auto-capture pipeline (writes decisions-pending.jsonl) and the
+/// Memory Inbox UI (reads brain.db candidates). Each drained decision becomes a
+/// MemoryCandidate that goes through the full redaction + dedup + contradiction
+/// pipeline before landing in the inbox for human review.
+///
+/// Safe to call repeatedly: the drain is atomic (rename + remove) so already-
+/// drained lines are never re-imported.
+#[tauri::command]
+pub async fn decisions_drain_all_to_inbox() -> Result<DrainAllResult, String> {
+    tauri::async_runtime::spawn_blocking(drain_all_to_inbox)
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))
 }

@@ -455,6 +455,7 @@ pub fn run() {
             commands::decisions::decisions_list,
             commands::decisions::decisions_delete,
             commands::decisions::decisions_drain_pending,
+            commands::decisions::decisions_drain_all_to_inbox,
             commands::decisions::decisions_search,
             commands::decisions::kanban_decisions_search,
             commands::decisions::decisions_reject_all_auto,

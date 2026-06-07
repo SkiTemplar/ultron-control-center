@@ -733,6 +733,124 @@ pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, Stri
 }
 
 // ---------------------------------------------------------------------------
+// Drain ALL projects with pending files → governed memory inbox
+//
+// Iterates every subdirectory under ~/.ultron/cockpit/projects/ that has a
+// `decisions-pending.jsonl`, drains it via `drain_pending_inner`, and converts
+// each resulting `DecisionRecord` into a governed `MemoryCandidate` via
+// `MemoryService::create_candidate`. This bridges the Stop-hook auto-capture
+// pipeline (which writes to decisions-pending.jsonl) with the Memory Inbox
+// (which reads brain.db `memory_candidates`).
+//
+// Returns (projects_drained, candidates_proposed, errors).
+// Never fails the whole batch on a per-project error — partial success is
+// recorded and the caller sees a summary.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize)]
+pub struct DrainAllResult {
+    pub projects_drained: usize,
+    pub candidates_proposed: usize,
+    pub errors: Vec<String>,
+}
+
+pub fn drain_all_to_inbox() -> DrainAllResult {
+    use crate::memory::{
+        model::{MemoryCandidate, MemoryType, Scope},
+        service::MemoryService,
+    };
+
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => {
+            return DrainAllResult {
+                projects_drained: 0,
+                candidates_proposed: 0,
+                errors: vec!["no HOME dir".into()],
+            }
+        }
+    };
+
+    let projects_dir = home.join(".ultron").join("cockpit").join("projects");
+    let entries = match fs::read_dir(&projects_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            return DrainAllResult {
+                projects_drained: 0,
+                candidates_proposed: 0,
+                errors: vec![format!("read_dir: {e}")],
+            }
+        }
+    };
+
+    let mut projects_drained = 0usize;
+    let mut candidates_proposed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    for entry in entries.flatten() {
+        let project_id = entry.file_name().to_string_lossy().into_owned();
+        let pending = entry.path().join("decisions-pending.jsonl");
+        if !pending.exists() {
+            continue;
+        }
+
+        // Drain the pending file into decisions.jsonl.
+        let drained = match drain_pending_inner(&project_id) {
+            Ok(v) => v,
+            Err(e) => {
+                errors.push(format!("{project_id}: drain failed: {e}"));
+                continue;
+            }
+        };
+        if drained.is_empty() {
+            continue;
+        }
+        projects_drained += 1;
+
+        // Convert each drained DecisionRecord into a MemoryCandidate so it
+        // lands in the governed inbox (brain.db memory_candidates) for human
+        // review. The candidate uses the exact same create_candidate path as
+        // the session capture hook — redaction, dedup, contradiction checks
+        // all apply. `possible duplicate` chips are informational only.
+        for rec in drained {
+            // Build a governed MemoryCandidate from the drained DecisionRecord.
+            // Scope::Project because decisions are scoped to the originating project.
+            let mut cand = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
+            cand.proposed_title = Some(rec.decision.chars().take(120).collect());
+            cand.proposed_summary = Some(rec.rationale.chars().take(400).collect());
+            cand.proposed_project_id = Some(rec.project_id.clone());
+            // importance 0.7 — decisions are high-value memories.
+            cand.importance = 0.7;
+            // confidence 0.6 — auto-captured, not yet validated by the user.
+            cand.confidence = 0.6;
+            // carry "auto-captured" tag so the inbox can filter/display it.
+            let mut tags: Vec<String> = rec
+                .tags
+                .into_iter()
+                .filter(|t| t == "auto-captured" || t == "decision")
+                .collect();
+            if !tags.iter().any(|t| t == "auto-captured") {
+                tags.push("auto-captured".to_string());
+            }
+            cand.proposed_tags = tags;
+            cand.capture_source = Some("stop-hook-decisions".to_string());
+
+            match MemoryService::create_candidate(&cand) {
+                Ok(_) => candidates_proposed += 1,
+                Err(e) => {
+                    errors.push(format!(
+                        "{}: create_candidate: {e}",
+                        rec.decision.chars().take(40).collect::<String>()
+                    ));
+                }
+            }
+        }
+    }
+
+    DrainAllResult { projects_drained, candidates_proposed, errors }
+}
+
+// ---------------------------------------------------------------------------
 // Multi-field search with scoring
 //
 // Scoring weights (per match):
