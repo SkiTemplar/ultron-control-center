@@ -1,9 +1,9 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v1.json",
   "manifest_version": 1,
-  "generated_at": "2026-06-04",
-  "head": "f936a66",
-  "ola": "I",
+  "generated_at": "2026-06-07",
+  "head": "de69662",
+  "ola": "iter-10 FASE 6 (hooks multi-tipo)",
   "source_of_truth": "~/.ultron/hooks/scripts",
   "notes": [
     "SoT unica de hooks versionados: ~/.ultron/hooks/scripts (este repo).",
@@ -159,6 +159,71 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "Enruta el prompt por el orquestador canonico ('ultron-memory orchestrate'): intent -> workflow -> agentes a delegar -> memorias relevantes, como additionalContext. SOLO LECTURA del sidecar."
+    },
+    {
+      "id": "session-end-summary",
+      "event": "SessionEnd",
+      "command_rel": "scripts/session-end-summary.js",
+      "timeout_s": 20,
+      "env_allowlist": ["CLAUDE_NO_HOOKS", "SESSION_END_SUMMARY_DISABLED", "ULTRON_MEMORY_BIN"],
+      "version": "1.0.0",
+      "checksum_sha256": "7aefcde0247a2a0cc1fe180c569dae126cb857876438285dd23ad61fe9d48c57",
+      "failure_policy": "no_op",
+      "writes_memory": true,
+      "writer_path": "MemoryService",
+      "description": "Al cerrar la sesion compone un resumen breve (rule-based, sin LLM) del tail del transcript y lo PROPONE como candidate session_summary via 'ultron-memory candidate' (escritor unico = sidecar). Cae al inbox gobernado como pending; nunca auto-promueve. NO escribe brain.db directamente. Fail-safe: sin transcript/sin binario/error -> exit 0 sin escribir."
+    },
+    {
+      "id": "precompact-preserve-l0",
+      "event": "PreCompact",
+      "command_rel": "scripts/precompact-preserve-l0.js",
+      "timeout_s": 15,
+      "env_allowlist": ["CLAUDE_NO_HOOKS", "PRECOMPACT_L0_DISABLED"],
+      "version": "1.0.0",
+      "checksum_sha256": "756cf378faee35178ac8b83f6f0f71d33b425bd159a072a0c816bad2ec1de637",
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Antes de compactar preserva el estado L0 (hechos clave heuristicos del tail) en el fichero de scratch ~/.ultron/.tmp/context.md. Es un fichero de trabajo, NO memoria gobernada; no toca brain.db/Qdrant/sidecar. Fail-safe: error -> exit 0 sin abortar la compactacion."
+    },
+    {
+      "id": "subagent-harvest",
+      "event": "SubagentStop",
+      "command_rel": "scripts/subagent-harvest.js",
+      "timeout_s": 20,
+      "env_allowlist": ["CLAUDE_NO_HOOKS", "SUBAGENT_HARVEST_DISABLED", "ULTRON_MEMORY_BIN"],
+      "version": "1.0.0",
+      "checksum_sha256": "ca3d4fb320608ef8b8beedc7b98ddc52b45ff0727131e74260fd22702b1c78f7",
+      "failure_policy": "no_op",
+      "writes_memory": true,
+      "writer_path": "MemoryService",
+      "description": "Al terminar un subagente registra su resultado: siempre append al scratch ~/.ultron/.tmp/subagent-harvest.jsonl (writer NONE) y, si el resultado es no trivial, PROPONE un candidate agent_note via 'ultron-memory candidate' (escritor unico = sidecar) que cae pending al inbox gobernado; nunca auto-promueve. NO escribe brain.db directamente. Fail-safe: error -> exit 0."
+    },
+    {
+      "id": "notify-relay",
+      "event": "Notification",
+      "command_rel": "scripts/notify-relay.js",
+      "timeout_s": 15,
+      "env_allowlist": ["CLAUDE_NO_HOOKS", "NOTIFY_RELAY_DISABLED"],
+      "version": "1.0.0",
+      "checksum_sha256": "f65f184a19fbcd5ca098fbe45397dcac5f069e3da3d96d36cd785727aad97bee",
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Reenvia cada notificacion de Claude Code (idle/permiso/etc.) al log de scratch ~/.ultron/.tmp/notifications.log con rotacion. Solo append local; NO toca brain.db/Qdrant/sidecar, no escribe memoria. Fail-safe: error -> exit 0."
+    },
+    {
+      "id": "posttoolfail-capture",
+      "event": "PostToolUse",
+      "command_rel": "scripts/posttoolfail-capture.js",
+      "timeout_s": 15,
+      "env_allowlist": ["CLAUDE_NO_HOOKS", "POSTTOOLFAIL_CAPTURE_DISABLED", "ULTRON_MEMORY_BIN"],
+      "version": "1.0.0",
+      "checksum_sha256": "57a9b571b1898c599bcf65dbd91f028e79da8f743cddc551d03e45c81010d8ca",
+      "failure_policy": "no_op",
+      "writes_memory": true,
+      "writer_path": "MemoryService",
+      "description": "Tras cada tool: si el resultado indica fallo (is_error/status=error/success=false/exit code != 0) PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet del error; cae pending al inbox gobernado, nunca auto-promueve. Si el tool tuvo exito sale en ~120ms sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
     }
   ],
   "deregistered": [
