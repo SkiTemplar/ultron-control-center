@@ -18,6 +18,9 @@ multimodel/
 quarantine/
 skill_cache/
 
+# === CodeGraph (colbymchenry) — local AST index, never commit ===
+.codegraph/
+
 # === Brain index (rebuildable) ===
 brain_index/*.db
 brain_index/*.db-journal
