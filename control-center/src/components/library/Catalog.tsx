@@ -7,11 +7,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { analyzeLocalRepo } from "../../lib/library-client";
+import type { AnalyzeRepoResult } from "../../types";
 import {
   AlertTriangle,
   Check,
   Clipboard,
   Compass,
+  Folder,
   Github,
   Loader,
   Search,
@@ -212,6 +216,163 @@ function FilterBar({
         >
           <X size={10} /> Clear filters
         </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LocalRepoAnalyzer (iter-10) — wires `analyze_local_repo`
+// ---------------------------------------------------------------------------
+//
+// Scans a repo ALREADY on disk for skills/agents and runs the SAME post-install
+// integration a GitHub install does (sync-registry catalog refresh + a governed
+// memory candidate in the inbox). Read-only — copies nothing. Surfaces the
+// returned `AnalyzeRepoResult` (assets found, newly detected, candidate id,
+// non-fatal warnings) so the previously-orphan command has a consumer.
+
+function LocalRepoAnalyzer() {
+  const [path, setPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<AnalyzeRepoResult | null>(null);
+
+  async function pickFolder() {
+    try {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Selecciona el repo local a analizar",
+      });
+      if (typeof picked === "string") setPath(picked);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function analyze() {
+    const p = path.trim();
+    if (!p) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await analyzeLocalRepo(p);
+      setResult(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const integration = result?.integration;
+
+  return (
+    <div
+      className="border-t px-6 py-3 text-[12px]"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+    >
+      <div className="mb-2 flex items-center gap-2" style={{ color: "var(--color-text-secondary)" }}>
+        <Folder size={14} />
+        <span className="font-medium">Analizar repo local</span>
+        <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Escanea skills/agentes ya en disco y los integra al catálogo + memoria (read-only).
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void analyze(); }}
+          placeholder="Ruta del repo (o usa Examinar…)"
+          className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] outline-none"
+          style={{ background: "var(--color-surface-2)", borderColor: "var(--color-border-strong)", color: "var(--color-text)", fontFamily: "var(--font-mono)" }}
+        />
+        <button
+          type="button"
+          onClick={() => void pickFolder()}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11.5px] disabled:opacity-60"
+          style={{ borderColor: "var(--color-border-strong)", background: "var(--color-surface-2)", color: "var(--color-text)" }}
+        >
+          <Folder size={12} /> Examinar…
+        </button>
+        <button
+          type="button"
+          onClick={() => void analyze()}
+          disabled={busy || !path.trim()}
+          className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11.5px] font-medium disabled:opacity-60"
+          style={{ background: "var(--color-accent)", color: "var(--color-accent-text)", border: "1px solid var(--color-border-strong)" }}
+        >
+          {busy ? <><Loader size={12} className="animate-spin" /> Analizando…</> : <><Sparkles size={12} /> Analizar</>}
+        </button>
+      </div>
+
+      {error && (
+        <div
+          className="mt-2 rounded-md border p-2 text-[11.5px]"
+          style={{ background: "rgba(248, 81, 73, 0.06)", borderColor: "rgba(248, 81, 73, 0.22)", color: "var(--color-danger)" }}
+        >
+          <div className="flex items-center gap-1.5 font-medium"><AlertTriangle size={12} /> Fallo al analizar</div>
+          <div className="mt-0.5" style={{ color: "var(--color-text-secondary)" }}>{error}</div>
+        </div>
+      )}
+
+      {result && integration && (
+        <div
+          className="mt-2 rounded-md border p-2.5 text-[11.5px]"
+          style={{ background: "var(--color-surface-2)", borderColor: "var(--color-border-strong)", color: "var(--color-text)" }}
+        >
+          <div className="mb-1 flex items-center gap-1.5 font-medium" style={{ color: "var(--color-success)" }}>
+            <Check size={12} /> Analizado
+          </div>
+          <div className="space-y-1" style={{ color: "var(--color-text-secondary)" }}>
+            <div>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Ruta: </span>
+              <span style={{ fontFamily: "var(--font-mono)" }}>{result.repo_path}</span>
+            </div>
+            <div>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Skills/agentes detectados ({result.assets.length}): </span>
+              {result.assets.length > 0 ? (
+                <span className="flex flex-wrap gap-1 pt-1">
+                  {result.assets.map((a) => (
+                    <span
+                      key={a}
+                      className="rounded px-1.5 py-0.5 text-[10px]"
+                      style={{ background: "var(--color-surface-3)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)", fontFamily: "var(--font-mono)" }}
+                    >
+                      {a}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span style={{ color: "var(--color-text-tertiary)" }}>(ninguno)</span>
+              )}
+            </div>
+            <div>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Catálogo: </span>
+              {integration.registry_synced
+                ? `sincronizado (${integration.newly_detected} nuevos detectados)`
+                : "no sincronizado"}
+            </div>
+            <div>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Candidato de memoria: </span>
+              {integration.memory_candidate_id
+                ? <span style={{ fontFamily: "var(--font-mono)" }}>{integration.memory_candidate_id}</span>
+                : "ninguno"}
+            </div>
+            {integration.warnings.length > 0 && (
+              <ul className="list-inside list-disc pt-0.5" style={{ color: "var(--color-warning, var(--color-text-tertiary))" }}>
+                {integration.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -455,6 +616,9 @@ export function Catalog() {
             onFiltersChange={setFilters}
           />
         )}
+
+        {/* Local repo analyzer (iter-10) — wires analyze_local_repo */}
+        <LocalRepoAnalyzer />
 
       </div>
 

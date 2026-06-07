@@ -4,6 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentCreateInput,
+  AnalyzeRepoResult,
   InstallInput,
   LibraryKind,
   PinnedAgents,
@@ -40,6 +41,16 @@ export async function librarySearchGitHub(
 
 export function libraryInstallFromGitHub(args: InstallInput): Promise<string> {
   return invoke<string>("library_install_from_github", { args });
+}
+
+/**
+ * Scan a LOCAL repo on disk for skills/agents and run the same post-install
+ * integration (sync-registry catalog refresh + governed memory candidate) as a
+ * GitHub install. Read-only: copies nothing. Returns the assets it found plus
+ * the integration report (registry synced, newly detected, memory candidate id).
+ */
+export function analyzeLocalRepo(path: string): Promise<AnalyzeRepoResult> {
+  return invoke<AnalyzeRepoResult>("analyze_local_repo", { path });
 }
 
 export function agentCreate(args: AgentCreateInput): Promise<string> {
