@@ -31,17 +31,22 @@ ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.
 
 ## AI Router
 
-- `ai_router.rs`: `route(zone, prompt)` real con cadena primary→fallback (providers API: anthropic/groq/gemini + CLI: codex/gemini). Keys desde Settings → API Keys o `~/.ultron/.env` (dotenvy). Métrica honesta = `real_fallback_rate` (NO el `attempt_failure_rate`).
+- `ai_router.rs`: `route(zone, prompt)` real con cadena primary→fallback. **Política CLI-first (2026-06-08): TODAS las zonas arrancan por CLI** (codex-cli para código, gemini-cli para el resto; `code-fast-local` se queda en ollama por ser offline). El cloud original queda como fallback[0]. Editar en `seed_zones()` + `cockpit/ai-router/zones.json`. Keys desde Settings → API Keys o `~/.ultron/.env` (dotenvy). Métrica honesta = `real_fallback_rate` (NO `attempt_failure_rate`). **OJO: el router NO rutea el Claude Code CLI** (esta sesión habla directo con Anthropic); solo afecta a las llamadas que hace la app Tauri.
 
-## Cómo trabajar aquí (disciplina Kirkardo)
+## Cómo trabajar aquí (los 13 mandamientos Kirkardo)
 
 1. **El feedback literal del usuario ES el entregable** — ejecutar su lista, no una proxy.
-2. **Verificar en runtime** (eval/doctor/cargo/tsc/abrir la app), no claims.
-3. **Binario fresco** = aplicado (rebuild + redeploy; cerrar la app).
+2. **Verificar en runtime** (eval **de cero**, no métricas viejas; doctor/cargo/tsc/abrir la app), no claims.
+3. **Binario fresco** = aplicado (rebuild + redeploy; **cerrar la app** antes de buildear).
 4. **Nada sin cablear** (comando en lib.rs + UI que lo consume; `git add` de archivos nuevos).
 5. **Build verde de verdad** (cargo 0 warnings + tsc 0 + build completa).
 6. **Docs que no mienten** (coherentes con el código).
-7. **UI** necesita verificación visual del usuario (un agente no "ve" la GUI).
-8. Repo **público**: 0 datos personales, 0 secretos en código/commits/recall.
+7. **Tests herméticos + caso negativo** (probar que falla cuando debe fallar).
+8. **UI** necesita verificación visual del usuario (un agente no "ve" la GUI).
+9. Repo **público**: 0 datos personales, 0 secretos en código/commits/recall.
+10. **Detectar lo no detectado** — lo que nadie miró todavía.
+11. **Prohibido el no-op silencioso** — un botón que no hace nada es peor que no tenerlo: o actúa, o explica por qué no puede.
+12. **Tener el dato ≠ usar el dato** — una feature sin punto de consumo no existe (ej.: codegraph con datos que no se inyectan al contexto).
+13. **Declara el alcance real** — no vender que algo afecta a X cuando solo afecta a Y; límite explícito siempre.
 
 > Memoria de trabajo, decisiones y planes viven en el sistema de memoria de ULTRON (no en este archivo). Para detalle operativo ver `docs/` (README, INTEGRATION, COMMANDS, ARCHITECTURE) y `docs/web/index.html`.
