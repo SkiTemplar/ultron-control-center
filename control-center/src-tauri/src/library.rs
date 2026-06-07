@@ -1232,6 +1232,7 @@ mod ai_install_tests {
     #[test]
     fn parse_github_slug_git_suffix() {
         let (o, r) = parse_github_slug("https://github.com/foo/bar.git").unwrap();
+        assert_eq!(o, "foo");
         assert_eq!(r, "bar");
     }
 

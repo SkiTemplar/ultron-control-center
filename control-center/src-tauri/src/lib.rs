@@ -303,12 +303,6 @@ pub fn run() {
             commands::memory::memory_stats,
             // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
             commands::memory::session_resume,
-            // -- CODEGRAPH Fase 3b: impact analysis, graph metrics, drain --
-            commands::memory::memory_impact_analysis,
-            commands::memory::memory_graph_metrics,
-            commands::memory::memory_drain_unresolved,
-            // FRENTE 8: transitive closure multi-hop (schema_v4 — callees/callers)
-            commands::memory::memory_transitive_closure,
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             commands::memory::catalog_reindex,
             commands::memory::catalog_reindex_skills,

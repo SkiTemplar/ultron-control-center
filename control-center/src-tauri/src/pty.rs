@@ -818,7 +818,7 @@ mod tests {
             })
             .expect("openpty for test");
 
-        let mut cmd = portable_pty::CommandBuilder::new_default_prog();
+        let cmd = portable_pty::CommandBuilder::new_default_prog();
         let child = pair
             .slave
             .spawn_command(cmd)

@@ -1660,11 +1660,6 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "Antes de cada herramienta, bloquea operaciones que expondrían secretos o credenciales (write-path guard).",
         ),
         (
-            "capture-symbols.js",
-            "Capturar grafo de código",
-            "Tras editar código, extrae símbolos y relaciones (calls/imports) y los manda al codegraph (tabla edges).",
-        ),
-        (
             "posttoolfail-capture.js",
             "Capturar fallos de herramienta",
             "Tras un fallo de herramienta, registra el error como patrón para el recall futuro.",

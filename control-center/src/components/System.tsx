@@ -6,7 +6,6 @@ import type {
   UninstallAppResult,
 } from "../types";
 import { Diagnostics } from "./system/Diagnostics";
-import { CodeGraph } from "./system/CodeGraph";
 
 // v2.7 cleanup (internal audit 2026-05-24):
 //   - Bloatware sub-tab DROPPED: most catalog entries weren't present on his
@@ -19,7 +18,7 @@ import { CodeGraph } from "./system/CodeGraph";
 //     with bigger type + horizontal cards. Each app exposes Folder + Uninstall.
 //   - Hooks sub-tab REMOVED from System: Hooks now lives exclusively in
 //     Library (Library > Hooks). Keeping it in two places caused confusion.
-type SystemSubTab = "diagnostics" | "apps" | "codegraph";
+type SystemSubTab = "diagnostics" | "apps";
 
 // ---------------------------------------------------------------------------
 // App categorisation heuristic
@@ -1201,7 +1200,6 @@ export function System() {
       <div className="px-10">
         {subTab === "apps" && <AppsPanel />}
         {subTab === "diagnostics" && <Diagnostics />}
-        {subTab === "codegraph" && <CodeGraph />}
       </div>
     </div>
   );
@@ -1212,8 +1210,6 @@ const CONTEXT_HINTS: Record<SystemSubTab, string> = {
     'Abre Apps cuando una instalación quedó abandonada, un programa ralentiza el sistema, o quieres saber qué hay instalado antes de liberar espacio.',
   diagnostics:
     'Abre Diagnostics cuando Claude Code no arranca, la terminal no abre, aparecen errores de permisos, o quieres ejecutar fixes del Event Log con un clic.',
-  codegraph:
-    'Visualiza el grafo de código vivo: edges entre símbolos, callers/callees de cualquier función, y promoción de refs no resueltas.',
 };
 
 function SystemHeader({
@@ -1226,7 +1222,6 @@ function SystemHeader({
   const TABS: { id: SystemSubTab; label: string }[] = [
     { id: "diagnostics", label: "Diagnostics & Fixes" },
     { id: "apps", label: "Apps" },
-    { id: "codegraph", label: "Code Graph" },
   ];
   return (
     <header className="mb-5 flex flex-wrap items-baseline justify-between gap-4 px-10 pt-8">

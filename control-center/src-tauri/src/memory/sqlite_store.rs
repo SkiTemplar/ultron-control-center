@@ -1061,30 +1061,6 @@ pub fn insert_code_edge(
     )
 }
 
-/// Return code-graph edges for `symbol` in the given `direction`.
-///
-/// * `"callers"` — who calls / imports `symbol`? (fan-in, impact analysis)
-/// * `"callees"` — what does `symbol` call / import? (fan-out)
-///
-/// Results are ordered newest-first, capped at `limit` (default 100).
-///
-/// # Errors
-///
-/// Returns [`MemoryError::RemoteUnavailable`] on DB I/O failure.
-pub fn query_code_edges(
-    symbol: &str,
-    direction: &str,
-    limit: usize,
-) -> Result<Vec<super::schema_v4::CodeEdge>, MemoryError> {
-    let conn = open_conn()?;
-    let dir = if direction == "callers" {
-        super::schema_v4::EdgeDirection::Callers
-    } else {
-        super::schema_v4::EdgeDirection::Callees
-    };
-    super::schema_v4::query_edges(&conn, symbol, dir, limit)
-}
-
 // ---------------------------------------------------------------------------
 // SqliteStore — MemoryStore trait impl (back-compat for recall_hybrid/health)
 // ---------------------------------------------------------------------------

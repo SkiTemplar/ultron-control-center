@@ -729,7 +729,7 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
         apply_schema(&conn).expect("schema");
 
-        let mut mk =
+        let mk =
             |status: Status, scope: Scope, sens: Sensitivity, project: Option<&str>, sm: &str| {
                 let mut it = MemoryItem::new(MemoryType::Fact, scope, Source::ToolObserved, status);
                 it.summary = Some(sm.to_string());
