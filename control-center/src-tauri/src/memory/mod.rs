@@ -177,7 +177,7 @@ pub use model::{
     Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
     MemoryType, Scope, Sensitivity, Source, Stability, Status,
 };
-pub use service::{MemoryService, MemoryStats};
+pub use service::{BulkDeprecateResult, MemoryService, MemoryStats};
 
 /// Health status returned by `MemoryStore::health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]

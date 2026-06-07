@@ -54,6 +54,24 @@ pub struct McpInfo {
     /// generic fallback derived from the command/url when unknown.
     #[serde(default)]
     pub description: String,
+    /// True when the (normalised) server name is not in the curated set of
+    /// well-known MCPs. The UI surfaces an amber "desconocido" badge so the
+    /// user can review unfamiliar servers (e.g. discord/exa/fakechat).
+    #[serde(default)]
+    pub unknown: bool,
+    /// How many config entries collapsed onto this normalised name. 1 means
+    /// no duplicates. >1 means the same logical server is declared in
+    /// multiple scopes/files (e.g. sequential-thinking in two projects).
+    #[serde(default)]
+    pub duplicate_count: u32,
+    /// Origins of every entry that collapsed onto this normalised name,
+    /// in discovery order. Lets the UI show "xN (origenes: ...)".
+    #[serde(default)]
+    pub duplicate_origins: Vec<String>,
+    /// True when the server config carries `disabled: true`. Such servers
+    /// are configured but not spawned by Claude Code.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +84,7 @@ struct SettingsRoot {
     mcp_servers: BTreeMap<String, McpServerCfg>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 struct McpServerCfg {
     #[serde(default)]
     command: Option<String>,
@@ -76,6 +94,8 @@ struct McpServerCfg {
     url: Option<String>,
     #[serde(default, rename = "type")]
     transport: Option<String>,
+    #[serde(default)]
+    disabled: bool,
 }
 
 fn settings_path() -> Option<PathBuf> {
@@ -368,9 +388,15 @@ fn build_mcp_info(
         fallback_message: fb.fallback_message,
         alert_severity: fb.alert_severity,
         expected_offline: fb.expected_offline,
-        origin,
+        origin: origin.clone(),
         plugin,
         description,
+        unknown: is_unknown_mcp(name),
+        // Dedup metadata is filled in by the aggregator after all sources
+        // are collected; a single entry defaults to count 1 / [its origin].
+        duplicate_count: 1,
+        duplicate_origins: vec![origin],
+        disabled: cfg.disabled,
     }
 }
 
@@ -396,6 +422,150 @@ fn parse_mcp_file(path: &std::path::Path) -> BTreeMap<String, McpServerCfg> {
             out.insert(k.clone(), cfg);
         }
     }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Name normalisation + known-server set (for dedup + unknown flagging)
+// ---------------------------------------------------------------------------
+
+/// Curated set of MCP server names we recognise. Anything outside this set is
+/// flagged `unknown: true` so the UI can prompt the user to review it. Keep
+/// this aligned with the well-known description catalog above.
+const KNOWN_MCP_NAMES: &[&str] = &[
+    "github",
+    "gitlab",
+    "qdrant",
+    "memory",
+    "playwright",
+    "puppeteer",
+    "context7",
+    "sequential-thinking",
+    "gemini",
+    "supabase",
+    "figma",
+    "gmail",
+    "calendar",
+    "drive",
+    "gdrive",
+    "notion",
+    "spotify",
+    "vercel",
+    "railway",
+    "filesystem",
+    "postgres",
+    "sqlite",
+    "fetch",
+    "brave-search",
+    "slack",
+    "linear",
+    "jira",
+    "stripe",
+    "shopify",
+    "hubspot",
+    "cloudflare",
+    "docker",
+    "kubernetes",
+    "terraform",
+    "redis",
+    "mongodb",
+    "sentry",
+    "datadog",
+    "time",
+    "everything",
+    "openapi",
+    "superpowers",
+    "unity",
+];
+
+/// Normalise an MCP server name for dedup + recognition. Lowercases, strips
+/// common scaffolding prefixes (`mcp-`, `server-`) and suffixes (`-mcp`,
+/// `-server`, `-mcp-server`) so e.g. `railway-mcp-server` and `railway`, or
+/// `superpowers-mcp` and `superpowers`, collapse to the same canonical name.
+fn normalize_mcp_name(name: &str) -> String {
+    let mut n = name.to_lowercase();
+    // Strip leading scaffolding repeatedly so `mcp-server-github` peels off in
+    // two passes (mcp- then server-).
+    loop {
+        let before = n.clone();
+        for pre in ["mcp-", "server-", "mcp_", "server_"] {
+            if let Some(rest) = n.strip_prefix(pre) {
+                n = rest.to_string();
+                break;
+            }
+        }
+        if n == before {
+            break;
+        }
+    }
+    // Strip trailing scaffolding repeatedly so `-mcp-server` peels off
+    // regardless of order.
+    loop {
+        let before = n.clone();
+        for suf in ["-mcp-server", "-mcp", "-server", "_mcp", "_server"] {
+            if let Some(rest) = n.strip_suffix(suf) {
+                n = rest.to_string();
+                break;
+            }
+        }
+        if n == before {
+            break;
+        }
+    }
+    n
+}
+
+/// True when the server's normalised name is not in the curated known set.
+fn is_unknown_mcp(name: &str) -> bool {
+    !KNOWN_MCP_NAMES.contains(&normalize_mcp_name(name).as_str())
+}
+
+/// Read `~/.claude.json` and extract every MCP server declared there:
+///   - top-level `mcpServers`            -> origin "user-claudejson"
+///   - `projects.<path>.mcpServers`      -> origin "project:<basename(path)>"
+/// Returns `(origin, name, cfg)` tuples. Tolerates a missing/unreadable file
+/// (returns an empty vec — never an error) so a fresh install still works.
+fn collect_claude_json_mcps() -> Vec<(String, String, McpServerCfg)> {
+    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
+    let Some(home) = dirs::home_dir() else {
+        return out;
+    };
+    let path = home.join(".claude.json");
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return out;
+    };
+    let Ok(value): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
+        return out;
+    };
+
+    // (a) top-level mcpServers
+    if let Some(obj) = value.get("mcpServers").and_then(|v| v.as_object()) {
+        for (name, cfg_val) in obj.iter() {
+            if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
+                out.push(("user-claudejson".to_string(), name.clone(), cfg));
+            }
+        }
+    }
+
+    // (b) project-scoped projects.<path>.mcpServers
+    if let Some(projects) = value.get("projects").and_then(|v| v.as_object()) {
+        for (proj_path, proj_val) in projects.iter() {
+            let Some(servers) = proj_val.get("mcpServers").and_then(|v| v.as_object()) else {
+                continue;
+            };
+            let basename = std::path::Path::new(proj_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(proj_path.as_str());
+            let origin = format!("project:{}", basename);
+            for (name, cfg_val) in servers.iter() {
+                if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
+                    out.push((origin.clone(), name.clone(), cfg));
+                }
+            }
+        }
+    }
+
     out
 }
 
@@ -586,11 +756,54 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
         }
     }
 
+    // Source 4: ~/.claude.json (top-level + project-scoped mcpServers). This
+    // is where the user's real MCPs actually live; the older sources only
+    // covered settings.json + plugin/project .mcp.json files.
+    for (origin, name, cfg) in collect_claude_json_mcps().into_iter() {
+        let plugin = origin
+            .strip_prefix("project:")
+            .map(|p| p.to_string());
+        let key = (name.clone(), origin.clone());
+        if seen.insert(key) {
+            out.push(build_mcp_info(
+                &name,
+                &cfg,
+                origin,
+                plugin,
+                &health,
+                &fallbacks,
+            ));
+        }
+    }
+
+    // Collapse duplicates by normalised name: the same logical server may be
+    // declared in multiple scopes/files (e.g. sequential-thinking in two
+    // projects, or railway-mcp-server vs railway). We keep the FIRST entry
+    // per normalised name as the canonical row and fold the rest into its
+    // duplicate_count / duplicate_origins so the UI can show "xN".
+    let mut deduped: Vec<McpInfo> = Vec::with_capacity(out.len());
+    let mut idx_by_norm: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for info in out.into_iter() {
+        let norm = normalize_mcp_name(&info.name);
+        if let Some(&i) = idx_by_norm.get(&norm) {
+            let canonical = &mut deduped[i];
+            canonical.duplicate_count += 1;
+            if !canonical.duplicate_origins.contains(&info.origin) {
+                canonical.duplicate_origins.push(info.origin.clone());
+            }
+        } else {
+            idx_by_norm.insert(norm, deduped.len());
+            deduped.push(info);
+        }
+    }
+    let mut out = deduped;
+
     // Stable ordering: user first, then project, then plugin, alphabetical
-    // within each group.
+    // within each group. "user-claudejson" is treated as user-scope.
     out.sort_by(|a, b| {
         let bucket = |o: &str| -> u8 {
-            if o == "user" {
+            if o == "user" || o == "user-claudejson" {
                 0
             } else if o.starts_with("project:") {
                 1
@@ -1098,5 +1311,188 @@ pub fn mcp_ping_inner(name: String) -> McpPingResult {
         } else {
             Some("no initialize response within 2s".to_string())
         },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parse a top-level + project-scoped `~/.claude.json` blob the same way
+    /// `collect_claude_json_mcps` does, but from an in-memory string so the
+    /// test is hermetic (no dependency on the real home file).
+    fn collect_from_value(value: &serde_json::Value) -> Vec<(String, String, McpServerCfg)> {
+        let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
+        if let Some(obj) = value.get("mcpServers").and_then(|v| v.as_object()) {
+            for (name, cfg_val) in obj.iter() {
+                if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
+                    out.push(("user-claudejson".to_string(), name.clone(), cfg));
+                }
+            }
+        }
+        if let Some(projects) = value.get("projects").and_then(|v| v.as_object()) {
+            for (proj_path, proj_val) in projects.iter() {
+                let Some(servers) = proj_val.get("mcpServers").and_then(|v| v.as_object()) else {
+                    continue;
+                };
+                let basename = std::path::Path::new(proj_path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(proj_path.as_str());
+                let origin = format!("project:{}", basename);
+                for (name, cfg_val) in servers.iter() {
+                    if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
+                        out.push((origin.clone(), name.clone(), cfg));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn sample_claude_json() -> serde_json::Value {
+        serde_json::json!({
+            "mcpServers": {
+                "railway-mcp-server": { "type": "stdio", "command": "npx", "args": ["-y", "railway"], "env": {} },
+                "github-pat": { "type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": {} },
+                "qdrant": { "type": "stdio", "command": "uvx", "args": ["mcp-server-qdrant"], "env": {} }
+            },
+            "projects": {
+                "C:\\Users\\USER": {
+                    "mcpServers": {
+                        "gemini": { "type": "stdio", "command": "npx", "args": ["-y", "gemini-mcp"], "env": {} }
+                    }
+                },
+                "C:\\Windows\\System32": {
+                    "mcpServers": {
+                        "memory": { "type": "stdio", "command": "node", "args": ["mem.js"] },
+                        "playwright": { "type": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp"] },
+                        "context7": { "type": "stdio", "command": "npx", "args": ["-y", "context7"] },
+                        "sequential-thinking": { "type": "stdio", "command": "npx", "args": ["-y", "seq"] },
+                        "discord": { "type": "stdio", "command": "npx", "args": ["-y", "discord-mcp"], "disabled": true }
+                    }
+                },
+                "C:\\Users\\USER\\skills": {
+                    "mcpServers": {
+                        "sequential-thinking": { "type": "stdio", "command": "npx", "args": ["-y", "seq"] }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn parses_top_level_and_project_scoped_servers() {
+        let v = sample_claude_json();
+        let collected = collect_from_value(&v);
+
+        // 3 top-level + 1 (USER) + 5 (System32) + 1 (skills) = 10 entries.
+        assert_eq!(collected.len(), 10);
+
+        // Top-level entries carry the user-claudejson origin.
+        let top: Vec<&String> = collected
+            .iter()
+            .filter(|(o, _, _)| o == "user-claudejson")
+            .map(|(_, n, _)| n)
+            .collect();
+        assert_eq!(top.len(), 3);
+        assert!(top.iter().any(|n| n.as_str() == "qdrant"));
+
+        // Project basename (not full path) is used in the origin.
+        assert!(collected
+            .iter()
+            .any(|(o, n, _)| o == "project:System32" && n == "memory"));
+        assert!(collected
+            .iter()
+            .any(|(o, n, _)| o == "project:USER" && n == "gemini"));
+
+        // disabled flag is parsed through McpServerCfg.
+        let discord = collected
+            .iter()
+            .find(|(_, n, _)| n == "discord")
+            .expect("discord present");
+        assert!(discord.2.disabled);
+    }
+
+    #[test]
+    fn dedup_collapses_duplicate_normalised_names() {
+        // Build McpInfos the way the aggregator does, then run the same
+        // dedup-by-normalised-name pass.
+        let health = HealthDoc {
+            checked_at: None,
+            results: BTreeMap::new(),
+        };
+        let fallbacks: BTreeMap<String, FallbackEntry> = BTreeMap::new();
+        let v = sample_claude_json();
+        let collected = collect_from_value(&v);
+
+        let raw: Vec<McpInfo> = collected
+            .iter()
+            .map(|(origin, name, cfg)| {
+                let plugin = origin.strip_prefix("project:").map(|p| p.to_string());
+                build_mcp_info(name, cfg, origin.clone(), plugin, &health, &fallbacks)
+            })
+            .collect();
+
+        // Run the collapse pass.
+        let mut deduped: Vec<McpInfo> = Vec::new();
+        let mut idx_by_norm: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for info in raw.into_iter() {
+            let norm = normalize_mcp_name(&info.name);
+            if let Some(&i) = idx_by_norm.get(&norm) {
+                let canonical = &mut deduped[i];
+                canonical.duplicate_count += 1;
+                if !canonical.duplicate_origins.contains(&info.origin) {
+                    canonical.duplicate_origins.push(info.origin.clone());
+                }
+            } else {
+                idx_by_norm.insert(norm, deduped.len());
+                deduped.push(info);
+            }
+        }
+
+        // sequential-thinking appears in two projects -> collapses to 1 row,
+        // count 2, two distinct origins.
+        let seq = deduped
+            .iter()
+            .find(|m| normalize_mcp_name(&m.name) == "sequential-thinking")
+            .expect("sequential-thinking row present");
+        assert_eq!(seq.duplicate_count, 2);
+        assert_eq!(seq.duplicate_origins.len(), 2);
+
+        // 10 raw entries, one duplicate pair -> 9 unique rows.
+        assert_eq!(deduped.len(), 9);
+    }
+
+    #[test]
+    fn unknown_flag_marks_unrecognised_servers() {
+        // Known (after normalisation): railway-mcp-server -> railway,
+        // github-pat is NOT in the known set (normalises to "github-pat").
+        assert!(!is_unknown_mcp("railway-mcp-server"));
+        assert!(!is_unknown_mcp("qdrant"));
+        assert!(!is_unknown_mcp("sequential-thinking"));
+        assert!(!is_unknown_mcp("superpowers-mcp"));
+        assert!(!is_unknown_mcp("github"));
+
+        // Unknowns the prompt called out.
+        assert!(is_unknown_mcp("discord"));
+        assert!(is_unknown_mcp("fakechat"));
+        assert!(is_unknown_mcp("imessage"));
+        assert!(is_unknown_mcp("exa"));
+        // github-pat is a user-specific alias, not the canonical "github".
+        assert!(is_unknown_mcp("github-pat"));
+    }
+
+    #[test]
+    fn normalize_strips_scaffolding_affixes() {
+        assert_eq!(normalize_mcp_name("railway-mcp-server"), "railway");
+        assert_eq!(normalize_mcp_name("superpowers-mcp"), "superpowers");
+        assert_eq!(normalize_mcp_name("mcp-server-github"), "github");
+        assert_eq!(normalize_mcp_name("Sequential-Thinking"), "sequential-thinking");
     }
 }

@@ -76,6 +76,23 @@ fn redact_tags(tags: &mut [String]) -> bool {
     hit
 }
 
+/// Outcome of [`MemoryService::deprecate_by_type`]: how many ACTIVE items of a
+/// given type matched and how many were deprecated, plus per-id failures. Used
+/// by the `deprecate` sidecar subcommand and the `memory_bulk_deprecate` Tauri
+/// command to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5 /
+/// Qdrant out of sync — each item still goes through the proven `set_status` path.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BulkDeprecateResult {
+    pub kind: String,
+    pub matched: usize,
+    pub deprecated: usize,
+    pub dry_run: bool,
+    pub project: Option<String>,
+    /// (id, error) for each item whose deprecation failed; a single failure does
+    /// NOT abort the batch (same tolerance as `memory_inbox_approve_all`).
+    pub failed: Vec<(String, String)>,
+}
+
 impl MemoryService {
     // -- candidate intake (what hooks/agents call) ---------------------------
 
@@ -512,6 +529,59 @@ impl MemoryService {
         Self::set_status(id, Status::Deprecated, actor, reason)
     }
 
+    /// Bulk-deprecate every ACTIVE item of `kind` (optionally scoped to one
+    /// `project`). Reuses the single-item [`Self::set_status`] path per id, so
+    /// FTS5 triggers + Qdrant (`sync_index`) + the append-only event log all stay
+    /// consistent — no bespoke sync logic. `dry_run` only counts (mutates nothing).
+    /// A per-item failure is collected in `failed` and does NOT abort the batch.
+    pub fn deprecate_by_type(
+        kind: MemoryType,
+        dry_run: bool,
+        project: Option<&str>,
+        reason: Option<String>,
+        actor: Actor,
+    ) -> Result<BulkDeprecateResult, MemoryError> {
+        let kind_label: &'static str = kind.as_str();
+        // 100_000 is an effective "all" bound (the active set is ~1.9k items).
+        let items = Self::list_active_of_type(kind, 100_000)?;
+        let items: Vec<MemoryItem> = match project {
+            Some(p) => items
+                .into_iter()
+                .filter(|it| it.project_id.as_deref() == Some(p))
+                .collect(),
+            None => items,
+        };
+        let matched = items.len();
+        let proj_owned = project.map(str::to_string);
+        if dry_run {
+            return Ok(BulkDeprecateResult {
+                kind: kind_label.to_string(),
+                matched,
+                deprecated: 0,
+                dry_run: true,
+                project: proj_owned,
+                failed: Vec::new(),
+            });
+        }
+        let reason = reason.unwrap_or_else(|| format!("bulk-deprecate type={kind_label}"));
+        let mut deprecated = 0usize;
+        let mut failed: Vec<(String, String)> = Vec::new();
+        for it in items {
+            match Self::set_status(&it.id, Status::Deprecated, actor, Some(reason.clone())) {
+                Ok(_) => deprecated += 1,
+                Err(e) => failed.push((it.id, e.to_string())),
+            }
+        }
+        Ok(BulkDeprecateResult {
+            kind: kind_label.to_string(),
+            matched,
+            deprecated,
+            dry_run: false,
+            project: proj_owned,
+            failed,
+        })
+    }
+
     /// Pin / unpin an item (req #17). Pinned items are always surfaced.
     pub fn pin(id: &str, actor: Actor) -> Result<MemoryItem, MemoryError> {
         Self::set_pinned(id, true, actor)
@@ -548,6 +618,30 @@ impl MemoryService {
     ) -> Result<Vec<MemoryItem>, MemoryError> {
         let conn = store::open_conn()?;
         store::list_by_type_status(&conn, kind, Status::Active, limit)
+    }
+
+    /// Memory Browser — paginated/filterable read-only listing over `memory_items`.
+    /// Every filter is optional and AND-combined; returns `(page, total)` so the UI
+    /// can paginate. Read-only: opens its own connection, appends no event.
+    #[allow(clippy::too_many_arguments)]
+    pub fn query_items(
+        status: Option<Status>,
+        kind: Option<MemoryType>,
+        search: Option<String>,
+        pinned_only: bool,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<MemoryItem>, i64), MemoryError> {
+        let conn = store::open_conn()?;
+        store::query_items(
+            &conn,
+            status,
+            kind,
+            search.as_deref(),
+            pinned_only,
+            offset,
+            limit,
+        )
     }
 
     /// Change an item's scope and/or type (inbox "change scope / change type").

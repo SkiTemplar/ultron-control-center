@@ -7,8 +7,8 @@
 // it from the dense index (retire-from-index).
 
 use crate::memory::{
-    auto_approve, qdrant_index, Actor, MemoryCandidate, MemoryEvent, MemoryItem, MemoryService,
-    MemoryStats, MemoryType, Scope, Status,
+    auto_approve, qdrant_index, Actor, BulkDeprecateResult, MemoryCandidate, MemoryEvent,
+    MemoryItem, MemoryService, MemoryStats, MemoryType, Scope, Status,
 };
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,15 @@ pub struct ApproveFailure {
 pub struct ApproveAllResult {
     pub approved: u32,
     pub failed: Vec<ApproveFailure>,
+}
+
+/// One page of governed memories for the Memory Browser (FRENTE 5).
+#[derive(serde::Serialize)]
+pub struct MemoryItemsPage {
+    pub items: Vec<MemoryItem>,
+    pub total: i64,
+    pub offset: u32,
+    pub limit: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +276,101 @@ pub async fn memory_do_not_use(id: String, reason: Option<String>) -> Result<Mem
 pub async fn memory_forget(id: String, reason: Option<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         MemoryService::forget(&id, Actor::User, reason).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Bulk-deprecate every active item of a given type (e.g. purge `codebase_fact`
+/// bloat). Reuses the per-item governance path so FTS5 + Qdrant stay in sync.
+/// `dry_run` (default false) only counts. Returns matched/deprecated + failures.
+#[tauri::command]
+pub async fn memory_bulk_deprecate(
+    item_type: String,
+    dry_run: Option<bool>,
+    project: Option<String>,
+    reason: Option<String>,
+) -> Result<BulkDeprecateResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let kind = MemoryType::parse(&item_type)
+            .ok_or_else(|| format!("invalid memory type: {item_type}"))?;
+        MemoryService::deprecate_by_type(
+            kind,
+            dry_run.unwrap_or(false),
+            project.as_deref(),
+            reason,
+            Actor::User,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
+// Memory Browser (FRENTE 5) — paginated read + bulk deprecate by type
+// ---------------------------------------------------------------------------
+
+/// Paginated, filterable listing of governed memories for the Memory Browser.
+///
+/// All filters are optional and AND-combined: `status` + `item_type` are parsed
+/// to the controlled vocab (an unknown string is an error, not a silent no-op),
+/// `search` is a substring over title/summary, `pinned_only` restricts to pinned.
+/// Read-only — no event is appended. Returns `{ items, total, offset, limit }`
+/// where `total` is the unpaginated match count for the UI pager.
+#[tauri::command]
+pub async fn memory_items_list(
+    status: Option<String>,
+    item_type: Option<String>,
+    search: Option<String>,
+    pinned_only: Option<bool>,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> Result<MemoryItemsPage, String> {
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(50);
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = match status {
+            Some(s) => Some(Status::parse(&s).ok_or_else(|| format!("invalid status: {s}"))?),
+            None => None,
+        };
+        let kind = match item_type {
+            Some(t) => Some(MemoryType::parse(&t).ok_or_else(|| format!("invalid type: {t}"))?),
+            None => None,
+        };
+        let (items, total) = MemoryService::query_items(
+            status,
+            kind,
+            search,
+            pinned_only.unwrap_or(false),
+            offset as usize,
+            limit as usize,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(MemoryItemsPage {
+            items,
+            total,
+            offset,
+            limit,
+        })
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Bulk-deprecate every active item of a given type from the Browser (one shot,
+/// not a dry-run). Reuses the shared `deprecate_by_type` governance path so FTS5 +
+/// Qdrant stay in sync. Scoped to all projects (`project = None`).
+#[tauri::command]
+pub async fn memory_items_deprecate_by_type(
+    item_type: String,
+    reason: Option<String>,
+) -> Result<BulkDeprecateResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let kind = MemoryType::parse(&item_type)
+            .ok_or_else(|| format!("invalid memory type: {item_type}"))?;
+        MemoryService::deprecate_by_type(kind, false, None, reason, Actor::User)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

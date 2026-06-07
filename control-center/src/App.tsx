@@ -42,7 +42,7 @@ const FinanceLazy =
         })),
       )
     : null;
-import { MemoryInbox } from "./components/MemoryInbox";
+import { MemoryTab } from "./components/MemoryTab";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
@@ -594,7 +594,7 @@ function AppInner() {
           </TabErrorBoundary>
         )}
         <TabErrorBoundary tab="memory">
-          {tab === "memory" && <MemoryInbox />}
+          {tab === "memory" && <MemoryTab />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="system">
           {tab === "system" && <System />}

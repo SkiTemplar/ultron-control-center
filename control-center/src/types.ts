@@ -659,6 +659,14 @@ export type McpInfo = {
   plugin?: string | null;
   /** Human-readable description of what this MCP server does. */
   description?: string;
+  /** iter-10 — true when the server name is not in the curated known set. */
+  unknown?: boolean;
+  /** iter-10 — how many config entries collapsed onto this name (>1 = dup). */
+  duplicate_count?: number;
+  /** iter-10 — origins of every entry that collapsed onto this name. */
+  duplicate_origins?: string[];
+  /** iter-10 — true when the config carries disabled:true (not spawned). */
+  disabled?: boolean;
 };
 
 export type McpMutationResult = {

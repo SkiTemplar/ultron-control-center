@@ -738,6 +738,82 @@ pub(crate) fn list_by_type_status(
     Ok(rows.flatten().collect())
 }
 
+/// Memory Browser query — paginated, filterable listing over `memory_items`.
+///
+/// Every filter is optional and AND-combined. `search` matches a substring on
+/// title/summary (LIKE). Ordering mirrors `list_pinned`/recall (importance, then
+/// recency). Returns `(page, total)` where `total` is the unpaginated match count
+/// so the UI can render pagination. All filters are bound parameters (no
+/// injection); only the dynamic WHERE shape is string-built.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn query_items(
+    conn: &Connection,
+    status: Option<Status>,
+    kind: Option<MemoryType>,
+    search: Option<&str>,
+    pinned_only: bool,
+    offset: usize,
+    limit: usize,
+) -> Result<(Vec<MemoryItem>, i64), MemoryError> {
+    // Build the shared WHERE clause + its bound values. The needle is owned so it
+    // outlives the param vec; the enum strings are 'static.
+    let mut clauses: Vec<String> = Vec::new();
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(s) = status {
+        clauses.push("status = ?".to_string());
+        binds.push(Box::new(s.as_str().to_string()));
+    }
+    if let Some(k) = kind {
+        clauses.push("type = ?".to_string());
+        binds.push(Box::new(k.as_str().to_string()));
+    }
+    if pinned_only {
+        clauses.push("pinned = 1".to_string());
+    }
+    if let Some(q) = search {
+        let q = q.trim();
+        if !q.is_empty() {
+            clauses.push("(title LIKE ? OR summary LIKE ?)".to_string());
+            let needle = format!("%{q}%");
+            binds.push(Box::new(needle.clone()));
+            binds.push(Box::new(needle));
+        }
+    }
+
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    };
+
+    // Total (unpaginated) match count — drives the UI pagination.
+    let count_sql = format!("SELECT COUNT(*) FROM memory_items {where_sql}");
+    let count_params: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
+    let total: i64 = conn
+        .query_row(&count_sql, count_params.as_slice(), |r| r.get(0))
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("query_items count: {e}")))?;
+
+    // Page — same filters + ORDER BY + LIMIT/OFFSET (the last two are bound too).
+    let page_sql = format!(
+        "SELECT {ITEM_COLS} FROM memory_items {where_sql}
+         ORDER BY importance DESC, updated_at DESC LIMIT ? OFFSET ?"
+    );
+    let mut page_binds = binds;
+    page_binds.push(Box::new(limit as i64));
+    page_binds.push(Box::new(offset as i64));
+    let page_params: Vec<&dyn rusqlite::ToSql> = page_binds.iter().map(|b| b.as_ref()).collect();
+
+    let mut stmt = conn
+        .prepare(&page_sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("query_items prepare: {e}")))?;
+    let rows = stmt
+        .query_map(page_params.as_slice(), item_from_row)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("query_items query: {e}")))?;
+    let items: Vec<MemoryItem> = rows.flatten().collect();
+    Ok((items, total))
+}
+
 // ---------------------------------------------------------------------------
 // memory_events (append-only)
 // ---------------------------------------------------------------------------

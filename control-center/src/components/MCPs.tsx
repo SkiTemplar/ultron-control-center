@@ -105,9 +105,17 @@ function originBadgeColor(kind: McpOriginKind): { bg: string; fg: string } {
   }
 }
 
-// Extended view of McpInfo that includes the v2.0 origin/plugin fields
-// and the v2.7 description field.
-type McpInfoExt = McpInfo & { origin?: string; plugin?: string | null; description?: string };
+// Extended view of McpInfo that includes the v2.0 origin/plugin fields,
+// the v2.7 description field, and the iter-10 detection fields.
+type McpInfoExt = McpInfo & {
+  origin?: string;
+  plugin?: string | null;
+  description?: string;
+  unknown?: boolean;
+  duplicate_count?: number;
+  duplicate_origins?: string[];
+  disabled?: boolean;
+};
 
 function statusLabel(s: McpStatus, expectedOffline: boolean, stale: boolean): string {
   if (stale) return "desconocido";
@@ -558,6 +566,47 @@ function Card({
                 style={{ color: "var(--color-text-faint)" }}
               >
                 expected offline
+              </span>
+            )}
+            {mcp.unknown && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                style={{
+                  background: "rgba(210, 153, 34, 0.15)",
+                  color: "#d29922",
+                }}
+                title="Servidor no reconocido — revisa qué hace antes de confiar en él."
+              >
+                desconocido
+              </span>
+            )}
+            {typeof mcp.duplicate_count === "number" && mcp.duplicate_count > 1 && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                style={{
+                  background: "rgba(248, 81, 73, 0.12)",
+                  color: "var(--color-danger, #f85149)",
+                }}
+                title={`Declarado ${mcp.duplicate_count} veces. Origenes: ${(
+                  mcp.duplicate_origins ?? []
+                ).join(", ")}`}
+              >
+                x{mcp.duplicate_count}
+                {mcp.duplicate_origins && mcp.duplicate_origins.length > 0
+                  ? ` (origenes: ${mcp.duplicate_origins.join(", ")})`
+                  : ""}
+              </span>
+            )}
+            {mcp.disabled && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-tertiary)",
+                }}
+                title="disabled:true en la config — Claude Code no lo arranca."
+              >
+                disabled
               </span>
             )}
           </div>

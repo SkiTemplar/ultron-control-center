@@ -19,6 +19,7 @@
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
 //!   ultron-memory warmup                        # SessionStart -> warm E5 (page cache)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
+//!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
 
@@ -206,7 +207,28 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|doctor|candidate|capture|edge> [--project X] [args]".to_string()),
+        // Bulk-deprecate every ACTIVE item of a type (purge bloat, e.g.
+        // codebase_fact). --dry-run only counts. Reuses set_status per id so
+        // FTS5 + Qdrant stay in sync; appends a Deprecated event per item.
+        //   ultron-memory deprecate --type codebase_fact [--dry-run] [--project X] [--reason R]
+        "deprecate" => {
+            let kind_s = flag_value(&args, "--type")
+                .ok_or_else(|| "deprecate requires --type <T>".to_string())?;
+            let kind = ul::memory::MemoryType::parse(&kind_s)
+                .ok_or_else(|| format!("invalid memory type '{kind_s}'"))?;
+            let dry = has_flag(&args, "--dry-run");
+            let reason = flag_value(&args, "--reason");
+            let res = ul::memory::MemoryService::deprecate_by_type(
+                kind,
+                dry,
+                project.as_deref(),
+                reason,
+                ul::memory::Actor::System,
+            )
+            .map_err(|e| e.to_string())?;
+            to_json(res)
+        }
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|doctor|candidate|capture|edge|deprecate --type <T> [--dry-run] [--reason R]> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

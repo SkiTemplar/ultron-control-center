@@ -291,6 +291,11 @@ pub fn run() {
             commands::memory::memory_do_not_use,
             // H4: verifiable forget — permanent hard delete (SQLite + Qdrant + audit)
             commands::memory::memory_forget,
+            // Bulk-deprecate active items by type (purge bloat, e.g. codebase_fact)
+            commands::memory::memory_bulk_deprecate,
+            // FRENTE 5: Memory Browser — paginated list + bulk deprecate by type
+            commands::memory::memory_items_list,
+            commands::memory::memory_items_deprecate_by_type,
             commands::memory::memory_item_history,
             commands::memory::memory_item_pin,
             commands::memory::memory_item_unpin,
