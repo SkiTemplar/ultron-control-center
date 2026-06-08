@@ -765,7 +765,7 @@ fn seed_providers() -> Vec<Provider> {
 }
 
 fn seed_zones() -> Vec<Zone> {
-    // CLI-first policy (2026-06-08, USER): every work zone starts on a CLI
+    // CLI-first policy (2026-06-08): every work zone starts on a CLI
     // provider (codex-cli for code, gemini-cli for everything else) because the
     // CLIs auth via the subscription OAuth and are free at the point of use.
     // The previous cloud primary is kept as fallback[0] so a missing/slow CLI

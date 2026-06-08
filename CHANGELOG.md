@@ -183,7 +183,7 @@ Anadido:
 ## v2.7.1 - 2026-05-24
 
 Errores corregidos:
-- BUG P0 Backup Force Now: weekly-backup.ps1 no leía backup-root.txt al reiniciar — ahora resolve order coincide con backend (file → env → default). run_backup_now_inner inyecta env vars desde config en cada invocación (stateless). Verified: copia las 5 carpetas a D:\USER\BACKUP con timestamp real.
+- BUG P0 Backup Force Now: weekly-backup.ps1 no leía backup-root.txt al reiniciar — ahora resolve order coincide con backend (file → env → default). run_backup_now_inner inyecta env vars desde config en cada invocación (stateless). Verified: copia las 5 carpetas al backup-root configurado con timestamp real.
 - BUG Notes Delete confirm: popup contextual inline anclado al botón Delete (no bottom-left), click-outside dismiss.
 - BUG Mem0 HTTP 400 query blank: search_inner retorna Ok(vec![]) si query vacío, sin llamada HTTP.
 - BUG TS Catalog.tsx: Search icon style→className.

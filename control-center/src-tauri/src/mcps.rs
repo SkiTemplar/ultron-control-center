@@ -1472,7 +1472,7 @@ mod tests {
                 "qdrant": { "type": "stdio", "command": "uvx", "args": ["mcp-server-qdrant"], "env": {} }
             },
             "projects": {
-                "C:\\Users\\USER": {
+                "C:\\Users\\Dev": {
                     "mcpServers": {
                         "gemini": { "type": "stdio", "command": "npx", "args": ["-y", "gemini-mcp"], "env": {} }
                     }
@@ -1486,7 +1486,7 @@ mod tests {
                         "discord": { "type": "stdio", "command": "npx", "args": ["-y", "discord-mcp"], "disabled": true }
                     }
                 },
-                "C:\\Users\\USER\\skills": {
+                "C:\\Users\\Dev\\skills": {
                     "mcpServers": {
                         "sequential-thinking": { "type": "stdio", "command": "npx", "args": ["-y", "seq"] }
                     }
@@ -1500,7 +1500,7 @@ mod tests {
         let v = sample_claude_json();
         let collected = collect_from_value(&v);
 
-        // 3 top-level + 1 (USER) + 5 (System32) + 1 (skills) = 10 entries.
+        // 3 top-level + 1 (Dev) + 5 (System32) + 1 (skills) = 10 entries.
         assert_eq!(collected.len(), 10);
 
         // Top-level entries carry the user-claudejson origin.
@@ -1518,7 +1518,7 @@ mod tests {
             .any(|(o, n, _)| o == "project:System32" && n == "memory"));
         assert!(collected
             .iter()
-            .any(|(o, n, _)| o == "project:USER" && n == "gemini"));
+            .any(|(o, n, _)| o == "project:Dev" && n == "gemini"));
 
         // disabled flag is parsed through McpServerCfg.
         let discord = collected

@@ -125,4 +125,5 @@ health checks require the Python runtime and `brain.db` to be present.
 **Q: What happened to the Mem0 / ECC migration plan?**
 That plan (2026-05-22) was discarded. ULTRON's memory system remains the
 native Rust binary `ultron-memory.exe` backed by `brain.db` (SQLite +
-FTS5) and Qdrant in `D:\Ultron\qdrant\`. Mem0 is not used.
+FTS5) and a native Qdrant binary (path configurable via `ULTRON_QDRANT_EXE`;
+defaults to `~/.ultron/qdrant-native/`). Mem0 is not used.

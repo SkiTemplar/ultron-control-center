@@ -685,26 +685,33 @@ fn qdrant_is_running() -> bool {
         .unwrap_or(false)
 }
 
-/// Attempt to spawn `D:\Ultron\qdrant\qdrant.exe` detached with no console
-/// window.  Returns the child handle on success, or logs and returns `None`.
+/// Attempt to spawn the bundled Qdrant binary detached with no console
+/// window.  The executable path is read from `ULTRON_QDRANT_EXE` (its working
+/// dir from `ULTRON_QDRANT_DIR`), falling back to a portable location under
+/// `%USERPROFILE%\.ultron\qdrant-native\`.  Returns the child handle on
+/// success, or logs and returns `None`.
 #[cfg(target_os = "windows")]
 fn spawn_qdrant_exe() -> Option<std::process::Child> {
     use std::os::windows::process::CommandExt;
 
-    const QDRANT_EXE: &str = r"D:\Ultron\qdrant\qdrant.exe";
-    const QDRANT_DIR: &str = r"D:\Ultron\qdrant";
+    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
+    let qdrant_exe = std::env::var("ULTRON_QDRANT_EXE")
+        .unwrap_or_else(|_| format!(r"{home}\.ultron\qdrant-native\qdrant.exe"));
+    let qdrant_dir = std::env::var("ULTRON_QDRANT_DIR")
+        .unwrap_or_else(|_| format!(r"{home}\.ultron\qdrant-native"));
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    if !std::path::Path::new(QDRANT_EXE).exists() {
+    if !std::path::Path::new(&qdrant_exe).exists() {
         eprintln!(
-            "[qdrant-autolaunch] exe not found at {QDRANT_EXE} — \
-             Qdrant must be started manually or installed at that path."
+            "[qdrant-autolaunch] exe not found at {qdrant_exe} — \
+             Qdrant must be started manually or installed at that path \
+             (override with ULTRON_QDRANT_EXE)."
         );
         return None;
     }
 
-    match std::process::Command::new(QDRANT_EXE)
-        .current_dir(QDRANT_DIR)
+    match std::process::Command::new(&qdrant_exe)
+        .current_dir(&qdrant_dir)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
