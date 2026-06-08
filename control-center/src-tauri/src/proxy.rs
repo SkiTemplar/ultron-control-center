@@ -658,6 +658,13 @@ pub fn proxy_set_enabled(enabled: bool) -> Result<ProxySetResult, String> {
 mod tests {
     use super::*;
 
+    // Serialises the two tests that mutate the persisted proxy "enabled" flag
+    // (shared on-disk state). cargo runs tests in parallel, so without this
+    // lock set_enabled(true) races set_enabled(false) and the read-back
+    // assertion flakes (passes alone, fails in-suite). KIRKARDO cat12: tests
+    // must be hermetic.
+    static ENABLED_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn candidates_not_empty() {
         let c = proxy_binary_candidates();
@@ -690,6 +697,7 @@ mod tests {
 
     #[test]
     fn set_enabled_false_returns_off_mode() {
+        let _guard = ENABLED_STATE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         // Desactivar nunca debe fallar y devuelve mode="off".
         let r = proxy_set_enabled(false).expect("set_enabled(false) no debe fallar");
         assert_eq!(r.mode, "off");
@@ -701,6 +709,7 @@ mod tests {
 
     #[test]
     fn set_enabled_true_without_binary_is_light_not_error() {
+        let _guard = ENABLED_STATE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         // En CI no hay binario: enabled=true debe devolver Ok en modo light,
         // NO un Err. Es el corazon del fix: el toggle no es un blocker.
         // (Si el entorno SI tuviera el binario, mode seria "managed" — ambos

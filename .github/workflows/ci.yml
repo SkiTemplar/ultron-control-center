@@ -80,6 +80,15 @@ jobs:
         working-directory: control-center/src-tauri
         run: cargo clippy --all-targets -- -A warnings
 
+      - name: cargo test (unit + bins)
+        # The gate was previously decorative: check + clippy compiled the
+        # tests but never RAN them, so a broken test merged green. Now the
+        # unit + bin tests actually execute. Integration tests under tests/
+        # that need a live Qdrant/sidecar are intentionally excluded (--lib
+        # --bins) so CI stays hermetic.
+        working-directory: control-center/src-tauri
+        run: cargo test --lib --bins
+
   typescript:
     name: TypeScript (tsc --noEmit)
     runs-on: windows-latest
@@ -102,6 +111,12 @@ jobs:
       - name: Type-check
         working-directory: control-center
         run: npx tsc --noEmit
+
+      - name: Unit tests (vitest)
+        # Previously tsc-only: the 29 vitest specs never ran in CI. Now they
+        # gate the merge like the Rust tests.
+        working-directory: control-center
+        run: npm test
 
   # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
   # removed during the 2026-06-04 cleanup. The 15.x Python test suite that

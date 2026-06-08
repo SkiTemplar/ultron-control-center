@@ -56,7 +56,7 @@ pub async fn uninstall_bloatware_app(
 // of name → category string.  Results are cached in a process-level HashMap
 // so the same app name is never sent to the AI twice in the same session.
 //
-// The AI call goes through ai_router::route("utility/light", …) — cheap
+// The AI call goes through ai_router::route("light", …) — cheap
 // zone, no user-visible latency budget, result is a single word.
 // ---------------------------------------------------------------------------
 
@@ -75,7 +75,7 @@ pub struct AppCategoriseItem {
     pub publisher: Option<String>,
 }
 
-/// Categorise a batch of apps using the AI Router (utility/light zone).
+/// Categorise a batch of apps using the AI Router (light zone).
 ///
 /// Returns a JSON object `{ "<name>": "<category>", … }` where category is
 /// one of: Development | Games | Media | Productivity | System utilities | Other.
@@ -142,7 +142,7 @@ Apps to classify:\n{app_list}"
     // Call the AI Router synchronously (route() is blocking).
     // We offload to a blocking thread so we don't block the async executor.
     let ai_raw = tokio::task::spawn_blocking(move || {
-        crate::ai_router::route("utility/light", &prompt)
+        crate::ai_router::route("light", &prompt)
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?;
