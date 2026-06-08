@@ -455,6 +455,8 @@ pub fn run() {
             commands::projects::git_push,
             commands::projects::git_init,
             commands::projects::git_log_short,
+            commands::projects::git_fetch,
+            commands::projects::git_repo_state,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,

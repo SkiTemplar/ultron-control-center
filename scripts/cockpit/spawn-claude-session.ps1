@@ -145,7 +145,16 @@ if ($cwd -and $cwd.Trim().Length -gt 0) {
     }
 }
 
-$inner += $provider
+# Headroom integration: when headroom.exe is on PATH, wrap claude sessions
+# with CCR (context compression). Env vars: telemetry off, code-aware on.
+# headroom passes all unknown flags through to the wrapped binary.
+$headroomAvailable = ($provider -eq "claude") -and `
+    ($null -ne (Get-Command "headroom" -ErrorAction SilentlyContinue))
+if ($headroomAvailable) {
+    $inner += '$env:HEADROOM_TELEMETRY=''off''; $env:HEADROOM_CODE_AWARE_ENABLED=''1''; headroom wrap claude'
+} else {
+    $inner += $provider
+}
 
 switch ($provider) {
     "claude" {

@@ -66,7 +66,21 @@ type Props = { projectId: string };
 
 type ProjectMeta = { id: string; name: string; path: string };
 
-type GitStatus = { isRepo: boolean; status: string | null; log: string | null; busy: boolean; error: string | null };
+type GitRepoState = {
+  is_repo: boolean;
+  branch: string | null;
+  remote: string | null;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  dirty_count: number;
+};
+
+type GitStatus = {
+  state: GitRepoState | null;
+  busy: boolean;
+  error: string | null;
+};
 
 type ProjectListEntry = {
   id: string;
@@ -165,7 +179,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
-  const [git, setGit] = useState<GitStatus>({ isRepo: false, status: null, log: null, busy: false, error: null });
+  const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
 
   const tabsCtx = useProjectsTabs();
 
@@ -187,17 +201,8 @@ export default function ProjectWorkspace({ projectId }: Props) {
           if (found && found.path) {
             setMeta({ id: found.id, name: found.name ?? found.id, path: found.path });
             setProjectInfo(found as unknown as ProjectInfo);
-            // Check git status on load
-            const isRepo = (await invoke("git_is_repo", { path: found.path })) as boolean;
-            if (isRepo) {
-              const [status, log] = await Promise.all([
-                invoke("git_status", { path: found.path }).catch((e: unknown) => String(e)) as Promise<string>,
-                invoke("git_log_short", { path: found.path }).catch(() => "") as Promise<string>,
-              ]);
-              setGit({ isRepo: true, status, log, busy: false, error: null });
-            } else {
-              setGit({ isRepo: false, status: null, log: null, busy: false, error: null });
-            }
+            const repoState = await invoke("git_repo_state", { path: found.path }).catch(() => null) as GitRepoState | null;
+            setGit({ state: repoState, busy: false, error: null });
           } else {
             setError(`Proyecto ${projectId} no encontrado`);
           }
@@ -275,25 +280,21 @@ export default function ProjectWorkspace({ projectId }: Props) {
     }
   };
 
-  const runGitOp = useCallback(async (op: "git_pull" | "git_push" | "git_init") => {
+  const refreshGit = useCallback(async (path: string) => {
+    const repoState = await invoke("git_repo_state", { path }).catch(() => null) as GitRepoState | null;
+    setGit({ state: repoState, busy: false, error: null });
+  }, []);
+
+  const runGitOp = useCallback(async (op: "git_pull" | "git_push" | "git_init" | "git_fetch") => {
     if (!meta) return;
     setGit((g) => ({ ...g, busy: true, error: null }));
     try {
       await invoke(op, { path: meta.path });
-      const isRepo = (await invoke("git_is_repo", { path: meta.path })) as boolean;
-      if (isRepo) {
-        const [status, log] = await Promise.all([
-          invoke("git_status", { path: meta.path }).catch((e: unknown) => String(e)) as Promise<string>,
-          invoke("git_log_short", { path: meta.path }).catch(() => "") as Promise<string>,
-        ]);
-        setGit({ isRepo: true, status, log, busy: false, error: null });
-      } else {
-        setGit({ isRepo: false, status: null, log: null, busy: false, error: null });
-      }
+      await refreshGit(meta.path);
     } catch (e) {
       setGit((g) => ({ ...g, busy: false, error: String(e) }));
     }
-  }, [meta]);
+  }, [meta, refreshGit]);
 
   const handleCodeGraphSession = async () => {
     if (!meta) return;
@@ -553,11 +554,12 @@ export default function ProjectWorkspace({ projectId }: Props) {
           </p>
         </div>
 
-        {/* Git repo panel */}
+        {/* Git repo panel — mini GitHub Desktop */}
         <div
           className="flex flex-col gap-2 rounded-md p-3"
           style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
         >
+          {/* Header row */}
           <div className="flex items-center justify-between">
             <span
               className="text-[10px] font-semibold uppercase tracking-[0.07em]"
@@ -565,60 +567,133 @@ export default function ProjectWorkspace({ projectId }: Props) {
             >
               Repositorio
             </span>
-            {git.isRepo ? (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => void runGitOp("git_pull")}
-                  disabled={!meta || git.busy}
-                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
-                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
-                  title="git pull --ff-only"
-                >
-                  Pull
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void runGitOp("git_push")}
-                  disabled={!meta || git.busy}
-                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
-                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
-                  title="git push"
-                >
-                  Push
-                </button>
-              </div>
-            ) : (
+            {git.state?.is_repo && (
               <button
                 type="button"
-                onClick={() => void runGitOp("git_init")}
+                onClick={() => void runGitOp("git_fetch")}
                 disabled={!meta || git.busy}
-                className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
-                style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
-                title="git init en este directorio"
+                className="rounded px-1.5 py-0.5 text-[9.5px] disabled:opacity-40"
+                style={{ background: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text-tertiary)" }}
+                title="git fetch (actualizar estado remoto)"
               >
-                Crear repo
+                Fetch
               </button>
             )}
           </div>
+
+          {/* No repo */}
+          {!git.state?.is_repo && !git.error && (
+            <div className="flex items-center justify-between">
+              <span className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                {meta ? "Sin repositorio git" : "Cargando…"}
+              </span>
+              {meta && (
+                <button
+                  type="button"
+                  onClick={() => void runGitOp("git_init")}
+                  disabled={git.busy}
+                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
+                  title="git init en este directorio"
+                >
+                  Crear repo
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Repo state */}
+          {git.state?.is_repo && (() => {
+            const s = git.state!;
+            const hasRemote = !!s.remote;
+            const canPull = s.behind > 0;
+            const canPush = s.ahead > 0;
+            const canPublish = !hasRemote;
+            return (
+              <div className="flex flex-col gap-1.5">
+                {/* Branch + dirty badge */}
+                <div className="flex items-center gap-1.5">
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden
+                    style={{ color: "var(--color-text-tertiary)", flexShrink: 0 }}>
+                    <path d="M5.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-1.5.75a2.25 2.25 0 1 1 2.894 2.165v.585a2.25 2.25 0 0 1-2.25 2.25h-2a.75.75 0 0 1 0-1.5h2a.75.75 0 0 0 .75-.75v-.585A2.25 2.25 0 0 1 4.25 3.25zm7.5 1.25a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM10 5.414V7.75a.75.75 0 0 1-.75.75H7.5a.75.75 0 0 0 0 1.5h1.75v2.086a2.25 2.25 0 1 0 1.5 0V9.25a.75.75 0 0 0-.75-.75H8.5V7.75A2.25 2.25 0 0 0 6.25 5.5H4.5a.75.75 0 0 0 0 1.5h1.75a.75.75 0 0 1 .75.75v.414A2.25 2.25 0 0 0 10 5.414zm1.5 7.586a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z"/>
+                  </svg>
+                  <span className="text-[10.5px] font-medium" style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}>
+                    {s.branch ?? "desconocida"}
+                  </span>
+                  {s.dirty && (
+                    <span
+                      className="rounded px-1 text-[9px] font-semibold"
+                      style={{ background: "rgba(234,179,8,0.15)", color: "#ca8a04", border: "1px solid rgba(234,179,8,0.3)" }}
+                      title={`${s.dirty_count} archivo(s) modificado(s)`}
+                    >
+                      {s.dirty_count} cambio{s.dirty_count !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {!s.dirty && s.is_repo && (
+                    <span className="text-[9px]" style={{ color: "var(--color-text-tertiary)" }}>limpio</span>
+                  )}
+                </div>
+
+                {/* Ahead / Behind indicators */}
+                {hasRemote && (
+                  <div className="flex items-center gap-2">
+                    {canPull && (
+                      <span className="flex items-center gap-0.5 text-[9.5px]" style={{ color: "#3b82f6" }} title="Commits remotos sin descargar">
+                        <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden><path d="M8 2a.75.75 0 0 1 .75.75v8.69l2.97-2.97a.749.749 0 1 1 1.06 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 9.53a.749.749 0 1 1 1.06-1.06l2.97 2.97V2.75A.75.75 0 0 1 8 2Z"/></svg>
+                        {s.behind} por descargar
+                      </span>
+                    )}
+                    {canPush && (
+                      <span className="flex items-center gap-0.5 text-[9.5px]" style={{ color: "#a855f7" }} title="Commits locales sin subir">
+                        <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden><path d="M8 14a.75.75 0 0 1-.75-.75V4.56L4.28 7.53a.749.749 0 1 1-1.06-1.06l4.25-4.25a.749.749 0 0 1 1.06 0l4.25 4.25a.749.749 0 1 1-1.06 1.06L8.75 4.56v8.69A.75.75 0 0 1 8 14Z"/></svg>
+                        {s.ahead} por subir
+                      </span>
+                    )}
+                    {!canPull && !canPush && (
+                      <span className="text-[9.5px]" style={{ color: "var(--color-text-tertiary)" }}>sincronizado con {s.remote}</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  {canPublish && (
+                    <button type="button" disabled className="rounded px-2 py-0.5 text-[10px] font-medium opacity-50"
+                      style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
+                      title="Configura un remote para publicar">
+                      Publicar…
+                    </button>
+                  )}
+                  {canPull && (
+                    <button type="button" onClick={() => void runGitOp("git_pull")} disabled={git.busy}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium disabled:opacity-40"
+                      style={{ background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.35)", color: "#3b82f6" }}
+                      title="git pull --ff-only">
+                      Pull {s.behind > 0 && <span className="ml-0.5 opacity-80">({s.behind})</span>}
+                    </button>
+                  )}
+                  {canPush && (
+                    <button type="button" onClick={() => void runGitOp("git_push")} disabled={git.busy}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium disabled:opacity-40"
+                      style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.35)", color: "#a855f7" }}
+                      title="git push">
+                      Push {s.ahead > 0 && <span className="ml-0.5 opacity-80">({s.ahead})</span>}
+                    </button>
+                  )}
+                  {!canPublish && !canPull && !canPush && (
+                    <span className="text-[9.5px]" style={{ color: "var(--color-text-tertiary)" }}>sin acciones pendientes</span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Error + busy */}
           {git.error && (
-            <p className="text-[10.5px]" style={{ color: "var(--color-error)" }}>{git.error}</p>
-          )}
-          {git.isRepo && git.status && (
-            <pre
-              className="overflow-x-auto whitespace-pre-wrap text-[9.5px] leading-relaxed"
-              style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)", maxHeight: 72, overflowY: "auto" }}
-            >
-              {git.status}
-            </pre>
-          )}
-          {!git.isRepo && !git.error && (
-            <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              {meta ? "Sin repositorio git" : "Cargando…"}
-            </p>
+            <p className="text-[10px]" style={{ color: "var(--color-danger, #ef4444)" }}>{git.error}</p>
           )}
           {git.busy && (
-            <p className="text-[10.5px]" style={{ color: "var(--color-text-muted)" }}>Ejecutando…</p>
+            <p className="text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>Ejecutando…</p>
           )}
         </div>
       </div>
