@@ -123,7 +123,7 @@ uv → Qdrant native binary → directory layout → hooks merge into
 | `winget` install hangs or exits non-zero             | Check your network / proxy; retry; or install that dep by hand |
 | Auto-installed binary not on PATH after winget       | Open a fresh PowerShell shell so the user PATH reloads       |
 | `uv: not recognized` after auto-install              | Open a new shell so PATH reloads, or add `~/.local/bin`      |
-| `qdrant.exe` won't start                             | Check `~/.ultron/.tmp/qdrant-native.err`. Kill stale processes: `Get-Process qdrant \| Stop-Process -Force`, then re-run `~/.ultron/scripts/hooks/ensure-qdrant.ps1`. |
+| `qdrant.exe` won't start                             | Check `~/.ultron/.tmp/qdrant-native.err`. Kill stale processes: `Get-Process qdrant \| Stop-Process -Force`, then re-run `~/.ultron/scripts/qdrant/ensure-qdrant.ps1`. |
 | `rustc` not on PATH right after Rust auto-install    | Open a fresh shell; if still missing, reboot once            |
 | `npm install` errors on `better-sqlite3` / `keytar`  | Install Node 22+, then `Remove-Item node_modules -Recurse; npm i` |
 | `tauri build` complains about Webview2               | Install Edge Webview2 runtime: <https://aka.ms/Edge/Webview2> |

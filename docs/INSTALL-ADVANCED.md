@@ -198,7 +198,7 @@ service:
 log_level: INFO
 ```
 
-Boot is handled by `~/.ultron/scripts/hooks/ensure-qdrant.ps1` — it
+Boot is handled by `~/.ultron/scripts/qdrant/ensure-qdrant.ps1` — it
 launches `qdrant.exe` hidden on SessionStart and on user logon via the
 `ULTRON-QdrantBoot` scheduled task. Verify it's serving:
 
