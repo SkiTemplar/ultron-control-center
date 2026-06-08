@@ -130,3 +130,39 @@ pub struct GitRepoState {
     pub dirty: bool,
     pub dirty_count: u32,
 }
+
+/// Returns true if the project at `path` has a `.codegraph/codegraph.db` (already indexed).
+#[tauri::command]
+pub fn codegraph_is_indexed(path: String) -> bool {
+    std::path::Path::new(&path)
+        .join(".codegraph")
+        .join("codegraph.db")
+        .exists()
+}
+
+/// Runs `codegraph init -i <path>` to build the initial index.
+/// Blocks until done (may take seconds for large repos).
+#[tauri::command]
+pub fn codegraph_init_project(path: String) -> Result<String, String> {
+    let out = Command::new("codegraph")
+        .args(["init", "-i"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("codegraph not found on PATH: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let combined = format!("{stdout}{stderr}").trim().to_string();
+    if out.status.success() {
+        Ok(if combined.is_empty() {
+            "Proyecto indexado correctamente".to_string()
+        } else {
+            combined
+        })
+    } else {
+        Err(if combined.is_empty() {
+            format!("codegraph init falló (código {:?})", out.status.code())
+        } else {
+            combined
+        })
+    }
+}

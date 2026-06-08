@@ -180,6 +180,8 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
+  const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
+  const [cgBusy, setCgBusy] = useState(false);
 
   const tabsCtx = useProjectsTabs();
 
@@ -201,8 +203,12 @@ export default function ProjectWorkspace({ projectId }: Props) {
           if (found && found.path) {
             setMeta({ id: found.id, name: found.name ?? found.id, path: found.path });
             setProjectInfo(found as unknown as ProjectInfo);
-            const repoState = await invoke("git_repo_state", { path: found.path }).catch(() => null) as GitRepoState | null;
+            const [repoState, indexed] = await Promise.all([
+              invoke("git_repo_state", { path: found.path }).catch(() => null) as Promise<GitRepoState | null>,
+              invoke<boolean>("codegraph_is_indexed", { path: found.path }).catch(() => false),
+            ]);
             setGit({ state: repoState, busy: false, error: null });
+            setCgIndexed(indexed);
           } else {
             setError(`Proyecto ${projectId} no encontrado`);
           }
@@ -302,11 +308,24 @@ export default function ProjectWorkspace({ projectId }: Props) {
       await invoke("spawn_session", {
         provider: "claude",
         cwd: meta.path,
-        prompt: `Usa codegraph para explorar este proyecto. Empieza con: ¿cuál es la arquitectura principal de ${meta.name}? Muestra los módulos clave, sus dependencias y funciones más importantes.`,
+        prompt: `Usa las herramientas de codegraph (codegraph_explore, codegraph_search, codegraph_callers) para explorar este proyecto. Empieza con codegraph_explore preguntando: "arquitectura principal de ${meta.name}, módulos clave y funciones más importantes".`,
         flags: { dangerouslySkipPermissions: false },
       });
     } catch {
       /* silencioso */
+    }
+  };
+
+  const handleCodeGraphInit = async () => {
+    if (!meta || cgBusy) return;
+    setCgBusy(true);
+    try {
+      await invoke("codegraph_init_project", { path: meta.path });
+      setCgIndexed(true);
+    } catch {
+      // si falla, dejamos cgIndexed en false para que el botón siga visible
+    } finally {
+      setCgBusy(false);
     }
   };
 
@@ -534,23 +553,45 @@ export default function ProjectWorkspace({ projectId }: Props) {
             >
               CodeGraph
             </span>
-            <button
-              type="button"
-              onClick={() => void handleCodeGraphSession()}
-              disabled={!meta}
-              className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
-              style={{
-                background: "var(--color-surface-3)",
-                border: "1px solid var(--color-border-strong)",
-                color: "var(--color-text-secondary)",
-              }}
-              title="Abrir sesion Claude Code con codegraph para este proyecto"
-            >
-              Explorar
-            </button>
+            <div className="flex items-center gap-1.5">
+              {cgIndexed === false && (
+                <button
+                  type="button"
+                  onClick={() => void handleCodeGraphInit()}
+                  disabled={!meta || cgBusy}
+                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+                  style={{
+                    background: "#1d4ed8",
+                    border: "1px solid #2563eb",
+                    color: "#fff",
+                  }}
+                  title="Indexar este proyecto con codegraph init -i"
+                >
+                  {cgBusy ? "Indexando…" : "Indexar"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleCodeGraphSession()}
+                disabled={!meta}
+                className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+                style={{
+                  background: "var(--color-surface-3)",
+                  border: "1px solid var(--color-border-strong)",
+                  color: "var(--color-text-secondary)",
+                }}
+                title="Abrir sesion Claude Code con herramientas codegraph"
+              >
+                Explorar
+              </button>
+            </div>
           </div>
           <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            {meta ? `Lanza sesion con codegraph en ${meta.name}` : "Cargando…"}
+            {cgIndexed === null
+              ? "Verificando índice…"
+              : cgIndexed
+              ? "Indexado — codegraph_explore disponible"
+              : "Sin índice — pulsa Indexar para construirlo"}
           </p>
         </div>
 
