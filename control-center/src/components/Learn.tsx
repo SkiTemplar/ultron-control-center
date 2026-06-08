@@ -92,7 +92,6 @@ export function Learn() {
                   }}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-[15px]">{s.icon}</span>
                     <span
                       className="text-[12.5px] font-medium"
                       style={{ color: "var(--color-text)" }}
@@ -126,7 +125,6 @@ export function Learn() {
         {active && (
           <article className="learn-md mx-auto" style={{ maxWidth: 820 }}>
             <div className="mb-4 flex items-center gap-2.5">
-              <span className="text-[24px]">{active.icon}</span>
               <h1
                 className="text-2xl font-semibold"
                 style={{ color: "var(--color-text)" }}
