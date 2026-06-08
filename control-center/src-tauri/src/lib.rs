@@ -30,7 +30,6 @@ mod claude_sessions;
 mod codex_fallback;
 mod commands_registry;
 mod cost_watchdog;
-mod decisions;
 mod detach;
 mod diagnostics_native;
 mod env_keys;
@@ -449,17 +448,13 @@ pub fn run() {
             commands::library::analyze_catalog_compat,
             // FRENTE 7: analizar repo local + integrar al routing/memoria
             commands::library::analyze_local_repo,
-            // -- decision registry (KIRKARDO 24) --
-            commands::decisions::decisions_add,
-            commands::decisions::decisions_update,
-            commands::decisions::decisions_list,
-            commands::decisions::decisions_delete,
-            commands::decisions::decisions_drain_pending,
-            commands::decisions::decisions_drain_all_to_inbox,
-            commands::decisions::decisions_search,
-            commands::decisions::kanban_decisions_search,
-            commands::decisions::decisions_reject_all_auto,
-            commands::decisions::decisions_purge_noise,
+            // -- git ops por proyecto --
+            commands::projects::git_is_repo,
+            commands::projects::git_status,
+            commands::projects::git_pull,
+            commands::projects::git_push,
+            commands::projects::git_init,
+            commands::projects::git_log_short,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,

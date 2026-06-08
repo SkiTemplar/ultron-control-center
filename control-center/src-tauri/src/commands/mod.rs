@@ -13,8 +13,6 @@
 //   system_ops/    — Scheduled tasks, apps, diagnostics, event log, settings, lifecycle
 //   workflows/     — Hooks, plans, rules, maintenance,
 //                    workflow_runs (YAML composability + SQLite history, KIRKARDO 23 P2)
-//   decisions.rs   — Decision log CRUD
-//
 // Adding a new command:
 //   1. Add the `#[tauri::command]` wrapper inside the appropriate sub-directory.
 //   2. Register it via `pub mod` + `pub use …::*` in the sub-directory's mod.rs.
@@ -22,7 +20,6 @@
 //      `commands::<sub_dir>::<fn_name>`.
 
 pub mod batches_sub;
-pub mod decisions;
 pub mod kanban_sub;
 pub mod library;
 pub mod memory;

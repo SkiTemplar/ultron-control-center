@@ -59,12 +59,6 @@ interface ApproveAllResult {
   failed: ApproveFailure[];
 }
 
-interface DrainAllResult {
-  projects_drained: number;
-  candidates_proposed: number;
-  errors: string[];
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -504,10 +498,6 @@ export function MemoryInbox() {
   // the inbox; secrets / contradictions always stay here for human review.
   const [autoApprove, setAutoApprove] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
-  // Drain Stop-hook decisions-pending.jsonl → brain.db inbox.
-  const [draining, setDraining] = useState(false);
-  const [drainMsg, setDrainMsg] = useState<string | null>(null);
-
   const loadStats = useCallback(async () => {
     try {
       const s = (await invoke("memory_stats")) as MemoryStats;
@@ -659,31 +649,6 @@ export function MemoryInbox() {
     }
   }, [autoApprove, refreshAll, loadAuto]);
 
-  // Drain all projects' decisions-pending.jsonl into the governed memory inbox.
-  // This is the bridge between the Stop-hook auto-capture pipeline (JSONL files)
-  // and the Memory Inbox (brain.db candidates). Safe to call repeatedly — the
-  // backend drain is atomic and idempotent.
-  const onDrainFromHook = useCallback(async () => {
-    setDraining(true);
-    setDrainMsg(null);
-    setListError(null);
-    try {
-      const res = (await invoke("decisions_drain_all_to_inbox")) as DrainAllResult;
-      await refreshAll();
-      if (res.candidates_proposed > 0) {
-        setDrainMsg(
-          `${res.candidates_proposed} candidato${res.candidates_proposed === 1 ? "" : "s"} importado${res.candidates_proposed === 1 ? "" : "s"} de ${res.projects_drained} proyecto${res.projects_drained === 1 ? "" : "s"}.${res.errors.length > 0 ? ` (${res.errors.length} error${res.errors.length === 1 ? "" : "es"})` : ""}`,
-        );
-      } else {
-        setDrainMsg("Sin pendientes nuevos del Stop hook.");
-      }
-    } catch (e) {
-      setListError(errMsg(e));
-    } finally {
-      setDraining(false);
-    }
-  }, [refreshAll]);
-
   const pendingCount = candidates.length;
   const flagged = useMemo(
     () =>
@@ -724,31 +689,11 @@ export function MemoryInbox() {
                   : `Aceptar todos (${pendingCount})`}
             </SmallButton>
           )}
-          <SmallButton
-            onClick={() => void onDrainFromHook()}
-            disabled={loading || approvingAll || draining}
-            title="Importar decisiones del Stop hook (decisions-pending.jsonl) al inbox"
-          >
-            {draining ? "Importando..." : "Importar del hook"}
-          </SmallButton>
-          <SmallButton onClick={() => void refreshAll()} disabled={loading || approvingAll || draining}>
+          <SmallButton onClick={() => void refreshAll()} disabled={loading || approvingAll}>
             {loading ? "Refreshing..." : "Refresh"}
           </SmallButton>
         </div>
       </div>
-      {drainMsg && (
-        <div
-          className="px-3 py-2 text-[11.5px]"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-            color: "var(--color-text-secondary)",
-          }}
-        >
-          {drainMsg}
-        </div>
-      )}
-
       {/* Auto-approve policy toggle */}
       <AutoApproveControl
         on={autoApprove}

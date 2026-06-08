@@ -7,7 +7,7 @@
 //
 // Design: no emojis, SVG icons from ./icons, semantic color tokens.
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Bot, Folder, Play, ExternalLink } from "./icons";
@@ -65,6 +65,8 @@ function CodeIcon({ size = 14 }: { size?: number }) {
 type Props = { projectId: string };
 
 type ProjectMeta = { id: string; name: string; path: string };
+
+type GitStatus = { isRepo: boolean; status: string | null; log: string | null; busy: boolean; error: string | null };
 
 type ProjectListEntry = {
   id: string;
@@ -163,6 +165,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
+  const [git, setGit] = useState<GitStatus>({ isRepo: false, status: null, log: null, busy: false, error: null });
 
   const tabsCtx = useProjectsTabs();
 
@@ -184,6 +187,17 @@ export default function ProjectWorkspace({ projectId }: Props) {
           if (found && found.path) {
             setMeta({ id: found.id, name: found.name ?? found.id, path: found.path });
             setProjectInfo(found as unknown as ProjectInfo);
+            // Check git status on load
+            const isRepo = (await invoke("git_is_repo", { path: found.path })) as boolean;
+            if (isRepo) {
+              const [status, log] = await Promise.all([
+                invoke("git_status", { path: found.path }).catch((e: unknown) => String(e)) as Promise<string>,
+                invoke("git_log_short", { path: found.path }).catch(() => "") as Promise<string>,
+              ]);
+              setGit({ isRepo: true, status, log, busy: false, error: null });
+            } else {
+              setGit({ isRepo: false, status: null, log: null, busy: false, error: null });
+            }
           } else {
             setError(`Proyecto ${projectId} no encontrado`);
           }
@@ -256,6 +270,40 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const handleExe = async (path: string) => {
     try {
       await openPath(path);
+    } catch {
+      /* silencioso */
+    }
+  };
+
+  const runGitOp = useCallback(async (op: "git_pull" | "git_push" | "git_init") => {
+    if (!meta) return;
+    setGit((g) => ({ ...g, busy: true, error: null }));
+    try {
+      await invoke(op, { path: meta.path });
+      const isRepo = (await invoke("git_is_repo", { path: meta.path })) as boolean;
+      if (isRepo) {
+        const [status, log] = await Promise.all([
+          invoke("git_status", { path: meta.path }).catch((e: unknown) => String(e)) as Promise<string>,
+          invoke("git_log_short", { path: meta.path }).catch(() => "") as Promise<string>,
+        ]);
+        setGit({ isRepo: true, status, log, busy: false, error: null });
+      } else {
+        setGit({ isRepo: false, status: null, log: null, busy: false, error: null });
+      }
+    } catch (e) {
+      setGit((g) => ({ ...g, busy: false, error: String(e) }));
+    }
+  }, [meta]);
+
+  const handleCodeGraphSession = async () => {
+    if (!meta) return;
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        cwd: meta.path,
+        prompt: `Usa codegraph para explorar este proyecto. Empieza con: ¿cuál es la arquitectura principal de ${meta.name}? Muestra los módulos clave, sus dependencias y funciones más importantes.`,
+        flags: { dangerouslySkipPermissions: false },
+      });
     } catch {
       /* silencioso */
     }
@@ -468,7 +516,114 @@ export default function ProjectWorkspace({ projectId }: Props) {
         </div>
       )}
 
-      {/* ── 3. Kanban board — fills all remaining space ──────────────────── */}
+      {/* ── 3. CodeGraph + Git repo panels ──────────────────────────────── */}
+      <div
+        className="shrink-0 grid gap-3 border-b px-5 py-3"
+        style={{ borderColor: "var(--color-border)", gridTemplateColumns: "1fr 1fr" }}
+      >
+        {/* CodeGraph panel */}
+        <div
+          className="flex flex-col gap-2 rounded-md p-3"
+          style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+        >
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[10px] font-semibold uppercase tracking-[0.07em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              CodeGraph
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleCodeGraphSession()}
+              disabled={!meta}
+              className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+              style={{
+                background: "var(--color-surface-3)",
+                border: "1px solid var(--color-border-strong)",
+                color: "var(--color-text-secondary)",
+              }}
+              title="Abrir sesion Claude Code con codegraph para este proyecto"
+            >
+              Explorar
+            </button>
+          </div>
+          <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            {meta ? `Lanza sesion con codegraph en ${meta.name}` : "Cargando…"}
+          </p>
+        </div>
+
+        {/* Git repo panel */}
+        <div
+          className="flex flex-col gap-2 rounded-md p-3"
+          style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+        >
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[10px] font-semibold uppercase tracking-[0.07em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Repositorio
+            </span>
+            {git.isRepo ? (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => void runGitOp("git_pull")}
+                  disabled={!meta || git.busy}
+                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
+                  title="git pull --ff-only"
+                >
+                  Pull
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runGitOp("git_push")}
+                  disabled={!meta || git.busy}
+                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
+                  title="git push"
+                >
+                  Push
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void runGitOp("git_init")}
+                disabled={!meta || git.busy}
+                className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
+                style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
+                title="git init en este directorio"
+              >
+                Crear repo
+              </button>
+            )}
+          </div>
+          {git.error && (
+            <p className="text-[10.5px]" style={{ color: "var(--color-error)" }}>{git.error}</p>
+          )}
+          {git.isRepo && git.status && (
+            <pre
+              className="overflow-x-auto whitespace-pre-wrap text-[9.5px] leading-relaxed"
+              style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)", maxHeight: 72, overflowY: "auto" }}
+            >
+              {git.status}
+            </pre>
+          )}
+          {!git.isRepo && !git.error && (
+            <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              {meta ? "Sin repositorio git" : "Cargando…"}
+            </p>
+          )}
+          {git.busy && (
+            <p className="text-[10.5px]" style={{ color: "var(--color-text-muted)" }}>Ejecutando…</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── 4. Kanban board — fills all remaining space ──────────────────── */}
       <div className="min-h-0 flex-1 overflow-hidden">
         <ProjectBoard projectId={projectId} />
       </div>

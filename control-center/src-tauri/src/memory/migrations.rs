@@ -13,7 +13,7 @@
 use serde::Serialize;
 
 use super::model::{
-    estimate_tokens, MemoryCandidate, MemoryItem, MemoryType, Scope, Source, Status,
+    estimate_tokens, MemoryItem, MemoryType, Scope, Source, Status,
 };
 use super::service::MemoryService;
 use super::sqlite_store as store;
@@ -197,33 +197,8 @@ pub fn etl_kg(report: &mut SourceReport) -> Result<(), MemoryError> {
     Ok(())
 }
 
-/// decisions.jsonl (all unreviewed/auto) -> CANDIDATES (pending). They are NOT
-/// auto-activated: the human approves them in the inbox (Fase C). Noise filtered.
-pub fn etl_decisions(report: &mut SourceReport) -> Result<(), MemoryError> {
-    let conn = store::open_conn()?;
-    if store::count_candidates_pending(&conn) > 0 {
-        report.note = "pending candidates already present (skipped)".to_string();
-        return Ok(());
-    }
-    let records = crate::decisions::read_all("ultron")
-        .map_err(|e| MemoryError::ParseError(format!("decisions read: {e}")))?;
-    for rec in &records {
-        if crate::decisions::is_noise(&rec.decision, &rec.rationale) {
-            report.skipped_noise += 1;
-            continue;
-        }
-        let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
-        c.proposed_title = Some(rec.decision.clone());
-        c.proposed_summary = Some(rec.decision.clone());
-        c.proposed_content = Some(rec.rationale.clone());
-        c.proposed_tags = rec.tags.clone();
-        c.confidence = 0.6;
-        c.importance = 0.6;
-        match MemoryService::create_candidate(&c) {
-            Ok(_) => report.imported += 1,
-            Err(_) => report.errors += 1,
-        }
-    }
+/// decisions.jsonl ETL — módulo decisions eliminado (KIRKARDO 24), no-op.
+pub fn etl_decisions(_report: &mut SourceReport) -> Result<(), MemoryError> {
     Ok(())
 }
 

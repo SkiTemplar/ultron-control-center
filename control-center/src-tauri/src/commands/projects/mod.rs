@@ -5,9 +5,11 @@
 //   agents   — Agent CRUD, delegations, per-project AI roster, session invocation
 
 pub mod agents;
+pub mod git_ops;
 #[allow(clippy::module_inception)]
 // commands/projects/projects.rs mirrors parent — intentional grouping
 pub mod projects;
 
 pub use agents::*;
+pub use git_ops::*;
 pub use projects::*;
