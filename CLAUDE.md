@@ -49,4 +49,4 @@ ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.
 12. **Tener el dato ≠ usar el dato** — una feature sin punto de consumo no existe (ej.: codegraph con datos que no se inyectan al contexto).
 13. **Declara el alcance real** — no vender que algo afecta a X cuando solo afecta a Y; límite explícito siempre.
 
-> Memoria de trabajo, decisiones y planes viven en el sistema de memoria de ULTRON (no en este archivo). Para detalle operativo ver `docs/` (README, INTEGRATION, COMMANDS, ARCHITECTURE) y `docs/web/index.html`.
+> Memoria de trabajo, decisiones y planes viven en el sistema de memoria de ULTRON (no en este archivo). Para detalle operativo ver `docs/` (README, INTEGRATION, COMMANDS) y `docs/web/index.html`.

@@ -606,7 +606,7 @@ pub fn run() {
 
             // MEMORY CORE D2 — Qdrant auto-launch.
             // Probes http://127.0.0.1:6333/healthz; if Qdrant is not running,
-            // spawns D:\Ultron\qdrant\qdrant.exe detached (CREATE_NO_WINDOW).
+            // spawns the configured Qdrant binary detached (CREATE_NO_WINDOW).
             // Never panics — a missing exe is logged and boot continues.
             std::thread::spawn(|| {
                 qdrant_auto_launch();

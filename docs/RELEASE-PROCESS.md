@@ -80,8 +80,8 @@ In the GitHub web UI:
 3. New repository secret. Name: `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Value:
    the passphrase chosen in step 0.1. Save.
 
-These secrets are consumed by `.github/workflows/release.yml`. They are
-never echoed in logs and are not exposed to forks.
+These secrets are consumed by `.github/workflows/release.yml` (currently shipped
+as `release.yml.disabled`). They are never echoed in logs and are not exposed to forks.
 
 ---
 
@@ -247,11 +247,12 @@ hand off to their respective per-OS installer (`install.ps1` /
 `install.sh`).
 
 Required release assets (built and uploaded by
-`.github/workflows/release.yml`):
+`.github/workflows/release.yml` — note: currently shipped as `release.yml.disabled`;
+releases are cut manually via `scripts/cut-release.ps1`):
 
 | Asset | Built by | Notes |
 |---|---|---|
-| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `uninstall.ps1`, `uninstall.sh`, `README.md`, `README.es.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `pyproject.toml`, `uv.lock`, `scripts/`, `skills-catalog/`, `agents/`, `config/`, `docs/`, `cockpit/`, `templates/`, `git-hooks/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. Authoritative list lives in `release.yml § Build ultron-system ZIP`. |
+| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `uninstall.ps1`, `uninstall.sh`, `README.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `pyproject.toml`, `uv.lock`, `scripts/`, `skills-catalog/`, `agents/`, `config/`, `docs/`, `cockpit/`, `templates/`, `git-hooks/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. Authoritative list lives in `release.yml § Build ultron-system ZIP`. |
 | `ultron-system-<tag>.zip.sha256` | same step | SHA-256 of the ZIP for both bootstrappers to verify. |
 | `ULTRON Control Center_<ver>_x64-setup.exe` | `tauri-action` on `windows-latest` | NSIS installer, Windows. |
 | `ULTRON Control Center_<ver>_x64_en-US.msi` | `tauri-action` on `windows-latest` | MSI installer, Windows (optional but built by default). |

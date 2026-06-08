@@ -425,3 +425,7 @@ control-center/docs/workflows-best-practices-*.md
 
 # One-shot dated cleanup scripts (not part of the product)
 cockpit/cleanup-deprecated-*.py
+
+# Headroom runtime (context compressor) -- never track
+headroom_memory.db
+.headroom/

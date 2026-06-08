@@ -3,7 +3,7 @@
 ## Overview
 
 This is the desktop Control Center for ULTRON. It bundles a Tauri 2 / React 19 /
-TypeScript / Tailwind v4 stack into a 17-tab panel that drives the cockpit
+TypeScript / Tailwind v4 stack into a multi-tab panel that drives the cockpit
 scripts under `~/.ultron/scripts/`.
 
 ## Develop
@@ -24,7 +24,8 @@ npm run tauri build
 
 Produces signed installers under `src-tauri/target/release/bundle/`
 (NSIS `.exe` + MSI on Windows; `.deb` + `.AppImage` on Linux). Public releases
-are cut by CI via `.github/workflows/release.yml` on every `v*.*.*` tag push —
+are cut manually via `scripts/cut-release.ps1` (the `.github/workflows/release.yml`
+automation is currently disabled, shipped as `release.yml.disabled`) —
 see `docs/RELEASE-PROCESS.md` for the operator-facing flow.
 
 ## Where things live
