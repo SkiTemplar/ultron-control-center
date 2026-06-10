@@ -53,6 +53,22 @@ function render(ctx) {
   if (Array.isArray(ctx.warnings) && ctx.warnings.length) {
     out.push(`warnings: ${ctx.warnings.join('; ')}`);
   }
+  // cat13 (2026-06-10): paso de mejora de prompt del sidecar. Solo el ENCUADRE
+  // y el modo (el prompt literal ya esta en el turno del usuario — no se
+  // duplica para no gastar tokens). Las preguntas solo si el prompt era vago.
+  const plan = ctx.prompt_plan;
+  if (plan && typeof plan === 'object') {
+    if (plan.suggested_mode) out.push(`suggested_mode: ${plan.suggested_mode}`);
+    const frame = String(plan.improved_prompt || '');
+    const idx = frame.indexOf('[encuadre');
+    if (idx >= 0) out.push(`prompt_frame: ${frame.slice(idx)}`);
+    if (Array.isArray(plan.clarifying_questions) && plan.clarifying_questions.length) {
+      out.push(`clarify_first: ${plan.clarifying_questions.join(' | ')}`);
+    }
+    if (Array.isArray(plan.success_criteria) && plan.success_criteria.length) {
+      out.push(`success_criteria: ${plan.success_criteria.join(' | ')}`);
+    }
+  }
   out.push('</orchestration-context>');
   return out.join('\n');
 }

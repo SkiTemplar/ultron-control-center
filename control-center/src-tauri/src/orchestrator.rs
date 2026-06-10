@@ -66,6 +66,26 @@ pub struct OrchestrationContext {
     /// `project_id` is set AND the prompt explicitly asks about another project
     /// (see `detect_cross_project`). Surfaced so the hook/UI can show it triggered.
     pub cross_project: bool,
+    /// Mejora de prompt (cat13 / pilar 6, 2026-06-10): plan determinista que
+    /// convierte el prompt en una tarea ejecutable — reescritura con el
+    /// encuadre del intent, modo sugerido, preguntas de clarificacion si es
+    /// demasiado vago, y criterios de exito. Sin LLM (<1ms), siempre presente.
+    pub prompt_plan: PromptPlan,
+}
+
+/// Salida del paso de mejora de prompt (diseño A de CONTINUAR.md 2026-06-08:
+/// paso en `orchestrate()` del sidecar, visible en el visor y en el hook —
+/// NO una skill huerfana). Rule-based: barato, reproducible, sin red.
+#[derive(Debug, Clone, Serialize)]
+pub struct PromptPlan {
+    /// Prompt reescrito con el encuadre de trabajo del intent detectado.
+    pub improved_prompt: String,
+    /// Modo ULTRON sugerido: low | medium | high | ultra.
+    pub suggested_mode: String,
+    /// Preguntas a responder antes de ejecutar cuando el prompt es vago.
+    pub clarifying_questions: Vec<String>,
+    /// Criterios de exito derivados del intent (verificables, no decorativos).
+    pub success_criteria: Vec<String>,
 }
 
 struct IntentRule {
@@ -1029,6 +1049,122 @@ fn rank_skills(hits: Vec<catalog::CatalogHit>, intent: &str, keep: usize) -> Vec
 }
 
 /// Build the orchestration context for a prompt. Pure read — writes no memory.
+/// Paso de mejora de prompt (cat13). Determinista y rapido: clasifica la
+/// vaguedad, sugiere el modo ULTRON y reescribe el prompt con el encuadre de
+/// trabajo del intent. El texto original SIEMPRE va incluido literal — el
+/// feedback del usuario es el entregable, la mejora solo lo enmarca.
+pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
+    let p = prompt.trim();
+    let lower = p.to_lowercase();
+    let words = p.split_whitespace().count();
+
+    // --- Vaguedad: prompt corto con verbo generico y sin referente concreto ---
+    let vague_verbs = [
+        "arregla", "arreglalo", "mejora", "mejoralo", "corrige", "corrigelo", "revisa", "hazlo",
+        "fix", "improve", "optimiza",
+    ];
+    let has_vague_verb = vague_verbs.iter().any(|v| lower.contains(v));
+    let has_concrete_ref = p.contains('/')
+        || p.contains('\\')
+        || p.contains('.')
+        || p.contains('_')
+        || p.chars().any(|c| c.is_ascii_digit());
+    let mut clarifying_questions = Vec::new();
+    if words <= 5 && has_vague_verb && !has_concrete_ref {
+        clarifying_questions.push("¿Que archivo, modulo o pantalla exactamente?".to_string());
+        clarifying_questions
+            .push("¿Cual es el comportamiento esperado vs el actual?".to_string());
+        clarifying_questions
+            .push("¿Hay un error/log concreto que lo evidencie?".to_string());
+    }
+
+    // --- Modo sugerido: escalado por alcance, no por longitud bruta ---
+    let big_scope = [
+        "todo el repo",
+        "toda la app",
+        "arquitectura",
+        "rediseña",
+        "rediseñar",
+        "migra",
+        "migracion",
+        "refactor masivo",
+        "entire",
+        "whole repo",
+        "auditoria",
+        "audita",
+    ]
+    .iter()
+    .any(|k| lower.contains(k));
+    let multi_step = lower.contains(" y luego ")
+        || lower.contains(" despues ")
+        || lower.contains("1)")
+        || lower.contains("1.");
+    let suggested_mode = if big_scope && (multi_step || words > 40) {
+        "ultra"
+    } else if big_scope || multi_step || matches!(intent, "security" | "performance") {
+        "high"
+    } else if words <= 4 && matches!(intent, "docs" | "learning" | "general") {
+        "low"
+    } else {
+        "medium"
+    }
+    .to_string();
+
+    // --- Reescritura con el encuadre del intent (familias) ---
+    let (frame, criteria): (&str, &[&str]) = match intent {
+        "bug_fix" | "debug" => (
+            "Diagnostica y corrige. Reproduce el fallo ANTES de tocar codigo; identifica la causa raiz, no el sintoma; añade un test que falle sin el fix (caso negativo); verifica en runtime.",
+            &["el fallo reproducido deja de ocurrir", "test de regresion en verde", "0 cambios fuera del alcance del bug"],
+        ),
+        "feature" => (
+            "Implementa la feature. Antes de codear: localiza patrones existentes (codegraph/grep) y reusa; define el corte minimo; tests primero; cablea backend Y consumidor UI (nada sin punto de consumo).",
+            &["build verde (cargo/tsc/tests)", "la feature tiene consumidor real, no solo comando registrado", "docs actualizadas si cambia el contrato"],
+        ),
+        "security" => (
+            "Auditoria de seguridad. OWASP, secretos hardcodeados, validacion de input en limites, inyeccion; evidencia archivo:linea + severidad; confirma cada hallazgo en runtime antes de parchear.",
+            &["0 CRITICAL sin resolver", "cada hallazgo con evidencia verificable", "secretos expuestos rotados"],
+        ),
+        "research" => (
+            "Investiga. Busca implementaciones existentes primero (GitHub, registries, docs primarias); compara >=3 alternativas con criterios explicitos; cierra con recomendacion y trade-offs.",
+            &["fuentes citadas y verificables", "comparativa con criterios, no opiniones", "recomendacion accionable"],
+        ),
+        "learning" => (
+            "Explica a nivel ingeniero, con un ejemplo minimo ejecutable y los gotchas especificos del proyecto si aplican.",
+            &["el ejemplo compila/corre", "sin afirmaciones no verificadas"],
+        ),
+        "testing" => (
+            "Escribe tests que cazarian bugs reales (no smoke vacios): caso feliz + bordes + caso negativo; sigue el framework y convenciones del repo.",
+            &["tests fallan si se rompe el comportamiento", "suite completa en verde"],
+        ),
+        "refactor" => (
+            "Refactoriza preservando comportamiento: tests verdes antes y despues, diff minimo, sin features nuevas de contrabando.",
+            &["mismos tests verdes pre/post", "complejidad/duplicacion reducida medible"],
+        ),
+        "performance" => (
+            "Optimiza con medicion: perfila ANTES, ataca el hot-path evidenciado, mide despues; nada de micro-optimizar sin datos.",
+            &["mejora medida con numeros antes/despues", "sin regresion funcional"],
+        ),
+        "docs" => (
+            "Documenta sin mentir: cada afirmacion contrastada con el codigo actual; ejemplos que funcionan; borra lo obsoleto en vez de acumular.",
+            &["0 afirmaciones falsas contrastables", "links/comandos verificados"],
+        ),
+        _ => (
+            "Ejecuta con verificacion en runtime: localiza primero (codegraph/grep), cambia lo minimo, verifica el resultado real antes de darlo por hecho.",
+            &["resultado verificado en runtime", "build verde"],
+        ),
+    };
+
+    let improved_prompt = format!("{p}\n\n[encuadre {intent}] {frame}");
+    let success_criteria = criteria.iter().map(|s| s.to_string()).collect();
+
+    PromptPlan {
+        improved_prompt,
+        suggested_mode,
+        clarifying_questions,
+        success_criteria,
+    }
+}
+
 pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationContext {
     let (intent, wf_id) = classify_intent(prompt);
     let known = catalog::known_agent_names();
@@ -1105,6 +1241,8 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
         "DELEGAR a los agentes reales existentes; no reinventar capacidades".to_string(),
     ];
 
+    let prompt_plan = build_prompt_plan(prompt, intent);
+
     OrchestrationContext {
         prompt: prompt.to_string(),
         route: intent.to_string(),
@@ -1117,6 +1255,7 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
         warnings,
         token_budget: TOKEN_BUDGET,
         cross_project,
+        prompt_plan,
     }
 }
 
@@ -1134,6 +1273,49 @@ pub async fn orchestrate_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// cat13 2026-06-10 — el paso de mejora de prompt: vago -> preguntas;
+    /// concreto -> sin preguntas (caso negativo); el texto original SIEMPRE
+    /// va literal dentro del prompt mejorado; el modo escala por alcance.
+    #[test]
+    fn prompt_plan_improves_vague_and_respects_concrete() {
+        // Prompt vago: preguntas de clarificacion + encuadre.
+        let vague = build_prompt_plan("arregla esto", "bug_fix");
+        assert!(
+            !vague.clarifying_questions.is_empty(),
+            "prompt vago debe generar preguntas"
+        );
+        assert!(
+            vague.improved_prompt.starts_with("arregla esto"),
+            "el texto literal del usuario abre el prompt mejorado"
+        );
+        assert!(vague.improved_prompt.contains("[encuadre bug_fix]"));
+        assert!(!vague.success_criteria.is_empty());
+
+        // Caso negativo: prompt concreto NO genera preguntas.
+        let concrete = build_prompt_plan(
+            "corrige el parse de kanban.json en kanban.rs linea 120",
+            "bug_fix",
+        );
+        assert!(
+            concrete.clarifying_questions.is_empty(),
+            "prompt concreto no debe generar preguntas"
+        );
+
+        // Escalado de modo por alcance.
+        assert_eq!(
+            build_prompt_plan("audita la arquitectura de todo el repo y luego propon fases", "security").suggested_mode,
+            "ultra"
+        );
+        assert_eq!(
+            build_prompt_plan("revisa la seguridad del endpoint de login", "security").suggested_mode,
+            "high"
+        );
+        assert_eq!(
+            build_prompt_plan("añade un boton de refresco al panel Git", "feature").suggested_mode,
+            "medium"
+        );
+    }
 
     #[test]
     fn classifies_vague_prompts_to_workflows() {

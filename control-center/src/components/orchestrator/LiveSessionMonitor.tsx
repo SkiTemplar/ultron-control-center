@@ -105,6 +105,13 @@ type OrchestrationPreview = {
   warnings: string[];
   token_budget: number;
   cross_project: boolean;
+  /** cat13: paso de mejora de prompt (encuadre + modo + clarificaciones). */
+  prompt_plan?: {
+    improved_prompt: string;
+    suggested_mode: string;
+    clarifying_questions: string[];
+    success_criteria: string[];
+  } | null;
 };
 
 const POLL_MS = 3000;
@@ -670,6 +677,43 @@ export default function LiveSessionMonitor() {
               <p className="text-[10px]" style={{ color: "#ca8a04" }}>
                 {preview.warnings.join(" · ")}
               </p>
+            )}
+            {preview.prompt_plan && (
+              <div
+                className="mt-1 flex flex-col gap-1 rounded px-2 py-1.5"
+                style={{ background: "var(--color-surface-2)", border: "1px dashed var(--color-border-strong)" }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <SectionLabel>Prompt mejorado</SectionLabel>
+                  <span
+                    className="mb-1.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase"
+                    style={{
+                      background: "rgba(168,85,247,0.12)",
+                      color: "#a855f7",
+                      border: "1px solid rgba(168,85,247,0.3)",
+                    }}
+                    title="Modo ULTRON sugerido por el paso de mejora"
+                  >
+                    {preview.prompt_plan.suggested_mode}
+                  </span>
+                </div>
+                <p
+                  className="whitespace-pre-wrap text-[10.5px]"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
+                  {preview.prompt_plan.improved_prompt}
+                </p>
+                {preview.prompt_plan.clarifying_questions.length > 0 && (
+                  <p className="text-[10px]" style={{ color: "#ca8a04" }}>
+                    Aclarar antes: {preview.prompt_plan.clarifying_questions.join(" · ")}
+                  </p>
+                )}
+                {preview.prompt_plan.success_criteria.length > 0 && (
+                  <p className="text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
+                    Éxito: {preview.prompt_plan.success_criteria.join(" · ")}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
