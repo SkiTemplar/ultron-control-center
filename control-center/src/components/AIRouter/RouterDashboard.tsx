@@ -17,6 +17,13 @@ import { ProxyControl } from "./ProxyControl";
 interface ProviderUsageRow {
   provider_id: string;
   key_present: boolean;
+  /** Último error terminal de HOY (limpio tras un éxito). F1 2026-06-10. */
+  last_error?: string | null;
+  last_error_at?: string | null;
+  /** Fallos terminales consecutivos hoy (0 tras cualquier éxito). */
+  consecutive_failures?: number;
+  /** Instante RFC3339 hasta el que route() soft-skipea este provider. */
+  cooldown_until?: string | null;
 }
 
 interface RouterUsageSummary {
@@ -111,6 +118,62 @@ export function RouterDashboard() {
           color={routesTotal === 0 ? undefined : attemptColor}
         />
       </div>
+
+      {/* Salud de providers (F1): POR QUÉ falla cada provider, no solo cuánto.
+          Solo se pinta cuando hay algo que contar (error reciente o cooldown). */}
+      {summary && summary.providers.some((p) => p.last_error || p.cooldown_until) && (
+        <div className="px-6 pt-2">
+          <h2
+            className="mb-2 text-[13px] font-semibold"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Salud de providers (hoy)
+          </h2>
+          <div className="space-y-1">
+            {summary.providers
+              .filter((p) => p.last_error || p.cooldown_until)
+              .map((p) => {
+                const cooling =
+                  p.cooldown_until && new Date(p.cooldown_until).getTime() > Date.now();
+                return (
+                  <div
+                    key={p.provider_id}
+                    className="flex items-start gap-2 rounded-md px-3 py-2 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+                      {p.provider_id}
+                    </span>
+                    {cooling && (
+                      <span
+                        className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                        style={{ background: "var(--color-warn)", color: "#000" }}
+                        title={`En cooldown hasta ${p.cooldown_until}`}
+                      >
+                        cooldown
+                      </span>
+                    )}
+                    {(p.consecutive_failures ?? 0) > 0 && (
+                      <span style={{ color: "var(--color-text-tertiary)" }}>
+                        ×{p.consecutive_failures} seguidos
+                      </span>
+                    )}
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      style={{ color: "var(--color-danger)" }}
+                      title={p.last_error ?? undefined}
+                    >
+                      {p.last_error ?? ""}
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       {/* Savings + per-model breakdown. */}
       <RouterMetrics />

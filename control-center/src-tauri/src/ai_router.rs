@@ -294,7 +294,35 @@ pub struct ClassMetrics {
     /// first call of the day resets them cleanly — no read-before-write bug.
     #[serde(default)]
     pub date: String,
+    /// Last terminal failure message (truncated, redacted upstream). Cleared
+    /// on the next success. F1 2026-06-10: before this field metrics only kept
+    /// COUNTS of failures — 164 gemini-cli failures with zero record of WHY.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// RFC3339 timestamp of the last terminal failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error_at: Option<String>,
+    /// RFC3339 timestamp of the last success.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_at: Option<String>,
+    /// Terminal failures in a row (reset on success). Drives the health gate.
+    #[serde(default)]
+    pub consecutive_failures: u64,
+    /// Health gate: route() soft-skips this provider until this RFC3339
+    /// instant once `consecutive_failures` reaches the threshold. Soft = if
+    /// EVERY other provider in a zone chain also failed, cooled providers are
+    /// still tried as last resort (availability over gating).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooldown_until: Option<String>,
 }
+
+/// Health gate thresholds (F1 2026-06-10). After N consecutive terminal
+/// failures a provider enters a cooldown window during which route() skips it
+/// (soft-skip — see `ClassMetrics::cooldown_until`). Stops the router from
+/// hammering a provider that is down/quota-exhausted (gemini-cli was attempted
+/// 164 times in a row with 0 successes, paying 1-2.5s per attempt).
+const HEALTH_GATE_CONSECUTIVE_FAILURES: u64 = 3;
+const HEALTH_GATE_COOLDOWN_MINUTES: i64 = 15;
 
 /// Token usage extraido de la respuesta de un proveedor.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -1451,6 +1479,7 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 mode: None,
                 retry_count: 0,
                 fail_reason: None,
+                error: None,
             });
             TestResult {
                 ok: true,
@@ -1473,6 +1502,7 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 mode: None,
                 retry_count: 0,
                 fail_reason: None,
+                error: Some(e.as_str()),
             });
             TestResult {
                 ok: false,
@@ -1903,6 +1933,83 @@ fn cli_invocation_args<'a>(is_codex: bool, prompt: &'a str, model: &'a str) -> V
     }
 }
 
+/// Hard wall-clock limit for a CLI provider call. Without it, `call_cli`
+/// blocked forever on a CLI awaiting interactive input, and there was no
+/// Timeout classification at all (F1 2026-06-10). gemini-cli takes ~20-25s
+/// of agent startup per call (measured), so the default leaves headroom.
+/// Override with `ULTRON_CLI_TIMEOUT_S`.
+fn cli_timeout() -> Duration {
+    let secs = std::env::var("ULTRON_CLI_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(90);
+    Duration::from_secs(secs)
+}
+
+/// Run a prepared `Command` with piped stdio and a wall-clock timeout.
+///
+/// stdout/stderr are drained on background threads (so a chatty child can
+/// never deadlock on a full pipe), and on timeout the child is killed and an
+/// `ErrorKind::TimedOut` error returned — `call_cli` maps it to
+/// `FailReason::Timeout` so the dashboard distinguishes hangs from errors.
+fn run_with_timeout(
+    mut cmd: std::process::Command,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(ref mut p) = stdout_pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(ref mut p) = stderr_pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait()? {
+            Some(status) => break status,
+            None if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                // Drain the reader threads so they do not leak.
+                let _ = out_reader.join();
+                let _ = err_reader.join();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("CLI call exceeded {}s timeout", timeout.as_secs()),
+                ));
+            }
+            None => std::thread::sleep(Duration::from_millis(100)),
+        }
+    };
+
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 /// Invoke a CLI provider synchronously and return its stdout on success.
 /// CLI providers do not expose token counters, so usage stays at zero.
 ///
@@ -1966,25 +2073,31 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
             .collect::<Vec<_>>()
             .join(" ");
         let shell_arg = format!("{safe_cmd} {joined}");
-        std::process::Command::new("cmd")
-            .args(["/C", &shell_arg])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| (format!("spawn cmd /C {cmd}: {e}"), FailReason::Error))?
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", &shell_arg]);
+        run_with_timeout(command, cli_timeout()).map_err(|e| {
+            let reason = if e.kind() == std::io::ErrorKind::TimedOut {
+                FailReason::Timeout
+            } else {
+                FailReason::Error
+            };
+            (format!("cmd /C {cmd}: {e}"), reason)
+        })?
     };
 
     #[cfg(not(target_os = "windows"))]
     let output = {
         let args = cli_invocation_args(is_codex, prompt, model);
-        std::process::Command::new(cmd)
-            .args(&args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| (format!("spawn {cmd}: {e}"), FailReason::Error))?
+        let mut command = std::process::Command::new(cmd);
+        command.args(&args);
+        run_with_timeout(command, cli_timeout()).map_err(|e| {
+            let reason = if e.kind() == std::io::ErrorKind::TimedOut {
+                FailReason::Timeout
+            } else {
+                FailReason::Error
+            };
+            (format!("{cmd}: {e}"), reason)
+        })?
     };
 
     if !output.status.success() {
@@ -2177,13 +2290,17 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let metrics_snapshot = load_metrics().unwrap_or_default();
 
     let mut last_error = String::new();
-    let chain = std::iter::once(&zone.primary).chain(zone.fallbacks.iter());
+    let chain: Vec<&ZoneAssignment> = std::iter::once(&zone.primary)
+        .chain(zone.fallbacks.iter())
+        .collect();
 
-    // Track which position in the chain ultimately succeeds so we can
-    // distinguish a true fallback (index > 0) from a primary success.
-    let mut chain_index: usize = 0;
+    // Health gate (F1 2026-06-10): providers in an open cooldown window are
+    // soft-skipped on the first pass and retried as LAST RESORT only if every
+    // other provider in the chain failed — availability beats gating.
+    let now_utc = chrono::Utc::now();
+    let mut cooled: Vec<(usize, &ZoneAssignment)> = Vec::new();
 
-    'provider: for assignment in chain {
+    for (chain_index, assignment) in chain.iter().copied().enumerate() {
         // Skip providers that have no usable API key. We record a soft error
         // in `last_error` so the final "all providers failed" message is
         // informative, but we do NOT call `bump_metrics` for skipped entries
@@ -2220,6 +2337,33 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
             }
         }
 
+        // --- HEALTH GATE (F1 2026-06-10) ---------------------------------
+        // Soft-skip providers inside an open cooldown window (N consecutive
+        // terminal failures today). They are collected and retried after the
+        // loop as last resort if nothing else succeeded.
+        if let Some(cm) = metrics_snapshot.by_class.get(&assignment.provider_id) {
+            if cm.date == today {
+                if let Some(until) = cm.cooldown_until.as_deref() {
+                    let still_cooling = chrono::DateTime::parse_from_rfc3339(until)
+                        .map(|t| t > now_utc)
+                        .unwrap_or(false);
+                    if still_cooling {
+                        last_error = format!(
+                            "[{}/{}] soft-skipped — health cooldown until {} \
+                             ({} consecutive failures; last: {})",
+                            assignment.provider_id,
+                            assignment.model,
+                            until,
+                            cm.consecutive_failures,
+                            cm.last_error.as_deref().unwrap_or("?")
+                        );
+                        cooled.push((chain_index, assignment));
+                        continue;
+                    }
+                }
+            }
+        }
+
         // --- 429 BACKOFF + RETRY (2026-06-05) --------------------------------
         // Paid-tier providers retry the same provider up to MAX_RETRIES times
         // (see `try_assignment_call`'s `with_retry`) with jitter-backoff before
@@ -2237,66 +2381,33 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         // their 429s are transient rate-limits, not quota exhaustion.
         // Free-tier providers: on a 429 we skip immediately (no retry budget).
         // Paid-tier providers: retried inside try_assignment_call via with_retry.
-        let has_free_tier_cap = free_tier_daily_limit(&assignment.provider_id).is_some();
+        match attempt_assignment(
+            assignment,
+            prompt,
+            zone.system_prompt.as_deref(),
+            cost_of(&assignment.provider_id),
+            primary_cost,
+            chain_index > 0,
+        ) {
+            Ok(text) => return Ok(text),
+            Err(e) => last_error = e,
+        }
+    }
 
-        let started = Instant::now();
-        let outcome = try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
-        let latency_ms = started.elapsed().as_millis() as u64;
-
-        // Detect a 429 / rate-limit. try_assignment_call now classifies via
-        // FailReason, but the legacy string-heuristic is kept for the
-        // quota short-circuit path below (free-tier detection).
-        let is_rate_limited = outcome.as_ref().err().is_some_and(|(_, reason)| {
-            matches!(reason, FailReason::RateLimit | FailReason::Overloaded)
-        });
-
-        let success = outcome.is_ok();
-        let out_tokens = outcome
-            .as_ref()
-            .map(|(c, _)| c.usage.output_tokens)
-            .unwrap_or(0);
-        // KIRKARDO P2: retry_count = retries consumed inside with_retry (0 on
-        // 1-shot success or CLI call).  fail_reason is ONLY set on terminal
-        // failure — never on a per-attempt basis — so fail_reasons in
-        // RouterMetrics counts final outcomes, not retry noise.
-        let retry_count = outcome.as_ref().map(|(_, r)| *r).unwrap_or(0);
-        let fail_reason = outcome.as_ref().err().map(|(_, reason)| *reason);
-
-        // Persist metrics for every assignment attempt — only way the dashboard
-        // counts move at all.  Best-effort: a metrics write failure does not abort.
-        let _ = bump_metrics(MetricSample {
-            provider_id: &assignment.provider_id,
-            model: &assignment.model,
-            success,
-            output_tokens: out_tokens,
-            cost_per_mtok: cost_of(&assignment.provider_id),
-            primary_cost_per_mtok: primary_cost,
-            latency_ms,
-            mode: None,
-            retry_count,
-            fail_reason,
-        });
-
-        match outcome {
-            Ok((co, _retry_count)) => {
-                // Record the completed route and whether it required a fallback.
-                let _ = load_metrics_and_bump_route_counters(chain_index > 0);
-                return Ok(co.text);
-            }
-            Err((e, _reason)) => {
-                // Free-tier 429 short-circuit: give a specific message.
-                last_error = if is_rate_limited && has_free_tier_cap {
-                    format!(
-                        "[{}/{}] 429 on free-tier provider — quota exhausted, \
-                         skipping without backoff",
-                        assignment.provider_id, assignment.model
-                    )
-                } else {
-                    format!("[{}/{}] {}", assignment.provider_id, assignment.model, e)
-                };
-                chain_index = chain_index.saturating_add(1);
-                continue 'provider;
-            }
+    // Last resort: every non-cooled provider failed or was skipped — try the
+    // cooled ones anyway (soft gate). A success here clears their cooldown via
+    // the health bookkeeping in apply_metric_sample.
+    for (chain_index, assignment) in cooled {
+        match attempt_assignment(
+            assignment,
+            prompt,
+            zone.system_prompt.as_deref(),
+            cost_of(&assignment.provider_id),
+            primary_cost,
+            chain_index > 0,
+        ) {
+            Ok(text) => return Ok(text),
+            Err(e) => last_error = e,
         }
     }
     // All providers failed — still count as a completed route (fell back,
@@ -2307,6 +2418,85 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         "all providers failed for zone '{}': {}",
         zone_id, last_error
     ))
+}
+
+/// One provider attempt inside [`route`]'s chain walk: calls the provider,
+/// persists metrics (including the terminal error message for the dashboard),
+/// and bumps the route counters on success.
+///
+/// Returns `Ok(text)` on success; `Err(formatted_last_error)` on failure so
+/// the caller can keep walking the chain.
+fn attempt_assignment(
+    assignment: &ZoneAssignment,
+    prompt: &str,
+    system_prompt: Option<&str>,
+    cost_per_mtok: f64,
+    primary_cost_per_mtok: f64,
+    used_fallback: bool,
+) -> Result<String, String> {
+    let has_free_tier_cap = free_tier_daily_limit(&assignment.provider_id).is_some();
+
+    let started = Instant::now();
+    let outcome = try_assignment_call(assignment, prompt, system_prompt);
+    let latency_ms = started.elapsed().as_millis() as u64;
+
+    // Detect a 429 / rate-limit. try_assignment_call classifies via FailReason;
+    // the free-tier short-circuit path below needs it for its specific message.
+    let is_rate_limited = outcome.as_ref().err().is_some_and(|(_, reason)| {
+        matches!(reason, FailReason::RateLimit | FailReason::Overloaded)
+    });
+
+    let success = outcome.is_ok();
+    let out_tokens = outcome
+        .as_ref()
+        .map(|(c, _)| c.usage.output_tokens)
+        .unwrap_or(0);
+    // KIRKARDO P2: retry_count = retries consumed inside with_retry (0 on
+    // 1-shot success or CLI call).  fail_reason is ONLY set on terminal
+    // failure — never on a per-attempt basis — so fail_reasons in
+    // RouterMetrics counts final outcomes, not retry noise.
+    let retry_count = outcome.as_ref().map(|(_, r)| *r).unwrap_or(0);
+    let fail_reason = outcome.as_ref().err().map(|(_, reason)| *reason);
+    let error_msg = outcome.as_ref().err().map(|(e, _)| e.as_str());
+
+    // Persist metrics for every assignment attempt — only way the dashboard
+    // counts move at all.  Best-effort: a metrics write failure does not abort.
+    let _ = bump_metrics(MetricSample {
+        provider_id: &assignment.provider_id,
+        model: &assignment.model,
+        success,
+        output_tokens: out_tokens,
+        cost_per_mtok,
+        primary_cost_per_mtok,
+        latency_ms,
+        mode: None,
+        retry_count,
+        fail_reason,
+        error: error_msg,
+    });
+
+    match outcome {
+        Ok((co, _retry_count)) => {
+            // Record the completed route and whether it required a fallback.
+            let _ = load_metrics_and_bump_route_counters(used_fallback);
+            Ok(co.text)
+        }
+        Err((e, _reason)) => {
+            // Free-tier 429 short-circuit: give a specific message.
+            if is_rate_limited && has_free_tier_cap {
+                Err(format!(
+                    "[{}/{}] 429 on free-tier provider — quota exhausted, \
+                     skipping without backoff",
+                    assignment.provider_id, assignment.model
+                ))
+            } else {
+                Err(format!(
+                    "[{}/{}] {}",
+                    assignment.provider_id, assignment.model, e
+                ))
+            }
+        }
+    }
 }
 
 /// Try a single provider+model assignment with up to 3 retries for transient
@@ -2451,6 +2641,10 @@ struct MetricSample<'a> {
     /// When the call ultimately failed after all retries, the classified reason.
     /// Never `Some` for a successful call regardless of retry count.
     fail_reason: Option<FailReason>,
+    /// Terminal failure message (the actual error string), recorded into
+    /// `ClassMetrics::last_error` so the dashboard can show WHY a provider
+    /// fails, not just how often. `None` on success.
+    error: Option<&'a str>,
 }
 
 /// Mutate the persisted metrics so the dashboard moves. Best-effort (un fallo
@@ -2496,6 +2690,26 @@ fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<'_>, today:
         pm.latency_ms_avg = s.latency_ms;
     } else {
         pm.latency_ms_avg = (pm.latency_ms_avg + s.latency_ms) / 2;
+    }
+
+    // --- Health bookkeeping (F1 2026-06-10) ---
+    // Success clears the failure streak and any cooldown; a terminal failure
+    // records the actual error message + timestamp and, after the threshold,
+    // opens a cooldown window that route() soft-skips.
+    let now = chrono::Utc::now();
+    if s.success {
+        pm.last_success_at = Some(now.to_rfc3339());
+        pm.consecutive_failures = 0;
+        pm.cooldown_until = None;
+        pm.last_error = None;
+    } else {
+        pm.last_error = Some(truncate(s.error.unwrap_or("unknown error"), 300).to_string());
+        pm.last_error_at = Some(now.to_rfc3339());
+        pm.consecutive_failures = pm.consecutive_failures.saturating_add(1);
+        if pm.consecutive_failures >= HEALTH_GATE_CONSECUTIVE_FAILURES {
+            pm.cooldown_until =
+                Some((now + chrono::Duration::minutes(HEALTH_GATE_COOLDOWN_MINUTES)).to_rfc3339());
+        }
     }
 
     // --- Per-model (by_model), key = "provider::model" ---
@@ -2807,6 +3021,15 @@ pub struct ProviderUsageRow {
     pub free_tier_limit: Option<u64>,
     /// Requests routed to this provider TODAY (UTC). 0 if none yet today.
     pub free_tier_used_today: u64,
+    /// Last terminal failure message TODAY (F1 health surface). None when the
+    /// provider has not failed today or succeeded since.
+    pub last_error: Option<String>,
+    /// RFC3339 instant of the last terminal failure today.
+    pub last_error_at: Option<String>,
+    /// Consecutive terminal failures today (0 after any success).
+    pub consecutive_failures: u64,
+    /// RFC3339 instant until which route() soft-skips this provider.
+    pub cooldown_until: Option<String>,
     /// Percentage of the daily free tier consumed today (0..=100+). None when
     /// there is no known free-tier limit for this provider.
     pub free_tier_pct: Option<f64>,
@@ -2922,6 +3145,10 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
             free_tier_limit,
             free_tier_used_today: used_today,
             free_tier_pct,
+            last_error: cm.last_error.clone(),
+            last_error_at: cm.last_error_at.clone(),
+            consecutive_failures: cm.consecutive_failures,
+            cooldown_until: cm.cooldown_until.clone(),
         });
     }
 
@@ -3852,7 +4079,52 @@ mod tests {
             mode: None,
             retry_count: 0,
             fail_reason: None,
+            error: None,
         }
+    }
+
+    /// F1 2026-06-10 — health gate: 3 fallos terminales consecutivos abren
+    /// cooldown (cooldown_until Some + last_error con el mensaje real); un
+    /// exito posterior lo limpia todo (caso negativo incluido).
+    #[test]
+    fn apply_metric_sample_health_gate_opens_and_clears_cooldown() {
+        let mut m = RouterMetrics::default();
+        let day = "2026-06-10";
+
+        let mut fail = metric_sample("gemini-cli", "gemini-2.5-flash");
+        fail.success = false;
+        fail.error = Some("gemini exited 1: quota exceeded");
+
+        // 2 fallos: streak sube pero SIN cooldown todavia (caso negativo).
+        apply_metric_sample(&mut m, &fail, day);
+        apply_metric_sample(&mut m, &fail, day);
+        let cm = &m.by_class["gemini-cli"];
+        assert_eq!(cm.consecutive_failures, 2);
+        assert!(
+            cm.cooldown_until.is_none(),
+            "2 fallos no deben abrir cooldown (umbral=3)"
+        );
+        assert_eq!(
+            cm.last_error.as_deref(),
+            Some("gemini exited 1: quota exceeded"),
+            "el mensaje real del fallo debe persistirse"
+        );
+
+        // 3er fallo: cooldown abierto.
+        apply_metric_sample(&mut m, &fail, day);
+        let cm = &m.by_class["gemini-cli"];
+        assert_eq!(cm.consecutive_failures, 3);
+        assert!(cm.cooldown_until.is_some(), "3 fallos abren cooldown");
+        assert!(cm.last_error_at.is_some());
+
+        // Exito: streak y cooldown limpios, last_success_at poblado.
+        let ok = metric_sample("gemini-cli", "gemini-2.5-flash");
+        apply_metric_sample(&mut m, &ok, day);
+        let cm = &m.by_class["gemini-cli"];
+        assert_eq!(cm.consecutive_failures, 0, "exito resetea el streak");
+        assert!(cm.cooldown_until.is_none(), "exito cierra el cooldown");
+        assert!(cm.last_error.is_none(), "exito limpia last_error");
+        assert!(cm.last_success_at.is_some());
     }
 
     /// KIRKARDO R4 P2 FIX — by_model resets on the UTC day boundary AND does NOT
