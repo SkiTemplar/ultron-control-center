@@ -1891,7 +1891,13 @@ fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
 /// gemini uses `-p <prompt> --model <model>` (KIRKARDO AI-Routing fix, 2026-06-07).
 fn cli_invocation_args<'a>(is_codex: bool, prompt: &'a str, model: &'a str) -> Vec<&'a str> {
     if is_codex {
-        vec!["exec", prompt, "--sandbox", "read-only", "--skip-git-repo-check"]
+        vec![
+            "exec",
+            prompt,
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+        ]
     } else {
         vec!["-p", prompt, "--model", model]
     }
@@ -1950,7 +1956,13 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
         let joined = parts
             .iter()
             .enumerate()
-            .map(|(i, tok)| if i == 1 { format!("\"{tok}\"") } else { (*tok).to_string() })
+            .map(|(i, tok)| {
+                if i == 1 {
+                    format!("\"{tok}\"")
+                } else {
+                    (*tok).to_string()
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ");
         let shell_arg = format!("{safe_cmd} {joined}");
@@ -2954,9 +2966,18 @@ mod tests {
         // prompt and NO --model. gemini keeps `-p <prompt> --model <model>`.
         let codex = cli_invocation_args(true, "hello world", "gpt-5");
         assert_eq!(codex[0], "exec", "codex must use the exec subcommand");
-        assert_eq!(codex[1], "hello world", "prompt must be positional for codex");
-        assert!(!codex.contains(&"-p"), "codex must NOT receive -p (it means --profile)");
-        assert!(!codex.contains(&"--model"), "codex rejects explicit models on a ChatGPT account");
+        assert_eq!(
+            codex[1], "hello world",
+            "prompt must be positional for codex"
+        );
+        assert!(
+            !codex.contains(&"-p"),
+            "codex must NOT receive -p (it means --profile)"
+        );
+        assert!(
+            !codex.contains(&"--model"),
+            "codex rejects explicit models on a ChatGPT account"
+        );
         assert!(codex.contains(&"--sandbox") && codex.contains(&"read-only"));
 
         let gemini = cli_invocation_args(false, "hello world", "gemini-2.5-flash");

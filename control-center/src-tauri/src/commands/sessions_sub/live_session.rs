@@ -37,7 +37,9 @@ fn read_jsonl_tail<T: serde::de::DeserializeOwned>(path: &Path, limit: usize) ->
     };
     let file_len = file.seek(SeekFrom::End(0)).unwrap_or(0);
     // Cola suficiente para `limit` lineas con margen (x4) para lineas malas.
-    let want = (limit as u64 + 4).saturating_mul(AVG_LINE_BYTES).saturating_mul(4);
+    let want = (limit as u64 + 4)
+        .saturating_mul(AVG_LINE_BYTES)
+        .saturating_mul(4);
     let start = file_len.saturating_sub(want);
     if file.seek(SeekFrom::Start(start)).is_err() {
         return Vec::new();
@@ -166,10 +168,8 @@ pub fn live_session_feed(limit: Option<usize>) -> Result<LiveSessionFeed, String
     let n = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let logs = claude_logs_dir().ok_or("no home dir")?;
 
-    let orchestrations =
-        read_jsonl_tail::<OrchestrateLogEntry>(&logs.join("orchestrate.jsonl"), n);
-    let routing =
-        read_jsonl_tail::<RoutingLogEntry>(&logs.join("routing-dispatcher.jsonl"), n);
+    let orchestrations = read_jsonl_tail::<OrchestrateLogEntry>(&logs.join("orchestrate.jsonl"), n);
+    let routing = read_jsonl_tail::<RoutingLogEntry>(&logs.join("routing-dispatcher.jsonl"), n);
     let delegations = list_delegations_inner(n).unwrap_or_default();
 
     Ok(LiveSessionFeed {

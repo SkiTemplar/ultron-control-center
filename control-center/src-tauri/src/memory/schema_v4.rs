@@ -292,7 +292,6 @@ pub fn compute_edge_hash(source: &str, target: &str, kind: &str, file: Option<&s
     format!("{hash:016x}")
 }
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -673,5 +672,4 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1, "backward-compat insert_edge must work");
     }
-
 }

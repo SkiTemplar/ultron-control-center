@@ -137,7 +137,11 @@ fn value_to_epoch_secs(v: &serde_json::Value) -> Option<i64> {
         _ => return None,
     };
     // Values above ~1e12 are milliseconds; otherwise seconds.
-    let secs = if num > 1.0e12 { (num / 1000.0) as i64 } else { num as i64 };
+    let secs = if num > 1.0e12 {
+        (num / 1000.0) as i64
+    } else {
+        num as i64
+    };
     // Sanity floor: after 2001-09 (1e9) to reject 0/garbage.
     if secs > 1_000_000_000 {
         Some(secs)

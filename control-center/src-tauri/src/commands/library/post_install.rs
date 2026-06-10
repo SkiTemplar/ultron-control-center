@@ -110,7 +110,10 @@ fn run_sync_registry() -> Result<SyncRegistryResult, String> {
         .map(|n| n as u32)
         .unwrap_or(0);
 
-    Ok(SyncRegistryResult { summary, newly_detected })
+    Ok(SyncRegistryResult {
+        summary,
+        newly_detected,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +197,7 @@ pub fn post_install_integrate(
 
     match capture_install_memory(repo_label, asset_names, project_id) {
         Ok(id) => report.memory_candidate_id = Some(id),
-        Err(e) => report
-            .warnings
-            .push(format!("memory capture skipped: {e}")),
+        Err(e) => report.warnings.push(format!("memory capture skipped: {e}")),
     }
 
     report
@@ -313,13 +314,22 @@ mod tests {
 
         let agents_dir = root.join(".claude").join("agents");
         std::fs::create_dir_all(&agents_dir).expect("mkdir agents");
-        std::fs::write(agents_dir.join("my-agent.md"), "---\nname: my-agent\n---\nx")
-            .expect("write agent");
+        std::fs::write(
+            agents_dir.join("my-agent.md"),
+            "---\nname: my-agent\n---\nx",
+        )
+        .expect("write agent");
         std::fs::write(agents_dir.join("README.md"), "ignore").expect("write readme");
 
         let assets = scan_repo_assets(root);
-        assert!(assets.contains(&"my-skill".to_string()), "skill: {assets:?}");
-        assert!(assets.contains(&"my-agent".to_string()), "agent: {assets:?}");
+        assert!(
+            assets.contains(&"my-skill".to_string()),
+            "skill: {assets:?}"
+        );
+        assert!(
+            assets.contains(&"my-agent".to_string()),
+            "agent: {assets:?}"
+        );
         assert!(
             !assets.contains(&"README".to_string()),
             "README must be skipped: {assets:?}"

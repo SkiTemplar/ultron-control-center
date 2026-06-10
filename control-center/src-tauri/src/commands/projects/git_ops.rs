@@ -16,7 +16,11 @@ fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     let combined = format!("{stdout}{stderr}").trim().to_string();
     if out.status.success() || !stdout.is_empty() {
-        Ok(if combined.is_empty() { "OK".to_string() } else { combined })
+        Ok(if combined.is_empty() {
+            "OK".to_string()
+        } else {
+            combined
+        })
     } else {
         Err(if combined.is_empty() {
             format!("git exited with code {:?}", out.status.code())

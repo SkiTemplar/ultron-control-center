@@ -768,18 +768,11 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
     // is where the user's real MCPs actually live; the older sources only
     // covered settings.json + plugin/project .mcp.json files.
     for (origin, name, cfg) in collect_claude_json_mcps().into_iter() {
-        let plugin = origin
-            .strip_prefix("project:")
-            .map(|p| p.to_string());
+        let plugin = origin.strip_prefix("project:").map(|p| p.to_string());
         let key = (name.clone(), origin.clone());
         if seen.insert(key) {
             out.push(build_mcp_info(
-                &name,
-                &cfg,
-                origin,
-                plugin,
-                &health,
-                &fallbacks,
+                &name, &cfg, origin, plugin, &health, &fallbacks,
             ));
         }
     }
@@ -1605,6 +1598,9 @@ mod tests {
         assert_eq!(normalize_mcp_name("railway-mcp-server"), "railway");
         assert_eq!(normalize_mcp_name("superpowers-mcp"), "superpowers");
         assert_eq!(normalize_mcp_name("mcp-server-github"), "github");
-        assert_eq!(normalize_mcp_name("Sequential-Thinking"), "sequential-thinking");
+        assert_eq!(
+            normalize_mcp_name("Sequential-Thinking"),
+            "sequential-thinking"
+        );
     }
 }

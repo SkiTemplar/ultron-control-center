@@ -141,11 +141,9 @@ Apps to classify:\n{app_list}"
 
     // Call the AI Router synchronously (route() is blocking).
     // We offload to a blocking thread so we don't block the async executor.
-    let ai_raw = tokio::task::spawn_blocking(move || {
-        crate::ai_router::route("light", &prompt)
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?;
+    let ai_raw = tokio::task::spawn_blocking(move || crate::ai_router::route("light", &prompt))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?;
 
     let ai_text = match ai_raw {
         Ok(t) => t,

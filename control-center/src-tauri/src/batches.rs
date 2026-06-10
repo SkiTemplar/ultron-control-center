@@ -242,10 +242,7 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
             continue;
         }
         // Skip the queue files — those are managed by clear_queue_inner below.
-        let fname = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if fname == "queue.jsonl"
             || fname == "queue-pending.jsonl"
             || fname.ends_with(".draining")

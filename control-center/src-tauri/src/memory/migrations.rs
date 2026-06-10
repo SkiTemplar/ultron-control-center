@@ -12,9 +12,7 @@
 
 use serde::Serialize;
 
-use super::model::{
-    estimate_tokens, MemoryItem, MemoryType, Scope, Source, Status,
-};
+use super::model::{estimate_tokens, MemoryItem, MemoryType, Scope, Source, Status};
 use super::service::MemoryService;
 use super::sqlite_store as store;
 use super::MemoryError;
