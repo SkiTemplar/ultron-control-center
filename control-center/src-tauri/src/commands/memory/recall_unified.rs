@@ -271,8 +271,10 @@ pub(crate) fn assemble_pack(
         // (codebase_fact) are STRUCTURAL data for impact-analysis, not
         // conversational memory. At ~478 items they were crowding out real
         // knowledge in the recall pack. Exclude them from the conversational
-        // pack; the codegraph is consumed through its own surface
-        // (memory_impact_analysis / the dedicated UI), not the recall stream.
+        // pack; the code graph is consumed through its own surfaces: the
+        // codegraph MCP in CLI sessions and the Tauri command
+        // codegraph_summary feeding the ProjectWorkspace panel (2026-06-10;
+        // the old reference to an unwired memory_impact_analysis was a lie).
         if item.kind == crate::memory::model::MemoryType::CodebaseFact {
             discarded.push(discard("codebase_fact excluded from conversational recall"));
             continue;

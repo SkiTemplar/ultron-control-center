@@ -181,6 +181,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
   const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
+  // cat2.5 (2026-06-10): resumen REAL del grafo leido del codegraph.db por la
+  // app (codegraph_summary) — antes solo se comprobaba que el fichero existia.
+  const [cgSummary, setCgSummary] = useState<{
+    files: number;
+    nodes: number;
+    edges: number;
+    languages: [string, number][];
+    last_indexed_at: number | null;
+  } | null>(null);
   const [cgBusy, setCgBusy] = useState(false);
 
   const tabsCtx = useProjectsTabs();
@@ -209,6 +218,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
             ]);
             setGit({ state: repoState, busy: false, error: null });
             setCgIndexed(indexed);
+            if (indexed) {
+              invoke<typeof cgSummary>("codegraph_summary", { path: found.path })
+                .then((s) => {
+                  if (!cancelled) setCgSummary(s);
+                })
+                .catch(() => {
+                  /* resumen opcional: el panel sigue mostrando el estado básico */
+                });
+            }
           } else {
             setError(`Proyecto ${projectId} no encontrado`);
           }
@@ -593,6 +611,24 @@ export default function ProjectWorkspace({ projectId }: Props) {
               ? "Indexado — codegraph_explore disponible"
               : "Sin índice — pulsa Indexar para construirlo"}
           </p>
+          {cgSummary && (
+            <p
+              className="text-[10.5px] tabular-nums"
+              style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
+              title={
+                cgSummary.last_indexed_at
+                  ? `Último indexado: ${new Date(cgSummary.last_indexed_at).toLocaleString()}`
+                  : undefined
+              }
+            >
+              {cgSummary.files} archivos · {cgSummary.nodes} símbolos · {cgSummary.edges} relaciones
+              {cgSummary.languages.length > 0 &&
+                ` · ${cgSummary.languages
+                  .slice(0, 3)
+                  .map(([l, n]) => `${l}:${n}`)
+                  .join(" ")}`}
+            </p>
+          )}
         </div>
 
         {/* Git repo panel — mini GitHub Desktop */}

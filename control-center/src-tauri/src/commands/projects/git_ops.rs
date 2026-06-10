@@ -144,6 +144,67 @@ pub fn codegraph_is_indexed(path: String) -> bool {
         .exists()
 }
 
+/// Resumen del grafo de código de un proyecto, leído DIRECTAMENTE del
+/// `.codegraph/codegraph.db` (read-only). Pilar 2 / cat2.5 (2026-06-10):
+/// hasta ahora la app solo comprobaba que el fichero existía y delegaba todo
+/// el consumo al MCP de las sesiones CLI — el dato existía pero la app no lo
+/// usaba (mandamiento 12). Alimenta el panel CodeGraph de ProjectWorkspace.
+#[derive(serde::Serialize)]
+pub struct CodeGraphSummary {
+    pub files: i64,
+    pub nodes: i64,
+    pub edges: i64,
+    /// (lenguaje, nº archivos), descendente.
+    pub languages: Vec<(String, i64)>,
+    /// epoch ms del último `indexed_at` — frescura del índice.
+    pub last_indexed_at: Option<i64>,
+}
+
+#[tauri::command]
+pub fn codegraph_summary(path: String) -> Result<CodeGraphSummary, String> {
+    let db = std::path::Path::new(&path)
+        .join(".codegraph")
+        .join("codegraph.db");
+    if !db.exists() {
+        return Err("proyecto sin indexar (no existe .codegraph/codegraph.db)".to_string());
+    }
+    let conn =
+        rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("abrir codegraph.db: {e}"))?;
+
+    let count = |sql: &str| -> Result<i64, String> {
+        conn.query_row(sql, [], |r| r.get(0))
+            .map_err(|e| format!("query codegraph.db: {e}"))
+    };
+    let files = count("SELECT COUNT(*) FROM files")?;
+    let nodes = count("SELECT COUNT(*) FROM nodes")?;
+    let edges = count("SELECT COUNT(*) FROM edges")?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT language, COUNT(*) AS n FROM files \
+             WHERE language IS NOT NULL GROUP BY language ORDER BY n DESC LIMIT 8",
+        )
+        .map_err(|e| e.to_string())?;
+    let languages = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .collect();
+
+    let last_indexed_at = conn
+        .query_row("SELECT MAX(indexed_at) FROM files", [], |r| r.get(0))
+        .ok();
+
+    Ok(CodeGraphSummary {
+        files,
+        nodes,
+        edges,
+        languages,
+        last_indexed_at,
+    })
+}
+
 /// Runs `codegraph init -i <path>` to build the initial index.
 /// Blocks until done (may take seconds for large repos).
 #[tauri::command]
