@@ -45,6 +45,32 @@ fn to_resume(items: Vec<MemoryItem>) -> Vec<ResumeMemory> {
         .collect()
 }
 
+/// Prefer items of the requested project, accept GLOBAL items (no project),
+/// drop everything else; `project = None` keeps the original cross-project
+/// behaviour. Generic + pure so it is unit-testable without a MemoryItem.
+///
+/// Fix Kirkardo Pass3 HIGH (2026-06-10): the resume DECLARED a project_id but
+/// injected decisions/tasks/pinned from EVERY project (mandamiento 13 —
+/// declara el alcance real). The store API has no project filter, so callers
+/// over-fetch a wide window and this narrows it.
+fn prefer_project<T>(
+    items: Vec<T>,
+    project: Option<&str>,
+    limit: usize,
+    proj_of: impl Fn(&T) -> Option<String>,
+) -> Vec<T> {
+    match project {
+        None => items.into_iter().take(limit).collect(),
+        Some(p) => {
+            let (mine, rest): (Vec<T>, Vec<T>) = items
+                .into_iter()
+                .partition(|it| proj_of(it).as_deref() == Some(p));
+            let global = rest.into_iter().filter(|it| proj_of(it).is_none());
+            mine.into_iter().chain(global).take(limit).collect()
+        }
+    }
+}
+
 /// Sync core of session resume — reused by the CLI sidecar (`ultron-memory
 /// resume`) and the Tauri command. Loads only MINIMAL, bounded slices.
 pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume, String> {
@@ -55,13 +81,27 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
         .filter(|r| r.status == RunStatus::Running)
         .collect();
 
-    let decisions = to_resume(
-        MemoryService::list_active_of_type(MemoryType::Decision, 8).map_err(|e| e.to_string())?,
-    );
-    let open_tasks = to_resume(
-        MemoryService::list_active_of_type(MemoryType::Task, 12).map_err(|e| e.to_string())?,
-    );
-    let pinned = to_resume(MemoryService::list_pinned(12).map_err(|e| e.to_string())?);
+    // Over-fetch (the store lists newest-first without project filter), then
+    // narrow to the requested project + global items.
+    let proj = project_id.as_deref();
+    let decisions = to_resume(prefer_project(
+        MemoryService::list_active_of_type(MemoryType::Decision, 96).map_err(|e| e.to_string())?,
+        proj,
+        8,
+        |it| it.project_id.clone(),
+    ));
+    let open_tasks = to_resume(prefer_project(
+        MemoryService::list_active_of_type(MemoryType::Task, 96).map_err(|e| e.to_string())?,
+        proj,
+        12,
+        |it| it.project_id.clone(),
+    ));
+    let pinned = to_resume(prefer_project(
+        MemoryService::list_pinned(48).map_err(|e| e.to_string())?,
+        proj,
+        12,
+        |it| it.project_id.clone(),
+    ));
     let stats = MemoryService::stats().map_err(|e| e.to_string())?;
 
     let next_action = open_tasks
@@ -99,4 +139,42 @@ pub async fn session_resume(project_id: Option<String>) -> Result<SessionResume,
     tauri::async_runtime::spawn_blocking(move || session_resume_inner(project_id))
         .await
         .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefer_project;
+
+    fn proj(it: &Option<String>) -> Option<String> {
+        it.clone()
+    }
+
+    /// Pass3 HIGH — con proyecto: solo items del proyecto + globales, en ese
+    /// orden; los de OTROS proyectos se descartan. Sin proyecto: passthrough.
+    #[test]
+    fn prefer_project_scopes_and_keeps_globals() {
+        let items: Vec<Option<String>> = vec![
+            Some("libro".into()),
+            Some("ultron".into()),
+            None,
+            Some("bank".into()),
+            Some("ultron".into()),
+        ];
+
+        let scoped = prefer_project(items.clone(), Some("ultron"), 8, proj);
+        assert_eq!(
+            scoped,
+            vec![Some("ultron".to_string()), Some("ultron".to_string()), None],
+            "proyecto primero, luego globales; otros proyectos fuera"
+        );
+
+        // Caso negativo: un proyecto sin items propios solo recibe globales.
+        let only_global = prefer_project(items.clone(), Some("niajska"), 8, proj);
+        assert_eq!(only_global, vec![None]);
+
+        // Sin proyecto: comportamiento cross-project original (cap al limite).
+        let cross = prefer_project(items, None, 3, proj);
+        assert_eq!(cross.len(), 3);
+        assert_eq!(cross[0], Some("libro".to_string()));
+    }
 }

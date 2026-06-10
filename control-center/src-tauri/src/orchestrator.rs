@@ -1060,8 +1060,17 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
 
     // --- Vaguedad: prompt corto con verbo generico y sin referente concreto ---
     let vague_verbs = [
-        "arregla", "arreglalo", "mejora", "mejoralo", "corrige", "corrigelo", "revisa", "hazlo",
-        "fix", "improve", "optimiza",
+        "arregla",
+        "arreglalo",
+        "mejora",
+        "mejoralo",
+        "corrige",
+        "corrigelo",
+        "revisa",
+        "hazlo",
+        "fix",
+        "improve",
+        "optimiza",
     ];
     let has_vague_verb = vague_verbs.iter().any(|v| lower.contains(v));
     let has_concrete_ref = p.contains('/')
@@ -1072,10 +1081,8 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
     let mut clarifying_questions = Vec::new();
     if words <= 5 && has_vague_verb && !has_concrete_ref {
         clarifying_questions.push("¿Que archivo, modulo o pantalla exactamente?".to_string());
-        clarifying_questions
-            .push("¿Cual es el comportamiento esperado vs el actual?".to_string());
-        clarifying_questions
-            .push("¿Hay un error/log concreto que lo evidencie?".to_string());
+        clarifying_questions.push("¿Cual es el comportamiento esperado vs el actual?".to_string());
+        clarifying_questions.push("¿Hay un error/log concreto que lo evidencie?".to_string());
     }
 
     // --- Modo sugerido: escalado por alcance, no por longitud bruta ---
@@ -1304,11 +1311,16 @@ mod tests {
 
         // Escalado de modo por alcance.
         assert_eq!(
-            build_prompt_plan("audita la arquitectura de todo el repo y luego propon fases", "security").suggested_mode,
+            build_prompt_plan(
+                "audita la arquitectura de todo el repo y luego propon fases",
+                "security"
+            )
+            .suggested_mode,
             "ultra"
         );
         assert_eq!(
-            build_prompt_plan("revisa la seguridad del endpoint de login", "security").suggested_mode,
+            build_prompt_plan("revisa la seguridad del endpoint de login", "security")
+                .suggested_mode,
             "high"
         );
         assert_eq!(
