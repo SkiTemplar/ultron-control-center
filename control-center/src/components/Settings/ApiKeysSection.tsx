@@ -362,6 +362,15 @@ function GithubTokenSubsection() {
 // Component
 // ------------------------------------------------------------------
 
+// Espejo de ai_router.rs::KeyValidation (cat14.5).
+interface KeyValidation {
+  provider_id: string;
+  provider_label: string;
+  has_key: boolean;
+  source: string;
+  warning?: string | null;
+}
+
 export function ApiKeysSection() {
   const [fields, setFields] = useState<Record<string, FieldState>>(() =>
     Object.fromEntries(
@@ -373,6 +382,23 @@ export function ApiKeysSection() {
   const [result, setResult] = useState<EnvKeysSaveResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, EnvKeyStatus>>({});
+  // cat14.5: validacion real de keys/CLIs del router contra los providers
+  // configurados (no contra la lista estatica de campos de esta seccion).
+  const [validations, setValidations] = useState<KeyValidation[] | null>(null);
+  const [validating, setValidating] = useState(false);
+
+  const handleValidate = useCallback(async () => {
+    setValidating(true);
+    setError(null);
+    try {
+      const rows = await invoke<KeyValidation[]>("ai_router_validate_keys");
+      setValidations(rows);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setValidating(false);
+    }
+  }, []);
 
   const loadStatuses = useCallback(async () => {
     try {
@@ -619,6 +645,20 @@ export function ApiKeysSection() {
         >
           {saving ? "Guardando…" : "Save all"}
         </button>
+        <button
+          type="button"
+          onClick={() => void handleValidate()}
+          disabled={validating}
+          className="rounded px-4 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border-strong)",
+            color: "var(--color-text-secondary)",
+          }}
+          title="Comprueba cada provider del router: key presente / CLI instalada"
+        >
+          {validating ? "Validando…" : "Validar keys del router"}
+        </button>
         <span
           className="text-[11.5px]"
           style={{ color: "var(--color-text-faint)" }}
@@ -626,6 +666,47 @@ export function ApiKeysSection() {
           Solo se envían los campos con valor.
         </span>
       </div>
+
+      {/* cat14.5: resultado de la validacion por provider del router */}
+      {validations && (
+        <div
+          className="mt-4 rounded p-3"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <p
+            className="mb-2 text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Providers del router ({validations.filter((v) => v.has_key).length}/
+            {validations.length} OK)
+          </p>
+          <ul className="flex flex-col gap-1">
+            {validations.map((v) => (
+              <li key={v.provider_id} className="flex items-center gap-2 text-[12px]">
+                <span style={{ color: v.has_key ? "var(--color-success)" : "var(--color-danger)" }}>
+                  {v.has_key ? "●" : "○"}
+                </span>
+                <span style={{ fontFamily: "var(--font-mono)" }}>{v.provider_id}</span>
+                <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
+                  {v.source}
+                </span>
+                {v.warning && (
+                  <span
+                    className="min-w-0 flex-1 truncate text-[10.5px]"
+                    style={{ color: "var(--color-warning, #f8a000)" }}
+                    title={v.warning}
+                  >
+                    {v.warning}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
