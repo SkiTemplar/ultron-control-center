@@ -2041,11 +2041,18 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
         // tolerate single-quoted prompts but cmd.exe quoting of nested quotes
         // is hostile, so the safest path is to neuter them entirely.
         // Newlines collapse to spaces because /C accepts a single line.
+        //
+        // F1 2026-06-10 (root cause de gemini-cli 164/0): '\\' tampoco era
+        // neutralizado — un backslash antes de la comilla de cierre escapaba
+        // el quoting y el resto del prompt se parseaba como ARGUMENTOS del CLI
+        // (runtime: "Unknown arguments: repo, limit, log-failed..."). Los
+        // backslashes se convierten a '/' (los paths Windows siguen legibles).
         fn sanitize_for_cmd(s: &str) -> String {
             let mut out = String::with_capacity(s.len());
             for ch in s.chars() {
                 match ch {
                     '&' | '|' | '<' | '>' | '^' | '%' | '(' | ')' | '!' | '"' => out.push('_'),
+                    '\\' => out.push('/'),
                     '\r' | '\n' | '\t' => out.push(' '),
                     c if (c as u32) < 0x20 => out.push(' '),
                     c => out.push(c),
