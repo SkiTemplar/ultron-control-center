@@ -1,0 +1,29 @@
+# Pre-commit gates de ULTRON — rapidos y 100% locales (sin repos remotos,
+# coherente con la politica "no silent network calls" de CONTRIBUTING.md).
+# Instalar una vez:  uvx pre-commit install
+# Creado 2026-06-10 (Kirkardo cat12.3: CONTRIBUTING documentaba un hook que
+# no existia). Gates elegidos por velocidad (<5s total): los pesados
+# (cargo test, vitest) viven en CI.
+repos:
+  - repo: local
+    hooks:
+      - id: personal-data-gate
+        name: "Gate PII (audit_personal_data.py, falla en HIGH)"
+        entry: uv run python scripts/cockpit/audit_personal_data.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: hooks-manifest-parity
+        name: "Manifest de hooks en paridad con settings.json"
+        entry: node hooks/regen-manifest.js --check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: cargo-fmt-check
+        name: "cargo fmt --check (src-tauri)"
+        entry: bash -c 'cd control-center/src-tauri && cargo fmt --check'
+        language: system
+        pass_filenames: false
+        files: '\.rs$'

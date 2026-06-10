@@ -112,10 +112,10 @@ Read the files around yours before adding new code. The patterns are consistent 
 - **No telemetry, no silent network calls.** Every outbound request must be user-initiated. This is non-negotiable.
 - **No Docker.** ULTRON dropped Docker in v15.0.2 in favour of the native Qdrant binary. Do not reintroduce.
 
-A pre-commit hook runs `ruff`, `cargo fmt`, and `tsc --noEmit` on staged files. Install it once with:
+A pre-commit hook runs the PII gate (`audit_personal_data.py`, fails on HIGH), the hooks-manifest parity check (`hooks/regen-manifest.js --check`) and `cargo fmt --check`. Heavy checks (cargo test, vitest, tsc) run in CI. Install it once with:
 
 ```powershell
-uv run pre-commit install
+uvx pre-commit install
 ```
 
 ---
