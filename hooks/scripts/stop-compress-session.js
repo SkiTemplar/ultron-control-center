@@ -38,9 +38,10 @@ const http = require('http');
 const crypto = require('crypto');
 
 // ---------------------------------------------------------------------------
-// Shared security helpers — loaded from mem0-sync.js with graceful fallback.
-// If require fails (path change, syntax error) we degrade to no-op stubs so
-// the hook never crashes the session.
+// Shared security helpers — lib/security-helpers.js (extraidos del antiguo
+// mem0-sync.js, borrado 2026-06-08; el require roto degradaba a stubs y
+// desactivaba la extraccion AI para siempre — fix Kirkardo Pass1 C5).
+// Fallback gracioso: si el require falla, stubs + fail-closed (sin egress).
 // ---------------------------------------------------------------------------
 
 let redactSecrets = (s) => String(s == null ? '' : s);
@@ -53,21 +54,22 @@ let detectProjectName = (cwd) => path.basename(cwd || process.cwd() || 'unknown'
 let securityHelpersLoaded = false;
 
 try {
-  const mem0 = require('./mem0-sync.js');
+  const sec = require('./lib/security-helpers.js');
   if (
-    typeof mem0.redactSecrets === 'function' &&
-    typeof mem0.isOptedOut === 'function' &&
-    typeof mem0.loadOptOut === 'function'
+    typeof sec.redactSecrets === 'function' &&
+    typeof sec.isOptedOut === 'function' &&
+    typeof sec.loadOptOut === 'function'
   ) {
-    redactSecrets = mem0.redactSecrets;
-    loadOptOut = mem0.loadOptOut;
-    isOptedOut = mem0.isOptedOut;
-    if (typeof mem0.detectProjectName === 'function') detectProjectName = mem0.detectProjectName;
+    redactSecrets = sec.redactSecrets;
+    loadOptOut = sec.loadOptOut;
+    isOptedOut = sec.isOptedOut;
+    if (typeof sec.detectProjectName === 'function') detectProjectName = sec.detectProjectName;
+    if (typeof sec.setLogger === 'function') sec.setLogger((e) => safeLog(e));
     securityHelpersLoaded = true;
   }
 } catch (_) {
-  // mem0-sync.js unavailable — security helpers stay as stubs and
-  // securityHelpersLoaded stays false (fail-closed: no cloud egress below).
+  // security-helpers.js unavailable — stubs + securityHelpersLoaded=false
+  // (fail-closed: no cloud egress below).
 }
 
 // ---------------------------------------------------------------------------

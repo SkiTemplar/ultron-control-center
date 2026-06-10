@@ -430,3 +430,4 @@ cockpit/cleanup-deprecated-*.py
 # Headroom runtime (context compressor) -- never track
 headroom_memory.db
 .headroom/
+CONTINUAR.md

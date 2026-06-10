@@ -780,15 +780,23 @@ mod tests {
 
     #[test]
     fn build_command_accepts_known_providers() {
-        for p in [
-            "claude",
-            "codex",
-            "gemini",
-            "powershell",
-            "powershell-admin",
-        ] {
+        // powershell/powershell-admin no hacen probe de PATH: siempre Ok.
+        for p in ["powershell", "powershell-admin"] {
             let r = build_command(p, None);
             assert!(r.is_ok(), "provider {p} should be accepted");
+        }
+        // claude/codex/gemini hacen un probe REAL de PATH (where/which). En un
+        // runner de CI sin las CLIs instaladas eso es Err legitimo — el test
+        // hermetico acepta Ok o el error especifico de PATH, y rechaza
+        // cualquier otro fallo (provider desconocido, probe roto, etc.).
+        for p in ["claude", "codex", "gemini"] {
+            match build_command(p, None) {
+                Ok(_) => {}
+                Err(e) => assert!(
+                    e.contains("not found on PATH"),
+                    "provider {p}: unexpected error kind: {e}"
+                ),
+            }
         }
     }
 

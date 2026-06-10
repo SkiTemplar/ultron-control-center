@@ -9,10 +9,11 @@
 // Transport: Qdrant REST API on port 6333 (or QDRANT_URL env var). No gRPC
 // dependency — we reuse the `reqwest` client already in Cargo.toml.
 //
-// Embedding: `fastembed` crate with BGE-small-EN-v1.5 (384 dims, ~22 MB ONNX
-// model cached at `~/.cache/fastembed_cache/` on first use). The model is
-// initialised lazily behind a `OnceLock` so the first call pays the ~1-2 s
-// init cost; subsequent calls are fast (<5 ms per text on a modern CPU).
+// Embedding: `fastembed` crate — BGE-small-EN-v1.5 (384d) for embed() and
+// MultilingualE5Large (1024d, ~2.2 GB, the canonical recall embedder) for
+// embed_e5(). ONNX models are cached at the canonical dir
+// ULTRON_FASTEMBED_CACHE (default `~/.ultron/.fastembed_cache/`) on first
+// use, and initialised lazily behind a `OnceCell` (first call pays init).
 //
 // Error handling: every function returns `Result<_, String>` — never panics.
 // If Qdrant is unreachable the error message includes the expected start
@@ -86,11 +87,31 @@ static EMBEDDING_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
 #[cfg(feature = "qdrant")]
 static E5_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
 
+/// Canonical fastembed model-cache directory, shared by every process.
+///
+/// fastembed-rs defaults to `./.fastembed_cache` RELATIVE TO THE PROCESS CWD,
+/// which scattered up to 8 duplicate copies of the e5-large model (~2.2 GB
+/// each) across the repo depending on where each binary/hook was launched
+/// from (Kirkardo Pass1 2026-06-10, cat5/C8). Pin one canonical location:
+/// `ULTRON_FASTEMBED_CACHE` env override, else `~/.ultron/.fastembed_cache`.
+#[cfg(feature = "qdrant")]
+fn fastembed_cache_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("ULTRON_FASTEMBED_CACHE") {
+        if !dir.trim().is_empty() {
+            return std::path::PathBuf::from(dir);
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".ultron")
+        .join(".fastembed_cache")
+}
+
 /// Produce a normalised 384-d embedding vector for `text`.
 ///
-/// On the first call the ONNX model (~22 MB) is downloaded/verified from the
-/// fastembed model hub and cached at `~/.cache/fastembed_cache/`. Subsequent
-/// calls are served from the in-process `OnceCell`.
+/// On the first call the ONNX model is downloaded/verified from the fastembed
+/// model hub and cached at the canonical dir (see [`fastembed_cache_dir`]).
+/// Subsequent calls are served from the in-process `OnceCell`.
 ///
 /// Returns `Err` if the model fails to initialise or inference fails.
 #[cfg(feature = "qdrant")]
@@ -100,7 +121,9 @@ pub fn embed(text: &str) -> Result<Vec<f32>, String> {
 
     let model = EMBEDDING_MODEL.get_or_try_init(|| {
         TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(false),
+            InitOptions::new(EmbeddingModel::BGESmallENV15)
+                .with_show_download_progress(false)
+                .with_cache_dir(fastembed_cache_dir()),
         )
         .map_err(|e| format!("fastembed init: {e}"))
     })?;
@@ -119,7 +142,8 @@ pub fn embed(text: &str) -> Result<Vec<f32>, String> {
         ZERO_WARNED.get_or_init(|| {
             eprintln!(
                 "[memory] EMBED STUB — embed() returned all-zeros despite qdrant feature being ON; \
-                 recall will be degraded. Check fastembed model cache at ~/.cache/fastembed_cache/."
+                 recall will be degraded. Check the fastembed model cache at \
+                 ULTRON_FASTEMBED_CACHE (default ~/.ultron/.fastembed_cache/)."
             );
         });
     }
@@ -158,7 +182,8 @@ pub fn embed_e5(text: &str, is_query: bool) -> Result<Vec<f32>, String> {
     let model = E5_MODEL.get_or_try_init(|| {
         TextEmbedding::try_new(
             InitOptions::new(EmbeddingModel::MultilingualE5Large)
-                .with_show_download_progress(false),
+                .with_show_download_progress(false)
+                .with_cache_dir(fastembed_cache_dir()),
         )
         .map_err(|e| format!("fastembed E5 init: {e}"))
     })?;
