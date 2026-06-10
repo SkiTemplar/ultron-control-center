@@ -1,6 +1,6 @@
 # GOAL — El mejor sistema de IA personal (ULTRON)
 
-> Estrella polar definida por USER. **Definición de "acabado": 9.5 en las 14 categorías
+> Estrella polar definida por el usuario. **Definición de "acabado": 9.5 en las 14 categorías
 > Kirkardo** (criterios binarios en la memoria `kirkardo-success-criteria`) + guía de uso.
 > Este documento es la fuente de verdad del objetivo; el progreso se mide con el eval Kirkardo.
 
