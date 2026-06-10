@@ -40,8 +40,8 @@ npm install
 npm run build:app            # = kill-app + tauri build -> ejecutable de escritorio
 ```
 
-Qdrant es opcional (el recall degrada a sparse-only sin el); ver
-[`control-center/docs/qdrant-setup.md`](control-center/docs/qdrant-setup.md).
+Qdrant es opcional (el recall degrada a sparse-only sin el); ver la seccion
+Qdrant de [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 Las rutas per-maquina se documentan en
 [`config/paths.example.toml`](config/paths.example.toml).
 

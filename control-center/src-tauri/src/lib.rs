@@ -308,6 +308,8 @@ pub fn run() {
             commands::memory::catalog_search,
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
             orchestrator::orchestrate_prompt,
+            // -- Live Session Monitor: actividad en vivo (routing + orquestacion + agentes) --
+            commands::live_session::live_session_feed,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,

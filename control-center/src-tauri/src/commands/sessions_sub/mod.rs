@@ -7,10 +7,12 @@
 //   tabs            — Workspace tabs load/save
 //   timeline        — Per-project timeline aggregator
 
+pub mod live_session;
 pub mod pty;
 pub mod sessions;
 pub mod tabs;
 
+pub use live_session::*;
 pub use pty::*;
 pub use sessions::*;
 pub use tabs::*;

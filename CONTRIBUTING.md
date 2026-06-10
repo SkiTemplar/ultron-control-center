@@ -3,9 +3,7 @@
 <h1>Contributing to ULTRON</h1>
 
 <p>
-  <a href="README.md">README (English)</a>
-  &middot;
-  <a href="README.es.md">README (Espanol)</a>
+  <a href="README.md">README</a>
   &middot;
   <a href="INSTALL.md">Install</a>
   &middot;
@@ -46,7 +44,7 @@ One screen. Everything below is relative to the repo root (`~/.ultron/` on a wor
 ultron/
   install.ps1                       Root bootstrap installer (idempotent).
   pyproject.toml / uv.lock          Python deps, managed by uv. Never use pip.
-  .github/workflows/                ci.yml (cargo + tsc + pytest) and release.yml.
+  .github/workflows/                ci.yml (cargo build/test + tsc + vitest).
 
   control-center/                   The Tauri 2 desktop app.
     src/                            React + TypeScript frontend.

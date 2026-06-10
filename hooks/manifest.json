@@ -229,7 +229,7 @@
   "deregistered": [
     {
       "id": "mem0-sync",
-      "reason": "De-registrado de settings.json (P0 config viva). Escribia a Mem0 cloud (store competidor, fuera del SoT). Sigue versionado en scripts/ como referencia historica, NO vivo.",
+      "reason": "De-registrado de settings.json (P0 config viva) y BORRADO del repo 2026-06-08 (Mem0 muerto, sin valor de referencia). NO vivo.",
       "former_event": "Stop"
     },
     {

@@ -1,0 +1,62 @@
+{
+  "hk_1d500f827ea0": {
+    "name": "preserve-l0-on-compact",
+    "strategy": "ai"
+  },
+  "hk_204e089e6fc8": {
+    "name": "memory-session-resume",
+    "strategy": "ai"
+  },
+  "hk_2b2e10e1d24e": {
+    "name": "ensure-qdrant-startup",
+    "strategy": "ai"
+  },
+  "hk_30e6cf9c967f": {
+    "name": "load-project-card",
+    "strategy": "ai"
+  },
+  "hk_7e49fb57b658": {
+    "name": "load-project-memory",
+    "strategy": "ai"
+  },
+  "hk_8362e1554763": {
+    "name": "notification-relay-hook",
+    "strategy": "ai"
+  },
+  "hk_879873bb6af6": {
+    "name": "capture-tool-failures",
+    "strategy": "ai"
+  },
+  "hk_ab2c59f79134": {
+    "name": "node-session-starter",
+    "strategy": "ai"
+  },
+  "hk_ba7e273ddab5": {
+    "name": "codegraph-reminder-hook",
+    "strategy": "ai"
+  },
+  "hk_c2de638b8812": {
+    "name": "notify-on-stop",
+    "strategy": "ai"
+  },
+  "hk_c3bd0f08e7c8": {
+    "name": "memory-warmup-hook",
+    "strategy": "ai"
+  },
+  "hk_d0f165572564": {
+    "name": "session-end-summary",
+    "strategy": "ai"
+  },
+  "hk_d47d09e932f8": {
+    "name": "stop-session-compress",
+    "strategy": "ai"
+  },
+  "hk_e8ef0953599f": {
+    "name": "deny-secrets-check",
+    "strategy": "ai"
+  },
+  "hk_f179de673388": {
+    "name": "stop-reminder-alert",
+    "strategy": "ai"
+  }
+}

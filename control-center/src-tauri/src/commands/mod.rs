@@ -65,6 +65,7 @@ pub use notes_sub::notes;
 pub use projects::agents;
 // `projects` sub-dir module already exposed via `pub mod projects` above.
 
+pub use sessions_sub::live_session;
 pub use sessions_sub::pty;
 pub use sessions_sub::sessions;
 pub use sessions_sub::tabs;

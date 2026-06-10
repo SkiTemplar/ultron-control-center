@@ -7,7 +7,14 @@
 // context (never blocks the prompt) if the binary is missing or anything fails.
 
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const { runCli, projectIdFromCwd } = require('./lib/ultron-memory-cli');
+
+// Live Session Monitor feed: persiste cada orquestacion para que la UI de
+// ULTRON muestre EN VIVO que skills/agentes/memorias propuso el orquestador
+// para la sesion activa. Append-only JSONL; fail-safe (nunca bloquea el prompt).
+const ORCH_LOG = path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
 
 function emit(additionalContext) {
   process.stdout.write(
@@ -50,14 +57,44 @@ function render(ctx) {
   return out.join('\n');
 }
 
+function logOrchestration(ctx, prompt, project, sessionId) {
+  try {
+    fs.mkdirSync(path.dirname(ORCH_LOG), { recursive: true });
+    const entry = {
+      ts: new Date().toISOString(),
+      session_id: sessionId || null,
+      project: project || null,
+      prompt: String(prompt || '').slice(0, 280),
+      route: ctx.route || null,
+      workflow: ctx.workflow ? { id: ctx.workflow.id, label: ctx.workflow.label } : null,
+      agents: (Array.isArray(ctx.delegate_agents) ? ctx.delegate_agents : [])
+        .slice(0, 6)
+        .map((a) => ({ name: a.name, score: Number(a.score || 0) })),
+      skills: (Array.isArray(ctx.delegate_skills) ? ctx.delegate_skills : [])
+        .slice(0, 6)
+        .map((s) => ({ name: s.name, kind: s.kind || '', score: Number(s.score || 0) })),
+      memories: (Array.isArray(ctx.memories) ? ctx.memories : [])
+        .slice(0, 8)
+        .map((m) => ({ scope: m.scope || '', summary: String(m.summary || '').slice(0, 160) })),
+      cross_project: !!ctx.cross_project,
+      warnings: Array.isArray(ctx.warnings) ? ctx.warnings : [],
+    };
+    fs.appendFileSync(ORCH_LOG, JSON.stringify(entry) + '\n', 'utf8');
+  } catch (_) {
+    /* never block the prompt */
+  }
+}
+
 function main() {
   let prompt = '';
   let cwd = process.cwd();
+  let sessionId = null;
   try {
     const raw = fs.readFileSync(0, 'utf8');
     const inp = JSON.parse(raw || '{}');
     prompt = inp.prompt || '';
     if (inp.cwd) cwd = inp.cwd;
+    sessionId = inp.session_id || inp.sessionId || null;
   } catch {
     /* no stdin / bad json */
   }
@@ -75,6 +112,7 @@ function main() {
     emit('');
     return;
   }
+  logOrchestration(ctx, prompt, project, sessionId);
   emit(render(ctx));
 }
 

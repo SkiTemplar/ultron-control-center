@@ -145,16 +145,12 @@ if ($cwd -and $cwd.Trim().Length -gt 0) {
     }
 }
 
-# Headroom integration: when headroom.exe is on PATH, wrap claude sessions
-# with CCR (context compression). Env vars: telemetry off, code-aware on.
-# headroom passes all unknown flags through to the wrapped binary.
-$headroomAvailable = ($provider -eq "claude") -and `
-    ($null -ne (Get-Command "headroom" -ErrorAction SilentlyContinue))
-if ($headroomAvailable) {
-    $inner += '$env:HEADROOM_TELEMETRY=''off''; $env:HEADROOM_CODE_AWARE_ENABLED=''1''; headroom wrap claude'
-} else {
-    $inner += $provider
-}
+# Spawns launch the provider CLI directly (no headroom proxy). Runtime
+# measurement (proxy_savings.json, 533 requests) showed headroom saved 0
+# tokens / 0 USD while adding 0.7-1.3s latency per count_tokens and 4xx/429
+# errors, so it was removed from all spawns (2026-06-08). Going direct also
+# keeps the 1M context window reachable for the spawned session.
+$inner += $provider
 
 switch ($provider) {
     "claude" {

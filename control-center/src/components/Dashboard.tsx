@@ -17,6 +17,7 @@ import { BackupCard } from "./dashboard/BackupCard";
 import { CrashEventsCard } from "./dashboard/CrashEventsCard";
 import { MemoryStatusCard } from "./dashboard/MemoryStatusCard";
 import { TodoCard } from "./dashboard/TodoCard";
+import LiveSessionMonitor from "./orchestrator/LiveSessionMonitor";
 
 const APP_VERSION: string = (packageJson as { version?: string }).version ?? "";
 
@@ -69,6 +70,12 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
           {globalStatus}
         </span>
       </header>
+
+      {/* La insignia: visor EN VIVO de la sesion activa
+          (ultimo turno orquestado + skills aceptadas + agentes delegados + routing). */}
+      <div className="mb-4">
+        <LiveSessionMonitor />
+      </div>
 
       {/* Two-column shell: main content + right To-Do side panel. */}
       <div
