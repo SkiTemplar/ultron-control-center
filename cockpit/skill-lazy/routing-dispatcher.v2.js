@@ -238,13 +238,6 @@ const PERSONAS = [
     context: ['email', 'agenda', 'notion', 'spotify', 'organizacion personal', 'calendar'],
   },
   {
-    id: 'profesor-fisica',
-    persona: 'profesor-fisica',
-    triggers: ['profesor de fisica', 'profesor fisica', 'modo fisica'],
-    strong: ['cinematica', 'solido rigido', 'examen fisica', 'momento angular', 'tensor de inercia'],
-    context: ['fisica', 'dinamica', 'colisiones', 'mecanica', 'energia'],
-  },
-  {
     id: 'tio-gilito',
     persona: 'tio-gilito',
     triggers: ['tio gilito', 'tio gilito', 'gilito'],
@@ -271,13 +264,6 @@ const PERSONAS = [
     triggers: ['alfred', 'modo alfred'],
     strong: ['matar proceso', 'kill process', 'registro de windows', 'schtasks', 'tareas programadas'],
     context: ['proceso', 'powershell', 'driver', 'carpeta local', 'windows', 'sistema operativo', 'archivo', 'capturas de pantalla'],
-  },
-  {
-    id: 'manolo-lama',
-    persona: 'manolo-lama',
-    triggers: ['manolo lama', 'manolo-lama'],
-    strong: ['champions league', 'la liga', 'partido de futbol'],
-    context: ['futbol', 'gol', 'champions', 'liga', 'deportes'],
   },
   {
     id: 'tolkien',
@@ -309,7 +295,6 @@ const PLUGINS = [
   // Testing
   { id: 'superpowers:test-driven-development', triggers: ['tdd', 'test-driven development'],                  strong: ['escribe los tests primero', 'red green refactor'],                         context: ['testing', 'pruebas unitarias', 'cobertura de tests'] },
   { id: 'webapp-testing',                    triggers: ['playwright', 'webapp testing', 'e2e'],               strong: ['test web app local', 'browser snapshot'],                                  context: ['e2e', 'browser testing', 'ui testing'] },
-  { id: 'mutation-testing',                  triggers: ['mutation testing', 'mutantes en tests'],             strong: ['mutation score', 'stryker', 'pitest', 'mutpy'],                            context: ['test calidad', 'test robustez'] },
   // Feature development
   { id: 'feature-dev:feature-dev',           triggers: ['feature dev'],                                       strong: ['arquitectura de feature', 'diseno tecnico de feature'],                    context: ['nueva feature', 'diseno tecnico'] },
   // Security
@@ -345,9 +330,6 @@ const PLUGINS = [
   // Additional catalog skills
   { id: 'superpowers:brainstorming',         triggers: ['brainstorming', 'lluvia de ideas'],                 strong: ['ideation session', 'creative exploration'],                               context: ['ideas', 'brainstorm'] },
   { id: 'superpowers:context-window-manager', triggers: ['context window manager', 'gestiona el contexto'], strong: ['context compression', 'context budget'],                                  context: ['contexto', 'tokens'] },
-  { id: 'data-analyst',                      triggers: ['data analyst', 'analiza los datos'],               strong: ['pandas analysis', 'exploratory data analysis', 'data visualization', 'seaborn'], context: ['datos', 'csv', 'dataframe'] },
-  { id: 'technical-writer',                  triggers: ['technical writer', 'redacta documentacion'],       strong: ['api reference docs', 'technical writing', 'changelog generation'],        context: ['documentacion tecnica', 'docs'] },
-  { id: 'product-manager',                   triggers: ['product manager', 'pm mode'],                      strong: ['product roadmap', 'user story', 'acceptance criteria pm', 'prd'],         context: ['producto', 'roadmap', 'features'] },
   { id: 'senior-engineer',                   triggers: ['senior engineer', 'senior mode'],                  strong: ['engineering decision', 'senior review', 'tech lead'],                     context: ['ingenieria', 'decision tecnica'] },
   { id: 'superpowers:code-review',           triggers: ['superpowers code review'],                         strong: ['automated code quality gate', 'superpowers review'],                      context: ['review automatico'] },
   { id: 'superpowers:research',              triggers: ['research mode', '/research'],                       strong: ['literature search', 'technical research', 'state of the art research'], context: ['investigar', 'buscar informacion'] },
@@ -448,7 +430,6 @@ const AGENTS = [
   { id: 'debugger',               triggers: ['debugger'],               strong: ['stack trace', 'root cause', 'test failure', 'segfault', 'panic'], context: ['bug', 'error', 'no funciona', 'crash'] },
   { id: 'performance-engineer',   triggers: ['performance-engineer'],   strong: ['bottleneck', 'profiling', 'n+1 query', 'memory leak', 'hot path'], context: ['performance', 'slow', 'optimizar', 'latency'] },
   { id: 'refactoring-specialist', triggers: ['refactoring-specialist'], strong: ['extract method', 'behavior-preserving refactor', 'reduce complexity', 'code smell'], context: ['refactor', 'cleanup', 'deuda tecnica'] },
-  { id: 'code-simplifier',        triggers: ['code-simplifier', 'code simplifier', 'simplifica el codigo'], strong: ['simplify code', 'reduce complejidad sin cambiar comportamiento', 'limpia el codigo recien modificado', 'simplifica sin cambiar comportamiento'], context: ['simplificacion', 'refactor sin cambiar comportamiento', 'clarity', 'legibilidad'] },
   { id: 'architect-reviewer',     triggers: ['architect-reviewer'],     strong: ['architecture decision', 'module boundaries', 'solid violation', 'system design review'], context: ['arquitectura', 'design review'] },
   { id: 'code-reviewer',          triggers: ['code-reviewer'],          strong: ['code review checklist', 'pull request feedback', 'static analysis review'], context: ['revisar codigo', 'pr review', 'code quality'] },
   { id: 'qa-expert',              triggers: ['qa-expert'],              strong: ['test strategy', 'test pyramid', 'quality assurance', 'acceptance criteria', 'bdd'], context: ['qa', 'testing strategy', 'calidad'] },
@@ -493,7 +474,11 @@ function safeLog(entry) {
   }
 }
 
+const _hookStart = Date.now();
+
 function emitContext(text) {
+  // Observabilidad cat9.3 (2026-06-10): latencia total del hook en cada salida.
+  safeLog({ level: 'info', msg: 'v2_hook_complete', total_elapsed_ms: Date.now() - _hookStart, context_chars: (text || '').length });
   const payload = {
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
@@ -1536,7 +1521,14 @@ function buildInjectionBlock(injectedSkills) {
   if (injectedSkills.size === 0) return '';
 
   const parts = [];
+  // Dedup por CONTENIDO (Pass3 2026-06-10): el candidato ECC puede entrar con
+  // un id distinto pero el MISMO SKILL.md que la via eligible -> ~1.4k tokens
+  // duplicados por prompt. El Map dedup por id no lo caza; esto si.
+  const seenContent = new Set();
   for (const [skillId, content] of injectedSkills) {
+    const key = content.trim();
+    if (seenContent.has(key)) continue;
+    seenContent.add(key);
     parts.push(
       '\n\n--- [skill-inyectada: ' + skillId + '] ---\n' +
       content.trim() +
