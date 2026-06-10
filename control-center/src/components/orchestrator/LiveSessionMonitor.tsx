@@ -91,6 +91,22 @@ type LiveEvent = {
   at: string; // ISO
 };
 
+// Espejo de orchestrator.rs::OrchestrationContext (snake_case sin rename) —
+// respuesta de invoke('orchestrate_prompt') para el preview manual (F2.1).
+type OrchestrationPreview = {
+  prompt: string;
+  route: string;
+  project_id: string | null;
+  workflow: { id: string; label: string; description: string; steps: string[] } | null;
+  delegate_agents: { name: string; description: string; score: number }[];
+  delegate_skills: { name: string; description: string; kind: string; score: number }[];
+  memories: { scope: string; title: string | null; summary: string | null }[];
+  constraints: string[];
+  warnings: string[];
+  token_budget: number;
+  cross_project: boolean;
+};
+
 const POLL_MS = 3000;
 const MAX_LIVE_EVENTS = 8;
 
@@ -153,6 +169,12 @@ export default function LiveSessionMonitor() {
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
+  // Preview manual de orquestacion (F2.1): teclea un prompt y ve que haria el
+  // orquestador (intent/workflow/agentes/skills/memorias) SIN ejecutar nada.
+  const [previewInput, setPreviewInput] = useState("");
+  const [preview, setPreview] = useState<OrchestrationPreview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const mountedRef = useRef(true);
@@ -231,6 +253,26 @@ export default function LiveSessionMonitor() {
       for (const u of unlisten) u();
     };
   }, []);
+
+  const runPreview = useCallback(async () => {
+    const prompt = previewInput.trim();
+    if (!prompt || previewBusy) return;
+    setPreviewBusy(true);
+    setPreviewError(null);
+    try {
+      const ctx = await invoke<OrchestrationPreview>("orchestrate_prompt", {
+        prompt,
+        projectId: null,
+      });
+      if (!mountedRef.current) return;
+      setPreview(ctx);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setPreviewError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (mountedRef.current) setPreviewBusy(false);
+    }
+  }, [previewInput, previewBusy]);
 
   const last = feed?.orchestrations[0] ?? null;
   // Solo mostramos decisiones de routing "interesantes" (mapeadas en ROUTING_MSG),
@@ -508,6 +550,130 @@ export default function LiveSessionMonitor() {
           </div>
         </div>
       )}
+
+      {/* Preview de orquestacion (F2.1 — la insignia): que haria el orquestador
+          con un prompt dado, sin ejecutar nada. invoke('orchestrate_prompt'). */}
+      <div>
+        <SectionLabel>Previsualizar orquestacion</SectionLabel>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={previewInput}
+            onChange={(e) => setPreviewInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void runPreview();
+            }}
+            placeholder="Escribe un prompt y ve que haria el orquestador…"
+            className="min-w-0 flex-1 rounded px-2 py-1 text-[11px]"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void runPreview()}
+            disabled={previewBusy || !previewInput.trim()}
+            className="shrink-0 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-50"
+            style={{
+              background: "rgba(88,166,255,0.10)",
+              color: "var(--color-accent)",
+              border: "1px solid rgba(88,166,255,0.28)",
+            }}
+          >
+            {previewBusy ? "…" : "Previsualizar"}
+          </button>
+        </div>
+        {previewError && (
+          <p className="mt-1 text-[10px]" style={{ color: "var(--color-danger, #ef4444)" }}>
+            {previewError}
+          </p>
+        )}
+        {preview && (
+          <div
+            className="mt-2 flex flex-col gap-1.5 rounded px-2 py-2"
+            style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border)" }}
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className="rounded px-2 py-0.5 text-[10px] font-semibold"
+                style={{
+                  background: "rgba(88,166,255,0.10)",
+                  color: "var(--color-accent)",
+                  border: "1px solid rgba(88,166,255,0.28)",
+                }}
+                title="Intent detectado"
+              >
+                {preview.route}
+              </span>
+              {preview.workflow && (
+                <span
+                  className="rounded px-2 py-0.5 text-[10px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title={preview.workflow.description}
+                >
+                  wf: {preview.workflow.label}
+                </span>
+              )}
+              <span className="text-[10px] tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                budget {preview.token_budget}t
+              </span>
+            </div>
+            {preview.workflow && preview.workflow.steps.length > 0 && (
+              <p className="text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
+                pasos: {preview.workflow.steps.join(" → ")}
+              </p>
+            )}
+            {preview.delegate_agents.length > 0 && (
+              <p
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
+              >
+                agentes:{" "}
+                {preview.delegate_agents
+                  .map((a) => `${a.name} (${a.score.toFixed(2)})`)
+                  .join(" · ")}
+              </p>
+            )}
+            {preview.delegate_skills.length > 0 && (
+              <p
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
+              >
+                skills:{" "}
+                {preview.delegate_skills
+                  .map((s) => `${s.name} (${s.kind}, ${s.score.toFixed(2)})`)
+                  .join(" · ")}
+              </p>
+            )}
+            {preview.memories.length > 0 && (
+              <div className="flex flex-col gap-0.5">
+                {preview.memories.slice(0, 5).map((m, i) => (
+                  <div
+                    key={`pm-${i}`}
+                    className="truncate text-[10px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                    title={m.summary ?? m.title ?? undefined}
+                  >
+                    <span style={{ color: "var(--color-text-faint)" }}>[{m.scope}]</span>{" "}
+                    {m.title ?? m.summary ?? ""}
+                  </div>
+                ))}
+              </div>
+            )}
+            {preview.warnings.length > 0 && (
+              <p className="text-[10px]" style={{ color: "#ca8a04" }}>
+                {preview.warnings.join(" · ")}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Routing reciente (timeline de decisiones del dispatcher) */}
       {relevantRouting.length > 0 && (
