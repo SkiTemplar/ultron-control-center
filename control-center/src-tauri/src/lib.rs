@@ -12,9 +12,8 @@
 //      file in `commands/`.
 //   3. Reference it in the grouped `generate_handler!` block below.
 //
-// TODO(v15.5): wire `tauri-specta` to auto-generate
-// `frontend/src/lib/bindings.ts` from the command signatures so frontend
-// invokes are type-checked.
+// Mejora futura (card kanban f2-comandos-sin-caller): tauri-specta para
+// generar bindings.ts tipados desde las firmas de comandos.
 
 mod activity_timeline;
 mod agent_orchestration;
@@ -27,7 +26,6 @@ mod batches;
 mod batches_queue;
 mod button_prompts;
 mod claude_sessions;
-mod codex_fallback;
 mod commands_registry;
 mod cost_watchdog;
 mod detach;
@@ -177,14 +175,8 @@ pub fn run() {
             // -- misc / system status --
             commands::misc::ultron_root_str,
             commands::misc::home_dir_str,
-            commands::misc::list_logs,
-            commands::misc::tail_log,
-            commands::misc::list_instruction_folders,
             commands::misc::instruction_path,
             commands::misc::claude_usage,
-            commands::misc::compute_activity_timeline,
-            commands::misc::compute_cost,
-            commands::misc::open_folder_in_vscode,
             // -- external editor (v2.6 Library redesign) --
             commands::external_editor::open_in_vscode,
             commands::external_editor::read_text_file,
@@ -207,26 +199,14 @@ pub fn run() {
             commands::skills::list_skills_legacy,
             commands::skills::skill_toggle,
             commands::skills::skills_bulk_toggle,
-            commands::skills::read_skill_md,
-            commands::skills::create_skill,
             commands::skills::update_skill_md,
-            commands::skills::delete_skill,
             // -- agents --
             commands::agents::list_agents,
-            commands::agents::list_agents_legacy,
-            commands::agents::read_agent_md,
-            commands::agents::create_agent,
             commands::agents::update_agent_md,
-            commands::agents::delete_agent,
             commands::agents::agent_toggle,
             commands::agents::agents_bulk_toggle,
             commands::agents::list_delegations,
-            commands::agents::agents_pinned_load,
-            commands::agents::agents_pinned_save,
-            commands::agents::delegate_task_to_agent,
             commands::agents::delegate_task_launch,
-            commands::agents::list_agent_workflows,
-            commands::agents::list_active_hooks,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,
@@ -238,7 +218,6 @@ pub fn run() {
             commands::maintenance::run_maintenance_command,
             commands::maintenance::run_backup_now,
             commands::maintenance::run_app_lifecycle,
-            commands::maintenance::is_developer_install,
             update_checker::check_for_updates,
             // -- projects + launcher --
             commands::projects::open_project_in_ide,
@@ -252,12 +231,9 @@ pub fn run() {
             commands::projects::set_default_provider,
             commands::projects::add_launcher_item,
             commands::projects::remove_launcher_item,
-            commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
             // -- Qdrant status/embed (recall_semantic retired: legacy 384d path, Ola 0) --
-            qdrant::qdrant_status,
-            qdrant::qdrant_embed_query,
             // -- FINANCE: native read-only dashboard of the Bank/finanzas project --
             // Requires --features finance (local-only; finance.rs excluded from public repo).
             #[cfg(feature = "finance")]
@@ -269,11 +245,8 @@ pub fn run() {
             // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
-            commands::memory::memory_migrate,
             // -- MEMORY KERNEL Fase B: unified hybrid recall + dense reindex --
             commands::memory::recall,
-            commands::memory::recall_inspect,
-            commands::memory::memory_reindex,
             // -- MEMORY KERNEL: Memory Inbox + governance + Retrieval Inspector --
             commands::memory::memory_inbox_list,
             commands::memory::memory_candidate_approve,
@@ -284,28 +257,18 @@ pub fn run() {
             commands::memory::memory_inbox_approve_clean,
             commands::memory::memory_candidate_reject,
             commands::memory::memory_candidate_edit,
-            commands::memory::memory_item_edit,
-            commands::memory::memory_item_relabel,
             commands::memory::memory_item_deprecate,
-            commands::memory::memory_item_quarantine,
-            commands::memory::memory_do_not_use,
             // H4: verifiable forget — permanent hard delete (SQLite + Qdrant + audit)
             commands::memory::memory_forget,
             // Bulk-deprecate active items by type (purge bloat, e.g. codebase_fact)
-            commands::memory::memory_bulk_deprecate,
             // FRENTE 5: Memory Browser — paginated list + bulk deprecate by type
             commands::memory::memory_items_list,
             commands::memory::memory_items_deprecate_by_type,
-            commands::memory::memory_item_history,
             commands::memory::memory_item_pin,
             commands::memory::memory_item_unpin,
             commands::memory::memory_stats,
             // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
-            commands::memory::session_resume,
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
-            commands::memory::catalog_reindex,
-            commands::memory::catalog_reindex_skills,
-            commands::memory::catalog_search,
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
             orchestrator::orchestrate_prompt,
             // -- Live Session Monitor: actividad en vivo (routing + orquestacion + agentes) --
@@ -314,17 +277,13 @@ pub fn run() {
             commands::batches::list_batches,
             commands::batches::execute_batch,
             commands::batches::delete_batch_single,
-            commands::batches::cleanup_old_batches,
             commands::batches::clear_all_batches,
             commands::batches::batches_list_queue,
             commands::batches::batches_requeue,
             commands::batches::batches_dismiss_queue,
-            commands::batches::batches_enqueue_command,
             commands::batches::batches_enqueue_manual,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
-            commands::detach::reattach_project_window,
-            commands::detach::is_project_detached,
             // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
             commands::opengl_project::create_opengl_project,
             // -- global notes (memory context pipeline) --
@@ -338,12 +297,9 @@ pub fn run() {
             // memory_graph commands des-registrados (Fase 3 pendiente): lógica conservada en commands/memory/memory_graph.rs
             // -- sessions --
             commands::sessions::spawn_session,
-            commands::sessions::run_inline,
             commands::sessions::list_claude_sessions,
             commands::sessions::list_workspaces,
             // -- session auto-tags (P1 2026-05-27) --
-            sessions_tags::sessions_tags_load,
-            sessions_tags::sessions_auto_tag,
             sessions_tags::sessions_bulk_auto_tag,
             // -- session recall (per-project + global) --
             commands::recall::recall_last_session,
@@ -365,13 +321,6 @@ pub fn run() {
             // -- GitHub token (persiste en ~/.ultron/.env via dotenvy) --
             commands::settings::set_github_token,
             // -- system / scheduled tasks --
-            commands::system::list_scheduled_tasks,
-            commands::system::run_scheduled_task,
-            commands::system::system_info,
-            commands::system::task_detail,
-            commands::system::rich_system_info,
-            commands::system::edit_scheduled_task,
-            commands::system::delete_scheduled_task,
             // -- installed apps --
             commands::apps::list_installed_apps,
             commands::apps::open_app_folder,
@@ -392,7 +341,6 @@ pub fn run() {
             commands::diagnostics_native::diagnostics_run,
             // -- windows event log (system/diagnostics + dashboard crash card) --
             commands::event_log::event_log_recent,
-            commands::event_log::open_event_viewer,
             // -- plans --
             commands::plans::list_plans,
             commands::plans::patch_plan_status,
@@ -416,10 +364,8 @@ pub fn run() {
             commands::hooks::get_hook_names_cache,
             commands::hooks::get_hook_descriptions,
             // -- plugin info (P7 + v2.2 multi-plugin) --
-            commands::plugins_info::read_plugin_info,
             commands::plugins_info::list_all_plugins,
             commands::plugins_info::uninstall_plugin_cache,
-            commands::plugins_info::check_plugin_updates,
             // v2.9.5 — SHA-aware bulk update check + AI changelog summary
             commands::plugins_info::plugin_check_updates_bulk,
             commands::plugins_info::plugin_changelog_summary,
@@ -427,13 +373,10 @@ pub fn run() {
             commands::pty::pty_spawn,
             commands::pty::pty_kill,
             commands::pty::pty_list,
-            migration::migrate_dry_run,
             // -- library (P5 — GitHub search + install + per-project pin) --
             // v2.1: curated catalog feed. v2.2: live preview refresh.
             commands::library::library_search_github,
             commands::library::library_install_from_github,
-            commands::library::read_curated_catalog,
-            commands::library::catalog_fetch_previews,
             // v2.6.1: GitHub repo discovery for Catalog tab.
             commands::library::github_search_repos,
             commands::library::github_search_trending,
@@ -445,31 +388,24 @@ pub fn run() {
             // v2.6 (v27-f14): sibling-file listing for Skills/Agents detail.
             commands::library::list_skill_files,
             // v2.9.5: AI-driven install (P1 Library>Catalog)
-            commands::library::library_install_via_ai,
             // v2.9.8: catalog compat analysis + bulk install (card-1779825112840)
-            commands::library::analyze_catalog_compat,
             // FRENTE 7: analizar repo local + integrar al routing/memoria
             commands::library::analyze_local_repo,
             // -- git ops por proyecto --
-            commands::projects::git_is_repo,
-            commands::projects::git_status,
             commands::projects::git_pull,
             commands::projects::git_push,
             commands::projects::git_init,
-            commands::projects::git_log_short,
             commands::projects::git_fetch,
             commands::projects::git_repo_state,
             commands::projects::codegraph_is_indexed,
             commands::projects::codegraph_init_project,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
-            commands::kanban::kanban_save,
             commands::kanban::kanban_create_card,
             commands::kanban::kanban_update_card,
             commands::kanban::kanban_move_card,
             commands::kanban::kanban_delete_card,
             commands::kanban::kanban_dispatch_card,
-            commands::kanban::kanban_migrate_existing,
             commands::kanban::kanban_archive_done,
             commands::kanban::kanban_list_archives,
             commands::kanban::kanban_load_archive,
@@ -488,47 +424,24 @@ pub fn run() {
             // -- global hotkeys --
             commands::hotkeys::get_global_hotkey,
             commands::hotkeys::set_global_hotkey,
-            commands::hotkeys::pause_global_hotkeys,
-            commands::hotkeys::resume_global_hotkeys,
             // -- commands defined directly in their domain modules --
-            codex_fallback::build_fallback_context,
-            codex_fallback::build_fallback_prompt,
-            codex_fallback::launch_codex_fallback,
-            project_hotkeys::get_project_hotkeys,
-            project_hotkeys::set_project_at_slot,
-            project_hotkeys::clear_project_at_slot,
             in_app_shortcuts::get_in_app_shortcuts,
-            in_app_shortcuts::set_in_app_shortcuts,
             features::read_features,
             features::save_features,
             // -- AI Router (zone -> provider routing, providers catalog, --
             // -- health checks, metrics, end-to-end zone test) --
-            ai_router::ai_router_list_zones,
-            ai_router::ai_router_get_zone,
-            ai_router::ai_router_update_zone,
             ai_router::ai_router_list_providers,
             ai_router::ai_router_health,
             ai_router::ai_router_metrics,
-            ai_router::ai_router_test,
-            ai_router::ai_router_route,
             ai_router::ai_router_usage_summary,
             // P1 2026-05-27: key-aware routing — validate keys + disabled list
             ai_router::ai_router_validate_keys,
-            ai_router::ai_router_disabled_providers,
             // -- quota watchdog (P0 2026-05-27 — 98% auto-fallback) --
             // -- proxy free-tier lifecycle (NVIDIA NIM via claude-code-proxy) --
-            proxy::proxy_start,
-            proxy::proxy_stop,
             proxy::proxy_health,
             proxy::proxy_state_enabled,
             proxy::proxy_set_enabled,
             // -- workflow YAML composability + SQLite run history (KIRKARDO 23 P2) --
-            commands::workflows::workflow_record_run,
-            commands::workflows::workflow_update_run,
-            commands::workflows::workflow_get_runs,
-            commands::workflows::workflow_set_state,
-            commands::workflows::workflow_get_state,
-            commands::workflows::workflow_load_user_defined,
         ])
         .setup(|app| {
             // v2.13 -> v2.14 data migration (meta.json + features.json ensure).

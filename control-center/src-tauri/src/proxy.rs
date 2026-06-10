@@ -508,25 +508,6 @@ pub fn read_proxy_state_enabled() -> bool {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Arranca el proxy local. Idempotente.
-/// Persiste `{"enabled": true}` en `~/.ultron/cockpit/proxy-state.json`.
-#[tauri::command]
-pub fn proxy_start() -> Result<ProxyHealth, String> {
-    let result = proxy_start_inner()?;
-    // Persistir de forma best-effort; fallo de escritura no bloquea el arranque.
-    let _ = persist_proxy_state(true);
-    Ok(result)
-}
-
-/// Detiene el proxy local. Idempotente.
-/// Persiste `{"enabled": false}` en `~/.ultron/cockpit/proxy-state.json`.
-#[tauri::command]
-pub fn proxy_stop() -> Result<(), String> {
-    proxy_stop_inner()?;
-    let _ = persist_proxy_state(false);
-    Ok(())
-}
-
 /// Devuelve el estado de salud del proxy para que la UI lo pinte.
 #[tauri::command]
 pub fn proxy_health() -> ProxyHealth {

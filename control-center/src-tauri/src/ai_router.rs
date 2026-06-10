@@ -600,18 +600,6 @@ fn free_tier_daily_limit(provider_id: &str) -> Option<u64> {
     }
 }
 
-/// Result of `ai_router_test` — returned verbatim to the UI.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TestResult {
-    pub ok: bool,
-    pub provider_id: String,
-    pub model: String,
-    pub latency_ms: u64,
-    pub response_excerpt: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
 // ---------------------------------------------------------------------------
 // Storage layout
 // ---------------------------------------------------------------------------
@@ -1167,10 +1155,6 @@ fn load_zones() -> Result<Vec<Zone>, String> {
     }
 }
 
-fn save_zones(zones: &[Zone]) -> Result<(), String> {
-    write_json(&zones_path()?, &zones.to_vec())
-}
-
 fn load_metrics() -> Result<RouterMetrics, String> {
     let path = metrics_path()?;
     if path.exists() {
@@ -1319,202 +1303,8 @@ fn probe_provider(provider: &Provider) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Test invocation — issues a real API call against the zone's primary
-// provider and returns latency + a short response excerpt.
+// Per-provider wrappers — each returns the assistant text on success.
 // ---------------------------------------------------------------------------
-
-fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
-    let providers = match load_providers() {
-        Ok(p) => p,
-        Err(e) => {
-            return TestResult {
-                ok: false,
-                provider_id: zone.primary.provider_id.clone(),
-                model: zone.primary.model.clone(),
-                latency_ms: 0,
-                response_excerpt: String::new(),
-                error: Some(format!("load providers: {}", e)),
-            };
-        }
-    };
-
-    let provider = match providers.iter().find(|p| p.id == zone.primary.provider_id) {
-        Some(p) => p.clone(),
-        None => {
-            return TestResult {
-                ok: false,
-                provider_id: zone.primary.provider_id.clone(),
-                model: zone.primary.model.clone(),
-                latency_ms: 0,
-                response_excerpt: String::new(),
-                error: Some(format!(
-                    "unknown provider id '{}' for zone '{}'",
-                    zone.primary.provider_id, zone.id
-                )),
-            };
-        }
-    };
-
-    // Key / CLI check up front so we don't burn a request when prerequisites
-    // are absent.
-    match provider.kind {
-        ProviderKind::Cli => {
-            let cmd = provider.cli_command.as_deref().unwrap_or("");
-            if cmd.is_empty() || !detect_cli(cmd) {
-                let install_hint = match cmd {
-                    "codex" => "Install with: npm install -g @openai/codex",
-                    "gemini" => "Install with: npm install -g @google/gemini-cli",
-                    _ => "Install the CLI and ensure it is on PATH",
-                };
-                return TestResult {
-                    ok: false,
-                    provider_id: provider.id.clone(),
-                    model: zone.primary.model.clone(),
-                    latency_ms: 0,
-                    response_excerpt: String::new(),
-                    error: Some(format!("CLI '{}' not found on PATH. {}", cmd, install_hint)),
-                };
-            }
-        }
-        ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
-            match std::env::var(&provider.key_env_var) {
-                Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
-                _ => {
-                    return TestResult {
-                        ok: false,
-                        provider_id: provider.id.clone(),
-                        model: zone.primary.model.clone(),
-                        latency_ms: 0,
-                        response_excerpt: String::new(),
-                        error: Some(format!(
-                            "missing {} env var — configure the API key in your environment",
-                            provider.key_env_var
-                        )),
-                    };
-                }
-            }
-        }
-        _ => {}
-    }
-
-    let started = Instant::now();
-    // test_zone uses the provider wrappers directly; map (String, FailReason)
-    // back to String for the TestResult surface.
-    let outcome: Result<CallOutcome, String> = match provider.kind {
-        ProviderKind::Cli => call_cli(&provider, sample_prompt).map_err(|(msg, _)| msg),
-        _ => match provider.id.as_str() {
-            "claude-haiku" => call_anthropic(
-                &provider,
-                &zone.primary.model,
-                sample_prompt,
-                zone.system_prompt.as_deref(),
-                zone.primary.max_tokens,
-            )
-            .map_err(|(msg, _)| msg),
-            "codex" => call_openai_compat(
-                &provider,
-                &zone.primary.model,
-                sample_prompt,
-                zone.system_prompt.as_deref(),
-                zone.primary.max_tokens,
-            )
-            .map_err(|(msg, _)| msg),
-            "groq" => call_openai_compat(
-                &provider,
-                &zone.primary.model,
-                sample_prompt,
-                zone.system_prompt.as_deref(),
-                zone.primary.max_tokens,
-            )
-            .map_err(|(msg, _)| msg),
-            "deepseek" => call_openai_compat(
-                &provider,
-                &zone.primary.model,
-                sample_prompt,
-                zone.system_prompt.as_deref(),
-                zone.primary.max_tokens,
-            )
-            .map_err(|(msg, _)| msg),
-            "gemini" => call_gemini(
-                &provider,
-                &zone.primary.model,
-                sample_prompt,
-                zone.system_prompt.as_deref(),
-                zone.primary.max_tokens,
-            )
-            .map_err(|(msg, _)| msg),
-            "ollama" => call_ollama(
-                &provider,
-                &zone.primary.model,
-                sample_prompt,
-                zone.system_prompt.as_deref(),
-                zone.primary.max_tokens,
-            )
-            .map_err(|(msg, _)| msg),
-            other => Err(format!("no wrapper implemented for provider '{}'", other)),
-        },
-    };
-    let latency_ms = started.elapsed().as_millis() as u64;
-
-    let providers_for_cost = load_providers().unwrap_or_default();
-    let cost_of_primary = providers_for_cost
-        .iter()
-        .find(|p| p.id == zone.primary.provider_id)
-        .map(|p| p.cost_per_mtok)
-        .unwrap_or(0.0);
-
-    match outcome {
-        Ok(co) => {
-            // Feed real metrics so the dashboard moves after every Test click.
-            // test_zone calls the provider directly (no with_retry), so
-            // retry_count is always 0 here.
-            let _ = bump_metrics(MetricSample {
-                provider_id: &provider.id,
-                model: &zone.primary.model,
-                success: true,
-                output_tokens: co.usage.output_tokens,
-                cost_per_mtok: cost_of_primary,
-                primary_cost_per_mtok: cost_of_primary,
-                latency_ms,
-                mode: None,
-                retry_count: 0,
-                fail_reason: None,
-                error: None,
-            });
-            TestResult {
-                ok: true,
-                provider_id: provider.id,
-                model: zone.primary.model.clone(),
-                latency_ms,
-                response_excerpt: truncate(&co.text, 280),
-                error: None,
-            }
-        }
-        Err(e) => {
-            let _ = bump_metrics(MetricSample {
-                provider_id: &provider.id,
-                model: &zone.primary.model,
-                success: false,
-                output_tokens: 0,
-                cost_per_mtok: cost_of_primary,
-                primary_cost_per_mtok: cost_of_primary,
-                latency_ms,
-                mode: None,
-                retry_count: 0,
-                fail_reason: None,
-                error: Some(e.as_str()),
-            });
-            TestResult {
-                ok: false,
-                provider_id: provider.id,
-                model: zone.primary.model.clone(),
-                latency_ms,
-                response_excerpt: String::new(),
-                error: Some(e),
-            }
-        }
-    }
-}
 
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -1524,10 +1314,6 @@ fn truncate(s: &str, max: usize) -> String {
     out.push_str("...");
     out
 }
-
-// ---------------------------------------------------------------------------
-// Per-provider wrappers — each returns the assistant text on success.
-// ---------------------------------------------------------------------------
 
 fn call_anthropic(
     provider: &Provider,
@@ -2139,25 +1925,6 @@ pub fn ai_router_list_zones() -> Result<Vec<Zone>, String> {
 }
 
 #[tauri::command]
-pub fn ai_router_get_zone(id: String) -> Result<Zone, String> {
-    load_zones()?
-        .into_iter()
-        .find(|z| z.id == id)
-        .ok_or_else(|| format!("zone '{}' not found", id))
-}
-
-#[tauri::command]
-pub fn ai_router_update_zone(zone: Zone) -> Result<(), String> {
-    let mut zones = load_zones()?;
-    if let Some(existing) = zones.iter_mut().find(|z| z.id == zone.id) {
-        *existing = zone;
-    } else {
-        zones.push(zone);
-    }
-    save_zones(&zones)
-}
-
-#[tauri::command]
 pub fn ai_router_list_providers() -> Result<Vec<Provider>, String> {
     load_providers()
 }
@@ -2209,21 +1976,6 @@ pub fn ai_router_metrics() -> Result<RouterMetrics, String> {
         mm.latency_p95_ms = mm.histogram.p95_ms();
     }
     Ok(metrics)
-}
-
-#[tauri::command]
-pub fn ai_router_test(zone_id: String, sample_prompt: String) -> Result<TestResult, String> {
-    let zones = load_zones()?;
-    let zone = zones
-        .iter()
-        .find(|z| z.id == zone_id)
-        .ok_or_else(|| format!("zone '{}' not found", zone_id))?;
-    let prompt = if sample_prompt.trim().is_empty() {
-        "Respond with a single word: OK"
-    } else {
-        sample_prompt.as_str()
-    };
-    Ok(test_zone(zone, prompt))
 }
 
 // ---------------------------------------------------------------------------
@@ -2821,13 +2573,6 @@ fn load_metrics_and_bump_route_counters(used_fallback: bool) -> Result<(), Strin
     write_json(&path, &metrics)
 }
 
-/// Public Tauri command surface so the frontend (or a future summariser)
-/// can invoke `route` without going through the test surface.
-#[tauri::command]
-pub fn ai_router_route(zone_id: String, prompt: String) -> Result<String, String> {
-    route(&zone_id, &prompt)
-}
-
 // ---------------------------------------------------------------------------
 // Key validation + disabled-provider surface  (P1 — 2026-05-27)
 //
@@ -2977,20 +2722,6 @@ pub fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
         })
         .collect();
     Ok(validations)
-}
-
-/// Tauri command — returns provider IDs that are currently disabled
-/// (cloud providers without a usable API key).
-///
-/// The frontend can use this list to grey-out providers in the zone editor
-/// and to warn the user before saving a zone that references a disabled
-/// provider.
-#[tauri::command]
-pub fn ai_router_disabled_providers() -> Result<Vec<String>, String> {
-    // Re-use disabled_providers_set so the logic stays in one place.
-    let mut ids: Vec<String> = disabled_providers_set().into_iter().collect();
-    ids.sort(); // deterministic order for the UI
-    Ok(ids)
 }
 
 // ---------------------------------------------------------------------------

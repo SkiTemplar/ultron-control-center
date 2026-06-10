@@ -77,21 +77,8 @@ fn load_custom_slots() -> CustomSlotsFile {
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
-fn save_custom_slots(file: &CustomSlotsFile) -> Result<(), String> {
-    let p = custom_slots_path().ok_or_else(|| "no HOME".to_string())?;
-    if let Some(parent) = p.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let body = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
-    let tmp = p.with_extension("json.tmp");
-    fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 /// In-memory cache so `handle_shortcut` can match combos -> slot
-/// without parsing JSON on every keypress. Kept in sync via
-/// `refresh_custom_cache()` called by every mutator.
+/// without parsing JSON on every keypress.
 fn custom_cache() -> &'static Mutex<Vec<(Shortcut, usize)>> {
     static CACHE: OnceLock<Mutex<Vec<(Shortcut, usize)>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
@@ -204,18 +191,6 @@ fn code_from_combo_name(name: &str) -> Option<Code> {
     }
 }
 
-fn refresh_custom_cache(file: &CustomSlotsFile) {
-    let mut out: Vec<(Shortcut, usize)> = Vec::new();
-    for entry in file.slots.values() {
-        if let Some(sc) = parse_combo(&entry.combo) {
-            out.push((sc, entry.slot));
-        }
-    }
-    if let Ok(mut guard) = custom_cache().lock() {
-        *guard = out;
-    }
-}
-
 fn match_custom_combo(shortcut: &Shortcut) -> Option<usize> {
     let guard = custom_cache().lock().ok()?;
     for (sc, slot) in guard.iter() {
@@ -275,55 +250,5 @@ pub fn register_custom_hotkeys(app: &AppHandle) -> Result<(), String> {
     if let Ok(mut guard) = custom_cache().lock() {
         *guard = new_cache;
     }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_project_hotkeys() -> Result<Vec<ProjectHotkeySlot>, String> {
-    let file = load_custom_slots();
-    let mut out: Vec<ProjectHotkeySlot> = file.slots.into_values().collect();
-    out.sort_by_key(|s| s.slot);
-    Ok(out)
-}
-
-#[tauri::command]
-pub fn set_project_at_slot(
-    app: AppHandle,
-    slot: usize,
-    project_id: String,
-    combo: String,
-) -> Result<(), String> {
-    if !(1..=10).contains(&slot) {
-        return Err(format!("slot {} out of range 1..=10", slot));
-    }
-    let combo_t = combo.trim().to_string();
-    if combo_t.is_empty() {
-        return Err("combo cannot be empty".into());
-    }
-    if parse_combo(&combo_t).is_none() {
-        return Err(format!("combo '{}' is not a valid accelerator", combo_t));
-    }
-    let mut file = load_custom_slots();
-    file.slots.insert(
-        slot.to_string(),
-        ProjectHotkeySlot {
-            slot,
-            combo: combo_t,
-            project_id,
-        },
-    );
-    save_custom_slots(&file)?;
-    refresh_custom_cache(&file);
-    register_custom_hotkeys(&app)?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn clear_project_at_slot(app: AppHandle, slot: usize) -> Result<(), String> {
-    let mut file = load_custom_slots();
-    file.slots.remove(&slot.to_string());
-    save_custom_slots(&file)?;
-    refresh_custom_cache(&file);
-    register_custom_hotkeys(&app)?;
     Ok(())
 }

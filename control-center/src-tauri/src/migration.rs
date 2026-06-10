@@ -169,25 +169,6 @@ pub fn run_migrations_inner(app_version: &str) -> MigrationReport {
     }
 }
 
-/// Tauri command: report what a migration WOULD do, without writing.
-#[tauri::command]
-pub fn migrate_dry_run() -> MigrationReport {
-    migrate_dry_run_inner()
-}
-
-pub fn migrate_dry_run_inner() -> MigrationReport {
-    match cockpit_dir() {
-        Ok(dir) => run_migrations_at(&dir, env!("CARGO_PKG_VERSION"), true),
-        Err(e) => MigrationReport {
-            from_version: 0,
-            to_version: CURRENT_SCHEMA_VERSION,
-            migrated: false,
-            actions: vec![format!("no cockpit dir: {e}")],
-            dry_run: true,
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

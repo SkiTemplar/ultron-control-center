@@ -87,11 +87,6 @@ fn tags_path() -> Result<PathBuf, String> {
     Ok(dir.join("sessions-tags.jsonl"))
 }
 
-pub fn load_all_tags() -> Result<Vec<TagEntry>, String> {
-    let path = tags_path()?;
-    load_tags_at(&path)
-}
-
 /// Read all entries from a specific JSONL path. Path-parameterised so the
 /// read-modify-write logic can be exercised against a temp file in tests
 /// without touching the real `~/.ultron/cockpit/sessions-tags.jsonl`.
@@ -305,29 +300,6 @@ fn generate_tags(session_id: &str, first_prompt: Option<&str>) -> Result<Vec<Str
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
-
-/// Load all persisted tag entries. Called on frontend mount.
-#[tauri::command]
-pub fn sessions_tags_load() -> Result<Vec<TagEntry>, String> {
-    load_all_tags()
-}
-
-/// Auto-tag a single session. Idempotent — re-tags a previously tagged session.
-#[tauri::command]
-pub fn sessions_auto_tag(
-    session_id: String,
-    first_prompt: Option<String>,
-) -> Result<TagEntry, String> {
-    let tags = generate_tags(&session_id, first_prompt.as_deref())?;
-    let entry = TagEntry {
-        session_id: session_id.clone(),
-        tags,
-        generated_at: now_iso(),
-        project: None,
-    };
-    upsert_tag(entry.clone())?;
-    Ok(entry)
-}
 
 /// Bulk auto-tag. Iterates the request list sequentially (no parallelism —
 /// avoids hammering the provider). Returns one TagEntry per request in the
