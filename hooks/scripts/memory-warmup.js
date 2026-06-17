@@ -18,7 +18,29 @@
 // one-shot (cold E5, correcto). Este hook nunca bloquea: emite vacio y exit 0.
 
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { spawnDetached } = require('./lib/ultron-memory-cli');
+
+// Best-effort: registra el error del catch top-level a un log JSONL, sin romper
+// el fail-open (envuelto en su propio try/catch; nunca lanza).
+function logHookError(hook, e) {
+  try {
+    const dir = path.join(os.homedir(), '.ultron', 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(
+      path.join(dir, 'hook-errors.jsonl'),
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        hook,
+        error: String(e),
+        stack: e && e.stack,
+      }) + '\n'
+    );
+  } catch {
+    /* best-effort: si el log falla, seguimos fail-open */
+  }
+}
 
 function emit(additionalContext) {
   process.stdout.write(
@@ -40,7 +62,8 @@ function main() {
 
 try {
   main();
-} catch {
+} catch (e) {
+  logHookError('memory-warmup', e);
   try { emit(''); } catch { /* ignore */ }
 }
 process.exitCode = 0;

@@ -19,8 +19,9 @@ claude_root  = "%USERPROFILE%\\.claude"
 [memory]
 # Canonical SQLite source of truth (runtime, per-machine — never versioned).
 brain_db     = "%USERPROFILE%\\.ultron\\brain.db"
-# ONNX embedding cache. Override with env FASTEMBED_CACHE_PATH if you want it
-# outside the default ~/.cache location.
+# ONNX embedding cache (E5-large). Override with env ULTRON_FASTEMBED_CACHE to
+# pin ONE canonical copy machine-wide (avoids per-CWD duplicates of the ~2.2 GB
+# model). Default = ~/.ultron/.fastembed_cache.
 fastembed_cache = "%USERPROFILE%\\.ultron\\.fastembed_cache"
 
 [qdrant]

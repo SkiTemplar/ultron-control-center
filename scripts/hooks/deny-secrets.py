@@ -129,8 +129,13 @@ def main() -> None:
 
     try:
         reason = classify(data.get("tool_name", ""), data.get("tool_input", {}))
-    except Exception:  # noqa: BLE001 — a hook must never crash the tool flow
-        reason = None
+    except Exception as exc:  # noqa: BLE001 — a hook must never crash the tool flow
+        # Fail-CLOSED: this is a security gate. If the classifier itself
+        # crashes we cannot prove the access is safe, so we DENY rather than
+        # silently letting the call through. The except still swallows the
+        # exception so the hook never raises.
+        print(f"deny-secrets: classify() raised, failing closed: {exc!r}", file=sys.stderr)
+        reason = "classifier error (failing closed for safety)"
 
     if reason:
         print(json.dumps({

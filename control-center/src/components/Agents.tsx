@@ -11,9 +11,11 @@
 //   - Recent delegations strip preserved below the filter controls.
 //   - Color: violet — rgba(167, 139, 250, …) consistent with LibraryDetailPane agent accent.
 //
-// FIX (2026-05-30): Botón "Asignar tarea" conectado a delegate_task_launch.
-//   - Modal con selector de agente + textarea de instrucción + checkbox modelo económico.
-//   - Strip de runs recientes conectado a list_delegations (polling 30s + evento workflow:delegated).
+// Recent delegations strip: conectado a list_delegations (polling 30s + evento
+// workflow:delegated). Es una vista READ-ONLY de las delegaciones que dispara el
+// kanban (kanban_dispatch_card); NO hay botón "Asignar tarea" manual en esta vista
+// (delegate_task_launch no está cableado a la UI — pendiente de decisión: cablear
+// un modal de delegación manual o des-registrar el comando).
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
