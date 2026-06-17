@@ -63,9 +63,14 @@ if (Test-Healthz) {
 # ========================================================================
 # Phase 2: try native qdrant.exe (primary path post-v15.0.2).
 # ========================================================================
-$nativeDir = "$env:USERPROFILE\.ultron\qdrant-native"
-$nativeExe = Join-Path $nativeDir 'qdrant.exe'
-$nativeCfg = 'config\production.yaml'
+# Canonical location is overridable via ULTRON_QDRANT_DIR / ULTRON_QDRANT_EXE
+# (same contract as lib.rs spawn_qdrant_exe). Portable default stays at
+# ~/.ultron/qdrant-native so a fresh install works with zero config.
+if ($env:ULTRON_QDRANT_DIR) { $nativeDir = $env:ULTRON_QDRANT_DIR } else { $nativeDir = "$env:USERPROFILE\.ultron\qdrant-native" }
+if ($env:ULTRON_QDRANT_EXE) { $nativeExe = $env:ULTRON_QDRANT_EXE } else { $nativeExe = Join-Path $nativeDir 'qdrant.exe' }
+# Prefer an existing config.yaml in the canonical dir; fall back to the
+# portable layout (config\production.yaml) used by the installer.
+if (Test-Path (Join-Path $nativeDir 'config.yaml')) { $nativeCfg = 'config.yaml' } else { $nativeCfg = 'config\production.yaml' }
 
 if (Test-Path $nativeExe) {
     # Kill any lingering qdrant.exe that may be in a bad state.

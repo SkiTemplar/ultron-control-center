@@ -24,8 +24,10 @@ function Test-QdrantHealthz {
 $listening = (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Measure-Object).Count
 
 if ($listening -eq 0) {
-    $exe = "$env:USERPROFILE\.ultron\qdrant-native\qdrant.exe"
-    $wd  = "$env:USERPROFILE\.ultron\qdrant-native"
+    # Canonical path overridable via ULTRON_QDRANT_EXE / ULTRON_QDRANT_DIR
+    # (same contract as lib.rs spawn_qdrant_exe). Portable default: qdrant-native.
+    if ($env:ULTRON_QDRANT_EXE) { $exe = $env:ULTRON_QDRANT_EXE } else { $exe = "$env:USERPROFILE\.ultron\qdrant-native\qdrant.exe" }
+    if ($env:ULTRON_QDRANT_DIR) { $wd  = $env:ULTRON_QDRANT_DIR } else { $wd  = "$env:USERPROFILE\.ultron\qdrant-native" }
     if (Test-Path $exe) {
         Start-Process -FilePath $exe -WorkingDirectory $wd -WindowStyle Hidden
         # Espera breve a que abra el puerto (max ~6s) para no devolver antes de tiempo.
