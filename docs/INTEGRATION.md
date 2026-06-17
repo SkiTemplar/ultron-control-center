@@ -15,8 +15,10 @@ Two distinct layers coexist inside it:
 ### Why two version numbers?
 
 The Python cockpit is ULTRON's **operational runtime** — the CLI tools,
-memory doctor, AI router backend, hooks, and scheduled tasks that have
-been evolving since v14. Its version is tracked in `pyproject.toml` and
+memory doctor, hooks, and scheduled tasks that have
+been evolving since v14 (the AI Router decision engine itself, `route()`, is
+Rust in `control-center/src-tauri/src/ai_router/`; the cockpit holds its
+zones/providers JSON mirror, not the engine). Its version is tracked in `pyproject.toml` and
 propagated to docs/badges via `scripts/cockpit/version_propagate.py`.
 
 Control Center is the **GUI shell** — a Tauri 2 desktop application that

@@ -145,7 +145,7 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 
 ### AI Router: zonas, proveedores, fallback y telemetria
 
-- Backend en `ai_router.rs`. Estado en tres JSON bajo
+- Backend en el modulo `ai_router/` (mod.rs + exec.rs + providers/ + seed.rs + store.rs). Estado en tres JSON bajo
   `~/.ultron/cockpit/ai-router/`: `providers.json` (catalogo), `zones.json`
   (zonas con `primary` + `fallbacks`), `metrics.json` (contadores + ahorro).
 - `route(zone, prompt)` recorre la cadena **primario -> fallbacks**, salta
@@ -160,7 +160,7 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 
 ### Orquestador: deteccion automatica de skills/agentes
 
-- `orchestrator.rs` mapea `prompt -> intent -> workflow -> agentes a delegar ->
+- El modulo `orchestrator/` (rules.rs + ranking.rs + orchestrate.rs) mapea `prompt -> intent -> workflow -> agentes a delegar ->
   memorias -> restricciones`. La clasificacion de intent es **basada en reglas**
   (bilingue es/en); el modelo grande se reserva para la cola ambigua.
 - Reutiliza (no duplica): el catalogo de agentes (`memory/catalog.rs`), el recall
@@ -247,8 +247,8 @@ npm test       # vitest (frontend)
 │           │                 # qdrant_index, capture, redaction, texthash, ...)
 │           ├── commands/     # comandos Tauri por dominio (memory, ai_router,
 │           │                 # projects, system_ops, ...)
-│           ├── ai_router.rs  # AI Router (zonas/proveedores/fallback/telemetria)
-│           ├── orchestrator.rs
+│           ├── ai_router/    # AI Router (mod/exec/health/providers/seed/store/types)
+│           ├── orchestrator/ # mod/orchestrate/ranking/rules/types_model
 │           └── bin/          # sidecars ultron-embed / ultron-memory
 ├── cockpit/                  # config + estado en JSON/markdown
 │   └── ai-router/            # providers.json, zones.json, metrics.json
