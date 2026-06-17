@@ -2,13 +2,11 @@
 
 use std::sync::atomic::Ordering;
 
+use super::board_io::delete_column_in_memory;
 use super::board_io::{
     apply_move, infer_and_migrate_roles, is_done_column, normalize_card_orders, relink_orphan_cards,
 };
-use super::board_io::{default_board as _default_board, delete_column_in_memory};
-use super::types_model::{
-    kanban_lock, Card, CardRun, Column, ColumnRole, KanbanBoard, RunStatus, SCHEMA_VERSION,
-};
+use super::types_model::{kanban_lock, Card, Column, ColumnRole, KanbanBoard, SCHEMA_VERSION};
 
 // card-test-fixtures-rust-infra: the fixture must deserialise into the real
 // KanbanBoard type, so it stays honest if the schema changes.
