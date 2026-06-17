@@ -142,32 +142,6 @@ pub fn reconcile_check() -> Result<ReconcileReport, MemoryError> {
     })
 }
 
-#[cfg(test)]
-mod reconcile_tests {
-    use super::diff_ids;
-    use std::collections::HashSet;
-
-    fn set(items: &[&str]) -> HashSet<String> {
-        items.iter().map(|s| (*s).to_string()).collect()
-    }
-
-    #[test]
-    fn diff_reports_missing_and_orphan() {
-        let sqlite = set(&["a", "b", "c"]);
-        let qdrant = set(&["b", "c", "z"]);
-        let (missing, orphan) = diff_ids(&sqlite, &qdrant);
-        assert_eq!(missing, vec!["a".to_string()]); // active in SQLite, not indexed
-        assert_eq!(orphan, vec!["z".to_string()]); // indexed, not an active item
-    }
-
-    #[test]
-    fn diff_empty_when_in_sync() {
-        let s = set(&["a", "b"]);
-        let (missing, orphan) = diff_ids(&s, &s.clone());
-        assert!(missing.is_empty() && orphan.is_empty());
-    }
-}
-
 /// Dense recall: embed the query (E5 `query:`), filter `status = active`
 /// (+ optional project), return canonical_ids best-first. Returns an empty vec
 /// when E5 is unavailable (zero vector) or Qdrant is offline, so the caller
@@ -209,5 +183,31 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
             })
             .collect(),
         Err(_) => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod reconcile_tests {
+    use super::diff_ids;
+    use std::collections::HashSet;
+
+    fn set(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn diff_reports_missing_and_orphan() {
+        let sqlite = set(&["a", "b", "c"]);
+        let qdrant = set(&["b", "c", "z"]);
+        let (missing, orphan) = diff_ids(&sqlite, &qdrant);
+        assert_eq!(missing, vec!["a".to_string()]); // active in SQLite, not indexed
+        assert_eq!(orphan, vec!["z".to_string()]); // indexed, not an active item
+    }
+
+    #[test]
+    fn diff_empty_when_in_sync() {
+        let s = set(&["a", "b"]);
+        let (missing, orphan) = diff_ids(&s, &s.clone());
+        assert!(missing.is_empty() && orphan.is_empty());
     }
 }

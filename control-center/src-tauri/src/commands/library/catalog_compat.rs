@@ -539,7 +539,11 @@ mod tests {
         RepoHit {
             full_name: full_name.to_string(),
             owner: "owner".to_string(),
-            name: full_name.split('/').last().unwrap_or(full_name).to_string(),
+            name: full_name
+                .split('/')
+                .next_back()
+                .unwrap_or(full_name)
+                .to_string(),
             description: None,
             stars: 100,
             language: language.map(|s| s.to_string()),

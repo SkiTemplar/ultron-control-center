@@ -778,9 +778,11 @@ mod tests {
 
     #[test]
     fn render_summary_includes_topics_when_present() {
-        let mut d = SessionDigest::default();
-        d.topics = vec!["oauth".into(), "tokens".into()];
-        d.message_count = 3;
+        let d = SessionDigest {
+            topics: vec!["oauth".into(), "tokens".into()],
+            message_count: 3,
+            ..Default::default()
+        };
         let md = render_summary_md(Some("C:/proj"), Some("2026-05-26T10:00:00Z"), &d);
         assert!(md.contains("oauth"));
         assert!(md.contains("C:/proj"));
@@ -789,9 +791,11 @@ mod tests {
 
     #[test]
     fn suggested_prompt_uses_topic_when_available() {
-        let mut d = SessionDigest::default();
-        d.topics = vec!["refactor".into()];
-        d.last_assistant_message = Some("Movimos el handler a auth.rs".into());
+        let d = SessionDigest {
+            topics: vec!["refactor".into()],
+            last_assistant_message: Some("Movimos el handler a auth.rs".into()),
+            ..Default::default()
+        };
         let p = render_suggested_prompt(Some("C:/proj"), &d);
         assert!(p.starts_with("Continuamos con refactor"));
         assert!(p.contains("auth.rs"));
