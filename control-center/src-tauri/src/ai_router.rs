@@ -781,37 +781,31 @@ fn seed_providers() -> Vec<Provider> {
 }
 
 fn seed_zones() -> Vec<Zone> {
-    // CLI-first policy (2026-06-08): every work zone starts on a CLI
-    // provider (codex-cli for code, gemini-cli for everything else) because the
-    // CLIs auth via the subscription OAuth and are free at the point of use.
-    // The previous cloud primary is kept as fallback[0] so a missing/slow CLI
-    // degrades gracefully to the paid API. Exceptions: 'code-fast-local' stays
-    // on Ollama (its whole purpose is offline). NOTE: 'routing-decision' and
-    // 'utility' are hot internal paths — a CLI cold-start adds ~1-2s each; if
-    // the app feels sluggish on memory/hooks, revert those two to groq.
+    // Provider policy (revised 2026-06-17, F1): CODE zones go CLI-first
+    // (codex-cli — ChatGPT OAuth, free at point of use); FAST/general zones
+    // (chat, summarize, routing-decision, utility, light) go groq-first because
+    // gemini-cli's measured ~20s agent cold-start makes it unusable as a primary
+    // for quick work (it stays as a free OAuth fallback). Exceptions:
+    // 'research-web' keeps gemini-cli (web grounding groq lacks) and
+    // 'code-fast-local' stays on Ollama (offline by design).
     vec![
         Zone {
             id: "chat".into(),
             label: "General chat".into(),
             category: "chat".into(),
             task_class: ProviderClass::Light,
+            // groq primary (fast cloud); gemini-cli's ~20s agent cold-start
+            // makes it unusable as a primary for quick zones (F1 2026-06-17).
             primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                max_tokens: 1024,
+            },
+            fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini-cli".into(),
                 model: "gemini-2.5-flash".into(),
                 max_tokens: 1024,
-            },
-            fallbacks: vec![
-                ZoneAssignment {
-                    provider_id: "claude-haiku".into(),
-                    model: "claude-haiku-4-5-20251001".into(),
-                    max_tokens: 1024,
-                },
-                ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "llama-3.3-70b-versatile".into(),
-                    max_tokens: 1024,
-                },
-            ],
+            }],
             system_prompt: None,
         },
         Zone {
@@ -900,14 +894,14 @@ fn seed_zones() -> Vec<Zone> {
             category: "chat".into(),
             task_class: ProviderClass::Trivial,
             primary: ZoneAssignment {
-                provider_id: "gemini-cli".into(),
-                model: "gemini-2.5-flash".into(),
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
                 max_tokens: 1024,
             },
             fallbacks: vec![
                 ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "llama-3.3-70b-versatile".into(),
+                    provider_id: "gemini-cli".into(),
+                    model: "gemini-2.5-flash".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {
@@ -923,23 +917,18 @@ fn seed_zones() -> Vec<Zone> {
             label: "Router judge (decide which zone to use)".into(),
             category: "system".into(),
             task_class: ProviderClass::Trivial,
+            // Hot internal path → groq (fast). gemini-cli's 20s cold-start
+            // would stall every routing judgement (F1 2026-06-17).
             primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                max_tokens: 256,
+            },
+            fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini-cli".into(),
                 model: "gemini-2.5-flash".into(),
                 max_tokens: 256,
-            },
-            fallbacks: vec![
-                ZoneAssignment {
-                    provider_id: "claude-haiku".into(),
-                    model: "claude-haiku-4-5-20251001".into(),
-                    max_tokens: 256,
-                },
-                ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "llama-3.3-70b-versatile".into(),
-                    max_tokens: 256,
-                },
-            ],
+            }],
             system_prompt: Some(
                 "You classify user prompts into one of the configured zones. \
                  Reply with the zone id only."
@@ -967,22 +956,15 @@ fn seed_zones() -> Vec<Zone> {
             category: "system".into(),
             task_class: ProviderClass::Trivial,
             primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                max_tokens: 512,
+            },
+            fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini-cli".into(),
                 model: "gemini-2.5-flash".into(),
                 max_tokens: 512,
-            },
-            fallbacks: vec![
-                ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "llama-3.3-70b-versatile".into(),
-                    max_tokens: 512,
-                },
-                ZoneAssignment {
-                    provider_id: "claude-haiku".into(),
-                    model: "claude-haiku-4-5-20251001".into(),
-                    max_tokens: 512,
-                },
-            ],
+            }],
             system_prompt: None,
         },
         // Light/quick requests (plugins_info, single-turn completions, etc.).
@@ -992,14 +974,14 @@ fn seed_zones() -> Vec<Zone> {
             category: "chat".into(),
             task_class: ProviderClass::Light,
             primary: ZoneAssignment {
-                provider_id: "gemini-cli".into(),
-                model: "gemini-2.5-flash".into(),
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
                 max_tokens: 1024,
             },
             fallbacks: vec![
                 ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "llama-3.3-70b-versatile".into(),
+                    provider_id: "gemini-cli".into(),
+                    model: "gemini-2.5-flash".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {
