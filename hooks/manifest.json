@@ -135,21 +135,6 @@
       "description": "SessionStart: spawn detached del sidecar para calentar el page-cache del ONNX E5 (~1.3GB). El hook no espera al hijo (<50ms)."
     },
     {
-      "id": "project-card",
-      "event": "SessionStart",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/project-card.js",
-      "script": "~/.ultron/hooks/scripts/project-card.js",
-      "timeout_s": 5,
-      "checksum_sha256": "c896a092960e8796bc2798f245ba114762a23c2fa8861ae314380990bcdc631c",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "SessionStart: inyecta la ficha cacheada del proyecto (cockpit/project-cards/<slug>.txt). AVISO Pass1: no-op permanente — el regenerador apuntaba a cockpit/memory-ingest borrado; arreglar o retirar (card F4.2)."
-    },
-    {
       "id": "load-cross-project-memory",
       "event": "SessionStart",
       "matcher": "*",
