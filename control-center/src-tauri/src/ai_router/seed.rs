@@ -217,14 +217,12 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 max_tokens: 2048,
             },
             fallbacks: vec![
+                // claude-haiku retirado del fallback (cuenta Anthropic sin creditos:
+                // 0/9 intentos, solo inflaba fail_count). El provider sigue definido en
+                // seed_providers por si se recargan creditos (2026-06-17).
                 ZoneAssignment {
                     provider_id: "gemini-cli".into(),
                     model: "gemini-2.5-flash".into(),
-                    max_tokens: 2048,
-                },
-                ZoneAssignment {
-                    provider_id: "claude-haiku".into(),
-                    model: "claude-haiku-4-5-20251001".into(),
                     max_tokens: 2048,
                 },
             ],
