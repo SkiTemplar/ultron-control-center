@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-06 — Endurecimiento Kirkardo (iteraciones R5-R11 + sprint F0-F3)
+
+Un mes de trabajo guiado por la auditoria Kirkardo (14 categorias con criterios
+binarios verificados en runtime): memoria, routing, hooks, union del sistema e
+infraestructura subidas de ~5.2 a ~8.3 sobre 10.
+
+### Added
+- **AI Router con salud real**: `last_error` / `cooldown` / `timeout` por proveedor,
+  panel "Salud de providers" y boton de validacion de keys en Settings.
+- **Mejora de prompt e2e** (`build_prompt_plan`): encuadre por intent, modo sugerido,
+  criterios de exito y clarificaciones, inyectado en cada UserPromptSubmit.
+- **LiveSessionMonitor**: visor en vivo de skills/agentes/routing + preview de
+  orquestacion (`orchestrate_prompt`).
+- **CodeGraph por proyecto**: panel que lee el grafo real (`codegraph_summary`) y el
+  estado del indice; adopcion del CodeGraph externo con watcher.
+- **Paneles por proyecto**: Git (mini GitHub-Desktop) y CodeGraph en ProjectWorkspace.
+- **Learn**: guia de uso del orquestador.
+- **Pre-commit** real: gate de datos personales + paridad del manifest de hooks + cargo fmt.
+
+### Changed
+- **Politica de router**: CLI-first para codigo (codex-cli); groq para zonas rapidas
+  (chat / utility / routing) tras medir el cold-start de ~20s de gemini-cli.
+- **Routing de skills**: modelo lazy on-demand (nucleo minimo activo, resto inyectado
+  por el dispatcher determinista v2); mas peso a planning/orquestacion.
+- **Memoria**: recall hibrido RRF (sparse FTS5 + denso E5) con escritor unico
+  (MemoryService), redaction de secretos y eval reproducible.
+- **Hooks**: fuente de verdad unica de ejecucion + manifest regenerable con checksums.
+- **CI**: ejecuta tests de verdad (cargo test + vitest), hermetico, con gate de fuga
+  de datos personales que bloquea en HIGH.
+
+### Fixed
+- gemini-cli 0/164 exitos: un backslash rompia el quoting de `cmd /C` (`sanitize_for_cmd`).
+- codex-cli: usa el subcomando `exec` posicional, no `-p`.
+- Compactacion de sesion restaurada (helpers de seguridad extraidos tras retirar el
+  modulo externo de sincronizacion).
+- fastembed con cache canonica unica (-10.9 GB de disco).
+
+### Removed
+- CodeGraph casero v4 (sustituido por el externo indexado).
+- 85 comandos sin consumidor des-registrados + ~1020 lineas de codigo muerto.
+- Scripts huerfanos, hooks stale, rutas personales y nombre de autor del codigo publico.
+- Dependencias sin ahorro medido en runtime y un sistema de memoria externo redundante.
+
 <!-- fullize -->
 ## fullize - 2026-06-01 — producto final, sin overengineering
 
