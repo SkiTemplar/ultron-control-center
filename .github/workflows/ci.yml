@@ -72,11 +72,13 @@ jobs:
         with:
           workspaces: control-center/src-tauri
 
-      - name: cargo check
-        working-directory: control-center/src-tauri
-        run: cargo check --all-targets
-
-      - name: cargo clippy (warnings allowed, errors block)
+      - name: cargo clippy (compiles + lints; warnings allowed, errors block)
+        # clippy ya compila TODOS los targets (es rustc + lints), por lo que el
+        # antiguo step `cargo check --all-targets` separado era una compilacion
+        # completa redundante (~5min en CI): check y clippy no comparten
+        # fingerprint en target/ (driver distinto), asi que se compilaba dos
+        # veces. clippy bloquea igual en errores de compilacion, de modo que la
+        # cobertura no cambia. Eliminado para acortar el job cargo (cat12).
         working-directory: control-center/src-tauri
         run: cargo clippy --all-targets -- -A warnings
 
