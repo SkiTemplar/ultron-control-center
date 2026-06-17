@@ -23,7 +23,7 @@
 //      assembly logic stays unit-testable with no network, no API keys, no E5,
 //      and no Qdrant.
 //
-// The AI Router contract (verified against ai_router.rs):
+// The AI Router contract (verified against the ai_router/ module):
 //   `crate::ai_router::route(zone_id: &str, prompt: &str) -> Result<String, String>`
 // It returns plain assistant text. There is no temperature / response_schema
 // parameter yet, so we ask for JSON in the prompt and parse it tolerantly:

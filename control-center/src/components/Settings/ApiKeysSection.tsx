@@ -362,7 +362,7 @@ function GithubTokenSubsection() {
 // Component
 // ------------------------------------------------------------------
 
-// Espejo de ai_router.rs::KeyValidation (cat14.5).
+// Espejo de ai_router::KeyValidation (modulo ai_router/, cat14.5).
 interface KeyValidation {
   provider_id: string;
   provider_label: string;

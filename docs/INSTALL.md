@@ -76,8 +76,9 @@ non-zero code.
    `github.com` is reachable.
 2. **Dependency probe.** Reports whether `rustc`, `node` (v22+), `uv`, and
    `claude` are on `PATH`, and the optional `codex` and `gemini` CLIs. The
-   installer never auto-installs anything — it points you at the official
-   documentation and exits if a required tool is missing.
+   installer auto-installs missing tools where possible (winget on Windows;
+   apt/dnf/pacman on Linux). If a required tool cannot be installed
+   automatically, it points you at the official documentation and exits.
 3. **Directory tree.** Creates `~/.ultron/` with subdirectories `cockpit/`,
    `plans/`, `skills/`, `scripts/`, `brain_index/`, `.tmp/`, and `personal/`.
    Existing directories are left untouched.

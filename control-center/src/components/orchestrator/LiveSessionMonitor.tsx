@@ -91,7 +91,7 @@ type LiveEvent = {
   at: string; // ISO
 };
 
-// Espejo de orchestrator.rs::OrchestrationContext (snake_case sin rename) —
+// Espejo de orchestrator::OrchestrationContext (modulo orchestrator/, snake_case sin rename) —
 // respuesta de invoke('orchestrate_prompt') para el preview manual (F2.1).
 type OrchestrationPreview = {
   prompt: string;

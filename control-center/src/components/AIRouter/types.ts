@@ -1,6 +1,6 @@
 // ULTRON Control Center — AI Router shared TypeScript types
 //
-// These mirror the Rust structs that will live in src-tauri/src/ai_router.rs.
+// These mirror the Rust structs in the src-tauri/src/ai_router/ module.
 // Keep this file in sync with the backend whenever types evolve.
 
 // ---------------------------------------------------------------------------
