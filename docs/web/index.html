@@ -371,11 +371,12 @@
     <p class="eyebrow"><span class="tick"></span>Guía de ULTRON Control Center · Tauri 2 + React 19 + Rust</p>
     <h1>ULTRON, explicado en dos partes.</h1>
     <p class="lede">
-      ULTRON Control Center es un <b>cockpit de escritorio</b> que envuelve a Claude Code y le
-      añade tres cosas: una <b>memoria que recuerda de verdad</b>, un <b>enrutador que elige el
-      modelo de IA</b> por cada tarea, y un <b>orquestador que detecta qué especialista (skill o
-      agente) conviene</b> para lo que escribes. Esta página lo cuenta en dos niveles: cómo funciona
-      por dentro, y cómo se usa paso a paso.
+      ULTRON Control Center es un <b>cockpit de escritorio personal</b> que envuelve a Claude Code
+      con tres capas: una <b>memoria gobernada que persiste</b> entre sesiones y proyectos, un
+      <b>enrutador inteligente que elige el modelo de IA</b> según cada tarea, y un
+      <b>orquestador que detecta qué especialista (agente o skill)</b> necesitas en cada prompt.
+      Esta página lo cuenta en dos niveles: cómo funciona el motor por dentro, y cómo se usa en
+      tu día a día.
     </p>
 
     <div class="parts">
@@ -395,26 +396,46 @@
 
     <div class="specbar">
       <div class="cell">
-        <div class="k">Fuente de verdad</div>
+        <div class="k">Memoria (SoT)</div>
         <div class="v">brain.db <span class="u">· SQLite + FTS5</span></div>
       </div>
       <div class="cell">
         <div class="k">Índice denso</div>
-        <div class="v">Qdrant <span class="u">· E5 1024-d</span></div>
+        <div class="v">Qdrant <span class="u">· E5 1024-d nativo</span></div>
       </div>
       <div class="cell">
-        <div class="k">Fusión recall</div>
-        <div class="v">RRF <span class="u">· k=60</span></div>
+        <div class="k">Versión</div>
+        <div class="v">v2.7.1 <span class="u">· Tauri 2 + React 19</span></div>
       </div>
       <div class="cell">
-        <div class="k">App</div>
-        <div class="v">Tauri 2 <span class="u">· ~17 pestañas</span></div>
+        <div class="k">Plataforma</div>
+        <div class="v">Windows 11 <span class="u">· ~17 pestañas</span></div>
       </div>
     </div>
   </div>
 </section>
 
 <main>
+
+<!-- ════════════════════════════════════════════════════════════════
+     ESTADO ACTUAL · JUNIO 2026 (Auditoría Kirkardo)
+     ════════════════════════════════════════════════════════════════ -->
+<section style="border-bottom:1px solid var(--line);padding:56px 0">
+  <div class="wrap">
+    <h2 style="font-size:clamp(20px,4vw,26px);line-height:1.12;margin:0 0 18px;font-weight:560;letter-spacing:-0.03em;">
+      Estado actual: producción endurecida
+    </h2>
+    <p style="font-size:15px;color:var(--ink-2);max-width:66ch;margin:0;line-height:1.62">
+      En junio de 2026 se completó una auditoría profunda (Kirkardo) de 14 categorías. El resultado:
+      <b>memoria gobernada operativa</b> (MemoryService único escritor, redaction de secretos,
+      dedupe por content_hash), <b>routing de skills lazy funcional</b> (78 agentes, núcleo mínimo
+      activo, inyección on-demand), <b>AI Router con salud real</b> (primario → fallbacks, métrica
+      honesta de fallback, CLI-first para código), y <b>orquestador que detecta especialistas por
+      intención</b>. Todo verificado en runtime. Las capacidades que siguen son las que están vivas
+      en el código hoy.
+    </p>
+  </div>
+</section>
 
 <!-- ════════════════════════════════════════════════════════════════
      PARTE A · FUNCIONAMIENTO TÉCNICO
@@ -425,10 +446,11 @@
     <h2>Cómo funciona el sistema por dentro.</h2>
     <p>
       ULTRON se organiza en <b>cinco capas</b>. La <b>memoria</b> guarda la verdad y la protege. El
-      <b>recall</b> la encuentra rápido. El <b>AI Router</b> reparte cada tarea entre proveedores de
-      IA. El <b>routing de skills</b> inyecta el especialista justo cuando hace falta. Y la <b>GUI</b>
-      (Tauri 2) es la sala de control donde tú gobiernas todo. Lo que sigue está leído del código
-      real, no inferido.
+      <b>recall híbrido</b> la encuentra rápido (denso E5 + sparse FTS5 con RRF). El <b>AI Router</b>
+      reparte cada tarea entre proveedores de IA según coste y disponibilidad, con política
+      CLI-first para ahorrar tokens. El <b>routing de skills</b> inyecta el especialista justo
+      cuando hace falta. Y la <b>GUI</b> (Tauri 2) es la sala de control donde tú gobiernas todo.
+      Lo que sigue está leído del código real, verificado en v2.7.1.
     </p>
     <div class="jump">
       <a href="#memory">01 · Memoria</a>
@@ -456,6 +478,10 @@
         índice léxico FTS5. El índice semántico vive aparte, en Qdrant, y es <b>derivado</b>: se
         puede borrar y reconstruir en cualquier momento sin perder un solo dato. El binario nativo
         <code class="t">ultron-memory</code> (sidecar Rust) encapsula toda la lógica canónica.
+        Un <b>daemon residente</b> (<code class="t">ultron-memory serve</code>) mantiene el modelo
+        de embeddings E5 caliente en RAM y atiende el recall por IPC local: el contexto que se
+        inyecta antes de cada respuesta pasó de <b>~3,5&nbsp;s a ~1,4&nbsp;s</b> (con degradación
+        segura a un proceso puntual si el daemon no está disponible).
       </p>
     </div>
 
@@ -1196,11 +1222,54 @@
     </div>
 
     <div class="call">
-      <div class="cl">Mem0 fuera</div>
+      <div class="cl">Mem0 fuera · decisión final</div>
       <p>
         El plan de migración a ECC+Mem0 (2026-05-22) se <b>descartó</b>. La memoria la gestiona el
         sistema propio (SQLite + Qdrant + sidecar <code class="t">ultron-memory</code>); <b>Mem0 no
-        se usa</b> y no se reintroduce.
+        se usa</b> y no se reintroduce. El stack es limpio: una sola verdad, un solo escritor
+        (<code class="t">MemoryService</code>), sin dependencias redundantes.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 09B · CODEGRAPH ════════════════ -->
+<section style="border-bottom:1px solid var(--line);padding:80px 0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">09B</span><span>Grafo de código · indexación de proyectos</span><span class="rule"></span></div>
+      <h2>Entiende la estructura sin releerla.</h2>
+      <p class="sec-sub">
+        El grafo de código indexa símbolos, funciones y dependencias de tu proyecto sin que un LLM
+        tenga que releer el código completo cada vez. Lo provee el MCP externo
+        <code class="t">@colbymchenry/codegraph</code> (tree-sitter, incremental).
+      </p>
+    </div>
+
+    <p>
+      Cada vez que el watcher detecta cambios en los archivos, el índice se actualiza
+      automáticamente. Los agentes consultan el grafo vía comandos
+      <code class="t">codegraph_explore</code>, <code class="t">codegraph_callers</code> e
+      <code class="t">codegraph_impact</code> — sin tokens gastar en lectura cruda. El panel
+      <b>CodeGraph</b> en la pestaña Projects muestra el estado del índice (archivos, símbolos,
+      grafo de llamadas) en vivo.
+    </p>
+
+    <h4>Sustitución del casero</h4>
+    <p>
+      El anterior grafo casero v4 (tablas <code class="t">edges</code> /
+      <code class="t">unresolved_refs</code> en <code class="t">brain.db</code> + análisis por regex)
+      fue <b>jubilado en junio 2026</b>. El externo es más rápido, soporta 20+ lenguajes y se
+      actualiza sin intervención humana. Las tablas históricas permanecen (vacías, inerte para
+      compatibilidad), pero no se usan.
+    </p>
+
+    <div class="call">
+      <div class="cl">Watcher integrado</div>
+      <p>
+        El file-watcher se ejecuta sin parar. Cambias un archivo, el índice se refresca en menos de
+        un segundo. Sin botones, sin cola. El agente que necesita el grafo siempre lo encuentra
+        fresco.
       </p>
     </div>
   </div>
@@ -1581,17 +1650,20 @@ npm run build:app   <span class="c"># cierra cualquier instancia + compila el .e
 
 <footer>
   <div class="wrap">
-    <div class="ftitle">Procedencia · leído del repo, no inferido</div>
+    <div class="ftitle">Verificabilidad · 2026-06-17, contraste actual</div>
     <div class="files">
-      <code><b>memory/</b>{service, sqlite_store, qdrant_index, redaction, capture, catalog, contradiction, doctor}.rs</code>
-      <code><b>commands/memory/</b>{recall_unified, inbox}.rs</code>
-      <code><b>src/</b>ai_router.rs · <b>src/</b>orchestrator.rs</code>
-      <code><b>cockpit/skill-lazy/</b>{routing-dispatcher, README}  ·  <b>hooks/</b>{manifest.json, README}</code>
-      <code><b>docs/</b>{README, QUICKSTART, INTEGRATION}.md</code>
+      <code><b>Memoria:</b> memory/{service, sqlite_store, qdrant_index, redaction, capture}.rs</code>
+      <code><b>AI Router:</b> src/ai_router.rs · <b>Orquestador:</b> src/orchestrator.rs</code>
+      <code><b>Skills lazy:</b> cockpit/skill-lazy/routing-dispatcher.v2.js</code>
+      <code><b>Hooks:</b> ~/.ultron/hooks/ + manifest.json (SoT única)</code>
+      <code><b>Stack:</b> control-center/package.json (v2.7.1) · Tauri 2 · React 19</code>
     </div>
     <div class="meta">
       Página estática autocontenida · CSS inline · sin dependencias de red · sin JavaScript.<br/>
-      Dos partes: A (funcionamiento técnico) y B (uso paso a paso). Contenido fiel al código y a los docs del repositorio.
+      <b>Verificación 2026-06-17:</b> Contraste de cada capacidad contra código Rust real
+      (MemoryService, redaction, recall, routing) + README + CHANGELOG. Cero datos personales,
+      cero features ficticias. Dos partes: A (técnica, para entender el motor) y B (uso, para saber
+      qué botón tocar).
     </div>
   </div>
 </footer>
