@@ -243,6 +243,10 @@ control-center/run*.json
 control-center/tags.json
 control-center/workflows.json
 
+# orchestrator daemon runtime (ultron-memory serve): lockfile with ephemeral
+# port + per-launch token. Never commit — it is loopback runtime state.
+/run/
+
 # v2.4: archived vault dirs
 skill-vault-archived-*/
 

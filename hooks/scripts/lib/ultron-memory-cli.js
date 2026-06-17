@@ -13,11 +13,71 @@
 //   - logMs(): una linea JSON por llamada a ~/.ultron/logs/capture.jsonl.
 
 const { spawnSync, spawn } = require('child_process');
+const net = require('net');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const DEFAULT_TIMEOUT_MS = 8000;
+
+// Discovery lockfile written by `ultron-memory serve` (the resident daemon that
+// keeps E5 warm). Never committed (~/.ultron/run is gitignored).
+function daemonLockPath() {
+  return path.join(os.homedir(), '.ultron', 'run', 'orchestrate.json');
+}
+
+/** Read the daemon lockfile -> { port, token, pid } or null. */
+function readDaemonLock() {
+  try {
+    const v = JSON.parse(fs.readFileSync(daemonLockPath(), 'utf8'));
+    if (v && Number.isInteger(v.port) && typeof v.token === 'string') return v;
+  } catch {
+    /* no/!valid lockfile */
+  }
+  return null;
+}
+
+/**
+ * Send one line-delimited JSON request to the orchestrator daemon over TCP
+ * loopback. Resolves to the parsed JSON response, or null on ANY failure (no
+ * daemon, connect/timeout/socket error, bad JSON). FAIL-SAFE by construction.
+ * @param {{cmd: string, prompt?: string, project?: string}} payload
+ * @param {number} timeoutMs
+ * @returns {Promise<object|null>}
+ */
+function daemonRequest(payload, timeoutMs) {
+  return new Promise((resolve) => {
+    const lock = readDaemonLock();
+    if (!lock) return resolve(null);
+    let settled = false;
+    let buf = '';
+    const sock = net.connect({ host: '127.0.0.1', port: lock.port });
+    const done = (val) => {
+      if (settled) return;
+      settled = true;
+      try { sock.destroy(); } catch { /* ignore */ }
+      resolve(val);
+    };
+    sock.setTimeout(Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS);
+    sock.on('connect', () => {
+      try {
+        sock.write(JSON.stringify({ token: lock.token, ...payload }) + '\n');
+      } catch {
+        done(null);
+      }
+    });
+    sock.on('data', (chunk) => {
+      buf += chunk.toString('utf8');
+      const nl = buf.indexOf('\n');
+      if (nl >= 0) {
+        try { done(JSON.parse(buf.slice(0, nl))); } catch { done(null); }
+      }
+    });
+    sock.on('timeout', () => done(null));
+    sock.on('error', () => done(null));
+    sock.on('close', () => done(null));
+  });
+}
 
 function findBinary() {
   const exe = process.platform === 'win32' ? 'ultron-memory.exe' : 'ultron-memory';
@@ -106,4 +166,13 @@ function projectIdFromCwd(cwd) {
   }
 }
 
-module.exports = { findBinary, runCli, spawnDetached, logMs, projectIdFromCwd };
+module.exports = {
+  findBinary,
+  runCli,
+  spawnDetached,
+  logMs,
+  projectIdFromCwd,
+  daemonRequest,
+  readDaemonLock,
+  daemonLockPath,
+};

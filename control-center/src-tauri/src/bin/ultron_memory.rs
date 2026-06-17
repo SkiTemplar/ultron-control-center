@@ -18,6 +18,8 @@
 //!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
 //!   ultron-memory warmup                        # SessionStart -> warm E5 (page cache)
+//!   ultron-memory serve                         # persistent daemon: E5 resident, sub-second orchestrate
+//!   ultron-memory serve-ping                    # is a live daemon reachable? (read-only)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!
@@ -228,7 +230,15 @@ fn run() -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?;
             to_json(res)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|doctor|candidate|capture|edge|deprecate --type <T> [--dry-run] [--reason R]> [--project X] [args]".to_string()),
+        // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
+        // orchestration drops from ~3.5s (cold model load every spawn) to sub-second.
+        // `run_daemon` blocks forever serving requests, OR returns immediately with
+        // `already_running` when a live daemon already owns the lockfile. Spawned
+        // DETACHED by the SessionStart memory-warmup hook.
+        "serve" => ul::serve::run_daemon(),
+        // Report whether a live daemon is reachable (lockfile + ping). Read-only.
+        "serve-ping" => Ok(ul::serve::ping_status()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|capture|edge|deprecate --type <T> [--dry-run] [--reason R]> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

@@ -9,7 +9,11 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { runCli, projectIdFromCwd } = require('./lib/ultron-memory-cli');
+const { runCli, projectIdFromCwd, daemonRequest, spawnDetached } = require('./lib/ultron-memory-cli');
+
+// Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
+// spawn fallback keeps the wider colchon for cold-hit E5 (see runCli call below).
+const DAEMON_TIMEOUT_MS = 3000;
 
 // Live Session Monitor feed: persiste cada orquestacion para que la UI de
 // ULTRON muestre EN VIVO que skills/agentes/memorias propuso el orquestador
@@ -101,7 +105,7 @@ function logOrchestration(ctx, prompt, project, sessionId) {
   }
 }
 
-function main() {
+async function main() {
   let prompt = '';
   let cwd = process.cwd();
   let sessionId = null;
@@ -119,11 +123,24 @@ function main() {
     return;
   }
   const project = projectIdFromCwd(cwd);
-  const args = ['orchestrate', prompt];
-  if (project) {
-    args.push('--project', project);
+
+  // FAST PATH: ask the resident daemon (E5 warm) over TCP loopback. Drops the
+  // hot path from ~3.5s (cold model load every spawn) to sub-second.
+  let ctx = await daemonRequest(
+    { cmd: 'orchestrate', prompt, project: project || undefined },
+    DAEMON_TIMEOUT_MS
+  );
+  if (ctx && ctx.error) ctx = null; // daemon answered but failed -> fall back
+
+  if (!ctx) {
+    // No daemon (cold session / it died): spawn one for the NEXT prompt
+    // (idempotent — exits at once if a live one already answers), and serve THIS
+    // turn from a one-shot process (cold E5 ~3.5s, correct, fail-safe).
+    spawnDetached(['serve']);
+    const args = ['orchestrate', prompt];
+    if (project) args.push('--project', project);
+    ctx = runCli(args, { timeoutMs: 11000 }); // colchon cold-hit E5 del proceso one-shot
   }
-  const ctx = runCli(args, { timeoutMs: 11000 }); // colchon cold-hit E5; bajar a 3000 con daemon serve
   if (!ctx) {
     emit('');
     return;
@@ -132,9 +149,10 @@ function main() {
   emit(render(ctx));
 }
 
-try {
-  main();
-} catch {
-  try { emit(''); } catch { /* ignore */ }
-}
-process.exitCode = 0;
+main()
+  .catch(() => {
+    try { emit(''); } catch { /* ignore */ }
+  })
+  .finally(() => {
+    process.exitCode = 0;
+  });

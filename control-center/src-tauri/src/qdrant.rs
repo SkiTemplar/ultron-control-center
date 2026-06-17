@@ -87,6 +87,20 @@ static EMBEDDING_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
 #[cfg(feature = "qdrant")]
 static E5_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
 
+/// Process-local memo of recent embeddings, keyed by the *prefixed* text (so
+/// `is_query` is part of the key). WHY: one `orchestrate` embeds the SAME
+/// `query: {prompt}` THREE times (catalog agents + catalog skills + dense recall);
+/// each E5-large embed is ~700 ms on CPU, so memoizing turns 3 computes into
+/// 1 + 2 hits (~1.4 s saved per prompt). In the resident `serve` daemon a repeated
+/// prompt becomes near-instant. Bounded; wholesale clear when full (simple +
+/// correct — E5 is deterministic, so a cached vector is never stale).
+#[cfg(feature = "qdrant")]
+static EMBED_CACHE: OnceCell<std::sync::Mutex<std::collections::HashMap<String, Vec<f32>>>> =
+    OnceCell::new();
+/// Cap for [`EMBED_CACHE`] (vectors are 1024×f32 ≈ 4 KB; 128 ≈ 0.5 MB).
+#[cfg(feature = "qdrant")]
+const EMBED_CACHE_CAP: usize = 128;
+
 /// Canonical fastembed model-cache directory, shared by every process.
 ///
 /// fastembed-rs defaults to `./.fastembed_cache` RELATIVE TO THE PROCESS CWD,
@@ -179,6 +193,20 @@ pub fn embed(_text: &str) -> Result<Vec<f32>, String> {
 pub fn embed_e5(text: &str, is_query: bool) -> Result<Vec<f32>, String> {
     use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
+    let prefixed = if is_query {
+        format!("query: {text}")
+    } else {
+        format!("passage: {text}")
+    };
+
+    // Memo hit: identical prefixed text -> identical vector (E5 is deterministic).
+    let cache = EMBED_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some(v) = guard.get(&prefixed) {
+            return Ok(v.clone());
+        }
+    }
+
     let model = E5_MODEL.get_or_try_init(|| {
         TextEmbedding::try_new(
             InitOptions::new(EmbeddingModel::MultilingualE5Large)
@@ -188,19 +216,22 @@ pub fn embed_e5(text: &str, is_query: bool) -> Result<Vec<f32>, String> {
         .map_err(|e| format!("fastembed E5 init: {e}"))
     })?;
 
-    let prefixed = if is_query {
-        format!("query: {text}")
-    } else {
-        format!("passage: {text}")
-    };
-
     let mut results = model
-        .embed(vec![prefixed], None)
+        .embed(vec![prefixed.clone()], None)
         .map_err(|e| format!("fastembed E5 embed: {e}"))?;
 
-    results
+    let vector = results
         .pop()
-        .ok_or_else(|| "fastembed E5 returned empty results".to_string())
+        .ok_or_else(|| "fastembed E5 returned empty results".to_string())?;
+
+    // Populate the memo (bounded; wholesale clear keeps it simple, not a strict LRU).
+    if let Ok(mut guard) = cache.lock() {
+        if guard.len() >= EMBED_CACHE_CAP {
+            guard.clear();
+        }
+        guard.insert(prefixed, vector.clone());
+    }
+    Ok(vector)
 }
 
 /// Stub when the `qdrant` feature is off: 1024-d zero vector. Callers MUST treat

@@ -1,27 +1,21 @@
 #!/usr/bin/env node
-// hooks/scripts/memory-warmup.js — SessionStart hook (mitigacion cold-start E5).
+// hooks/scripts/memory-warmup.js — SessionStart hook (cura cold-start E5).
 //
 // PROBLEMA: el modelo FastEmbed multilingual-e5-large (1024d, ~1.3GB ONNX en
-// ~/.ultron/.fastembed_cache/) se carga LAZY en el PRIMER embed de la sesion,
-// dentro de memory-orchestrate.js o memory-session-resume.js. En frio tarda
-// 1-2s (verificado: recall en frio = ~2987ms) y puede reventar el timeout del
-// hook -> inyecta contexto VACIO (degradacion silenciosa).
+// ~/.ultron/.fastembed_cache/) se cargaba LAZY en CADA proceso one-shot del
+// sidecar. Como cada invocacion del .exe es un proceso NUEVO, `orchestrate`
+// (hook UserPromptSubmit) pagaba 3-5s de carga de modelo ANTES de cada turno
+// (medido: 3137/3833/4388/4805ms) -> palanca #1 de latencia del sistema.
 //
-// MITIGACION (barata, sin rebuild): en SessionStart, spawn DETACHED del binario
-// para forzar que el SO cachee el .onnx en page-cache (~80% del coste en frio).
-// El hook retorna en <50ms porque NO espera al hijo. Cuando el usuario escribe
-// su primer prompt (segundos despues), el page-cache esta caliente y el embed
-// en frio baja de 1-2s a ~300-500ms (bajo el timeout).
+// CURA: arrancar el daemon residente `ultron-memory serve` (DETACHED) en
+// SessionStart. Mantiene el modelo E5 cargado en RAM y escucha en TCP loopback;
+// `memory-orchestrate.js` le habla por IPC y el hot path baja a sub-segundo. El
+// daemon hace su propio warmup E5 al arrancar y es IDEMPOTENTE (si ya hay uno
+// vivo, sale al instante). El hook retorna en <50ms porque NO espera al hijo.
 //
-// LIMITACION HONESTA: cada invocacion del .exe es un PROCESO NUEVO, asi que esto
-// NO deja E5 residente en RAM — solo calienta el page-cache del SO. La cura en
-// memoria es el daemon `serve` opcional (ver notas REQUIRES-REBUILD). Hasta
-// entonces, page-cache warmup + timeouts subidos son el fix fiable.
-//
-// Prueba `warmup` (subcomando futuro que llama embed_query("warmup") una vez) y
-// como fallback `recall warmup --project __warmup__`, que fuerza un embed por el
-// path nativo exacto. Ambos detached, salida ignorada; un subcomando desconocido
-// sale con error de inmediato y se ignora. FAIL-SAFE: emite vacio y exit 0.
+// FAIL-SAFE: si el binario es viejo (sin subcomando `serve`), el hijo sale con
+// error y NO escribe lockfile -> `memory-orchestrate.js` degrada al proceso
+// one-shot (cold E5, correcto). Este hook nunca bloquea: emite vacio y exit 0.
 
 const fs = require('fs');
 const { spawnDetached } = require('./lib/ultron-memory-cli');
@@ -39,9 +33,9 @@ function emit(additionalContext) {
 
 function main() {
   try { fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
-  spawnDetached(['warmup']);
-  spawnDetached(['recall', 'warmup', '--project', '__warmup__']);
-  emit(''); // este hook solo pre-calienta; nunca inyecta nada
+  // Arranca el daemon residente (E5 caliente en RAM). Idempotente y detached.
+  spawnDetached(['serve']);
+  emit(''); // este hook solo arranca el daemon; nunca inyecta nada
 }
 
 try {
