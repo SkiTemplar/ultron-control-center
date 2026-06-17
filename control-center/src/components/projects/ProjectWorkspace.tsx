@@ -747,16 +747,18 @@ export default function ProjectWorkspace({ projectId }: Props) {
                   </div>
                 )}
 
-                {/* Action buttons */}
+                {/* Action buttons — siempre visibles (estilo GitHub Desktop):
+                    Pull/Push aparecen siempre que haya remote, no solo cuando hay
+                    commits pendientes; el badge (n) muestra ahead/behind si los hay. */}
                 <div className="flex items-center gap-1.5 pt-0.5">
                   {canPublish && (
                     <button type="button" disabled className="rounded px-2 py-0.5 text-[10px] font-medium opacity-50"
                       style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
-                      title="Configura un remote para publicar">
+                      title="Configura un remote (git remote add origin …) para publicar">
                       Publicar…
                     </button>
                   )}
-                  {canPull && (
+                  {hasRemote && (
                     <button type="button" onClick={() => void runGitOp("git_pull")} disabled={git.busy}
                       className="rounded px-2 py-0.5 text-[10px] font-medium disabled:opacity-40"
                       style={{ background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.35)", color: "#3b82f6" }}
@@ -764,16 +766,13 @@ export default function ProjectWorkspace({ projectId }: Props) {
                       Pull {s.behind > 0 && <span className="ml-0.5 opacity-80">({s.behind})</span>}
                     </button>
                   )}
-                  {canPush && (
+                  {hasRemote && (
                     <button type="button" onClick={() => void runGitOp("git_push")} disabled={git.busy}
                       className="rounded px-2 py-0.5 text-[10px] font-medium disabled:opacity-40"
                       style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.35)", color: "#a855f7" }}
                       title="git push">
                       Push {s.ahead > 0 && <span className="ml-0.5 opacity-80">({s.ahead})</span>}
                     </button>
-                  )}
-                  {!canPublish && !canPull && !canPush && (
-                    <span className="text-[9.5px]" style={{ color: "var(--color-text-tertiary)" }}>sin acciones pendientes</span>
                   )}
                 </div>
               </div>
