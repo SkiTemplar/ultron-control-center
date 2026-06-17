@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TargetScope } from "../../types";
 import { agentCreate } from "../../lib/library-client";
+import { getPrompt } from "../../lib/button-prompts";
 import {
   ChevronLeft,
   ChevronRight,
@@ -43,18 +44,6 @@ type Step = 1 | 2 | 3 | 4;
 type ModelChoice = "" | "haiku" | "sonnet" | "opus";
 
 const KEBAB_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-const AGENT_CREATOR_PROMPT = `You are agent-creator. I want to create a new Claude Code subagent named "{NAME}".
-
-Goal: {DESCRIPTION}
-
-Generate the full subagent system prompt body in markdown. Include:
-- The role in one sentence
-- A numbered Workflow section
-- A clear Output format section
-- No YAML frontmatter (the Control Center adds that)
-
-Return only the markdown body. No fences. No commentary.`;
 
 export function CreateAgentModal({
   defaultScope = "global",
@@ -139,8 +128,10 @@ export function CreateAgentModal({
   }
 
   async function copyAiPrompt() {
-    const prompt = AGENT_CREATOR_PROMPT.replace("{NAME}", name || "<agent-name>")
-      .replace("{DESCRIPTION}", description || "<one-line goal>");
+    const prompt = await getPrompt("library.create_agent", {
+      NAME: name || "<agent-name>",
+      DESCRIPTION: description || "<one-line goal>",
+    });
     try {
       await navigator.clipboard.writeText(prompt);
       setAiCopied(true);

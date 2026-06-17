@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { analyzeLocalRepo } from "../../lib/library-client";
 import type { AnalyzeRepoResult } from "../../types";
+import { getPrompt } from "../../lib/button-prompts";
 import {
   AlertTriangle,
   Check,
@@ -86,39 +87,6 @@ function repoUrl(hit: RepoHit): string {
 }
 
 
-/**
- * Compose the analysis + install prompt handed to the spawned Claude session.
- * The session is asked to evaluate whether the repo is worth installing for the
- * ECC / Claude Code environment and, if so, perform the install.
- */
-function buildIntegratePrompt(hit: RepoHit, url: string): string {
-  const meta = [
-    `- Repositorio: ${hit.full_name}`,
-    `- URL: ${url}`,
-    hit.description ? `- Descripción: ${hit.description}` : null,
-    `- Estrellas: ${hit.stars}`,
-    hit.language ? `- Lenguaje principal: ${hit.language}` : null,
-    hit.topics.length > 0 ? `- Topics: ${hit.topics.join(", ")}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return [
-    `Analiza si vale la pena instalar este repositorio en mi entorno Claude Code (ECC) y, si lo vale, instálalo.`,
-    ``,
-    `Datos de la tarjeta:`,
-    meta,
-    ``,
-    `Pasos:`,
-    `1. Revisa el README y la estructura del repo (clónalo en una carpeta temporal o usa la API de GitHub).`,
-    `2. Determina qué es (skill, agent, rule, MCP server, plantilla, librería) y si es compatible con mi stack.`,
-    `3. Evalúa calidad, mantenimiento (estrellas/última actualización), seguridad y solapamiento con lo que ya tengo.`,
-    `4. Dame un veredicto claro: INSTALAR / NO INSTALAR / DUDOSO, con 2-3 razones.`,
-    `5. Si el veredicto es INSTALAR, realiza la instalación en el scope correcto (~/.claude/ para skills/agents/rules, o el comando de instalación del MCP) y verifica que quedó bien.`,
-    ``,
-    `No instales nada destructivo ni con privilegios elevados sin avisarme primero.`,
-  ].join("\n");
-}
 
 // ---------------------------------------------------------------------------
 // FilterBar (v2.9.8)
@@ -500,9 +468,23 @@ export function Catalog() {
   // and performs the install if so.
   async function integrateWithAi(hit: RepoHit) {
     const url = repoUrl(hit);
-    const prompt = buildIntegratePrompt(hit, url);
-    setAiState((s) => ({ ...s, [hit.full_name]: "launching" }));
     try {
+      const meta = [
+        `- Repositorio: ${hit.full_name}`,
+        `- URL: ${url}`,
+        hit.description ? `- Descripción: ${hit.description}` : null,
+        `- Estrellas: ${hit.stars}`,
+        hit.language ? `- Lenguaje principal: ${hit.language}` : null,
+        hit.topics.length > 0 ? `- Topics: ${hit.topics.join(", ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const prompt = await getPrompt("catalog.integrate_with_ai", {
+        repo: hit.full_name,
+        url,
+        meta,
+      });
+      setAiState((s) => ({ ...s, [hit.full_name]: "launching" }));
       await invoke("spawn_session", {
         provider: "claude",
         prompt,

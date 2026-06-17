@@ -348,6 +348,91 @@ fn build_defaults() -> Vec<ButtonPrompt> {
         ),
         // v2.5.2 (fb-031): `logs.summarize_recent` removed — no Logs tab
         // exists; system.diagnose_runtime covers the use case.
+
+        // cat8 — migrated from inline literals in React components.
+        default_button(
+            "diagnostics.solve_with_ai",
+            "Diagnostics · Solve with AI",
+            "System / Diagnostics panel — Solve with AI dialog",
+            "Preloads a Claude session with the user-described problem, app health \
+             snapshot, recent error events, and the available fix catalog so the \
+             assistant can diagnose and recommend fixes.",
+            &["problem", "health", "events", "fixes"],
+            "You are the Control Center diagnostic assistant. The user described a problem on their Windows machine.\n\
+             Diagnose the most likely cause and recommend the most relevant fixes from the catalog below.\n\
+             Prefer fixes by their kind token (e.g. pc-flush-dns). Explain the reasoning briefly before listing actions.\n\
+             \n\
+             ## User problem\n\
+             {problem}\n\
+             \n\
+             ## App health snapshot\n\
+             {health}\n\
+             \n\
+             ## Recent critical/error events (top 10)\n\
+             {events}\n\
+             \n\
+             ## Available fixes (FIX_CATALOG)\n\
+             {fixes}\n\
+             \n\
+             ## Output format\n\
+             1. One-paragraph diagnosis (what's most likely wrong, why).\n\
+             2. Ordered list of recommended fixes, each as: `pc-<kind>` — short rationale.\n\
+             3. Optional: extra commands or manual checks not in the catalog (if needed).",
+        ),
+        default_button(
+            "catalog.integrate_with_ai",
+            "Catalog · Integrate repository with AI",
+            "Library / Catalog — per-card Integrar con IA button",
+            "Asks Claude to evaluate a GitHub repository and, if worthy, install it \
+             in the Claude Code environment (~/.claude/ for skills/agents/rules, or \
+             via the MCP install command).",
+            &["repo", "url", "meta"],
+            "Analiza si vale la pena instalar este repositorio en mi entorno Claude Code (ECC) y, si lo vale, instálalo.\n\
+             \n\
+             Datos de la tarjeta:\n\
+             {meta}\n\
+             \n\
+             Pasos:\n\
+             1. Revisa el README y la estructura del repo (clónalo en una carpeta temporal o usa la API de GitHub).\n\
+             2. Determina qué es (skill, agent, rule, MCP server, plantilla, librería) y si es compatible con mi stack.\n\
+             3. Evalúa calidad, mantenimiento (estrellas/última actualización), seguridad y solapamiento con lo que ya tengo.\n\
+             4. Dame un veredicto claro: INSTALAR / NO INSTALAR / DUDOSO, con 2-3 razones.\n\
+             5. Si el veredicto es INSTALAR, realiza la instalación en el scope correcto (~/.claude/ para skills/agents/rules, o el comando de instalación del MCP) y verifica que quedó bien.\n\
+             \n\
+             No instales nada destructivo ni con privilegios elevados sin avisarme primero.",
+        ),
+        default_button(
+            "library.create_agent",
+            "Library · Generate agent body with AI",
+            "Library / Create Agent modal — AI generate button",
+            "Asks Claude to draft the markdown body for a new Claude Code subagent \
+             given a name and one-line goal description.",
+            &["NAME", "DESCRIPTION"],
+            "You are agent-creator. I want to create a new Claude Code subagent named \"{NAME}\".\n\
+             \n\
+             Goal: {DESCRIPTION}\n\
+             \n\
+             Generate the full subagent system prompt body in markdown. Include:\n\
+             - The role in one sentence\n\
+             - A numbered Workflow section\n\
+             - A clear Output format section\n\
+             - No YAML frontmatter (the Control Center adds that)\n\
+             \n\
+             Return only the markdown body. No fences. No commentary.",
+        ),
+        default_button(
+            "library.create_skill",
+            "Library · Generate skill body with AI",
+            "Library / Create Skill modal — AI generate button",
+            "Asks Claude to create a new Claude Code skill using the skill-creator \
+             workflow: spec-compliant SKILL.md, validated via quick_validate.py.",
+            &["NAME", "DESCRIPTION"],
+            "Use the skill-creator skill to create a new Claude Code skill named \"{NAME}\".\n\
+             \n\
+             Goal: {DESCRIPTION}\n\
+             \n\
+             Follow the skill-creator workflow: capture intent, draft a spec-compliant SKILL.md (strong pushy description + lean imperative body + at least one example), then validate it with scripts/quick_validate.py before finishing. Write the skill under ~/.claude/skills/{NAME}/ and offer to package it for Cowork when done.",
+        ),
     ]
 }
 
@@ -577,6 +662,11 @@ mod tests {
         assert!(keys.contains("dashboard.pc_diagnose_analyse"));
         assert!(keys.contains("skills.create_with_ai"));
         assert!(keys.contains("agents.edit_with_ai"));
+        // cat8 migrations
+        assert!(keys.contains("diagnostics.solve_with_ai"));
+        assert!(keys.contains("catalog.integrate_with_ai"));
+        assert!(keys.contains("library.create_agent"));
+        assert!(keys.contains("library.create_skill"));
         assert!(
             defaults.len() >= 10,
             "expected >= 10 default buttons, got {}",

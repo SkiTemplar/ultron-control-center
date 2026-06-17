@@ -20,6 +20,7 @@ import { Markdown } from "../../lib/markdown";
 import { DiagnosticHistoryPanel } from "./DiagnosticHistoryPanel";
 import { DiagnosticSchedulePanel } from "./DiagnosticSchedulePanel";
 import { confirmDialog } from "../../lib/dialog";
+import { getPrompt } from "../../lib/button-prompts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -599,7 +600,23 @@ export function Diagnostics() {
     setSolveSending(true);
     setSolveError(null);
     try {
-      const prompt = buildSolvePrompt(problem, report, events);
+      const recent = events.slice(0, 10);
+      const eventsBlock = recent.length === 0
+        ? "(no critical/error events in the recent window)"
+        : recent.map((e) => `- [${e.level}] id=${e.event_id} src=${e.source} at=${e.time_created}\n  ${(e.message || "").replace(/\s+/g, " ").trim().slice(0, 240)}`).join("\n");
+
+      const healthBlock = report
+        ? [`projects.json: ${report.app.projects_json_ok ? "ok" : "MISSING/CORRUPT"}`, `claude in PATH: ${report.app.claude_in_path ? "yes" : "no"}`, `codex in PATH: ${report.app.codex_in_path ? "yes" : "no"}`, `gemini in PATH: ${report.app.gemini_in_path ? "yes" : "no"}`, `qdrant running: ${report.app.qdrant_running ? "yes" : "no"}`].join("\n")
+        : "(no app health snapshot loaded)";
+
+      const fixesBlock = Object.values(FIX_CATALOG).map((f) => `- ${f.kind} (${CATEGORY_LABELS[f.category]}) — ${f.label}: ${f.detail}`).join("\n");
+
+      const prompt = await getPrompt("diagnostics.solve_with_ai", {
+        problem,
+        health: healthBlock,
+        events: eventsBlock,
+        fixes: fixesBlock,
+      });
       await invoke("spawn_session", { provider: "claude", prompt, cwd: null, flags: { dangerouslySkipPermissions: false } });
       setSolveOpen(false);
       setSolveProblem("");
@@ -1499,46 +1516,6 @@ function SolveWithAiModal({
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// buildSolvePrompt
-// ---------------------------------------------------------------------------
-
-function buildSolvePrompt(problem: string, report: DiagnosticReport | null, events: EventLogEntry[]): string {
-  const recent = events.slice(0, 10);
-  const eventBlock = recent.length === 0
-    ? "(no critical/error events in the recent window)"
-    : recent.map((e) => `- [${e.level}] id=${e.event_id} src=${e.source} at=${e.time_created}\n  ${(e.message || "").replace(/\s+/g, " ").trim().slice(0, 240)}`).join("\n");
-
-  const healthBlock = report
-    ? [`projects.json: ${report.app.projects_json_ok ? "ok" : "MISSING/CORRUPT"}`, `claude in PATH: ${report.app.claude_in_path ? "yes" : "no"}`, `codex in PATH: ${report.app.codex_in_path ? "yes" : "no"}`, `gemini in PATH: ${report.app.gemini_in_path ? "yes" : "no"}`, `qdrant running: ${report.app.qdrant_running ? "yes" : "no"}`].join("\n")
-    : "(no app health snapshot loaded)";
-
-  const fixBlock = Object.values(FIX_CATALOG).map((f) => `- ${f.kind} (${CATEGORY_LABELS[f.category]}) — ${f.label}: ${f.detail}`).join("\n");
-
-  return [
-    "You are the Control Center diagnostic assistant. The user described a problem on their Windows machine.",
-    "Diagnose the most likely cause and recommend the most relevant fixes from the catalog below.",
-    "Prefer fixes by their kind token (e.g. pc-flush-dns). Explain the reasoning briefly before listing actions.",
-    "",
-    "## User problem",
-    problem,
-    "",
-    "## App health snapshot",
-    healthBlock,
-    "",
-    "## Recent critical/error events (top 10)",
-    eventBlock,
-    "",
-    "## Available fixes (FIX_CATALOG)",
-    fixBlock,
-    "",
-    "## Output format",
-    "1. One-paragraph diagnosis (what's most likely wrong, why).",
-    "2. Ordered list of recommended fixes, each as: `pc-<kind>` — short rationale.",
-    "3. Optional: extra commands or manual checks not in the catalog (if needed).",
-  ].join("\n");
 }
 
 export default Diagnostics;

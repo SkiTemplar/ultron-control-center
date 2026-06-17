@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TargetScope } from "../../types";
 import { skillCreate } from "../../lib/library-client";
+import { getPrompt } from "../../lib/button-prompts";
 import {
   ChevronLeft,
   ChevronRight,
@@ -53,18 +54,6 @@ type Props = {
 type Step = 1 | 2 | 3 | 4;
 
 const KEBAB_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-// Drives the spawned Claude session straight into the `skill-creator` skill.
-// The session is launched with `respectClipboard` so this exact text is what
-// the user pastes — phrasing it as an explicit "use the skill-creator skill"
-// request is what reliably triggers the skill (a bare "you are skill-creator"
-// roleplay line does not). The skill itself owns frontmatter quality, the
-// quick_validate.py validator, packaging, and description optimization.
-const SKILL_CREATOR_PROMPT = `Use the skill-creator skill to create a new Claude Code skill named "{NAME}".
-
-Goal: {DESCRIPTION}
-
-Follow the skill-creator workflow: capture intent, draft a spec-compliant SKILL.md (strong pushy description + lean imperative body + at least one example), then validate it with scripts/quick_validate.py before finishing. Write the skill under ~/.claude/skills/{NAME}/ and offer to package it for Cowork when done.`;
 
 export function CreateSkillModal({
   defaultScope = "global",
@@ -159,8 +148,10 @@ export function CreateSkillModal({
   }
 
   async function copyAiPrompt() {
-    const prompt = SKILL_CREATOR_PROMPT.replace("{NAME}", name || "<skill-name>")
-      .replace("{DESCRIPTION}", description || "<one-line goal>");
+    const prompt = await getPrompt("library.create_skill", {
+      NAME: name || "<skill-name>",
+      DESCRIPTION: description || "<one-line goal>",
+    });
     try {
       await navigator.clipboard.writeText(prompt);
       setAiCopied(true);
