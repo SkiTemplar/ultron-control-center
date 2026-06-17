@@ -9,7 +9,7 @@
 //   - `--features finance` is passed to `tauri build` so the Rust side compiles
 //     the finance commands gated behind #[cfg(feature = "finance")].
 //
-// The Finance sources (src/Finance.tsx + src-tauri/src/finance.rs) are
+// The Finance sources (src/components/Finance.tsx + src-tauri/src/finance.rs) are
 // gitignored, so a clean clone of the public repo does not have them. In that
 // case enabling the feature would fail to compile. We detect the sources first
 // and, when absent, fall back to a public build (equivalent to build:app).
@@ -20,7 +20,8 @@ import { existsSync } from "node:fs";
 
 // Finance is local-only: only enable it when both sources are present.
 const hasFinance =
-  existsSync("src-tauri/src/finance.rs") && existsSync("src/Finance.tsx");
+  existsSync("src-tauri/src/finance.rs") &&
+  existsSync("src/components/Finance.tsx");
 
 const env = { ...process.env };
 if (hasFinance) env.VITE_FINANCE = "1";
