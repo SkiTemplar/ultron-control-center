@@ -212,11 +212,18 @@ export default function ProjectWorkspace({ projectId }: Props) {
           if (found && found.path) {
             setMeta({ id: found.id, name: found.name ?? found.id, path: found.path });
             setProjectInfo(found as unknown as ProjectInfo);
-            const [repoState, indexed] = await Promise.all([
-              invoke("git_repo_state", { path: found.path }).catch(() => null) as Promise<GitRepoState | null>,
-              invoke<boolean>("codegraph_is_indexed", { path: found.path }).catch(() => false),
-            ]);
-            setGit({ state: repoState, busy: false, error: null });
+            // git_repo_state: NO tragar el error (antes .catch(()=>null) dejaba el
+            // panel mudo — solo "Crear repo" sin pista). Exponerlo en git.error para
+            // que el usuario VEA por que el panel no opera (mandamiento 11).
+            let repoState: GitRepoState | null = null;
+            let gitErr: string | null = null;
+            try {
+              repoState = (await invoke("git_repo_state", { path: found.path })) as GitRepoState;
+            } catch (e) {
+              gitErr = `git_repo_state fallo: ${String(e)}`;
+            }
+            const indexed = await invoke<boolean>("codegraph_is_indexed", { path: found.path }).catch(() => false);
+            setGit({ state: repoState, busy: false, error: gitErr });
             setCgIndexed(indexed);
             if (indexed) {
               invoke<typeof cgSummary>("codegraph_summary", { path: found.path })
@@ -305,8 +312,13 @@ export default function ProjectWorkspace({ projectId }: Props) {
   };
 
   const refreshGit = useCallback(async (path: string) => {
-    const repoState = await invoke("git_repo_state", { path }).catch(() => null) as GitRepoState | null;
-    setGit({ state: repoState, busy: false, error: null });
+    // NO tragar el error: si git_repo_state falla, exponerlo (panel no-mudo).
+    try {
+      const repoState = (await invoke("git_repo_state", { path })) as GitRepoState;
+      setGit({ state: repoState, busy: false, error: null });
+    } catch (e) {
+      setGit({ state: null, busy: false, error: `git_repo_state fallo: ${String(e)}` });
+    }
   }, []);
 
   const runGitOp = useCallback(async (op: "git_pull" | "git_push" | "git_init" | "git_fetch") => {

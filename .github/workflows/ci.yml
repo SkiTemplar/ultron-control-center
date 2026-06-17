@@ -12,6 +12,13 @@ on:
   # matrix. The 3 jobs (cargo, typescript, python) gate themselves
   # internally on changed-files via `paths` filters where it matters.
 
+# Cancel any in-flight run for the same branch/PR on force-push.
+# group uses head_ref (PR branch name) for PRs and ref (e.g. refs/heads/main)
+# for direct pushes so concurrent main pushes don't cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 # Windows-only project. The cockpit hooks, installer and the Tauri build
 # all assume PowerShell + Windows APIs, so there's no point matrixing
 # macOS / Linux runners. Sticking to windows-latest keeps minutes cheap.
@@ -68,26 +75,37 @@ jobs:
           components: clippy
 
       - name: Cache cargo registry + build artifacts
+        # cache-on-failure: true ensures fastembed/ort artefacts built during
+        # a clippy-failing run are still stored, so the next push (fix commit)
+        # doesn't start from zero.  shared-key pins the cache to this job so
+        # the key is stable across Cargo.lock-only changes (Swatinem already
+        # appends the lock hash as a suffix).
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: control-center/src-tauri
+          cache-on-failure: true
+          shared-key: cargo-test-profile
 
-      - name: cargo clippy (compiles + lints; warnings allowed, errors block)
-        # clippy ya compila TODOS los targets (es rustc + lints), por lo que el
-        # antiguo step `cargo check --all-targets` separado era una compilacion
-        # completa redundante (~5min en CI): check y clippy no comparten
-        # fingerprint en target/ (driver distinto), asi que se compilaba dos
-        # veces. clippy bloquea igual en errores de compilacion, de modo que la
-        # cobertura no cambia. Eliminado para acortar el job cargo (cat12).
+      - name: cargo clippy (compiles + lints; -D warnings = gate duro)
+        # --profile test makes clippy compile with the same rustc flags as
+        # `cargo test` (the `test` profile, not `dev`).  Without this, clippy
+        # uses profile `dev` and `cargo test` recompiles fastembed/ort from
+        # scratch under profile `test` — that's the ~10 min recompilation
+        # even though Swatinem cached `target/`.  Aligning both steps to the
+        # same profile means the second step finds every artefact hot and only
+        # spends the ~9 s actually running tests.
+        # --lib --bins mirrors what `cargo test` tests so clippy's scope is
+        # identical — avoids compiling integration-test stubs that cargo test
+        # doesn't use (those live under tests/ and require a live Qdrant).
         working-directory: control-center/src-tauri
-        run: cargo clippy --all-targets -- -A warnings
+        run: cargo clippy --lib --bins --profile test -- -D warnings
 
       - name: cargo test (unit + bins)
-        # The gate was previously decorative: check + clippy compiled the
-        # tests but never RAN them, so a broken test merged green. Now the
-        # unit + bin tests actually execute. Integration tests under tests/
-        # that need a live Qdrant/sidecar are intentionally excluded (--lib
-        # --bins) so CI stays hermetic.
+        # All artefacts already compiled by clippy --profile test above.
+        # Cargo will skip recompilation and jump straight to test execution
+        # (~9 s for 507 tests).  Integration tests under tests/ that need a
+        # live Qdrant/sidecar remain excluded (--lib --bins) so CI stays
+        # hermetic.
         working-directory: control-center/src-tauri
         run: cargo test --lib --bins
 
