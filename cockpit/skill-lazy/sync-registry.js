@@ -29,11 +29,11 @@
  *                       OR it is in FORCE_KEEP_ACTIVE.
  * lazy_loadable = true: all other entries — injected on-demand when confidence >= 0.80.
  *
- * The script is ADDITIVE + PRESERVING:
+ * The script is ADDITIVE + PRESERVING + PRUNING:
  *   - Existing registry entries are preserved (token_estimate, keep_active, etc.).
  *   - Entries absent from the registry are added with sensible defaults.
- *   - Entries that exist in the registry but are not in the dispatcher or on disk
- *     are left untouched (they may come from manual additions or future catalogs).
+ *   - Entries whose resolved path no longer exists on disk are PRUNED
+ *     (phantom skills/agents). FORCE_KEEP_ACTIVE ids are never pruned.
  *
  * Usage:
  *   node sync-registry.js [--dry-run] [--detect-only]
@@ -255,6 +255,62 @@ function scanFilesystemAssets(existingRegistry) {
 }
 
 // ---------------------------------------------------------------------------
+// Existence check — report whether an entry's asset is physically present
+// ANYWHERE on disk. The stored `path` is NOT trusted to be accurate (many
+// agent entries carry a synthetic ~/.claude/skills/<id> path even though the
+// asset lives in ~/.claude/agents/<id>.md), so the union of every known
+// location is probed. The prune pass removes an entry only when its id
+// resolves to no file at all — i.e. a true phantom.
+//
+// Candidate locations probed for any id:
+//   ~/.claude/skills/<id>/SKILL.md            (active skill)
+//   ~/.claude/skills/<id>.disabled/SKILL.md   (disabled skill)
+//   ~/.ultron/skills/<id>/SKILL.md            (ultron workspace skill)
+//   ~/.claude/agents/<id>.md                  (active agent)
+//   ~/.claude/agents/<id>.md.disabled         (disabled agent)
+// Additionally, for namespaced plugin ids (e.g. "superpowers:brainstorm"),
+// the plugin cache is probed for the base name as a skill, command, or agent:
+//   ~/.claude/skills/<ns>/<base>[.disabled]/SKILL.md
+//   <plugin-cache>/*/*/*/skills/<base>[.disabled]/SKILL.md
+//   <plugin-cache>/*/*/*/commands/<base>.md   (command-style plugin)
+//   <plugin-cache>/*/*/*/agents/<base>.md     (agent-style plugin)
+// ---------------------------------------------------------------------------
+function entryExistsOnDisk(entry) {
+  const id = entry.id;
+
+  const candidates = [
+    path.join(SKILLS_DIR, id, 'SKILL.md'),
+    path.join(SKILLS_DIR, id + '.disabled', 'SKILL.md'),
+    path.join(ULTRON_SKILLS_DIR, id, 'SKILL.md'),
+    path.join(AGENTS_DIR, id + '.md'),
+    path.join(AGENTS_DIR, id + '.md.disabled'),
+  ];
+
+  if (id.includes(':')) {
+    const [nsPrefix, baseName] = id.split(':', 2);
+    candidates.push(path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'));
+    candidates.push(path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'));
+    try {
+      for (const pluginDir of fs.readdirSync(PLUGINS_CACHE).map(d => path.join(PLUGINS_CACHE, d))) {
+        try {
+          for (const pkgDir of fs.readdirSync(pluginDir)) {
+            for (const ver of fs.readdirSync(path.join(pluginDir, pkgDir))) {
+              const base = path.join(pluginDir, pkgDir, ver);
+              candidates.push(path.join(base, 'skills', baseName, 'SKILL.md'));
+              candidates.push(path.join(base, 'skills', baseName + '.disabled', 'SKILL.md'));
+              candidates.push(path.join(base, 'commands', baseName + '.md'));
+              candidates.push(path.join(base, 'agents', baseName + '.md'));
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  return candidates.some(c => fs.existsSync(c));
+}
+
+// ---------------------------------------------------------------------------
 // Build the merged registry
 // ---------------------------------------------------------------------------
 function buildRegistry() {
@@ -321,12 +377,29 @@ function buildRegistry() {
     added++;
   }
 
+  // Pass 3 — prune entries whose resolved path no longer exists on disk.
+  // FORCE_KEEP_ACTIVE ids are never pruned (core skills loaded every session;
+  // a transient fs hiccup must not drop them). Everything else must resolve to
+  // a real SKILL.md / agent .md(.disabled) / plugin-cache asset to survive.
+  let pruned = 0;
+  const prunedIds = [];
+  for (const [id, entry] of [...merged.entries()]) {
+    if (FORCE_KEEP_ACTIVE.has(id)) continue;
+    if (!entryExistsOnDisk(entry)) {
+      merged.delete(id);
+      pruned++;
+      prunedIds.push(id);
+    }
+  }
+
   return {
     entries: [...merged.values()],
     added,
     updated,
     detected: detected.length,
     detectedIds: detected.map(a => a.id),
+    pruned,
+    prunedIds,
     total: merged.size,
   };
 }
@@ -343,7 +416,7 @@ function main() {
     return;
   }
 
-  const { entries, added, updated, detected, detectedIds, total } = buildRegistry();
+  const { entries, added, updated, detected, detectedIds, pruned, prunedIds, total } = buildRegistry();
 
   // Sort: keep_active first, then alphabetical by id
   entries.sort(function (a, b) {
@@ -357,17 +430,20 @@ function main() {
   if (DRY_RUN) {
     process.stdout.write(json);
     process.stderr.write(
-      `\n[dry-run] total=${total} added=${added} updated=${updated} detected_from_fs=${detected}\n`
+      `\n[dry-run] total=${total} added=${added} updated=${updated} detected_from_fs=${detected} pruned=${pruned}\n`
     );
     if (detected > 0) {
       process.stderr.write(`[dry-run] newly detected: ${detectedIds.join(', ')}\n`);
+    }
+    if (pruned > 0) {
+      process.stderr.write(`[dry-run] pruned (missing on disk): ${prunedIds.join(', ')}\n`);
     }
     return;
   }
 
   fs.writeFileSync(REGISTRY_PATH, json, 'utf8');
   process.stdout.write(
-    JSON.stringify({ ok: true, total, added, updated, detected, path: REGISTRY_PATH }) + '\n'
+    JSON.stringify({ ok: true, total, added, updated, detected, pruned, path: REGISTRY_PATH }) + '\n'
   );
 }
 

@@ -16,6 +16,7 @@ import BatchDropdown, { type BatchToast } from "./BatchDropdown";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
+import { getPrompt } from "../../lib/button-prompts";
 
 // ---------------------------------------------------------------------------
 // Inline icons not yet in icons.tsx
@@ -338,7 +339,9 @@ export default function ProjectWorkspace({ projectId }: Props) {
       await invoke("spawn_session", {
         provider: "claude",
         cwd: meta.path,
-        prompt: `Usa las herramientas de codegraph (codegraph_explore, codegraph_search, codegraph_callers) para explorar este proyecto. Empieza con codegraph_explore preguntando: "arquitectura principal de ${meta.name}, módulos clave y funciones más importantes".`,
+        prompt: await getPrompt("projects.codegraph_session", {
+          project_name: meta.name,
+        }),
         flags: { dangerouslySkipPermissions: false },
       });
     } catch {

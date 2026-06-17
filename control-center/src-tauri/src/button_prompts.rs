@@ -433,6 +433,24 @@ fn build_defaults() -> Vec<ButtonPrompt> {
              \n\
              Follow the skill-creator workflow: capture intent, draft a spec-compliant SKILL.md (strong pushy description + lean imperative body + at least one example), then validate it with scripts/quick_validate.py before finishing. Write the skill under ~/.claude/skills/{NAME}/ and offer to package it for Cowork when done.",
         ),
+        default_button(
+            "finance.ask_gilito",
+            "Finance · Ask Tio Gilito",
+            "Finance / header Tio Gilito button",
+            "Spawns a Claude session in the personal-finance project directory so \
+             the user can review their finances conversationally.",
+            &[],
+            "Tio Gilito, como van mis finanzas?",
+        ),
+        default_button(
+            "projects.codegraph_session",
+            "Projects · CodeGraph exploration session",
+            "Projects / workspace CodeGraph button",
+            "Spawns a Claude session that uses the codegraph tools to explore the \
+             selected project's architecture and key functions.",
+            &["project_name"],
+            "Usa las herramientas de codegraph (codegraph_explore, codegraph_search, codegraph_callers) para explorar este proyecto. Empieza con codegraph_explore preguntando: \"arquitectura principal de {project_name}, módulos clave y funciones más importantes\".",
+        ),
     ]
 }
 
