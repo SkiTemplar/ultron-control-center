@@ -137,7 +137,7 @@ pub async fn batches_enqueue_command(
 /// `reason`      — parsed leniently; "ai_cannot_execute" is the typical value.
 ///
 /// **How the AI leaves a manual reminder:**
-/// ```
+/// ```js
 /// invoke("batches_enqueue_manual", {
 ///   name: "Rebuild app",
 ///   description: "Run `npm run build:app` from control-center/ after closing the app.",
