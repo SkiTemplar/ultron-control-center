@@ -1,0 +1,311 @@
+// memory/service/candidates.rs — candidate intake (what hooks/agents call)
+//
+// Covers: create_candidate, edit_candidate, list_pending_candidates,
+//         approve_candidate, reject_candidate.
+
+use super::super::model::{
+    Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
+    Source, Status,
+};
+use super::super::MemoryError;
+use super::super::{redaction, sqlite_store as store};
+use super::{raised_sensitivity, redact_tags, sync_index, MemoryService, SECRET_RISK_MARKER};
+
+impl MemoryService {
+    // -- candidate intake (what hooks/agents call) ---------------------------
+
+    /// Record a proposed memory (status pending). Returns the candidate id.
+    /// This is the ONLY way non-service code introduces memory.
+    pub fn create_candidate(candidate: &MemoryCandidate) -> Result<String, MemoryError> {
+        let conn = store::open_conn()?;
+        let mut cand = candidate.clone();
+
+        // Write-path secret guard (OLA A): redact any credential material from the
+        // proposed text BEFORE it is persisted to brain.db or later embedded into
+        // Qdrant. Defensive — only detected secrets are redacted; normal text is
+        // left untouched. See memory/redaction.rs and CONTRACTS-2026-06-04.md.
+        let mut redacted = false;
+        redacted |= redaction::redact_in_place(&mut cand.proposed_title);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_summary);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_content);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_content_json);
+        redacted |= redact_tags(&mut cand.proposed_tags);
+
+        // Basic FTS dedupe: flag near-identical ACTIVE items as duplicates so the
+        // inbox can merge instead of creating a redundant memory. (Semantic dedupe
+        // + contradiction detection via embeddings/AI routing is Fase D — TODO below.)
+        if let Some(summary) = cand.proposed_summary.clone() {
+            if !summary.trim().is_empty() {
+                if let Ok(similar) = store::search_items(&conn, &summary, Status::Active, 3) {
+                    let dups: Vec<String> = similar.into_iter().map(|i| i.id).collect();
+                    if !dups.is_empty() {
+                        cand.duplicate_candidates = dups;
+                        cand.recommended_action = CandidateAction::Merge;
+                    }
+                }
+            }
+        }
+
+        // L0 exact dedupe (OLA E): if an ACTIVE item already has the same
+        // content_hash this candidate would produce on approve, flag it as a Merge
+        // candidate. Complements the FTS near-dupe above (exact > lexical-similar).
+        let probe = cand.to_item(Status::Active, Source::AssistantInferred);
+        let probe_text = probe.searchable_text();
+        if !probe_text.trim().is_empty() {
+            let probe_hash = super::super::texthash::content_hash(&probe_text);
+            // Scope/project guard (CONTRACTS §4 + review P1): an exact text match in a
+            // DIFFERENT project/scope is a near-duplicate, NOT a duplicate — never merge
+            // across the project boundary. find_active_by_content_hash filters by
+            // (scope, project_id) so cross-project collisions can't trigger a Merge.
+            if let Ok(Some(existing)) = store::find_active_by_content_hash(
+                &conn,
+                &probe_hash,
+                probe.scope,
+                probe.project_id.as_deref(),
+            ) {
+                if !cand.duplicate_candidates.contains(&existing.id) {
+                    cand.duplicate_candidates.push(existing.id);
+                }
+                cand.recommended_action = CandidateAction::Merge;
+            }
+        }
+
+        // Write-path sensitivity (OLA A / H2): a candidate that carried a
+        // credential is quarantined (never auto-approved) and tagged so the
+        // promoted item is marked Secret on approve. `redacted` reuses the same
+        // detector as redaction::classify_sensitivity; takes precedence over Merge.
+        if redacted {
+            cand.recommended_action = CandidateAction::Quarantine;
+            cand.risk_level = SECRET_RISK_MARKER.to_string();
+        }
+        // Fase D — contradiction detector (now wired). Compare the proposed
+        // summary against semantically-near ACTIVE items of the SAME project via
+        // memory/contradiction.rs (dense neighbours + a fail-safe LLM judge). On a
+        // confirmed conflict we ONLY MARK it: fill `contradiction_candidates` with
+        // the conflicting ids and route to Quarantine for human adjudication. We
+        // NEVER auto-resolve, deprecate, or discard — and the detector is
+        // CONSERVATIVE (judge returns false on any doubt), so this can't flood the
+        // inbox with false positives. Secret quarantine (above) takes precedence;
+        // we do not downgrade it. Probe `project_id` keeps cross-project memories
+        // (which legitimately differ) from being flagged as contradictions.
+        //
+        // FAIL-OPEN with bounded latency (fix CRITICAL #1, 2026-06-05):
+        //   The LLM judge calls `ai_router::route`, which may block up to
+        //   ~6 s when the free-tier quota is exhausted and the retry/backoff
+        //   loop fires.  The ai_router fix (short-circuit on free-tier 429)
+        //   eliminates most of that delay, but as a defence-in-depth we run
+        //   the contradiction check on a background thread with a hard wall-
+        //   clock budget.  If the budget expires before a result arrives, we
+        //   tag the candidate "unjudged" and proceed without blocking.
+        //   The candidate is still created (ACTIVE or PENDING per band policy)
+        //   — the hook never times out because of a slow LLM judge.
+        //
+        //   Budget: 2 000 ms — comfortably below CANDIDATE_TIMEOUT_MS (6 000)
+        //   even after accounting for the Qdrant dense-search step (E5 cold-
+        //   start ≤ 3 285 ms in the worst case observed).  When Gemini is
+        //   exhausted and the short-circuit fix is active, the judge returns
+        //   None in < 50 ms, so the budget is never reached in the happy path.
+        const CONTRADICTION_BUDGET_MS: u64 = 2_000;
+        if !redacted {
+            if let Some(summary) = cand.proposed_summary.as_deref() {
+                let summary_owned = summary.to_string();
+                let project_id_owned = probe.project_id.clone();
+
+                // Spawn the check onto a scoped OS thread so we can time-box it
+                // without pulling in any async runtime.
+                let (tx, rx) = std::sync::mpsc::channel();
+                // `conn` is not `Send`; the thread needs its own connection.
+                // `open_conn` is cheap (WAL mode, no schema migration on reopen).
+                std::thread::spawn(move || {
+                    let result = store::open_conn().ok().map(|c| {
+                        super::super::contradiction::check(
+                            &c,
+                            &summary_owned,
+                            project_id_owned.as_deref(),
+                        )
+                    });
+                    // Receiver may have dropped (timeout) — ignore send error.
+                    let _ = tx.send(result);
+                });
+
+                match rx.recv_timeout(std::time::Duration::from_millis(CONTRADICTION_BUDGET_MS)) {
+                    Ok(Some(findings)) if !findings.is_empty() => {
+                        for f in &findings {
+                            if !cand.contradiction_candidates.contains(&f.conflicting_id) {
+                                cand.contradiction_candidates.push(f.conflicting_id.clone());
+                            }
+                        }
+                        // Mark for human review; never auto-resolve. Quarantine keeps it
+                        // OUT of recall until adjudicated (takes precedence over Merge).
+                        cand.recommended_action = CandidateAction::Quarantine;
+                    }
+                    Ok(_) => {
+                        // No findings (empty vec) or open_conn failed — proceed normally.
+                    }
+                    Err(_timeout_or_disconnect) => {
+                        // Budget expired or thread panicked.  FAIL-OPEN: create the
+                        // candidate without a contradiction verdict rather than blocking
+                        // the hook.  Tag it so the dashboard can surface unjudged items
+                        // for later review.
+                        eprintln!(
+                            "[service::create_candidate] contradiction judge timed out \
+                             after {CONTRADICTION_BUDGET_MS}ms — candidate {} will be \
+                             created as unjudged",
+                            cand.id
+                        );
+                        if !cand.proposed_tags.contains(&"unjudged".to_string()) {
+                            cand.proposed_tags.push("unjudged".to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        store::insert_candidate(&conn, &cand)?;
+        let reason = if redacted {
+            format!("candidate {} proposed (secrets redacted)", cand.id)
+        } else if !cand.contradiction_candidates.is_empty() {
+            format!(
+                "candidate {} proposed (contradicts {} active item(s) — quarantined)",
+                cand.id,
+                cand.contradiction_candidates.len()
+            )
+        } else {
+            format!("candidate {} proposed", cand.id)
+        };
+        let ev = MemoryEvent::new(EventType::Created, None, Actor::System)
+            .with_reason(reason)
+            .with_after(serde_json::to_string(&cand).unwrap_or_default());
+        let _ = store::insert_event(&conn, &ev);
+
+        // Auto-validation 3-band policy (opt-in). When the persisted `auto_approve`
+        // setting is ON and this candidate is CLEAN, the confidence-driven band
+        // decides its disposition — replacing the old binary "approve all clean":
+        //
+        //   BAND A (confidence >= threshold): promote straight to ACTIVE, reusing the
+        //     exact `approve_candidate` path the human UI uses (redaction / sensitivity
+        //     / index-sync all still apply). Approved as Actor::System (policy, not a
+        //     human validation, so NOT marked `validated_by_user`).
+        //   BAND B (mid confidence, OR kind decision/architecture): leave PENDING in
+        //     the inbox (the default — no action; it was inserted as Pending above).
+        //   BAND C (confidence < REJECT_THRESHOLD): mark `rejected` so it never enters
+        //     recall; a background purge sweeps it later. Noise auto-discard.
+        //
+        // SECURITY SALVAGUARDA (unchanged): `candidate_is_clean` is FALSE for any
+        // candidate carrying the secret marker or a contradiction finding, so those
+        // ALWAYS stay in the inbox/quarantine for human review — they never reach band
+        // classification. FAIL-SAFE: `auto_approve_threshold` reads as f32::INFINITY on
+        // any settings error, so nothing can clear BAND A on a glitch, and
+        // `auto_approve_enabled` defaults to false — both gate the promotion. All
+        // errors are swallowed: the candidate is already safely in the inbox.
+        if super::super::auto_approve::auto_approve_enabled()
+            && super::super::auto_approve::candidate_is_clean(&cand)
+        {
+            let threshold = super::super::auto_approve::auto_approve_threshold();
+            match super::super::auto_approve::classify_band(&cand, threshold) {
+                super::super::auto_approve::AutoBand::Approve => {
+                    drop(conn); // approve_candidate opens its own connection.
+                    let _ = Self::approve_candidate(&cand.id, Actor::System);
+                }
+                super::super::auto_approve::AutoBand::Pending => {
+                    // No-op: it is already persisted Pending in the inbox.
+                }
+                super::super::auto_approve::AutoBand::Reject => {
+                    // Low-confidence noise: flip to `rejected` (out of recall) and
+                    // record the policy decision in the audit log. Swallow errors —
+                    // worst case it lingers as Pending, which is still safe.
+                    let _ = store::set_candidate_status(&conn, &cand.id, CandidateStatus::Rejected);
+                    let ev = MemoryEvent::new(EventType::Rejected, None, Actor::System)
+                        .with_reason(format!(
+                            "candidate {} auto-rejected (confidence {:.2} < band-C floor)",
+                            cand.id, cand.confidence
+                        ));
+                    let _ = store::insert_event(&conn, &ev);
+                }
+            }
+        }
+
+        Ok(cand.id.clone())
+    }
+
+    /// Edit a pending candidate's proposed fields before approval. `None` leaves
+    /// a field unchanged.
+    pub fn edit_candidate(
+        id: &str,
+        summary: Option<String>,
+        content: Option<String>,
+        importance: Option<f32>,
+        confidence: Option<f32>,
+    ) -> Result<MemoryCandidate, MemoryError> {
+        let conn = store::open_conn()?;
+        let mut c = store::get_candidate(&conn, id)?
+            .ok_or_else(|| MemoryError::NotFound(format!("candidate {id}")))?;
+        if summary.is_some() {
+            c.proposed_summary = summary;
+        }
+        if content.is_some() {
+            c.proposed_content = content;
+        }
+        if let Some(i) = importance {
+            c.importance = i.clamp(0.0, 1.0);
+        }
+        if let Some(cf) = confidence {
+            c.confidence = cf.clamp(0.0, 1.0);
+        }
+        store::insert_candidate(&conn, &c)?; // INSERT OR REPLACE
+        let ev = MemoryEvent::new(EventType::Edited, None, Actor::User)
+            .with_reason(format!("candidate {id} edited"))
+            .with_after(serde_json::to_string(&c).unwrap_or_default());
+        let _ = store::insert_event(&conn, &ev);
+        Ok(c)
+    }
+
+    /// List candidates awaiting a human (or policy) decision.
+    pub fn list_pending_candidates(limit: usize) -> Result<Vec<MemoryCandidate>, MemoryError> {
+        let conn = store::open_conn()?;
+        store::list_candidates(&conn, CandidateStatus::Pending, limit)
+    }
+
+    /// Approve a candidate → promote to an ACTIVE `memory_items` row.
+    /// When `actor == User` the resulting item is marked validated.
+    pub fn approve_candidate(id: &str, actor: Actor) -> Result<MemoryItem, MemoryError> {
+        use super::super::model::now_millis;
+        let conn = store::open_conn()?;
+        let cand = store::get_candidate(&conn, id)?
+            .ok_or_else(|| MemoryError::NotFound(format!("candidate {id}")))?;
+
+        let mut item = cand.to_item(Status::Active, Source::AssistantInferred);
+        // H2: carry the write-path secret marker to the item so the recall
+        // Secret-gate (recall_unified) excludes it. Monotonic — never downgrades.
+        item.sensitivity =
+            raised_sensitivity(item.sensitivity, cand.risk_level == SECRET_RISK_MARKER);
+        if matches!(actor, Actor::User) {
+            item.validated_by_user = true;
+            item.validated_at = Some(now_millis());
+        }
+        store::insert_item(&conn, &item)?;
+        sync_index(&item); // W4: keep the dense index in sync with the approval
+        store::set_candidate_status(&conn, id, CandidateStatus::Approved)?;
+
+        let ev = MemoryEvent::new(EventType::Approved, Some(item.id.clone()), actor)
+            .with_reason(format!("candidate {id} approved"))
+            .with_after(serde_json::to_string(&item).unwrap_or_default());
+        let _ = store::insert_event(&conn, &ev);
+        Ok(item)
+    }
+
+    /// Reject a candidate — it never becomes a memory.
+    pub fn reject_candidate(
+        id: &str,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<(), MemoryError> {
+        let conn = store::open_conn()?;
+        store::set_candidate_status(&conn, id, CandidateStatus::Rejected)?;
+        let mut ev = MemoryEvent::new(EventType::Rejected, None, actor)
+            .with_reason(reason.unwrap_or_else(|| format!("candidate {id} rejected")));
+        ev.after_json = Some(format!("{{\"candidate_id\":\"{id}\"}}"));
+        let _ = store::insert_event(&conn, &ev);
+        Ok(())
+    }
+}
