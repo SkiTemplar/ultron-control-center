@@ -435,3 +435,12 @@ cockpit/cleanup-deprecated-*.py
 headroom_memory.db
 .headroom/
 CONTINUAR.md
+
+# cat7 split (2026-06-18): los subdirs de componentes React colisionaban con los
+# patrones AMPLIOS 'sessions/' (l.16) y 'plans/' (l.145) -- pensados para los dirs
+# internos de ~/.ultron/, no para codigo. Estos son FUENTE del frontend y DEBEN
+# trackearse; sin esto, Plans.tsx/Sessions.tsx importarian modulos ausentes en el
+# repo y romperian el build de quien clone (y el CI). Las negaciones van al final
+# para ganar por last-match-wins.
+!control-center/src/components/plans/
+!control-center/src/components/sessions/
