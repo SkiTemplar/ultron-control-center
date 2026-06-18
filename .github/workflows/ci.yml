@@ -64,7 +64,16 @@ jobs:
   cargo:
     name: Rust (cargo check + clippy)
     runs-on: windows-latest
-    timeout-minutes: 25
+    # 30 (was 25): the FIRST run after the [profile.test] change below is cold
+    # (new fingerprint invalidates the cached target/), and cold runs already
+    # graze ~25 min. The extra headroom avoids a false timeout on that single
+    # transition run; hot runs land ~7 min so this is slack, not the norm.
+    timeout-minutes: 30
+    # CARGO_INCREMENTAL=0: in CI (clean tree + restored cache) incremental mode
+    # buys nothing and pollutes the fingerprint while bloating the Swatinem
+    # cache. Disabling it globally trims the cache restore and the link step.
+    env:
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -101,13 +110,18 @@ jobs:
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
       - name: cargo test (unit + bins)
-        # All artefacts already compiled by clippy --profile test above.
-        # Cargo will skip recompilation and jump straight to test execution
-        # (~9 s for 507 tests).  Integration tests under tests/ that need a
-        # live Qdrant/sidecar remain excluded (--lib --bins) so CI stays
-        # hermetic.
+        # clippy --profile test above already compiled the DEPS (fastembed/ort/
+        # tauri) hot, but clippy only *checks* the local crate (emits .rmeta) —
+        # it does NOT codegen+link the test-harness binaries. So this step still
+        # pays the codegen+link of the local crate (~237 s hot for the 509
+        # tests, not the ~9 s an earlier comment wrongly claimed). The
+        # [profile.test] tuning in Cargo.toml (debug=0 → no PDB, codegen-units
+        # =16) shaves that link cost. --profile test is the cargo-test default;
+        # stated explicitly so it visibly shares the profile (and its tuning)
+        # with the clippy step. --lib --bins keeps CI hermetic (tests/ need a
+        # live Qdrant/sidecar).
         working-directory: control-center/src-tauri
-        run: cargo test --lib --bins
+        run: cargo test --lib --bins --profile test
 
   typescript:
     name: TypeScript (tsc --noEmit)
