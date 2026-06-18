@@ -20,130 +20,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
 import { InstallConfirmModal } from "./library/InstallConfirmModal";
 import { CreateAgentModal } from "./library/CreateAgentModal";
-import { Bot, Plus } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import { BlocksView, type BlocksItem } from "./library/BlocksView";
-import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
-import { LibraryDetailPane } from "./library/LibraryDetailPane";
+import { useLibraryViewMode } from "./library/ViewToggle";
 import { rankBySearch, type SearchableItem } from "../lib/ranked-search";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type ProjectLite = { id: string; name: string };
-
-type ScopeFilter = "all" | SkillOrigin;
-
-type EnableFilter = "active" | "disabled" | "all";
-
-type DelegationLogEntry = {
-  id: string;
-  agent: string;
-  task_preview: string;
-  cwd: string | null;
-  used_cheap_model: boolean;
-  started_at: string;
-  status: string;
-  session_id: string | null;
-};
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const SCOPES: { id: ScopeFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "global", label: "Global" },
-  { id: "project", label: "Project" },
-  { id: "plugin", label: "Plugin" },
-];
-
-const NO_CATEGORY = "uncategorized";
-
-// Violet accent — consistent with LibraryDetailPane "agent" kind and icons.tsx Bot=violet.
-const AGENT_ACCENT = "rgba(167, 139, 250, 0.55)";
-const AGENT_ACCENT_SOFT = "rgba(167, 139, 250, 0.16)";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Derive a category from the on-disk path. Examples:
-///   ~/.claude/agents/sec/reviewer.md → "sec"
-///   ~/.claude/agents/reviewer.md     → "uncategorized"
-///   .../plugins/cache/<id>/<plugin>/<ver>/agents/foo.md → "<plugin>"
-function deriveCategory(a: AgentEntry): string {
-  const norm = a.path.replace(/\\/g, "/");
-  if (a.origin === "plugin") {
-    const m = norm.match(/\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/agents\//);
-    if (m && m[1]) return m[1];
-  }
-  const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md/);
-  if (m && m[1]) return m[1];
-  return NO_CATEGORY;
-}
-
-function deriveTopGroup(a: AgentEntry): string {
-  if (a.origin === "global") return "Global";
-  if (a.origin === "project") return "Project";
-  return deriveCategory(a);
-}
-
-function deriveSubGroup(a: AgentEntry): string | null {
-  const norm = a.path.replace(/\\/g, "/");
-  if (a.origin === "plugin") {
-    const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md/);
-    if (m && m[1]) return m[1];
-    return null;
-  }
-  const cat = deriveCategory(a);
-  if (cat === NO_CATEGORY) return null;
-  return cat;
-}
-
-/// Workspace folder + primary file for the detail pane. For agents there is
-/// no multi-file "workspace" concept (unlike SKILL.md folders) so we simply
-/// open the parent directory alongside the .md file.
-function agentWorkspace(a: AgentEntry): { folder: string; file: string } {
-  const file = a.path;
-  const lastSep = Math.max(file.lastIndexOf("\\"), file.lastIndexOf("/"));
-  return {
-    folder: lastSep > 0 ? file.slice(0, lastSep) : "",
-    file,
-  };
-}
-
-function diceBearUrl(slug: string): string {
-  const seed = encodeURIComponent(slug || "agent");
-  return `https://api.dicebear.com/7.x/bottts/svg?seed=${seed}&backgroundColor=1a1a2e,222238`;
-}
-
-function ageFromEpochField(s: string): string {
-  const m = /^epoch:(\d+)$/.exec(s);
-  if (!m) return s;
-  const secs = parseInt(m[1], 10);
-  if (!Number.isFinite(secs)) return s;
-  const diff = Math.max(0, Date.now() / 1000 - secs);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-function statusChip(status: string): { bg: string; fg: string; label: string } {
-  if (status === "launched") {
-    return { bg: "rgba(63, 185, 80, 0.14)", fg: "rgb(63, 185, 80)", label: "Launched" };
-  }
-  if (status === "failed") {
-    return { bg: "rgba(248, 81, 73, 0.14)", fg: "rgb(248, 81, 73)", label: "Failed" };
-  }
-  return { bg: "rgba(125, 133, 144, 0.14)", fg: "rgb(125, 133, 144)", label: status };
-}
+import type { ProjectLite, ScopeFilter, EnableFilter, DelegationLogEntry } from "./agents/types";
+import { NO_CATEGORY } from "./agents/types";
+import { deriveCategory, deriveTopGroup, deriveSubGroup } from "./agents/helpers";
+import { AgentsHeader } from "./agents/AgentsHeader";
+import { AgentsFilters } from "./agents/AgentsFilters";
+import { BulkActionBar } from "./agents/BulkActionBar";
+import { DelegationsStrip } from "./agents/DelegationsStrip";
+import { AgentCardGrid } from "./agents/AgentCardGrid";
+import { AgentDetailPane } from "./agents/AgentDetailPane";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -175,7 +68,6 @@ export function Agents() {
 
   // Recent delegations.
   const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
-  const [showAllRuns, setShowAllRuns] = useState(false);
 
   // -------------------------------------------------------------------------
   // Data loading
@@ -321,14 +213,6 @@ export function Agents() {
     }
   };
 
-  const handleOpen = async (path: string) => {
-    try {
-      await openPath(path);
-    } catch (e) {
-      setError(`open ${path}: ${e}`);
-    }
-  };
-
   // -------------------------------------------------------------------------
   // Bulk enable / disable (mirrors Skills.tsx)
   // -------------------------------------------------------------------------
@@ -415,167 +299,25 @@ export function Agents() {
   );
 
   // -------------------------------------------------------------------------
-  // Card grid — same 140px tall card pattern as Skills/Rules, violet accent
-  // -------------------------------------------------------------------------
-
-  const renderCardGrid = (items: AgentEntry[]) => (
-    <div
-      className="grid gap-3"
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
-    >
-      {items.map((a) => {
-        const isActive = selected?.path === a.path;
-        const cat = deriveCategory(a);
-        const isChecked = checked.has(a.name);
-        const selectable = selectMode && a.origin === "global";
-
-        return (
-          <button
-            key={`${a.origin}-${a.path}`}
-            type="button"
-            onClick={() => (selectable ? toggleChecked(a.name) : setSelected(a))}
-            className="group relative flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
-            style={{
-              background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
-              border: `1px solid ${
-                selectable && isChecked ? AGENT_ACCENT : isActive ? AGENT_ACCENT : "var(--color-border)"
-              }`,
-              boxShadow: `inset 0 3px 0 ${AGENT_ACCENT}`,
-              opacity: a.enabled ? 1 : 0.55,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = AGENT_ACCENT;
-              e.currentTarget.style.transform = "translateY(-2px)";
-              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor =
-                selectable && isChecked ? AGENT_ACCENT : isActive ? AGENT_ACCENT : "var(--color-border)";
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}`;
-            }}
-            title={a.description || a.name}
-          >
-            {/* Bulk-select checkbox overlay (select mode, global agents) */}
-            {selectMode && (
-              <input
-                type="checkbox"
-                checked={isChecked}
-                disabled={a.origin !== "global"}
-                onChange={() => toggleChecked(a.name)}
-                onClick={(e) => e.stopPropagation()}
-                aria-label={`Select ${a.name}`}
-                className="absolute right-2 top-2 h-4 w-4"
-                style={{ accentColor: "#a78bfa", cursor: a.origin === "global" ? "pointer" : "not-allowed" }}
-              />
-            )}
-            {/* Header row: label chip + origin badge */}
-            <div className="flex items-center justify-between gap-1.5">
-              <div
-                className="flex items-center gap-1 text-[10.5px] uppercase tracking-[0.08em]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                <Bot size={12} />
-                Agent
-              </div>
-              <span
-                className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
-                style={{
-                  background: AGENT_ACCENT_SOFT,
-                  color: "#c4b5fd",
-                  border: "1px solid rgba(167, 139, 250, 0.35)",
-                }}
-              >
-                {cat !== NO_CATEGORY ? cat : a.origin}
-              </span>
-            </div>
-
-            {/* Agent name */}
-            <div
-              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
-              style={{ color: a.enabled ? "var(--color-text)" : "var(--color-text-secondary)" }}
-            >
-              {a.name}
-            </div>
-
-            {/* Footer: origin badge + disabled label */}
-            <div className="flex items-center justify-between">
-              <span
-                className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
-                style={{
-                  background: AGENT_ACCENT_SOFT,
-                  color: "#c4b5fd",
-                  border: "1px solid rgba(167, 139, 250, 0.35)",
-                }}
-              >
-                {a.origin}
-              </span>
-              {!a.enabled && (
-                <span
-                  className="text-[9.5px] uppercase tracking-wide"
-                  style={{ color: "var(--color-text-faint)" }}
-                >
-                  disabled
-                </span>
-              )}
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
       {/* Page header — mirrors Skills.tsx */}
-      <header className="flex items-center justify-between gap-2">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-lg font-semibold">Agents</h2>
-          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            ~/.claude/agents/**/*.md · {filtered.length} of {agents.length}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <ViewToggle mode={view} onChange={setView} />
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
-            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
-          >
-            <Plus size={12} /> New agent
-          </button>
-          <button
-            onClick={() => {
-              setSelectMode((v) => !v);
-              setChecked(new Set());
-            }}
-            className="rounded-md border px-3 py-1 text-xs"
-            style={{
-              borderColor: selectMode ? AGENT_ACCENT : "var(--color-border-strong)",
-              background: selectMode ? AGENT_ACCENT_SOFT : "var(--color-surface-2)",
-              color: selectMode ? "#c4b5fd" : "var(--color-text)",
-            }}
-            title="Toggle multi-select mode to bulk enable/disable global agents"
-          >
-            {selectMode ? "Done selecting" : "Select"}
-          </button>
-          <button
-            onClick={reload}
-            className="rounded-md border px-3 py-1 text-xs"
-            style={{
-              borderColor: "var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-            }}
-          >
-            Refresh
-          </button>
-        </div>
-      </header>
+      <AgentsHeader
+        totalCount={agents.length}
+        filteredCount={filtered.length}
+        view={view}
+        selectMode={selectMode}
+        onViewChange={setView}
+        onCreateOpen={() => setCreateOpen(true)}
+        onToggleSelectMode={() => {
+          setSelectMode((v) => !v);
+          setChecked(new Set());
+        }}
+        onReload={reload}
+      />
 
       {/* Restart banner — appears after any toggle this session */}
       {hasToggled && (
@@ -597,166 +339,27 @@ export function Agents() {
 
       {/* Bulk action bar — visible in select mode */}
       {selectMode && (
-        <div
-          className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-xs"
-          style={{
-            background: AGENT_ACCENT_SOFT,
-            border: `1px solid ${AGENT_ACCENT}`,
-            color: "var(--color-text)",
-          }}
-        >
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            {checked.size} seleccionado{checked.size === 1 ? "" : "s"} (solo global)
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleBulk(true)}
-              disabled={bulkBusy || checked.size === 0}
-              className="rounded-md border px-3 py-1 font-medium disabled:opacity-40"
-              style={{
-                borderColor: "var(--color-success)",
-                background: "transparent",
-                color: "var(--color-success)",
-              }}
-            >
-              {bulkBusy ? "Aplicando…" : "Activar seleccionados"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleBulk(false)}
-              disabled={bulkBusy || checked.size === 0}
-              className="rounded-md border px-3 py-1 font-medium disabled:opacity-40"
-              style={{
-                borderColor: "var(--color-danger)",
-                background: "transparent",
-                color: "var(--color-danger)",
-              }}
-            >
-              {bulkBusy ? "Aplicando…" : "Desactivar seleccionados"}
-            </button>
-          </div>
-        </div>
+        <BulkActionBar
+          checkedCount={checked.size}
+          bulkBusy={bulkBusy}
+          onBulkEnable={() => void handleBulk(true)}
+          onBulkDisable={() => void handleBulk(false)}
+        />
       )}
 
-      {/* Active / Disabled / All tabs — same pill style as Skills.tsx */}
-      <div
-        className="inline-flex items-center gap-1 self-start rounded-lg p-1"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        {(
-          [
-            { id: "active" as const, label: "Active", count: enableCounts.active },
-            { id: "disabled" as const, label: "Disabled", count: enableCounts.disabled },
-            { id: "all" as const, label: "All", count: enableCounts.active + enableCounts.disabled },
-          ] as const
-        ).map((tab) => {
-          const isActive = enableFilter === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setEnableFilter(tab.id)}
-              className="flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors"
-              style={{
-                background: isActive ? "var(--color-surface-4)" : "transparent",
-                color: isActive ? "var(--color-text)" : "var(--color-text-secondary)",
-                border: isActive ? "1px solid var(--color-border-strong)" : "1px solid transparent",
-              }}
-            >
-              {tab.label}
-              <span
-                className="rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums"
-                style={{
-                  background: isActive ? AGENT_ACCENT_SOFT : "var(--color-surface-3)",
-                  color: isActive ? "#c4b5fd" : "var(--color-text-tertiary)",
-                }}
-              >
-                {tab.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Scope chips + Category pills — same structure as Skills.tsx */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          {SCOPES.map((s) => {
-            const isActive = scope === s.id;
-            return (
-              <button
-                key={s.id}
-                onClick={() => setScope(s.id)}
-                className="rounded-full border px-3 py-1 text-xs transition-colors"
-                style={{
-                  borderColor: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
-                  background: isActive ? "var(--color-accent)" : "transparent",
-                  color: isActive ? "var(--color-accent-text)" : "var(--color-text-secondary)",
-                }}
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {view !== "blocks" && categories.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span
-              className="text-[10.5px] uppercase tracking-wide"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Category
-            </span>
-            <button
-              onClick={() => setCategory("all")}
-              className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
-              style={{
-                borderColor: category === "all" ? "var(--color-text)" : "var(--color-border-strong)",
-                background: category === "all" ? "var(--color-surface-4)" : "transparent",
-                color: category === "all" ? "var(--color-text)" : "var(--color-text-secondary)",
-              }}
-            >
-              All
-            </button>
-            {categories.map((c) => {
-              const active = c === category;
-              return (
-                <button
-                  key={c}
-                  onClick={() => setCategory(c)}
-                  className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
-                  style={{
-                    borderColor: active ? "var(--color-text)" : "var(--color-border-strong)",
-                    background: active ? "var(--color-surface-4)" : "transparent",
-                    color: active ? "var(--color-text)" : "var(--color-text-secondary)",
-                  }}
-                >
-                  {c}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Search bar — identical to Skills/Rules */}
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search agents — fuzzy + synonyms, ranked by relevance…"
-        className="w-full rounded-md px-3 py-2 text-sm outline-none"
-        style={{
-          border: "1px solid var(--color-border-strong)",
-          background: "var(--color-surface-2)",
-          color: "var(--color-text)",
-        }}
+      {/* Filters: enable tabs + scope chips + category pills + search */}
+      <AgentsFilters
+        scope={scope}
+        category={category}
+        categories={categories}
+        enableFilter={enableFilter}
+        enableCounts={enableCounts}
+        query={query}
+        view={view}
+        onScopeChange={setScope}
+        onCategoryChange={setCategory}
+        onEnableFilterChange={setEnableFilter}
+        onQueryChange={setQuery}
       />
 
       {/* Error banner */}
@@ -811,104 +414,7 @@ export function Agents() {
           ) : (
             <>
               {/* Recent delegations strip — pinned above the grid */}
-              {delegations.length > 0 && (
-                <section className="mb-4">
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span
-                      className="text-[11px] uppercase tracking-wide"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      Recent runs ({delegations.length})
-                    </span>
-                    {delegations.length > 3 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowAllRuns((v) => !v)}
-                        className="text-[11px]"
-                        style={{ color: "var(--color-text-secondary)" }}
-                      >
-                        {showAllRuns ? "Show fewer" : `Show all ${delegations.length}`}
-                      </button>
-                    )}
-                  </div>
-                  <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {(showAllRuns ? delegations : delegations.slice(0, 3)).map((d) => {
-                      const chip = statusChip(d.status);
-                      return (
-                        <li
-                          key={d.id}
-                          className="flex gap-2 rounded-md p-2 text-xs"
-                          style={{
-                            border: "1px solid var(--color-border-strong)",
-                            background: "var(--color-surface-2)",
-                          }}
-                        >
-                          <img
-                            src={diceBearUrl(d.agent)}
-                            alt=""
-                            width={32}
-                            height={32}
-                            className="shrink-0 rounded"
-                            style={{ background: "var(--color-surface-3)" }}
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-                            }}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className="truncate font-medium"
-                                style={{ color: "var(--color-text)" }}
-                              >
-                                {d.agent}
-                              </span>
-                              <span
-                                className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium"
-                                style={{ background: chip.bg, color: chip.fg }}
-                              >
-                                {chip.label}
-                              </span>
-                              {d.used_cheap_model && (
-                                <span
-                                  className="shrink-0 rounded px-1 py-px text-[9px] uppercase"
-                                  style={{
-                                    background: "var(--color-surface-3)",
-                                    color: "var(--color-text-tertiary)",
-                                  }}
-                                  title="Spawned with Haiku 4.5 (cheap model)"
-                                >
-                                  Haiku
-                                </span>
-                              )}
-                            </div>
-                            <p
-                              className="mt-0.5 line-clamp-2 leading-snug"
-                              style={{ color: "var(--color-text-secondary)" }}
-                            >
-                              {d.task_preview}
-                            </p>
-                            <div
-                              className="mt-0.5 flex items-center gap-2 text-[10px]"
-                              style={{ color: "var(--color-text-tertiary)" }}
-                            >
-                              <span>{ageFromEpochField(d.started_at)}</span>
-                              {d.cwd && (
-                                <span
-                                  className="truncate"
-                                  style={{ fontFamily: "var(--font-mono)" }}
-                                  title={d.cwd}
-                                >
-                                  {d.cwd}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              )}
+              <DelegationsStrip delegations={delegations} />
 
               {/* Main content: Blocks / Tree / Grid */}
               {view === "blocks" ? (
@@ -917,11 +423,20 @@ export function Agents() {
                   noun="agent"
                   emptyLabel="No agents for the current filter."
                   topGroupAccent={(g) => {
-                    if (g === "Global") return AGENT_ACCENT;
+                    if (g === "Global") return "rgba(167, 139, 250, 0.55)";
                     if (g === "Project") return "rgba(168, 136, 168, 0.40)";
                     return "rgba(63, 185, 80, 0.32)";
                   }}
-                  renderLeaves={(items) => renderCardGrid(items.map((it) => it.data))}
+                  renderLeaves={(items) => (
+                    <AgentCardGrid
+                      items={items.map((it) => it.data)}
+                      selected={selected}
+                      selectMode={selectMode}
+                      checked={checked}
+                      onSelect={setSelected}
+                      onToggleChecked={toggleChecked}
+                    />
+                  )}
                 />
               ) : view === "tree" ? (
                 <TreeView<AgentEntry>
@@ -931,7 +446,14 @@ export function Agents() {
                   query={query}
                 />
               ) : (
-                renderCardGrid(filtered)
+                <AgentCardGrid
+                  items={filtered}
+                  selected={selected}
+                  selectMode={selectMode}
+                  checked={checked}
+                  onSelect={setSelected}
+                  onToggleChecked={toggleChecked}
+                />
               )}
             </>
           )}
@@ -939,76 +461,14 @@ export function Agents() {
 
         {/* Detail pane — same 560px panel as Skills/Rules */}
         {selected && (
-          <div className="overflow-hidden lg:w-[560px] lg:shrink-0" style={{ minWidth: 0 }}>
-            {(() => {
-              const ws = agentWorkspace(selected);
-              const subtitleParts: string[] = [selected.origin];
-              const cat = deriveCategory(selected);
-              if (cat !== NO_CATEGORY) subtitleParts.push(cat);
-              subtitleParts.push(selected.enabled ? "enabled" : "disabled");
-              return (
-                <div className="flex h-full flex-col gap-2">
-                  <LibraryDetailPane
-                    kind="agent"
-                    name={selected.name}
-                    subtitle={subtitleParts.join(" · ")}
-                    filePath={ws.file}
-                    folderPath={ws.folder}
-                    onSave={
-                      selected.origin === "global"
-                        ? async (body: string) => {
-                            await invoke("update_agent_md", { name: selected.name, content: body });
-                            await reload();
-                          }
-                        : undefined
-                    }
-                    onClose={() => setSelected(null)}
-                  />
-                  {/* Secondary toggle button below the detail pane — mirrors Skills.tsx */}
-                  {selected.origin === "global" && (
-                    <button
-                      type="button"
-                      onClick={() => void toggleAgent(selected)}
-                      disabled={toggleBusy.has(selected.path)}
-                      className="rounded-md border px-3 py-1.5 text-[11.5px] disabled:opacity-50"
-                      style={{
-                        borderColor: selected.enabled
-                          ? "var(--color-border-strong)"
-                          : "var(--color-accent)",
-                        background: selected.enabled
-                          ? "var(--color-surface-2)"
-                          : "var(--color-accent)",
-                        color: selected.enabled
-                          ? "var(--color-text)"
-                          : "var(--color-accent-text)",
-                      }}
-                    >
-                      {toggleBusy.has(selected.path)
-                        ? "Saving…"
-                        : selected.enabled
-                          ? "Disable agent"
-                          : "Enable agent"}
-                    </button>
-                  )}
-                  {/* Open in editor fallback for non-global agents */}
-                  {selected.origin !== "global" && (
-                    <button
-                      type="button"
-                      onClick={() => void handleOpen(selected.path)}
-                      className="rounded-md border px-3 py-1.5 text-[11.5px]"
-                      style={{
-                        borderColor: "var(--color-border-strong)",
-                        background: "var(--color-surface-2)",
-                        color: "var(--color-text)",
-                      }}
-                    >
-                      Open in editor
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
+          <AgentDetailPane
+            selected={selected}
+            toggleBusy={toggleBusy}
+            onReload={reload}
+            onClose={() => setSelected(null)}
+            onToggle={toggleAgent}
+            onError={setError}
+          />
         )}
       </div>
 
