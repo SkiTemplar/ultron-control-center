@@ -11,7 +11,7 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini-cli",
+        "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 1024
       }
@@ -52,7 +52,7 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini-cli",
+        "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 2048
       }
@@ -64,16 +64,11 @@
     "category": "research",
     "task_class": "medium",
     "primary": {
-      "provider_id": "gemini-cli",
+      "provider_id": "gemini",
       "model": "gemini-2.5-flash",
       "max_tokens": 4096
     },
     "fallbacks": [
-      {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
-        "max_tokens": 4096
-      },
       {
         "provider_id": "groq",
         "model": "llama-3.3-70b-versatile",
@@ -93,11 +88,6 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini-cli",
-        "model": "gemini-2.5-flash",
-        "max_tokens": 1024
-      },
-      {
         "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 1024
@@ -116,7 +106,7 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini-cli",
+        "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 256
       }
@@ -147,7 +137,7 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini-cli",
+        "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 512
       }
@@ -165,7 +155,7 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini-cli",
+        "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 1024
       },
