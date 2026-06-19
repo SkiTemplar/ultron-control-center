@@ -48,7 +48,7 @@ synchronisation).
 │   ├── src/                     React 19 frontend
 │   └── src-tauri/               Rust/Tauri 2 backend
 ├── hooks/                       Claude Code lifecycle hooks
-├── brain.db                     SQLite memory store (FTS5)
+├── brain.db                     SQLite memory store (FTS5, runtime — gitignored)
 ├── config/                      runtime config (doctor-rules.yaml, etc.)
 └── docs/                        this file and other documentation
 ```

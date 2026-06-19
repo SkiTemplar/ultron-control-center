@@ -5,8 +5,11 @@ tab, do the thing, move on. Total time: 5 minutes.
 
 > Paths use `~/.ultron/` form throughout. On Windows that resolves to
 > `%USERPROFILE%\.ultron\`; on Linux (supported from v15.5) to
-> `$HOME/.ultron/`. The Tauri sidebar exposes 18 wired sections (17 visible
-> + the Logs tab wired but `available:false` in the sidebar registry).
+> `$HOME/.ultron/`. The Tauri sidebar groups sections under **Overview**
+> (Dashboard, Usage, AI Router), **System** (System, MCPs, Library, Memory,
+> Notes, Learn) and **Workspace** (Sessions, Projects), with Notifications
+> and Settings anchored in the footer. Skills, Agents and Rules live as
+> sub-views inside **Library** (collapsed into one tab since v2.1).
 
 ---
 
@@ -27,12 +30,12 @@ the native binary.
 
 ---
 
-## 2. Skills — "is my agent loading anything risky?"
+## 2. Library → Skills — "is my agent loading anything risky?"
 
-The Skills tab lists every skill across `~/.claude/skills/`, plugins,
-and the vault. With strict security mode (default since v15.2.28), a
-skill that triggers the prompt-injection scanner shows up under the
-orange **Quarantined** filter.
+Open **Library** and select the **Skills** sub-view. It lists every skill
+across `~/.claude/skills/`, plugins, and the vault. With strict security
+mode (default since v15.2.28), a skill that triggers the prompt-injection
+scanner shows up under the orange **Quarantined** filter.
 
 - Click a quarantined skill → the **Security panel** opens
   automatically. You see each finding (rule, severity, line, excerpt)
@@ -48,20 +51,21 @@ orange **Quarantined** filter.
 
 ---
 
-## 3. Agents — "what subagents can I delegate to?"
+## 3. Library → Agents — "what subagents can I delegate to?"
 
-The Agents tab mirrors the Skills flow but for autonomous subagents
-under `~/.claude/agents/`. Fresh installs ship **19 agents** — 12 ULTRON
-first-party (`ultron-arch`, `ultron-changelog`, `ultron-context`,
-`ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`,
-`ultron-security`, `ultron-test`) plus 7 stack-aligned community agents
-from the embedded copy of the VoltAgent catalog (`cpp-pro`,
-`graphics-programmer`, `unreal-engine-engineer`, `unity-engineer`,
-`devops-engineer`, `database-administrator`, `fullstack-developer`).
-The catalog sidebar exposes **69 additional** agents from `cockpit/agent-catalog.json`
-(mix of VoltAgent, wshobson, and hesreallyhim community sources),
-taking the **total available to ~88**. Most require manual install via
-the **Install from catalog** button.
+The **Agents** sub-view of **Library** mirrors the Skills flow but for
+autonomous subagents under `~/.claude/agents/`. It lists whatever agents
+are installed locally and lets you pull more from the bundled catalog
+(`cockpit/agent-catalog.json` — ~70 entries spanning the VoltAgent,
+wshobson and hesreallyhim community sources) via the **Install from
+catalog** button.
+
+> [!NOTE]
+> A fresh clone does **not** ship agent `.md` files — the `agents/`
+> directory is not tracked in the public repo. After first launch, install
+> the agents you want from the catalog (the ULTRON first-party ones —
+> `ultron-arch`, `ultron-docs`, `ultron-security`, etc. — plus stack
+> specialists like `rust-engineer` or `typescript-pro`).
 
 - The same security scanner used on Skills runs on every agent
   manifest. Failing agents land under the orange **Quarantined**
@@ -71,28 +75,29 @@ the **Install from catalog** button.
   **Allow anyway**. A per-SHA1 waiver is appended to
   `~/.ultron/config/skill-trust.yaml` (same file as skill waivers).
   Editing the agent file invalidates the waiver — by design.
-- New community agents you install from the catalog do not become
-  searchable from the AI Router until they are embedded. The tab
-  has a **Re-index agents** button that calls `embed_agents.py index`
-  for you.
+- Agents you install from the catalog do not become searchable from the
+  AI Router until they are embedded. Run the **Agents re-embed** command
+  (command palette, fuzzy `agreem`) to re-vectorize `~/.claude/agents/`
+  into the `ultron_catalog` Qdrant collection.
 
 **Stuck?** Agent missing from the list? Dashboard → Maintenance →
 **Skill registry rebuild** also rescans `~/.claude/agents/`.
 
 ---
 
-## 4. Plans — "where was I yesterday?"
+## 4. Projects → Board — "where was I yesterday?"
 
-Plans are markdown documents under `~/.ultron/plans/PLANS.json`. The
-tab is a kanban view: backlog → in-progress → blocked → resolved →
-archived.
+The standalone Plans tab was removed in v2.5; the per-project kanban now
+lives inside **Projects → Board**. Plan documents still persist as
+markdown under `~/.ultron/plans/`. Open a project and switch to its
+**Board** view to move work across columns (backlog through archived).
 
-- Drag a plan between columns to update its status.
-- The Pending items widget on the Dashboard flags any in-progress plan
+- Drag a card between columns to update its status.
+- The Pending items widget on the Dashboard flags any in-progress item
   that's been idle for >7 days. Close it or update it.
 
-**Stuck?** Resolved plans visible? Toggle **Show archived** in the
-toolbar to see what's already done.
+**Stuck?** Don't see finished cards? Toggle **Show archived** in the
+board toolbar.
 
 ---
 

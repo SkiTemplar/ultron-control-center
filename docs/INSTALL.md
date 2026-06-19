@@ -5,40 +5,10 @@ that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
 It runs entirely on your machine and uses your existing subscriptions — no
 API keys, no cloud services, no admin rights.
 
-## Quickest path (v15.5+) — bootstrap from the latest GitHub Release
+## Recommended path — clone the repo
 
-If you don't need to contribute code, skip the clone. Pick the line for
-your OS:
-
-```powershell
-# Windows (PowerShell)
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
-```
-
-```bash
-# Linux (bash) — Debian / Ubuntu / Fedora / Arch
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
-```
-
-Both one-liners resolve the latest release, download
-`ultron-system-<tag>.zip` + `.sha256`, verify the hash, extract to
-`~/.ultron`, run the per-OS installer (`install.ps1` on Windows,
-`install.sh` on Linux), and pull the Control Center binary
-(NSIS `.exe` on Windows; `.deb` or `.AppImage` on Linux). See
-[`RELEASE-PROCESS.md`](RELEASE-PROCESS.md) for the release pipeline
-behind the scenes.
-
-For reproducible installs pinned to a release tag, swap `main` for the tag:
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.20/bootstrap.ps1 | iex
-```
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.20/bootstrap.sh | bash
-```
-
-## Clone the repo (recommended for contributors)
+This is the verified path today: clone the repo and let the installer
+compile the Control Center from source.
 
 ```powershell
 # Windows (PowerShell 5+)
@@ -64,6 +34,43 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 > (NSIS uninstaller, CrashDumps cleanup, Recycle Bin) are hidden from the
 > UI on Linux; the rest of the system works the same.
 
+## Bootstrap one-liner (when a Release is published)
+
+> [!NOTE]
+> This path downloads a prebuilt binary from a GitHub Release. **No release
+> is published yet**, so these one-liners currently fail at "resolve the
+> latest release". Use the clone path above until a release exists; the
+> pipeline that produces releases is described in
+> [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md).
+
+Once a release exists, you can skip the clone. Pick the line for your OS:
+
+```powershell
+# Windows (PowerShell)
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+```
+
+```bash
+# Linux (bash) — Debian / Ubuntu / Fedora / Arch
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+```
+
+Both one-liners resolve the latest release, download
+`ultron-system-<tag>.zip` + `.sha256`, verify the hash, extract to
+`~/.ultron`, run the per-OS installer (`install.ps1` on Windows,
+`install.sh` on Linux), and pull the Control Center binary
+(NSIS `.exe` on Windows; `.deb` or `.AppImage` on Linux).
+
+For reproducible installs pinned to a release tag, swap `main` for the tag:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.20/bootstrap.ps1 | iex
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.20/bootstrap.sh | bash
+```
+
 ## What the installer does
 
 The installer performs the following steps, printing a clear `checking ...`
@@ -72,28 +79,37 @@ failure it prints the offending command, a suggested fix, and exits with a
 non-zero code.
 
 1. **Preflight.** Confirms a supported host (Windows 10+ for `install.ps1`,
-   Linux or macOS for `install.sh`), PowerShell 5+ or bash 3.2+, and that
-   `github.com` is reachable.
-2. **Dependency probe.** Reports whether `rustc`, `node` (v22+), `uv`, and
-   `claude` are on `PATH`, and the optional `codex` and `gemini` CLIs. The
-   installer auto-installs missing tools where possible (winget on Windows;
+   Linux for `install.sh`), PowerShell 5+ or bash 3.2+, enough RAM/disk, and
+   that `github.com` is reachable.
+2. **Prerequisites.** Probes `git`, `node` (v22+), `rustc`, `uv`, and
+   `claude` (a hard requirement), plus the optional `codex` and `gemini`
+   CLIs. Missing tools are auto-installed where possible (winget on Windows;
    apt/dnf/pacman on Linux). If a required tool cannot be installed
    automatically, it points you at the official documentation and exits.
-3. **Directory tree.** Creates `~/.ultron/` with subdirectories `cockpit/`,
-   `plans/`, `skills/`, `scripts/`, `brain_index/`, `.tmp/`, and `personal/`.
-   Existing directories are left untouched.
-4. **Claude skills wiring.** If `~/.claude/skills` already exists it is left
-   alone; otherwise an empty directory is created so the desktop app can
-   find it.
-5. **Python sync.** Runs `uv sync` at the repo root.
-6. **Node sync.** Runs `npm install` inside `control-center/`.
-7. **Feature toggles.** The visual wizard (or CLI fallback) asks per
+3. **Qdrant.** Downloads the native Qdrant binary (no Docker) into
+   `~/.ultron/qdrant-native/`. Skipped with `-NoDocker` — semantic recall
+   then stays off.
+4. **Directory layout.** Creates `~/.ultron/` with subdirectories
+   (`cockpit/`, `plans/`, `skills/`, `scripts/`, `brain_index/`, `.tmp/`,
+   `personal/`) and wires `~/.claude/skills`. Existing directories are left
+   untouched.
+5. **Hooks.** Merges the Claude Code lifecycle hooks into
+   `~/.claude/settings.json` (a timestamped `.bak` is written first).
+6. **Skills picker.** Installs the core skill set into `~/.claude/skills/`
+   and prompts to opt into the personal/community ones.
+7. **brain_index.** Initializes the SQLite FTS5 memory index.
+8. **Feature toggles.** The visual wizard (or CLI fallback) asks per
    optional module (News, Gaming, Personal, Schedules, Self-improve,
    Notifications, Usage, Sessions, Projects, Plans) and writes your
    choices to `~/.ultron/cockpit/features.json`. The desktop app reads
-   this file at startup to decide which optional tabs to expose. You
-   can flip toggles later from **Settings → Features**, or re-run
-   `install.ps1` to physically purge a module's files.
+   this file at startup to decide which optional tabs to expose. Opted-out
+   modules are physically purged; flip toggles later from
+   **Settings → Features**.
+9. **Control Center build.** `npm install` + `tauri build` inside
+   `control-center/`. Skipped with `-NoApp`. The first build takes a few
+   minutes.
+10. **Doctor.** Runs `scripts/cockpit/doctor.py` to verify the install end
+    to end.
 
 ## What you need ahead of time
 

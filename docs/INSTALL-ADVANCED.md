@@ -301,9 +301,11 @@ Copy-Item $env:USERPROFILE\.ultron\agents\<name>.md `
 Then, optionally, index the agent descriptions into Qdrant so the
 AI Router and the Agents tab can do semantic search across them:
 
-```powershell
-uv run python $env:USERPROFILE\.ultron\scripts\cockpit\embed_agents.py index
-```
+Open the Control Center command palette (`Ctrl/Cmd+K`) and run
+**Agents re-embed** (fuzzy: `agreem`). It re-vectorizes
+`~/.claude/agents/` into the `ultron_catalog` Qdrant collection via the
+native memory kernel — the old `embed_agents.py` script was retired when
+this moved to Rust.
 
 This step is optional. If you skip it, agents still load — only the
 semantic search across agent descriptions stays off.

@@ -34,7 +34,7 @@ Code: lo envuelve con estado persistente, inspeccionable y versionable.
 ## Quickstart
 
 ```bash
-git clone <repo-url> ~/.ultron && cd ~/.ultron/control-center
+git clone https://github.com/SkiTemplar/ultron.git ~/.ultron && cd ~/.ultron/control-center
 cp ../.env.example ../.env   # opcional: claves de proveedores LLM (todas vacias por defecto)
 npm install
 npm run build:app            # = kill-app + tauri build -> ejecutable de escritorio

@@ -90,7 +90,7 @@ Avoid Grep-ing blind for a script. `SYSTEM-MAP.md` at the repo root is the pinne
 | A new React tab | `control-center/src/components/<Name>.tsx` | Add the tab id to the `Tab` union and `SECTIONS` in `control-center/src/components/Sidebar.tsx`, then render it in `App.tsx` |
 | A Claude Code hook | `scripts/hooks/<name>.py` (or `.ps1`) | Add an entry under `hooks.<event>` in `templates/settings-hooks.json` so installs pick it up |
 | A cockpit Python tool | `scripts/cockpit/<name>.py` (inherit `cockpit_base` where it helps) | A test in `tests/test_<name>.py` and, if user-facing, surface it from a Tauri command or hook |
-| A skill | `~/.claude/skills/<name>/SKILL.md` with mandatory YAML frontmatter (`name`, `description`, `model`) | The skill scanner picks it up automatically; re-run `embed_agents.py index` if it should appear in semantic recall |
+| A skill | `~/.claude/skills/<name>/SKILL.md` with mandatory YAML frontmatter (`name`, `description`, `model`) | The skill scanner picks it up automatically; run the **Embed skills index** command (palette) if it should appear in semantic recall |
 | An agent | `~/.claude/agents/<name>.md` (one file, same frontmatter rules) | Add an entry to `cockpit/agent-catalog.json` if you want it discoverable through the catalog |
 | A button prompt | `control-center/src-tauri/src/button_prompts.rs` (the canonical catalog) | Consumers fetch via `getPrompt(key, vars)` from `src/lib/button-prompts.ts` |
 
