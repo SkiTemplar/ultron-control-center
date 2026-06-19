@@ -79,6 +79,8 @@ $UltronPaths = [pscustomobject]@{
     skill_discoveries      = Join-Path $ultron 'skill_discoveries'
 
     skill_manifest_json    = Join-Path $ultron 'skill_manifest.json'
+    # Manifiesto del sync cross-CLI legacy (registry_sync.py). NO es el de
+    # cockpit/skill-lazy/skills-registry.json (router v2). Esquemas distintos.
     skills_registry_json   = Join-Path $ultron 'skills-registry.json'
     agent_manifest_json    = Join-Path $ultron 'agent_manifest.json'
     index_md               = Join-Path $ultron 'INDEX.md'

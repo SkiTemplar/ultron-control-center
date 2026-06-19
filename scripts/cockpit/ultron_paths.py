@@ -111,7 +111,12 @@ SKILL_DISCOVERIES_DIR = ULTRON_HOME / "skill_discoveries"
 
 # Manifests / canonical data files
 SKILL_MANIFEST_JSON   = ULTRON_HOME / "skill_manifest.json"
-SKILLS_REGISTRY_JSON  = ULTRON_HOME / "skills-registry.json"  # to be deprecated FIX-3
+# NOTA: este es el manifiesto canonico del sync cross-CLI legacy (registry_sync.py,
+# esquema {version, claude_exclusive, skills:{registries}}). NO es duplicado de
+# cockpit/skill-lazy/skills-registry.json (esa la genera sync-registry.js y la lee
+# el routing-dispatcher v2 — otro esquema, 178 entradas). Sigue vivo via el comando
+# Tauri "registry-sync" y `ultron` CLI. to be deprecated FIX-3.
+SKILLS_REGISTRY_JSON  = ULTRON_HOME / "skills-registry.json"
 AGENT_MANIFEST_JSON   = ULTRON_HOME / "agent_manifest.json"   # to be deprecated FIX-3
 INDEX_MD              = ULTRON_HOME / "INDEX.md"
 BACKGROUND_TASKS_JSON = ULTRON_HOME / "background_tasks.json"

@@ -16,9 +16,34 @@
  * routing accuracy of the dispatcher. Exit code 0 if accuracy@3 == 100%, else 1.
  *
  * Run:  node cockpit/skill-lazy/_accuracy_at3.js
+ *
+ * --v3 (semantic via)
+ * -------------------
+ * `node _accuracy_at3.js --v3` ADDITIONALLY exercises the REAL semantic
+ * fallback path: it spawns `embed_skills.py query` (the exact call the v3 hook
+ * makes) against the repopulated `ultron_skills` Qdrant collection and measures
+ * the dense via's accuracy@3.
+ *
+ * SCOPE (honest limitation): the `ultron_skills` collection only contains
+ * SKILLS (by bare skill name) — it holds NO agents and NO plugin-prefixed ids.
+ * So the semantic accuracy is computed ONLY over the subset of cases whose
+ * expectedId is a skill name reachable by the dense via (SKILL_SCOPED_CASES);
+ * agent / plugin-prefixed cases are reported as "out-of-scope (agent/plugin —
+ * deterministic via only)" rather than counted as semantic misses. This keeps
+ * the metric truthful instead of penalising the dense via for entities it was
+ * never meant to route. Requires Qdrant + the mpnet model cache; if the
+ * subprocess fails the case is reported as "semantic unavailable".
+ *
+ * Prior to this change `--v3` was silently ignored (Node dropped the unknown
+ * arg) and output was byte-identical with/without it — a flag that lied.
  */
 
+const { execFileSync } = require('child_process');
+const os = require('os');
+const path = require('path');
 const router = require('./routing-dispatcher.v3.js');
+
+const WANT_V3 = process.argv.slice(2).includes('--v3');
 
 /**
  * Labelled evaluation set. Each case: { prompt, expectedId }.
@@ -103,6 +128,108 @@ if (failures.length > 0) {
   }
 } else {
   console.log('\n  no failures — all cases hit within top 3.');
+}
+
+// --------------------------------------------------------------------------
+// --v3 : exercise the REAL semantic via (ultron_skills dense search)
+// --------------------------------------------------------------------------
+//
+// The dense collection holds bare SKILL names only — no agents, no plugin
+// prefixes. We therefore score the semantic via ONLY over cases whose
+// expectedId is reachable as a skill name, and report the rest as out-of-scope.
+const EMBED_SKILLS_PY = path.join(
+  os.homedir(), '.ultron', 'scripts', 'cockpit', 'embed_skills.py'
+);
+
+/** Strip a plugin prefix ("superpowers:foo" -> "foo") for skill-name matching. */
+function bareSkillName(id) {
+  const i = id.indexOf(':');
+  return i === -1 ? id : id.slice(i + 1);
+}
+
+/**
+ * Run the real semantic query for one prompt. Returns the top-N skill names
+ * (lower-cased) or null if the subprocess failed (Qdrant down / model missing).
+ * Mirrors routing-dispatcher.v3.js querySemanticSkills exactly (no --json flag).
+ */
+function semanticTop(prompt, topN) {
+  try {
+    const out = execFileSync(
+      'uv',
+      ['run', 'python', EMBED_SKILLS_PY, 'query', prompt.slice(0, 500), '--top', String(topN)],
+      { encoding: 'utf8', windowsHide: true, timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    const parsed = JSON.parse(out.trim());
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map(function (r) { return String(r.name || '').toLowerCase(); });
+  } catch (_) {
+    return null;
+  }
+}
+
+if (WANT_V3) {
+  // A case is "skill-scoped" when its expectedId resolves to a skill the dense
+  // collection could actually contain. We treat persona/skill/plugin-skill ids
+  // as skill-scoped (their bare name can appear in ultron_skills); agent ids
+  // are out-of-scope. We can't introspect v2's tables cheaply here, so we
+  // classify by attempting a name match against the dense hits and, for cases
+  // the deterministic router tagged as kind 'agent', mark them out-of-scope.
+  console.log('\n=== semantic via (--v3): ultron_skills dense search ===');
+
+  let semScored = 0;       // cases counted toward semantic accuracy
+  let semHits3 = 0;        // skill-scoped cases whose expected name is in dense top-3
+  let semUnavailable = 0;  // subprocess failures
+  const outOfScope = [];
+  const semFailures = [];
+
+  for (const tc of CASES) {
+    // Determine the deterministic kind for scope classification.
+    const ranked = router.rankCandidates(tc.prompt) || [];
+    const expectedRank = ranked.find(function (c) { return c.id === tc.expectedId; });
+    const kind = expectedRank ? expectedRank.kind : null;
+
+    // Agents are never in ultron_skills — out of the dense via's scope.
+    if (kind === 'agent') {
+      outOfScope.push({ prompt: tc.prompt, expected: tc.expectedId, why: 'agent' });
+      continue;
+    }
+
+    const want = bareSkillName(tc.expectedId).toLowerCase();
+    const names = semanticTop(tc.prompt, TOP_K);
+    if (names === null) {
+      semUnavailable++;
+      semFailures.push({ prompt: tc.prompt, expected: tc.expectedId, got: 'SEMANTIC UNAVAILABLE' });
+      continue;
+    }
+
+    semScored++;
+    if (names.indexOf(want) !== -1) {
+      semHits3++;
+    } else {
+      semFailures.push({ prompt: tc.prompt, expected: want, got: JSON.stringify(names) });
+    }
+  }
+
+  const semPct = semScored > 0 ? ((semHits3 / semScored) * 100).toFixed(1) + '%' : 'n/a';
+  console.log('  skill-scoped cases :', semScored, '(agent/plugin out-of-scope:', outOfScope.length + ')');
+  console.log('  semantic accuracy@3:', semPct, '(' + semHits3 + '/' + semScored + ')');
+  if (semUnavailable > 0) {
+    console.log('  semantic unavailable:', semUnavailable, '(Qdrant down or model cache missing)');
+  }
+  if (outOfScope.length > 0) {
+    console.log('\n  out-of-scope (agent — deterministic via only):');
+    for (const o of outOfScope) {
+      console.log('    - "' + o.prompt + '" -> ' + o.expected);
+    }
+  }
+  if (semFailures.length > 0) {
+    console.log('\n  semantic misses:');
+    for (const f of semFailures) {
+      console.log('    [expected ' + f.expected + '] got: ' + f.got);
+    }
+  }
+  // --v3 is diagnostic; it does NOT gate the exit code (the dense via is an
+  // additive hint over the deterministic router, which alone decides pass/fail).
 }
 
 // Non-zero exit only if any case missed the top-3 window.
