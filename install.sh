@@ -1047,7 +1047,7 @@ install_agents() {
     step "10b. agents (copy repo/agents -> ~/.claude/agents)"
     local src="${REPO_ROOT}/agents"
     if [[ ! -d "$src" ]]; then
-        verb "agents/ directory missing in repo - skip"
+        info "no bundled agents/ in repo - install agents from the Agents tab (Install from catalog) after first launch"
         return 0
     fi
     local dest="${CLAUDE_DIR}/agents"

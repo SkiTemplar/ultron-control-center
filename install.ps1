@@ -1056,15 +1056,16 @@ function Install-Skills {
 #
 # Why a dedicated step (and not part of Install-Skills): agents have
 # their own taxonomy (`~/.claude/agents/<name>.md` flat layout) and the
-# Agents tab + AI Router slot want them present at boot. Without this
-# step the repo's 16 ULTRON+stack-aligned agents stayed in the repo and
-# never reached fresh installs — which manifested as an empty Agents
-# tab post-install (initial-report 2026-05-17).
+# Agents tab + AI Router slot want them present at boot. The public repo
+# ships NO `agents/` dir (community agents carry their own licenses), so
+# a fresh clone copies nothing here and installs agents from the catalog
+# (`cockpit/agent-catalog.json`) via the Agents tab instead. This step
+# still copies any agent files a user drops into a local `agents/` dir.
 function Install-Agents {
     Write-Step "8a'. agents (copy repo/agents -> ~/.claude/agents)"
     $src = Join-Path $Script:RepoRoot "agents"
     if (-not (Test-Path -LiteralPath $src)) {
-        Write-V "agents/ directory missing in repo - skip"
+        Write-Info "no bundled agents/ in repo - install agents from the Agents tab (Install from catalog) after first launch"
         return
     }
     $dest = Join-Path $env:USERPROFILE ".claude\agents"
