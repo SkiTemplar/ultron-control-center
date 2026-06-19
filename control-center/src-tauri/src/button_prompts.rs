@@ -622,6 +622,8 @@ pub fn reset_button_prompt_inner(key: String) -> Result<ButtonPrompt, String> {
 /// Resolve a single key with `{var}`-style substitution. Used by future
 /// migrations that move prompt resolution into the backend (today the
 /// frontend does it via `src/lib/button-prompts.ts`).
+/// The `get_button_prompt` Tauri command was removed in cat10 (2026-06-19).
+#[allow(dead_code)]
 pub fn get_button_prompt_inner(
     key: String,
     vars: BTreeMap<String, String>,

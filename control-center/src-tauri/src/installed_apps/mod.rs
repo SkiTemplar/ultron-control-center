@@ -43,6 +43,5 @@ pub(super) mod ps_util;
 mod tests;
 pub(super) mod types;
 
-pub use bloatware::{appx_query_inner, uninstall_bloatware_app_inner};
 pub use commands::{list_installed_apps_inner, open_app_folder_inner, uninstall_app_inner};
-pub use types::{AppxQueryResult, BloatwareUninstallResult, InstalledAppsReport, UninstallResult};
+pub use types::{InstalledAppsReport, UninstallResult};

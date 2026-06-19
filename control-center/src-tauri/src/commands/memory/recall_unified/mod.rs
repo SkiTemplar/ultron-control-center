@@ -22,37 +22,6 @@ pub use session_budget::{resolve_session_id, session_budget_remaining, session_b
 pub use types_model::rrf_fuse;
 pub use types_model::{DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, TOKEN_BUDGET};
 
-/// Unified hybrid recall — compact context pack. `project_id = None` = no filter.
-/// `cross_project = Some(true)` relaxes the project filter (whole-brain recall);
-/// security gates (Secret excluded) are untouched.
-/// `session_id` — optional caller-supplied session identifier for cumulative
-/// budget tracking.  When omitted the runtime falls back to `ULTRON_SESSION_ID`
-/// env var, then `"proc-<pid>"`.
-#[tauri::command]
-pub async fn recall(
-    query: String,
-    limit: Option<u32>,
-    project_id: Option<String>,
-    cross_project: Option<bool>,
-    session_id: Option<String>,
-) -> Result<RecallPack, String> {
-    let final_limit = limit
-        .map(|n| n as usize)
-        .unwrap_or(types_model::DEFAULT_LIMIT);
-    let cross = cross_project.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || {
-        recall_pack(
-            &query,
-            final_limit,
-            project_id.as_deref(),
-            cross,
-            session_id.as_deref(),
-        )
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
 /// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
 /// ranks, RRF scores, discarded+reason, injected+reason, lazy-load, warnings).
 /// `session_id` follows the same resolution rules as `recall`.

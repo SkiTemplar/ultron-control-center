@@ -207,10 +207,8 @@ pub fn run() {
             commands::agents::agent_toggle,
             commands::agents::agents_bulk_toggle,
             commands::agents::list_delegations,
-            commands::agents::delegate_task_launch,
             // -- rules --
             commands::rules::rules_list,
-            commands::rules::rules_read,
             commands::rules::rules_write,
             // -- commands registry (Library Commands tab — v2.5) --
             commands::commands_registry::list_all_slash_commands,
@@ -247,7 +245,6 @@ pub fn run() {
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
             // -- MEMORY KERNEL Fase B: unified hybrid recall + dense reindex --
-            commands::memory::recall,
             // -- MEMORY KERNEL: Memory Inbox + governance + Retrieval Inspector --
             commands::memory::memory_inbox_list,
             commands::memory::memory_candidate_approve,
@@ -282,7 +279,6 @@ pub fn run() {
             commands::batches::batches_list_queue,
             commands::batches::batches_requeue,
             commands::batches::batches_dismiss_queue,
-            commands::batches::batches_enqueue_manual,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
             // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
@@ -302,9 +298,6 @@ pub fn run() {
             commands::sessions::list_workspaces,
             // -- session auto-tags (P1 2026-05-27) --
             sessions_tags::sessions_bulk_auto_tag,
-            // -- session recall (per-project + global) --
-            commands::recall::recall_last_session,
-            commands::recall::recall_last_session_global,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,
@@ -326,8 +319,6 @@ pub fn run() {
             commands::apps::list_installed_apps,
             commands::apps::open_app_folder,
             commands::apps::uninstall_app,
-            commands::apps::appx_query,
-            commands::apps::uninstall_bloatware_app,
             commands::apps::categorize_apps_with_ai,
             // -- auth + lifecycle --
             commands::lifecycle::auth_status,
@@ -422,7 +413,6 @@ pub fn run() {
             commands::button_prompts::list_button_prompts,
             commands::button_prompts::update_button_prompt,
             commands::button_prompts::reset_button_prompt,
-            commands::button_prompts::get_button_prompt,
             // -- global hotkeys --
             commands::hotkeys::get_global_hotkey,
             commands::hotkeys::set_global_hotkey,
@@ -432,6 +422,8 @@ pub fn run() {
             features::save_features,
             // -- AI Router (zone -> provider routing, providers catalog, --
             // -- health checks, metrics, end-to-end zone test) --
+            ai_router::ai_router_list_zones,
+            ai_router::ai_router_save_zone,
             ai_router::ai_router_list_providers,
             ai_router::ai_router_health,
             ai_router::ai_router_metrics,

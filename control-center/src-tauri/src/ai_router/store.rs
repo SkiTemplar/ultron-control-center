@@ -239,6 +239,19 @@ pub(crate) fn retire_gemini_cli(zones: &mut [Zone]) -> bool {
     mutated
 }
 
+/// Persist a single zone: replaces the entry with matching `id`, or appends if
+/// not found. Preserves all other zones and writes atomically.
+pub fn save_zone(zone: Zone) -> Result<(), String> {
+    let path = zones_path()?;
+    let mut zones = load_zones()?;
+    if let Some(existing) = zones.iter_mut().find(|z| z.id == zone.id) {
+        *existing = zone;
+    } else {
+        zones.push(zone);
+    }
+    write_json(&path, &zones)
+}
+
 pub(crate) fn load_metrics() -> Result<RouterMetrics, String> {
     let path = metrics_path()?;
     if path.exists() {

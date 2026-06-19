@@ -123,6 +123,8 @@ pub fn enqueue_command_inner(
 /// `reason`      — parsed leniently; usually "ai_cannot_execute".
 ///
 /// Returns the created (or bumped) queue entry.
+/// The `batches_enqueue_manual` Tauri command was removed in cat10 (2026-06-19).
+#[allow(dead_code)]
 pub fn enqueue_manual_inner(
     name: &str,
     description: &str,

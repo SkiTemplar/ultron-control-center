@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { ProviderCatalog } from "./ProviderCatalog";
 import { RouterDashboard } from "./RouterDashboard";
+import { ZoneEditor } from "./ZoneEditor";
 import { AIRouterErrorBoundary } from "./AIRouterErrorBoundary";
 
 // Re-export shared types so callers can import from the barrel.
@@ -27,11 +28,12 @@ export type {
   TestResult,
 } from "./types";
 
-type RouterSubTab = "dashboard" | "providers";
+type RouterSubTab = "dashboard" | "providers" | "zones";
 
 const SUB_TABS: { id: RouterSubTab; label: string; hint: string }[] = [
   { id: "dashboard", label: "Dashboard", hint: "Ahorro, uso por modelo y proxy" },
   { id: "providers", label: "Providers", hint: "Salud, coste y estado de keys" },
+  { id: "zones", label: "Zonas", hint: "Ver y editar la cadena primary → fallbacks por zona" },
 ];
 
 export function AIRouterPage() {
@@ -81,6 +83,7 @@ export function AIRouterPage() {
         <AIRouterErrorBoundary>
           {subTab === "dashboard" && <RouterDashboard />}
           {subTab === "providers" && <ProviderCatalog />}
+          {subTab === "zones" && <ZoneEditor />}
         </AIRouterErrorBoundary>
       </div>
     </div>

@@ -23,14 +23,6 @@ pub async fn reset_button_prompt(key: String) -> Result<button_prompts::ButtonPr
     button_prompts::reset_button_prompt_inner(key)
 }
 
-#[tauri::command]
-pub async fn get_button_prompt(
-    key: String,
-    vars: Option<std::collections::BTreeMap<String, String>>,
-) -> Result<String, String> {
-    button_prompts::get_button_prompt_inner(key, vars.unwrap_or_default())
-}
-
 // TODO: when variable prompting moves server-side, add a dedicated
 // `button_prompt_render_for_clipboard` command that walks the entry's `vars`
 // list, surfaces a UI to collect any missing values, and returns the rendered

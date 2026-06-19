@@ -127,32 +127,3 @@ pub async fn batches_enqueue_command(
     .await
     .map_err(|e| e.to_string())?
 }
-
-/// Enqueue a **manual** action that the AI cannot execute automatically.
-/// No script is written to disk — this is purely a reminder card in Run Batch
-/// UI rendered with `kind = "manual"` and no Run button.
-///
-/// `name`        — short label shown in the UI (e.g. "Rotar GitHub Token").
-/// `description` — step-by-step instructions for the user.
-/// `reason`      — parsed leniently; "ai_cannot_execute" is the typical value.
-///
-/// **How the AI leaves a manual reminder:**
-/// ```js
-/// invoke("batches_enqueue_manual", {
-///   name: "Rebuild app",
-///   description: "Run `npm run build:app` from control-center/ after closing the app.",
-///   reason: "ai_cannot_execute",
-/// })
-/// ```
-#[tauri::command]
-pub async fn batches_enqueue_manual(
-    name: String,
-    description: String,
-    reason: String,
-) -> Result<BatchQueueEntry, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        batches_queue::enqueue_manual_inner(&name, &description, &reason)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}

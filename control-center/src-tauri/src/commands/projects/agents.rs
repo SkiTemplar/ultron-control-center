@@ -3,8 +3,6 @@ use crate::agent_orchestration;
 use crate::agents;
 use crate::hooks_admin;
 use crate::project_agents;
-use crate::sessions::SpawnResult;
-
 // Origin-aware listing for the Control Center 2.0 Agents viewer.
 // Walks global, project, and plugin trees and tags each entry with its
 // origin. The legacy `AgentInfo` registry-style path is preserved as
@@ -137,17 +135,6 @@ pub async fn delegate_task_to_agent(
     request: agent_orchestration::DelegateRequest,
 ) -> Result<agent_orchestration::DelegateTaskResult, String> {
     agent_orchestration::delegate_task_inner(&app, request).await
-}
-
-/// Fire-and-forget variant: opens a new terminal window via wt.exe and
-/// returns immediately without waiting for the agent.  Used by the UI
-/// "Launch agent" button where the user monitors progress in the terminal.
-#[tauri::command]
-pub async fn delegate_task_launch(
-    app: tauri::AppHandle,
-    request: agent_orchestration::DelegateRequest,
-) -> Result<SpawnResult, String> {
-    agent_orchestration::delegate_task_fire_and_forget(&app, request).await
 }
 
 #[tauri::command]

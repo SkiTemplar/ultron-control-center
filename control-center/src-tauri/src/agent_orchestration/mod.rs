@@ -38,7 +38,7 @@ mod tests;
 // Public re-exports — preserve the original flat API of agent_orchestration
 // ---------------------------------------------------------------------------
 
-pub use delegate::{delegate_task_fire_and_forget, delegate_task_inner};
+pub use delegate::delegate_task_inner;
 pub use delegation_log::list_delegations_inner;
 pub use types::{
     DelegateRequest, DelegateTaskResult, DelegationLogEntry, WorkflowDefinition, WorkflowStep,

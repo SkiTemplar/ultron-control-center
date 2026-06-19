@@ -48,6 +48,8 @@ pub struct UninstallResult {
     pub command: String,
 }
 
+// Retained for future re-wiring; Tauri wrappers removed in cat10 (2026-06-19).
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Clone)]
 pub struct AppxQueryResult {
     /// True when at least one Appx package matched the pattern. The UI uses
@@ -58,6 +60,8 @@ pub struct AppxQueryResult {
     pub matches: Vec<String>,
 }
 
+// Retained for future re-wiring; Tauri wrappers removed in cat10 (2026-06-19).
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Clone)]
 pub struct BloatwareUninstallResult {
     pub success: bool,

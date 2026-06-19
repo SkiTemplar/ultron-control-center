@@ -68,6 +68,8 @@ pub fn list_inner() -> Result<Vec<RuleFile>, String> {
     Ok(out)
 }
 
+// Retained: the rules_read Tauri command was removed in cat10 (2026-06-19).
+#[allow(dead_code)]
 pub fn read_inner(path: String) -> Result<String, String> {
     // v2.6 bug fix: on Windows `canonicalize` returns a UNC path
     // (`\\?\C:\...`) while `rules_root()` does not — so `starts_with`

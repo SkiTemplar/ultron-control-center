@@ -80,6 +80,11 @@ pub fn ai_router_list_zones() -> Result<Vec<Zone>, String> {
 }
 
 #[tauri::command]
+pub fn ai_router_save_zone(zone: Zone) -> Result<(), String> {
+    store::save_zone(zone)
+}
+
+#[tauri::command]
 pub fn ai_router_list_providers() -> Result<Vec<Provider>, String> {
     store::load_providers()
 }

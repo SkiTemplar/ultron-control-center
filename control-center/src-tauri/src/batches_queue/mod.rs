@@ -29,7 +29,7 @@ pub(crate) mod types;
 // Re-export the public surface so callers using `crate::batches_queue::Foo`
 // continue to resolve without change.
 pub use persistence::{clear_queue_inner, dismiss_inner, list_inner, record_inner, requeue_inner};
-pub use sanitize::{enqueue_command_inner, enqueue_manual_inner};
+pub use sanitize::enqueue_command_inner;
 pub use types::{BatchQueueEntry, BatchQueueReason};
 
 // ---------------------------------------------------------------------------

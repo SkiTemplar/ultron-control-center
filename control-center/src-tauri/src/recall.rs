@@ -1,8 +1,13 @@
-// ULTRON Control Center — Session recall.
+// ULTRON Control Center — Session recall (retained, Tauri wrappers removed).
+//
+// The Tauri commands recall_last_session / recall_last_session_global were
+// removed in cat10 hygiene (2026-06-19) — no live frontend invoke() callers.
+// Inner implementations are kept for potential future re-wiring.
 //
 // Lets the user pull a structured summary of the most recent Claude Code
 // session for a given project (or globally) so they can paste it back as the
 // first prompt of a brand new session. The frontend invokes this from the
+#![allow(dead_code)]
 // per-project terminal "Recall" button and from the global Control Center
 // terminal.
 //

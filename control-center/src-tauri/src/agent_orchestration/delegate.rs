@@ -80,6 +80,7 @@ pub fn strip_ansi(raw: &[u8]) -> String {
 /// the cheap delegation path follows the same config as the rest of the system
 /// instead of a hardcoded literal. Falls back to Haiku 4.5 (the historical
 /// default) when zones are unreadable, preserving prior behaviour.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn resolve_cheap_model() -> String {
     crate::ai_router::primary_model_for_zone("light")
         .unwrap_or_else(|| "claude-haiku-4-5".to_string())
@@ -330,8 +331,10 @@ pub async fn delegate_task_inner(
 }
 
 /// Fire-and-forget delegation: spawns a session via wt.exe and returns
-/// immediately without waiting for the agent to finish.  Used by the UI
-/// "Launch agent" button and any caller that does not need the output.
+/// immediately without waiting for the agent to finish.  Retained for
+/// future re-wiring; the `delegate_task_launch` Tauri command was
+/// removed (cat10, 2026-06-19) pending a live frontend invoke().
+#[allow(dead_code)]
 pub async fn delegate_task_fire_and_forget(
     app: &tauri::AppHandle,
     req: DelegateRequest,

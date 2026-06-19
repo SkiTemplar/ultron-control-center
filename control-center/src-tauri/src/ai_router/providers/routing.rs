@@ -19,6 +19,7 @@ use super::metrics::{bump_metrics, load_metrics_and_bump_route_counters, MetricS
 
 /// Public read-only accessor: the primary model id configured for a zone.
 /// `None` if the zone is unknown or zones cannot be loaded.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn primary_model_for_zone(zone_id: &str) -> Option<String> {
     load_zones()
         .ok()?

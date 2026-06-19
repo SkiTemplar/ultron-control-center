@@ -1,9 +1,9 @@
 // installed_apps/bloatware.rs — Appx/bloatware query and removal commands.
 //
-// Curated bloatware list lives in the frontend (System.tsx). The frontend
-// asks the backend to query whether a package is installed (so the UI can
-// render an accurate "Installed" / "Already removed" / "Protected" state)
-// and to remove a package by Appx package family name pattern.
+// Curated bloatware list lives in the frontend (System.tsx). The Tauri
+// command wrappers (appx_query / uninstall_bloatware_app) were removed in
+// cat10 hygiene (2026-06-19) as they had no live frontend invoke() callers.
+// The inner implementations are retained here for future re-wiring.
 //
 // Security:
 //   - We accept only Appx package family name patterns. Anything containing
@@ -14,6 +14,8 @@
 //     security center) is refused server-side as belt-and-suspenders: even
 //     if the frontend somehow let the user click Uninstall, we won't run
 //     Remove-AppxPackage on these.
+
+#![allow(dead_code)]
 
 use super::types::{AppxQueryResult, BloatwareUninstallResult};
 
