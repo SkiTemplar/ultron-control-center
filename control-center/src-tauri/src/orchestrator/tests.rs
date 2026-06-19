@@ -199,6 +199,7 @@ fn e2e_orchestrate_real() {
     let ctx = orchestrate(
         "revisa el código en busca de fallos de seguridad",
         Some("ultron"),
+        true, // e2e: exercise the full semantic catalog (E5) + hybrid recall
     );
     eprintln!("\n=== ORCHESTRATE route={} ===", ctx.route);
     eprintln!("workflow: {:?}", ctx.workflow.as_ref().map(|w| &w.id));

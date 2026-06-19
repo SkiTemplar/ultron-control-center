@@ -107,7 +107,8 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
             if prompt.trim().is_empty() {
                 return (json!({ "error": "empty prompt" }), false);
             }
-            let ctx = crate::orchestrator::orchestrate(prompt, req.project.as_deref());
+            // Daemon = UserPromptSubmit hot path: sparse-first, no E5 (dense=false).
+            let ctx = crate::orchestrator::orchestrate(prompt, req.project.as_deref(), false);
             match serde_json::to_value(&ctx) {
                 Ok(v) => (v, false),
                 Err(e) => (json!({ "error": format!("serialize: {e}") }), false),

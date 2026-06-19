@@ -75,6 +75,7 @@ pub async fn recall_inspect(
             project_id.as_deref(),
             cross,
             session_id.as_deref(),
+            true, // manual recall inspection: full hybrid (dense on)
         )
     })
     .await

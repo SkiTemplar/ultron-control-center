@@ -184,26 +184,44 @@ pub fn build_trace(
     project_id: Option<&str>,
     cross_project: bool,
     session_id: Option<&str>,
+    dense_enabled: bool,
 ) -> Result<RecallTrace, String> {
     // Session budget — cumulative across recalls in the same session.
     let sid = resolve_session_id(session_id);
     let remaining_before = session_budget_remaining(&sid);
 
-    // Dense (Qdrant) project filter: drop it in cross-project mode so the k-NN
-    // is not pre-restricted to the current project at the index level.
-    let dense_project = if cross_project { None } else { project_id };
-
-    // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
+    // (1) DENSE — E5 query embedding + Qdrant filtered k-NN. Empty if offline,
+    //     OR skipped entirely when dense_enabled=false (the sparse-first hot
+    //     path): embedding a query with E5-large on CPU costs ~1.1s, too slow
+    //     for the UserPromptSubmit hook, so orchestrate() runs sparse-only there
+    //     while manual recalls (Memory Browser) stay hybrid.
     //     Score-aware (B1): keep the cosine similarity to break RRF ties.
-    let dense_scored = qdrant_index::search_dense_scored(query, FANOUT_K as u32, dense_project);
+    let dense_scored = if dense_enabled {
+        // Dense (Qdrant) project filter: drop it in cross-project mode so the
+        // k-NN is not pre-restricted to the current project at the index level.
+        let dense_project = if cross_project { None } else { project_id };
+        qdrant_index::search_dense_scored(query, FANOUT_K as u32, dense_project)
+    } else {
+        Vec::new()
+    };
     let dense_ids: Vec<String> = dense_scored.iter().map(|(id, _)| id.clone()).collect();
     let dense_score_map: HashMap<&str, f32> = dense_scored
         .iter()
         .map(|(id, s)| (id.as_str(), *s))
         .collect();
-    // (2) SPARSE — FTS5/bm25 over ACTIVE items.
-    let sparse_items =
-        MemoryService::search_active(query, FANOUT_K).map_err(|e| format!("sparse search: {e}"))?;
+    // (2) SPARSE — FTS5/bm25 over ACTIVE items. When dense is OFF (sparse-first
+    //     hot path) we widen the pool: the dense Qdrant project-filter that
+    //     normally surfaces in-project items is gone, and under a project filter
+    //     assemble_pack drops the global vault + off-project hits that dominate
+    //     the BM25 top-30, leaving too few. A wider fanout lets in-project items
+    //     reach the gate. Quality callers keep the tight FANOUT_K (dense covers them).
+    let sparse_fanout = if dense_enabled {
+        FANOUT_K
+    } else {
+        FANOUT_K * 12
+    };
+    let sparse_items = MemoryService::search_active(query, sparse_fanout)
+        .map_err(|e| format!("sparse search: {e}"))?;
     let sparse_ids: Vec<String> = sparse_items.iter().map(|it| it.id.clone()).collect();
 
     let dense_rank: HashMap<&str, usize> = dense_ids
@@ -411,7 +429,8 @@ pub fn recall_pack(
     cross_project: bool,
     session_id: Option<&str>,
 ) -> Result<RecallPack, String> {
-    let t = build_trace(query, limit, project_id, cross_project, session_id)?;
+    // Manual recall path (UI inspection) keeps full hybrid quality (dense on).
+    let t = build_trace(query, limit, project_id, cross_project, session_id, true)?;
     Ok(RecallPack {
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),

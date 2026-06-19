@@ -31,7 +31,12 @@ pub async fn orchestrate_prompt(
     prompt: String,
     project_id: Option<String>,
 ) -> Result<OrchestrationContext, String> {
-    tauri::async_runtime::spawn_blocking(move || Ok(orchestrate(&prompt, project_id.as_deref())))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
+    // Manual on-demand invocation (UI badge): full semantic catalog (E5) + hybrid
+    // recall (dense=true). The automatic per-prompt hot path (hook -> daemon/CLI)
+    // uses dense=false to stay E5-free and under the <300ms budget.
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(orchestrate(&prompt, project_id.as_deref(), true))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }

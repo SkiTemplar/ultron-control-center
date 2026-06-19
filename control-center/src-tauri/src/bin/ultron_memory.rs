@@ -51,7 +51,8 @@ fn run() -> Result<serde_json::Value, String> {
         "resume" => to_json(ul::commands::memory::session_resume::session_resume_inner(project)?),
         "orchestrate" => {
             let prompt = positional(&args)?;
-            to_json(ul::orchestrator::orchestrate(&prompt, project.as_deref()))
+            // CLI one-shot fallback for the hot path: sparse-first, no E5 (dense=false).
+            to_json(ul::orchestrator::orchestrate(&prompt, project.as_deref(), false))
         }
         "recall" => {
             let query = positional(&args)?;

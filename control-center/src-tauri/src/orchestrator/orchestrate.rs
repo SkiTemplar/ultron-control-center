@@ -10,7 +10,16 @@ use super::types_model::{
     AgentChoice, OrchestrationContext, SkillChoice, WorkflowChoice, TOKEN_BUDGET,
 };
 
-pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationContext {
+/// `dense_enabled` controls whether the semantic (E5) paths run. The
+/// UserPromptSubmit hot path passes `false`: agents/skills route by intent rules
+/// and recall is sparse-only (FTS5), keeping the whole call E5-free so it fits
+/// the <300ms hook budget. Quality callers can pass `true` for the full semantic
+/// catalog + hybrid recall (an E5 query embed costs ~1.1s on CPU even warm).
+pub fn orchestrate(
+    prompt: &str,
+    project_id: Option<&str>,
+    dense_enabled: bool,
+) -> OrchestrationContext {
     let (intent, wf_id) = classify_intent(prompt);
     let known = catalog::known_agent_names();
     let mut warnings: Vec<String> = Vec::new();
@@ -39,10 +48,16 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
             }
         });
 
-    // Real specialists to DELEGATE to (semantic match over the agent catalog).
-    // Over-fetch, then rebalance so the meta ULTRON-internal agents don't crowd
-    // out the real specialists pertinent to the detected intent.
-    let raw_hits = catalog::search_catalog(prompt, Some("agent"), 16);
+    // Real specialists to DELEGATE to. With dense_enabled we semantic-match over
+    // the agent catalog (E5) and over-fetch; on the sparse-first hot path we skip
+    // the E5 embed entirely and let inject_preferred_floor seed the intent's
+    // preferred specialists by rule. Either way rebalance keeps the meta
+    // ULTRON-internal agents from crowding out the real specialists.
+    let raw_hits = if dense_enabled {
+        catalog::search_catalog(prompt, Some("agent"), 16)
+    } else {
+        Vec::new()
+    };
     // Floor-inject the intent's preferred specialists so the boost isn't
     // decorative when cross-lingual retrieval missed them (UI/testing 0/3 fix).
     let pooled = inject_preferred_floor(raw_hits, intent);
@@ -54,7 +69,11 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
     // SKILLS now compete in routing (previously the agent-only filter left the
     // ~119 indexed skills — personas + technical — dead). Separate read-path so
     // the assistant sees pertinent skills (e.g. tio-gilito for finance) too.
-    let skill_hits = catalog::search_catalog(prompt, Some("skill"), 10);
+    let skill_hits = if dense_enabled {
+        catalog::search_catalog(prompt, Some("skill"), 10)
+    } else {
+        Vec::new()
+    };
     let delegate_skills: Vec<SkillChoice> = rank_skills(skill_hits, intent, 4);
 
     // CROSS-PROJECT auto-detect: a no-op without a current project (cross-project
@@ -68,8 +87,12 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
         );
     }
 
-    // Relevant memories via hybrid recall (already token-budgeted).
-    let memories = match build_trace(prompt, 12, project_id, cross_project, None) {
+    // Relevant memories. On the hot path (dense_enabled=false) recall is SPARSE-
+    // first: an E5-large query embed (~1.1s on CPU even with the daemon warm)
+    // blows the latency budget, so FTS5 sparse + the confidence/recency re-ranker
+    // carry it. Quality callers (dense_enabled=true) and the manual Memory Browser
+    // (recall_unified command) keep full hybrid recall.
+    let memories = match build_trace(prompt, 12, project_id, cross_project, None, dense_enabled) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected
