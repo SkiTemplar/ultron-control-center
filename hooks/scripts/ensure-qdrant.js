@@ -19,8 +19,6 @@ const { spawn } = require('child_process');
 
 const HEALTHZ = { host: 'localhost', port: 6333, path: '/healthz', timeout: 700 };
 const LAUNCHER = path.join(os.homedir(), '.ultron', 'scripts', 'ensure-qdrant.ps1');
-const RETRY_MS = 300;
-const MAX_WAIT_MS = 3000;
 
 function healthz() {
   return new Promise((resolve) => {
@@ -42,26 +40,21 @@ async function main() {
     return;
   }
 
-  // Caido: delegar el arranque al .ps1 (detached, sin bloquear el hook mas
-  // de MAX_WAIT_MS). El .ps1 conserva toda la logica de lanzamiento.
+  // Caido: disparar el arranque del .ps1 DETACHED y RETORNAR YA (fire-and-forget).
+  // Antes el hook esperaba hasta 3s (MAX_WAIT_MS) a que Qdrant sanara -> cold-start
+  // de ~957ms que bloqueaba CADA SessionStart con Qdrant caido (cat9.3 FAIL). No hay
+  // que esperar aqui: memory-session-resume lee SQLite (no Qdrant), el daemon E5 no
+  // necesita Qdrant para arrancar, y el recall denso (UserPromptSubmit) cae a sparse
+  // mientras Qdrant termina de levantar en background.
   const child = spawn(
     'powershell',
     ['-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', LAUNCHER],
     { detached: true, stdio: 'ignore', windowsHide: true }
   );
   child.unref();
-
-  const deadline = Date.now() + MAX_WAIT_MS;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, RETRY_MS));
-    if (await healthz()) {
-      console.log('ensure-qdrant: Qdrant relanzado y operativo');
-      return;
-    }
-  }
-  // Fail-safe: no bloquear la sesion; el launcher sigue corriendo detached y
-  // memory-session-resume tiene su propio timeout + fail-safe.
-  console.log('ensure-qdrant: WARN Qdrant no respondio en 3s (relanzamiento sigue en background)');
+  console.log(
+    'ensure-qdrant: Qdrant caido -- relanzamiento disparado en background (no se bloquea el arranque)'
+  );
 }
 
 main().catch(() => {

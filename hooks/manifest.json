@@ -111,7 +111,7 @@
       "command": "node ~/.ultron/hooks/scripts/ensure-qdrant.js",
       "script": "~/.ultron/hooks/scripts/ensure-qdrant.js",
       "timeout_s": 10,
-      "checksum_sha256": "e38e00443d92a5dcf238a6c48e7b65b18a40c677b03142f56a225682d6b692f2",
+      "checksum_sha256": "8dab1a728a0579e5ec7e16227480963524c23880fe33ba74631fff9d3f8d975e",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
