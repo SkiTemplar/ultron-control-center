@@ -253,8 +253,7 @@ npm test       # vitest (frontend)
 ├── cockpit/                  # config + estado en JSON/markdown
 │   └── ai-router/            # providers.json, zones.json, metrics.json
 ├── hooks/                    # hooks de ciclo de vida
-├── skills/  skills-catalog/  # skills
-├── agents/                   # agentes
+├── skills/                   # skills core (SKILL.md; catalogo curado no se publica)
 ├── plans/  projects/         # planes y proyectos
 ├── sessions/                 # logs de sesion / telemetria de routing
 └── docs/                     # documentacion ampliada

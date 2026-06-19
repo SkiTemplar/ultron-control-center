@@ -1093,18 +1093,19 @@ function Install-Agents {
 # ----------------------------------------------------------------------
 # Step 8a''': skill sets from skills-catalog/ (v15.4.13)
 # ----------------------------------------------------------------------
-# The repo ships ~332 skills organised by category under
-# `skills-catalog/<category>/<name>/`. The user picks which categories
-# they want at install time; everything inside those categories lands
-# at `~/.claude/skills/<name>/`. Untouched categories never reach the
-# local filesystem — by design. To grab one later, re-run the installer
-# with the category selected, or copy the directory manually.
+# Optional curated skill catalog. When a `skills-catalog/<category>/<name>/`
+# tree with a manifest.json is present, the user picks which categories to
+# install into `~/.claude/skills/<name>/`. The PUBLIC repo does NOT ship a
+# skills-catalog/ (the curated set is large and not all of it is
+# redistributable), so a fresh clone simply skips this step. The core skills
+# a fresh install needs ship as plain `skills/<name>/SKILL.md` and via the
+# skills picker (step 8).
 function Install-SkillSets {
     Write-Step "8a'''. skill sets (skills-catalog -> ~/.claude/skills)"
     $catalog = Join-Path $Script:RepoRoot "skills-catalog"
     $manifestPath = Join-Path $catalog "manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) {
-        Write-V "skills-catalog/manifest.json missing - skip"
+        Write-Info "no skills-catalog/ in repo - core skills install via the skills picker; skipping curated catalog"
         return
     }
 

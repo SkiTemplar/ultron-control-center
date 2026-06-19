@@ -968,10 +968,10 @@ install_skills() {
 DEFAULT_SKILL_SETS=("meta" "memory")  # parity with install.ps1
 
 install_skill_sets() {
-    step "10c. skills-catalog (per-category picker, 332 skills total)"
+    step "10c. skills-catalog (optional curated set; per-category picker)"
     local manifest="${REPO_ROOT}/skills-catalog/manifest.json"
     if [[ ! -f "$manifest" ]]; then
-        verb "skills-catalog/manifest.json missing - skip"
+        info "no skills-catalog/ in repo - core skills install via the skills picker; skipping curated catalog"
         return 0
     fi
     if ! have_cmd jq; then

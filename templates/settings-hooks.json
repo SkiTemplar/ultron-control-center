@@ -1,6 +1,6 @@
 {
-  "_comment": "ULTRON hook template. Merged into ~/.claude/settings.json by install.ps1. The token {USERPROFILE} is expanded to the user's home (forward-slash form) at install time.",
-  "_schema_version": 2,
+  "_comment": "ULTRON hook template. Merged into ~/.claude/settings.json by install.ps1 / install.sh. The token {USERPROFILE} is expanded to the user's home (forward-slash form) at install time. These commands mirror the live, working hook wiring: Node hooks live in hooks/scripts/*.js, the routing dispatcher in cockpit/skill-lazy/, and the two surviving Python hooks (deny-secrets.py, route_quality_aggregator.py) run via `uv run python`. Keep this file in sync with the live settings.json — every referenced script MUST exist in the repo.",
+  "_schema_version": 3,
 
   "permissions": {
     "_comment": "Defense-in-depth deny list. Hooks run AFTER this filter, so this is the cheapest layer to block obvious foot-guns.",
@@ -22,166 +22,100 @@
     ]
   },
 
-  "statusLine": {
-    "type": "command",
-    "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/cockpit/ultron_statusline.py"
-  },
-
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "*",
         "hooks": [
-          {
-            "type": "command",
-            "command": "PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {USERPROFILE}/.ultron/scripts/hooks/session-init.ps1"
-          },
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/detect_gaps.py"
-          }
-        ]
-      }
-    ],
-
-    "PreToolUse": [
-      {
-        "matcher": "Read|Glob|Grep|WebFetch|WebSearch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/auto-approve-readonly.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/block-dangerous-bash.py"
-          },
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/validate_push.py"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/mcp-resilience.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/skill_integrity_check.py"
-          }
-        ]
-      }
-    ],
-
-    "PostToolUse": [
-      {
-        "matcher": "Skill|Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/routing-telemetry.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/prompt-feedback-capture.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/track-knowledge-reads.py"
-          }
-        ]
-      }
-    ],
-
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/pre_compact.py"
-          }
-        ]
-      }
-    ],
-
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/post_compact.py"
-          }
-        ]
-      }
-    ],
-
-    "Stop": [
-      {
-        "_comment": "v15.5.16Stop chain consolidated 5→3 processes. session-log.py was folded into stop-memory-sync.{ps1,sh} (single-line per-day .md log), session-cleanup.{ps1,sh} was inlined as the final tail block of stop-memory-sync (plugin/data + .tmp cleanup). auto-changelog.py stays standalone: it's gated to HIGH/ULTRA so the duplicate-process cost is bounded, and inlining its ~250 lines of git+regex+ndjson logic into both PowerShell AND bash would double maintenance surface.",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {USERPROFILE}/.ultron/scripts/hooks/stop-memory-sync.ps1"
-          },
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/auto-changelog.py"
-          },
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/plan-detector.py"
-          }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/ensure-qdrant.js", "timeout": 10 },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-warmup.js", "timeout": 5 },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/load-cross-project-memory.js", "timeout": 8 },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-start-override.js", "timeout": 5 },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-session-resume.js", "timeout": 12 }
         ]
       }
     ],
 
     "UserPromptSubmit": [
       {
+        "matcher": "*",
         "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/mode-trigger.py"
-          }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js", "timeout": 5 },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/save-user-prompt.js", "timeout": 5 },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js", "timeout": 12 }
+        ]
+      }
+    ],
+
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          { "type": "command", "command": "uv run python {USERPROFILE}/.ultron/scripts/hooks/deny-secrets.py", "timeout": 5 }
         ]
       },
       {
+        "matcher": "Read|Grep",
         "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/intent-dispatcher.py"
-          }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/codegraph-reminder.js", "timeout": 5 }
         ]
-      },
+      }
+    ],
+
+    "PostToolUse": [
       {
+        "matcher": "*",
         "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/auto-recall.py",
-            "asyncRewake": true
-          }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/posttoolfail-capture.js", "timeout": 15, "async": true }
+        ]
+      }
+    ],
+
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/precompact-preserve-l0.js", "timeout": 15 }
+        ]
+      }
+    ],
+
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/subagent-harvest.js", "timeout": 20, "async": true }
+        ]
+      }
+    ],
+
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-summary.js", "timeout": 20, "async": true }
+        ]
+      }
+    ],
+
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/notify-relay.js", "timeout": 15, "async": true }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/stop-compress-session.js", "timeout": 30, "async": true },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/kanban-update-reminder.js", "timeout": 5, "async": true },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/batch-capture.js", "timeout": 10, "async": true },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/qdrant-mirror-sync.js", "timeout": 30, "async": true },
+          { "type": "command", "command": "uv run python {USERPROFILE}/.ultron/scripts/cockpit/route_quality_aggregator.py aggregate --today", "timeout": 20, "async": true }
         ]
       }
     ]

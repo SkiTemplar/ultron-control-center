@@ -1,108 +1,102 @@
 # ULTRON Hooks
 
-Hooks under this directory are wired into `~/.claude/settings.json` automatically
-by the installer. The single source of truth is
+Hooks are wired into `~/.claude/settings.json` automatically by the installer.
+The single source of truth is
 [`../../templates/settings-hooks.json`](../../templates/settings-hooks.json);
-`install.ps1` / `install.sh` `merge_hooks()` copies that template into the user
-settings non-destructively (with backup). The token `{USERPROFILE}` expands to
-the user's home (forward-slash form) at install time.
+`install.ps1` / `install.sh` merge that template into the user settings
+non-destructively (with backup). The token `{USERPROFILE}` expands to the
+user's home (forward-slash form) at install time.
+
+> The runtime is **Node-first**: most hooks are JavaScript under
+> `hooks/scripts/*.js` and run with `node`. Two Python hooks survive and run
+> with `uv run python`. `tests/test_hooks_template.py` asserts that every
+> script the template references actually exists in the repo, so the template
+> can never again wire a missing script (which would block every prompt/tool).
 
 To override or disable a hook for your account, edit `~/.claude/settings.json`
 directly — the merge step preserves user-added entries.
 
 ---
 
-## Lifecycle hooks (SessionStart / Stop / *Compact)
+## Active hooks (by event)
 
-| File | Event | Purpose | Default | Platform |
-|---|---|---|---|---|
-| `session-init.ps1` | SessionStart | Drains push-queue, primes decay cache, regenerates `context.md`, injects unacked alerts. | yes | win |
-| `session-init.sh` | SessionStart | POSIX sibling of the above. | yes (Linux) | linux |
-| `detect_gaps.py` | SessionStart | Surfaces open loops: skill drift, stale plans, quarantined items, un-acked criticals. | yes | both |
-| `stop-memory-sync.ps1` | Stop | `brain_index.update` + decay_queue + (HIGH/ULTRA only) vault commit / push / compactor. **Inlines** session-log + session-cleanup behavior since v15.5.17. | yes | win |
-| `stop-memory-sync.sh` | Stop | POSIX sibling (same inline). | yes (Linux) | linux |
-| `auto-changelog.py` | Stop | On minor/major bump, drain `~/.ultron/.tmp/pending-patches.jsonl` into a sucinct CHANGELOG entry (Spanish format). Patch bumps just append to the buffer. HIGH/ULTRA gated. | yes | both |
-| `plan-detector.py` | Stop | Scans the transcript for deferred-work markers and appends to `~/.ultron/plans/_inbox.md`. | yes | both |
-| `session-log.py` | Stop | **Deprecated as standalone in v15.5.17** — behavior inlined into `stop-memory-sync.{ps1,sh}` (top, pre-debounce). Kept on disk for manual maintainer use; see `docs/MAINTAINERS.md`. | no (inlined) | both |
-| `session-cleanup.{ps1,sh}` | Stop | **Deprecated as standalone in v15.5.17** — behavior inlined into `stop-memory-sync.{ps1,sh}` tail. Kept for manual maintainer use. | no (inlined) | both |
-| `pre_compact.py` | PreCompact | Dumps live state (context + plans + routing + alerts) so post-compact survives. | yes | both |
-| `post_compact.py` | PostCompact | Logs the compact event + emits a short recovery roadmap. | yes | both |
+All paths are relative to `~/.ultron/` unless noted.
 
-## Prompt hooks (UserPromptSubmit)
+### SessionStart
 
-| File | Purpose | Default | Platform |
-|---|---|---|---|
-| `mode-trigger.py` | Detects `/high` / `/ultra` / `/learn` and registers the session mode (telemetry only, never blocks). | yes | both |
-| `intent-dispatcher.py` | 4-step intent pipeline (slash-shortcut → rules → ZTMSI/FTS5 → fallthrough); emits one routing line when confidence ≥ 0.70. | yes | both |
-| `auto-recall.py` | First-turn semantic recall via fastembed → Qdrant; injects top-3 vault notes as a system-reminder (`asyncRewake: true`). | yes | both |
+| Script | Purpose |
+|---|---|
+| `hooks/scripts/ensure-qdrant.js` | Cold-start safety net: probes `localhost:6333/healthz` and launches the native Qdrant binary if it is down (fire-and-forget). |
+| `hooks/scripts/memory-warmup.js` | Starts the memory daemon so the E5 model stays resident across the session. |
+| `hooks/scripts/load-cross-project-memory.js` | Loads cross-project memory relevant to the current working directory. |
+| `hooks/scripts/session-start-override.js` | Injects the session resume / initial context block. |
+| `hooks/scripts/memory-session-resume.js` | Hermes-style recall: open tasks, recent decisions, warnings. |
 
-## Tool hooks (PreToolUse / PostToolUse)
+### UserPromptSubmit
 
-| File | Event / matcher | Purpose | Default | Platform |
-|---|---|---|---|---|
-| `auto-approve-readonly.py` | PreToolUse · `Read\|Glob\|Grep\|WebFetch\|WebSearch` | Auto-approves read-only tools; denies path-traversal into `.ssh`/`.aws`/`.env`/`*token*`. v2.0 SEC-02 hardening. | yes | both |
-| `block-dangerous-bash.py` | PreToolUse · `Bash` | bashlex AST walker — blocks `rm -rf`, base64-decode, `curl \| sh`, exfil patterns inside `$()` / `<()`. | yes | both |
-| `validate_push.py` | PreToolUse · `Bash` | Blocks force-push to protected branches (`main` / `master` / `release/*`). Exit 2 = hard refusal. | yes | both |
-| `mcp-resilience.py` | PreToolUse · `mcp__.*` | If the target MCP is degraded/missing in `mcp-health.json`, injects a one-line fallback note (never blocks). | yes | both |
-| `skill_integrity_check.py` | PreToolUse · `Skill` | SHA1 of `SKILL.md` vs provenance baseline; warns on drift (set `ULTRON_INTEGRITY=strict` to hard-block). | yes | both |
-| `routing-telemetry.py` | PostToolUse · `Skill\|Agent\|Task` | JSONL append per Skill/Agent/Task invocation → `~/.ultron/sessions/YYYY-MM-DD/routing.jsonl`. | yes | both |
-| `prompt-feedback-capture.py` | PostToolUse · `Skill` | Captures truncated + PII-filtered Skill outputs → `~/.ultron/.tmp/prompt-feedback.jsonl` (META-PROMPTER corpus). | yes | both |
-| `track-knowledge-reads.py` | PostToolUse · `Read` | Tracks reads under `~/.ultron/knowledge/**` so the same file is not re-read in the next turn. | yes | both |
+| Script | Purpose |
+|---|---|
+| `cockpit/skill-lazy/routing-dispatcher.v2.js` | Lazy skill/agent routing: injects the matching skill on-demand from the prompt. |
+| `hooks/scripts/save-user-prompt.js` | Persists the user prompt for the capture pipeline. |
+| `hooks/scripts/memory-orchestrate.js` | Prefetch / orchestrate: relevant memories, step plans, delegation hints. |
+
+### PreToolUse
+
+| Script | Matcher | Purpose |
+|---|---|---|
+| `scripts/hooks/deny-secrets.py` | `Read\|Edit\|Write\|NotebookEdit\|Bash` | Blocks reads/writes that would touch secrets (`.env`, credentials). Exit 2 = hard refusal. |
+| `hooks/scripts/codegraph-reminder.js` | `Read\|Grep` | Reminds to consult the CodeGraph index before reading code files. |
+
+### PostToolUse / SubagentStop / PreCompact
+
+| Script | Event | Purpose |
+|---|---|---|
+| `hooks/scripts/posttoolfail-capture.js` | PostToolUse | Captures tool failures as memory candidates. |
+| `hooks/scripts/subagent-harvest.js` | SubagentStop | Harvests subagent results into memory. |
+| `hooks/scripts/precompact-preserve-l0.js` | PreCompact | Preserves L0 (pinned) memory before context compaction. |
+
+### Stop / SessionEnd / Notification
+
+| Script | Event | Purpose |
+|---|---|---|
+| `hooks/scripts/stop-compress-session.js` | Stop | Compresses the session into memory candidates. |
+| `hooks/scripts/kanban-update-reminder.js` | Stop | Reminds to sync the project kanban. |
+| `hooks/scripts/batch-capture.js` | Stop | Batch-captures pending memory candidates. |
+| `hooks/scripts/qdrant-mirror-sync.js` | Stop | Syncs the SQLite → Qdrant mirror. |
+| `scripts/cockpit/route_quality_aggregator.py` | Stop | Aggregates the day's routing-quality telemetry. |
+| `hooks/scripts/session-end-summary.js` | SessionEnd | Writes a short end-of-session summary. |
+| `hooks/scripts/notify-relay.js` | Notification | Relays Claude Code notifications to the desktop. |
+
+The two surviving Python hooks (`deny-secrets.py`, `route_quality_aggregator.py`)
+run via `uv run python`; everything else runs via `node`.
+
+---
 
 ## Qdrant boot helpers (not Claude Code hooks)
 
-`ensure-qdrant.{ps1,sh}` stay in this directory because session-init wires
-them as a real Claude SessionStart hook (cold-start safety net). The other
-three bootcheck files — `qdrant-notify.ps1`, `qdrant-bootcheck-hidden.vbs`
-and `install-qdrant-bootcheck.ps1` — are NOT settings.json hooks; they back
-the `ULTRON-QdrantBoot` Windows scheduled task that runs at user logon. As
-of v15.5.14 they live under `scripts/qdrant/` so this hooks/ tree is a
-pure Claude-hooks surface.
-
-| File | Purpose | Default | Platform |
-|---|---|---|---|
-| `ensure-qdrant.ps1` | Probes `localhost:6333/healthz`; on KO launches `qdrant-native/qdrant.exe` hidden, waits 60s. | yes (scheduled task) | win |
-| `ensure-qdrant.sh` | POSIX sibling for native binary on Linux. | yes (scheduled task) | linux |
-| `../qdrant/qdrant-notify.ps1` | WinForm floating panel (bottom-right, persistent) shown when Qdrant is not OK. | yes | win |
-| `../qdrant/qdrant-bootcheck-hidden.vbs` | Windowless wrapper around the ensure + notify chain (avoids PowerShell console flash on fullscreen games). | yes | win |
-| `../qdrant/install-qdrant-bootcheck.ps1` | Registers / unregisters / queries the `ULTRON-QdrantBoot` scheduled task. | manual setup | win |
+`ensure-qdrant.js` is a real SessionStart hook (above). The native-binary
+launcher scripts and the logon scheduled task live under `scripts/qdrant/`:
+`ensure-qdrant.ps1` / `ensure-qdrant.sh`, `qdrant-notify.ps1`,
+`qdrant-bootcheck-hidden.vbs`, `install-qdrant-bootcheck.ps1`. These back the
+`ULTRON-QdrantBoot` Windows scheduled task that runs at user logon; they are
+not `settings.json` hooks.
 
 ---
 
-## Cross-platform compatibility
-
-Every PowerShell hook ships a POSIX sibling so the same behaviour runs on
-Linux from v15.5 onward:
-
-| Windows (`.ps1`) | Linux (`.sh`) |
-|---|---|
-| `session-init.ps1` | `session-init.sh` |
-| `session-cleanup.ps1` | `session-cleanup.sh` |
-| `stop-memory-sync.ps1` | `stop-memory-sync.sh` |
-| `ensure-qdrant.ps1` | `ensure-qdrant.sh` |
-
-`install.ps1` / `install.sh` pick the right family per OS; the Python hooks are
-platform-neutral and run unchanged on both.
-
----
-
-## Override or add a hook
+## Add or override a hook
 
 The hook spec lives in `~/.ultron/templates/settings-hooks.json`. After editing
 it, re-run `install.ps1` (idempotent) or merge it manually into
-`~/.claude/settings.json`. A new hook follows the pattern:
+`~/.claude/settings.json`. A new Node hook follows the pattern:
 
 ```json
 {
   "hooks": {
     "<EventName>": [
       {
-        "matcher": "Bash",
+        "matcher": "*",
         "hooks": [
-          {
-            "type": "command",
-            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/<your-hook>.py"
-          }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/<your-hook>.js", "timeout": 10 }
         ]
       }
     ]
@@ -111,19 +105,15 @@ it, re-run `install.ps1` (idempotent) or merge it manually into
 ```
 
 Hook scripts read JSON from stdin and exit 0 unless they intentionally block
-(exit 2 = hard refusal, surfaced to the model as stderr).
+(exit 2 = hard refusal, surfaced to the model as stderr). If you add a script,
+make sure `tests/test_hooks_template.py` still passes (it checks the template
+only references scripts that exist).
 
 ## Test a hook locally
 
 ```bash
 echo '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"test.txt"}}' \
-  | uv run python ~/.ultron/scripts/hooks/auto-approve-readonly.py
-```
-
-Expected (auto-approve):
-
-```json
-{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": "Read-only tool 'Read' auto-approved by ULTRON hook"}}
+  | uv run python ~/.ultron/scripts/hooks/deny-secrets.py
 ```
 
 ---
@@ -131,5 +121,4 @@ Expected (auto-approve):
 ## References
 
 - [Hooks reference (Claude Code)](https://code.claude.com/docs/en/hooks)
-- [Hooks (Agent SDK)](https://code.claude.com/docs/en/agent-sdk/hooks)
-- `~/.ultron/knowledge/claude-platform/subagents-and-hooks.md`
+- `~/.ultron/templates/settings-hooks.json` — the authoritative hook spec
