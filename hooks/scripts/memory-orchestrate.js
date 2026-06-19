@@ -34,6 +34,17 @@ function emit(additionalContext) {
 function render(ctx) {
   const out = [`<orchestration-context route="${ctx.route || ''}" trust="system">`];
   if (ctx.workflow) out.push(`workflow: ${ctx.workflow.id} — ${ctx.workflow.label}`);
+  // cat13.4 (2026-06-19): cuando el routing propone un GRUPO (workflow multi-paso),
+  // cada paso/agente lleva su PROPIO encuadre derivado del sub-intent de su rol —
+  // no solo el encuadre global del turno. Esto cierra "optimiza el prompt del paso".
+  if (Array.isArray(ctx.step_plans) && ctx.step_plans.length > 1) {
+    out.push('step_plans (encuadre optimizado por paso del grupo):');
+    for (const sp of ctx.step_plans.slice(0, 6)) {
+      const frame = String(sp.frame || '');
+      const short = frame.length > 90 ? frame.slice(0, 90) + '…' : frame;
+      out.push(`  - ${sp.agent} [${sp.sub_intent}]: ${short}`);
+    }
+  }
   if (Array.isArray(ctx.delegate_agents) && ctx.delegate_agents.length) {
     out.push('delegate_to (specialist agents, by similarity):');
     for (const a of ctx.delegate_agents.slice(0, 4)) {
@@ -87,6 +98,9 @@ function logOrchestration(ctx, prompt, project, sessionId) {
       prompt: String(prompt || '').slice(0, 280),
       route: ctx.route || null,
       workflow: ctx.workflow ? { id: ctx.workflow.id, label: ctx.workflow.label } : null,
+      step_plans: (Array.isArray(ctx.step_plans) ? ctx.step_plans : [])
+        .slice(0, 6)
+        .map((sp) => ({ agent: sp.agent, sub_intent: sp.sub_intent })),
       agents: (Array.isArray(ctx.delegate_agents) ? ctx.delegate_agents : [])
         .slice(0, 6)
         .map((a) => ({ name: a.name, score: Number(a.score || 0) })),

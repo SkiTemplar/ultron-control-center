@@ -109,7 +109,17 @@ pub fn orchestrate(
         "DELEGAR a los agentes reales existentes; no reinventar capacidades".to_string(),
     ];
 
-    let prompt_plan = super::ranking::build_prompt_plan(prompt, intent);
+    // cat13.2: optimize_prompt is the canonical optimizer (alias of
+    // build_prompt_plan) — the routing optimizes the prompt before building the plan.
+    let prompt_plan = super::ranking::optimize_prompt(prompt, intent);
+
+    // cat13.4: when the routing proposes a multi-step GROUP (workflow), optimize
+    // each step's prompt by the role sub-intent of the agent that runs it. Empty
+    // for a single-step / no-workflow turn (optimize_prompt already covers that).
+    let step_plans = workflow
+        .as_ref()
+        .map(|w| super::ranking::build_step_plans(&w.steps))
+        .unwrap_or_default();
 
     OrchestrationContext {
         prompt: prompt.to_string(),
@@ -124,5 +134,6 @@ pub fn orchestrate(
         token_budget: TOKEN_BUDGET,
         cross_project,
         prompt_plan,
+        step_plans,
     }
 }

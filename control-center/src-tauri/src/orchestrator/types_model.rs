@@ -56,6 +56,25 @@ pub struct OrchestrationContext {
     /// encuadre del intent, modo sugerido, preguntas de clarificacion si es
     /// demasiado vago, y criterios de exito. Sin LLM (<1ms), siempre presente.
     pub prompt_plan: PromptPlan,
+    /// cat13.4 (2026-06-19): cuando el routing propone un GRUPO (workflow
+    /// multi-paso), cada paso/agente lleva su PROPIO encuadre derivado del
+    /// sub-intent de su rol — no solo el encuadre global del turno. Vacio para
+    /// turnos de un solo paso / sin workflow.
+    pub step_plans: Vec<StepPlan>,
+}
+
+/// Encuadre optimizado POR PASO del grupo (cat13.4). `optimize_prompt`/
+/// `build_prompt_plan` optimizan el TURNO; esto optimiza cada PASO del workflow
+/// segun el rol del agente que lo ejecuta (debugger -> bug_fix, code-reviewer ->
+/// review, rust-engineer -> feature, ...).
+#[derive(Debug, Clone, Serialize)]
+pub struct StepPlan {
+    /// Agente especialista del paso (real, en ~/.claude/agents).
+    pub agent: String,
+    /// Sub-intent derivado del rol del agente.
+    pub sub_intent: String,
+    /// Encuadre de trabajo especifico de ese paso.
+    pub frame: String,
 }
 
 /// Salida del paso de mejora de prompt (diseño A de CONTINUAR.md 2026-06-08:

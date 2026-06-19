@@ -3,7 +3,9 @@
 use crate::memory::catalog;
 
 use super::orchestrate::orchestrate;
-use super::ranking::{build_prompt_plan, rebalance_delegates};
+use super::ranking::{
+    agent_sub_intent, build_prompt_plan, build_step_plans, optimize_prompt, rebalance_delegates,
+};
 use super::rules::{classify_intent, detect_cross_project};
 
 /// cat13 2026-06-10 — el paso de mejora de prompt: vago -> preguntas;
@@ -226,4 +228,45 @@ fn e2e_orchestrate_real() {
                 || a.name.contains("pentest")),
         "a security/review specialist should be selected"
     );
+}
+
+/// cat13.4 — the routing proposes a GROUP and optimizes the prompt of each step
+/// by the role sub-intent of the agent that runs it; a single step is not a group
+/// (caso negativo); optimize_prompt is the canonical alias (cat13.2).
+#[test]
+fn step_plans_optimize_each_group_step_by_role() {
+    assert_eq!(agent_sub_intent("debugger"), "bug_fix");
+    assert_eq!(agent_sub_intent("code-reviewer"), "review");
+    assert_eq!(agent_sub_intent("rust-engineer"), "feature");
+    assert_eq!(agent_sub_intent("security-auditor"), "security");
+    assert_eq!(
+        agent_sub_intent("architect-reviewer"),
+        "architecture_review"
+    );
+
+    let steps = vec![
+        "architect-reviewer".to_string(),
+        "rust-engineer".to_string(),
+        "code-reviewer".to_string(),
+    ];
+    let plans = build_step_plans(&steps);
+    assert_eq!(plans.len(), 3, "one plan per group step");
+    assert_eq!(plans[0].sub_intent, "architecture_review");
+    assert_eq!(plans[1].sub_intent, "feature");
+    assert_eq!(plans[2].sub_intent, "review");
+    assert_ne!(
+        plans[1].frame, plans[2].frame,
+        "each step frame is role-specific, not the global turn frame"
+    );
+    assert!(plans.iter().all(|p| !p.frame.is_empty()));
+
+    // Caso negativo: a single-step / empty workflow is NOT a group -> no step plans.
+    assert!(build_step_plans(&["rust-engineer".to_string()]).is_empty());
+    assert!(build_step_plans(&[]).is_empty());
+
+    // optimize_prompt (cat13.2 literal symbol) == build_prompt_plan.
+    let a = optimize_prompt("implementa login con tests", "feature");
+    let b = build_prompt_plan("implementa login con tests", "feature");
+    assert_eq!(a.improved_prompt, b.improved_prompt);
+    assert_eq!(a.suggested_mode, b.suggested_mode);
 }

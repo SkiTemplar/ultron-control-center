@@ -3,7 +3,7 @@
 use crate::memory::catalog;
 
 use super::rules::preferred_skills;
-use super::types_model::{AgentChoice, PromptPlan, SkillChoice};
+use super::types_model::{AgentChoice, PromptPlan, SkillChoice, StepPlan};
 
 /// ULTRON-internal META agents. They are housekeeping/self-improvement helpers
 /// (refresh docs, compose changelog, behaviour-preserving refactor, compress
@@ -334,7 +334,33 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
     .to_string();
 
     // --- Reescritura con el encuadre del intent (familias) ---
-    let (frame, criteria): (&str, &[&str]) = match intent {
+    let (frame, criteria) = intent_frame(intent);
+
+    let improved_prompt = format!("{p}\n\n[encuadre {intent}] {frame}");
+    let success_criteria = criteria.iter().map(|s| s.to_string()).collect();
+
+    PromptPlan {
+        improved_prompt,
+        suggested_mode,
+        clarifying_questions,
+        success_criteria,
+    }
+}
+
+/// Public canonical name of the prompt optimizer (cat13.2). Rewrites the prompt
+/// with the intent frame + suggested mode + success criteria. `build_prompt_plan`
+/// is the historical impl; `optimize_prompt` is the symbol the routing calls so
+/// the step "optimize the prompt" is literal and self-documenting.
+pub fn optimize_prompt(prompt: &str, intent: &str) -> PromptPlan {
+    build_prompt_plan(prompt, intent)
+}
+
+/// Work frame + success criteria per intent family. Shared by `optimize_prompt`
+/// (whole turn) and `build_step_plans` (per workflow step). The `review` and
+/// `architecture_review` frames exist for the per-step roles (code-reviewer /
+/// architect-reviewer) even though no top-level RULE routes to them.
+pub(super) fn intent_frame(intent: &str) -> (&'static str, &'static [&'static str]) {
+    match intent {
         "bug_fix" | "debug" => (
             "Diagnostica y corrige. Reproduce el fallo ANTES de tocar codigo; identifica la causa raiz, no el sintoma; añade un test que falle sin el fix (caso negativo); verifica en runtime.",
             &["el fallo reproducido deja de ocurrir", "test de regresion en verde", "0 cambios fuera del alcance del bug"],
@@ -346,6 +372,14 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
         "security" => (
             "Auditoria de seguridad. OWASP, secretos hardcodeados, validacion de input en limites, inyeccion; evidencia archivo:linea + severidad; confirma cada hallazgo en runtime antes de parchear.",
             &["0 CRITICAL sin resolver", "cada hallazgo con evidencia verificable", "secretos expuestos rotados"],
+        ),
+        "review" => (
+            "Revisa el codigo: correctitud, seguridad, legibilidad, manejo de errores y cobertura. Marca severidad (CRITICAL/HIGH/MEDIUM/LOW) con evidencia archivo:linea; no apruebes con CRITICAL/HIGH abiertos.",
+            &["0 CRITICAL/HIGH sin resolver", "cada hallazgo con evidencia archivo:linea"],
+        ),
+        "architecture_review" => (
+            "Evalua el diseno: limites de modulo, acoplamiento/cohesion, SOLID, complejidad ciclomatica. Propon el cambio minimo que reduce el acoplamiento sin reescribir; justifica con trade-offs.",
+            &["decision con trade-offs explicitos", "sin reescritura masiva injustificada"],
         ),
         "research" => (
             "Investiga. Busca implementaciones existentes primero (GitHub, registries, docs primarias); compara >=3 alternativas con criterios explicitos; cierra con recomendacion y trade-offs.",
@@ -375,15 +409,53 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
             "Ejecuta con verificacion en runtime: localiza primero (codegraph/grep), cambia lo minimo, verifica el resultado real antes de darlo por hecho.",
             &["resultado verificado en runtime", "build verde"],
         ),
-    };
-
-    let improved_prompt = format!("{p}\n\n[encuadre {intent}] {frame}");
-    let success_criteria = criteria.iter().map(|s| s.to_string()).collect();
-
-    PromptPlan {
-        improved_prompt,
-        suggested_mode,
-        clarifying_questions,
-        success_criteria,
     }
+}
+
+/// Map a workflow step's agent to a sub-intent known by `intent_frame`, so each
+/// step's prompt is framed for the ROLE that executes it (debugger -> bug_fix,
+/// code-reviewer -> review, rust-engineer -> feature, ...).
+pub(super) fn agent_sub_intent(agent: &str) -> &'static str {
+    match agent {
+        "debugger" | "error-detective" => "bug_fix",
+        "security-auditor" | "penetration-tester" | "ultron-security" => "security",
+        "test-automator" | "qa-expert" => "testing",
+        "refactoring-specialist" | "ultron-refactor" => "refactor",
+        "performance-engineer" | "ultron-perf" => "performance",
+        "documentation-engineer" | "ultron-docs" => "docs",
+        "code-reviewer" => "review",
+        "architect-reviewer" | "microservices-architect" | "cloud-architect" | "ultron-arch" => {
+            "architecture_review"
+        }
+        a if a.ends_with("-engineer")
+            || a.ends_with("-developer")
+            || a.ends_with("-pro")
+            || a.ends_with("-specialist") =>
+        {
+            "feature"
+        }
+        _ => "general",
+    }
+}
+
+/// cat13.4: build a per-step optimized frame for a multi-step GROUP. Each step
+/// (a workflow agent) gets its role's sub-intent frame. Returns empty for fewer
+/// than 2 steps — a single step is not a "group", so the turn-level
+/// `optimize_prompt` already covers it.
+pub(super) fn build_step_plans(steps: &[String]) -> Vec<StepPlan> {
+    if steps.len() < 2 {
+        return Vec::new();
+    }
+    steps
+        .iter()
+        .map(|agent| {
+            let sub_intent = agent_sub_intent(agent);
+            let (frame, _) = intent_frame(sub_intent);
+            StepPlan {
+                agent: agent.clone(),
+                sub_intent: sub_intent.to_string(),
+                frame: frame.to_string(),
+            }
+        })
+        .collect()
 }
