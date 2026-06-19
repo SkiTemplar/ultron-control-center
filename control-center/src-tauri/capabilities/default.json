@@ -25,15 +25,7 @@
         { "path": "$HOME/.claude" },
         { "path": "$HOME/.claude/**" },
         { "path": "$APPDATA/**" },
-        { "path": "$LOCALAPPDATA/**" },
-        { "path": "D:\\Ultron" },
-        { "path": "D:\\Ultron\\**" },
-        { "path": "D:\\BACKUP" },
-        { "path": "D:\\BACKUP\\**" },
-        { "path": "D:\\Backup" },
-        { "path": "D:\\Backup\\**" },
-        { "path": "D:\\backup" },
-        { "path": "D:\\backup\\**" }
+        { "path": "$LOCALAPPDATA/**" }
       ]
     },
     "opener:allow-open-url",
@@ -49,15 +41,7 @@
         { "path": "$HOME/.claude" },
         { "path": "$HOME/.claude/**" },
         { "path": "$APPDATA/**" },
-        { "path": "$LOCALAPPDATA/**" },
-        { "path": "D:\\Ultron" },
-        { "path": "D:\\Ultron\\**" },
-        { "path": "D:\\BACKUP" },
-        { "path": "D:\\BACKUP\\**" },
-        { "path": "D:\\Backup" },
-        { "path": "D:\\Backup\\**" },
-        { "path": "D:\\backup" },
-        { "path": "D:\\backup\\**" }
+        { "path": "$LOCALAPPDATA/**" }
       ]
     },
     "notification:default",

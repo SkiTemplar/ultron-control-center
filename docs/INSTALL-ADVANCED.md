@@ -249,18 +249,16 @@ Hook list ULTRON registers:
 
 | Phase            | Matcher                       | Script                                |
 | ---------------- | ----------------------------- | ------------------------------------- |
-| SessionStart     | (all)                         | `scripts/hooks/session-init.ps1` + `scripts/hooks/detect_gaps.py` |
-| PreToolUse       | `Read\|Glob\|Grep\|WebFetch\|WebSearch` | `scripts/hooks/auto-approve-readonly.py` |
-| PreToolUse       | `Bash`                        | `scripts/hooks/block-dangerous-bash.py` + `scripts/hooks/validate_push.py` |
-| PreToolUse       | `mcp__.*`                     | `scripts/hooks/mcp-resilience.py`     |
-| PreToolUse       | `Skill`                       | `scripts/hooks/skill_integrity_check.py` |
-| PostToolUse      | `Skill\|Agent\|Task`          | `scripts/hooks/routing-telemetry.py`  |
-| PostToolUse      | `Skill`                       | `scripts/hooks/prompt-feedback-capture.py` |
-| PostToolUse      | `Read`                        | `scripts/hooks/track-knowledge-reads.py` |
-| PreCompact       | (all)                         | `scripts/hooks/pre_compact.py`        |
-| PostCompact      | (all)                         | `scripts/hooks/post_compact.py`       |
-| Stop             | (all)                         | `stop-memory-sync.ps1` + `auto-changelog.py` + `plan-detector.py` (session-log + session-cleanup inlined into stop-memory-sync since v15.5.17) |
-| UserPromptSubmit | (all)                         | `mode-trigger.py` + `intent-dispatcher.py` + `auto-recall.py` |
+| SessionStart     | (all)                         | `hooks/scripts/ensure-qdrant.js`, `memory-warmup.js`, `load-cross-project-memory.js`, `session-start-override.js`, `memory-session-resume.js` |
+| UserPromptSubmit | (all)                         | `cockpit/skill-lazy/routing-dispatcher.v2.js` + `hooks/scripts/save-user-prompt.js` + `memory-orchestrate.js` |
+| PreToolUse       | `Read\|Edit\|Write\|NotebookEdit\|Bash` | `scripts/hooks/deny-secrets.py` |
+| PreToolUse       | `Read\|Grep`                  | `hooks/scripts/codegraph-reminder.js` |
+| PostToolUse      | (all)                         | `hooks/scripts/posttoolfail-capture.js` |
+| PreCompact       | (all)                         | `hooks/scripts/precompact-preserve-l0.js` |
+| SubagentStop     | (all)                         | `hooks/scripts/subagent-harvest.js`   |
+| SessionEnd       | (all)                         | `hooks/scripts/session-end-summary.js` |
+| Notification     | (all)                         | `hooks/scripts/notify-relay.js`       |
+| Stop             | (all)                         | `hooks/scripts/stop-compress-session.js` + `kanban-update-reminder.js` + `batch-capture.js` + `qdrant-mirror-sync.js` + `scripts/cockpit/route_quality_aggregator.py` |
 
 ### 8. Skills
 
@@ -279,17 +277,12 @@ Skip skills you don't want — Claude Code only loads what's in
 
 ### 8b. Agents
 
-`install.ps1` mirrors the skills flow for autonomous subagents under
-`~/.claude/agents/`. It always copies the **12 ULTRON first-party agents**
-(`ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`,
-`ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`,
-`ultron-test`) plus the **7 stack-aligned community agents** in `agents/`
-(`cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`,
-`unity-engineer`, `devops-engineer`, `database-administrator`,
-`fullstack-developer`). The `cockpit/agent-catalog.json` lists **81 additional**
-agents (from VoltAgent, wshobson, and hesreallyhim community sources)
-that you can install on demand from the Agents tab in the Control Center
-(~100+ total available, most require manual installation).
+Autonomous subagents live under `~/.claude/agents/`. The **public repo does
+not ship an `agents/` directory** (community agents carry their own licenses),
+so a fresh install copies nothing here. Install the agents you want from the
+**Agents tab** in the Control Center, which reads `cockpit/agent-catalog.json`
+(~70 entries from the VoltAgent, wshobson, and hesreallyhim community sources)
+and pulls each on demand.
 
 To install an agent by hand:
 

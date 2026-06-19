@@ -166,7 +166,7 @@ that previews the removal without touching disk:
 1. Open the Dashboard → run **Full diagnostic**.
 2. If a row says red, click any **Auto-fix** the diagnostic suggests.
 3. If still red, read the relevant section in
-   [`INSTALL.md`](../INSTALL.md#common-failures-and-fixes).
+   [`INSTALL.md`](../INSTALL.md#3-troubleshooting).
 4. If documented fixes don't help, open an issue on
    [GitHub](https://github.com/SkiTemplar/ultron/issues) with the
    diagnostic output pasted in.

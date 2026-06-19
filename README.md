@@ -274,7 +274,8 @@ npm test       # vitest (frontend)
 - **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,
   System (con sub-tabs de Hooks/Schedules), MCPs,
   Library (sub-tabs Skills/Agents/Rules/**Updates**), **Memory**, Notes,
-  Sessions, Projects, Finance, Settings y Notifications. La pestana **Memory**
+  Learn, Sessions, Projects, Finance (solo build local con `VITE_FINANCE=1`),
+  Settings y Notifications. La pestana **Memory**
   esta **viva** (re-anadida 2026-06-04, `Sidebar.tsx`): expone el inbox de
   candidatos (aprobar/rechazar/editar) y la salud de `brain.db`; el kernel de
   memoria sigue siendo solo-backend, pero su gobierno human-in-the-loop se hace

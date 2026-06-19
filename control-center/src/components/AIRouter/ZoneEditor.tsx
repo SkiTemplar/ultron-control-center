@@ -5,8 +5,8 @@
 // o placeholder — corazón del criterio cat14.4.
 //
 // Comandos Tauri consumidos:
-//   ai_router_list_zones      — lista zonas (EXISTE en Rust; pendiente wiring en generate_handler!)
-//   ai_router_save_zone       — persiste una zona editada (FALTA en Rust — TODO cat14)
+//   ai_router_list_zones      — lista zonas (EXISTE y registrado en lib.rs)
+//   ai_router_save_zone       — persiste una zona editada (EXISTE y registrado en lib.rs)
 //   ai_router_list_providers  — catálogo de providers con modelos disponibles (EXISTE)
 //   ai_router_validate_keys   — estado real de keys por provider (EXISTE)
 
@@ -682,8 +682,8 @@ export function ZoneEditor() {
 
     // 3. Zonas
     try {
-      // TODO(cat14): ai_router_list_zones existe en Rust pero aún no está
-      // registrado en generate_handler! de lib.rs — el backend lo cableará.
+      // ai_router_list_zones: registrado en lib.rs (generate_handler!) y
+      // definido en ai_router/mod.rs. Devuelve [] si no hay zonas guardadas.
       const backendZones = (await invoke("ai_router_list_zones")) as Zone[];
       const validZones = backendZones.length > 0 ? backendZones : DEFAULT_ZONES;
       setZones(validZones);
@@ -718,8 +718,8 @@ export function ZoneEditor() {
     dispatch({ type: "SET_SAVE_RESULT", zoneId, result: undefined as unknown as string });
 
     try {
-      // TODO(cat14): backend command pending — ai_router_save_zone no existe
-      // en Rust todavía. Cablearlo en ai_router/mod.rs + store.rs + lib.rs.
+      // ai_router_save_zone: registrado en lib.rs y definido en
+      // ai_router/mod.rs (persiste vía store.rs).
       await invoke("ai_router_save_zone", { zone: draft });
       dispatch({ type: "SET_SAVE_RESULT", zoneId, result: "ok" });
       // Actualiza la zona canónica en el estado local

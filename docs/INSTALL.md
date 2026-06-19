@@ -281,11 +281,12 @@ is free and open source. The practical consequence:
   install. The auto-updater verifies updates against the embedded Tauri
   public key, not via SmartScreen reputation.
 
-If you would prefer to vet the source yourself, the build is fully
-reproducible from the public GitHub Actions workflow at
-`.github/workflows/release.yml`. Every release artifact is built on a
-GitHub-hosted runner from a tagged commit and signed there with the
-project's updater key.
+If you would prefer to vet the source yourself, the release build is
+defined by the GitHub Actions workflow at
+`.github/workflows/release.yml.disabled`. The pipeline is **currently
+disabled** (no releases are published yet); enable it to build every
+artifact on a GitHub-hosted runner from a tagged commit, signed there with
+the project's updater key.
 
 ## Linux specifics (core v15.5+)
 
