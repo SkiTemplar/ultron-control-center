@@ -169,41 +169,33 @@ pub fn load_zones() -> Result<Vec<Zone>, String> {
                 zones.push(z);
             }
         }
-        // CLI-primary migration (2026-06-05): upgrade existing zones.json
-        // entries that still point to the old cloud-only primaries.
+        // CLI-primary migration (2026-06-05): upgrade an existing zones.json
+        // 'code-edit' entry that still points to the old cloud-only primary.
         let mut mutated = false;
         for z in &mut zones {
-            match z.id.as_str() {
-                "code-edit" if z.primary.provider_id == "codex" => {
-                    z.primary.provider_id = "codex-cli".into();
-                    if !z.fallbacks.iter().any(|f| f.provider_id == "codex") {
-                        z.fallbacks.insert(
-                            0,
-                            super::types::ZoneAssignment {
-                                provider_id: "codex".into(),
-                                model: "gpt-5".into(),
-                                max_tokens: z.primary.max_tokens,
-                            },
-                        );
-                    }
-                    mutated = true;
+            if z.id == "code-edit" && z.primary.provider_id == "codex" {
+                z.primary.provider_id = "codex-cli".into();
+                if !z.fallbacks.iter().any(|f| f.provider_id == "codex") {
+                    z.fallbacks.insert(
+                        0,
+                        super::types::ZoneAssignment {
+                            provider_id: "codex".into(),
+                            model: "gpt-5".into(),
+                            max_tokens: z.primary.max_tokens,
+                        },
+                    );
                 }
-                "research-web" if z.primary.provider_id == "gemini" => {
-                    z.primary.provider_id = "gemini-cli".into();
-                    if !z.fallbacks.iter().any(|f| f.provider_id == "gemini") {
-                        z.fallbacks.insert(
-                            0,
-                            super::types::ZoneAssignment {
-                                provider_id: "gemini".into(),
-                                model: "gemini-2.5-flash".into(),
-                                max_tokens: z.primary.max_tokens,
-                            },
-                        );
-                    }
-                    mutated = true;
-                }
-                _ => {}
+                mutated = true;
             }
+        }
+        // gemini-cli retirement migration (2026-06-19): the gemini-cli binary no
+        // longer authenticates (Google dropped free-tier OAuth for individuals —
+        // runtime IneligibleTierError "migrate to the Antigravity suite"). The
+        // migration swaps it for the cloud 'gemini' provider in every chain and
+        // de-dups. NOTE: this SUPERSEDES the 2026-06-05 rule that PROMOTED
+        // research-web to gemini-cli — that rule was removed, the CLI is dead.
+        if retire_gemini_cli(&mut zones) {
+            mutated = true;
         }
         if mutated {
             let _ = write_json(&path, &zones);
@@ -214,6 +206,37 @@ pub fn load_zones() -> Result<Vec<Zone>, String> {
         write_json(&path, &seeded)?;
         Ok(seeded)
     }
+}
+
+/// Retire the dead `gemini-cli` provider from every zone chain: replace it with
+/// the cloud `gemini` provider (so research-web keeps gemini-2.5-flash via API,
+/// and every fallback keeps a working target), then drop any fallback whose
+/// provider already appears earlier in the chain (including as the primary).
+///
+/// Pure (no I/O) so the migration is unit-testable. Returns `true` if any zone
+/// was mutated.
+pub(crate) fn retire_gemini_cli(zones: &mut [Zone]) -> bool {
+    let mut mutated = false;
+    for z in zones.iter_mut() {
+        if z.primary.provider_id == "gemini-cli" {
+            z.primary.provider_id = "gemini".into();
+            mutated = true;
+        }
+        for f in &mut z.fallbacks {
+            if f.provider_id == "gemini-cli" {
+                f.provider_id = "gemini".into();
+                mutated = true;
+            }
+        }
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        seen.insert(z.primary.provider_id.clone());
+        let before = z.fallbacks.len();
+        z.fallbacks.retain(|f| seen.insert(f.provider_id.clone()));
+        if z.fallbacks.len() != before {
+            mutated = true;
+        }
+    }
+    mutated
 }
 
 pub(crate) fn load_metrics() -> Result<RouterMetrics, String> {

@@ -153,5 +153,14 @@ pub(crate) fn load_metrics_and_bump_route_counters(used_fallback: bool) -> Resul
     if used_fallback {
         metrics.real_fallback_count = metrics.real_fallback_count.saturating_add(1);
     }
+    // Rolling window: record this outcome and evict the oldest beyond the cap so
+    // `real_fallback_rate_recent` reflects only the current zone configuration
+    // (immune to retired-provider history like gemini-cli/claude-haiku).
+    metrics.recent_routes.push(used_fallback);
+    let window = crate::ai_router::types::RECENT_FALLBACK_WINDOW;
+    if metrics.recent_routes.len() > window {
+        let excess = metrics.recent_routes.len() - window;
+        metrics.recent_routes.drain(0..excess);
+    }
     write_json(&path, &metrics)
 }

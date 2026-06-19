@@ -355,6 +355,14 @@ pub struct ModeCounters {
     pub counts: HashMap<String, u64>,
 }
 
+/// Size of the rolling window backing `real_fallback_rate_recent`.
+///
+/// The cumulative `real_fallback_rate` mixes in failures from providers that
+/// have since been retired (claude-haiku 2026-06-10, gemini-cli 2026-06-19),
+/// so it is NOT an actionable health signal. The recent window only counts the
+/// last N route() outcomes, reflecting the CURRENT zone configuration.
+pub(crate) const RECENT_FALLBACK_WINDOW: usize = 200;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouterMetrics {
     pub tokens_saved_total: u64,
@@ -374,6 +382,11 @@ pub struct RouterMetrics {
     pub routes_total: u64,
     #[serde(default)]
     pub real_fallback_count: u64,
+    /// Rolling window of the most recent route outcomes (true = the winning
+    /// provider was NOT the primary). Bounded to `RECENT_FALLBACK_WINDOW`;
+    /// oldest entries are dropped. Drives `real_fallback_rate_recent`.
+    #[serde(default)]
+    pub recent_routes: Vec<bool>,
 }
 
 /// Approximate published free-tier DAILY request limit (RPD) per provider.
@@ -442,10 +455,16 @@ pub struct UsageSummary {
     pub fallback_rate: f64,
     /// Same value as `fallback_rate`, renamed for clarity.
     pub attempt_failure_rate: f64,
-    /// Fraction of completed route() calls where the winning provider was NOT the primary.
+    /// Fraction of ALL completed route() calls where the winning provider was
+    /// NOT the primary (cumulative; includes history from retired providers).
     pub real_fallback_rate: f64,
     pub real_fallback_count: u64,
     pub routes_total: u64,
+    /// Same fraction but only over the last `recent_window` routes — the
+    /// actionable health signal, immune to retired-provider history.
+    pub real_fallback_rate_recent: f64,
+    /// Number of routes actually present in the recent window (0..=window cap).
+    pub recent_window: u64,
     pub zone_chains: HashMap<String, Vec<String>>,
 }
 

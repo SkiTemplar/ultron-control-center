@@ -289,6 +289,16 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         0.0
     };
 
+    // Rolling-window health signal: only the last N routes, so failures from
+    // retired providers (gemini-cli/claude-haiku) drop out as fresh traffic
+    // arrives instead of poisoning the rate forever.
+    let recent_window = metrics.recent_routes.len();
+    let real_fallback_rate_recent = if recent_window > 0 {
+        metrics.recent_routes.iter().filter(|&&f| f).count() as f64 / recent_window as f64
+    } else {
+        0.0
+    };
+
     Ok(UsageSummary {
         providers: rows,
         fallback_rate: metrics.fallback_rate,
@@ -296,6 +306,8 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         real_fallback_rate,
         real_fallback_count: metrics.real_fallback_count,
         routes_total: metrics.routes_total,
+        real_fallback_rate_recent,
+        recent_window: recent_window as u64,
         zone_chains,
     })
 }

@@ -74,6 +74,88 @@ fn seed_zones_includes_all_seven_targets() {
 }
 
 #[test]
+fn seed_zones_ship_no_dead_gemini_cli() {
+    // Source of truth must not ship the retired gemini-cli in any chain
+    // (Google killed free-tier OAuth 2026-06-19 -> IneligibleTierError).
+    for z in seed_zones() {
+        assert_ne!(z.primary.provider_id, "gemini-cli", "zone {} primary", z.id);
+        assert!(
+            !z.fallbacks.iter().any(|f| f.provider_id == "gemini-cli"),
+            "zone {} still lists gemini-cli as a fallback",
+            z.id
+        );
+    }
+}
+
+#[test]
+fn retire_gemini_cli_swaps_primary_and_dedups() {
+    use crate::ai_router::store::retire_gemini_cli;
+    use crate::ai_router::types::{ProviderClass, Zone, ZoneAssignment};
+
+    fn asg(p: &str) -> ZoneAssignment {
+        ZoneAssignment {
+            provider_id: p.into(),
+            model: "gemini-2.5-flash".into(),
+            max_tokens: 1024,
+        }
+    }
+    fn zone(id: &str, primary: &str, fbs: &[&str]) -> Zone {
+        Zone {
+            id: id.into(),
+            label: id.into(),
+            category: "test".into(),
+            task_class: ProviderClass::Light,
+            primary: asg(primary),
+            fallbacks: fbs.iter().map(|p| asg(p)).collect(),
+            system_prompt: None,
+        }
+    }
+    fn fb_ids(z: &Zone) -> Vec<&str> {
+        z.fallbacks.iter().map(|f| f.provider_id.as_str()).collect()
+    }
+
+    let mut zones = vec![
+        // gemini-cli primary + gemini fallback -> gemini primary, dup gemini dropped
+        zone("research-web", "gemini-cli", &["gemini", "groq"]),
+        // [gemini-cli, gemini] -> [gemini] (collapsed)
+        zone("summarize", "groq", &["gemini-cli", "gemini"]),
+        // [gemini-cli, ollama] -> [gemini, ollama]
+        zone("light", "groq", &["gemini-cli", "ollama"]),
+    ];
+    assert!(
+        retire_gemini_cli(&mut zones),
+        "must mutate when gemini-cli present"
+    );
+
+    for z in &zones {
+        assert_ne!(z.primary.provider_id, "gemini-cli");
+        assert!(!z.fallbacks.iter().any(|f| f.provider_id == "gemini-cli"));
+    }
+    let rw = zones.iter().find(|z| z.id == "research-web").unwrap();
+    assert_eq!(rw.primary.provider_id, "gemini");
+    assert_eq!(
+        fb_ids(rw),
+        vec!["groq"],
+        "research-web dup gemini must collapse"
+    );
+    let sm = zones.iter().find(|z| z.id == "summarize").unwrap();
+    assert_eq!(
+        fb_ids(sm),
+        vec!["gemini"],
+        "summarize must collapse to one gemini"
+    );
+    let lt = zones.iter().find(|z| z.id == "light").unwrap();
+    assert_eq!(fb_ids(lt), vec!["gemini", "ollama"]);
+
+    // Negative case: a chain with no gemini-cli must NOT be reported as mutated.
+    let mut clean = vec![zone("chat", "groq", &["gemini", "ollama"])];
+    assert!(
+        !retire_gemini_cli(&mut clean),
+        "no mutation expected when gemini-cli is absent"
+    );
+}
+
+#[test]
 fn truncate_respects_unicode() {
     let s = "abcdefghij";
     assert_eq!(truncate(s, 5), "abcde...");
