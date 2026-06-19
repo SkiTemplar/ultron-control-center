@@ -107,8 +107,12 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
             if prompt.trim().is_empty() {
                 return (json!({ "error": "empty prompt" }), false);
             }
-            // Daemon = UserPromptSubmit hot path: sparse-first, no E5 (dense=false).
-            let ctx = crate::orchestrator::orchestrate(prompt, req.project.as_deref(), false);
+            // UserPromptSubmit hot path. dense=TRUE: full hybrid recall + semantic
+            // agent/skill match (QUALITY-FIRST policy, 2026-06-19). The E5 embed
+            // costs ~1.1s warm; the dense_enabled=false sparse-first path stays
+            // wired for a future fast-embedder (BGE-small ~50ms) optimization that
+            // gets the <300ms budget WITHOUT degrading recall.
+            let ctx = crate::orchestrator::orchestrate(prompt, req.project.as_deref(), true);
             match serde_json::to_value(&ctx) {
                 Ok(v) => (v, false),
                 Err(e) => (json!({ "error": format!("serialize: {e}") }), false),
