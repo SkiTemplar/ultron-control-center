@@ -61,65 +61,62 @@ jobs:
         # The scanner exits 1 if ANY HIGH finding exists.
         run: python scripts/cockpit/audit_personal_data.py
 
-  cargo:
-    name: Rust (cargo check + clippy)
+  # cat12 (2026-06-19): the Rust gate used to be ONE job that ran clippy THEN
+  # test SEQUENTIALLY (cache 93s + clippy 107-167s + test 94-143s = up to ~403s
+  # wall-clock — over the 5-min target). Split into TWO PARALLEL jobs so the wall
+  # clock is max(clippy, test) instead of clippy+test, cutting ~140s off the worst
+  # case (~260s). Each job has its OWN Swatinem shared-key (cargo-clippy-profile /
+  # cargo-test-profile) so there is NO last-writer-wins cache race; the two ~2GB
+  # caches fit well inside the 10GB repo limit. The FIRST run after this split is
+  # cold for the new clippy cache (compiles ort/fastembed once); timeout-minutes:30
+  # covers it, hot runs land ~4min.
+  clippy:
+    name: Rust clippy (-D warnings)
     runs-on: windows-latest
-    # 30 (was 25): the FIRST run after the [profile.test] change below is cold
-    # (new fingerprint invalidates the cached target/), and cold runs already
-    # graze ~25 min. The extra headroom avoids a false timeout on that single
-    # transition run; hot runs land ~7 min so this is slack, not the norm.
     timeout-minutes: 30
-    # CARGO_INCREMENTAL=0: in CI (clean tree + restored cache) incremental mode
-    # buys nothing and pollutes the fingerprint while bloating the Swatinem
-    # cache. Disabling it globally trims the cache restore and the link step.
     env:
       CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
       - name: Cache cargo registry + build artifacts
-        # cache-on-failure: true ensures fastembed/ort artefacts built during
-        # a clippy-failing run are still stored, so the next push (fix commit)
-        # doesn't start from zero.  shared-key pins the cache to this job so
-        # the key is stable across Cargo.lock-only changes (Swatinem already
-        # appends the lock hash as a suffix).
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: control-center/src-tauri
+          cache-on-failure: true
+          shared-key: cargo-clippy-profile
+      - name: cargo clippy (compiles deps + lints local crate; -D warnings)
+        # --profile test aligns rustc flags with the test job so both jobs reuse
+        # the same fastembed/ort build from their own caches. --lib --bins keeps
+        # scope identical to the test job (tests/ need a live Qdrant).
+        working-directory: control-center/src-tauri
+        run: cargo clippy --lib --bins --profile test -- -D warnings
+
+  test:
+    name: Rust test (unit + bins)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: control-center/src-tauri
           cache-on-failure: true
           shared-key: cargo-test-profile
-
-      - name: cargo clippy (compiles + lints; -D warnings = gate duro)
-        # --profile test makes clippy compile with the same rustc flags as
-        # `cargo test` (the `test` profile, not `dev`).  Without this, clippy
-        # uses profile `dev` and `cargo test` recompiles fastembed/ort from
-        # scratch under profile `test` — that's the ~10 min recompilation
-        # even though Swatinem cached `target/`.  Aligning both steps to the
-        # same profile means the second step finds every artefact hot and only
-        # spends the ~9 s actually running tests.
-        # --lib --bins mirrors what `cargo test` tests so clippy's scope is
-        # identical — avoids compiling integration-test stubs that cargo test
-        # doesn't use (those live under tests/ and require a live Qdrant).
-        working-directory: control-center/src-tauri
-        run: cargo clippy --lib --bins --profile test -- -D warnings
-
-      - name: cargo test (unit + bins)
-        # clippy --profile test above already compiled the DEPS (fastembed/ort/
-        # tauri) hot, but clippy only *checks* the local crate (emits .rmeta) —
-        # it does NOT codegen+link the test-harness binaries. So this step still
-        # pays the codegen+link of the local crate (~237 s hot for the 509
-        # tests, not the ~9 s an earlier comment wrongly claimed). The
-        # [profile.test] tuning in Cargo.toml (debug=0 → no PDB, codegen-units
-        # =16) shaves that link cost. --profile test is the cargo-test default;
-        # stated explicitly so it visibly shares the profile (and its tuning)
-        # with the clippy step. --lib --bins keeps CI hermetic (tests/ need a
-        # live Qdrant/sidecar).
+      - name: cargo test (codegen+link local crate + run; deps hot from cache)
+        # Pays the codegen+link of the local crate's test harness (the dominant
+        # hot cost). [profile.test] in Cargo.toml (debug=0, codegen-units=16)
+        # shaves the MSVC link. --lib --bins keeps CI hermetic.
         working-directory: control-center/src-tauri
         run: cargo test --lib --bins --profile test
 
