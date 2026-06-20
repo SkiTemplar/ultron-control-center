@@ -106,6 +106,28 @@ pub fn run_doctor() -> DoctorReport {
 // Individual checks (read-only)
 // ---------------------------------------------------------------------------
 
+/// True when a rusqlite error is a transient lock/contention (SQLITE_BUSY /
+/// SQLITE_LOCKED), not corruption. Such errors must NOT be reported as Error: the
+/// doctor exit code gates CI, and another process briefly holding brain.db is a
+/// retry-later condition, not a broken database.
+fn is_sqlite_busy(err: &rusqlite::Error) -> bool {
+    use rusqlite::ffi::ErrorCode;
+    if let rusqlite::Error::SqliteFailure(e, msg) = err {
+        if matches!(e.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) {
+            return true;
+        }
+        if let Some(m) = msg {
+            let ml = m.to_ascii_lowercase();
+            if ml.contains("locked") || ml.contains("busy") {
+                return true;
+            }
+        }
+    }
+    // Defensive: any other variant whose Display mentions a lock.
+    let s = err.to_string().to_ascii_lowercase();
+    s.contains("database is locked") || s.contains("database is busy")
+}
+
 /// `brain.db` opens, `integrity_check=ok`, `user_version` is the expected 2 or 3,
 /// and the active/candidate counts are readable.
 fn check_sqlite() -> DoctorCheck {
@@ -119,9 +141,24 @@ fn check_sqlite() -> DoctorCheck {
             );
         }
     };
-    let integrity: String = conn
-        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
-        .unwrap_or_else(|e| format!("error: {e}"));
+    // `PRAGMA integrity_check` takes a read-lock that contends with any writer
+    // (sidecar/hook) touching brain.db. busy_timeout lets a transient lock clear
+    // instead of failing instantly; if it still fails as BUSY/LOCKED we degrade to
+    // Warn (contention) rather than Error (corruption) — the latter made the gate
+    // flaky under concurrency (exit 2 indistinguishable from real corruption).
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
+
+    let integrity: String = match conn.query_row("PRAGMA integrity_check", [], |r| r.get(0)) {
+        Ok(s) => s,
+        Err(e) if is_sqlite_busy(&e) => {
+            return DoctorCheck::warn(
+                "sqlite",
+                "brain.db ocupada por otro proceso (lock transitorio); reintenta",
+                serde_json::json!({ "locked": true }),
+            );
+        }
+        Err(e) => format!("error: {e}"),
+    };
     let user_version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap_or(-1);
@@ -555,5 +592,32 @@ mod tests {
             DoctorCheck::error("x", "d", serde_json::json!({})).severity,
             Severity::Error
         );
+    }
+
+    #[test]
+    fn busy_and_locked_are_contention_not_corruption() {
+        // SQLITE_BUSY (5) y SQLITE_LOCKED (6) -> contencion (true).
+        let busy = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(5),
+            Some("database is locked".to_string()),
+        );
+        let locked = rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(6), None);
+        assert!(is_sqlite_busy(&busy), "SQLITE_BUSY debe ser contencion");
+        assert!(is_sqlite_busy(&locked), "SQLITE_LOCKED debe ser contencion");
+    }
+
+    #[test]
+    fn corruption_is_not_classified_as_busy() {
+        // Caso negativo: corrupcion real (SQLITE_CORRUPT=11) NO es contencion.
+        let corrupt = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(11),
+            Some("database disk image is malformed".to_string()),
+        );
+        assert!(
+            !is_sqlite_busy(&corrupt),
+            "la corrupcion no debe degradarse a Warn"
+        );
+        // Un error no-Sqlite tampoco.
+        assert!(!is_sqlite_busy(&rusqlite::Error::QueryReturnedNoRows));
     }
 }
