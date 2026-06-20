@@ -171,6 +171,7 @@ export function SessionCard({ session, onOpenProject }: SessionCardProps) {
     git_branch,
     model,
     context_tokens,
+    context_limit,
     context_pct,
     cache_read_tokens,
     output_tokens,
@@ -271,7 +272,10 @@ export function SessionCard({ session, onOpenProject }: SessionCardProps) {
 
       {/* ── Fila 4: contadores de tokens ── */}
       <div className="flex flex-wrap gap-3">
-        <TokenStat label="ctx" value={fmtTokens(context_tokens)} />
+        <TokenStat
+          label="ctx"
+          value={`${fmtTokens(context_tokens)}/${fmtTokens(context_limit)}`}
+        />
         <TokenStat label="cache" value={fmtTokens(cache_read_tokens)} />
         <TokenStat label="out" value={fmtTokens(output_tokens)} />
       </div>

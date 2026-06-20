@@ -234,6 +234,9 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
   const [polling, setPolling] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Las sesiones "dead" (>5 h sin actividad) se ocultan por defecto: el monitor
+  // es para sesiones en curso. Toggle para mostrarlas cuando se quieran inspeccionar.
+  const [showDead, setShowDead] = useState(false);
 
   // Ref para poder cancelar el polling sin desmontar el componente
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -290,8 +293,12 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
 
   // ── Derivaciones ─────────────────────────────────────────────────────────
 
-  const groups = groupByProject(sessions);
-  const activeCount = sessions.filter(
+  const deadCount = sessions.filter((s) => s.status === "dead").length;
+  const visibleSessions = showDead
+    ? sessions
+    : sessions.filter((s) => s.status !== "dead");
+  const groups = groupByProject(visibleSessions);
+  const activeCount = visibleSessions.filter(
     (s) => s.status === "working" || s.status === "waiting",
   ).length;
 
@@ -331,7 +338,8 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
               className="text-[11px] tabular-nums"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              {sessions.length} total
+              {visibleSessions.length}
+              {!showDead && deadCount > 0 && ` (+${deadCount} muertas)`}
               {activeCount > 0 && (
                 <span style={{ color: "var(--color-success, #3fb950)" }}>
                   {" "}
@@ -351,6 +359,31 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
             >
               {lastUpdated.toLocaleTimeString()}
             </span>
+          )}
+
+          {/* Toggle mostrar/ocultar sesiones muertas (solo si las hay) */}
+          {deadCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowDead((v) => !v)}
+              className="rounded px-2.5 py-1 text-[11px] transition-colors"
+              style={{
+                background: showDead
+                  ? "var(--color-surface-3)"
+                  : "transparent",
+                color: showDead
+                  ? "var(--color-text-secondary)"
+                  : "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+              title={
+                showDead
+                  ? "Ocultar sesiones muertas (>5 h inactivas)"
+                  : `Mostrar ${deadCount} sesion${deadCount !== 1 ? "es" : ""} muerta${deadCount !== 1 ? "s" : ""} (>5 h inactivas)`
+              }
+            >
+              {showDead ? "Ocultar muertas" : `Muertas (${deadCount})`}
+            </button>
           )}
 
           {/* Toggle de polling */}
@@ -442,8 +475,8 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
           </div>
         )}
 
-        {/* Estado vacío */}
-        {!loading && error === null && sessions.length === 0 && (
+        {/* Estado vacío (ninguna sesión visible; puede haber muertas ocultas) */}
+        {!loading && error === null && visibleSessions.length === 0 && (
           <div
             className="flex flex-col items-center justify-center gap-2 py-20"
             aria-live="polite"
@@ -475,7 +508,9 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
               className="text-[11px]"
               style={{ color: "var(--color-text-faint)" }}
             >
-              Lanza Claude Code en cualquier terminal para verla aqui.
+              {deadCount > 0
+                ? `${deadCount} sesion${deadCount !== 1 ? "es" : ""} muerta${deadCount !== 1 ? "s" : ""} oculta${deadCount !== 1 ? "s" : ""} — usa "Muertas (${deadCount})" para verlas.`
+                : "Lanza Claude Code en cualquier terminal para verla aqui."}
             </p>
           </div>
         )}
@@ -492,7 +527,7 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
           ))}
 
         {/* Nota de pie */}
-        {!loading && sessions.length > 0 && (
+        {!loading && visibleSessions.length > 0 && (
           <p
             className="text-[10px] pt-2"
             style={{ color: "var(--color-text-faint)" }}

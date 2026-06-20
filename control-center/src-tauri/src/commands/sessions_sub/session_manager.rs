@@ -30,9 +30,10 @@ const THRESHOLD_WORKING_SECS: u64 = 90;
 /// Hasta este umbral la sesión se considera "inactiva pero reciente" (5 horas).
 const THRESHOLD_IDLE_SECS: u64 = 5 * 3600;
 
-/// Denominador para el porcentaje de contexto. Es el límite por defecto de
-/// Claude Code (200 k tokens para modelos Sonnet/Opus en la CLI a 2025-06).
-const CONTEXT_LIMIT: u64 = 200_000;
+/// Ventana de contexto por defecto de Claude Code (modelos Sonnet/Opus estándar).
+const CONTEXT_LIMIT_DEFAULT: u64 = 200_000;
+/// Ventana extendida (beta "context-1m", sesiones lanzadas con el modelo `[1m]`).
+const CONTEXT_LIMIT_EXTENDED: u64 = 1_000_000;
 
 /// Bytes medios por línea JSONL en un transcript de Claude Code. Usado para
 /// acotar el seek desde el final (igual que en live_session.rs).
@@ -65,10 +66,13 @@ pub struct SessionInfo {
     pub git_branch: Option<String>,
     /// Modelo usado en el último turno assistant (ej. "claude-opus-4-8").
     pub model: Option<String>,
-    /// Suma de tokens del ÚLTIMO turno assistant: input + output + cache_read + cache_creation.
+    /// Contexto de ENTRADA del último turno assistant: input + cache_read + cache_creation
+    /// (sin output, que no ocupa ventana de entrada).
     pub context_tokens: u64,
-    /// `context_tokens / CONTEXT_LIMIT * 100`, acotado a 100.0. Denominador = 200 000
-    /// (límite por defecto de Claude Code CLI).
+    /// Ventana de contexto inferida (200 000 estándar / 1 000 000 extendida `[1m]`).
+    /// El denominador real usado para `context_pct`. Ver `context_window_for`.
+    pub context_limit: u64,
+    /// `context_tokens / context_limit * 100`, acotado a 100.0.
     pub context_pct: f32,
     /// `cache_read_input_tokens` del último turno assistant.
     pub cache_read_tokens: u64,
@@ -225,6 +229,30 @@ fn now_unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Inferencia de la ventana de contexto real
+// ---------------------------------------------------------------------------
+
+/// Infiere la ventana de contexto de la sesión a partir del contexto observado.
+///
+/// El transcript de Claude Code NO registra de forma estructurada si la sesión
+/// usa la ventana extendida de 1M: el campo `model` es `"claude-opus-4-8"` sin
+/// el sufijo `[1m]` (verificado en runtime sobre los `.jsonl` reales). Pero un
+/// contexto que supera los 200 000 tokens sólo es físicamente posible en la
+/// ventana de 1M — así que el propio uso ES la señal fiable.
+///
+/// ALCANCE (mandamiento 13): una sesión de 1M cuyo uso *actual* sea inferior a
+/// 200 000 tokens se reportará sobre el límite de 200 000. No hay forma de
+/// distinguirla de una sesión estándar sin una señal estructurada que el
+/// transcript no expone.
+fn context_window_for(context_tokens: u64) -> u64 {
+    if context_tokens > CONTEXT_LIMIT_DEFAULT {
+        CONTEXT_LIMIT_EXTENDED
+    } else {
+        CONTEXT_LIMIT_DEFAULT
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -407,9 +435,13 @@ fn parse_session_file(
         return None;
     }
 
-    // El primer elemento de `events` es el más reciente (read_jsonl_tail los invierte).
-    let last_event = &events[0];
-    let last_ts = last_event.timestamp.clone()?;
+    // El evento más reciente CON timestamp marca la recencia de la sesión.
+    // Claude Code reescribe al final del fichero eventos de metadata SIN timestamp
+    // (permission-mode, last-prompt, ai-title, mode, bridge-session, queue-operation…);
+    // si tomáramos `events[0]` a ciegas, su timestamp ausente descartaría la sesión
+    // entera (era el bug "faltan sesiones": la sesión en curso no aparecía).
+    let last_ts_event = events.iter().find(|e| e.timestamp.is_some())?;
+    let last_ts = last_ts_event.timestamp.clone().unwrap_or_default();
     let last_age = now_secs.saturating_sub(parse_iso8601_secs(&last_ts).unwrap_or(now_secs));
 
     // cwd y gitBranch del último evento (o de cualquier evento en la cola que
@@ -442,8 +474,11 @@ fn parse_session_file(
             if let Some(raw_msg) = &event.message {
                 if let Ok(msg) = serde_json::from_value::<AssistantMessage>(raw_msg.clone()) {
                     if let Some(u) = &msg.usage {
+                        // Contexto de ENTRADA del último turno = tamaño del prompt enviado
+                        // (input no cacheado + cache leído + cache creado). El output_tokens
+                        // es texto generado, NO ocupa ventana de entrada → no se suma (era la
+                        // causa secundaria del context% inflado).
                         context_tokens = u.input_tokens
-                            + u.output_tokens
                             + u.cache_read_input_tokens
                             + u.cache_creation_input_tokens;
                         cache_read_tokens = u.cache_read_input_tokens;
@@ -474,11 +509,12 @@ fn parse_session_file(
         }
     }
 
-    let last_event_type = last_event.event_type.as_deref().unwrap_or("");
+    let last_event_type = last_ts_event.event_type.as_deref().unwrap_or("");
     let status = classify_status(last_age, last_event_type, stop_reason.as_deref()).to_string();
 
-    // Porcentaje de contexto acotado a 100.
-    let context_pct = ((context_tokens as f32 / CONTEXT_LIMIT as f32) * 100.0).min(100.0);
+    // Ventana real inferida del contexto observado (200k estándar / 1M extendida).
+    let context_limit = context_window_for(context_tokens);
+    let context_pct = ((context_tokens as f32 / context_limit as f32) * 100.0).min(100.0);
 
     // Match con proyectos ULTRON.
     let matched_project_id = if cwd.is_empty() {
@@ -496,6 +532,7 @@ fn parse_session_file(
         git_branch,
         model,
         context_tokens,
+        context_limit,
         context_pct,
         cache_read_tokens,
         output_tokens,
@@ -646,7 +683,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn context_tokens_suma_todos_los_campos_usage() {
+    fn context_tokens_suma_entrada_sin_output() {
         // Escenario: un transcript con un turno assistant y un turno user.
         let ts_assistant = "2026-06-20T10:00:00Z";
         let ts_user = "2026-06-20T10:00:30Z"; // más reciente
@@ -668,11 +705,13 @@ mod tests {
         let far_future = parse_iso8601_secs(ts_user).unwrap() + THRESHOLD_IDLE_SECS + 1;
         let info = parse_session_file(&file, false, &[], far_future).unwrap();
 
-        // input(1500) + output(320) + cache_read(45000) + cache_creation(2000) = 48820
+        // input(1500) + cache_read(45000) + cache_creation(2000) = 48500 (output NO suma)
         assert_eq!(
-            info.context_tokens, 48_820,
-            "context_tokens debe sumar todos los campos de usage"
+            info.context_tokens, 48_500,
+            "context_tokens debe sumar la entrada (input + cache_read + cache_creation), sin output"
         );
+        // 48 500 <= 200 000 → ventana estándar.
+        assert_eq!(info.context_limit, 200_000);
         assert_eq!(info.cache_read_tokens, 45_000);
         assert_eq!(info.output_tokens, 320);
         assert_eq!(info.model.as_deref(), Some("claude-opus-4-8"));
@@ -832,13 +871,120 @@ mod tests {
 
     #[test]
     fn context_pct_se_acota_a_100() {
-        // Directamente: verificar la aritmética sin I/O.
-        let tokens_over_limit: u64 = CONTEXT_LIMIT * 2;
-        let pct = ((tokens_over_limit as f32 / CONTEXT_LIMIT as f32) * 100.0).min(100.0);
+        // Para acotar a 100 los tokens deben superar la ventana extendida (1M).
+        let tokens_over_limit: u64 = CONTEXT_LIMIT_EXTENDED + 500_000;
+        let limit = context_window_for(tokens_over_limit); // = 1M
+        let pct = ((tokens_over_limit as f32 / limit as f32) * 100.0).min(100.0);
         assert!(
             (pct - 100.0f32).abs() < f32::EPSILON,
             "context_pct debe acotarse a 100.0 aunque los tokens superen el límite"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 11: la ventana se infiere del contexto observado (bug context% ~100%)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ventana_se_infiere_del_contexto_observado() {
+        // <= 200k → ventana estándar.
+        assert_eq!(context_window_for(0), 200_000);
+        assert_eq!(context_window_for(150_000), 200_000);
+        assert_eq!(context_window_for(200_000), 200_000);
+        // > 200k sólo cabe en la ventana de 1M.
+        assert_eq!(context_window_for(200_001), 1_000_000);
+        assert_eq!(context_window_for(491_112), 1_000_000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 12: contexto de 491k da ~49% sobre 1M, NO 100% sobre 200k (el bug)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn context_pct_no_satura_en_sesion_de_1m() {
+        // Reproduce el caso real medido en runtime: cache_read ~490k.
+        let ts = "2026-06-20T10:00:00Z";
+        let jsonl = format!(
+            "{}\n",
+            serde_json::json!({
+                "type": "assistant",
+                "timestamp": ts,
+                "cwd": "C:/Users/dev/projects/my-app",
+                "message": {
+                    "model": "claude-opus-4-8",
+                    "stop_reason": "end_turn",
+                    "usage": {
+                        "input_tokens": 2,
+                        "output_tokens": 784,
+                        "cache_read_input_tokens": 490_460,
+                        "cache_creation_input_tokens": 650
+                    },
+                    "content": [{"type": "text", "text": "ok"}]
+                }
+            })
+        );
+
+        let dir = std::env::temp_dir().join("ultron_session_mgr_test_12");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test-session-1m.jsonl");
+        std::fs::write(&file, &jsonl).unwrap();
+
+        let old = parse_iso8601_secs(ts).unwrap();
+        let info = parse_session_file(&file, false, &[], old + THRESHOLD_IDLE_SECS + 1).unwrap();
+
+        // entrada = 2 + 490460 + 650 = 491112 (sin output)
+        assert_eq!(info.context_tokens, 491_112);
+        assert_eq!(
+            info.context_limit, 1_000_000,
+            "debe detectar la ventana de 1M"
+        );
+        assert!(
+            (info.context_pct - 49.1112).abs() < 0.1,
+            "context_pct debe ser ~49%, no saturar a 100% — fue {}",
+            info.context_pct
+        );
+
+        let _ = std::fs::remove_file(&file);
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 13: un evento de metadata SIN timestamp al final no descarta la sesión
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn metadata_final_sin_timestamp_no_descarta_sesion() {
+        // Caso real: Claude Code reescribe permission-mode/last-prompt SIN timestamp
+        // al final del fichero. La sesión debe seguir detectándose, fechada por el
+        // último evento que SÍ tiene timestamp (el turno assistant).
+        let ts_assistant = "2026-06-20T10:00:00Z";
+        let jsonl = format!(
+            "{}\n{}\n{}\n",
+            make_assistant_event(ts_assistant, "end_turn"),
+            serde_json::json!({"type": "last-prompt", "leafUuid": "x", "sessionId": "s"}),
+            serde_json::json!({"type": "permission-mode", "mode": "default", "sessionId": "s"}),
+        );
+
+        let dir = std::env::temp_dir().join("ultron_session_mgr_test_13");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test-session-metadata-tail.jsonl");
+        std::fs::write(&file, &jsonl).unwrap();
+
+        let old = parse_iso8601_secs(ts_assistant).unwrap();
+        let result = parse_session_file(&file, false, &[], old + 10);
+
+        assert!(
+            result.is_some(),
+            "la sesión NO debe descartarse por metadata final sin timestamp"
+        );
+        let info = result.unwrap();
+        assert_eq!(
+            info.last_activity, ts_assistant,
+            "debe fecharse por el último evento CON timestamp"
+        );
+        // age = 10s → reciente y assistant end_turn → waiting.
+        assert_eq!(info.status, "waiting");
+
+        let _ = std::fs::remove_file(&file);
     }
 
     // -----------------------------------------------------------------------

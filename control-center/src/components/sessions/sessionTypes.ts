@@ -11,6 +11,7 @@ export interface SessionInfo {
   git_branch: string | null;
   model: string | null;
   context_tokens: number;
+  context_limit: number;      // ventana inferida: 200000 o 1000000
   context_pct: number;        // 0-100
   cache_read_tokens: number;
   output_tokens: number;
