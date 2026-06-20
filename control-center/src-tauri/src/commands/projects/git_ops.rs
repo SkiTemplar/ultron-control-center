@@ -135,6 +135,166 @@ pub struct GitRepoState {
     pub dirty_count: u32,
 }
 
+// ---------------------------------------------------------------------------
+// Micro GitHub Desktop: changed files, per-file diff, stage/unstage, commit, log
+// ---------------------------------------------------------------------------
+
+/// Like `run_git` but returns RAW stdout (no trim, no stderr merge). Required for
+/// `--porcelain` (leading spaces are significant) and diffs (leading context
+/// spaces). `git diff` exits 1 when there ARE differences — that is not an error,
+/// so a non-empty stdout is always treated as success.
+fn git_stdout(args: &[&str], cwd: &str) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    if out.status.success() || !stdout.is_empty() {
+        Ok(stdout)
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// One changed file in the working tree, parsed from `git status --porcelain=v1`.
+#[derive(serde::Serialize)]
+pub struct GitFileChange {
+    pub path: String,
+    /// Index (staged) status char: 'M', 'A', 'D', 'R', ' ', '?'…
+    pub index_status: String,
+    /// Worktree status char.
+    pub worktree_status: String,
+    /// Whether the file has staged changes (index side is set and not untracked).
+    pub staged: bool,
+    pub untracked: bool,
+}
+
+/// Structured list of changed files (the left pane of GitHub Desktop).
+#[tauri::command]
+pub fn git_changes(path: String) -> Result<Vec<GitFileChange>, String> {
+    if !std::path::Path::new(&path).join(".git").exists() {
+        return Ok(Vec::new());
+    }
+    let raw = git_stdout(&["status", "--porcelain=v1"], &path)?;
+    let mut changes = Vec::new();
+    for line in raw.split('\n') {
+        if line.len() < 3 {
+            continue;
+        }
+        let x = &line[0..1];
+        let y = &line[1..2];
+        let rest = &line[3..];
+        // Renames look like "old -> new"; show the destination path.
+        let disp = match rest.split_once(" -> ") {
+            Some((_, new)) => new.to_string(),
+            None => rest.to_string(),
+        };
+        let untracked = x == "?";
+        let staged = x != " " && x != "?";
+        changes.push(GitFileChange {
+            path: disp,
+            index_status: x.to_string(),
+            worktree_status: y.to_string(),
+            staged,
+            untracked,
+        });
+    }
+    Ok(changes)
+}
+
+/// Unified diff for a single file. `staged=true` shows the index-vs-HEAD diff;
+/// otherwise the worktree diff (falling back to a full --no-index diff for
+/// untracked files, where `git diff` would print nothing).
+#[tauri::command]
+pub fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, String> {
+    if staged {
+        return git_stdout(&["diff", "--cached", "--", &file], &path);
+    }
+    let d = git_stdout(&["diff", "--", &file], &path)?;
+    if d.trim().is_empty() {
+        // Likely untracked — show the whole file as additions.
+        return git_stdout(&["diff", "--no-index", "--", "/dev/null", &file], &path)
+            .or(Ok(String::new()));
+    }
+    Ok(d)
+}
+
+/// Stage files. Empty list = stage everything (`git add -A`).
+#[tauri::command]
+pub fn git_stage(path: String, files: Vec<String>) -> Result<String, String> {
+    if files.is_empty() {
+        return run_git(&["add", "-A"], &path);
+    }
+    let mut args: Vec<&str> = vec!["add", "--"];
+    args.extend(files.iter().map(String::as_str));
+    run_git(&args, &path)
+}
+
+/// Unstage files (keep working-tree changes). Empty list = unstage everything.
+#[tauri::command]
+pub fn git_unstage(path: String, files: Vec<String>) -> Result<String, String> {
+    if files.is_empty() {
+        return run_git(&["reset", "-q"], &path);
+    }
+    let mut args: Vec<&str> = vec!["reset", "-q", "--"];
+    args.extend(files.iter().map(String::as_str));
+    run_git(&args, &path)
+}
+
+/// Commit the staged changes with `message`. Fails fast on an empty message.
+#[tauri::command]
+pub fn git_commit(path: String, message: String) -> Result<String, String> {
+    if message.trim().is_empty() {
+        return Err("el mensaje de commit no puede estar vacío".to_string());
+    }
+    run_git(&["commit", "-m", &message], &path)
+}
+
+/// One commit in the history list.
+#[derive(serde::Serialize)]
+pub struct GitCommit {
+    pub hash: String,
+    pub short: String,
+    pub author: String,
+    pub date: String,
+    pub subject: String,
+}
+
+/// Parsed commit history (newest first). `limit` defaults to 50.
+#[tauri::command]
+pub fn git_log_full(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+    if !std::path::Path::new(&path).join(".git").exists() {
+        return Ok(Vec::new());
+    }
+    let n = format!("-{}", limit.unwrap_or(50));
+    // Unit-separator (\x1f) between fields, newline between commits.
+    let raw = git_stdout(
+        &[
+            "log",
+            &n,
+            "--date=short",
+            "--pretty=format:%H\x1f%h\x1f%an\x1f%ad\x1f%s",
+        ],
+        &path,
+    )?;
+    let commits = raw
+        .split('\n')
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            let mut f = line.split('\x1f');
+            Some(GitCommit {
+                hash: f.next()?.to_string(),
+                short: f.next()?.to_string(),
+                author: f.next()?.to_string(),
+                date: f.next()?.to_string(),
+                subject: f.next().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+    Ok(commits)
+}
+
 /// Returns true if the project at `path` has a `.codegraph/codegraph.db` (already indexed).
 #[tauri::command]
 pub fn codegraph_is_indexed(path: String) -> bool {

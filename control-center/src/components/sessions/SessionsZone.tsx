@@ -12,11 +12,13 @@
 import { useState } from "react";
 import { SessionsPane } from "./SessionsPane";
 import { Sessions } from "../Sessions";
+import LiveSessionMonitor from "../orchestrator/LiveSessionMonitor";
 
-type SubView = "monitor" | "launcher";
+type SubView = "monitor" | "orchestration" | "launcher";
 
 const SUBVIEWS: ReadonlyArray<readonly [SubView, string]> = [
   ["monitor", "Monitor"],
+  ["orchestration", "Orquestación"],
   ["launcher", "Lanzar"],
 ];
 
@@ -57,11 +59,13 @@ export function SessionsZone({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {view === "monitor" ? (
-          <SessionsPane onOpenProject={onOpenProject} />
-        ) : (
-          <Sessions />
+        {view === "monitor" && <SessionsPane onOpenProject={onOpenProject} />}
+        {view === "orchestration" && (
+          <div className="p-6">
+            <LiveSessionMonitor />
+          </div>
         )}
+        {view === "launcher" && <Sessions />}
       </div>
     </div>
   );

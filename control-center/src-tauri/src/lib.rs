@@ -391,6 +391,13 @@ pub fn run() {
             commands::projects::git_init,
             commands::projects::git_fetch,
             commands::projects::git_repo_state,
+            // micro GitHub Desktop: changed files, per-file diff, stage, commit, log
+            commands::projects::git_changes,
+            commands::projects::git_diff_file,
+            commands::projects::git_stage,
+            commands::projects::git_unstage,
+            commands::projects::git_commit,
+            commands::projects::git_log_full,
             commands::projects::codegraph_is_indexed,
             commands::projects::codegraph_summary,
             commands::projects::codegraph_init_project,

@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Bot, Folder, Play, ExternalLink } from "./icons";
 import ProjectBoard from "./ProjectBoard";
+import { RepoModal } from "./RepoModal";
 import BatchDropdown, { type BatchToast } from "./BatchDropdown";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import type { ProjectInfo, SessionProvider } from "../../types";
@@ -181,6 +182,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
+  const [repoModalOpen, setRepoModalOpen] = useState(false);
   const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
   // cat2.5 (2026-06-10): resumen REAL del grafo leido del codegraph.db por la
   // app (codegraph_summary) — antes solo se comprobaba que el fichero existia.
@@ -660,16 +662,27 @@ export default function ProjectWorkspace({ projectId }: Props) {
               Repositorio
             </span>
             {git.state?.is_repo && (
-              <button
-                type="button"
-                onClick={() => void runGitOp("git_fetch")}
-                disabled={!meta || git.busy}
-                className="rounded px-1.5 py-0.5 text-[9.5px] disabled:opacity-40"
-                style={{ background: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text-tertiary)" }}
-                title="git fetch (actualizar estado remoto)"
-              >
-                Fetch
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setRepoModalOpen(true)}
+                  className="rounded px-1.5 py-0.5 text-[9.5px] font-medium"
+                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-secondary)" }}
+                  title="Ver cambios, hacer commit y consultar el historial (micro GitHub Desktop)"
+                >
+                  Cambios{git.state.dirty_count > 0 ? ` (${git.state.dirty_count})` : ""}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runGitOp("git_fetch")}
+                  disabled={!meta || git.busy}
+                  className="rounded px-1.5 py-0.5 text-[9.5px] disabled:opacity-40"
+                  style={{ background: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text-tertiary)" }}
+                  title="git fetch (actualizar estado remoto)"
+                >
+                  Fetch
+                </button>
+              </div>
             )}
           </div>
 
@@ -793,6 +806,14 @@ export default function ProjectWorkspace({ projectId }: Props) {
       <div className="min-h-0 flex-1 overflow-hidden">
         <ProjectBoard projectId={projectId} />
       </div>
+
+      {repoModalOpen && meta && (
+        <RepoModal
+          path={meta.path}
+          onClose={() => setRepoModalOpen(false)}
+          onChanged={() => void refreshGit(meta.path)}
+        />
+      )}
     </div>
   );
 }

@@ -292,6 +292,68 @@ fn classify_status(
 }
 
 // ---------------------------------------------------------------------------
+// Detección de sesiones CLI vivas (señal de proceso real, no solo tiempo)
+// ---------------------------------------------------------------------------
+
+/// Nº de sesiones CLI de Claude Code vivas, contando procesos `claude.exe`.
+/// Señal REAL del SO: el mtime del transcript no distingue una sesión idle pero
+/// VIVA (el usuario fue a por café) de una CERRADA, y por eso las cerradas
+/// seguían saliendo "idle" hasta el umbral de 5 h. Devuelve `None` cuando no se
+/// puede determinar (plataforma no Windows o `tasklist` no disponible) — el
+/// llamador cae entonces a la clasificación puramente temporal previa.
+///
+/// ALCANCE (mandamiento 13): cuenta procesos, NO mapea PID <-> session_id (eso
+/// exigiría leer el cwd del PEB de cada proceso). El llamador asume que las
+/// sesiones vivas son las `n` más recientes; el resto se marcan cerradas.
+fn count_live_cli_sessions() -> Option<usize> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq claude.exe", "/FO", "CSV", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout);
+        // Cada proceso es una línea CSV entre comillas; "No tasks" => 0 líneas.
+        Some(
+            s.lines()
+                .filter(|l| l.trim_start().starts_with('"'))
+                .count(),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Reclasifica las sesiones según la señal de proceso vivo. Asume `sessions`
+/// ordenada por actividad descendente. Solo las `live` sesiones PRINCIPALES más
+/// recientes pueden permanecer vivas; cualquier otra que el reloj dejó como
+/// working/waiting/idle se marca "dead" (cerrada), de modo que una sesión cuyo
+/// proceso CLI ya terminó deja de aparecer como activa. Los subagentes
+/// (`agent-*.jsonl`) no son procesos `claude.exe` independientes, así que su
+/// estado temporal se respeta y no cuentan para el cupo.
+fn apply_liveness(sessions: &mut [SessionInfo], live: usize) {
+    let mut main_rank = 0usize;
+    for s in sessions.iter_mut() {
+        if s.is_subagent {
+            continue;
+        }
+        let within_live = main_rank < live;
+        main_rank += 1;
+        if !within_live && s.status != "dead" {
+            s.status = "dead".to_string();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Extracción de texto legible del contenido de un mensaje
 // ---------------------------------------------------------------------------
 
@@ -611,6 +673,13 @@ pub fn list_active_sessions_inner() -> Result<Vec<SessionInfo>, String> {
 
     // Ordenar por last_activity descendente (ISO 8601 compara lexicográficamente).
     sessions.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+
+    // Señal de proceso real: marcar "dead" las sesiones cuyo proceso CLI ya no
+    // existe (resuelve "sesiones cerradas que siguen saliendo idle"). Si no se
+    // puede contar (no Windows), se respeta la clasificación temporal.
+    if let Some(live) = count_live_cli_sessions() {
+        apply_liveness(&mut sessions, live);
+    }
 
     Ok(sessions)
 }
@@ -1045,5 +1114,69 @@ mod tests {
             result.is_ok(),
             "list_active_sessions_inner debe devolver Ok (nunca panic)"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests 14-16: apply_liveness (detección de proceso vivo)
+    // -----------------------------------------------------------------------
+
+    fn make_session(id: &str, status: &str, is_subagent: bool) -> SessionInfo {
+        SessionInfo {
+            session_id: id.to_string(),
+            project_path: "C:/x".to_string(),
+            project_name: "x".to_string(),
+            matched_project_id: None,
+            git_branch: None,
+            model: None,
+            context_tokens: 0,
+            context_limit: CONTEXT_LIMIT_DEFAULT,
+            context_pct: 0.0,
+            cache_read_tokens: 0,
+            output_tokens: 0,
+            status: status.to_string(),
+            last_activity: "2026-06-20T00:00:00Z".to_string(),
+            age_seconds: 0,
+            last_prompt: None,
+            last_activity_summary: None,
+            is_subagent,
+        }
+    }
+
+    #[test]
+    fn apply_liveness_cierra_las_que_exceden_procesos_vivos() {
+        // Orden por recencia desc; solo 1 proceso claude.exe vivo.
+        let mut sessions = vec![
+            make_session("s1", "working", false),
+            make_session("s2", "idle", false),
+            make_session("s3", "working", false),
+        ];
+        apply_liveness(&mut sessions, 1);
+        assert_eq!(sessions[0].status, "working", "la más reciente sigue viva");
+        assert_eq!(sessions[1].status, "dead", "fuera del top-1 => cerrada");
+        assert_eq!(sessions[2].status, "dead", "fuera del top-1 => cerrada");
+    }
+
+    #[test]
+    fn apply_liveness_cero_procesos_cierra_todas() {
+        let mut sessions = vec![make_session("s1", "working", false)];
+        apply_liveness(&mut sessions, 0);
+        assert_eq!(
+            sessions[0].status, "dead",
+            "sin proceso claude.exe vivo, ninguna sesión está activa"
+        );
+    }
+
+    #[test]
+    fn apply_liveness_no_degrada_subagentes_ni_los_cuenta() {
+        // El subagente no es un proceso claude.exe; no consume cupo ni se degrada.
+        let mut sessions = vec![
+            make_session("main", "working", false),
+            make_session("agent-x", "working", true),
+            make_session("main2", "working", false),
+        ];
+        apply_liveness(&mut sessions, 1);
+        assert_eq!(sessions[0].status, "working", "1ª principal viva");
+        assert_eq!(sessions[1].status, "working", "subagente intacto");
+        assert_eq!(sessions[2].status, "dead", "2ª principal fuera del cupo");
     }
 }

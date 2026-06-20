@@ -219,6 +219,15 @@ export function Skills() {
           })}
         </div>
 
+        {/* Por qué el conteo de "activas" cambia tanto entre scopes. */}
+        {scope === "all" && (
+          <p className="text-[11px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
+            En <b>All</b> el conteo de «activas» incluye las skills de los plugins
+            de terceros (vienen activas de fábrica). Tus skills propias de ULTRON
+            —el núcleo lazy que tú gestionas— están en el scope <b>Global</b>.
+          </p>
+        )}
+
         {view !== "blocks" && categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span

@@ -11,7 +11,10 @@ import type { BlocksItem } from "../library/BlocksView";
 
 export function useSkillsState() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
-  const [scope, setScope] = useState<ScopeFilter>("all");
+  // Arranca en "global" = TUS skills (el núcleo lazy de ULTRON, ~8 activas), no
+  // en "all", que sumaba las skills de plugins de terceros y mostraba un "activas"
+  // engañoso (~45). El scope "all" sigue disponible para ver todo el catálogo.
+  const [scope, setScope] = useState<ScopeFilter>("global");
   const [enableFilter, setEnableFilter] = useState<EnableFilter>("active");
   const [category, setCategory] = useState<string>("all");
   const [query, setQuery] = useState("");
