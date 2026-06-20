@@ -9,10 +9,12 @@
 
 pub mod live_session;
 pub mod pty;
+pub mod session_manager;
 pub mod sessions;
 pub mod tabs;
 
 pub use live_session::*;
 pub use pty::*;
+pub use session_manager::*;
 pub use sessions::*;
 pub use tabs::*;

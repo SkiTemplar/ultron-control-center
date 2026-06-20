@@ -11,7 +11,7 @@ import { MCPs } from "./components/MCPs";
 import { Library, type LibrarySubTab } from "./components/Library";
 import { Notes } from "./components/Notes";
 import { Learn } from "./components/Learn";
-import { Sessions } from "./components/Sessions";
+import { SessionsZone } from "./components/sessions/SessionsZone";
 import { Usage } from "./components/Usage";
 import { AIRouterPage } from "./components/AIRouter";
 import { Settings } from "./components/Settings";
@@ -572,7 +572,14 @@ function AppInner() {
           {tab === "learn" && <Learn />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="sessions">
-          {tab === "sessions" && <Sessions />}
+          {tab === "sessions" && (
+            <SessionsZone
+              onOpenProject={(id) => {
+                open({ id, title: id });
+                setTab("projects");
+              }}
+            />
+          )}
         </TabErrorBoundary>
         <TabErrorBoundary tab="usage">
           {tab === "usage" && <Usage />}

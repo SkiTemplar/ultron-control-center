@@ -271,6 +271,8 @@ pub fn run() {
             orchestrator::orchestrate_prompt,
             // -- Live Session Monitor: actividad en vivo (routing + orquestacion + agentes) --
             commands::live_session::live_session_feed,
+            // -- Gestor multi-sesion: lee ~/.claude/projects/*.jsonl (estado/modelo/context%) --
+            commands::session_manager::list_active_sessions,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
