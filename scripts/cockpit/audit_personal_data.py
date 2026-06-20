@@ -16,9 +16,16 @@ Scans EVERY tracked file (git ls-files) for:
 Output: a Markdown report at ~/.ultron/.tmp/personal-data-audit.md and a summary
 to stdout. Returns exit code 1 if any HIGH finding exists (so CI can gate on it).
 
+By default it scans only the working HEAD (git ls-files). Use --history to scan
+EVERY blob in the whole git history (git rev-list --all) — this is the
+pre-transfer gate: a file scrubbed from HEAD but still reachable with
+`git show <old-sha>` would leak to anyone who clones the repo, and the HEAD scan
+cannot see it. (maintainer-only, like --strict.)
+
 Usage:
     uv run python scripts/cockpit/audit_personal_data.py
-    uv run python scripts/cockpit/audit_personal_data.py --strict   # exit 1 on MEDIUM too
+    uv run python scripts/cockpit/audit_personal_data.py --strict    # exit 1 on MEDIUM too
+    uv run python scripts/cockpit/audit_personal_data.py --history   # scan ALL git history
 """
 
 from __future__ import annotations
@@ -196,12 +203,128 @@ def scan() -> dict[str, list[tuple[str, int, str, str]]]:
     return findings
 
 
-def render(findings: dict[str, list[tuple[str, int, str, str]]]) -> str:
+def history_blobs() -> dict[str, list[str]]:
+    """Map blob_sha -> [paths] across ALL git history (git rev-list --all --objects).
+
+    `rev-list --all --objects` lists every object reachable from any ref, one per
+    line as "<sha> <path>" (commits have no path and are filtered out). The same
+    content committed under several paths shares one sha, so deduping by sha means
+    each unique blob is scanned exactly once regardless of how many commits touched it.
+    """
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-list", "--all", "--objects"],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return {}
+    blobs: dict[str, list[str]] = defaultdict(list)
+    for line in out.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        sha, sep, path = stripped.partition(" ")
+        if not sep:
+            continue  # commit object — no path, skip
+        blobs[sha].append(path)
+    return blobs
+
+
+def read_blobs_batch(shas: list[str]) -> dict[str, str]:
+    """Read many objects at once via `git cat-file --batch` (one process, streamed).
+
+    The batch protocol emits, per requested object, a header line
+    "<sha> <type> <size>\\n" followed by <size> content bytes and a trailing "\\n".
+    Non-blob objects (trees that slipped in) are consumed by size and discarded, so
+    the stream parser never desyncs. Missing objects emit "<sha> missing\\n".
+    """
+    if not shas:
+        return {}
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "cat-file", "--batch"],
+            input=("\n".join(shas) + "\n").encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=600,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {}
+
+    out = proc.stdout
+    result: dict[str, str] = {}
+    i, n = 0, len(out)
+    while i < n:
+        nl = out.find(b"\n", i)
+        if nl == -1:
+            break
+        header = out[i:nl].decode("utf-8", "replace").split(" ")
+        i = nl + 1
+        if len(header) == 3:
+            sha, otype, size_s = header
+            try:
+                size = int(size_s)
+            except ValueError:
+                break
+            content = out[i : i + size]
+            i += size + 1  # skip the content and its trailing newline
+            if otype == "blob":
+                result[sha] = content.decode("utf-8", "replace")
+        elif len(header) == 2 and header[1] in ("missing", "ambiguous"):
+            continue
+        else:
+            break  # unexpected — stop rather than desync
+    return result
+
+
+def scan_history() -> dict[str, list[tuple[str, int, str, str]]]:
+    """Scan every unique text blob reachable from any ref for PII patterns.
+
+    Same severity buckets and allow/skip rules as the HEAD scan, but the source is
+    the whole history. A blob scrubbed from HEAD is still found here (that is the
+    point of the pre-transfer gate). Binary blobs are filtered by path extension
+    BEFORE asking git for their content, so .exe/.db/.png history never loads.
+    """
+    findings: dict[str, list[tuple[str, int, str, str]]] = defaultdict(list)
+
+    # Pick, per unique blob, a representative path that is neither binary nor allow-listed.
+    want: dict[str, str] = {}
+    for sha, paths in history_blobs().items():
+        for path in paths:
+            if is_skippable(Path(path)) or is_allowed(path):
+                continue
+            want[sha] = path
+            break
+
+    contents = read_blobs_batch(list(want.keys()))
+    for sha, path in want.items():
+        text = contents.get(sha)
+        if text is None:
+            continue
+        label = f"{path}@{sha[:9]}"
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for pat_name, pat in HIGH_PATTERNS:
+                if pat.search(line):
+                    findings["HIGH"].append((label, line_no, pat_name, line.strip()[:200]))
+            for pat_name, pat in MEDIUM_PATTERNS:
+                if pat.search(line):
+                    findings["MEDIUM"].append((label, line_no, pat_name, line.strip()[:200]))
+
+    return findings
+
+
+def render(
+    findings: dict[str, list[tuple[str, int, str, str]]],
+    scope: str = "every `git ls-files` entry (HEAD)",
+) -> str:
     lines: list[str] = []
     lines.append("# Personal Data Audit")
     lines.append("")
     lines.append("Generated by `scripts/cockpit/audit_personal_data.py`.")
-    lines.append("Scans every `git ls-files` entry for Rodrigo-personal references.")
+    lines.append(f"Scans {scope} for Rodrigo-personal references.")
     lines.append("Allow-list: " + ", ".join(sorted(ALLOWED_FILES)))
     lines.append("")
     lines.append(f"- **HIGH:** {len(findings.get('HIGH', []))} findings")
@@ -231,6 +354,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 on MEDIUM findings too (default: only HIGH)")
+    parser.add_argument("--history", action="store_true",
+                        help="scan ALL git history (git rev-list --all), not just HEAD "
+                             "— pre-transfer gate for scrubbed-but-reachable PII")
     parser.add_argument("--out", type=Path,
                         default=Path.home() / ".ultron" / ".tmp" / "personal-data-audit.md")
     args = parser.parse_args()
@@ -238,14 +364,19 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    findings = scan()
-    report = render(findings)
+    if args.history:
+        findings = scan_history()
+        report = render(findings, scope="ALL git history (`git rev-list --all`)")
+    else:
+        findings = scan()
+        report = render(findings)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(report, encoding="utf-8", newline="\n")
 
     high = len(findings.get("HIGH", []))
     medium = len(findings.get("MEDIUM", []))
-    print(f"[audit-personal-data] HIGH={high} MEDIUM={medium}")
+    scope_tag = "history" if args.history else "head"
+    print(f"[audit-personal-data] scope={scope_tag} HIGH={high} MEDIUM={medium}")
     print(f"[audit-personal-data] report: {args.out}")
 
     if high > 0:
