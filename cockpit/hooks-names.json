@@ -11,10 +11,6 @@
     "name": "ensure-qdrant-startup",
     "strategy": "ai"
   },
-  "hk_30e6cf9c967f": {
-    "name": "load-project-card",
-    "strategy": "ai"
-  },
   "hk_7e49fb57b658": {
     "name": "load-project-memory",
     "strategy": "ai"

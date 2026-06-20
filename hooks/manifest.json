@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-06-19",
+  "generated_at": "2026-06-20",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -188,7 +188,7 @@
       "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
       "timeout_s": 5,
-      "checksum_sha256": "f763ea3be945072ca04986a5464edc1bb33edba22c16ef3d1ac331fa9dd91d5c",
+      "checksum_sha256": "070e0196913db64f2e83ccee249bfc0f3dac4f30736a01f8b3de1139a6c8a76c",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
