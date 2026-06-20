@@ -192,7 +192,8 @@ fn check_sqlite() -> DoctorCheck {
 }
 
 /// Per-collection Qdrant probe (SPEC-CONTROL-PLANE §2, A2). One check per live
-/// collection. `ultron_sessions` is WRITE-DEAD expected (72/384, must not grow).
+/// canonical collection: ultron_memory/ultron_catalog (1024d E5), ultron_skills
+/// (768d mpnet) and ultron_mcp_mirror (1024d).
 fn check_qdrant_collections() -> Vec<DoctorCheck> {
     #[cfg(feature = "qdrant")]
     {
@@ -447,10 +448,16 @@ mod qdrant_probe {
     }
 
     /// Expected canonical collections: name -> (expected_dim, write_dead).
+    ///
+    /// ultron_sessions (384d, write-dead 72 pts) RETIRADA 2026-06-20: sus lectores
+    /// eran codigo muerto (recall_hybrid deprecado + memory_graph des-registrado) y
+    /// los datos ya viven en brain.db. ultron_skills (mpnet 768d) y ultron_mcp_mirror
+    /// (E5 1024d) ANADIDAS: el doctor no las cubria (gap real de cat1.4).
     const EXPECTED: &[(&str, u64, bool)] = &[
         ("ultron_memory", 1024, false),
         ("ultron_catalog", 1024, false),
-        ("ultron_sessions", 384, true),
+        ("ultron_skills", 768, false),
+        ("ultron_mcp_mirror", 1024, false),
     ];
 
     pub fn run() -> Vec<DoctorCheck> {
@@ -494,7 +501,7 @@ mod qdrant_probe {
         for &(name, want_dim, write_dead) in EXPECTED {
             if !existing.iter().any(|c| c == name) {
                 // Missing canonical collection: ultron_memory missing is Error;
-                // optional ones (catalog/sessions) are Warn.
+                // the rest (catalog/skills/mcp_mirror) are Warn.
                 let sev_error = name == "ultron_memory";
                 let detail = format!("coleccion '{name}' ausente");
                 out.push(if sev_error {

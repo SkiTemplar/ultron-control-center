@@ -3,13 +3,12 @@
 // Wraps the existing `crate::qdrant` functions (HTTP REST, no gRPC) and
 // exposes them through the `MemoryStore` trait.
 //
-// Search is the important path: embed the query text, run k-NN against the
-// `ultron_sessions` collection, and map `QdrantHit` -> `MemoryHit`.
-//
-// `add` and `delete` are delegated to the existing upsert/delete REST calls
-// where they exist; otherwise `MemoryError::Unsupported` is returned — the
-// frontend ingest path writes to Qdrant via the dedicated session-recall-inject
-// sidecar binary, not through this adapter.
+// Search/add/delete target the `ultron_sessions` collection, RETIRED 2026-06-20
+// (write-dead legacy, data migrated to brain.db). These three paths are now dead
+// code: the only LIVE caller is `memory_health`, which calls `health()` only —
+// and `health()` does a general `qdrant_ping`, not a collection query, so it
+// keeps working after the collection is gone. Left in place to avoid churning
+// the MemoryStore trait; do not wire new callers to this adapter.
 
 use super::{
     Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind,
