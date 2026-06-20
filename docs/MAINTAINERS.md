@@ -62,6 +62,17 @@ These scripts have **no runtime caller** — they exist for manual one-off invoc
 | `scripts/init-memory.ps1` | Bootstraps the vault layout on a fresh machine. `install.ps1` + `brain_index.py` do this automatically for end users; this is the manual maintainer/debug path. | `powershell -File scripts/init-memory.ps1` |
 | `scripts/ultron-paths.ps1` | Dot-sourced path resolver SSOT (PowerShell sibling of `ultron_paths.py`). Not invoked directly — dot-sourced by hooks/scripts. | `. scripts/ultron-paths.ps1; $UltronPaths.brain_index_db` |
 
+## Manual multi-CLI consensus tooling
+
+`shared-duet.ps1` has **no runtime caller** — it is the manual launcher for the
+dual/triple peer-consensus pattern (the `/maxdual` and council workflows). It
+writes per-peer `cmd.exe` launchers and runs CLI peers in parallel, then resumes
+them across rounds via `-SessionIds`. Carries the `# === maintainer-only ===` marker.
+
+| Tool | Purpose | Invocation |
+|---|---|---|
+| `scripts/shared-duet.ps1` | Unified replacement for the retired `codex-duet.ps1` + `gemini-duet.ps1`. Launches CLI peers for dual/triple consensus rounds. NOTE: the `gemini` peer is dead (Google retired the free-tier OAuth tier — see `cat3`); use `-Peers codex` until a live second peer is wired. | `.\scripts\shared-duet.ps1 -Peers codex -Mode Dual -Round 1 -Prompt "..."` |
+
 ## Deprecated Stop-hook scripts (v15.5.16 consolidation sweep)
 
 These scripts used to be wired directly into the Stop hook chain. As of v15.5.16

@@ -1,3 +1,7 @@
+# === maintainer-only (not user-facing) ===
+# Not invoked by hooks, the Control Center, or any installer. Manual multi-CLI
+# consensus launcher. See docs/MAINTAINERS.md.
+#
 # ULTRON v10.9.0 -- Shared-file dual/triple peer launcher
 # Unified replacement for codex-duet.ps1 + gemini-duet.ps1.
 #
