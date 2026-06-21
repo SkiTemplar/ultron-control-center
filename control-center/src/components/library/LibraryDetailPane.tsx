@@ -32,6 +32,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getPrompt } from "../../lib/button-prompts";
 import { Markdown } from "../../lib/markdown";
 import {
   BookOpen,
@@ -322,16 +323,11 @@ export function LibraryDetailPane({
         : kind === "agent"
         ? "Claude Code subagent"
         : "Claude Code rule";
-    const prompt =
-      `Improve this ${kindLabel} for clarity and completeness. ` +
-      `The current body is in your clipboard (paste it).\n\n` +
-      `File: ${activePath}\n` +
-      `Name: ${name}\n\n` +
-      `Goals:\n` +
-      `1. Keep the structure and intent intact.\n` +
-      `2. Fill obvious gaps (missing examples, vague wording, dead links).\n` +
-      `3. Stay concise — no filler, no marketing language.\n` +
-      `4. Output the new file body only (no commentary). I'll paste it back.`;
+    const prompt = await getPrompt("library.edit_with_ai", {
+      kind_label: kindLabel,
+      file_path: activePath,
+      name,
+    });
     try {
       await invoke("spawn_session", {
         provider: "claude",

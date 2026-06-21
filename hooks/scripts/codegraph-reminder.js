@@ -20,7 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
 observe('codegraph-reminder');
 
 const CODE_EXT = new Set([
@@ -134,7 +134,7 @@ function handle(raw) {
   try { raw = await getStdin(); } catch (_) { /* ignore */ }
 
   let out = '';
-  try { out = handle(raw) || ''; } catch (_) { /* nunca romper una lectura */ }
+  try { out = handle(raw) || ''; } catch (e) { logHookError('codegraph-reminder', e); /* nunca romper una lectura */ }
 
   // Escribir y salir SOLO tras el flush (en Windows, process.exit inmediato
   // trunca stdout con buffer pendiente). Sin salida => salir ya.

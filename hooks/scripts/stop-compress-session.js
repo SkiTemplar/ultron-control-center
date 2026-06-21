@@ -38,6 +38,13 @@ const http = require('http');
 const crypto = require('crypto');
 
 // ---------------------------------------------------------------------------
+// cat15.1 — observabilidad de duración: registra elapsed_ms en hook-timing.jsonl
+// cat9.5  — logHookError en catch top-level: deja rastro sin romper fail-safe
+// ---------------------------------------------------------------------------
+const { observe, logHookError } = require('./lib/hook-obs');
+observe('stop-compress-session');
+
+// ---------------------------------------------------------------------------
 // Shared security helpers — lib/security-helpers.js (extraidos del antiguo
 // mem0-sync.js, borrado 2026-06-08; el require roto degradaba a stubs y
 // desactivaba la extraccion AI para siempre — fix Kirkardo Pass1 C5).
@@ -525,6 +532,96 @@ function appendPendingDecisions(projectId, facts, sessionId, date) {
 }
 
 // ---------------------------------------------------------------------------
+// cat17.1 — Structured compact output (>=4 of 8 outputs)
+// Writes cockpit/projects/{projectId}/sessions/{session_id}/compact.json with:
+//   human    — prose summary for humans
+//   machine  — counters/metrics object for tooling
+//   decisions — list of decision-kind facts (reuses what appendPendingDecisions already extracts)
+//   next     — list of todo-kind facts as next steps
+//   bugs     — list of bug-kind facts (if any)
+//   arch_delta — recent git commits during the session window (best-effort)
+//
+// Fail-safe: any error is logged and swallowed. Never throws into main().
+// ---------------------------------------------------------------------------
+
+function gitLogRecent(cwd, maxCommits) {
+  try {
+    const out = execFileSync(
+      'git',
+      ['-C', cwd, 'log', '--oneline', '--no-decorate', `-${maxCommits}`],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, encoding: 'utf8' }
+    ).trim();
+    if (!out) return [];
+    return out.split('\n').filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function writeCompact(projectId, sessionId, cwd, turns, facts, date) {
+  try {
+    const sessionDir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId, 'sessions', sessionId);
+    fs.mkdirSync(sessionDir, { recursive: true });
+    const outPath = path.join(sessionDir, 'compact.json');
+
+    // human: prosa — primer prompt del usuario + resumen de turno
+    const firstUser = turns.find(t => t.role === 'user');
+    const firstPrompt = firstUser ? firstUser.text.slice(0, 300) : '(sin prompt)';
+    const human = `Sesión ${sessionId} del ${date} (${turns.length} turnos). Tema: ${firstPrompt}`;
+
+    // machine: métricas de la sesión
+    const userTurns = turns.filter(t => t.role === 'user').length;
+    const assistantTurns = turns.filter(t => t.role === 'assistant').length;
+    const machine = {
+      session_id: sessionId,
+      date,
+      project: projectId,
+      turns_total: turns.length,
+      turns_user: userTurns,
+      turns_assistant: assistantTurns,
+      facts_extracted: (facts || []).length,
+      sha_head: gitHeadSha(cwd) || null,
+      generated_at: new Date().toISOString(),
+    };
+
+    // decisions: reutiliza los mismos facts filtrados por kind=decision
+    const decisions = (facts || [])
+      .filter(f => f && f.kind === 'decision' && f.text)
+      .map(f => ({ text: f.text.slice(0, 120), importance: f.importance || 0 }));
+
+    // next: todos como próximos pasos
+    const next = (facts || [])
+      .filter(f => f && f.kind === 'todo' && f.text)
+      .map(f => f.text.slice(0, 120));
+
+    // bugs: bugs detectados
+    const bugs = (facts || [])
+      .filter(f => f && f.kind === 'bug' && f.text)
+      .map(f => ({ text: f.text.slice(0, 120), importance: f.importance || 0 }));
+
+    // arch_delta: últimos commits de la sesión (best-effort, max 10)
+    const arch_delta = gitLogRecent(cwd, 10);
+
+    const compact = {
+      schema_version: 1,
+      session_id: sessionId,
+      date,
+      human,
+      machine,
+      decisions,
+      next,
+      bugs,
+      arch_delta,
+    };
+
+    fs.writeFileSync(outPath, JSON.stringify(compact, null, 2), 'utf8');
+    safeLog({ level: 'info', msg: 'compact_written', path: outPath, sessionId });
+  } catch (e) {
+    safeLog({ level: 'warn', msg: 'compact_write_failed', error: String(e && e.message), sessionId });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -578,9 +675,14 @@ async function main() {
 
   safeLog({ level: 'info', msg: 'facts_extracted', count: facts.length, usedAI, sessionId });
 
+  const projectId = resolveProjectId(cwd);
+
+  // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
+  writeCompact(projectId, sessionId, cwd, turns, facts, date);
+
   // Auto-capture decisions for the Control Center "Decisions" panel. Runs
   // before the Qdrant path so decisions are still captured if Qdrant is down.
-  appendPendingDecisions(resolveProjectId(cwd), facts, sessionId, date);
+  appendPendingDecisions(projectId, facts, sessionId, date);
 
   // OLA write-path (2026-06-04): propose GOVERNED memory candidates via the
   // `ultron-memory capture` sidecar. The sidecar re-runs extraction through the
@@ -596,7 +698,7 @@ async function main() {
         .map((t) => (typeof t === 'string' ? t : `${t.role || ''}: ${t.text || t.content || ''}`))
         .join('\n')
         .slice(-8000);
-      const cap = spawnSync(memBin, ['capture', '--project', resolveProjectId(cwd)], {
+      const cap = spawnSync(memBin, ['capture', '--project', projectId], {
         input: transcriptText,
         encoding: 'utf8',
         timeout: 25000,
@@ -639,6 +741,8 @@ async function main() {
 
 main().catch(err => {
   safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+  // cat9.5: rastro en hook-errors.jsonl para que el orquestador detecte fallos silenciosos.
+  logHookError('stop-compress-session', err);
 });
 
 process.exitCode = 0;

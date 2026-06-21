@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Playwright storage state (runtime artifact — contains localStorage snapshot)
+e2e/.auth/
+# Playwright test output (runtime artifact)
+test-results/
+playwright-report/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

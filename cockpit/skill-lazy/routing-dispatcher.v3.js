@@ -146,7 +146,7 @@ const HOOK_DEADLINE_MS = 4500;
  * Overridden at runtime by the shared deadline — this value is only used as
  * an absolute upper bound when no deadline context is available.
  */
-const SEMANTIC_TIMEOUT_MS = 4000;
+const SEMANTIC_TIMEOUT_MS = 8000;
 
 /** Number of semantic candidates to request from Qdrant. */
 const SEMANTIC_TOP_N = 3;
@@ -195,7 +195,7 @@ function querySemanticSkills(promptText, topN, timeoutMs) {
     // NOTE: embed_skills.py query always outputs JSON to stdout by default.
     // Do NOT pass --json (unrecognized flag → exit code 2 → null result).
     const args = [
-      'run', 'python', EMBED_SKILLS_PY,
+      'run', '--no-sync', 'python', EMBED_SKILLS_PY,
       'query', queryText,
       '--top', String(topN),
     ];

@@ -489,3 +489,12 @@ pub(crate) fn zones_path() -> Result<PathBuf, String> {
 pub(crate) fn metrics_path() -> Result<PathBuf, String> {
     Ok(router_dir()?.join("metrics.json"))
 }
+
+/// Append-only structured route-decision log (cat15.2). Consumed by the
+/// LiveSessionMonitor via plain file reads (no Tauri command needed).
+/// Lives under `~/.ultron/logs/` alongside the hook JSONL streams.
+pub(crate) fn route_decisions_path() -> Result<PathBuf, String> {
+    let dir = ultron_root()?.join("logs");
+    fs::create_dir_all(&dir).map_err(|e| format!("create logs dir: {}", e))?;
+    Ok(dir.join("route-decisions.jsonl"))
+}

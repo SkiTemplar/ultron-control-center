@@ -8,7 +8,80 @@
 use std::time::Instant;
 
 use crate::ai_router::store::{disabled_providers_set, load_metrics, load_providers, load_zones};
-use crate::ai_router::types::{free_tier_daily_limit, FailReason, ZoneAssignment};
+use crate::ai_router::types::{
+    free_tier_daily_limit, route_decisions_path, FailReason, ZoneAssignment,
+};
+
+/// Rotation threshold for the route-decision JSONL (mirrors the hooks'
+/// `jsonl-log.js` policy: single generation, at most 2x this on disk).
+const ROUTE_LOG_MAX_BYTES: u64 = 1024 * 1024;
+
+/// Append one structured route decision to `~/.ultron/logs/route-decisions.jsonl`
+/// (cat15.2). Single-generation size rotation: when the file exceeds
+/// `ROUTE_LOG_MAX_BYTES` it is renamed to `<file>.1` before the write.
+///
+/// Fully fail-safe: persistence must never break a route — all errors are
+/// swallowed. The record schema is `{ts, zone, model, provider_id,
+/// used_fallback, reason}`.
+fn log_route_decision(
+    zone_id: &str,
+    provider_id: &str,
+    model: &str,
+    used_fallback: bool,
+    reason: &str,
+) {
+    let Ok(path) = route_decisions_path() else {
+        return;
+    };
+
+    // Size-based rotation (best effort; ignore missing-file / race errors).
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() >= ROUTE_LOG_MAX_BYTES {
+            let _ = std::fs::rename(&path, path.with_extension("jsonl.1"));
+        }
+    }
+
+    let ts = chrono::Utc::now().to_rfc3339();
+    // Hand-built JSON keeps this dependency-light and avoids a serde struct for
+    // a single append; values are escaped to stay valid even with odd ids.
+    let line = format!(
+        "{{\"ts\":{},\"zone\":{},\"model\":{},\"provider_id\":{},\"used_fallback\":{},\"reason\":{}}}\n",
+        json_str(&ts),
+        json_str(zone_id),
+        json_str(model),
+        json_str(provider_id),
+        used_fallback,
+        json_str(reason),
+    );
+
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+/// Minimal JSON string escaping for the route-decision log fields.
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
 
 use super::call_wrappers::try_assignment_call;
 use super::metrics::{bump_metrics, load_metrics_and_bump_route_counters, MetricSample};
@@ -112,6 +185,7 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         }
 
         match attempt_assignment(
+            zone_id,
             assignment,
             prompt,
             zone.system_prompt.as_deref(),
@@ -127,6 +201,7 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     // Last resort: every non-cooled provider failed — try the cooled ones.
     for (chain_index, assignment) in cooled {
         match attempt_assignment(
+            zone_id,
             assignment,
             prompt,
             zone.system_prompt.as_deref(),
@@ -147,6 +222,7 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
 
 /// One provider attempt inside [`route`]'s chain walk.
 fn attempt_assignment(
+    zone_id: &str,
     assignment: &ZoneAssignment,
     prompt: &str,
     system_prompt: Option<&str>,
@@ -190,6 +266,14 @@ fn attempt_assignment(
     match outcome {
         Ok((co, _retry_count)) => {
             let _ = load_metrics_and_bump_route_counters(used_fallback);
+            let reason = if used_fallback { "fallback" } else { "primary" };
+            log_route_decision(
+                zone_id,
+                &assignment.provider_id,
+                &assignment.model,
+                used_fallback,
+                reason,
+            );
             Ok(co.text)
         }
         Err((e, _reason)) => {

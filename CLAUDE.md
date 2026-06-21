@@ -31,7 +31,7 @@ ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.
 
 ## AI Router
 
-- `ai_router/` (modulo; `route()` en `ai_router/mod.rs`): `route(zone, prompt)` real con cadena primary→fallback. **Política CLI-first (2026-06-08): TODAS las zonas arrancan por CLI** (codex-cli para código, gemini-cli para el resto; `code-fast-local` se queda en ollama por ser offline). El cloud original queda como fallback[0]. Editar en `seed_zones()` + `cockpit/ai-router/zones.json`. Keys desde Settings → API Keys o `~/.ultron/.env` (dotenvy). Métrica honesta = `real_fallback_rate` (NO `attempt_failure_rate`). **OJO: el router NO rutea el Claude Code CLI** (esta sesión habla directo con Anthropic); solo afecta a las llamadas que hace la app Tauri.
+- `ai_router/` (modulo; `route()` en `ai_router/providers/routing.rs`, re-exportada por `mod.rs`): `route(zone, prompt)` real con cadena primary→fallback. **Política CLI-first (2026-06-08): las zonas de código arrancan por CLI** (codex-cli); el resto usa **groq como primary + gemini cloud como fallback** (gemini-cli se retiró el 2026-06-19: Google cortó el free-tier OAuth). `code-fast-local` se queda en ollama por ser offline. Editar en `seed_zones()` + `cockpit/ai-router/zones.json`. Keys desde Settings → API Keys o `~/.ultron/.env` (dotenvy). Métrica honesta = `real_fallback_rate` (NO `attempt_failure_rate`). **OJO: el router NO rutea el Claude Code CLI** (esta sesión habla directo con Anthropic); solo afecta a las llamadas que hace la app Tauri.
 
 ## Cómo trabajar aquí (los 13 mandamientos Kirkardo)
 

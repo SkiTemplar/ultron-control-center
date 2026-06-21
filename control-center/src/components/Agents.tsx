@@ -1,15 +1,15 @@
 // ULTRON Control Center 2.9.5 — Agents viewer (aligned with Skills/Rules UI).
 //
 // Brings Agents to full parity with the Skills and Rules layout:
-//   - Same 2-pane layout: category sidebar chips + content grid + LibraryDetailPane.
+//   - Same 2-pane layout: category sidebar chips + content grid + AgentDetailPane.
 //   - Same 140px tall cards with violet inset ribbon (Bot accent) + selected state.
 //   - Same header/search bar structure as Skills.tsx.
 //   - Active/Disabled/All tab strip (already present, kept).
 //   - Scope chips (already present, kept).
 //   - Category pills row (same shape as Rules.tsx, now always visible in grid/tree modes).
-//   - LibraryDetailPane wired for the selected agent (edit + AI + open externally).
+//   - AgentDetailPane wired for the selected agent (edit + AI + open externally).
 //   - Recent delegations strip preserved below the filter controls.
-//   - Color: violet — rgba(167, 139, 250, …) consistent with LibraryDetailPane agent accent.
+//   - Color: violet — rgba(167, 139, 250, …) consistent with AgentDetailPane agent accent.
 //
 // Recent delegations strip: conectado a list_delegations (polling 30s + evento
 // workflow:delegated). Es una vista READ-ONLY de las delegaciones que dispara el

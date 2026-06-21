@@ -785,7 +785,7 @@ mod tests {
         assert_eq!(info.output_tokens, 320);
         assert_eq!(info.model.as_deref(), Some("claude-opus-4-8"));
         assert_eq!(info.session_id, "test-session-001");
-        assert_eq!(info.is_subagent, false);
+        assert!(!info.is_subagent);
 
         // Limpieza
         let _ = std::fs::remove_file(&file);

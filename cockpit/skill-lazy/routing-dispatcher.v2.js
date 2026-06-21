@@ -35,6 +35,12 @@ const LOG_PATH = path.join(HOME, '.claude', 'logs', 'routing-dispatcher.jsonl');
 const SKILLS_DIR = path.join(HOME, '.claude', 'skills');
 const REGISTRY_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'skills-registry.json');
 
+// cat9.4/cat15.1: per-hook timing to hook-timing.jsonl. Fail-safe: a missing
+// module or any error must NEVER block routing (this runs on every prompt).
+try {
+  require('../../hooks/scripts/lib/hook-obs').observe('routing-dispatcher.v2');
+} catch { /* observability is optional; never break the hot path */ }
+
 // ---------------------------------------------------------------------------
 // ECC plugin path (Option B: separate index, no contamination of main ranking)
 // ---------------------------------------------------------------------------
@@ -157,6 +163,20 @@ let _registryCache = null;
  * @type {Map<string, {skillPath: string, tokens: {triggers: string[], strong: string[], context: string[]}}>|null}
  */
 let _eccIndexCache = null;
+
+/**
+ * SKILL.md content cache (cat9.4 — lazy, module-lifetime).
+ *
+ * Maps absolute SKILL.md path -> file content string so that repeated reads
+ * of the same file within the process (across hook invocations in the same
+ * session) hit memory instead of disk.  A file is read at most once per
+ * process lifetime; the result is stored even if it is an empty string so a
+ * missing/empty file is not retried.  readWithTimeout still provides the
+ * actual I/O + timeout; the cache wraps it.
+ *
+ * @type {Map<string, string>}
+ */
+const _skillMdCache = new Map();
 
 // ---------------------------------------------------------------------------
 // ECC-specific stop-word list (extended from the workspace stop-word list)
@@ -1466,19 +1486,32 @@ async function fetchLazySkillContent(candidates, promptNorm) {
     return result;
   }
 
-  // Read all eligible in parallel (single Promise.all, bounded by timeout each)
+  // Read all eligible in parallel (single Promise.all, bounded by timeout each).
+  // cat9.4: check _skillMdCache first — avoids re-reading files already loaded
+  // in this process (across multiple hook invocations in the same session).
   const reads = eligible.map(async function (c) {
     const skillPath = resolveSkillMdPath(c.id);
+    if (_skillMdCache.has(skillPath)) {
+      return { id: c.id, content: _skillMdCache.get(skillPath) };
+    }
     const content = await readWithTimeout(skillPath, LAZY_READ_TIMEOUT_MS);
+    if (content !== null) _skillMdCache.set(skillPath, content);
     return { id: c.id, content };
   });
 
   // Append ECC read if a candidate was found and is not cooling down
   if (eccCandidate && !isCoolingDown('ecc:' + eccCandidate.id)) {
     reads.push(
-      readWithTimeout(eccCandidate.skillPath, LAZY_READ_TIMEOUT_MS).then(function (content) {
-        return { id: 'ecc:' + eccCandidate.id, content };
-      })
+      (function () {
+        const eccPath = eccCandidate.skillPath;
+        if (_skillMdCache.has(eccPath)) {
+          return Promise.resolve({ id: 'ecc:' + eccCandidate.id, content: _skillMdCache.get(eccPath) });
+        }
+        return readWithTimeout(eccPath, LAZY_READ_TIMEOUT_MS).then(function (content) {
+          if (content !== null) _skillMdCache.set(eccPath, content);
+          return { id: 'ecc:' + eccCandidate.id, content };
+        });
+      })()
     );
   }
 
@@ -1649,9 +1682,11 @@ module.exports = {
   matchBestEccSkill,
   // expose internals for test isolation
   _injectionHistory,
+  _skillMdCache,
   _resetInvocationCounter: function () { _invocationCounter = 0; },
   _resetWorkspaceCache: function () { _workspaceCandidatesCache = null; },
   _resetEccIndexCache: function () { _eccIndexCache = null; },
+  _resetSkillMdCache: function () { _skillMdCache.clear(); },
   // Advance the process-wide invocation counter. Callers that reuse v2's
   // lazy-injection machinery WITHOUT going through v2.main() (e.g. v3.mainV3)
   // must call this once per logical invocation so the cooldown window

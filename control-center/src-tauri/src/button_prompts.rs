@@ -434,6 +434,26 @@ fn build_defaults() -> Vec<ButtonPrompt> {
              Follow the skill-creator workflow: capture intent, draft a spec-compliant SKILL.md (strong pushy description + lean imperative body + at least one example), then validate it with scripts/quick_validate.py before finishing. Write the skill under ~/.claude/skills/{NAME}/ and offer to package it for Cowork when done.",
         ),
         default_button(
+            "library.edit_with_ai",
+            "Library · Edit with AI",
+            "Library / detail pane — Edit with AI button",
+            "Opens a Claude session to improve an existing skill/agent/rule. \
+             The current file body is placed on the clipboard so the assistant \
+             can paste it in.",
+            &["kind_label", "file_path", "name"],
+            "Improve this {kind_label} for clarity and completeness. \
+             The current body is in your clipboard (paste it).\n\
+             \n\
+             File: {file_path}\n\
+             Name: {name}\n\
+             \n\
+             Goals:\n\
+             1. Keep the structure and intent intact.\n\
+             2. Fill obvious gaps (missing examples, vague wording, dead links).\n\
+             3. Stay concise — no filler, no marketing language.\n\
+             4. Output the new file body only (no commentary). I'll paste it back.",
+        ),
+        default_button(
             "finance.ask_gilito",
             "Finance · Ask Tio Gilito",
             "Finance / header Tio Gilito button",

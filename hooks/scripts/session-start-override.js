@@ -28,6 +28,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { observe } = require('./lib/hook-obs');
+const { appendJsonl } = require('./lib/jsonl-log');
 observe('session-start-override');
 
 const HOME = os.homedir();
@@ -36,16 +37,7 @@ const MAX_AGE_DAYS = 7;
 const MAX_CONTENT_CHARS = 6000;
 
 function safeLog(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    fs.appendFileSync(
-      LOG_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
-      'utf8'
-    );
-  } catch (_) {
-    // Never throw from a hook.
-  }
+  appendJsonl(LOG_PATH, entry);
 }
 
 function emitPayload(additionalContext) {

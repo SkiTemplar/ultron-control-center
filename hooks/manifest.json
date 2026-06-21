@@ -26,7 +26,7 @@
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 30,
-      "checksum_sha256": "698ecf95bf40a6abb158d1e708191f690f4d5246cb29fef2151806d0ed663fb5",
+      "checksum_sha256": "40076500b91d119d9eb0d72887310d8196d8d1840b855e14beda7359fcd8b852",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -126,7 +126,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-warmup.js",
       "script": "~/.ultron/hooks/scripts/memory-warmup.js",
       "timeout_s": 5,
-      "checksum_sha256": "67215a4b5e6ceb56f38628d59e6755ac35d5895e287814c51fd7fef8c43bbf97",
+      "checksum_sha256": "a4c44ca55e05a073f365b7cd423e295211ef72b8be24675908b5f9c5e068ea33",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -156,7 +156,7 @@
       "command": "node ~/.ultron/hooks/scripts/session-start-override.js",
       "script": "~/.ultron/hooks/scripts/session-start-override.js",
       "timeout_s": 5,
-      "checksum_sha256": "7bdd4685bc4ea6c14aa0501baba36c42415a72a332200c923e75f0ed314763a8",
+      "checksum_sha256": "c75fba88fa6250c53b4f5272e06bf168babfa6dc4ee1e85d126a920929bb8925",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -171,7 +171,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
-      "checksum_sha256": "c7f0e642af73d665f3415192ecbf0fd8169466af71afd562346136eddf1031a4",
+      "checksum_sha256": "87aa5649b00b5ca39e3f2144a86828b13ac386e62f6ed860ba00a7c7e3646e86",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -188,7 +188,7 @@
       "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
       "timeout_s": 5,
-      "checksum_sha256": "8f5ba9ad47b27cd472b27ceed4fc035c1efb6152a56f32e70e0464caf4247037",
+      "checksum_sha256": "155b86dbd5819a5e1aa04a753d716662bf65725842e8eb6f244b3e3d6eac43b5",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -250,7 +250,7 @@
       "command": "node ~/.ultron/hooks/scripts/codegraph-reminder.js",
       "script": "~/.ultron/hooks/scripts/codegraph-reminder.js",
       "timeout_s": 5,
-      "checksum_sha256": "4c94e614d111e00f7160bacb807ffc52c1617c281d2641f7f80c16d2e8572f1e",
+      "checksum_sha256": "b38e6d3170bd2a94940da6a7c18c91cc116db282355217f98154dc3a50654db2",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -375,7 +375,7 @@
     },
     {
       "id": "workday-session-linker",
-      "reason": "No registrado en settings.json (verificado 2026-06-10). Script sigue versionado en hooks/scripts/; decidir si re-registrar o borrar.",
+      "reason": "Letra muerta: no registrado en settings.json (verificado 2026-06-10) y nunca se disparaba. Script borrado 2026-06-21 (Kirkardo cat5.4).",
       "former_event": "SessionStart"
     },
     {

@@ -4,6 +4,15 @@ use serde::Serialize;
 
 use crate::commands::memory::recall_unified::RecallEntry;
 
+/// Token budget cap for the orchestrated prompt context, summed across all
+/// injected layers. Estimated breakdown (per layer, approximate):
+///
+///   - memories (recall hits):     ~1200 tokens
+///   - agents (routing choices):    ~300 tokens
+///   - skills (routing choices):    ~300 tokens
+///   - overhead (headers/format):   ~200 tokens
+///
+/// Total: ~2000. Layers compete within this cap so the context stays bounded.
 pub const TOKEN_BUDGET: i64 = 2000;
 
 #[derive(Debug, Clone, Serialize)]
