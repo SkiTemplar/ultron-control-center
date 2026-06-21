@@ -430,10 +430,14 @@ cat(3, "AI Routing", [
     check() {
       const m = readJSON(METRICS_JSON);
       if (!m) return { pass: false, detail: "metrics.json no encontrado" };
-      // La metrica se llama fallback_rate o real_fallback_rate
-      const rate = m.real_fallback_rate ?? m.fallback_rate ?? null;
-      if (rate === null) return { pass: false, detail: "campo fallback_rate no encontrado" };
-      return { pass: rate < 0.1, detail: `fallback_rate=${(rate * 100).toFixed(1)}%` };
+      // Ratio REAL acumulado = real_fallback_count / routes_total. NO uso el EMA fallback_rate
+      // (se infla con historia) ni solo recent_routes (da 0% volatil si no hubo rutas recientes
+      // -> falso pass que cazo el audit independiente 2026-06-21).
+      const total = m.routes_total ?? 0;
+      const fb = m.real_fallback_count ?? 0;
+      if (total < 10) return { pass: false, detail: `datos insuficientes (routes_total=${total})` };
+      const rate = fb / total;
+      return { pass: rate < 0.1, detail: `real_fallback=${(rate * 100).toFixed(1)}% (${fb}/${total})` };
     },
   },
 ]);
@@ -543,17 +547,24 @@ cat(4, "Skill/Agent Routing", [
 cat(5, "Limpieza de .ultron", [
   {
     id: "5.1",
-    desc: "FASTEMBED: <= 1 copia de model.safetensors",
+    desc: "FASTEMBED: 1 sola copia del modelo E5-large (model.onnx)",
     auto: true,
     check() {
-      // Usa find con path conocido de fastembed en Windows
-      const fastembed_dir = join(HOME, "AppData", "Local", "fastembed-rs");
-      const r = run(
-        `find "${fwd(HOME)}" -name "model.safetensors" -not -path "*/target/*" 2>/dev/null | wc -l`,
-        { timeout: 30000, cwd: HOME }
-      );
-      const count = parseInt(r.stdout.trim(), 10) || 0;
-      return { pass: count <= 1, detail: `${count} copias de model.safetensors (excl target/)` };
+      // El modelo E5 es model.onnx (NO safetensors). Busca SOLO en los caches fastembed
+      // conocidos (acotado/rapido): un find sobre todo HOME timeouteaba y devolvia 0 = falso
+      // pass que cazo el audit independiente 2026-06-21.
+      const caches = [
+        join(HOME, ".ultron", ".fastembed_cache"),
+        join(HOME, "AppData", "Local", "Temp", "fastembed_cache"),
+        join(HOME, "AppData", "Local", "fastembed-rs"),
+      ];
+      let count = 0;
+      for (const d of caches) {
+        if (!existsSync(d)) continue;
+        const r = run(`find "${fwd(d)}" -ipath "*e5-large*" -name "model.onnx" 2>/dev/null | wc -l`, { timeout: 15000 });
+        count += parseInt(r.stdout.trim(), 10) || 0;
+      }
+      return { pass: count === 1, detail: `${count} copia(s) de E5-large model.onnx en caches fastembed` };
     },
   },
   {
