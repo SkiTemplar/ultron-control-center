@@ -667,6 +667,52 @@ def _cmd_query(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_batch_query(args: argparse.Namespace) -> int:
+    """Read a JSON array of query strings from stdin, return a JSON object.
+
+    Input (stdin):
+        ["query text 1", "query text 2", ...]
+
+    Output (stdout):
+        {
+          "query text 1": [{"name": "...", "score": ..., ...}, ...],
+          "query text 2": [...],
+          ...
+        }
+
+    All queries are embedded in a single model load, which is ~10-12x faster
+    than calling `embed_skills.py query` once per prompt on Windows (the main
+    bottleneck is sentence-transformers model cold-start, not the Qdrant round-trip).
+    """
+    try:
+        raw = sys.stdin.read()
+        queries: list[str] = json.loads(raw)
+        if not isinstance(queries, list) or not all(isinstance(q, str) for q in queries):
+            raise ValueError("stdin must be a JSON array of strings")
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 1
+
+    # Load model and Qdrant client once for all queries.
+    _get_model()   # warm the model cache before looping
+    results: dict[str, list[dict[str, Any]]] = {}
+    for text in queries:
+        try:
+            rows = query_skills(
+                text[:500],
+                top_n=args.top,
+                state=args.state,
+                rerank=not args.no_rerank,
+            )
+            results[text] = rows
+        except Exception as exc:
+            results[text] = []
+            logger.warning("WARN: batch_query failed for %r: %s", text[:60], exc)
+
+    print(json.dumps(results, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     payload: dict[str, Any] = {
         "qdrant_url": QDRANT_URL,
@@ -716,6 +762,18 @@ def main(argv: list[str] | None = None) -> int:
     p_q.add_argument("--state", choices=["active", "vaulted", "plugin"], default=None, help="filtra por estado")
     p_q.add_argument("--no-rerank", action="store_true", help="desactiva reranking por tier/freshness")
     p_q.set_defaults(func=_cmd_query)
+
+    p_bq = sub.add_parser(
+        "batch_query",
+        help="embed many prompts in one model load (stdin=JSON array, stdout=JSON object)",
+    )
+    p_bq.add_argument("--top", type=int, default=3)
+    p_bq.add_argument(
+        "--state", choices=["active", "vaulted", "plugin"], default=None,
+        help="filtra por estado",
+    )
+    p_bq.add_argument("--no-rerank", action="store_true", help="desactiva reranking")
+    p_bq.set_defaults(func=_cmd_batch_query)
 
     p_s = sub.add_parser("status", help="collection + state info")
     p_s.set_defaults(func=_cmd_status)

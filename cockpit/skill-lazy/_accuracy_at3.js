@@ -148,20 +148,39 @@ function bareSkillName(id) {
 }
 
 /**
- * Run the real semantic query for one prompt. Returns the top-N skill names
- * (lower-cased) or null if the subprocess failed (Qdrant down / model missing).
- * Mirrors routing-dispatcher.v3.js querySemanticSkills exactly (no --json flag).
+ * Run ALL skill-scoped prompts in a single embed_skills.py batch_query call.
+ *
+ * Why batch? sentence-transformers loads a ~400 MB model on each subprocess
+ * invocation. On Windows, cold-start per call is ~10 s; 12 calls would take
+ * ~120 s. batch_query loads the model once for all queries: ~34 s total.
+ *
+ * Returns a Map<prompt, string[]> (lower-cased skill names) or null on failure
+ * (Qdrant unreachable, model cache missing, JSON parse error).
+ *
+ * Stdin: JSON array of prompt strings.
+ * Stdout: JSON object { "<prompt>": [{name, score, ...}, ...], ... }
+ *
+ * @param {string[]} prompts   Up to 500 chars each (matching v3 hook limit).
+ * @param {number}   topN      Top-N results per query.
+ * @returns {Map<string, string[]>|null}
  */
-function semanticTop(prompt, topN) {
+function batchSemanticTop(prompts, topN) {
+  if (!prompts.length) return new Map();
   try {
+    const input = JSON.stringify(prompts.map(function (p) { return p.slice(0, 500); }));
     const out = execFileSync(
       'uv',
-      ['run', 'python', EMBED_SKILLS_PY, 'query', prompt.slice(0, 500), '--top', String(topN)],
-      { encoding: 'utf8', windowsHide: true, timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] }
+      ['run', '--no-sync', 'python', EMBED_SKILLS_PY, 'batch_query', '--top', String(topN)],
+      { encoding: 'utf8', windowsHide: true, timeout: 90000, input: input }
     );
     const parsed = JSON.parse(out.trim());
-    if (!Array.isArray(parsed)) return null;
-    return parsed.map(function (r) { return String(r.name || '').toLowerCase(); });
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const result = new Map();
+    for (const [prompt, rows] of Object.entries(parsed)) {
+      if (!Array.isArray(rows)) { result.set(prompt, []); continue; }
+      result.set(prompt, rows.map(function (r) { return String(r.name || '').toLowerCase(); }));
+    }
+    return result;
   } catch (_) {
     return null;
   }
@@ -176,37 +195,49 @@ if (WANT_V3) {
   // the deterministic router tagged as kind 'agent', mark them out-of-scope.
   console.log('\n=== semantic via (--v3): ultron_skills dense search ===');
 
-  let semScored = 0;       // cases counted toward semantic accuracy
-  let semHits3 = 0;        // skill-scoped cases whose expected name is in dense top-3
-  let semUnavailable = 0;  // subprocess failures
+  // Split into skill-scoped vs agent/out-of-scope in ONE pass over CASES.
+  const skillScoped = [];
   const outOfScope = [];
-  const semFailures = [];
-
   for (const tc of CASES) {
-    // Determine the deterministic kind for scope classification.
     const ranked = router.rankCandidates(tc.prompt) || [];
     const expectedRank = ranked.find(function (c) { return c.id === tc.expectedId; });
     const kind = expectedRank ? expectedRank.kind : null;
-
-    // Agents are never in ultron_skills — out of the dense via's scope.
     if (kind === 'agent') {
       outOfScope.push({ prompt: tc.prompt, expected: tc.expectedId, why: 'agent' });
-      continue;
-    }
-
-    const want = bareSkillName(tc.expectedId).toLowerCase();
-    const names = semanticTop(tc.prompt, TOP_K);
-    if (names === null) {
-      semUnavailable++;
-      semFailures.push({ prompt: tc.prompt, expected: tc.expectedId, got: 'SEMANTIC UNAVAILABLE' });
-      continue;
-    }
-
-    semScored++;
-    if (names.indexOf(want) !== -1) {
-      semHits3++;
     } else {
-      semFailures.push({ prompt: tc.prompt, expected: want, got: JSON.stringify(names) });
+      skillScoped.push({ prompt: tc.prompt, expectedId: tc.expectedId });
+    }
+  }
+
+  // Batch ALL skill-scoped prompts into ONE Python subprocess (one model load).
+  const batchResults = batchSemanticTop(skillScoped.map(function (tc) { return tc.prompt; }), TOP_K);
+
+  let semScored = 0;
+  let semHits3 = 0;
+  let semUnavailable = 0;
+  const semFailures = [];
+
+  if (batchResults === null) {
+    // Entire batch failed (Qdrant down, model missing, parse error).
+    semUnavailable = skillScoped.length;
+    for (const tc of skillScoped) {
+      semFailures.push({ prompt: tc.prompt, expected: bareSkillName(tc.expectedId).toLowerCase(), got: 'SEMANTIC UNAVAILABLE' });
+    }
+  } else {
+    for (const tc of skillScoped) {
+      const names = batchResults.get(tc.prompt) || null;
+      if (!names || names.length === 0) {
+        semUnavailable++;
+        semFailures.push({ prompt: tc.prompt, expected: bareSkillName(tc.expectedId).toLowerCase(), got: 'SEMANTIC UNAVAILABLE' });
+        continue;
+      }
+      const want = bareSkillName(tc.expectedId).toLowerCase();
+      semScored++;
+      if (names.indexOf(want) !== -1) {
+        semHits3++;
+      } else {
+        semFailures.push({ prompt: tc.prompt, expected: want, got: JSON.stringify(names) });
+      }
     }
   }
 

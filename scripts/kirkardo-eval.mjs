@@ -516,13 +516,23 @@ cat(4, "Skill/Agent Routing", [
     check() {
       const script = join(SKILL_LAZY, "_accuracy_at3.js");
       if (!fileExists(script)) return { pass: false, detail: "script no existe" };
-      const r = run(`node "${script}" --v3 2>&1 | tail -5`, { timeout: 30000 });
+      // Timeout 90 s: embed_skills.py batch_query carga sentence-transformers una sola
+      // vez para todas las queries (~34 s), mucho menos que los ~120 s del modo secuencial
+      // (12 llamadas x ~10 s/llamada). Sin pipe a tail: la linea clave
+      // "semantic accuracy@3: X% (N/M)" puede ser cualquier linea del output.
+      const r = run(`node "${script}" --v3 2>&1`, { timeout: 90000 });
       const txt = r.stdout + r.stderr;
-      // Si --v3 da "v3 hits > 0" o menciona hits
-      const m = txt.match(/([0-9]+)\s*(?:v3\s*)?hits?/i);
-      const hits = m ? parseInt(m[1], 10) : 0;
-      const noHits = /0\s*hits?|no\s*hits/i.test(txt);
-      return { pass: hits > 0 && !noHits, detail: `v3 hits=${hits}; ${txt.slice(-100)}` };
+      // Parsea "semantic accuracy@3: 91.7% (11/12)" -> hits=11, total=12
+      const mAcc = txt.match(/semantic\s+accuracy@3:\s*[\d.]+%\s*\((\d+)\/(\d+)\)/i);
+      if (mAcc) {
+        const hits = parseInt(mAcc[1], 10);
+        const total = parseInt(mAcc[2], 10);
+        return { pass: hits > 0, detail: `v3 hits=${hits}/${total}; semantic accuracy@3 OK` };
+      }
+      // Fallback: si el subprocess fallo del todo
+      const unavail = /semantic\s+unavailable:\s*(\d+)/i.exec(txt);
+      const unavailN = unavail ? parseInt(unavail[1], 10) : 0;
+      return { pass: false, detail: `v3 hits=0; unavailable=${unavailN}; ${txt.slice(-120)}` };
     },
   },
 ]);

@@ -2,12 +2,19 @@
 
 use crate::ai_router::types::free_tier_daily_limit;
 
-// -----------------------------------------------------------------------
-// Quota-awareness + 429 handling
-// -----------------------------------------------------------------------
+use super::env_lock;
 
 #[test]
 fn gemini_free_tier_limit_is_twenty() {
+    // `free_tier_daily_limit("gemini")` reads the process-global env var
+    // `ULTRON_GEMINI_TIER_LIMIT`, which the `env_override_*` tests in
+    // `metrics.rs` set/remove under `env_lock()`. Acquire the SAME lock and
+    // clear the var so this default-path assertion cannot interleave with an
+    // override test and observe a transient overridden value (hermetic).
+    let _g = env_lock();
+    // SAFETY: serialised by the module-level ENV_MUTEX shared with all
+    // env-mutating tests so no other test can read/write this var concurrently.
+    unsafe { std::env::remove_var("ULTRON_GEMINI_TIER_LIMIT") };
     assert_eq!(
         free_tier_daily_limit("gemini"),
         Some(20),
@@ -17,6 +24,10 @@ fn gemini_free_tier_limit_is_twenty() {
 
 #[test]
 fn groq_free_tier_limit_is_one_thousand() {
+    // Same env-var race as above, but for `ULTRON_GROQ_TIER_LIMIT`.
+    let _g = env_lock();
+    // SAFETY: serialised by the module-level ENV_MUTEX (see above).
+    unsafe { std::env::remove_var("ULTRON_GROQ_TIER_LIMIT") };
     assert_eq!(free_tier_daily_limit("groq"), Some(1000));
 }
 
