@@ -26,6 +26,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const { observe, logHookError } = require('./lib/hook-obs');
+observe('posttoolfail-capture');
 
 const HOME = os.homedir();
 const MAX_ERROR_CHARS = 1200;
@@ -148,7 +150,8 @@ function main() {
 
 try {
   main();
-} catch (_) {
-  /* never throw */
+} catch (e) {
+  // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+  logHookError('posttoolfail-capture', e);
 }
 process.exitCode = 0;

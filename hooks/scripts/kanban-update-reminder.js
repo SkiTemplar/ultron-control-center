@@ -103,6 +103,8 @@ const COMPLETION_MARKERS = [
 ];
 
 const { appendJsonl } = require('./lib/jsonl-log');
+const { observe } = require('./lib/hook-obs');
+observe('kanban-update-reminder');
 
 function safeLog(entry) {
   // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.

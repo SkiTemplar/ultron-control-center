@@ -20,6 +20,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const { observe, logHookError } = require('./lib/hook-obs');
+observe('session-end-summary');
 
 const HOME = os.homedir();
 const MAX_TURNS = 40;
@@ -171,7 +173,8 @@ function main() {
 
 try {
   main();
-} catch (_) {
-  /* never throw */
+} catch (e) {
+  // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+  logHookError('session-end-summary', e);
 }
 process.exitCode = 0;

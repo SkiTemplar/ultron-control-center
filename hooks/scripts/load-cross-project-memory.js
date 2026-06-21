@@ -40,6 +40,8 @@ const ACTIVITY_WINDOW_DAYS = 60;
 const MIN_SIMILARITY_FOR_BODY = 2;
 
 const { appendJsonl } = require('./lib/jsonl-log');
+const { observe } = require('./lib/hook-obs');
+observe('load-cross-project-memory');
 
 function safeLog(entry) {
   // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.

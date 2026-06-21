@@ -11,6 +11,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { runCli, projectIdFromCwd } = require('./lib/ultron-memory-cli');
+const { observe } = require('./lib/hook-obs');
+observe('memory-session-resume');
 
 // Best-effort: registra el error del catch top-level a un log JSONL, sin romper
 // el fail-open (envuelto en su propio try/catch; nunca lanza).

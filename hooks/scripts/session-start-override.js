@@ -27,6 +27,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { observe } = require('./lib/hook-obs');
+observe('session-start-override');
 
 const HOME = os.homedir();
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'session-start-override.jsonl');

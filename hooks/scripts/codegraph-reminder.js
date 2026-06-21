@@ -20,6 +20,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { observe } = require('./lib/hook-obs');
+observe('codegraph-reminder');
 
 const CODE_EXT = new Set([
   '.rs', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.go',

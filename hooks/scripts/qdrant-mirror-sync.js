@@ -38,6 +38,8 @@ const PAGE = 256;
 const LOG = path.join(os.homedir(), '.ultron', 'logs', 'qdrant-mirror-sync.jsonl');
 
 const { appendJsonl } = require('./lib/jsonl-log');
+const { observe } = require('./lib/hook-obs');
+observe('qdrant-mirror-sync');
 // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
 function log(rec) { appendJsonl(LOG, { ts: Date.now(), ...rec }); }
 

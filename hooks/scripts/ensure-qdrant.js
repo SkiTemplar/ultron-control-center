@@ -16,6 +16,8 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { observe, logHookError } = require('./lib/hook-obs');
+observe('ensure-qdrant');
 
 const HEALTHZ = { host: 'localhost', port: 6333, path: '/healthz', timeout: 700 };
 const LAUNCHER = path.join(os.homedir(), '.ultron', 'scripts', 'ensure-qdrant.ps1');
@@ -57,7 +59,9 @@ async function main() {
   );
 }
 
-main().catch(() => {
+main().catch((e) => {
+  // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+  logHookError('ensure-qdrant', e);
   // Nunca romper el SessionStart.
   process.exit(0);
 });

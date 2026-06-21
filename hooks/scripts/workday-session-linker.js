@@ -23,6 +23,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
+const { observe } = require('./lib/hook-obs');
+observe('workday-session-linker');
 
 const HOME = os.homedir();
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'workday-session-linker.jsonl');

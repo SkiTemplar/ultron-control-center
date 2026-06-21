@@ -19,6 +19,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { observe, logHookError } = require('./lib/hook-obs');
+observe('notify-relay');
 
 const HOME = os.homedir();
 const TMP_DIR = path.join(HOME, '.ultron', '.tmp');
@@ -81,7 +83,8 @@ function main() {
 
 try {
   main();
-} catch (_) {
-  /* never throw */
+} catch (e) {
+  // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+  logHookError('notify-relay', e);
 }
 process.exitCode = 0;

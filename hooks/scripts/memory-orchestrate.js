@@ -11,6 +11,8 @@ const path = require('path');
 const os = require('os');
 const { runCli, projectIdFromCwd, daemonRequest, spawnDetached } = require('./lib/ultron-memory-cli');
 const { appendJsonl } = require('./lib/jsonl-log');
+const { observe } = require('./lib/hook-obs');
+observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
 // spawn fallback keeps the wider colchon for cold-hit E5 (see runCli call below).
