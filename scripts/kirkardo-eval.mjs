@@ -410,8 +410,10 @@ cat(3, "AI Routing", [
     desc: "cargo test ai_router pasa",
     auto: true,
     check() {
-      // Pasa el filtro como argumento posicional a cargo test
-      const r = run("cargo test --lib --quiet ai_router 2>&1", {
+      // Pasa el filtro como argumento posicional a cargo test.
+      // --test-threads=1: serie -> determinista. Algunos tests del router comparten
+      // metrics.json y bajo paralelismo dan flakiness (ver card tests-no-hermeticos).
+      const r = run("cargo test --lib --quiet ai_router -- --test-threads=1 2>&1", {
         cwd: join(CC, "src-tauri"),
         timeout: 180000,
       });
@@ -759,8 +761,10 @@ cat(7, "Calidad de Codigo", [
     desc: "cargo test --lib --bins pasa (0 failures)",
     auto: true,
     check() {
-      // exit code 0 + no FAILED = OK (puede haber 0 tests si features finance no activas)
-      const r = run("cargo test --lib --quiet 2>&1", {
+      // exit code 0 + no FAILED = OK (puede haber 0 tests si features finance no activas).
+      // --test-threads=1: serie -> determinista (evita la flakiness de tests que comparten
+      // metrics.json bajo paralelismo; ver card tests-no-hermeticos).
+      const r = run("cargo test --lib --quiet -- --test-threads=1 2>&1", {
         cwd: join(CC, "src-tauri"),
         timeout: 240000,
       });
