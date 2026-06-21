@@ -103,7 +103,7 @@ const COMPLETION_MARKERS = [
 ];
 
 const { appendJsonl } = require('./lib/jsonl-log');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
 observe('kanban-update-reminder');
 
 function safeLog(entry) {
@@ -332,6 +332,7 @@ try {
   main();
 } catch (err) {
   safeLog({ level: 'error', msg: 'unhandled_exception', error: String(err && err.message) });
+  logHookError('kanban-update-reminder', err);
 } finally {
   process.exitCode = 0;
 }

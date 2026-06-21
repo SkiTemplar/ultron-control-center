@@ -40,7 +40,7 @@ const ACTIVITY_WINDOW_DAYS = 60;
 const MIN_SIMILARITY_FOR_BODY = 2;
 
 const { appendJsonl } = require('./lib/jsonl-log');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
 observe('load-cross-project-memory');
 
 function safeLog(entry) {
@@ -269,6 +269,7 @@ try {
   main();
 } catch (err) {
   safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+  logHookError('load-cross-project-memory', err);
   emitPayload('');
 }
 

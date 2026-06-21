@@ -150,7 +150,8 @@ function estimateTokens(skillId) {
   for (const c of candidates) {
     try { return Math.round(fs.statSync(c).size / 4); } catch (_) {}
   }
-  return 0;
+  // Fallback: check agents/ (dispatcher-declared ids that live as agents, not skills)
+  return estimateAgentTokens(skillId);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,11 +170,26 @@ function estimateAgentTokens(agentId) {
 
 // ---------------------------------------------------------------------------
 // Resolve the canonical path string stored in the registry.
+// For pure-agent ids (no SKILL.md in skills/ or ultron/skills/, but a .md
+// file exists in agents/) the path is set to ~/.claude/agents/<id>.md so
+// the registry accurately reflects where the asset lives.
 // ---------------------------------------------------------------------------
 function resolveRegistryPath(skillId) {
   if (skillId.includes(':')) {
     const [nsPrefix, baseName] = skillId.split(':', 2);
     return `~/.claude/skills/${nsPrefix}/${baseName}`;
+  }
+  // Check if this id exists as a skill (SKILL.md) anywhere — if not, look in agents.
+  const isSkill =
+    fs.existsSync(path.join(SKILLS_DIR, skillId, 'SKILL.md')) ||
+    fs.existsSync(path.join(SKILLS_DIR, skillId + '.disabled', 'SKILL.md')) ||
+    fs.existsSync(path.join(ULTRON_SKILLS_DIR, skillId, 'SKILL.md'));
+  if (!isSkill) {
+    const agentMd = path.join(AGENTS_DIR, skillId + '.md');
+    const agentMdDis = path.join(AGENTS_DIR, skillId + '.md.disabled');
+    if (fs.existsSync(agentMd) || fs.existsSync(agentMdDis)) {
+      return `~/.claude/agents/${skillId}.md`;
+    }
   }
   return `~/.claude/skills/${skillId}`;
 }
@@ -328,6 +344,8 @@ function buildRegistry() {
     const isKeepActive = FORCE_KEEP_ACTIVE.has(id);
     const tokenEstimate = estimateTokens(id);
     const regPath = resolveRegistryPath(id);
+    // Mark entries that live in agents/ so the registry path is unambiguous.
+    const isAgentPath = regPath.startsWith('~/.claude/agents/');
 
     if (merged.has(id)) {
       const prev = merged.get(id);
@@ -341,12 +359,16 @@ function buildRegistry() {
         next.path = regPath;
         changed = true;
       }
+      if (isAgentPath && !next.type) {
+        next.type = 'agent';
+        changed = true;
+      }
       if (changed) {
         merged.set(id, next);
         updated++;
       }
     } else {
-      merged.set(id, {
+      const entry = {
         id,
         name: id,
         path: regPath,
@@ -354,7 +376,9 @@ function buildRegistry() {
         requires_skill_tool: false,
         lazy_loadable: !isKeepActive,
         keep_active: isKeepActive,
-      });
+      };
+      if (isAgentPath) entry.type = 'agent';
+      merged.set(id, entry);
       added++;
     }
   }

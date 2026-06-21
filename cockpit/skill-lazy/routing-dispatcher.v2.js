@@ -35,10 +35,13 @@ const LOG_PATH = path.join(HOME, '.claude', 'logs', 'routing-dispatcher.jsonl');
 const SKILLS_DIR = path.join(HOME, '.claude', 'skills');
 const REGISTRY_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'skills-registry.json');
 
-// cat9.4/cat15.1: per-hook timing to hook-timing.jsonl. Fail-safe: a missing
+// cat9.4/cat15.1: per-hook timing + error logging. Fail-safe: a missing
 // module or any error must NEVER block routing (this runs on every prompt).
+let _logHookError = function () {};
 try {
-  require('../../hooks/scripts/lib/hook-obs').observe('routing-dispatcher.v2');
+  const _hookObs = require('../../hooks/scripts/lib/hook-obs');
+  _hookObs.observe('routing-dispatcher.v2');
+  _logHookError = _hookObs.logHookError;
 } catch { /* observability is optional; never break the hot path */ }
 
 // ---------------------------------------------------------------------------
@@ -1654,6 +1657,7 @@ async function main() {
 if (require.main === module) {
   main().catch(function (err) {
     safeLog({ level: 'error', msg: 'unhandled_async', error: String(err && err.message) });
+    try { _logHookError('routing-dispatcher.v2', err); } catch (_) {}
     emitContext('');
   }).finally(function () {
     process.exitCode = 0;

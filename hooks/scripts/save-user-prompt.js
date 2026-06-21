@@ -43,7 +43,7 @@ const KEYWORDS = [
 ];
 
 const { appendJsonl } = require('./lib/jsonl-log');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
 observe('save-user-prompt');
 
 function safeLog(entry) {
@@ -167,6 +167,7 @@ try {
   main();
 } catch (err) {
   safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+  logHookError('save-user-prompt', err);
   try {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: { hookEventName: 'UserPromptSubmit' },

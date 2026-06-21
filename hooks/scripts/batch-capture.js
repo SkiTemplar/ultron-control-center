@@ -37,7 +37,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
+const { appendJsonl } = require('./lib/jsonl-log');
 observe('batch-capture');
 
 const HOME = os.homedir();
@@ -45,35 +46,16 @@ const BATCHES_DIR = path.join(HOME, '.ultron', 'batches');
 const QUEUE_PENDING = path.join(BATCHES_DIR, 'queue-pending.jsonl');
 const QUEUE_FILE = path.join(BATCHES_DIR, 'queue.jsonl');
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'batch-capture.jsonl');
-const LOG_MAX_BYTES = 1 * 1024 * 1024;
 const MAX_TURNS = 200; // scan a generous tail; the dedup keeps it cheap
 const MAX_CAPTURES = 20; // never flood the queue from a single session
 const MAX_ERROR_LEN = 1500;
 
 // ---------------------------------------------------------------------------
-// Logging (best-effort, rotating)
+// Logging (best-effort, rotating via shared appendJsonl)
 // ---------------------------------------------------------------------------
 
-function rotateLogIfNeeded() {
-  try {
-    const st = fs.statSync(LOG_PATH);
-    if (st.size < LOG_MAX_BYTES) return;
-    const rotated = LOG_PATH + '.1';
-    try { fs.unlinkSync(rotated); } catch (_) {}
-    fs.renameSync(LOG_PATH, rotated);
-  } catch (_) {}
-}
-
 function safeLog(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    rotateLogIfNeeded();
-    fs.appendFileSync(
-      LOG_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
-      'utf8',
-    );
-  } catch (_) {}
+  appendJsonl(LOG_PATH, entry);
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +300,6 @@ function appendPendingQueue(captures) {
 
     const existing = loadExistingNames();
     const seenThisRun = new Set();
-    const lines = [];
     let written = 0;
 
     for (const cap of captures) {
@@ -336,22 +317,19 @@ function appendPendingQueue(captures) {
         // Still enqueue the metadata even if the .ps1 write failed.
       }
 
-      lines.push(
-        JSON.stringify({
-          name: filename,
-          path: scriptPath,
-          reason: cap.reason,
-          last_error: cap.lastError,
-          source: 'batch-capture',
-          command_preview: normalizeCmd(cap.command).slice(0, 200),
-        }),
-      );
+      appendJsonl(QUEUE_PENDING, {
+        name: filename,
+        path: scriptPath,
+        reason: cap.reason,
+        last_error: cap.lastError,
+        source: 'batch-capture',
+        command_preview: normalizeCmd(cap.command).slice(0, 200),
+      });
       written += 1;
     }
 
-    if (lines.length === 0) return;
-    fs.appendFileSync(QUEUE_PENDING, lines.join('\n') + '\n', 'utf8');
-    safeLog({ level: 'info', msg: 'pending_queue_written', count: lines.length });
+    if (written === 0) return;
+    safeLog({ level: 'info', msg: 'pending_queue_written', count: written });
   } catch (e) {
     safeLog({ level: 'warn', msg: 'append_pending_failed', error: String(e && e.message) });
   }
@@ -393,6 +371,7 @@ try {
   main();
 } catch (err) {
   safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+  logHookError('batch-capture', err);
 }
 
 process.exitCode = 0;

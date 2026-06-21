@@ -25,18 +25,9 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Process-wide write lock
-// ---------------------------------------------------------------------------
-//
-// `update_button_prompt_inner` does a read_stored → mutate → write_stored.
-// Without a lock, two concurrent callers (e.g. rapid Settings saves) both read
-// the same baseline and the second writer clobbers the first writer's change —
-// overrides vanish silently. The lock is held across the entire read-modify-
-// write so the operation is atomic from the caller's point of view.
-// `list_button_prompts_inner` also acquires the lock for its best-effort
-// materialisation write so the initial file creation cannot race.
-// Pure reads (`build_catalog`, `get_button_prompt_inner`) are excluded.
+// Process-wide write lock: serialises the read-modify-write in
+// `update_button_prompt_inner` / `list_button_prompts_inner` so concurrent Settings
+// saves can't clobber each other's overrides (pure reads are excluded).
 // Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`.
 static BUTTON_PROMPTS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -463,6 +454,15 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Tio Gilito, como van mis finanzas?",
         ),
         default_button(
+            "sessions.send_context",
+            "Sessions · Send context to new session",
+            "Sessions / workspace card — Send ctx button",
+            "Seeds a fresh Claude session with a pointer to the latest prior \
+             session so the assistant can load that transcript and continue.",
+            &["session_id", "cwd"],
+            "Continuing context from session: {session_id}. Workspace: {cwd}. Please load the prior transcript (look under ~/.claude/projects/) and continue from where it left off.",
+        ),
+        default_button(
             "projects.codegraph_session",
             "Projects · CodeGraph exploration session",
             "Projects / workspace CodeGraph button",
@@ -707,6 +707,7 @@ mod tests {
         assert!(keys.contains("catalog.integrate_with_ai"));
         assert!(keys.contains("library.create_agent"));
         assert!(keys.contains("library.create_skill"));
+        assert!(keys.contains("sessions.send_context"));
         assert!(
             defaults.len() >= 10,
             "expected >= 10 default buttons, got {}",

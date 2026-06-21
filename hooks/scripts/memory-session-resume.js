@@ -96,10 +96,16 @@ function main() {
   emit(render(resume) + l0);
 }
 
-try {
-  main();
-} catch (e) {
-  logHookError('memory-session-resume', e);
-  try { emit(''); } catch { /* ignore */ }
+// Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script
+// se invoca directamente (como hook), nunca cuando se importa via require().
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    logHookError('memory-session-resume', e);
+    try { emit(''); } catch { /* ignore */ }
+  }
+  process.exitCode = 0;
+} else {
+  module.exports = { readL0Scratch, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
 }
-process.exitCode = 0;

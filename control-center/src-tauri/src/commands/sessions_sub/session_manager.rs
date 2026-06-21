@@ -12,40 +12,25 @@
 //   <session-uuid>.jsonl  -> sesión normal (is_subagent = false)
 //   agent-*.jsonl         -> subagente      (is_subagent = true)
 //   journal.jsonl         -> ignorado siempre
+//
+// El parseo bruto del JSONL vive en `session_jsonl`; la inferencia de
+// metadatos (estado, ventana, liveness, match de proyecto) en `session_meta`
+// (cat7.3 split). Este módulo orquesta ambos y expone el comando Tauri.
 
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::projects::read_ops::list_projects_inner;
 
-// ---------------------------------------------------------------------------
-// Umbrales de clasificación de estado (sin PID, inferidos por recencia)
-// ---------------------------------------------------------------------------
-
-/// Límite superior de "en curso / esperando respuesta del usuario" (segundos).
-const THRESHOLD_WORKING_SECS: u64 = 90;
-/// Hasta este umbral la sesión se considera "inactiva pero reciente" (5 horas).
-const THRESHOLD_IDLE_SECS: u64 = 5 * 3600;
-
-/// Ventana de contexto por defecto de Claude Code (modelos Sonnet/Opus estándar).
-const CONTEXT_LIMIT_DEFAULT: u64 = 200_000;
-/// Ventana extendida (beta "context-1m", sesiones lanzadas con el modelo `[1m]`).
-const CONTEXT_LIMIT_EXTENDED: u64 = 1_000_000;
-
-/// Bytes medios por línea JSONL en un transcript de Claude Code. Usado para
-/// acotar el seek desde el final (igual que en live_session.rs).
-const AVG_LINE_BYTES: u64 = 400;
-
-/// Líneas de cola a leer de cada fichero. 12 es suficiente para capturar
-/// el último turno assistant (con usage) + el último mensaje de usuario.
-const TAIL_LINES: usize = 12;
-
-/// Caracteres máximos del último prompt / resumen de actividad que se devuelven
-/// al frontend para evitar payloads gigantes.
-const MAX_SUMMARY_CHARS: usize = 200;
+use super::session_jsonl::{
+    extract_text, now_unix_secs, parse_iso8601_secs, read_jsonl_tail, AssistantMessage,
+    TranscriptEvent, UserMessage, MAX_SUMMARY_CHARS, TAIL_LINES,
+};
+use super::session_meta::{
+    apply_liveness, classify_status, context_window_for, count_live_cli_sessions, match_project_id,
+    readable_name,
+};
 
 // ---------------------------------------------------------------------------
 // Struct público de salida (contrato con el frontend — snake_case, sin rename)
@@ -93,380 +78,6 @@ pub struct SessionInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Tipos de deserialización de los eventos JSONL (campos opcionales para tolerar
-// variaciones de esquema entre versiones de Claude Code)
-// ---------------------------------------------------------------------------
-
-/// Uso de tokens en un turno assistant.
-#[derive(Debug, Deserialize, Default)]
-struct Usage {
-    #[serde(default)]
-    input_tokens: u64,
-    #[serde(default)]
-    output_tokens: u64,
-    #[serde(default)]
-    cache_read_input_tokens: u64,
-    #[serde(default)]
-    cache_creation_input_tokens: u64,
-}
-
-/// Mensaje anidado dentro de un evento assistant.
-#[derive(Debug, Deserialize)]
-struct AssistantMessage {
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    usage: Option<Usage>,
-    // Contenido libre — sólo nos interesa el primer bloque de texto.
-    #[serde(default)]
-    content: Vec<serde_json::Value>,
-    #[serde(default)]
-    stop_reason: Option<String>,
-}
-
-/// Mensaje de usuario anidado (puede ser texto o tool_result).
-#[derive(Debug, Deserialize)]
-struct UserMessage {
-    #[serde(default)]
-    content: serde_json::Value,
-}
-
-/// Evento de un transcript JSONL de Claude Code (sólo los campos que nos interesan).
-#[derive(Debug, Deserialize)]
-struct TranscriptEvent {
-    #[serde(rename = "type")]
-    event_type: Option<String>,
-    /// ISO 8601 con zona horaria (ej. "2026-06-20T10:30:00.123Z").
-    timestamp: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(rename = "gitBranch", default)]
-    git_branch: Option<String>,
-    /// Presente en eventos "assistant".
-    #[serde(default)]
-    message: Option<serde_json::Value>,
-}
-
-// ---------------------------------------------------------------------------
-// Lectura de cola O(TAIL_LINES) — reutiliza la misma técnica que live_session
-// ---------------------------------------------------------------------------
-
-/// Lee las últimas `limit` líneas válidas de un `.jsonl`, de más nuevo a más viejo.
-/// El seek desde el final mantiene el coste acotado independientemente del tamaño del
-/// fichero. Las líneas en blanco, malformadas o de esquema antiguo se ignoran
-/// silenciosamente. Devuelve `Vec::new()` si el fichero no existe o no es legible.
-fn read_jsonl_tail<T: serde::de::DeserializeOwned>(path: &Path, limit: usize) -> Vec<T> {
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return Vec::new();
-    };
-    let file_len = file.seek(SeekFrom::End(0)).unwrap_or(0);
-    // Cola suficiente para `limit` líneas con margen x4 para líneas malformadas.
-    let want = (limit as u64 + 4)
-        .saturating_mul(AVG_LINE_BYTES)
-        .saturating_mul(4);
-    let start = file_len.saturating_sub(want);
-    if file.seek(SeekFrom::Start(start)).is_err() {
-        return Vec::new();
-    }
-    let mut bytes = Vec::new();
-    if file.read_to_end(&mut bytes).is_err() {
-        return Vec::new();
-    }
-    // from_utf8_lossy evita panics si el seek partió un carácter multibyte.
-    let text = String::from_utf8_lossy(&bytes);
-    // Si no arrancamos desde el inicio, la primera línea puede venir cortada.
-    let body: &str = if start > 0 {
-        match text.find('\n') {
-            Some(i) => &text[i + 1..],
-            None => "",
-        }
-    } else {
-        &text
-    };
-    let mut out: Vec<T> = body
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str::<T>(l).ok())
-        .collect();
-    if out.len() > limit {
-        out = out.split_off(out.len() - limit);
-    }
-    out.reverse(); // más reciente primero
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Parsing de timestamp ISO 8601 -> segundos UNIX (sin deps nuevas)
-// ---------------------------------------------------------------------------
-
-/// Convierte un timestamp ISO 8601 (con o sin zona horaria) a segundos UNIX.
-/// Soporta los formatos que emite Claude Code:
-///   "2026-06-20T10:30:00.123Z"
-///   "2026-06-20T10:30:00Z"
-///   "2026-06-20T10:30:00+00:00"
-/// Devuelve `None` si el formato no es reconocible.
-fn parse_iso8601_secs(ts: &str) -> Option<u64> {
-    // chrono está disponible con feature "serde" según Cargo.toml.
-    use chrono::DateTime;
-    // Intentar con zona horaria fija (el formato más común en los JSONL).
-    if let Ok(dt) = DateTime::parse_from_rfc3339(ts) {
-        return u64::try_from(dt.timestamp()).ok();
-    }
-    // Fallback: naive UTC (sin zona explícita — toma los primeros 19 caracteres).
-    if let Some(dt) = ts
-        .get(..19)
-        .and_then(|s| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok())
-    {
-        return u64::try_from(dt.and_utc().timestamp()).ok();
-    }
-    None
-}
-
-/// Segundos UNIX actuales (nunca falla; devuelve 0 en el improbable caso de
-/// que el reloj del sistema esté antes de UNIX epoch).
-fn now_unix_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-// ---------------------------------------------------------------------------
-// Inferencia de la ventana de contexto real
-// ---------------------------------------------------------------------------
-
-/// Infiere la ventana de contexto de la sesión a partir del contexto observado.
-///
-/// El transcript de Claude Code NO registra de forma estructurada si la sesión
-/// usa la ventana extendida de 1M: el campo `model` es `"claude-opus-4-8"` sin
-/// el sufijo `[1m]` (verificado en runtime sobre los `.jsonl` reales). Pero un
-/// contexto que supera los 200 000 tokens sólo es físicamente posible en la
-/// ventana de 1M — así que el propio uso ES la señal fiable.
-///
-/// ALCANCE (mandamiento 13): una sesión de 1M cuyo uso *actual* sea inferior a
-/// 200 000 tokens se reportará sobre el límite de 200 000. No hay forma de
-/// distinguirla de una sesión estándar sin una señal estructurada que el
-/// transcript no expone.
-fn context_window_for(context_tokens: u64) -> u64 {
-    if context_tokens > CONTEXT_LIMIT_DEFAULT {
-        CONTEXT_LIMIT_EXTENDED
-    } else {
-        CONTEXT_LIMIT_DEFAULT
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Clasificación de estado (sin PID map)
-// ---------------------------------------------------------------------------
-
-/// Infiere el estado de la sesión a partir de la edad del último evento y el
-/// tipo del último evento visible en la cola leída.
-///
-/// Umbrales documentados como constantes en la cabecera del módulo:
-/// - `THRESHOLD_WORKING_SECS` = 90 s  → "working" o "waiting"
-/// - `THRESHOLD_IDLE_SECS`    = 5 h   → "idle"
-/// - más de 5 h               → "dead"
-fn classify_status(
-    age_secs: u64,
-    last_event_type: &str,
-    stop_reason: Option<&str>,
-) -> &'static str {
-    if age_secs < THRESHOLD_WORKING_SECS {
-        // Sesión reciente: distinguir si el asistente terminó su turno o sigue
-        // procesando.
-        if last_event_type == "assistant"
-            && matches!(stop_reason, Some("end_turn") | Some("stop_sequence"))
-        {
-            // El asistente terminó; está esperando que el usuario responda.
-            "waiting"
-        } else {
-            // Evento user reciente, o assistant sin stop_reason (posiblemente en
-            // curso) → consideramos que está trabajando.
-            "working"
-        }
-    } else if age_secs < THRESHOLD_IDLE_SECS {
-        "idle"
-    } else {
-        "dead"
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Detección de sesiones CLI vivas (señal de proceso real, no solo tiempo)
-// ---------------------------------------------------------------------------
-
-/// Nº de sesiones CLI de Claude Code vivas, contando procesos `claude.exe`.
-/// Señal REAL del SO: el mtime del transcript no distingue una sesión idle pero
-/// VIVA (el usuario fue a por café) de una CERRADA, y por eso las cerradas
-/// seguían saliendo "idle" hasta el umbral de 5 h. Devuelve `None` cuando no se
-/// puede determinar (plataforma no Windows o `tasklist` no disponible) — el
-/// llamador cae entonces a la clasificación puramente temporal previa.
-///
-/// ALCANCE (mandamiento 13): cuenta procesos, NO mapea PID <-> session_id (eso
-/// exigiría leer el cwd del PEB de cada proceso). El llamador asume que las
-/// sesiones vivas son las `n` más recientes; el resto se marcan cerradas.
-fn count_live_cli_sessions() -> Option<usize> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let out = std::process::Command::new("tasklist")
-            .args(["/FI", "IMAGENAME eq claude.exe", "/FO", "CSV", "/NH"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            return None;
-        }
-        let s = String::from_utf8_lossy(&out.stdout);
-        // Cada proceso es una línea CSV entre comillas; "No tasks" => 0 líneas.
-        Some(
-            s.lines()
-                .filter(|l| l.trim_start().starts_with('"'))
-                .count(),
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
-}
-
-/// Reclasifica las sesiones según la señal de proceso vivo. Asume `sessions`
-/// ordenada por actividad descendente. Solo las `live` sesiones PRINCIPALES más
-/// recientes pueden permanecer vivas; cualquier otra que el reloj dejó como
-/// working/waiting/idle se marca "dead" (cerrada), de modo que una sesión cuyo
-/// proceso CLI ya terminó deja de aparecer como activa. Los subagentes
-/// (`agent-*.jsonl`) no son procesos `claude.exe` independientes, así que su
-/// estado temporal se respeta y no cuentan para el cupo.
-fn apply_liveness(sessions: &mut [SessionInfo], live: usize) {
-    let mut main_rank = 0usize;
-    for s in sessions.iter_mut() {
-        if s.is_subagent {
-            continue;
-        }
-        let within_live = main_rank < live;
-        main_rank += 1;
-        if !within_live && s.status != "dead" {
-            s.status = "dead".to_string();
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Extracción de texto legible del contenido de un mensaje
-// ---------------------------------------------------------------------------
-
-/// Extrae hasta `max_chars` caracteres de texto del campo `content` de un
-/// mensaje assistant o user. Tolera content como string, array de bloques
-/// [{type:"text", text:"…"}], o cualquier otro valor JSON (se usa su repr).
-fn extract_text(content: &serde_json::Value, max_chars: usize) -> Option<String> {
-    let raw = match content {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(arr) => {
-            // Bloques de contenido de Claude: [{type:"text", text:"…"}, …]
-            arr.iter()
-                .filter_map(|block| {
-                    block
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string)
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
-        }
-        other => other.to_string(),
-    };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    // Recortar a max_chars en un límite de carácter Unicode válido.
-    if trimmed.len() <= max_chars {
-        Some(trimmed.to_string())
-    } else {
-        let cut: String = trimmed.chars().take(max_chars).collect();
-        Some(format!("{cut}…"))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Match de sesión con proyecto ULTRON
-// ---------------------------------------------------------------------------
-
-/// Intenta encontrar un `ProjectInfo` cuyo `path` sea igual (o prefijo) del
-/// `session_cwd`. Devuelve el `id` del primer proyecto que casa.
-///
-/// Estrategia: primero match exacto (normalizado con barras hacia adelante para
-/// evitar diferencias Windows vs Unix), luego prefijo más largo.
-fn match_project_id(
-    session_cwd: &str,
-    projects: &[crate::projects::types::ProjectInfo],
-) -> Option<String> {
-    // Normalizar separadores para la comparación.
-    let norm_cwd = session_cwd.replace('\\', "/").to_lowercase();
-
-    // 1. Match exacto (ignorando barra final).
-    let exact = projects.iter().find(|p| {
-        p.path
-            .as_deref()
-            .map(|pp| {
-                let np = pp.replace('\\', "/").to_lowercase();
-                np.trim_end_matches('/') == norm_cwd.trim_end_matches('/')
-            })
-            .unwrap_or(false)
-    });
-    if let Some(p) = exact {
-        return Some(p.id.clone());
-    }
-
-    // 2. Prefijo más largo: el proyecto cuyo path es el prefijo más específico
-    //    del cwd de la sesión (útil cuando la sesión es una subcarpeta).
-    projects
-        .iter()
-        .filter_map(|p| {
-            let pp = p.path.as_deref()?;
-            let np = pp.replace('\\', "/").to_lowercase();
-            let prefix = format!("{}/", np.trim_end_matches('/'));
-            if norm_cwd.starts_with(&prefix) || norm_cwd == np.trim_end_matches('/') {
-                Some((prefix.len(), p.id.clone()))
-            } else {
-                None
-            }
-        })
-        .max_by_key(|(len, _)| *len)
-        .map(|(_, id)| id)
-}
-
-// ---------------------------------------------------------------------------
-// Nombre legible de un cwd
-// ---------------------------------------------------------------------------
-
-/// Devuelve el nombre del proyecto ULTRON si hay match; de lo contrario extrae
-/// el último componente del cwd (separadores Windows y Unix).
-fn readable_name(
-    cwd: &str,
-    matched_id: Option<&str>,
-    projects: &[crate::projects::types::ProjectInfo],
-) -> String {
-    if let Some(id) = matched_id {
-        if let Some(p) = projects.iter().find(|p| p.id == id) {
-            if let Some(name) = p.name.as_deref().filter(|n| !n.is_empty()) {
-                return name.to_string();
-            }
-        }
-    }
-    // Último componente del path (separadores mixtos).
-    // `rfind` es O(n) pero desde el final, que es lo idiomático para clippy.
-    let normalised = cwd.replace('\\', "/");
-    normalised
-        .split('/')
-        .rfind(|s| !s.is_empty())
-        .unwrap_or(cwd)
-        .to_string()
-}
-
-// ---------------------------------------------------------------------------
 // Procesamiento de un único fichero JSONL
 // ---------------------------------------------------------------------------
 
@@ -474,7 +85,7 @@ fn readable_name(
 /// si el fichero está vacío, malformado, o corresponde a `journal.jsonl`.
 ///
 /// Fail-safe: nunca hace panic; los errores se propagan como `None`.
-fn parse_session_file(
+pub(crate) fn parse_session_file(
     path: &Path,
     is_subagent: bool,
     projects: &[crate::projects::types::ProjectInfo],
@@ -702,6 +313,7 @@ pub async fn list_active_sessions() -> Result<Vec<SessionInfo>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::sessions_sub::session_meta::THRESHOLD_IDLE_SECS;
 
     // -----------------------------------------------------------------------
     // Helpers para construir JSONL de ejemplo en los tests
@@ -935,37 +547,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test 7: context_pct se acota a 100.0
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn context_pct_se_acota_a_100() {
-        // Para acotar a 100 los tokens deben superar la ventana extendida (1M).
-        let tokens_over_limit: u64 = CONTEXT_LIMIT_EXTENDED + 500_000;
-        let limit = context_window_for(tokens_over_limit); // = 1M
-        let pct = ((tokens_over_limit as f32 / limit as f32) * 100.0).min(100.0);
-        assert!(
-            (pct - 100.0f32).abs() < f32::EPSILON,
-            "context_pct debe acotarse a 100.0 aunque los tokens superen el límite"
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Test 11: la ventana se infiere del contexto observado (bug context% ~100%)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn ventana_se_infiere_del_contexto_observado() {
-        // <= 200k → ventana estándar.
-        assert_eq!(context_window_for(0), 200_000);
-        assert_eq!(context_window_for(150_000), 200_000);
-        assert_eq!(context_window_for(200_000), 200_000);
-        // > 200k sólo cabe en la ventana de 1M.
-        assert_eq!(context_window_for(200_001), 1_000_000);
-        assert_eq!(context_window_for(491_112), 1_000_000);
-    }
-
-    // -----------------------------------------------------------------------
     // Test 12: contexto de 491k da ~49% sobre 1M, NO 100% sobre 200k (el bug)
     // -----------------------------------------------------------------------
 
@@ -1084,22 +665,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test 9: parse_iso8601_secs reconoce los formatos de Claude Code
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn parse_iso8601_reconoce_formatos_claude_code() {
-        // Formato con milisegundos y Z.
-        assert!(parse_iso8601_secs("2026-06-20T10:30:00.123Z").is_some());
-        // Formato sin milisegundos y Z.
-        assert!(parse_iso8601_secs("2026-06-20T10:30:00Z").is_some());
-        // Formato con offset explícito.
-        assert!(parse_iso8601_secs("2026-06-20T10:30:00+00:00").is_some());
-        // Formato inválido.
-        assert!(parse_iso8601_secs("no-es-fecha").is_none());
-    }
-
-    // -----------------------------------------------------------------------
     // Test 10: list_active_sessions_inner no hace panic aunque no haya carpeta
     // -----------------------------------------------------------------------
 
@@ -1114,69 +679,5 @@ mod tests {
             result.is_ok(),
             "list_active_sessions_inner debe devolver Ok (nunca panic)"
         );
-    }
-
-    // -----------------------------------------------------------------------
-    // Tests 14-16: apply_liveness (detección de proceso vivo)
-    // -----------------------------------------------------------------------
-
-    fn make_session(id: &str, status: &str, is_subagent: bool) -> SessionInfo {
-        SessionInfo {
-            session_id: id.to_string(),
-            project_path: "C:/x".to_string(),
-            project_name: "x".to_string(),
-            matched_project_id: None,
-            git_branch: None,
-            model: None,
-            context_tokens: 0,
-            context_limit: CONTEXT_LIMIT_DEFAULT,
-            context_pct: 0.0,
-            cache_read_tokens: 0,
-            output_tokens: 0,
-            status: status.to_string(),
-            last_activity: "2026-06-20T00:00:00Z".to_string(),
-            age_seconds: 0,
-            last_prompt: None,
-            last_activity_summary: None,
-            is_subagent,
-        }
-    }
-
-    #[test]
-    fn apply_liveness_cierra_las_que_exceden_procesos_vivos() {
-        // Orden por recencia desc; solo 1 proceso claude.exe vivo.
-        let mut sessions = vec![
-            make_session("s1", "working", false),
-            make_session("s2", "idle", false),
-            make_session("s3", "working", false),
-        ];
-        apply_liveness(&mut sessions, 1);
-        assert_eq!(sessions[0].status, "working", "la más reciente sigue viva");
-        assert_eq!(sessions[1].status, "dead", "fuera del top-1 => cerrada");
-        assert_eq!(sessions[2].status, "dead", "fuera del top-1 => cerrada");
-    }
-
-    #[test]
-    fn apply_liveness_cero_procesos_cierra_todas() {
-        let mut sessions = vec![make_session("s1", "working", false)];
-        apply_liveness(&mut sessions, 0);
-        assert_eq!(
-            sessions[0].status, "dead",
-            "sin proceso claude.exe vivo, ninguna sesión está activa"
-        );
-    }
-
-    #[test]
-    fn apply_liveness_no_degrada_subagentes_ni_los_cuenta() {
-        // El subagente no es un proceso claude.exe; no consume cupo ni se degrada.
-        let mut sessions = vec![
-            make_session("main", "working", false),
-            make_session("agent-x", "working", true),
-            make_session("main2", "working", false),
-        ];
-        apply_liveness(&mut sessions, 1);
-        assert_eq!(sessions[0].status, "working", "1ª principal viva");
-        assert_eq!(sessions[1].status, "working", "subagente intacto");
-        assert_eq!(sessions[2].status, "dead", "2ª principal fuera del cupo");
     }
 }

@@ -42,6 +42,7 @@ const crypto = require('crypto');
 // cat9.5  — logHookError en catch top-level: deja rastro sin romper fail-safe
 // ---------------------------------------------------------------------------
 const { observe, logHookError } = require('./lib/hook-obs');
+const { appendJsonl } = require('./lib/jsonl-log');
 observe('stop-compress-session');
 
 // ---------------------------------------------------------------------------
@@ -85,36 +86,17 @@ try {
 
 const HOME = os.homedir();
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'stop-compress-session.jsonl');
-const LOG_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_TURNS = 60;
 const QDRANT_URL = (process.env.QDRANT_URL || 'http://localhost:6333').replace(/\/$/, '');
 const COLLECTION = 'ultron_sessions';
 const VECTOR_SIZE = 384;
 
 // ---------------------------------------------------------------------------
-// Logging
+// Logging (rotating via shared appendJsonl)
 // ---------------------------------------------------------------------------
 
-function rotateLogIfNeeded() {
-  try {
-    const st = fs.statSync(LOG_PATH);
-    if (st.size < LOG_MAX_BYTES) return;
-    const rotated = LOG_PATH + '.1';
-    try { fs.unlinkSync(rotated); } catch (_) {}
-    fs.renameSync(LOG_PATH, rotated);
-  } catch (_) {}
-}
-
 function safeLog(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    rotateLogIfNeeded();
-    fs.appendFileSync(
-      LOG_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
-      'utf8'
-    );
-  } catch (_) {}
+  appendJsonl(LOG_PATH, entry);
 }
 
 // ---------------------------------------------------------------------------
@@ -514,17 +496,16 @@ function appendPendingDecisions(projectId, facts, sessionId, date) {
     const dir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId);
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, 'decisions-pending.jsonl');
-    const lines = decisionFacts.map((f) =>
-      JSON.stringify({
+    for (const f of decisionFacts) {
+      appendJsonl(file, {
         decision: f.text.slice(0, 120),
-        rationale: `Captado automáticamente del Stop hook (sesión ${sessionId}, ${date}). Revisar y aceptar o rechazar.`,
+        rationale: `Captado automaticamente del Stop hook (sesion ${sessionId}, ${date}). Revisar y aceptar o rechazar.`,
         session_id: sessionId,
         date,
         tags: ['auto-captured'],
         source: 'stop-compress-session',
-      }),
-    );
-    fs.appendFileSync(file, lines.join('\n') + '\n');
+      });
+    }
     safeLog({ level: 'info', msg: 'pending_decisions_written', count: decisionFacts.length, projectId, sessionId });
   } catch (e) {
     safeLog({ level: 'warn', msg: 'pending_decisions_failed', error: String(e && e.message) });

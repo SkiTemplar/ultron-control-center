@@ -91,13 +91,17 @@ function render(ctx) {
   return out.join('\n');
 }
 
-function logOrchestration(ctx, prompt, project, sessionId, elapsedMs) {
+function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
   try {
     const entry = {
       ts: new Date().toISOString(),
       // cat15.1: latencia de la orquestacion (hot path UserPromptSubmit) para el
       // LiveSessionMonitor y para diagnosticar la latencia del prompt.
       elapsed_ms: typeof elapsedMs === 'number' ? elapsedMs : null,
+      // cat9.4: traza si el hot path uso el daemon TCP (sub-segundo) o el spawn
+      // one-shot de fallback (cold E5 ~3.5s). Util para diagnosticar si el daemon
+      // murio entre sesiones y cuantos prompts pagaron el coste completo.
+      daemon_hit: usedDaemon === true,
       session_id: sessionId || null,
       project: project || null,
       prompt: String(prompt || '').slice(0, 280),
@@ -152,6 +156,7 @@ async function main() {
     DAEMON_TIMEOUT_MS
   );
   if (ctx && ctx.error) ctx = null; // daemon answered but failed -> fall back
+  const usedDaemon = ctx !== null;
 
   if (!ctx) {
     // No daemon (cold session / it died): spawn one for the NEXT prompt
@@ -166,7 +171,7 @@ async function main() {
     emit('');
     return;
   }
-  logOrchestration(ctx, prompt, project, sessionId, Date.now() - t0);
+  logOrchestration(ctx, prompt, project, sessionId, Date.now() - t0, usedDaemon);
   emit(render(ctx));
 }
 

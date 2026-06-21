@@ -4,9 +4,12 @@ use crate::memory::catalog;
 
 use super::orchestrate::orchestrate;
 use super::ranking::{
-    agent_sub_intent, build_prompt_plan, build_step_plans, optimize_prompt, rebalance_delegates,
+    agent_sub_intent, apply_token_budget, build_prompt_plan, build_step_plans, optimize_prompt,
+    rebalance_delegates,
 };
 use super::rules::{classify_intent, detect_cross_project};
+use super::types_model::{AgentChoice, SkillChoice, StepPlan};
+use crate::commands::memory::recall_unified::RecallEntry;
 
 /// cat13 2026-06-10 — el paso de mejora de prompt: vago -> preguntas;
 /// concreto -> sin preguntas (caso negativo); el texto original SIEMPRE
@@ -191,6 +194,97 @@ fn rebalance_waives_penalty_for_pertinent_meta() {
         ranked[0].score > 0.50,
         "pertinent meta agent should be boosted, not penalised"
     );
+}
+
+// cat16.4 — TOKEN_BUDGET es un presupuesto COMPARTIDO entre las 4 capas.
+fn mem(id: &str, tokens: i64) -> RecallEntry {
+    RecallEntry {
+        canonical_id: id.to_string(),
+        title: None,
+        summary: None,
+        scope: "indexed".to_string(),
+        project_id: None,
+        score: 1.0,
+        dense_rank: None,
+        sparse_rank: None,
+        dense_score: None,
+        reason: String::new(),
+        token_estimate: tokens,
+    }
+}
+fn agent(name: &str) -> AgentChoice {
+    AgentChoice {
+        name: name.to_string(),
+        description: "x".repeat(40), // ~10 tokens desc + name
+        score: 1.0,
+    }
+}
+fn skill(name: &str) -> SkillChoice {
+    SkillChoice {
+        name: name.to_string(),
+        description: "x".repeat(40),
+        kind: "persona".to_string(),
+        score: 1.0,
+    }
+}
+fn step(agent: &str) -> StepPlan {
+    StepPlan {
+        agent: agent.to_string(),
+        sub_intent: "feature".to_string(),
+        frame: "x".repeat(40),
+    }
+}
+
+#[test]
+fn token_budget_is_shared_and_prioritizes_memories() {
+    // Budget holgado: nada se recorta (comportamiento por defecto razonable).
+    let (m, a, s, sp) = apply_token_budget(
+        vec![mem("a", 100), mem("b", 100)],
+        vec![agent("debugger")],
+        vec![skill("tio-gilito")],
+        vec![step("rust-engineer"), step("code-reviewer")],
+        2000,
+        200,
+    );
+    assert_eq!(m.len(), 2, "presupuesto holgado no recorta memories");
+    assert_eq!(a.len(), 1);
+    assert_eq!(s.len(), 1);
+    assert_eq!(sp.len(), 2);
+
+    // Budget justo: memories tienen prioridad y consumen primero; lo que sobra
+    // alimenta agents/skills/step_plans. Con 220 de budget - 100 overhead = 120
+    // disponibles, dos memories de 120 c/u: solo cabe la primera (la mejor) y
+    // agota el presupuesto, dejando vacias las capas de menor prioridad.
+    let (m, a, s, sp) = apply_token_budget(
+        vec![mem("best", 120), mem("worse", 120)],
+        vec![agent("debugger")],
+        vec![skill("tio-gilito")],
+        vec![step("rust-engineer"), step("code-reviewer")],
+        220,
+        100,
+    );
+    assert_eq!(
+        m.len(),
+        1,
+        "memories sirven primero y agotan el presupuesto"
+    );
+    assert_eq!(m[0].canonical_id, "best", "se conserva el mejor item");
+    assert!(
+        a.is_empty() && s.is_empty() && sp.is_empty(),
+        "sin presupuesto restante, las capas de menor prioridad se vacian"
+    );
+
+    // Caso negativo / borde: overhead >= budget -> remaining=0 -> todo vacio,
+    // sin panic ni resta negativa.
+    let (m, a, s, sp) = apply_token_budget(
+        vec![mem("a", 10)],
+        vec![agent("debugger")],
+        vec![skill("tio-gilito")],
+        vec![step("rust-engineer"), step("code-reviewer")],
+        100,
+        200,
+    );
+    assert!(m.is_empty() && a.is_empty() && s.is_empty() && sp.is_empty());
 }
 
 // Real e2e: needs ultron_catalog + ultron_memory indexed (run after the

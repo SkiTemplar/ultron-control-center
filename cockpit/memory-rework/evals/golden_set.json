@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "generated": "2026-06-21",
+  "note": "Deterministic fixture derived from default_goldens() in memory/evals.rs. expect_ids are stable canonical ids from brain.db that are expected to appear in recall results for each query. Update expect_ids after a full reindex by running: bin/ultron-memory.exe eval --golden --update-ids",
+  "stats": {
+    "positives": 12,
+    "categories": {
+      "single-term": 4,
+      "multi-term": 5,
+      "decision": 2,
+      "cross-topic": 2
+    }
+  },
+  "positives": [
+    {
+      "id": "gs-0001",
+      "query": "qdrant",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0002",
+      "query": "memoria",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0003",
+      "query": "embeddings E5 dense",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0004",
+      "query": "recall hibrido RRF",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0005",
+      "query": "busqueda sparse FTS5",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0006",
+      "query": "decision sobre el modelo de embeddings",
+      "category": "decision",
+      "type": "decision",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0007",
+      "query": "decision arquitectura orquestador",
+      "category": "decision",
+      "type": "decision",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0008",
+      "query": "orquestador Ultron auto-routing",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0009",
+      "query": "hooks de sesion SessionStart",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0010",
+      "query": "candidato de memoria pendiente de validacion",
+      "category": "multi-term",
+      "type": "task",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0011",
+      "query": "qdrant embeddings recall decision",
+      "category": "cross-topic",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    },
+    {
+      "id": "gs-0012",
+      "query": "memoria sparse orquestador",
+      "category": "cross-topic",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": []
+    }
+  ]
+}

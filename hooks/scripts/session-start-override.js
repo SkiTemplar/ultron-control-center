@@ -27,7 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
 observe('session-start-override');
 
@@ -255,6 +255,7 @@ try {
   main();
 } catch (err) {
   safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+  logHookError('session-start-override', err);
   emitPayload('');
 }
 

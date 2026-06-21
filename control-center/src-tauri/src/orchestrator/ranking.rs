@@ -1,5 +1,6 @@
 // orchestrator/ranking.rs — agent/skill re-ranking and prompt plan building.
 
+use crate::commands::memory::recall_unified::RecallEntry;
 use crate::memory::catalog;
 
 use super::rules::preferred_skills;
@@ -458,4 +459,93 @@ pub(super) fn build_step_plans(steps: &[String]) -> Vec<StepPlan> {
             }
         })
         .collect()
+}
+
+// === cat16.4: TOKEN_BUDGET como presupuesto COMPARTIDO entre capas ===
+//
+// Antes, las 4 capas inyectadas (memories/agents/skills/step_plans) usaban caps
+// fijos hardcoded (12/5/4/6) que NO leian `TOKEN_BUDGET`: el campo
+// `token_budget` de `OrchestrationContext` era decorativo (tener el dato != usar
+// el dato, mandamiento 12). Ahora `apply_token_budget` recorta los 4 slices para
+// que la suma estimada de tokens no exceda el presupuesto compartido.
+//
+// REPARTO POR PRIORIDAD (el orden importa: lo de arriba se sirve primero):
+//   1. memories    — el contexto recordado es lo mas valioso; sirve primero.
+//   2. agents      — a quien delegar.
+//   3. skills      — que skills considerar.
+//   4. step_plans  — encuadre por paso del grupo.
+//
+// Cada capa consume del presupuesto restante; cuando no queda, las siguientes
+// capas se vacian (recorte, nunca borrado parcial de un item). Si el presupuesto
+// alcanza para todo lo que ya seleccionaron los caps por capa, NO se recorta
+// nada (comportamiento por defecto razonable).
+
+/// Heuristica estandar ~4 chars/token. Estima los tokens de un texto.
+fn est_tokens(text: &str) -> i64 {
+    // ceil(len/4); +1 minimo para textos no vacios.
+    if text.is_empty() {
+        0
+    } else {
+        // ceil(len / 4) sin div_ceil (unstable para i64 en este toolchain).
+        (text.len() as i64 + 3) / 4
+    }
+}
+
+fn agent_tokens(a: &AgentChoice) -> i64 {
+    est_tokens(&a.name) + est_tokens(&a.description)
+}
+
+fn skill_tokens(s: &SkillChoice) -> i64 {
+    est_tokens(&s.name) + est_tokens(&s.description) + est_tokens(&s.kind)
+}
+
+fn step_tokens(s: &StepPlan) -> i64 {
+    est_tokens(&s.agent) + est_tokens(&s.sub_intent) + est_tokens(&s.frame)
+}
+
+/// Recorta una capa para que su coste no exceda `remaining`. Devuelve los items
+/// que caben (en orden) y descuenta de `remaining` lo consumido. Nunca trocea un
+/// item: si el siguiente no cabe entero, se para (los items van pre-ordenados por
+/// relevancia, asi que se conservan los mejores).
+fn trim_layer<T>(items: Vec<T>, remaining: &mut i64, cost: impl Fn(&T) -> i64) -> Vec<T> {
+    let mut kept = Vec::with_capacity(items.len());
+    for item in items {
+        let c = cost(&item);
+        if c <= *remaining {
+            *remaining -= c;
+            kept.push(item);
+        } else {
+            break;
+        }
+    }
+    kept
+}
+
+/// Aplica `TOKEN_BUDGET` como presupuesto COMPARTIDO entre las 4 capas, con el
+/// reparto por prioridad documentado arriba. Si todo cabe, devuelve los slices
+/// intactos (sin recorte). Reserva `overhead` tokens para cabeceras/formato del
+/// pack antes de repartir entre las capas.
+pub(super) fn apply_token_budget(
+    memories: Vec<RecallEntry>,
+    agents: Vec<AgentChoice>,
+    skills: Vec<SkillChoice>,
+    step_plans: Vec<StepPlan>,
+    budget: i64,
+    overhead: i64,
+) -> (
+    Vec<RecallEntry>,
+    Vec<AgentChoice>,
+    Vec<SkillChoice>,
+    Vec<StepPlan>,
+) {
+    let mut remaining = (budget - overhead).max(0);
+    // Prioridad 1: memories (token_estimate ya viene calculado por el recall).
+    let memories = trim_layer(memories, &mut remaining, |m| m.token_estimate.max(0));
+    // Prioridad 2: agents.
+    let agents = trim_layer(agents, &mut remaining, agent_tokens);
+    // Prioridad 3: skills.
+    let skills = trim_layer(skills, &mut remaining, skill_tokens);
+    // Prioridad 4: step_plans.
+    let step_plans = trim_layer(step_plans, &mut remaining, step_tokens);
+    (memories, agents, skills, step_plans)
 }

@@ -23,7 +23,8 @@ import type {
   SpawnFlags,
   WorkspaceSummary,
 } from "../types";
-import { RefreshCw, Search } from "./projects/icons";
+import { RefreshCw, Search, Tag } from "./projects/icons";
+import { getPrompt } from "../lib/button-prompts";
 import { PROVIDERS, GROUP_THRESHOLD } from "./sessions/constants";
 import { loadCwd, saveCwd, loadPresets, savePresets, deriveWorkspaceName } from "./sessions/utils";
 import { LauncherModal } from "./sessions/LauncherModal";
@@ -130,6 +131,37 @@ export function Sessions() {
       setError(String(e));
     } finally {
       setCreatingProjectCwd(null);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk auto-tag — header "Auto-tag all" button. Builds one AutoTagRequest
+  // per loaded session (id + preview as first_prompt) and hands the batch to
+  // the backend, which generates tags via the "summarize" zone and persists
+  // them to ~/.ultron/cockpit/sessions-tags.jsonl.
+  // ---------------------------------------------------------------------------
+
+  const [autoTagging, setAutoTagging] = useState(false);
+
+  async function autoTagAll() {
+    if (autoTagging || history.length === 0) return;
+    setAutoTagging(true);
+    setError(null);
+    try {
+      const requests = history.map((s) => ({
+        session_id: s.id,
+        first_prompt: s.preview,
+      }));
+      const tagged = await invoke<{ tags: string[] }[]>(
+        "sessions_bulk_auto_tag",
+        { requests },
+      );
+      const withTags = tagged.filter((t) => t.tags.length > 0).length;
+      setToast(`Auto-tagged ${withTags}/${tagged.length} sessions`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAutoTagging(false);
     }
   }
 
@@ -277,11 +309,10 @@ export function Sessions() {
     setBusyCwd(ws.cwd);
     setError(null);
     try {
-      const seed = [
-        `Continuing context from session: ${ws.latest_session_id}.`,
-        `Workspace: ${ws.cwd}.`,
-        `Please load the prior transcript (look under ~/.claude/projects/) and continue from where it left off.`,
-      ].join(" ");
+      const seed = await getPrompt("sessions.send_context", {
+        session_id: ws.latest_session_id,
+        cwd: ws.cwd,
+      });
       await invoke("spawn_session", {
         provider: opts.provider,
         prompt: seed,
@@ -358,6 +389,23 @@ export function Sessions() {
               }}
             />
           </div>
+
+          {/* Auto-tag all */}
+          <button
+            type="button"
+            onClick={() => void autoTagAll()}
+            disabled={autoTagging || history.length === 0}
+            className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-[11.5px] transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Generate tags for every loaded session via AI (bulk)"
+          >
+            <Tag size={12} />
+            {autoTagging ? "Tagging..." : "Auto-tag all"}
+          </button>
 
           {/* Refresh */}
           <button

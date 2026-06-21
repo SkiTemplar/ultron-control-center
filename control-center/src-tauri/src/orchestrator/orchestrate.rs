@@ -7,7 +7,8 @@ use crate::memory::catalog;
 use super::ranking::{inject_preferred_floor, rank_skills, rebalance_delegates};
 use super::rules::{classify_intent, detect_cross_project};
 use super::types_model::{
-    AgentChoice, OrchestrationContext, SkillChoice, WorkflowChoice, TOKEN_BUDGET,
+    AgentChoice, OrchestrationContext, SkillChoice, WorkflowChoice, FORMAT_OVERHEAD_TOKENS,
+    TOKEN_BUDGET,
 };
 
 /// `dense_enabled` controls whether the semantic (E5) paths run. The
@@ -120,6 +121,22 @@ pub fn orchestrate(
         .as_ref()
         .map(|w| super::ranking::build_step_plans(&w.steps))
         .unwrap_or_default();
+
+    // cat16.4: TOKEN_BUDGET es ahora un presupuesto COMPARTIDO entre las 4 capas
+    // inyectadas (antes los caps por capa 12/5/4/6 lo ignoraban y el campo
+    // token_budget era decorativo). Se reparte por prioridad — memories primero,
+    // luego agents/skills/step_plans — reservando ~200 tokens de overhead de
+    // formato (ver types_model::TOKEN_BUDGET). Si el presupuesto alcanza para
+    // todo lo ya seleccionado, no recorta nada.
+    let (memories, delegate_agents, delegate_skills, step_plans) =
+        super::ranking::apply_token_budget(
+            memories,
+            delegate_agents,
+            delegate_skills,
+            step_plans,
+            TOKEN_BUDGET,
+            FORMAT_OVERHEAD_TOKENS,
+        );
 
     OrchestrationContext {
         prompt: prompt.to_string(),

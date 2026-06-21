@@ -22,12 +22,12 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { appendJsonl } = require('./lib/jsonl-log');
 observe('subagent-harvest');
 
 const HOME = os.homedir();
 const TMP_DIR = path.join(HOME, '.ultron', '.tmp');
 const LOG_PATH = path.join(TMP_DIR, 'subagent-harvest.jsonl');
-const LOG_MAX_BYTES = 1 * 1024 * 1024;
 const MIN_CANDIDATE_CHARS = 80; // skip trivial / empty results
 const SIDECAR_TIMEOUT_MS = 12000;
 
@@ -92,23 +92,8 @@ function extractResultText(stdin) {
   return '';
 }
 
-function rotateLogIfNeeded() {
-  try {
-    const st = fs.statSync(LOG_PATH);
-    if (st.size < LOG_MAX_BYTES) return;
-    try {
-      fs.unlinkSync(LOG_PATH + '.1');
-    } catch (_) {}
-    fs.renameSync(LOG_PATH, LOG_PATH + '.1');
-  } catch (_) {}
-}
-
 function appendScratchLog(record) {
-  try {
-    fs.mkdirSync(TMP_DIR, { recursive: true });
-    rotateLogIfNeeded();
-    fs.appendFileSync(LOG_PATH, JSON.stringify(record) + '\n', 'utf8');
-  } catch (_) {}
+  appendJsonl(LOG_PATH, record);
 }
 
 function main() {

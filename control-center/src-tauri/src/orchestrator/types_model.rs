@@ -13,7 +13,17 @@ use crate::commands::memory::recall_unified::RecallEntry;
 ///   - overhead (headers/format):   ~200 tokens
 ///
 /// Total: ~2000. Layers compete within this cap so the context stays bounded.
+///
+/// cat16.4 (2026-06-21): `orchestrate()` now ENFORCES this as a SHARED budget
+/// across the four injected layers (see `ranking::apply_token_budget`), with the
+/// priority split memories > agents > skills > step_plans. `FORMAT_OVERHEAD_TOKENS`
+/// is reserved for headers/format before the layers are allotted the remainder.
 pub const TOKEN_BUDGET: i64 = 2000;
+
+/// Tokens reserved for the `<ORCHESTRATION_CONTEXT>` headers/format (the
+/// ~200-token overhead line in the breakdown above). Subtracted from
+/// `TOKEN_BUDGET` before the four layers share the remainder.
+pub const FORMAT_OVERHEAD_TOKENS: i64 = 200;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentChoice {

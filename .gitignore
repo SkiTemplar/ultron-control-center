@@ -396,6 +396,7 @@ qdrant-native/
 # Build with `cargo build --features finance` + `VITE_FINANCE=1 npm run build` to enable.
 control-center/src-tauri/src/finance.rs
 control-center/src/components/Finance.tsx
+control-center/src/components/finance/
 
 # === 2026-06-06: sanitizacion ola 5-pilares (datos personales colados al tracking) ===
 # Catalogo de skills auto-generado (incluye personas personales). Rebuild local: skill_catalog_gen.py
@@ -417,6 +418,10 @@ cockpit/projects/*/agent-roster.json
 # clean of personal paths and references. (Kirkardo R4 P5 — public-repo hygiene.)
 cockpit/diagnostics/
 cockpit/memory-rework/
+# Exception: the deterministic golden_set fixture is public (no PII, part of the product).
+!cockpit/memory-rework/
+!cockpit/memory-rework/evals/
+!cockpit/memory-rework/evals/golden_set.json
 docs/superpowers/specs/
 scripts/cockpit/PROPOSED-hook-wiring.md
 control-center/docs/free-claude-code-port-plan-*.md
