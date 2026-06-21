@@ -43,6 +43,29 @@ function emit(additionalContext) {
   );
 }
 
+// cat17.2 (mandamiento #12): precompact-preserve-l0.js deja el estado de trabajo
+// L0 en ~/.ultron/.tmp/context.md antes de una compactacion, pero hasta ahora
+// NADIE lo leia (el dato se escribia y se abandonaba). Aqui lo re-leemos en
+// SessionStart y lo inyectamos como contexto, para que el scratch preservado se
+// USE tras compactar. Bounded (<=2KB) + fail-safe + gate de frescura (<24h) para
+// no re-inyectar un scratch viejo en sesiones nuevas no relacionadas.
+const L0_SCRATCH = path.join(os.homedir(), '.ultron', '.tmp', 'context.md');
+const L0_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const L0_MAX_CHARS = 2000;
+
+function readL0Scratch() {
+  try {
+    const st = fs.statSync(L0_SCRATCH);
+    if (Date.now() - st.mtimeMs > L0_MAX_AGE_MS) return ''; // stale -> ignora
+    const raw = fs.readFileSync(L0_SCRATCH, 'utf8').trim();
+    if (!raw) return '';
+    const clipped = raw.length > L0_MAX_CHARS ? raw.slice(0, L0_MAX_CHARS) + '\n[...]' : raw;
+    return '\n<l0-scratch source="precompact" trust="system">\n' + clipped + '\n</l0-scratch>';
+  } catch {
+    return ''; // no scratch / no leible -> nada que inyectar
+  }
+}
+
 function render(r) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
   if (r.project_id) out.push(`project: ${r.project_id}`);
@@ -81,11 +104,14 @@ function main() {
     project ? ['resume', '--project', project] : ['resume'],
     { timeoutMs: 11000 } // colchon para cold-hit E5 post-warmup; bajar a 3000 con daemon serve
   );
+  // cat17.2: inyecta tambien el scratch L0 preservado en la ultima compactacion
+  // (aunque no haya resume del sidecar).
+  const l0 = readL0Scratch();
   if (!resume) {
-    emit('');
+    emit(l0);
     return;
   }
-  emit(render(resume));
+  emit(render(resume) + l0);
 }
 
 try {

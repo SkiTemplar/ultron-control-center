@@ -146,13 +146,12 @@ function spawnDetached(args) {
   }
 }
 
+const { appendJsonl } = require('./jsonl-log');
+
 /** Append a one-line latency record. Best-effort, never throws. */
 function logMs(rec) {
-  try {
-    const dir = path.join(os.homedir(), '.ultron', 'logs');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(path.join(dir, 'capture.jsonl'), JSON.stringify({ ts: Date.now(), ...rec }) + '\n');
-  } catch { /* ignore */ }
+  // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
+  appendJsonl(path.join(os.homedir(), '.ultron', 'logs', 'capture.jsonl'), { ts: Date.now(), ...rec });
 }
 
 /** Normalise a cwd into a project_id (basename, leading dots stripped). */

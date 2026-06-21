@@ -37,7 +37,9 @@ const VECTOR_NAME = 'fast-multilingual-e5-large';
 const PAGE = 256;
 const LOG = path.join(os.homedir(), '.ultron', 'logs', 'qdrant-mirror-sync.jsonl');
 
-function log(rec) { try { fs.mkdirSync(path.dirname(LOG), { recursive: true }); fs.appendFileSync(LOG, JSON.stringify({ ts: Date.now(), ...rec }) + '\n'); } catch { /* ignore */ } }
+const { appendJsonl } = require('./lib/jsonl-log');
+// cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
+function log(rec) { appendJsonl(LOG, { ts: Date.now(), ...rec }); }
 
 function req(method, urlPath, body) {
   return new Promise((resolve) => {

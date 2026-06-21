@@ -39,17 +39,11 @@ const MAX_TOTAL_CONTEXT_CHARS = 6000;
 const ACTIVITY_WINDOW_DAYS = 60;
 const MIN_SIMILARITY_FOR_BODY = 2;
 
+const { appendJsonl } = require('./lib/jsonl-log');
+
 function safeLog(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    fs.appendFileSync(
-      LOG_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
-      'utf8'
-    );
-  } catch (_) {
-    /* ignore */
-  }
+  // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
+  appendJsonl(LOG_PATH, entry);
 }
 
 function emitPayload(additionalContext) {

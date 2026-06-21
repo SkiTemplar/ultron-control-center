@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { runCli, projectIdFromCwd, daemonRequest, spawnDetached } = require('./lib/ultron-memory-cli');
+const { appendJsonl } = require('./lib/jsonl-log');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
 // spawn fallback keeps the wider colchon for cold-hit E5 (see runCli call below).
@@ -88,11 +89,13 @@ function render(ctx) {
   return out.join('\n');
 }
 
-function logOrchestration(ctx, prompt, project, sessionId) {
+function logOrchestration(ctx, prompt, project, sessionId, elapsedMs) {
   try {
-    fs.mkdirSync(path.dirname(ORCH_LOG), { recursive: true });
     const entry = {
       ts: new Date().toISOString(),
+      // cat15.1: latencia de la orquestacion (hot path UserPromptSubmit) para el
+      // LiveSessionMonitor y para diagnosticar la latencia del prompt.
+      elapsed_ms: typeof elapsedMs === 'number' ? elapsedMs : null,
       session_id: sessionId || null,
       project: project || null,
       prompt: String(prompt || '').slice(0, 280),
@@ -113,13 +116,15 @@ function logOrchestration(ctx, prompt, project, sessionId) {
       cross_project: !!ctx.cross_project,
       warnings: Array.isArray(ctx.warnings) ? ctx.warnings : [],
     };
-    fs.appendFileSync(ORCH_LOG, JSON.stringify(entry) + '\n', 'utf8');
+    // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
+    appendJsonl(ORCH_LOG, entry);
   } catch (_) {
     /* never block the prompt */
   }
 }
 
 async function main() {
+  const t0 = Date.now();
   let prompt = '';
   let cwd = process.cwd();
   let sessionId = null;
@@ -159,12 +164,19 @@ async function main() {
     emit('');
     return;
   }
-  logOrchestration(ctx, prompt, project, sessionId);
+  logOrchestration(ctx, prompt, project, sessionId, Date.now() - t0);
   emit(render(ctx));
 }
 
 main()
-  .catch(() => {
+  .catch((e) => {
+    // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+    try {
+      appendJsonl(path.join(os.homedir(), '.ultron', 'logs', 'hook-errors.jsonl'), {
+        hook: 'memory-orchestrate',
+        error: String((e && e.message) || e),
+      });
+    } catch { /* ignore */ }
     try { emit(''); } catch { /* ignore */ }
   })
   .finally(() => {

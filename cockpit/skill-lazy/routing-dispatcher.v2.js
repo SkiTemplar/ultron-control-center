@@ -461,17 +461,11 @@ const AGENTS = [
 // Utility functions (unchanged from v1)
 // ---------------------------------------------------------------------------
 
+const { appendJsonl } = require('../../hooks/scripts/lib/jsonl-log');
+
 function safeLog(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    fs.appendFileSync(
-      LOG_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
-      'utf8'
-    );
-  } catch (_) {
-    // never throw
-  }
+  // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
+  appendJsonl(LOG_PATH, entry);
 }
 
 const _hookStart = Date.now();

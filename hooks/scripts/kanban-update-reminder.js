@@ -102,14 +102,11 @@ const COMPLETION_MARKERS = [
   'done', 'completed', 'finished', 'applied', 'finalized', 'shipped',
 ];
 
+const { appendJsonl } = require('./lib/jsonl-log');
+
 function safeLog(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
-    fs.appendFileSync(LOG_PATH, line, 'utf8');
-  } catch (_) {
-    // Hooks no fallan por logging.
-  }
+  // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
+  appendJsonl(LOG_PATH, entry);
 }
 
 function readStdinSync() {
