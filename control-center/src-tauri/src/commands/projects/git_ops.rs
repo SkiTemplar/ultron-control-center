@@ -31,16 +31,6 @@ fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn git_is_repo(path: String) -> bool {
-    std::path::Path::new(&path).join(".git").exists()
-}
-
-#[tauri::command]
-pub fn git_status(path: String) -> Result<String, String> {
-    run_git(&["status", "--short", "--branch"], &path)
-}
-
-#[tauri::command]
 pub fn git_pull(path: String) -> Result<String, String> {
     run_git(&["pull", "--ff-only"], &path)
 }
@@ -53,11 +43,6 @@ pub fn git_push(path: String) -> Result<String, String> {
 #[tauri::command]
 pub fn git_init(path: String) -> Result<String, String> {
     run_git(&["init"], &path)
-}
-
-#[tauri::command]
-pub fn git_log_short(path: String) -> Result<String, String> {
-    run_git(&["log", "--oneline", "-8"], &path)
 }
 
 #[tauri::command]
