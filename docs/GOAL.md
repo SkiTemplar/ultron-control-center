@@ -55,6 +55,11 @@ Un sistema de IA personal que supere a cualquier setup de andar por casa, con es
 6. Documentación · 7. Calidad de código · 8. UI funcional · 9. Hooks · 10. Unión end-to-end ·
 11. Plugins/MCPs · 12. Facilidad de implementación · 13. Mejora de prompts · 14. Mejoras backend/UI reales.
 
+Estas 14 son las **core** (mapean a los 8 pilares). El harness `scripts/kirkardo-eval.mjs` mide
+además 4 categorías **suplementarias** (sanas, pero fuera de los pilares del GOAL), separadas para
+que no diluyan el promedio core: **15. Observabilidad · 16. Context Engineering · 17. Compactación ·
+18. Reproducibilidad**. El JSON reporta `overall` (las 18) y `overall_core` (solo las 14).
+
 Baseline (criterios binarios, 2026-06-08): **overall 5.24** (33/63 checks). Objetivo: **9.5 en todas**.
 
 ## Regla de medición
@@ -63,3 +68,8 @@ La nota NO la pone un agente: la da el contador de checks binarios por categorí
 (`nota = checks_verdes / total * 10`). Todo hallazgo se verifica en **runtime** antes de actuar
 (el propio eval Kirkardo también alucina). Binario fresco = aplicado (rebuild + cerrar la app antes
 de buildear). El feedback literal del usuario ES el entregable.
+
+**Gate de laggard (anti-promedio):** "acabado" = `min(nota_categoría) >= 9.5`, **no** que el
+promedio llegue a 9.5. Un overall ponderado alto puede esconder una categoría rota (una cat con
+muchos checks verdes compensa otra en rojo). El harness emite `all_cats_pass`, `worst_cat` y
+`laggards`; `node scripts/kirkardo-eval.mjs --gate` devuelve exit ≠0 si alguna categoría incumple.

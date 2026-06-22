@@ -45,6 +45,17 @@ const SKILLS_DIR = join(CLAUDE, "skills");
 const ARGS = process.argv.slice(2);
 const FLAG_JSON = ARGS.includes("--json");
 const FLAG_CAT = ARGS.find((a) => a.startsWith("--cat="))?.split("=")[1];
+const FLAG_GATE = ARGS.includes("--gate"); // exit !=0 si alguna cat < umbral (gate CI estricto)
+
+// El GOAL exige 9.5 en CADA categoria, no solo en el promedio. El overall ponderado
+// enmascara laggards (una cat rota se diluye entre checks verdes de otras categorias).
+// (Fase 1 honestidad del medidor — audit runtime 2026-06-22)
+const LAGGARD_THRESHOLD = 9.5;
+// GOAL.md declara 14 categorias (los 8 pilares). Las cats 15-18 (Observabilidad,
+// Context Engineering, Compactacion, Reproducibilidad) son SUPLEMENTARIAS: sanas, pero
+// no mapean a un pilar del GOAL. Se separan para que sus checks (hoy todos verdes) no
+// diluyan el promedio de las 14 core.
+const GOAL_CORE_MAX_CAT = 14;
 
 // Normaliza rutas Windows a forward-slash para usar en comandos shell
 function fwd(winPath) {
@@ -1634,6 +1645,28 @@ cat(16, "Context Engineering", [
       return { pass: !hasMem0, detail: hasMem0 ? "mem0 en hooks de settings.json" : "0 referencias a mem0 en hooks" };
     },
   },
+  {
+    // Pilar 1 POSITIVO (no solo ausencia de anti-features): mide el gasto REAL de
+    // tokens que los hooks inyectan al CLI cada prompt y lo acota. La telemetria la
+    // produce hooks/scripts/lib/token-meter.js (emit de cada hook de memoria).
+    // Sin este check, hook-tokens.jsonl seria dato sin consumo (mandamiento 12).
+    id: "16.5",
+    desc: "Gasto de tokens de memory-orchestrate al CLI medido y acotado (mediana last20 < 1500 est_tokens)",
+    auto: true,
+    check() {
+      const log = join(ULTRON, "logs", "hook-tokens.jsonl");
+      if (!fileExists(log)) return { pass: false, detail: "hook-tokens.jsonl ausente (telemetria de gasto no corriendo)" };
+      const toks = readFileSync(log, "utf8").trim().split("\n").filter(Boolean)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .filter((e) => e && e.hook === "memory-orchestrate" && typeof e.est_tokens === "number")
+        .map((e) => e.est_tokens);
+      if (toks.length === 0) return { pass: false, detail: "0 entradas memory-orchestrate en hook-tokens.jsonl" };
+      const last = toks.slice(-20).sort((a, b) => a - b);
+      const median = last[Math.floor(last.length / 2)];
+      const LIMIT = 1500;
+      return { pass: median < LIMIT, detail: `mediana est_tokens (last${last.length})=${median} < ${LIMIT}` };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1839,6 +1872,7 @@ async function evaluate() {
     const catResult = {
       cat: catDef.num,
       name: catDef.name,
+      tier: catDef.num <= GOAL_CORE_MAX_CAT ? "core" : "supplementary",
       checks: [],
       pass: 0,
       total: 0,
@@ -1884,10 +1918,34 @@ async function evaluate() {
 
   const overall = totalDenominator > 0 ? (totalPass / totalDenominator) * 10 : 0;
 
+  // -------------------------------------------------------------------------
+  // Gate de laggard + overall core: el medidor deja de mentir por promedio.
+  // worst_cat = la categoria mas baja; all_cats_pass = el GOAL (9.5 en TODAS)
+  // se cumple solo si NINGUNA cat esta por debajo del umbral.
+  // -------------------------------------------------------------------------
+  const rated = results.filter((c) => c.total > 0); // cats con >=1 check auto
+  const worst = rated.length ? rated.reduce((m, c) => (c.nota < m.nota ? c : m)) : null;
+  const laggards = rated
+    .filter((c) => c.nota < LAGGARD_THRESHOLD)
+    .map((c) => ({ cat: c.cat, name: c.name, nota: parseFloat(c.nota.toFixed(1)) }))
+    .sort((a, b) => a.nota - b.nota);
+  const allCatsPass = laggards.length === 0;
+
+  // overall_core = solo las 14 categorias del GOAL (sin diluir con suplementarias)
+  const coreRated = rated.filter((c) => c.tier === "core");
+  const corePass = coreRated.reduce((s, c) => s + c.pass, 0);
+  const coreTotal = coreRated.reduce((s, c) => s + c.total, 0);
+  const overallCore = coreTotal > 0 ? (corePass / coreTotal) * 10 : 0;
+
   const output = {
     generated_at: new Date().toISOString(),
     deterministic: true,
     overall: parseFloat(overall.toFixed(2)),
+    overall_core: parseFloat(overallCore.toFixed(2)),
+    all_cats_pass: allCatsPass,
+    laggard_threshold: LAGGARD_THRESHOLD,
+    worst_cat: worst ? { cat: worst.cat, name: worst.name, nota: parseFloat(worst.nota.toFixed(1)) } : null,
+    laggards,
     total_pass: totalPass,
     total_checks: totalDenominator,
     cats: results,
@@ -1922,6 +1980,14 @@ async function evaluate() {
 
     console.log("");
     console.log(`OVERALL: ${overall.toFixed(2)}/10  (${totalPass}/${totalDenominator} checks auto)`);
+    console.log(`CORE (14 cats GOAL): ${overallCore.toFixed(2)}/10`);
+    if (allCatsPass) {
+      console.log(`VERDICT: PASS — todas las categorias >= ${LAGGARD_THRESHOLD} (gate de laggard)`);
+    } else {
+      const lg = laggards.map((l) => `cat${l.cat}=${l.nota}`).join(", ");
+      console.log(`VERDICT: FAIL — ${laggards.length} laggard(s) < ${LAGGARD_THRESHOLD}: ${lg}`);
+      if (worst) console.log(`         worst_cat: cat${worst.cat} ${worst.name} = ${worst.nota.toFixed(1)}`);
+    }
     console.log(`JSON: ${join(logsDir, "kirkardo-eval.json")}`);
   } else {
     console.log(JSON.stringify(output, null, 2));
@@ -1930,7 +1996,13 @@ async function evaluate() {
   return output;
 }
 
-evaluate().catch((e) => {
-  console.error("Error en kirkardo-eval:", e);
-  process.exit(1);
-});
+evaluate()
+  .then((out) => {
+    // --gate: exit !=0 si alguna categoria esta por debajo del umbral (gate CI estricto).
+    // Sin el flag mantiene exit 0 (compatibilidad) pero imprime VERDICT: FAIL.
+    if (FLAG_GATE && !out.all_cats_pass) process.exit(2);
+  })
+  .catch((e) => {
+    console.error("Error en kirkardo-eval:", e);
+    process.exit(1);
+  });

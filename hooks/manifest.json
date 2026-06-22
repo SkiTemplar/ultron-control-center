@@ -171,7 +171,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
-      "checksum_sha256": "a4ddc882bcca3e8a08647e375a023d972ed771be8fdf3c5b7f7d477ccc7f30b3",
+      "checksum_sha256": "11878145e2bf71640fcfa7030b1dc092763cac09d2885aa4e2f7484f3424e4ea",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -218,7 +218,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 12,
-      "checksum_sha256": "bb383072b7cf6ed2efef0edba31ba1d3d5c9ec538a7a3cc641e50b6a25ed3c79",
+      "checksum_sha256": "50380b98b5d9e82a9df95ad3f41bda4fa5236f260326d027506c6a783f775e82",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

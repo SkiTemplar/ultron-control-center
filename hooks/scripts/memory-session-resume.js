@@ -15,11 +15,14 @@ const { observe, logHookError } = require('./lib/hook-obs');
 observe('memory-session-resume');
 
 function emit(additionalContext) {
+  const ctx = additionalContext || '';
+  // Pilar 1: contabiliza lo que este hook inyecta al CLI (antes a ciegas).
+  try { require('./lib/token-meter').meterInjection('memory-session-resume', ctx); } catch {}
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: additionalContext || '',
+        additionalContext: ctx,
       },
     })
   );

@@ -24,11 +24,14 @@ const DAEMON_TIMEOUT_MS = 3000;
 const ORCH_LOG = path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
 
 function emit(additionalContext) {
+  const ctx = additionalContext || '';
+  // Pilar 1: contabiliza lo que este hook inyecta al CLI (antes a ciegas).
+  try { require('./lib/token-meter').meterInjection('memory-orchestrate', ctx); } catch {}
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'UserPromptSubmit',
-        additionalContext: additionalContext || '',
+        additionalContext: ctx,
       },
     })
   );
