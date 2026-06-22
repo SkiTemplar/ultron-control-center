@@ -189,16 +189,22 @@ function httpRequest(urlStr, options, body) {
 const EXTRACTION_PROMPT = `You are a technical memory assistant. Given a conversation transcript, extract 3 to 5 key facts worth remembering for future sessions.
 
 Return ONLY valid JSON with this exact shape:
-{"facts":[{"text":"<concise fact>","kind":"decision|bug|feature|todo|file","importance":0.0-1.0}]}
+{"facts":[{"text":"<concise fact>","kind":"decision|bug|feature|todo|file|context","importance":0.0-1.0}]}
 
 Rules:
 - "text": one sentence, max 120 chars, in the same language as the conversation
-- "kind": one of decision, bug, feature, todo, file
+- "kind": one of decision, bug, feature, todo, file, context
 - "importance": float 0-1 (1 = critical architectural decision, 0.1 = minor note)
 - For "decision" facts, set importance >= 0.7 — an architectural/design/tooling
   choice ("we decided X over Y", "we'll use Z") is always worth remembering
+- Use "context" ONLY for a fact that describes WHAT THIS PROJECT IS or what the
+  user is building at a high level (e.g. "ULTRON is a personal AI OS in
+  Tauri/Rust", "this project is a roguelike game about dungeon traders"). NOT
+  per-session work. At most 1 context fact; omit it entirely if the conversation
+  does not clearly reveal the nature of the project.
 - Return between 3 and 5 facts
-- Focus on decisions made, bugs fixed, files created/changed, todos left
+- Focus on decisions made, bugs fixed, files changed, todos left, and (only if
+  revealed) what the project is about
 
 Transcript (last turns):
 `;
@@ -404,6 +410,44 @@ function appendPendingDecisions(projectId, facts, sessionId, date) {
   }
 }
 
+// Captura automatica de CONTEXTO de proyecto (peticion 2026-06-22: "que el
+// sistema sepa de este proyecto cuando toque, captura automatica por proyecto").
+// Acumula los facts kind="context" (que es el proyecto / a que se dedica) en
+// cockpit/projects/<projectId>/context.md, que el SessionStart del MISMO proyecto
+// reinyecta (memory-session-resume.readProjectContext). Dedup por texto + bounded
+// a las ultimas N lineas. Best-effort: nunca lanza en el hot path de cierre.
+const CONTEXT_MAX_LINES = 12;
+
+function appendProjectContext(projectId, facts) {
+  try {
+    const ctx = (facts || []).filter((f) => f && f.kind === 'context' && f.text && f.text.trim().length >= 5);
+    if (ctx.length === 0) return;
+    const dir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'context.md');
+    let lines = [];
+    try {
+      lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
+    } catch {
+      /* primer context.md del proyecto */
+    }
+    const keyOf = (s) => s.toLowerCase().replace(/^[-*\s]+/, '').slice(0, 80);
+    const seen = new Set(lines.map(keyOf));
+    for (const f of ctx) {
+      const text = f.text.trim();
+      const key = keyOf(text);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`- ${text}`);
+    }
+    const bounded = lines.slice(-CONTEXT_MAX_LINES);
+    fs.writeFileSync(file, bounded.join('\n') + '\n', 'utf8');
+    safeLog({ level: 'info', msg: 'project_context_written', count: ctx.length, projectId });
+  } catch (e) {
+    safeLog({ level: 'warn', msg: 'project_context_failed', error: String(e && e.message) });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // cat17.1 — Structured compact output (>=4 of 8 outputs)
 // Writes cockpit/projects/{projectId}/sessions/{session_id}/compact.json with:
@@ -556,6 +600,9 @@ async function main() {
   // Auto-capture decisions for the Control Center "Decisions" panel. Runs
   // before the Qdrant path so decisions are still captured if Qdrant is down.
   appendPendingDecisions(projectId, facts, sessionId, date);
+  // Captura automatica de contexto de proyecto (kind=context) -> context.md, que
+  // el SessionStart del mismo proyecto reinyecta. Best-effort.
+  appendProjectContext(projectId, facts);
 
   // OLA write-path (2026-06-04): propose GOVERNED memory candidates via the
   // `ultron-memory capture` sidecar. The sidecar re-runs extraction through the
@@ -612,10 +659,15 @@ async function main() {
   });
 }
 
-main().catch(err => {
-  safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
-  // cat9.5: rastro en hook-errors.jsonl para que el orquestador detecte fallos silenciosos.
-  logHookError('stop-compress-session', err);
-});
-
-process.exitCode = 0;
+// Solo corre el hook cuando se invoca directamente; al importarse (tests) expone
+// las funciones puras sin disparar la compactacion ni la llamada al LLM.
+if (require.main === module) {
+  main().catch(err => {
+    safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+    // cat9.5: rastro en hook-errors.jsonl para que el orquestador detecte fallos silenciosos.
+    logHookError('stop-compress-session', err);
+  });
+  process.exitCode = 0;
+} else {
+  module.exports = { appendProjectContext, appendPendingDecisions, resolveProjectId };
+}

@@ -48,47 +48,26 @@ function readL0Scratch() {
   }
 }
 
-// Perfil de proyectos del usuario (2026-06-22): el resume no debe ser solo
-// decisiones tecnicas, tambien "en que anda" en sus proyectos activos.
-// El dato YA existe en cockpit/projects/<p>/kanban.json (mandamiento #12: tener
-// el dato != usarlo); aqui lo derivamos y lo inyectamos. Sin tocar el sidecar
-// Rust: lo construimos en JS desde los kanban locales. Bounded + fail-safe.
+// Contexto del proyecto ACTUAL (peticion 2026-06-22: NO un overview de todos los
+// proyectos al arrancar, sino que el sistema sepa de ESTE proyecto cuando se
+// trabaja en el). El Stop hook (stop-compress) acumula en
+// cockpit/projects/<p>/context.md "que es este proyecto y en que se trabaja";
+// aqui inyectamos SOLO el del proyecto actual. Bounded + fail-safe.
 const PROJECTS_DIR = path.join(os.homedir(), '.ultron', 'cockpit', 'projects');
-const PROJECTS_MAX = 6;
+const CONTEXT_MAX_CHARS = 1200;
 
-function readProjectsOverview() {
+function readProjectContext(projectId) {
+  if (!projectId) return '';
   try {
-    const entries = fs
-      .readdirSync(PROJECTS_DIR, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && e.name !== '__home' && !e.name.startsWith('.'));
-    const projects = [];
-    for (const e of entries) {
-      const kpath = path.join(PROJECTS_DIR, e.name, 'kanban.json');
-      let st;
-      let board;
-      try {
-        st = fs.statSync(kpath);
-        board = JSON.parse(fs.readFileSync(kpath, 'utf8'));
-      } catch {
-        continue; // sin kanban o ilegible -> fuera
-      }
-      const roleOf = {};
-      for (const c of board.columns || []) roleOf[c.id] = c.role;
-      const cards = Array.isArray(board.cards) ? board.cards : [];
-      const active = cards.filter((c) => roleOf[c.column_id] === 'todo' || roleOf[c.column_id] === 'doing');
-      if (!active.length) continue; // sin trabajo activo -> no es relevante ahora
-      const doing = cards.find((c) => roleOf[c.column_id] === 'doing');
-      const focus = ((doing || active[0]).title || '').slice(0, 90);
-      projects.push({ name: e.name, mtime: st.mtimeMs, count: active.length, focus });
-    }
-    projects.sort((a, b) => b.mtime - a.mtime);
-    return projects.slice(0, PROJECTS_MAX);
+    const raw = fs.readFileSync(path.join(PROJECTS_DIR, projectId, 'context.md'), 'utf8').trim();
+    if (!raw) return '';
+    return raw.length > CONTEXT_MAX_CHARS ? raw.slice(0, CONTEXT_MAX_CHARS) + '\n[...]' : raw;
   } catch {
-    return []; // cualquier fallo -> no inyectar (fail-safe)
+    return ''; // sin context.md / ilegible -> nada que inyectar (fail-safe)
   }
 }
 
-function render(r, projects) {
+function render(r, projectContext) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
   r = r || {};
   if (r.project_id) out.push(`project: ${r.project_id}`);
@@ -109,9 +88,9 @@ function render(r, projects) {
   }
   if (r.next_action) out.push(`next_action: ${r.next_action}`);
   if (Array.isArray(r.warnings) && r.warnings.length) out.push(`warnings: ${r.warnings.join('; ')}`);
-  if (Array.isArray(projects) && projects.length) {
-    out.push('your_projects (en que andas, por actividad reciente):');
-    for (const p of projects) out.push(`  - ${p.name} [${p.count} activas]: ${p.focus}`);
+  if (projectContext) {
+    out.push('project_context (que es este proyecto / en que andas — captura automatica):');
+    for (const line of projectContext.split('\n')) out.push(`  ${line}`);
   }
   out.push('</ultron-memory-resume>');
   return out.join('\n');
@@ -134,14 +113,14 @@ function main() {
   // cat17.2: inyecta tambien el scratch L0 preservado en la ultima compactacion
   // (aunque no haya resume del sidecar).
   const l0 = readL0Scratch();
-  // Perfil de proyectos del usuario (independiente del sidecar: se inyecta aunque
+  // Contexto del proyecto actual (independiente del sidecar: se inyecta aunque
   // el resume Rust falle).
-  const projects = readProjectsOverview();
-  if (!resume && !projects.length) {
+  const projectContext = readProjectContext(project);
+  if (!resume && !projectContext) {
     emit(l0);
     return;
   }
-  emit(render(resume, projects) + l0);
+  emit(render(resume, projectContext) + l0);
 }
 
 // Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script
@@ -155,5 +134,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectsOverview, render, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
+  module.exports = { readL0Scratch, readProjectContext, render, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
 }

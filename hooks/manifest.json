@@ -26,7 +26,7 @@
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 30,
-      "checksum_sha256": "2357a2fa14d1144dfdad4cbf9c0425cfbcab486bdd98383a5a9598c45a3ebf9c",
+      "checksum_sha256": "82e9d062dbaa90aef0df285c3c7bbd6d160b762750c282f47ad26e8437f1f484",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -171,7 +171,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
-      "checksum_sha256": "16bd3059a28041436c49ecad2d463dd50d0d967c1fd0daa6528dae5791157e72",
+      "checksum_sha256": "a4ddc882bcca3e8a08647e375a023d972ed771be8fdf3c5b7f7d477ccc7f30b3",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
