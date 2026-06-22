@@ -30,13 +30,16 @@ use std::io::Read;
 use control_center_lib as ul;
 
 fn main() {
+    // cat15: trace to stderr so the JSON result on stdout (the hook IPC
+    // channel) stays clean. Honours RUST_LOG; defaults to info.
+    control_center_lib::init_tracing_stderr();
     match run() {
         Ok(v) => println!(
             "{}",
             serde_json::to_string(&v).unwrap_or_else(|_| "{}".to_string())
         ),
         Err(e) => {
-            eprintln!("ultron-memory: {e}");
+            tracing::error!(error = %e, "ultron-memory failed");
             std::process::exit(1);
         }
     }

@@ -117,8 +117,44 @@ fn toggle_window(app: &tauri::AppHandle) {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Initialise the global `tracing` subscriber once for the GUI process.
+///
+/// cat15 observability: structured logging app-wide. Honours `RUST_LOG`
+/// (e.g. `RUST_LOG=control_center=debug,ai_router=trace`); defaults to `info`
+/// when unset. `try_init` is used so a second call (tests, re-entry) is a
+/// no-op instead of a panic, and so a sidecar that already installed a
+/// subscriber is never clobbered.
+pub fn init_tracing() {
+    init_tracing_inner(false);
+}
+
+/// Same as [`init_tracing`] but writes to **stderr**, leaving stdout clean.
+///
+/// The `ultron-memory` / `ultron-embed` sidecars stream their JSON result on
+/// stdout (the IPC channel the Node hooks parse); trace output must therefore
+/// go to stderr or it would corrupt that channel. Sidecars call this from
+/// their `main()`.
+pub fn init_tracing_stderr() {
+    init_tracing_inner(true);
+}
+
+fn init_tracing_inner(to_stderr: bool) {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let builder = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true);
+    if to_stderr {
+        let _ = builder.with_writer(std::io::stderr).try_init();
+    } else {
+        let _ = builder.try_init();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_tracing();
+
     // Load .env files so users can store provider API keys in dotfiles
     // instead of exporting to the shell. Order: ~/.ultron/.env (preferred),
     // ~/.ultron/control-center/.env, then cwd/.env. First hit wins per key
@@ -451,10 +487,10 @@ pub fn run() {
             {
                 let report = crate::migration::run_migrations_inner(env!("CARGO_PKG_VERSION"));
                 if report.migrated {
-                    eprintln!(
-                        "[ultron] migration v{}->v{}: {}",
-                        report.from_version,
-                        report.to_version,
+                    tracing::info!(
+                        from = %report.from_version,
+                        to = %report.to_version,
+                        "data migration applied: {}",
                         report.actions.join(" | ")
                     );
                 }
@@ -466,7 +502,7 @@ pub fn run() {
                 if let Ok(projects) = crate::projects::list_projects_inner() {
                     let ids: Vec<String> = projects.iter().map(|p| p.id.clone()).collect();
                     if let Err(e) = crate::kanban::migrate_all_projects(&ids) {
-                        eprintln!("[ultron] kanban migration: {e}");
+                        tracing::error!(error = %e, "kanban migration failed");
                     }
                 }
             }
@@ -474,7 +510,7 @@ pub fn run() {
             // KIRKARDO 23 P2: initialise the workflow-runs SQLite DB (WAL +
             // indices). Idempotent — no-op when table already exists.
             if let Err(e) = crate::workflow_runs::init_db() {
-                eprintln!("[ultron] workflow_runs init_db failed: {e}");
+                tracing::error!(error = %e, "workflow_runs init_db failed");
             }
 
             // MEMORY KERNEL Fase A: initialise the canonical memory DB
@@ -483,7 +519,7 @@ pub fn run() {
             // This wiring was MISSING before — brain.db was born empty and the
             // "strong DB" stored nothing. Idempotent. Never panics.
             if let Err(e) = crate::memory::sqlite_store::SqliteStore::init() {
-                eprintln!("[ultron] memory brain.db init failed: {e}");
+                tracing::error!(error = %e, "memory brain.db init failed");
             }
 
             // KIRKARDO 23 P2: migrate legacy workflows-old.json → YAML if present.
@@ -493,14 +529,14 @@ pub fn run() {
             let shortcut_handle = app.global_shortcut();
             let spec = hotkeys::load_hotkey_spec();
             let shortcut = hotkeys::parse_hotkey(&spec).unwrap_or_else(|e| {
-                eprintln!(
-                    "[ultron] persisted hotkey '{}' rejected: {} — falling back",
-                    spec, e
+                tracing::warn!(
+                    hotkey = %spec, error = %e,
+                    "persisted hotkey rejected — falling back to Ctrl+Alt+U"
                 );
                 Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyU)
             });
             if let Err(e) = shortcut_handle.register(shortcut) {
-                eprintln!("[ultron] global shortcut register failed: {}", e);
+                tracing::error!(error = %e, "global shortcut register failed");
             }
 
             // Per-project hotkeys — user-defined in Settings → Project
@@ -508,12 +544,12 @@ pub fn run() {
             // (The legacy auto-registered Ctrl+Alt+1..9 set was removed in
             // v15.5.21 — it collided with AltGr on international keyboards.)
             if let Err(e) = project_hotkeys::register_custom_hotkeys(app.handle()) {
-                eprintln!("[ultron] custom project hotkeys init failed: {}", e);
+                tracing::error!(error = %e, "custom project hotkeys init failed");
             }
 
             // Tray + close-to-tray.
             if let Err(e) = tray::init_tray(app.handle()) {
-                eprintln!("[ultron] tray init failed: {}", e);
+                tracing::error!(error = %e, "tray init failed");
             }
 
             // Quota watchdog — polls quota-state.json every 60 s and emits
@@ -536,10 +572,10 @@ pub fn run() {
             tauri::async_runtime::spawn_blocking(|| {
                 match crate::memory::catalog::maybe_warm_catalog() {
                     Ok((n, errs)) if n > 0 => {
-                        eprintln!("[catalog] warmed {n} entities ({errs} errors)");
+                        tracing::info!(entities = n, errors = errs, "catalog warmed");
                     }
                     Ok(_) => {} // already warm — nothing to do
-                    Err(e) => eprintln!("[catalog] warm skipped: {e}"),
+                    Err(e) => tracing::warn!(error = %e, "catalog warm skipped"),
                 }
             });
 
@@ -618,10 +654,9 @@ fn spawn_qdrant_exe() -> Option<std::process::Child> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     if !std::path::Path::new(&qdrant_exe).exists() {
-        eprintln!(
-            "[qdrant-autolaunch] exe not found at {qdrant_exe} — \
-             Qdrant must be started manually or installed at that path \
-             (override with ULTRON_QDRANT_EXE)."
+        tracing::warn!(
+            path = %qdrant_exe,
+            "qdrant-autolaunch: exe not found — start Qdrant manually or set ULTRON_QDRANT_EXE"
         );
         return None;
     }
@@ -632,11 +667,11 @@ fn spawn_qdrant_exe() -> Option<std::process::Child> {
         .spawn()
     {
         Ok(child) => {
-            eprintln!("[qdrant-autolaunch] spawned pid={}", child.id());
+            tracing::info!(pid = child.id(), "qdrant-autolaunch: spawned");
             Some(child)
         }
         Err(e) => {
-            eprintln!("[qdrant-autolaunch] spawn failed: {e}");
+            tracing::error!(error = %e, "qdrant-autolaunch: spawn failed");
             None
         }
     }
@@ -644,29 +679,28 @@ fn spawn_qdrant_exe() -> Option<std::process::Child> {
 
 #[cfg(not(target_os = "windows"))]
 fn spawn_qdrant_exe() -> Option<std::process::Child> {
-    eprintln!("[qdrant-autolaunch] non-Windows platform — skipping auto-launch.");
+    tracing::info!("qdrant-autolaunch: non-Windows platform — skipping");
     None
 }
 
 /// Background task: probe Qdrant, launch if down, re-probe to confirm.
 fn qdrant_auto_launch() {
     if qdrant_is_running() {
-        eprintln!("[qdrant-autolaunch] already running — no action needed.");
+        tracing::debug!("qdrant-autolaunch: already running — no action needed");
         return;
     }
 
-    eprintln!("[qdrant-autolaunch] not running — attempting auto-launch.");
+    tracing::info!("qdrant-autolaunch: not running — attempting launch");
     let _child = spawn_qdrant_exe();
 
     // Give Qdrant time to bind the port before re-probing.
     std::thread::sleep(std::time::Duration::from_secs(4));
 
     if qdrant_is_running() {
-        eprintln!("[qdrant-autolaunch] Qdrant is now reachable at :6333.");
+        tracing::info!("qdrant-autolaunch: reachable at :6333");
     } else {
-        eprintln!(
-            "[qdrant-autolaunch] Qdrant still not reachable after launch attempt. \
-             Semantic recall will be unavailable until Qdrant starts."
+        tracing::warn!(
+            "qdrant-autolaunch: still unreachable after launch — semantic recall unavailable"
         );
     }
 }

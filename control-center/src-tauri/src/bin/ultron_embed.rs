@@ -35,9 +35,11 @@
 use std::io::{self, Read};
 
 fn main() {
+    // cat15: trace to stderr — stdout carries the JSON embedding the hook reads.
+    control_center_lib::init_tracing_stderr();
     let mut text = String::new();
     if io::stdin().read_to_string(&mut text).is_err() {
-        eprintln!("ultron-embed: failed to read stdin");
+        tracing::error!("ultron-embed: failed to read stdin");
         std::process::exit(1);
     }
 
@@ -57,7 +59,7 @@ fn main() {
             println!("{json}");
         }
         Err(e) => {
-            eprintln!("ultron-embed: {e}");
+            tracing::error!(error = %e, "ultron-embed failed");
             std::process::exit(2);
         }
     }

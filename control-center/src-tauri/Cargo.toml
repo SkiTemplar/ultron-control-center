@@ -62,6 +62,12 @@ dotenvy = "0.15"
 # The `time` feature is already enabled transitively (via reqwest/tauri) but
 # rustc requires a direct declaration to reference `tokio::` in crate code.
 tokio = { version = "1", features = ["time"] }
+# Structured, app-wide observability (cat15). `tracing` macros replace the
+# ad-hoc eprintln! logging in startup/error paths; `tracing-subscriber` with
+# the env-filter feature honours RUST_LOG and is initialised once per binary
+# (the GUI in lib.rs::run() and each sidecar's main).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Qdrant semantic recall (optional — enable with --features qdrant).
 # fastembed provides ONNX-based BGE-small-EN-v1.5 (384-d) locally, no API key.
 fastembed = { version = "4", optional = true }

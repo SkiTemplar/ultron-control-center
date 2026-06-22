@@ -105,6 +105,12 @@ pub fn primary_model_for_zone(zone_id: &str) -> Option<String> {
 ///
 /// This is the real router entrypoint used by all internal Rust callers:
 /// cost_watchdog.rs, hooks_admin.rs, workdays.rs, plugins_info.rs, etc.
+// cat15 observability: a span per routing decision. `prompt` is skipped (it may
+// be large and carry user content); `zone` is recorded as a field, and `err`
+// auto-records the final error when the whole primary->fallback chain is
+// exhausted. Honest scope: this traces the routing path, not the downstream
+// provider call latency.
+#[tracing::instrument(skip(prompt), fields(zone = %zone_id), err)]
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let zones = load_zones()?;
     let zone = zones
