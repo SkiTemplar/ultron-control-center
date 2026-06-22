@@ -109,19 +109,26 @@ jobs:
         working-directory: control-center/src-tauri
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
-      - name: cargo test (unit + bins)
+      - name: cargo test (unit, lib only)
         # clippy --profile test above already compiled the DEPS (fastembed/ort/
         # tauri) hot, but clippy only *checks* the local crate (emits .rmeta) —
-        # it does NOT codegen+link the test-harness binaries. So this step still
+        # it does NOT codegen+link the test-harness binary. So this step still
         # pays the codegen+link of the local crate (~237 s hot for the 509
         # tests, not the ~9 s an earlier comment wrongly claimed). The
         # [profile.test] tuning in Cargo.toml (debug=0 → no PDB, codegen-units
         # =16) shaves that link cost. --profile test is the cargo-test default;
         # stated explicitly so it visibly shares the profile (and its tuning)
-        # with the clippy step. --lib --bins keeps CI hermetic (tests/ need a
-        # live Qdrant/sidecar).
+        # with the clippy step.
+        #
+        # cat12: dropped `--bins` here. The ultron-memory / ultron-embed bins
+        # carry NO `#[test]` (verified: they run 0 tests), so `--bins` only
+        # added two extra heavy LINK steps (each links fastembed/ort/tauri) for
+        # zero coverage. clippy above still compiles+lints `--lib --bins`, so the
+        # bins are still gated for compilation — only their redundant test-link
+        # is gone. Trims the Rust job toward the <300 s target without losing any
+        # assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
         working-directory: control-center/src-tauri
-        run: cargo test --lib --bins --profile test
+        run: cargo test --lib --profile test
 
   typescript:
     name: TypeScript (tsc --noEmit)
