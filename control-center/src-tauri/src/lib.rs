@@ -58,7 +58,6 @@ mod projects;
 mod proxy;
 mod pty;
 pub mod qdrant;
-mod recall;
 mod rules;
 pub mod serve; // ultron-memory serve — persistent E5-warm orchestrator daemon
 mod sessions;

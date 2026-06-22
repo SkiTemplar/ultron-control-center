@@ -26,7 +26,7 @@
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 30,
-      "checksum_sha256": "0dac1b980eb11ecb7aa3ec788fad6ca366e89ecce00b14463c68456852a6f387",
+      "checksum_sha256": "2357a2fa14d1144dfdad4cbf9c0425cfbcab486bdd98383a5a9598c45a3ebf9c",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",

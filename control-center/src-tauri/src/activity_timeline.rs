@@ -337,8 +337,8 @@ fn ingest_mcp_audit(root: &Path, out: &mut Vec<TimelineEvent>) {
 }
 
 /// Convert a "epoch:<secs>" string (the workday TS format) to ISO 8601.
-/// Mirrors `recall::format_iso` — duplicated here to keep the two modules
-/// decoupled. Returns None when the value is not a parseable epoch.
+/// Self-contained epoch->ISO formatter. Returns None when the value is not a
+/// parseable epoch.
 fn workday_ts_to_iso(raw: &str) -> Option<String> {
     let stripped = raw.strip_prefix("epoch:").unwrap_or(raw);
     let secs: u64 = stripped.trim().parse().ok()?;

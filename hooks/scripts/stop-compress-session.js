@@ -1,29 +1,27 @@
 #!/usr/bin/env node
 /**
- * Stop hook — compress current session into structured facts and upsert to
- * Qdrant `ultron_sessions` collection.
+ * Stop hook — compress current session into structured facts (decisions, next
+ * steps, bugs) and capture them to the canonical store (brain.db) through the
+ * single-writer pipeline.
  *
  * KIRKARDO 14 — Paso 2: stop hook compresor.
  *
  * Flow:
  *   1. Read the transcript JSONL path from stdin payload (field: transcript_path).
  *   2. Parse last N turns (MAX_TURNS = 60) from the JSONL.
- *   3. Invoke Haiku 4.5 via Anthropic API to extract 3-5 structured facts.
- *      Falls back to rule-based extraction when ANTHROPIC_API_KEY is absent.
- *   4. Upsert each fact as a separate Qdrant point to `ultron_sessions`.
- *      Metadata: { project, date, sha_head, session_id, kind, importance }.
+ *   3. Invoke Haiku 4.5 (Anthropic) / Groq to extract 3-5 structured facts.
+ *      Falls back to rule-based extraction when no API key is available.
+ *   4. Append captured decisions to the project's pending queue
+ *      (appendPendingDecisions) for the Control Center "Decisions" panel.
  *   5. Exits 0 always — hook failures must never interrupt user workflow.
  *
- * Qdrant REST API is called directly (no SDK) on port 6333 (or QDRANT_URL).
- * Embedding is delegated to the Tauri backend via `recall_semantic` — but
- * since the backend may not be running at Stop time we call a tiny local
- * embedding shim instead (TF.js / onnxruntime-node with BGE-small if
- * available, else a zero-vector stub that still stores the text payload
- * so keyword search remains useful).
+ * NOTE: the legacy upsert to the RETIRED Qdrant `ultron_sessions` collection
+ * (384-d BGE) was removed (OLA A/B 2026-06-04) — brain.db (governed by
+ * MemoryService) is the single source of truth. The dead embedding/qdrant
+ * helpers were deleted (2026-06-22).
  *
  * Configuration via env vars:
- *   ANTHROPIC_API_KEY   — required for AI extraction; falls back to heuristic
- *   QDRANT_URL          — default http://localhost:6333
+ *   ANTHROPIC_API_KEY / GROQ_API_KEY — for AI extraction; falls back to heuristic
  *   STOP_COMPRESS_DISABLED=1  — opt-out
  */
 
@@ -87,9 +85,6 @@ try {
 const HOME = os.homedir();
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'stop-compress-session.jsonl');
 const MAX_TURNS = 60;
-const QDRANT_URL = (process.env.QDRANT_URL || 'http://localhost:6333').replace(/\/$/, '');
-const COLLECTION = 'ultron_sessions';
-const VECTOR_SIZE = 384;
 
 // ---------------------------------------------------------------------------
 // Logging (rotating via shared appendJsonl)
@@ -328,109 +323,6 @@ function extractFactsHeuristic(turns) {
   return facts;
 }
 
-// ---------------------------------------------------------------------------
-// Embedding — real BGE-small vector via ultron-embed.exe sidecar
-// ---------------------------------------------------------------------------
-// KIRKARDO R11.2 FIX-2: replace zero-vector stub by the ultron-embed sidecar
-// already in use by session-recall-inject.js. Without this the Qdrant points
-// store identical zero vectors and semantic recall is mathematical noise.
-
-const EMBED_BIN_CANDIDATES = [
-  process.env.ULTRON_EMBED_BIN,
-  path.join(HOME, '.ultron', 'bin', 'ultron-embed.exe'),
-  path.join(HOME, '.ultron', 'control-center', 'src-tauri', 'target', 'release', 'ultron-embed.exe'),
-  path.join(HOME, '.ultron', 'bin', 'ultron-embed'),
-].filter(Boolean);
-
-let cachedEmbedBin = undefined;
-function findEmbedBin() {
-  if (cachedEmbedBin !== undefined) return cachedEmbedBin;
-  for (const p of EMBED_BIN_CANDIDATES) {
-    try {
-      fs.accessSync(p, fs.constants.X_OK);
-      cachedEmbedBin = p;
-      return p;
-    } catch (_) {}
-  }
-  cachedEmbedBin = null;
-  return null;
-}
-
-/**
- * Compute a 384-d BGE-small vector for `text` via the ultron-embed sidecar.
- * Falls back to a zero vector if the sidecar is unavailable (so points still
- * land in Qdrant for keyword recall, marked with a `stub:true` payload flag
- * downstream so observers can distinguish real vs. fallback).
- */
-function computeEmbedding(text) {
-  const bin = findEmbedBin();
-  if (!bin) {
-    return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
-  }
-  try {
-    const result = spawnSync(bin, [], {
-      input: text,
-      encoding: 'utf8',
-      timeout: 8000,
-      maxBuffer: 1024 * 1024,
-    });
-    if (result.error || result.status !== 0) {
-      safeLog({
-        level: 'warn',
-        msg: 'embed_failed',
-        code: result.status,
-        err: result.error ? String(result.error) : null,
-      });
-      return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
-    }
-    const parsed = JSON.parse((result.stdout || '').trim());
-    if (!Array.isArray(parsed) || parsed.length !== VECTOR_SIZE) {
-      return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
-    }
-    return { vector: parsed, real: true };
-  } catch (e) {
-    safeLog({ level: 'warn', msg: 'embed_exception', error: String(e) });
-    return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Qdrant helpers
-// ---------------------------------------------------------------------------
-
-async function qdrantEnsureCollection() {
-  // Check existence.
-  try {
-    const r = await httpRequest(`${QDRANT_URL}/collections/${COLLECTION}`, { method: 'GET', timeout: 4000 }, null);
-    if (r.status === 200) return true;
-  } catch (_) { return false; }
-
-  // Create.
-  try {
-    const body = JSON.stringify({ vectors: { size: VECTOR_SIZE, distance: 'Cosine' } });
-    const r = await httpRequest(`${QDRANT_URL}/collections/${COLLECTION}`, {
-      method: 'PUT',
-      timeout: 5000,
-      headers: { 'Content-Type': 'application/json' },
-    }, body);
-    return r.status === 200 || r.status === 201;
-  } catch (_) { return false; }
-}
-
-async function qdrantUpsertPoints(points) {
-  const body = JSON.stringify({ points });
-  try {
-    const r = await httpRequest(`${QDRANT_URL}/collections/${COLLECTION}/points`, {
-      method: 'PUT',
-      timeout: 8000,
-      headers: { 'Content-Type': 'application/json' },
-    }, body);
-    return r.status === 200 || r.status === 201 || r.status === 206;
-  } catch (e) {
-    safeLog({ level: 'error', msg: 'qdrant_upsert_failed', error: String(e && e.message) });
-    return false;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Project name heuristic
@@ -707,8 +599,8 @@ async function main() {
   // store (brain.db, governed by MemoryService) and used an embedding dimension
   // incompatible with the canonical `ultron_memory` (E5 1024-d). Session capture
   // now flows through `appendPendingDecisions` (above) and, going forward, the
-  // Stop -> `ultron-memory candidate` path (single-writer). The qdrant* and
-  // computeEmbedding helpers are intentionally left dead pending that rewrite.
+  // Stop -> `ultron-memory candidate` path (single-writer). The dead
+  // qdrant*/computeEmbedding helpers were deleted (2026-06-22).
   // See cockpit/memory-rework/STATE-RECONCILIATION-2026-06-04.md (P0-1).
   safeLog({
     level: 'info',

@@ -282,26 +282,6 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
         // ------------------------------------------------------------------
         // AI / Claude checks
         // ------------------------------------------------------------------
-        "mem0-unreachable" => {
-            // Check: can we reach the Mem0 API endpoint (api.mem0.ai:443)?
-            use std::net::TcpStream;
-            let addr = "api.mem0.ai:443";
-            match TcpStream::connect(addr) {
-                Ok(_) => DiagnosticCheckResult {
-                    status: "ok".into(),
-                    details: "api.mem0.ai:443 is reachable.".into(),
-                    suggested_fix: None,
-                },
-                Err(e) => DiagnosticCheckResult {
-                    status: "fail".into(),
-                    details: format!("Cannot reach api.mem0.ai:443 — {e}"),
-                    suggested_fix: Some(
-                        "Check your internet connection and that MEM0_API_KEY is set in Settings > API Keys.".into(),
-                    ),
-                },
-            }
-        }
-
         "claude-login-expired" => {
             // Check: `claude` binary is on PATH.
             match which::which("claude") {

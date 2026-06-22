@@ -48,7 +48,6 @@ pub use library::plugins_info;
 pub use library::skills;
 
 pub use memory::memory_graph;
-pub use memory::recall;
 
 pub use misc_sub::alerts;
 pub use misc_sub::external_editor;

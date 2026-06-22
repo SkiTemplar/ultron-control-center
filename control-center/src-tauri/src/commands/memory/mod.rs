@@ -9,14 +9,13 @@
 //   ecc_memory    — ECC graph reader (read-only display)
 //   memory_status — Memory tab status cards + sync/index ops
 //
-// recall, recall_last_session, recall_last_session_global: des-registrados (cat10, 2026-06-19)
-//   recall.rs mantenido como módulo vacío (la lógica inner en crate::recall).
+// recall, recall_last_session, recall_last_session_global: des-registrados (cat10,
+//   2026-06-19); el modulo muerto crate::recall y su placeholder se eliminaron (2026-06-22).
 
 pub mod catalog;
 pub mod inbox;
 pub mod memory_graph;
 pub mod migrate;
-pub mod recall;
 pub mod recall_hybrid;
 pub mod recall_unified;
 pub mod session_resume;
