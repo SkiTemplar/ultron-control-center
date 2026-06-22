@@ -55,7 +55,7 @@
         ]
       },
       {
-        "matcher": "Read|Grep",
+        "matcher": "Read|Grep|Glob|Bash",
         "hooks": [
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/codegraph-reminder.js", "timeout": 5 }
         ]

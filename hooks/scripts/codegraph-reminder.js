@@ -1,14 +1,20 @@
 #!/usr/bin/env node
 /**
- * PreToolUse hook (matcher: Read|Grep) — CodeGraph nudge.
+ * PreToolUse hook (matcher: Read|Grep|Glob|Bash) — CodeGraph nudge.
  *
  * Por que existe: ULTRON mantiene un indice CodeGraph (MCP codegraph_*, ~8k
- * simbolos). Leer archivos de codigo enteros para entender arquitectura /
- * ubicacion / callers / impacto gasta cientos de tokens que el indice ya
- * resuelve. Este hook recuerda usar codegraph ANTES de leer codigo.
+ * simbolos). Leer archivos de codigo enteros, o explorar el arbol a ciegas
+ * (Glob / find / ls / grep) para UBICAR algo, gasta cientos de tokens que el
+ * indice ya resuelve. Este hook recuerda usar codegraph ANTES de explorar.
+ *
+ * Root cause que cierra (sesion 2026-06-22): el matcher era solo Read|Grep, asi
+ * que un agente que localizaba un fichero con `Glob cockpit/projects/**` + `ls`
+ * no recibia el nudge y exploraba el FS a mano teniendo el indice la respuesta.
  *
  * Diseno (token-aware, no molesto):
- *  - Solo dispara en Read de archivos de CODIGO, o en Grep.
+ *  - Dispara en Read de CODIGO, Grep, Glob, o Bash de EXPLORACION a ciegas
+ *    (find/ls/grep/rg/cat/head/tail/tree/wc/fd/dir) — NO en build/run
+ *    (cargo/npm/node/python/git/tsc...) ni en Read de no-codigo (.md/.json).
  *  - Solo si hay un indice codegraph aplicable (un .codegraph/codegraph.db
  *    hacia arriba, o el archivo vive bajo ~/.ultron, que tiene indice global).
  *  - UNA sola vez por sesion (marcador en temp por session_id).
@@ -27,6 +33,32 @@ const CODE_EXT = new Set([
   '.rs', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.go',
   '.java', '.kt', '.swift', '.c', '.cc', '.cpp', '.h', '.hpp', '.cs', '.vue',
 ]);
+
+// Comandos Bash cuyo PROPOSITO es localizar/leer codigo en el FS a ciegas:
+// justo lo que codegraph_search/explore resuelve sin barrer el arbol.
+const EXPLORE_CMDS = new Set([
+  'find', 'grep', 'rg', 'ls', 'cat', 'head', 'tail', 'tree', 'wc', 'fd', 'dir', 'glob',
+]);
+
+// True si el comando Bash es exploracion a ciegas (algun comando LIDER esta en
+// EXPLORE_CMDS). Mira solo los lideres de cada segmento secuenciado (&&/||/;);
+// IGNORA lo que va tras un pipe (`| head`, `| wc -l` son post-proceso de, p.ej.,
+// `cargo test | tail` — que NO debe disparar).
+function isBlindCodeExploration(command) {
+  const cmd = String(command || '');
+  if (!cmd.trim()) return false;
+  const segments = cmd.split(/&&|\|\||;/);
+  for (const seg of segments) {
+    const leader = seg.split('|')[0].trim();
+    if (!leader) continue;
+    // Descarta prefijos VAR=val y toma el primer token; basename sin ruta.
+    const tokens = leader.split(/\s+/).filter((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+    if (!tokens.length) continue;
+    const base = tokens[0].split(/[\\/]/).pop().toLowerCase();
+    if (EXPLORE_CMDS.has(base)) return true;
+  }
+  return false;
+}
 
 // Lectura de stdin robusta en Windows: por eventos, con timeout de seguridad
 // para no colgar nunca mas alla del timeout del hook (5s).
@@ -80,21 +112,25 @@ function handle(raw) {
   }
 
   const tool = input.tool_name || '';
-  if (tool !== 'Read' && tool !== 'Grep') return;
+  if (tool !== 'Read' && tool !== 'Grep' && tool !== 'Glob' && tool !== 'Bash') return;
 
   const ti = input.tool_input || {};
   const cwd = input.cwd || process.cwd();
   const sessionId = input.session_id || 'nosession';
 
-  // Path objetivo + filtro de "es codigo"
+  // Path objetivo segun la herramienta (+ filtros para no ser ruido).
   let target = '';
   if (tool === 'Read') {
     target = ti.file_path || '';
     if (!target) return;
     if (!CODE_EXT.has(path.extname(target).toLowerCase())) return; // no recordar para .md/.json/etc
-  } else {
-    // Grep: busca en codigo; usa path o cwd como ancla
+  } else if (tool === 'Grep' || tool === 'Glob') {
+    // Grep/Glob: localizar en el arbol; usa path objetivo o cwd como ancla.
     target = ti.path || cwd;
+  } else { // Bash
+    // Solo si el comando es EXPLORACION a ciegas (find/ls/grep/...), NO build/run.
+    if (!isBlindCodeExploration(ti.command)) return;
+    target = cwd;
   }
 
   // Solo si hay indice codegraph aplicable
@@ -113,12 +149,13 @@ function handle(raw) {
 
   const msg =
     '[ULTRON / CodeGraph] Hay un indice CodeGraph para este proyecto ' +
-    '(herramientas mcp__codegraph__codegraph_*, ~8k simbolos). ANTES de leer ' +
-    'archivos de codigo para entender arquitectura, ubicacion de simbolos, ' +
-    'callers/callees o impacto de un cambio, usa codegraph_explore / ' +
-    'codegraph_search / codegraph_impact: devuelven el codigo relevante sin ' +
-    'leer archivos enteros y ahorran cientos de tokens. Read/Grep directo solo ' +
-    'para confirmar un detalle puntual que codegraph no cubra.';
+    '(herramientas mcp__codegraph__codegraph_*, ~8k simbolos). ANTES de explorar ' +
+    'el arbol o leer codigo a ciegas (Glob/find/ls/grep/Read) para ubicar ' +
+    'simbolos, archivos, callers/callees o impacto de un cambio, usa ' +
+    'codegraph_search (ubicacion) y codegraph_explore (codigo + rutas en 1 ' +
+    'llamada): resuelven "donde esta X" sin barrer el FS y ahorran cientos de ' +
+    'tokens. Exploracion directa solo para confirmar un detalle puntual, o para ' +
+    'datos de runtime/JSON que el indice no cubre (p.ej. cockpit/projects/*/kanban.json).';
 
   const out = {
     hookSpecificOutput: {

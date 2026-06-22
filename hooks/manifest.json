@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-06-21",
+  "generated_at": "2026-06-22",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -246,11 +246,11 @@
     {
       "id": "codegraph-reminder",
       "event": "PreToolUse",
-      "matcher": "Read|Grep",
+      "matcher": "Read|Grep|Glob|Bash",
       "command": "node ~/.ultron/hooks/scripts/codegraph-reminder.js",
       "script": "~/.ultron/hooks/scripts/codegraph-reminder.js",
       "timeout_s": 5,
-      "checksum_sha256": "b38e6d3170bd2a94940da6a7c18c91cc116db282355217f98154dc3a50654db2",
+      "checksum_sha256": "ead249fbd1007358cf257eb4911c61e3278eec7eb967cde6d5424062af1be6eb",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
