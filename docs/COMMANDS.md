@@ -126,7 +126,6 @@ The ones you actually use day-to-day:
 | `ultron recall "<query>"` | Hybrid FTS5 + Qdrant search across vault / skills / agents. |
 | `ultron memory sync` | Push memory to the L3 remote mirror. |
 | `ultron memory push` / `pull` | Manual git push/pull on the memory repo. |
-| `ultron gemini "<prompt>"` | Helper to invoke the Gemini CLI for long-context work. |
 | `ultron osint <username>` / `osint email <email>` | Wrappers around Sherlock / holehe for self-auditing your digital footprint. |
 | `ultron skills vault search "<q>"` | Search the local skill vault (~300 archived skills). |
 | `ultron skills manifest rebuild` | Re-emit `~/.ultron/skills/registry.json`. |

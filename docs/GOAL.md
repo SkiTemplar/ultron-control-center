@@ -8,8 +8,10 @@
 
 Un sistema de IA personal que supere a cualquier setup de andar por casa, con estos pilares:
 
-1. **Ahorro de tokens real.** Skills perezosas (`.disabled` por defecto), filtrado de salidas
-   con **RTK** (60-90%), modo justo para cada tarea y MCPs mínimos.
+1. **Ahorro de tokens real.** Skills perezosas (`.disabled` por defecto, inyectadas on-demand
+   por el dispatcher), context pack en vez de memoria cruda, routing CLI-first y MCPs mínimos.
+   *(RTK queda DESCARTADO: no existe en crates.io salvo forks anonimos = riesgo supply-chain;
+   el "filtrado de salidas 60-90%" era aspiracional, nunca se midio.)*
    *Headroom queda DESCARTADO*: medido en runtime = 0 % ahorro sobre 533 requests, con
    latencia y errores 4xx/429. No reintroducir. → cat4, cat5, cat11.
 

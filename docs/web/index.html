@@ -939,8 +939,9 @@
     <p>
       El catálogo combina proveedores por <b>API</b> —<b>anthropic</b> (claude-haiku) · <b>codex</b> /
       <b>groq</b> / <b>deepseek</b> (OpenAI-compat) · <b>gemini</b> · <b>ollama</b> (local, sin
-      key)— con dos por <b>CLI</b> de suscripción OAuth (<b>codex-cli</b>, <b>gemini-cli</b>) que se
-      marcan «configurados» solo si el binario está en el PATH.
+      key)— con <b>CLI</b> de suscripción OAuth (<b>codex-cli</b>) que se marca «configurado»
+      solo si el binario está en el PATH. (El <b>gemini-cli</b> se retiró 2026-06-19: Google
+      cortó el free-tier OAuth; Gemini sigue disponible como proveedor cloud por API.)
     </p>
 
     <h3>La cadena de fallback</h3>
@@ -1182,7 +1183,7 @@
         <tr><td>Memoria (SoT)</td><td><span class="dim">SQLite + FTS5</span> en <code>~/.ultron/brain.db</code></td></tr>
         <tr><td>Índice denso</td><td><span class="dim">Qdrant nativo</span>, colección <code>ultron_memory</code>, E5 1024d</td></tr>
         <tr><td>Sidecars</td><td><span class="dim">ultron-memory</span> (lógica canónica) · <span class="dim">ultron-embed</span> (embeddings para hooks)</td></tr>
-        <tr><td>Runtimes LLM</td><td><span class="dim">Claude Code</span> (principal) · Codex CLI y Gemini CLI opcionales</td></tr>
+        <tr><td>Runtimes LLM</td><td><span class="dim">Claude Code</span> (principal) · Codex CLI opcional (Gemini CLI retirado 2026-06-19; Gemini solo como fallback cloud)</td></tr>
       </tbody>
     </table>
     </div>

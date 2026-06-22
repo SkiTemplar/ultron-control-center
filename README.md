@@ -202,7 +202,7 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 | Embeddings | E5 (denso) via `crate::qdrant::embed_e5`; sidecar `ultron-embed` para hooks |
 | Sidecar CLI hooks | `ultron-memory` (logica canonica reusada por los hooks Node) |
 | Scripting OS | PowerShell 5.1+ / scripts en `cockpit/` |
-| Runtimes LLM | Claude Code (principal); Codex CLI y Gemini CLI opcionales |
+| Runtimes LLM | Claude Code (principal); Codex CLI opcional. Gemini CLI retirado 2026-06-19 (Google corto el free-tier OAuth); Gemini queda solo como fallback cloud del AI Router |
 
 Binarios sidecar declarados en `control-center/src-tauri/Cargo.toml`:
 `ultron-embed` y `ultron-memory` (ambos requieren la feature `qdrant`).

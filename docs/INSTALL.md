@@ -120,10 +120,11 @@ non-zero code.
 | uv          | latest          | yes       | https://docs.astral.sh/uv                       |
 | Claude CLI  | latest          | yes       | https://docs.claude.com/en/docs/claude-code     |
 | Codex CLI   | latest          | optional  | https://github.com/openai/codex                 |
-| Gemini CLI  | latest          | optional  | https://github.com/google-gemini/gemini-cli     |
 
-You sign in to each CLI once (`claude`, `codex`, `gemini`) using your existing
-subscription. ULTRON never asks for an API key.
+You sign in to each CLI once (`claude`, `codex`) using your existing
+subscription. ULTRON never asks for an API key. (The Gemini CLI was dropped on
+2026-06-19 when Google ended its free-tier OAuth; Gemini is still reachable as a
+cloud fallback in the AI Router via an API key.)
 
 ## Feature toggles
 
