@@ -97,6 +97,12 @@ const PROJECTS_DIR = path.join(HOME, '.ultron', 'cockpit', 'projects');
 const LAZY_SCORE_THRESHOLD = 0.80;
 const LAZY_READ_TIMEOUT_MS = 5000;
 const LAZY_COOLDOWN_INVOCATIONS = 2;
+// Cap de skills inyectadas por prompt (2026-06-23). Un prompt vago puede igualar a
+// >=0.80 a 11-14 personas y arrastrar ~24k tokens de SKILL.md de golpe (audit runtime
+// 2026-06-22; el dedup por-contenido no lo caza porque son archivos distintos). Nos
+// quedamos con las N de mayor confianza. La persona dominante de un FAST PATH tiene el
+// score mas alto -> sobrevive al cap; solo se recortan los empates de cola.
+const MAX_LAZY_INJECTIONS = 3;
 
 // iter-10 FASE 7: relaxed lazy-injection floor for a tiny allowlist of
 // planning/orchestration skills when the prompt has explicit planning intent.
@@ -1458,6 +1464,23 @@ async function fetchLazySkillContent(candidates, promptNorm) {
     if (isCoolingDown(c.id)) return false;
     return true;
   });
+
+  // Cap por confianza: ordena desc y recorta la cola. El corte se LOGUEA (mandamiento
+  // 11: nunca silencioso) para poder auditar que se dejo fuera. El ECC re-injection de
+  // abajo es +1 condicional aparte (top confidence >=0.80, 1 solo), no entra en el cap.
+  eligible.sort(function (a, b) { return b.confidence - a.confidence; });
+  if (eligible.length > MAX_LAZY_INJECTIONS) {
+    const droppedByCap = eligible.slice(MAX_LAZY_INJECTIONS);
+    eligible.length = MAX_LAZY_INJECTIONS;
+    safeLog({
+      level: 'info',
+      msg: 'lazy_injection_capped',
+      cap: MAX_LAZY_INJECTIONS,
+      kept_ids: eligible.map(function (c) { return c.id; }),
+      dropped_ids: droppedByCap.map(function (c) { return c.id; }),
+      dropped: droppedByCap.length,
+    });
+  }
 
   // --- Option B: ECC on-demand re-injection ---
   // Only attempted when the main top candidate is HIGH confidence and a
