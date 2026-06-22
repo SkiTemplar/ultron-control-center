@@ -674,25 +674,46 @@ cat(6, "Documentacion", [
   },
   {
     id: "6.3",
-    desc: "0 broken links en docs/ (solo archivos .md locales referenciados)",
+    desc: "0 broken links a .md en docs/ (links relativos reales, con/sin ./, con anchors)",
     auto: true,
     check() {
       const docsDir = join(ULTRON, "docs");
       if (!existsSync(docsDir)) return { pass: true, detail: "docs/ no existe" };
-      // Busca links markdown [texto](./path) y verifica que existan
-      const r = run(`grep -r "\\](\\./" "${docsDir}" --include="*.md" 2>/dev/null`);
-      const lines = r.stdout.trim().split("\n").filter(Boolean);
-      let broken = 0;
-      for (const line of lines) {
-        const m = line.match(/\]\((\.[^)]+)\)/);
-        if (!m) continue;
-        const ref = m[1].split("#")[0]; // quita anchor
-        const srcFile = line.split(":")[0];
-        const srcDir = dirname(srcFile);
-        const target = join(srcDir, ref);
-        if (!existsSync(target)) broken++;
+      // Parsea TODOS los links markdown relativos que apuntan a un .md: bare `]( INSTALL.md )`,
+      // `]( ./X.md )`, `]( ../X.md#anchor )`. El check viejo solo matcheaba `](./` (los links
+      // reales son bare) -> 0 matches -> "0 rotos" por vacuidad (cazado por audit independiente).
+      let mdFiles;
+      try { mdFiles = grepInFiles(/\.md/, docsDir, [".md"]).map((m) => m.file); }
+      catch (e) { return { pass: false, detail: `error walk docs/: ${e.message}` }; }
+      const uniq = [...new Set(mdFiles)];
+      // Regex: captura el destino dentro de ]( ... ) que contenga ".md"
+      const linkRe = /\]\(\s*([^)]+?\.md[^)\s]*)\s*\)/g;
+      let links = 0, broken = 0;
+      const brokenList = [];
+      for (const f of uniq) {
+        let content;
+        try { content = readFileSync(f, "utf8"); } catch { continue; }
+        let m;
+        while ((m = linkRe.exec(content)) !== null) {
+          let ref = m[1].trim();
+          // Salta links externos / absolutos / solo-anchor
+          if (/^(https?:|mailto:|#)/i.test(ref)) continue;
+          ref = ref.replace(/^<|>$/g, "").split("#")[0].split("?")[0].trim();
+          if (!ref || ref.startsWith("/")) continue; // ignora absolutos del repo
+          links++;
+          const target = join(dirname(f), ref);
+          if (!existsSync(target)) {
+            broken++;
+            if (brokenList.length < 5) brokenList.push(`${f.split(/[/\\]/).pop()} -> ${ref}`);
+          }
+        }
       }
-      return { pass: broken === 0, detail: `${broken} links rotos en docs/` };
+      // Si NO se parseo ningun link, es sospechoso (el check seria vacuo otra vez) -> reporta FAIL.
+      if (links === 0) return { pass: false, detail: "0 links .md parseados en docs/ (sospechoso: check vacuo)" };
+      return {
+        pass: broken === 0,
+        detail: broken === 0 ? `${links} links inspeccionados, 0 rotos` : `${broken}/${links} rotos: ${brokenList.join(", ")}`,
+      };
     },
   },
   {
@@ -819,12 +840,23 @@ cat(8, "UI funcional", [
   },
   {
     id: "8.2",
-    desc: "0 prompts hardcodeados inline (invoke con string literal, excl getPrompt)",
+    desc: "0 prompts hardcodeados inline (string literal de prompt real en .tsx, excl getPrompt/button_prompts)",
     auto: true,
     check() {
-      const matches = grepInFiles(/invoke.*prompt.*['"]/, CC_SRC, [".tsx"])
-        .filter((m) => !/getPrompt|button_prompts|PROMPT/i.test(m.text));
-      return { pass: matches.length === 0, detail: `${matches.length} prompts inline potenciales` };
+      // El check viejo (regex /invoke.*prompt.*['"]/ + filtro /getPrompt|button_prompts|PROMPT/i)
+      // era CO-EXTENSIVO: toda linea que matcheaba se excluia -> nunca podia fallar.
+      // Ahora detecto STRINGS de prompt LITERALES de verdad: `prompt: "Eres ..."`, `prompt: \`You are ...\``
+      // con un verbo/comienzo de instruccion real. El filtro de exclusion deja getPrompt/button_prompts
+      // (factories legitimas) pero ya NO excluye por la palabra "PROMPT" (eso anulaba el check).
+      const promptLiteral = /prompt\s*[:=]\s*[`'"]\s*(Eres|You are|Act as|Actua|Genera|Generate|Write|Escribe|Analiza|Analyze|Resume|Summarize|Translate|Traduce|Given the|Dado el)/i;
+      const matches = grepInFiles(promptLiteral, CC_SRC, [".tsx"])
+        .filter((m) => !/getPrompt|button_prompts/.test(m.text));
+      return {
+        pass: matches.length === 0,
+        detail: matches.length === 0
+          ? "0 prompts inline reales"
+          : `${matches.length} prompts inline: ${matches.slice(0, 3).map((m) => m.file.split(/[/\\]/).pop() + ":" + m.line).join(", ")}`,
+      };
     },
   },
   {
@@ -1014,27 +1046,65 @@ cat(10, "Union del sistema (e2e)", [
   },
   {
     id: "10.4",
-    desc: "0 agentes delegados que no existen en ~/.claude/agents/",
+    desc: "0 nombres de agente (catalog + rosters) sin resolver en ~/.claude/agents o plugins",
     auto: true,
     check() {
-      // Usa grepInFiles Node.js para evitar problemas de rutas
-      const hooksDir = join(ULTRON, "hooks");
-      const matches = [
-        ...grepInFiles(/use_agent|delegate.*agent|spawn_agent/, hooksDir, [".js"]),
-        ...grepInFiles(/use_agent|delegate.*agent|spawn_agent/, COCKPIT, [".js", ".py"]),
-      ];
-      let missing = 0;
-      for (const { text } of matches) {
-        const m = text.match(/['"]([a-z][\w-]{3,})['"]/g);
-        if (!m) continue;
-        for (const name of m) {
-          const agentName = name.replace(/['"]/g, "");
-          if (agentName.length < 4) continue;
-          const agentFile = join(AGENTS_DIR, `${agentName}.md`);
-          if (!existsSync(agentFile)) missing++;
+      // El check viejo grepeaba use_agent|delegate|spawn_agent en .js/.py y NUNCA matcheaba un
+      // NOMBRE de agente -> missing=0 por construccion (vacuo). Ahora extraigo los nombres REALES
+      // del catalogo de agentes (agent-catalog.json: .agents[].name) y de todos los rosters de
+      // proyecto (cockpit/projects/*/agent-roster.json: .entries[].name), y resuelvo cada uno.
+
+      // Resolutor de plugins: indexa todos los <nombre>.md bajo .../plugins/cache/**/agents/
+      const pluginAgents = new Set();
+      try {
+        const pluginsCache = join(CLAUDE, "plugins", "cache");
+        const found = grepInFiles(/.*/, pluginsCache, [".md"]); // walk solo .md
+        for (const { file } of found) {
+          // Solo nos interesan los que viven en un dir llamado "agents"
+          const parts = file.split(/[/\\]/);
+          if (parts.includes("agents")) {
+            const base = parts[parts.length - 1].replace(/\.md$/, "");
+            pluginAgents.add(base.toLowerCase());
+          }
+        }
+      } catch {}
+
+      function resolves(name) {
+        const candidates = [
+          join(AGENTS_DIR, `${name}.md`),
+          join(AGENTS_DIR, `${name}.md.disabled`),
+        ];
+        if (candidates.some((p) => existsSync(p))) return true;
+        return pluginAgents.has(name.toLowerCase());
+      }
+
+      // 1) Nombres del catalogo
+      const names = new Set();
+      const catalog = readJSON(join(COCKPIT, "agent-catalog.json"));
+      if (catalog && Array.isArray(catalog.agents)) {
+        for (const a of catalog.agents) if (a?.name) names.add(a.name);
+      }
+      // 2) Nombres de los rosters de proyecto
+      const projectsDir = join(COCKPIT, "projects");
+      if (existsSync(projectsDir)) {
+        let projs = [];
+        try { projs = readdirSync(projectsDir); } catch {}
+        for (const proj of projs) {
+          const roster = readJSON(join(projectsDir, proj, "agent-roster.json"));
+          for (const e of roster?.entries ?? []) if (e?.name) names.add(e.name);
         }
       }
-      return { pass: missing === 0, detail: `${missing} refs a agentes inexistentes (busqueda heuristica)` };
+
+      const all = [...names];
+      if (all.length === 0) return { pass: false, detail: "0 nombres de agente extraidos (catalog+rosters vacios/sospechoso)" };
+      const missing = all.filter((n) => !resolves(n));
+      const resolved = all.length - missing.length;
+      return {
+        pass: missing.length === 0,
+        detail: missing.length === 0
+          ? `${resolved}/${all.length} agentes resueltos, 0 missing`
+          : `${resolved}/${all.length} resueltos, ${missing.length} missing: ${missing.slice(0, 8).join(", ")}`,
+      };
     },
   },
   {
@@ -1125,6 +1195,40 @@ cat(11, "Plugins y MCPs", [
       return { pass: eccEnabled === false, detail: `ecc@ecc enabled=${eccEnabled}` };
     },
   },
+  {
+    id: "11.5",
+    desc: "delete_mcp persiste el borrado en config (no es no-op): cuerpo escribe el archivo",
+    auto: true,
+    check() {
+      // Criterio binario 11.3 historico: delete_mcp modifica la config, no es un Ok(()) vacio.
+      // Verificacion por inspeccion de codigo: localiza delete_mcp_inner, confirma que muta el
+      // mapa mcpServers (servers.remove / mutate_mcp_servers) Y que la cadena persiste a disco
+      // (fs::write / settings_save_inner / serde_json::to_string sobre el archivo de config).
+      const mutFiles = grepInFiles(/fn\s+delete_mcp_inner/, CC_TAURI, [".rs"]);
+      if (mutFiles.length === 0) return { pass: false, detail: "delete_mcp_inner no encontrado en src-tauri/src" };
+      const file = mutFiles[0].file;
+      let content;
+      try { content = readFileSync(file, "utf8"); } catch (e) { return { pass: false, detail: `no se pudo leer ${file}: ${e.message}` }; }
+
+      // 1) Cuerpo de delete_mcp_inner muta el mapa (remove) o delega en mutate_mcp_servers
+      const bodyMatch = content.match(/fn\s+delete_mcp_inner[^{]*\{([\s\S]*?)\n\}/);
+      const body = bodyMatch ? bodyMatch[1] : "";
+      const isEmptyOk = /^\s*Ok\(\(\)\)\s*$/.test(body.trim());
+      const mutates = /servers\.remove\b|mutate_mcp_servers\b/.test(body);
+      if (isEmptyOk || !mutates) {
+        return { pass: false, detail: "delete_mcp_inner no muta mcpServers (no-op / Ok(()) vacio)" };
+      }
+
+      // 2) Persistencia: en el propio cuerpo o en el helper mutate_mcp_servers debe escribir a disco.
+      const persistsInFile = /settings_save_inner\b|fs::write\b|std::fs::write\b|serde_json::to_(?:string|writer)/.test(content);
+      return {
+        pass: persistsInFile,
+        detail: persistsInFile
+          ? "delete_mcp_inner muta mcpServers + persiste (settings_save_inner/fs::write)"
+          : "delete_mcp_inner muta pero NO se ve persistencia a disco en el modulo",
+      };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1189,6 +1293,37 @@ cat(12, "Facilidad de implementacion", [
       };
     },
   },
+  {
+    id: "12.5",
+    desc: "CI real < 300s (duracion del ultimo run success de ci.yml, via gh)",
+    auto: true,
+    check() {
+      // Mide el RUN REAL (updatedAt - createdAt) del ultimo ci.yml success. El check 12.2 solo
+      // miraba timeout-minutes<=30 (un techo, no la duracion real). Criterio documentado = <300s.
+      const r = run(
+        `gh run list --workflow=ci.yml --status success --limit 1 --json databaseId,createdAt,updatedAt 2>&1`,
+        { timeout: 30000 }
+      );
+      if (!r.ok) {
+        return { pass: false, detail: `gh no disponible/fallo: ${(r.stdout + r.stderr).trim().slice(0, 120)}` };
+      }
+      let arr;
+      try { arr = JSON.parse(r.stdout.trim()); } catch {
+        return { pass: false, detail: `gh devolvio JSON no parseable: ${r.stdout.trim().slice(0, 120)}` };
+      }
+      if (!Array.isArray(arr) || arr.length === 0) {
+        return { pass: false, detail: "0 runs success de ci.yml" };
+      }
+      const run0 = arr[0];
+      const start = new Date(run0.createdAt).getTime();
+      const end = new Date(run0.updatedAt).getTime();
+      if (isNaN(start) || isNaN(end) || end < start) {
+        return { pass: false, detail: `timestamps invalidos: ${run0.createdAt} / ${run0.updatedAt}` };
+      }
+      const secs = Math.round((end - start) / 1000);
+      return { pass: secs < 300, detail: `CI run #${run0.databaseId} duro ${secs}s (limite 300s)` };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1197,14 +1332,33 @@ cat(12, "Facilidad de implementacion", [
 cat(13, "Mejora de prompts", [
   {
     id: "13.1",
-    desc: "build_prompt_plan cableado en orchestrate.rs",
+    desc: "optimizador de prompt CABLEADO (llamada real optimize_prompt() en orchestrate.rs + build_prompt_plan fn existe)",
     auto: true,
     check() {
+      // El check viejo grepeaba /build_prompt_plan/i y matcheaba un COMENTARIO (orchestrate.rs:114),
+      // no la llamada real (que es super::ranking::optimize_prompt). Ahora exijo wiring REAL:
+      //  (1) orchestrate.rs invoca optimize_prompt( como CALLSITE (no en comentario)
+      //  (2) build_prompt_plan existe como fn (en ranking.rs o donde este realmente)
       const orchestrateFile = join(CC_TAURI, "orchestrator", "orchestrate.rs");
       if (!fileExists(orchestrateFile)) return { pass: false, detail: "orchestrate.rs no encontrado" };
       const content = readFileSync(orchestrateFile, "utf8");
-      const has = /build_prompt_plan/i.test(content);
-      return { pass: has, detail: has ? "build_prompt_plan presente" : "build_prompt_plan AUSENTE" };
+
+      // Callsite real: una linea con `optimize_prompt(` que NO sea comentario de linea.
+      const callsite = content.split("\n").some((l) => {
+        const code = l.replace(/\/\/.*$/, ""); // descarta comentario de linea
+        return /\boptimize_prompt\s*\(/.test(code);
+      });
+
+      // build_prompt_plan declarada como fn en el orquestador (ranking.rs u otro .rs).
+      const fnDef = grepInFiles(/\bfn\s+build_prompt_plan\b/, join(CC_TAURI, "orchestrator"), [".rs"]);
+      const hasFn = fnDef.length > 0;
+
+      const pass = callsite && hasFn;
+      const where = hasFn ? fnDef[0].file.split(/[/\\]/).pop() : "n/a";
+      return {
+        pass,
+        detail: `callsite optimize_prompt()=${callsite}, fn build_prompt_plan=${hasFn} (${where})`,
+      };
     },
   },
   {
@@ -1390,6 +1544,31 @@ cat(15, "Observabilidad", [
       return { pass: mb < 10, detail: `${mb.toFixed(2)}MB` };
     },
   },
+  {
+    id: "15.5",
+    desc: "tracing estructurado en el backend Rust (crate tracing + tracing:: en src-tauri/src)",
+    auto: true,
+    check() {
+      // cat15 daba 10/10 pero el backend Rust no tiene tracing estructurado (solo logging de hooks
+      // por el lado JS). Observabilidad app-wide REAL = el crate tracing/tracing-subscriber declarado
+      // en Cargo.toml + uso de tracing:: en el codigo. Si no hay -> FAIL honesto (documenta el gap).
+      const cargoToml = join(CC, "src-tauri", "Cargo.toml");
+      let crateDeclared = false;
+      if (fileExists(cargoToml)) {
+        const toml = readFileSync(cargoToml, "utf8");
+        // dependencia tracing o tracing-subscriber al inicio de linea (no en comentario)
+        crateDeclared = /^\s*tracing(-subscriber)?\s*=/m.test(toml);
+      }
+      const usage = grepInFiles(/\btracing::/, CC_TAURI, [".rs"]);
+      const subscriberInit = grepInFiles(/tracing_subscriber::|tracing::subscriber|\.with_subscriber\(|fmt\(\)\.init\(/, CC_TAURI, [".rs"]);
+      const usageFiles = new Set(usage.map((m) => m.file)).size;
+      const pass = crateDeclared && usage.length > 0 && subscriberInit.length > 0;
+      return {
+        pass,
+        detail: `crate tracing en Cargo.toml=${crateDeclared}, tracing:: en ${usageFiles} ficheros, subscriber init=${subscriberInit.length > 0}`,
+      };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1530,6 +1709,50 @@ cat(17, "Calidad de compactacion", [
       return { pass: false, detail: "decisions-pending.jsonl no encontrado" };
     },
   },
+  {
+    id: "17.5",
+    desc: "compact.json mas reciente con contenido estructurado real (no stub vacio)",
+    auto: true,
+    check() {
+      // cat17 daba 10/10 pero solo verificaba node --check; nunca media CALIDAD del resultado.
+      // Ahora abro el compact.json mas reciente y valido que tenga contenido estructurado real.
+      const projectsDir = join(COCKPIT, "projects");
+      if (!existsSync(projectsDir)) return { pass: false, detail: "cockpit/projects no existe" };
+      // Localiza todos los compact.json bajo projects/*/sessions/*/
+      let compacts;
+      try { compacts = grepInFiles(/.*/, projectsDir, ["compact.json"]); }
+      catch (e) { return { pass: false, detail: `error walk projects: ${e.message}` }; }
+      const files = [...new Set(compacts.map((m) => m.file))];
+      if (files.length === 0) return { pass: false, detail: "0 compact.json encontrados (pipeline de compactacion sin output)" };
+      // Mas reciente por mtime
+      let latest = null, latestMs = -1;
+      for (const f of files) {
+        try { const { mtimeMs } = statSync(f); if (mtimeMs > latestMs) { latestMs = mtimeMs; latest = f; } } catch {}
+      }
+      if (!latest) return { pass: false, detail: "no se pudo determinar el compact.json mas reciente" };
+      const j = readJSON(latest);
+      if (!j) return { pass: false, detail: `compact.json mas reciente no parseable: ${latest.split(/[/\\]/).slice(-2).join("/")}` };
+
+      // Schema esperado: campos estructurados. Valido que AL MENOS uno de los campos de contenido
+      // tenga datos reales (no todos vacios). Campos: human (resumen), decisions, next, bugs, arch_delta.
+      const nonEmptyStr = (v) => typeof v === "string" && v.trim().length > 0;
+      const nonEmptyArr = (v) => Array.isArray(v) && v.length > 0;
+      const hasHuman = nonEmptyStr(j.human) || nonEmptyStr(j.summary);
+      const contentArrays = ["decisions", "next", "bugs", "arch_delta"].filter((k) => nonEmptyArr(j[k]));
+      const hasMachine = j.machine && typeof j.machine === "object" && (j.machine.turns_total ?? 0) >= 0;
+      // Flag heuristico de origen AI vs heuristico (si esta presente, lo reportamos)
+      const aiFlag = j.machine?.ai_used ?? j.ai ?? j.via ?? null;
+
+      // Calidad minima: schema reconocible (human o machine) + al menos 1 array de contenido NO vacio.
+      const structured = (hasHuman || hasMachine) && contentArrays.length > 0;
+      return {
+        pass: structured,
+        detail: structured
+          ? `${latest.split(/[/\\]/).slice(-2).join("/")}: human=${hasHuman}, arrays no vacios=[${contentArrays.join(",")}]${aiFlag !== null ? `, ai=${aiFlag}` : ""}`
+          : `${latest.split(/[/\\]/).slice(-2).join("/")} sin contenido estructurado (human=${hasHuman}, machine=${hasMachine}, arrays no vacios=${contentArrays.length}) -> stub/vacio`,
+      };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1568,13 +1791,36 @@ cat(18, "Reproducibilidad", [
   },
   {
     id: "18.4",
-    desc: "vitest.config.ts existe con seed/fixture fijos",
+    desc: "vitest configurado con setupFiles + mocks (determinismo por mocks)",
     auto: true,
     check() {
-      const p = join(CC, "vitest.config.ts");
-      if (!fileExists(p)) return { pass: false, detail: "vitest.config.ts ausente" };
-      const content = readFileSync(p, "utf8");
-      return { pass: true, detail: "vitest.config.ts presente" };
+      // El check viejo hacia return {pass:true} INCONDICIONAL si existia vitest.config.ts y afirmaba
+      // "seed/fixture fijos" que NO existen. Verifico lo que de verdad da determinismo: el config
+      // declara setupFiles y ese fichero de setup usa mocks (vi.mock). Sin seed inventado.
+      const cfg = join(CC, "vitest.config.ts");
+      if (!fileExists(cfg)) return { pass: false, detail: "vitest.config.ts ausente" };
+      const cfgContent = readFileSync(cfg, "utf8");
+      // Extrae setupFiles: ["./src/test/setup.ts"] (acepta comillas simples/dobles, multiples)
+      const setupBlock = cfgContent.match(/setupFiles\s*:\s*\[([^\]]*)\]/);
+      if (!setupBlock) return { pass: false, detail: "vitest.config.ts sin setupFiles -> sin garantia de determinismo" };
+      const setupPaths = [...setupBlock[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+      if (setupPaths.length === 0) return { pass: false, detail: "setupFiles vacio" };
+      // Resuelve cada setup file relativo a control-center/ y verifica que use vi.mock
+      let mockedFiles = 0, missing = 0;
+      for (const sp of setupPaths) {
+        const rel = sp.replace(/^\.\//, "");
+        const abs = join(CC, rel);
+        if (!existsSync(abs)) { missing++; continue; }
+        const c = readFileSync(abs, "utf8");
+        if (/\bvi\.mock\s*\(/.test(c)) mockedFiles++;
+      }
+      const pass = missing === 0 && mockedFiles > 0;
+      return {
+        pass,
+        detail: pass
+          ? `setupFiles=[${setupPaths.join(",")}] con vi.mock (determinismo por mocks)`
+          : `setupFiles missing=${missing}, con vi.mock=${mockedFiles}/${setupPaths.length}`,
+      };
     },
   },
 ]);
