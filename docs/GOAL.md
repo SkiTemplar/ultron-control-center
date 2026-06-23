@@ -80,11 +80,16 @@ Dos categorías no alcanzan `>= 9.5` por **límites físicos del hardware/stack*
 del sistema. Se declaran aquí con su evidencia medida en runtime, en lugar de relajar el medidor
 para fingir que pasan (eso sería justo lo que el audit adversarial cazó como "el medidor se relajó"):
 
-- **cat9 Hooks (latencia).** El cuello es **exclusivamente el cold-start de E5-large (1024d) en
-  CPU** (cargar el modelo ≈ 3 s). La latencia OPERATIVA (daemon caliente) es excelente: resume
-  **75-115 ms**, orchestrate **~50-113 ms** (tras el reqwest pool, commit b9121fa). El check
-  `max_last5` captura el cold de arranque, irreducible sin GPU ni un modelo más pequeño
-  (BGE-small 384d, descartado por riesgo de recall).
+- **cat9 Hooks (latencia).** El cuello es la **CARGA del modelo E5-large (2.2 GB): I/O + init de
+  la sesión ONNX ≈ 4.5 s**, NO el cómputo del embed. **GPU descartada por MEDICIÓN (2026-06-23):**
+  con CUDA (RTX 4060 + ort 2.0-rc.9 + cuDNN 9.23) el recall cold midió **~4.5 s = igual que CPU**
+  (el cold lo domina la carga del modelo, no el embed), y en hot la GPU es **peor** (embeds
+  1-en-1: el overhead por-llamada + el JIT de cuDNN dominan; un reindex de 2971 embeds tardó
+  **>10 min** vs ~3 min en CPU). La latencia OPERATIVA (daemon caliente, modelo ya residente) es
+  excelente: resume **75-115 ms**, orchestrate **~50-113 ms** (reqwest pool, b9121fa). El
+  `max_last5` captura el cold de arranque. **Vía real pendiente (no GPU):** daemon **pre-warm en
+  SessionStart** — lanzar `serve` al arrancar (carga el modelo en background mientras el usuario
+  lee el resume) para que el 1er prompt ya lo tenga residente → hot.
 - **cat12 Facilidad de implementación (CI).** El build real del stack (Tauri + fastembed + ort +
   tracing) mide **340-390 s** en runs sucesivos; el `< 300 s` fue un outlier hot puntual. Bajarlo
   de forma estable exige sub-crates (refactor grande) o quitar deps core (imposible). Límite del
