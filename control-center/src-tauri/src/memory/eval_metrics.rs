@@ -258,6 +258,64 @@ impl GoldenSet {
     }
 }
 
+// ---------------------------------------------------------------------------
+// External labeled golden set (cockpit/memory-rework/evals/golden_labels_draft.json)
+//
+// Schema: `{ "labeled": [ { id, query, expect_ids, n_relevant, nota }, ... ] }`.
+// This is the HAND-LABELED oracle used for cat19 FASE A external eval. It is
+// intentionally separate from `GoldenSet` / `golden_set.json` (generated) so
+// the two evaluation tracks stay independent.
+// ---------------------------------------------------------------------------
+
+/// One hand-labeled query from `golden_labels_draft.json`.
+/// `expect_ids` may be empty (queries with no known relevant document are valid
+/// and contribute recall=0 to the aggregate — they are NOT skipped).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LabeledQuery {
+    /// Stable label id (e.g. `gs-0001`).
+    #[serde(default)]
+    pub id: String,
+    /// The query string fed to recall.
+    pub query: String,
+    /// Ids of relevant memory items, as judged by the human labeler.
+    #[serde(default)]
+    pub expect_ids: Vec<String>,
+    /// Total relevant documents (matches `expect_ids.len()` for well-formed labels).
+    #[serde(default)]
+    pub n_relevant: usize,
+    /// Human annotation note; informational only.
+    #[serde(default)]
+    pub nota: String,
+}
+
+impl LabeledQuery {
+    /// The relevant set as a `HashSet`, ready for the metric functions. PURE.
+    #[must_use]
+    pub fn relevant(&self) -> HashSet<String> {
+        self.expect_ids.iter().cloned().collect()
+    }
+}
+
+/// The deserialized `golden_labels_draft.json`. PURE data; deserialize-only.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LabeledSet {
+    /// The list of hand-labeled queries.
+    #[serde(default)]
+    pub labeled: Vec<LabeledQuery>,
+}
+
+impl LabeledSet {
+    /// Parse from raw JSON text. PURE (no file I/O). Unit-testable in isolation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying `serde_json` error if the text is not a valid
+    /// labeled-set document.
+    pub fn from_json_str(text: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

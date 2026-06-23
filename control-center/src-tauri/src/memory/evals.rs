@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 
 use crate::commands::memory::recall_unified::recall_pack;
-use crate::memory::eval_metrics::{EvalMetrics, GoldenSet};
+use crate::memory::eval_metrics::{EvalMetrics, GoldenSet, LabeledSet};
 
 /// A single golden query: a search string plus the substrings that SHOULD show
 /// up in at least one recovered summary. `expect_any_of` is OR-matched and
@@ -510,6 +510,180 @@ pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMet
     report
 }
 
+// ===========================================================================
+// External labeled golden set — cat19 FASE A
+//
+// Loads `golden_labels_draft.json` (schema: `{ "labeled": [...] }`) from an
+// arbitrary path, runs recall for each query, and reports ranking-quality
+// metrics using the PURE functions from `eval_metrics.rs`.
+//
+// Key design decisions:
+//   - Queries with `expect_ids = []` (n_relevant = 0) are included and score
+//     recall=0.  They are NOT skipped — excluding them would inflate the
+//     aggregate. The count of such queries is surfaced as `zero_relevant`.
+//   - A `recall_pack` failure degrades that query to an empty ranking (same
+//     policy as `run_golden_metrics`). No panic, no abort.
+//   - `queries_with_zero_recall` counts entries where recall@8 == 0.0 (covers
+//     both zero-relevant labels AND items genuinely missed by the pipeline).
+//     This is the check-19.5 signal.
+//   - Output is a plain JSON object (no legacy fields, no security gate here —
+//     this is a pure quality measurement tool, not a governance gate).
+// ===========================================================================
+
+/// Per-query result for the external labeled-golden evaluation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LabeledQueryResult {
+    /// Label id (e.g. `gs-0001`).
+    pub id: String,
+    /// The query string that was run.
+    pub query: String,
+    /// Number of relevant ids according to the label.
+    pub n_relevant: usize,
+    /// Ids returned by `recall_pack` (up to k).
+    pub retrieved_ids: Vec<String>,
+    /// Per-query ranking metrics.
+    pub metrics: EvalMetrics,
+    /// `true` when `recall_pack` errored (Qdrant/E5 offline); metrics are all-zero.
+    pub degraded: bool,
+}
+
+/// Aggregate report produced by `run_labeled_golden`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LabeledGoldenReport {
+    /// Path of the golden labels file that was loaded.
+    pub source_path: String,
+    /// Recall cutoff used for every query.
+    pub k: usize,
+    /// Total queries in the labels file.
+    pub total_queries: usize,
+    /// Queries where n_relevant == 0 (no ground-truth positives).
+    pub zero_relevant: usize,
+    /// Queries where recall@k == 0.0 (pipeline returned nothing relevant).
+    /// CHECK 19.5: this should be as small as possible.
+    pub queries_with_zero_recall: usize,
+    /// Mean metrics across ALL queries (including zero-relevant ones, which
+    /// contribute recall=0 — this is the honest aggregate).
+    pub aggregate: EvalMetrics,
+    /// Per-query breakdown for full reproducibility.
+    pub per_query: Vec<LabeledQueryResult>,
+    /// `true` when the file could not be loaded/parsed; all counts will be 0.
+    pub degraded: bool,
+    /// Human-readable provenance or degradation reason.
+    pub note: String,
+}
+
+impl LabeledGoldenReport {
+    /// All-zero degraded report for any load/parse failure.
+    fn degraded(path: &str, k: usize, note: impl Into<String>) -> Self {
+        Self {
+            source_path: path.to_string(),
+            k,
+            total_queries: 0,
+            zero_relevant: 0,
+            queries_with_zero_recall: 0,
+            aggregate: EvalMetrics::aggregate(&[]),
+            per_query: Vec::new(),
+            degraded: true,
+            note: note.into(),
+        }
+    }
+}
+
+/// Run the EXTERNAL hand-labeled golden set through the live recall pipeline.
+///
+/// Loads `path` (must be an absolute path to a `golden_labels_draft.json`-style
+/// file with schema `{ "labeled": [...] }`), runs `recall_pack(query, k, None,
+/// false)` for each query, and returns the aggregate ranking-quality report.
+///
+/// FAIL-SAFE: a missing/invalid file degrades to `LabeledGoldenReport::degraded`.
+/// Individual `recall_pack` failures degrade ONLY that query to an empty ranking.
+#[must_use]
+pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            return LabeledGoldenReport::degraded(
+                path,
+                k,
+                format!("failed to read '{}': {e}", path),
+            );
+        }
+    };
+
+    let labeled_set = match LabeledSet::from_json_str(&text) {
+        Ok(s) => s,
+        Err(e) => {
+            return LabeledGoldenReport::degraded(
+                path,
+                k,
+                format!("parse error in '{}': {e}", path),
+            );
+        }
+    };
+
+    if labeled_set.labeled.is_empty() {
+        return LabeledGoldenReport::degraded(path, k, "labeled set has no entries");
+    }
+
+    let total = labeled_set.labeled.len();
+    let mut per_query: Vec<LabeledQueryResult> = Vec::with_capacity(total);
+    let mut all_metrics: Vec<EvalMetrics> = Vec::with_capacity(total);
+    let mut zero_relevant = 0usize;
+    let mut queries_with_zero_recall = 0usize;
+
+    for label in &labeled_set.labeled {
+        let relevant = label.relevant();
+
+        if relevant.is_empty() {
+            zero_relevant += 1;
+        }
+
+        let (retrieved_ids, degraded) = match recall_pack(&label.query, k, None, false) {
+            Ok(pack) => {
+                let ids: Vec<String> = pack.entries.into_iter().map(|e| e.canonical_id).collect();
+                (ids, false)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[evals/labeled] recall_pack failed for '{}': {e}",
+                    label.query
+                );
+                (Vec::new(), true)
+            }
+        };
+
+        let metrics = EvalMetrics::for_query(&retrieved_ids, &relevant, k);
+
+        if metrics.recall_at_k == 0.0 {
+            queries_with_zero_recall += 1;
+        }
+
+        all_metrics.push(metrics);
+        per_query.push(LabeledQueryResult {
+            id: label.id.clone(),
+            query: label.query.clone(),
+            n_relevant: label.n_relevant,
+            retrieved_ids,
+            metrics,
+            degraded,
+        });
+    }
+
+    let aggregate = EvalMetrics::aggregate(&all_metrics);
+
+    LabeledGoldenReport {
+        source_path: path.to_string(),
+        k,
+        total_queries: total,
+        zero_relevant,
+        queries_with_zero_recall,
+        aggregate,
+        per_query,
+        degraded: false,
+        note: format!("loaded {} labels from '{}'", total, path),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -668,5 +842,128 @@ mod tests {
         assert!(json.contains("\"aggregate\""));
         assert!(json.contains("\"precision_at_k\""));
         assert!(json.contains("\"degraded\":true"));
+    }
+
+    // ----- LabeledSet + LabeledGoldenReport (wiring + parse, no I/O) ---------
+
+    /// Parse the `labeled[]` schema from a small inline fixture and verify the
+    /// wiring: `LabeledSet::from_json_str` → `LabeledQuery::relevant()` →
+    /// `EvalMetrics::for_query`. This test will FAIL if any field name or
+    /// metric calculation regresses, not just compile.
+    #[test]
+    fn labeled_set_parses_schema_and_metrics_wiring_is_correct() {
+        use crate::memory::eval_metrics::{EvalMetrics, LabeledSet};
+        use std::collections::HashSet;
+
+        let json = r#"{
+            "labeled": [
+                {
+                    "id": "gs-0001",
+                    "query": "qdrant",
+                    "expect_ids": ["id-a", "id-b", "id-c"],
+                    "n_relevant": 3,
+                    "nota": "three relevant items"
+                },
+                {
+                    "id": "gs-0002",
+                    "query": "candidato pendiente",
+                    "expect_ids": [],
+                    "n_relevant": 0,
+                    "nota": "no relevant document"
+                }
+            ]
+        }"#;
+
+        let set = LabeledSet::from_json_str(json).expect("must parse valid labeled JSON");
+        assert_eq!(set.labeled.len(), 2, "two labeled queries");
+
+        // --- first label: 3 relevant ids ---
+        let lq0 = &set.labeled[0];
+        assert_eq!(lq0.id, "gs-0001");
+        assert_eq!(lq0.n_relevant, 3);
+        let rel0: HashSet<String> = lq0.relevant();
+        assert_eq!(rel0.len(), 3, "relevant() must mirror expect_ids");
+        assert!(rel0.contains("id-a"));
+
+        // Simulate a recall that returns the first two relevant ids first, then
+        // two irrelevant items, then the third relevant item at position 5.
+        let retrieved = vec![
+            "id-a".to_string(),
+            "id-b".to_string(),
+            "noise-1".to_string(),
+            "noise-2".to_string(),
+            "id-c".to_string(),
+            "noise-3".to_string(),
+            "noise-4".to_string(),
+            "noise-5".to_string(),
+        ];
+        let m = EvalMetrics::for_query(&retrieved, &rel0, 8);
+
+        // recall@8: all 3 relevant ids appear in top-8 → 3/3 = 1.0
+        assert!(
+            (m.recall_at_k - 1.0).abs() < 1e-9,
+            "recall@8 must be 1.0 when all relevant in top-8, got {}",
+            m.recall_at_k
+        );
+        // precision@8: 3 relevant of 8 slots → 3/8 = 0.375
+        assert!(
+            (m.precision_at_k - 3.0 / 8.0).abs() < 1e-9,
+            "precision@8 must be 0.375, got {}",
+            m.precision_at_k
+        );
+        // mrr: first relevant at position 1 (0-based idx 0) → 1/1 = 1.0
+        assert!(
+            (m.mrr - 1.0).abs() < 1e-9,
+            "mrr must be 1.0 when first relevant at rank 1, got {}",
+            m.mrr
+        );
+
+        // --- second label: no relevant ids → relevant() is empty ---
+        let lq1 = &set.labeled[1];
+        assert_eq!(lq1.id, "gs-0002");
+        let rel1 = lq1.relevant();
+        assert!(rel1.is_empty(), "empty expect_ids → empty relevant set");
+
+        // An empty relevant set: recall@8 must be 0.0 (not NaN).
+        let m_empty = EvalMetrics::for_query(&retrieved, &rel1, 8);
+        assert_eq!(m_empty.recall_at_k, 0.0);
+        assert!(!m_empty.recall_at_k.is_nan());
+    }
+
+    #[test]
+    fn labeled_golden_report_degraded_on_missing_file() {
+        // A non-existent path must degrade gracefully, not panic.
+        let r = LabeledGoldenReport::degraded("/nonexistent/path.json", 8, "file not found");
+        assert!(r.degraded);
+        assert_eq!(r.total_queries, 0);
+        assert_eq!(r.queries_with_zero_recall, 0);
+        // Aggregate must be all-zero, never NaN.
+        for v in [
+            r.aggregate.recall_at_k,
+            r.aggregate.precision_at_k,
+            r.aggregate.mrr,
+            r.aggregate.ndcg_at_k,
+        ] {
+            assert_eq!(v, 0.0);
+            assert!(!v.is_nan());
+        }
+    }
+
+    #[test]
+    fn labeled_golden_report_serializes_required_fields() {
+        // The JSON output must contain all cat19-relevant fields.
+        let r = LabeledGoldenReport::degraded("/path/labels.json", 8, "test");
+        let json = serde_json::to_string(&r).expect("must serialize");
+        for field in &[
+            "\"total_queries\"",
+            "\"zero_relevant\"",
+            "\"queries_with_zero_recall\"",
+            "\"aggregate\"",
+            "\"recall_at_k\"",
+            "\"per_query\"",
+            "\"degraded\"",
+        ] {
+            assert!(json.contains(field), "JSON must contain field {field}");
+        }
     }
 }

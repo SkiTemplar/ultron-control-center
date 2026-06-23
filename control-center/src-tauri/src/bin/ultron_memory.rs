@@ -14,7 +14,7 @@
 //!   ultron-memory stats                         # memory health counts
 //!   ultron-memory reindex                       # rebuild the dense index
 //!   ultron-memory catalog [--agents|--skills]   # (re)index agent/skill catalog
-//!   ultron-memory eval [--project X] [--golden] # recall@8 + (optional) golden metrics
+//!   ultron-memory eval [--project X] [--golden [<path>]] # recall@8; --golden <path>=external oracle (cat19)
 //!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
 //!   ultron-memory warmup                        # SessionStart -> warm E5 (page cache)
@@ -114,19 +114,30 @@ fn run() -> Result<serde_json::Value, String> {
             }))
         }
         "eval" => {
-            // Default: the substring-based golden recall@8 report + security gate
-            // (unchanged). `--golden` ADDITIVELY merges the ranking-quality metrics
-            // (precision@k/recall@k/MRR/nDCG/context-waste) over the REAL golden set
-            // under a `golden_metrics` key, without altering the legacy fields.
-            let base = ul::memory::evals::run(project.as_deref(), 8);
-            let mut v = to_json(base)?;
-            if has_flag(&args, "--golden") {
-                let gm = ul::memory::evals::run_golden_metrics(project.as_deref(), 8);
-                if let serde_json::Value::Object(ref mut map) = v {
-                    map.insert("golden_metrics".to_string(), to_json(gm)?);
+            // `--golden <path>` (with a path argument) loads an EXTERNAL hand-labeled
+            // JSON file (schema: `{ "labeled": [...] }`, cat19 FASE A oracle) and
+            // returns a `LabeledGoldenReport` directly — the external oracle takes
+            // precedence over the embedded golden metrics when a path is given.
+            //
+            // `--golden` alone (boolean, no path) ADDITIVELY merges the internal
+            // ranking-quality metrics (precision@k/recall@k/MRR/nDCG/context-waste)
+            // under a `golden_metrics` key, same as before.
+            //
+            // Default (no flag): the substring-based recall@8 report + security gate.
+            if let Some(golden_path) = flag_value(&args, "--golden") {
+                // cat19 FASE A: external oracle path provided.
+                to_json(ul::memory::evals::run_labeled_golden(&golden_path, 8))
+            } else {
+                let base = ul::memory::evals::run(project.as_deref(), 8);
+                let mut v = to_json(base)?;
+                if has_flag(&args, "--golden") {
+                    let gm = ul::memory::evals::run_golden_metrics(project.as_deref(), 8);
+                    if let serde_json::Value::Object(ref mut map) = v {
+                        map.insert("golden_metrics".to_string(), to_json(gm)?);
+                    }
                 }
+                Ok(v)
             }
-            Ok(v)
         }
         // Dedicated subcommand: ONLY the ranking-quality metrics over the real
         // golden set (precision@k/recall@k/MRR/nDCG/context-waste + security gate).
@@ -253,7 +264,7 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|capture|edge|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|capture|edge|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
