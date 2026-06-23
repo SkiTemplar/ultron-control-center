@@ -93,7 +93,7 @@ pub fn orchestrate(
     // blows the latency budget, so FTS5 sparse + the confidence/recency re-ranker
     // carry it. Quality callers (dense_enabled=true) and the manual Memory Browser
     // (recall_unified command) keep full hybrid recall.
-    let memories = match build_trace(prompt, 12, project_id, cross_project, None, dense_enabled) {
+    let memories = match build_trace(prompt, 12, project_id, cross_project, dense_enabled) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected

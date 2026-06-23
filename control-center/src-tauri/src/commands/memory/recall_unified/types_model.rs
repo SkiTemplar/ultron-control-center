@@ -9,10 +9,13 @@ pub(super) const DEFAULT_LIMIT: usize = 8;
 /// Top-K pulled from each source before fusion.
 pub(super) const FANOUT_K: usize = 30;
 
-/// Total token budget **per session** (not per call). Once a session has
-/// injected this many tokens across all recalls, subsequent recalls in the
-/// same session receive an empty pack (budget exhausted).
-pub const TOKEN_BUDGET: i64 = 1500;
+/// Maximum token budget for the assembled pack **per recall call** — an
+/// anti-bloat ceiling for a SINGLE injection. This is NOT a cumulative
+/// per-session budget: every recall receives the full cap, so the memory is
+/// never silenced mid-session (the old per-session accumulator starved every
+/// query after the first few). The item-count cap (`DEFAULT_LIMIT`) is the
+/// primary bloat control; this token cap only bounds an oversized single item.
+pub const PER_CALL_TOKEN_CAP: i64 = 1500;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RecallEntry {
@@ -59,8 +62,7 @@ pub struct DiscardedHit {
 pub struct RecallTrace {
     pub query: String,
     pub project_filter: Option<String>,
-    /// Per-call budget passed to `assemble_pack` (may be less than TOKEN_BUDGET
-    /// when the session has already consumed tokens in earlier recalls).
+    /// Per-call token cap applied by `assemble_pack` (`PER_CALL_TOKEN_CAP`).
     pub token_budget: i64,
     pub dense_ids: Vec<String>,  // E5/Qdrant order
     pub sparse_ids: Vec<String>, // FTS5 order
@@ -70,10 +72,6 @@ pub struct RecallTrace {
     pub total_tokens: i64,
     pub lazy_load_ids: Vec<String>, // canonical_ids whose full content can be loaded on demand
     pub warnings: Vec<String>,
-    /// The session id used for budget tracking (resolved from caller/env/pid).
-    pub session_id: String,
-    /// Tokens remaining in the session budget AFTER this recall.
-    pub session_budget_remaining: i64,
 }
 
 /// Reciprocal Rank Fusion. Each list is canonical_ids ordered best-first.

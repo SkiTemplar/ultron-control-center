@@ -4,34 +4,32 @@
 //   - DENSE:  MultilingualE5Large vectors in Qdrant `ultron_memory`
 //   - SPARSE: FTS5/bm25 over `memory_items` (brain.db), ACTIVE only
 // Both sources filter to status=active; the result is a compact context pack of
-// summaries (not full content) under a token budget. Degrades to sparse-only
-// when E5/Qdrant is unavailable.
+// summaries (not full content) under a per-call token cap. Degrades to
+// sparse-only when E5/Qdrant is unavailable.
 //
 // Replaces the old `recall_hybrid` (constant-score union, no RRF) and
 // `recall_semantic`. Those remain registered (no live frontend caller) but are
 // deprecated.
 
 pub(crate) mod engine;
-pub(crate) mod session_budget;
 #[cfg(test)]
 mod tests;
 pub(crate) mod types_model;
 
 pub use engine::{build_trace, recall_pack};
-pub use session_budget::{resolve_session_id, session_budget_remaining, session_budget_reset};
 pub use types_model::rrf_fuse;
-pub use types_model::{DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, TOKEN_BUDGET};
+pub use types_model::{
+    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, PER_CALL_TOKEN_CAP,
+};
 
 /// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
 /// ranks, RRF scores, discarded+reason, injected+reason, lazy-load, warnings).
-/// `session_id` follows the same resolution rules as `recall`.
 #[tauri::command]
 pub async fn recall_inspect(
     query: String,
     limit: Option<u32>,
     project_id: Option<String>,
     cross_project: Option<bool>,
-    session_id: Option<String>,
 ) -> Result<RecallTrace, String> {
     let final_limit = limit
         .map(|n| n as usize)
@@ -43,7 +41,6 @@ pub async fn recall_inspect(
             final_limit,
             project_id.as_deref(),
             cross,
-            session_id.as_deref(),
             true, // manual recall inspection: full hybrid (dense on)
         )
     })

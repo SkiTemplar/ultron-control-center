@@ -1,10 +1,7 @@
 // recall_unified/tests.rs
 
 use super::engine::assemble_pack;
-use super::session_budget::{
-    resolve_session_id, session_budget_deduct, session_budget_remaining, session_budget_reset,
-};
-use super::types_model::{FusedHit, FANOUT_K, RRF_K, TOKEN_BUDGET};
+use super::types_model::{FusedHit, FANOUT_K, PER_CALL_TOKEN_CAP, RRF_K};
 use crate::commands::memory::recall_unified::rrf_fuse;
 use crate::memory::{Scope, Status};
 
@@ -132,7 +129,7 @@ fn assemble_pack_enforces_governance_invariants() {
         .collect();
 
     let (injected, discarded, _t) =
-        assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
+        assemble_pack(&conn, &fused, 8, Some("ultron"), false, PER_CALL_TOKEN_CAP);
     let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
     assert!(inj.contains(&&ok), "active in-project item must inject");
@@ -223,7 +220,8 @@ fn assemble_pack_cross_project_relaxes_only_project_filter() {
         .collect();
 
     // cross_project = FALSE: other-project item is filtered out.
-    let (inj_off, _d, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
+    let (inj_off, _d, _t) =
+        assemble_pack(&conn, &fused, 8, Some("ultron"), false, PER_CALL_TOKEN_CAP);
     let off: Vec<&String> = inj_off.iter().map(|e| &e.canonical_id).collect();
     assert!(
         off.contains(&&in_project),
@@ -239,7 +237,8 @@ fn assemble_pack_cross_project_relaxes_only_project_filter() {
     );
 
     // cross_project = TRUE: other-project item is admitted; Secret stays out.
-    let (inj_on, disc_on, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), true, TOKEN_BUDGET);
+    let (inj_on, disc_on, _t) =
+        assemble_pack(&conn, &fused, 8, Some("ultron"), true, PER_CALL_TOKEN_CAP);
     let on: Vec<&String> = inj_on.iter().map(|e| &e.canonical_id).collect();
     assert!(
         on.contains(&&in_project),
@@ -309,7 +308,8 @@ fn assemble_pack_excludes_items_whose_validity_ended() {
         })
         .collect();
 
-    let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, None, false, TOKEN_BUDGET);
+    let (injected, discarded, _t) =
+        assemble_pack(&conn, &fused, 8, None, false, PER_CALL_TOKEN_CAP);
     let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
     assert!(
@@ -330,118 +330,65 @@ fn assemble_pack_excludes_items_whose_validity_ended() {
 }
 
 // -----------------------------------------------------------------------
-// SESSION BUDGET tests (Pilar 1 · Kirkardo gap)
+// PER-CALL TOKEN CAP — regression for the REMOVED per-session budget.
 //
-// These tests exercise the cumulative budget store in isolation — no
-// Qdrant / brain.db required.  They use unique session ids per test to
-// avoid cross-test state pollution (the OnceLock store is global in-process).
+// The old per-session accumulator silenced the memory mid-session: it starved
+// every recall after the first few (`evals.rs` even had to reset it before each
+// golden query to avoid a false hits=0). After its removal, `assemble_pack` is
+// PURE over its `limit_tokens` argument — repeated identical calls yield
+// identical packs, so the recall is never silenced mid-session. This is the
+// unit-level guard; the full end-to-end check lives in the #[ignore]d e2e tests
+// that hit the real brain.db.
 // -----------------------------------------------------------------------
 
 #[test]
-fn session_budget_starts_full() {
-    let sid = "test-budget-starts-full";
-    session_budget_reset(sid);
+fn assemble_pack_has_no_cross_call_state() {
+    use crate::memory::model::MemoryItem;
+    use crate::memory::sqlite_store::{apply_schema, insert_item};
+    use crate::memory::{MemoryType, Source};
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+    apply_schema(&conn).expect("schema");
+
+    let mut it = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Global,
+        Source::ToolObserved,
+        Status::Active,
+    );
+    it.summary = Some("stable item".into());
+    it.token_estimate = 20;
+    insert_item(&conn, &it).expect("insert");
+
+    let fused = vec![FusedHit {
+        canonical_id: it.id.clone(),
+        rrf_score: 0.9,
+        dense_rank: Some(0),
+        sparse_rank: None,
+        dense_score: Some(0.5),
+    }];
+
+    // Three "recalls" in a row with the full per-call cap. The OLD per-session
+    // budget would have starved the later calls; now every call is identical.
+    let run = || assemble_pack(&conn, &fused, 8, None, false, PER_CALL_TOKEN_CAP);
+    let (a, _, ta) = run();
+    let (b, _, tb) = run();
+    let (c, _, tc) = run();
+    assert_eq!(a.len(), 1, "first recall injects the item");
+    assert_eq!(b.len(), a.len(), "second recall is NOT starved");
+    assert_eq!(c.len(), a.len(), "third recall is NOT starved");
     assert_eq!(
-        session_budget_remaining(sid),
-        TOKEN_BUDGET,
-        "fresh session must have full budget"
+        (ta, tb, tc),
+        (ta, ta, ta),
+        "token totals are stable across calls (no cross-call state)"
     );
 }
 
 #[test]
-fn session_budget_deducts_correctly() {
-    let sid = "test-budget-deducts";
-    session_budget_reset(sid);
-    let remaining = session_budget_deduct(sid, 400);
-    assert_eq!(remaining, TOKEN_BUDGET - 400);
-    assert_eq!(session_budget_remaining(sid), TOKEN_BUDGET - 400);
-}
-
-#[test]
-fn session_budget_clamps_at_zero() {
-    let sid = "test-budget-clamps";
-    session_budget_reset(sid);
-    // Deduct more than the total budget.
-    let remaining = session_budget_deduct(sid, TOKEN_BUDGET + 500);
-    assert_eq!(remaining, 0, "budget must clamp at zero, never go negative");
-    assert_eq!(session_budget_remaining(sid), 0);
-}
-
-#[test]
-fn session_budget_accumulates_across_calls() {
-    let sid = "test-budget-accumulates";
-    session_budget_reset(sid);
-    session_budget_deduct(sid, 300);
-    session_budget_deduct(sid, 500);
-    assert_eq!(
-        session_budget_remaining(sid),
-        TOKEN_BUDGET - 800,
-        "budget must accumulate across multiple deductions"
-    );
-}
-
-#[test]
-fn session_budget_reset_restores_full_budget() {
-    let sid = "test-budget-reset";
-    session_budget_reset(sid);
-    session_budget_deduct(sid, 1000);
-    assert!(session_budget_remaining(sid) < TOKEN_BUDGET);
-    session_budget_reset(sid);
-    assert_eq!(
-        session_budget_remaining(sid),
-        TOKEN_BUDGET,
-        "reset must restore full budget"
-    );
-}
-
-#[test]
-fn resolve_session_id_uses_supplied_value() {
-    let sid = resolve_session_id(Some("my-session-abc"));
-    assert_eq!(sid, "my-session-abc");
-}
-
-#[test]
-fn resolve_session_id_falls_back_to_proc_when_empty() {
-    // Without ULTRON_SESSION_ID set, the fallback must be proc-<pid>.
-    // We only check the prefix because the pid varies per run.
-    // Temporarily ensure env var is absent to test the proc fallback.
-    let sid = resolve_session_id(Some(""));
-    // Could be env-based or proc-based — just assert it's non-empty.
-    assert!(!sid.is_empty(), "session id must never be empty");
-}
-
-/// KIRKARDO gap #6: verify that `CLAUDE_SESSION_ID` is honoured as the
-/// second env-var fallback (after `ULTRON_SESSION_ID`, before `proc-<pid>`).
-#[test]
-fn resolve_session_id_uses_claude_session_id_env() {
-    // Supplied non-empty value always wins — ensure that still holds.
-    let explicit = resolve_session_id(Some("explicit-session-42"));
-    assert_eq!(
-        explicit, "explicit-session-42",
-        "explicit value must always win"
-    );
-
-    // Verify the proc-<pid> fallback produces a non-empty string even
-    // when both env vars are absent (the common test environment case).
-    let proc_sid = resolve_session_id(Some(""));
-    assert!(
-        !proc_sid.is_empty(),
-        "proc-<pid> fallback must be non-empty"
-    );
-    // The fallback must either be env-based or start with "proc-".
-    // We cannot reliably unset env vars in parallel tests, so just assert
-    // it is non-empty and well-formed.
-    let looks_valid = proc_sid.starts_with("proc-") || !proc_sid.contains(' ');
-    assert!(
-        looks_valid,
-        "session id must be a single token, got: {proc_sid}"
-    );
-}
-
-#[test]
-fn assemble_pack_respects_reduced_session_budget() {
-    // Simulate a session that has already consumed most of the budget.
+fn assemble_pack_respects_per_call_token_cap() {
     // assemble_pack receives only 30 tokens — only items that fit are admitted.
+    // The per-call cap bounds a single oversized item; there is no per-session
+    // budget anymore.
     use crate::memory::model::MemoryItem;
     use crate::memory::sqlite_store::{apply_schema, insert_item};
     use crate::memory::{MemoryType, Source};

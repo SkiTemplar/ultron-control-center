@@ -69,7 +69,6 @@ fn run() -> Result<serde_json::Value, String> {
                 8,
                 project.as_deref(),
                 cross,
-                None, // session_id: use default resolution (env → proc-<pid>)
             )?)
         }
         "stats" => to_json(ul::memory::MemoryService::stats().map_err(|e| e.to_string())?),

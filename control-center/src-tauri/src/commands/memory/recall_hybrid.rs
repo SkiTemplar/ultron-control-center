@@ -29,7 +29,6 @@ pub async fn recall_hybrid(query: String, limit: Option<u32>) -> Result<Vec<Memo
             limit.map(|n| n as usize).unwrap_or(20),
             None,  // project_id = None: no project filter, vault gate inactive
             false, // cross_project = false
-            None,  // session_id = None: use default resolution (env → proc-<pid>)
         )?;
         // Map RecallEntry -> MemoryHit for backward-compat callers.
         Ok(pack

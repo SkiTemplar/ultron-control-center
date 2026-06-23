@@ -3,7 +3,8 @@
 // `assemble_pack`: pure governance filter over a pre-fused candidate list.
 //    Unit-testable without Qdrant/E5.
 // `build_trace`: full hybrid recall pipeline (dense + sparse + RRF + quality
-//    re-ranker + session budget), returns the Retrieval Inspector trace.
+//    re-ranker), returns the Retrieval Inspector trace. Each call gets the full
+//    per-call token cap — no cumulative per-session budget.
 // `recall_pack`: thin wrapper over `build_trace` that returns the compact pack.
 
 use std::collections::HashMap;
@@ -15,9 +16,9 @@ use crate::memory::{
     Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Source, Status,
 };
 
-use super::session_budget::{resolve_session_id, session_budget_deduct, session_budget_remaining};
 use super::types_model::{
-    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, FANOUT_K, RRF_K, TOKEN_BUDGET,
+    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, FANOUT_K, PER_CALL_TOKEN_CAP,
+    RRF_K,
 };
 use crate::commands::memory::recall_unified::rrf_fuse;
 
@@ -36,7 +37,7 @@ use crate::commands::memory::recall_unified::rrf_fuse;
 /// cross-project recall launched from inside a project still keeps vault off by
 /// default (cross relaxes the project filter, not the noise control).
 /// `limit_tokens` caps the total token count of the assembled pack. Pass
-/// `TOKEN_BUDGET` for the default, or a custom value from the caller. Items are
+/// `PER_CALL_TOKEN_CAP` for the default, or a custom value from the caller. Items are
 /// admitted best-rank-first; the first item is always admitted (with truncation)
 /// even if its token estimate exceeds the budget.
 pub(crate) fn assemble_pack(
@@ -173,23 +174,16 @@ pub(crate) fn assemble_pack(
 /// `assemble_pack` is relaxed, so the recall searches the WHOLE brain across
 /// projects. Security is untouched: Secret items are still excluded downstream.
 ///
-/// SESSION BUDGET: `session_id` is used to track cumulative token consumption
-/// across multiple recalls in the same session. When the session has already
-/// consumed TOKEN_BUDGET tokens, this call injects zero items (budget exhausted)
-/// and records a warning. Pass `None` to use the resolved default session id
-/// (env var → proc-<pid>).
+/// PER-CALL TOKEN CAP: every recall receives the full `PER_CALL_TOKEN_CAP` —
+/// there is NO cumulative per-session budget, so the memory is never silenced
+/// mid-session (the old accumulator starved every query after the first few).
 pub fn build_trace(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
-    session_id: Option<&str>,
     dense_enabled: bool,
 ) -> Result<RecallTrace, String> {
-    // Session budget — cumulative across recalls in the same session.
-    let sid = resolve_session_id(session_id);
-    let remaining_before = session_budget_remaining(&sid);
-
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN. Empty if offline,
     //     OR skipped entirely when dense_enabled=false (the sparse-first hot
     //     path): embedding a query with E5-large on CPU costs ~1.1s, too slow
@@ -321,48 +315,20 @@ pub fn build_trace(
         });
     }
 
-    // (4)+(5) load items + apply governance + budget via the pure assemble_pack.
-    // The per-call budget is the REMAINING session budget (not the full constant),
-    // so a session that has already consumed tokens in earlier recalls gets a
-    // proportionally smaller pack — or an empty pack when exhausted.
-    // The first item is still always admitted (assemble_pack truncates it to
-    // fit the budget), but only if remaining_before > 0.
-    let (injected, discarded, total_tokens) = if remaining_before > 0 {
-        assemble_pack(
-            &conn,
-            &fused,
-            limit,
-            project_id,
-            cross_project,
-            remaining_before,
-        )
-    } else {
-        // Budget fully exhausted: admit nothing, mark all fused hits as discarded.
-        let disc: Vec<DiscardedHit> = fused
-            .iter()
-            .map(|fh| DiscardedHit {
-                canonical_id: fh.canonical_id.clone(),
-                reason: "session token budget exhausted".to_string(),
-            })
-            .collect();
-        (vec![], disc, 0)
-    };
-
-    // Deduct tokens consumed this call from the session budget.
-    let remaining_after = session_budget_deduct(&sid, total_tokens);
+    // (4)+(5) load items + apply governance + the per-call token cap via the
+    // pure assemble_pack. Every recall receives the FULL per-call cap — there is
+    // NO cumulative per-session budget, so the memory is never silenced
+    // mid-session. The item-count `limit` is the primary bloat ceiling.
+    let (injected, discarded, total_tokens) = assemble_pack(
+        &conn,
+        &fused,
+        limit,
+        project_id,
+        cross_project,
+        PER_CALL_TOKEN_CAP,
+    );
 
     let mut warnings: Vec<String> = Vec::new();
-    if remaining_before == 0 {
-        warnings.push(format!(
-            "session token budget exhausted (budget={TOKEN_BUDGET}); no items injected — \
-             start a new session or call session_budget_reset to continue"
-        ));
-    } else if remaining_after == 0 {
-        warnings.push(format!(
-            "session token budget now exhausted after this recall \
-             (consumed={total_tokens}, session_total={TOKEN_BUDGET})"
-        ));
-    }
     if cross_project && project_id.is_some() {
         warnings.push(
             "cross-project recall — project filter relaxed (Secret still excluded)".to_string(),
@@ -403,7 +369,7 @@ pub fn build_trace(
     Ok(RecallTrace {
         query: query.to_string(),
         project_filter: project_id.map(str::to_string),
-        token_budget: remaining_before,
+        token_budget: PER_CALL_TOKEN_CAP,
         dense_ids,
         sparse_ids,
         fused,
@@ -412,25 +378,21 @@ pub fn build_trace(
         total_tokens,
         lazy_load_ids,
         warnings,
-        session_id: sid,
-        session_budget_remaining: remaining_after,
     })
 }
 
 /// Sync compact recall pack — reused by the CLI sidecar (`ultron-memory recall`).
 /// `cross_project` relaxes ONLY the project filter (whole-brain recall); Secret
-/// items are still excluded.
-/// `session_id` is used for cumulative budget tracking; pass `None` to use the
-/// default (env → proc-<pid>).
+/// items are still excluded. Every call gets the full `PER_CALL_TOKEN_CAP`;
+/// there is no cumulative per-session budget.
 pub fn recall_pack(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
-    session_id: Option<&str>,
 ) -> Result<RecallPack, String> {
     // Manual recall path (UI inspection) keeps full hybrid quality (dense on).
-    let t = build_trace(query, limit, project_id, cross_project, session_id, true)?;
+    let t = build_trace(query, limit, project_id, cross_project, true)?;
     Ok(RecallPack {
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),
