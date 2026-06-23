@@ -188,7 +188,7 @@
       "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
       "timeout_s": 5,
-      "checksum_sha256": "24c3fcbb2a5378a5f984b94a72ee7689a343887a26ca0b6b848d5ea1e2057bd6",
+      "checksum_sha256": "6449b3cd709ba2bbacc50cd463b90872d4fa959ff3bd79204dd295a94747a02a",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

@@ -1158,8 +1158,47 @@ function resolveEccSkillsDir() {
  * Result is cached in _eccIndexCache for the process lifetime.
  * Returns an empty Map on any error — never throws.
  *
+ * DISK CACHE: On cold runs, after scanning, writes a JSON cache to
+ * ~/.ultron/cockpit/skill-lazy/.ecc-index-cache.json. Subsequent process
+ * invocations stat-walk the ECC directory (cheap), compare
+ * {count, maxMtimeMs}, and skip the read+parse when the signature matches.
+ * FAIL-SAFE: any cache error (missing, corrupt, I/O, unexpected shape) falls
+ * back silently to the full re-scan — the cache is pure optimisation.
+ *
  * @returns {Map<string, {skillPath: string, tokens: {triggers: string[], strong: string[], context: string[]}}>}
  */
+
+const ECC_DISK_CACHE_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', '.ecc-index-cache.json');
+
+/**
+ * Build the invalidation signature for a given skills directory by stat-walking
+ * its SKILL.md files. Uses statSync (no readFile) — cheap I/O.
+ *
+ * @param {string} skillsDir  Absolute path to the ECC skills directory.
+ * @returns {{ count: number, maxMtimeMs: number }|null}  null if the dir is unreadable.
+ */
+function _buildEccSignature(skillsDir) {
+  try {
+    const dirEntries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    let count = 0;
+    let maxMtimeMs = 0;
+    for (const entry of dirEntries) {
+      if (!entry.isDirectory()) continue;
+      const skillPath = path.join(skillsDir, entry.name, 'SKILL.md');
+      try {
+        const st = fs.statSync(skillPath);
+        count++;
+        if (st.mtimeMs > maxMtimeMs) maxMtimeMs = st.mtimeMs;
+      } catch (_) {
+        // SKILL.md missing in this folder — skip
+      }
+    }
+    return { count, maxMtimeMs };
+  } catch (_) {
+    return null;
+  }
+}
+
 function scanEccSkills() {
   if (_eccIndexCache !== null) return _eccIndexCache;
 
@@ -1170,6 +1209,40 @@ function scanEccSkills() {
     safeLog({ level: 'info', msg: 'ecc_index_skipped', reason: 'cache_not_found' });
     return _eccIndexCache;
   }
+
+  // ---- DISK CACHE: try warm path first ----------------------------------------
+  try {
+    const currentSig = _buildEccSignature(skillsDir);
+    if (currentSig !== null) {
+      let cacheHit = false;
+      try {
+        const raw = fs.readFileSync(ECC_DISK_CACHE_PATH, 'utf8');
+        const cached = JSON.parse(raw);
+        const { signature, entries } = cached;
+        if (
+          signature &&
+          typeof signature.count === 'number' &&
+          typeof signature.maxMtimeMs === 'number' &&
+          signature.count === currentSig.count &&
+          signature.maxMtimeMs === currentSig.maxMtimeMs &&
+          Array.isArray(entries)
+        ) {
+          for (const [key, value] of entries) {
+            _eccIndexCache.set(key, value);
+          }
+          cacheHit = true;
+          safeLog({ level: 'info', msg: 'ecc_index_from_disk_cache', count: _eccIndexCache.size });
+        }
+      } catch (_) {
+        // cache absent, corrupt, or unexpected shape — fall through to re-scan
+      }
+
+      if (cacheHit) return _eccIndexCache;
+    }
+  } catch (_) {
+    // any unexpected error in the cache fast-path — fall through to re-scan
+  }
+  // ---- END DISK CACHE fast path ------------------------------------------------
 
   let scanned = 0;
   let indexed = 0;
@@ -1216,6 +1289,22 @@ function scanEccSkills() {
     indexed,
     skills_dir: skillsDir,
   });
+
+  // ---- DISK CACHE: persist to disk for next run (best-effort, never throws) ----
+  try {
+    const sigToWrite = _buildEccSignature(skillsDir);
+    if (sigToWrite !== null) {
+      const cachePayload = JSON.stringify({
+        signature: sigToWrite,
+        entries: Array.from(_eccIndexCache.entries()),
+      });
+      fs.writeFileSync(ECC_DISK_CACHE_PATH, cachePayload, 'utf8');
+      safeLog({ level: 'info', msg: 'ecc_index_cache_written', path: ECC_DISK_CACHE_PATH });
+    }
+  } catch (_) {
+    // write failure is non-fatal — cache will be rebuilt on the next run
+  }
+  // ---- END DISK CACHE write ----------------------------------------------------
 
   return _eccIndexCache;
 }

@@ -104,6 +104,8 @@ cockpit/pending_actions.json
 cockpit/backup-config.json
 # AI Router runtime telemetry (per-install counters; mutates on every run).
 cockpit/ai-router/metrics.json
+# ECC skill index disk cache (derived artifact, rebuilt automatically).
+cockpit/skill-lazy/.ecc-index-cache.json
 # Runtime/per-machine state (mutates at runtime; not part of the product).
 cockpit/hooks/breaker-state.json
 cockpit/sessions-tags.jsonl
