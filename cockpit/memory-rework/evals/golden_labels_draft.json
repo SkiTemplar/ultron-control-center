@@ -1,0 +1,142 @@
+{
+  "labeled": [
+    {
+      "id": "gs-0001",
+      "query": "qdrant",
+      "expect_ids": [
+        "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
+        "b15c9828-19d3-44db-8db6-0a6464822dec",
+        "b66e5c98-792d-4f24-864c-2bfb2a1149b5",
+        "79b32eab-3620-4198-80c1-2af665533280",
+        "5b09821e-59b5-45e3-b358-100a20e0e8ee"
+      ],
+      "n_relevant": 5,
+      "nota": "Tratan directamente de Qdrant: decision de uso, config del named vector, ubicacion D:/Ultron/qdrant y proceso activo; descarto los de build/compilacion y 'SQLite y Qdrant' que solo lo mencionan de pasada."
+    },
+    {
+      "id": "gs-0002",
+      "query": "memoria",
+      "expect_ids": [
+        "4a8141e0-c886-480f-85c7-a37da48b1475",
+        "3a54a9af-d27a-4638-a07a-3a1213aac77f",
+        "d1ac035e-ae28-4465-b2f2-60494b82190a",
+        "1571e6c9-2af1-439d-9381-ad8342f10353",
+        "7e860365-5572-47d2-9e60-43724fc15086",
+        "3ef59fce-9f35-44bc-908a-f26505355bc9"
+      ],
+      "n_relevant": 6,
+      "nota": "Describen el sistema/arquitectura de memoria (verificacion, persistencia Qdrant, SQLite+Qdrant, brain.db como storage unico); descarto 'Requisitos de memoria' generico y 'Limitaciones de diseno' que va de no asumir sobre supuestos."
+    },
+    {
+      "id": "gs-0003",
+      "query": "embeddings E5 dense",
+      "expect_ids": [
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+        "7edf71d6-73c6-415c-8765-61a8b765b30c",
+        "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0",
+        "c10ae7ec-a7b4-4b93-afdf-2e7a18c2970e",
+        "43f9ffc4-3477-4319-9ab7-e774e2f69ad4",
+        "dd4f30f9-ac09-47c7-871b-51f8e5b27dae",
+        "566587e8-aa64-4811-a298-baa3714771fc"
+      ],
+      "n_relevant": 7,
+      "nota": "Eleccion de E5 1024d (3 entries), veredicto BGE-small como alternativa de embedding, limite fisico de latencia de E5-large y daemon que mantiene E5 residente: todo gira sobre el modelo de embeddings dense E5."
+    },
+    {
+      "id": "gs-0004",
+      "query": "recall hibrido RRF",
+      "expect_ids": [
+        "3e7ebecc-9f6c-45be-88bf-c548d191caea",
+        "f6469c8d-0b16-4649-ac51-10596c9582bc",
+        "6d7576c8-710b-4723-abe4-7a2622dfa100",
+        "bc505759-7db8-493d-80fc-e71a018e75b3"
+      ],
+      "n_relevant": 4,
+      "nota": "Re-ranker tras el RRF, cambio en recall_hybrid.rs/recall_unified.rs, arquitectura de busqueda FTS5+denso y el trade-off recall/latencia documentado; descarto las entries que solo hablan de E5 o de 'no degradar recall' sin tocar el hibrido."
+    },
+    {
+      "id": "gs-0005",
+      "query": "busqueda sparse FTS5",
+      "expect_ids": [
+        "6d7576c8-710b-4723-abe4-7a2622dfa100",
+        "fad824ea-8fef-49a4-99a4-df103d5ac193",
+        "16d1e4b4-36e2-481e-85d9-5819ed25423b",
+        "793cb64e-ac50-4dea-be2f-bb68993f524e"
+      ],
+      "n_relevant": 4,
+      "nota": "Arquitectura FTS5 sincrono, comportamiento del recall sparse, prototipo de query FTS5 alternativa y hybrid retriever FTS5+Qdrant+RRF; descarto las auditorias cat5 (van de limpieza .ultron, no de FTS5)."
+    },
+    {
+      "id": "gs-0006",
+      "query": "decision sobre el modelo de embeddings",
+      "expect_ids": [
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+        "7edf71d6-73c6-415c-8765-61a8b765b30c",
+        "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0"
+      ],
+      "n_relevant": 3,
+      "nota": "Las tres entries de la decision de elegir E5 1024d frente a bge-m3 por recall@8; descarto el 'menu de 5 decisiones', la arquitectura de sistemas distribuidos y el instalador, ajenos al modelo de embeddings."
+    },
+    {
+      "id": "gs-0007",
+      "query": "decision arquitectura orquestador",
+      "expect_ids": [
+        "80959ae6-b9ad-4670-a8ed-4e961a33e209"
+      ],
+      "n_relevant": 1,
+      "nota": "Solo 'Arquitectura del sistema' (Orquestador Ultron + plugins + AI Routing) toca directamente la arquitectura del orquestador; el resto son arquitecturas de otros temas (Codegraph, pipeline, Kirkardo, menu de 5 decisiones) y no del orquestador."
+    },
+    {
+      "id": "gs-0008",
+      "query": "orquestador Ultron auto-routing",
+      "expect_ids": [
+        "80959ae6-b9ad-4670-a8ed-4e961a33e209",
+        "3c8fbf90-08c2-4d8d-aa30-12efe8eeadf8"
+      ],
+      "n_relevant": 2,
+      "nota": "'Arquitectura del sistema' (Orquestador Ultron + AI Routing) y el programa maestro de ULTRON con sus pilares; descarto GC de ultron_sessions, settings de hooks y 'cerrar/reconstruir', que no tratan del orquestador ni del routing."
+    },
+    {
+      "id": "gs-0009",
+      "query": "hooks de sesion SessionStart",
+      "expect_ids": [
+        "2bcb78d4-10b1-43aa-961a-cb3ff77e46be",
+        "f2a6f696-6958-4c22-93da-10e25523dd05",
+        "c689a453-5c26-4089-b316-afa13ef9a0fe",
+        "1513b859-a1fd-4290-b428-baeca49a5892",
+        "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46",
+        "6b541336-52f0-4b97-96b1-4f860700bdbb"
+      ],
+      "n_relevant": 6,
+      "nota": "Hooks implementados (incluye SessionStart), decision de config de SessionStart en settings.json, hooks recomendados/limitaciones, uso de hooks para inyectar resumen por sesion y la tarea de simular SessionStart; descarto el 'menu de 5 decisiones', ajeno."
+    },
+    {
+      "id": "gs-0010",
+      "query": "candidato de memoria pendiente de validacion",
+      "expect_ids": [],
+      "n_relevant": 0,
+      "nota": "sin relevante claro: el recall solo devolvio auditorias de cat1 (Memoria Qdrant) y un diseno de memoria para Oryntic; ninguna trata del concepto de candidatos de memoria pendientes de validacion (cola candidate/promocion)."
+    },
+    {
+      "id": "gs-0011",
+      "query": "qdrant embeddings recall decision",
+      "expect_ids": [
+        "7edf71d6-73c6-415c-8765-61a8b765b30c",
+        "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191"
+      ],
+      "n_relevant": 3,
+      "nota": "Cross-topic legitimo: decision de E5 1024d para recall (x2) y decision de usar Qdrant para la memoria; descarto el 'menu de 5 decisiones' y la estructura de carpetas, ajenos al cruce qdrant/embeddings/recall."
+    },
+    {
+      "id": "gs-0012",
+      "query": "memoria sparse orquestador",
+      "expect_ids": [
+        "fad824ea-8fef-49a4-99a4-df103d5ac193",
+        "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
+      ],
+      "n_relevant": 2,
+      "nota": "Comportamiento del recall sparse (eje sparse) y arquitectura de memoria (brain.db, eje memoria); ninguna entry cruza claramente con orquestador, asi que solo marco las que responden directamente a memoria/sparse."
+    }
+  ]
+}

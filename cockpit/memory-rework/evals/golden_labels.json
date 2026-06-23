@@ -1,0 +1,318 @@
+{
+  "_note": "Oraculo cat19: 30 queries etiquetadas; cada expect_id verificado existe en brain.db (2 inventados eliminados). Oraculo externo no-circular. 2026-06-23.",
+  "labeled": [
+    {
+      "id": "gs-0001",
+      "query": "qdrant",
+      "expect_ids": [
+        "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
+        "b15c9828-19d3-44db-8db6-0a6464822dec",
+        "b66e5c98-792d-4f24-864c-2bfb2a1149b5",
+        "79b32eab-3620-4198-80c1-2af665533280",
+        "5b09821e-59b5-45e3-b358-100a20e0e8ee"
+      ],
+      "n_relevant": 5
+    },
+    {
+      "id": "gs-0002",
+      "query": "memoria",
+      "expect_ids": [
+        "4a8141e0-c886-480f-85c7-a37da48b1475",
+        "3a54a9af-d27a-4638-a07a-3a1213aac77f",
+        "d1ac035e-ae28-4465-b2f2-60494b82190a",
+        "1571e6c9-2af1-439d-9381-ad8342f10353",
+        "7e860365-5572-47d2-9e60-43724fc15086",
+        "3ef59fce-9f35-44bc-908a-f26505355bc9"
+      ],
+      "n_relevant": 6
+    },
+    {
+      "id": "gs-0003",
+      "query": "embeddings E5 dense",
+      "expect_ids": [
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+        "7edf71d6-73c6-415c-8765-61a8b765b30c",
+        "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0",
+        "c10ae7ec-a7b4-4b93-afdf-2e7a18c2970e",
+        "43f9ffc4-3477-4319-9ab7-e774e2f69ad4",
+        "dd4f30f9-ac09-47c7-871b-51f8e5b27dae",
+        "566587e8-aa64-4811-a298-baa3714771fc"
+      ],
+      "n_relevant": 7
+    },
+    {
+      "id": "gs-0004",
+      "query": "recall hibrido RRF",
+      "expect_ids": [
+        "3e7ebecc-9f6c-45be-88bf-c548d191caea",
+        "f6469c8d-0b16-4649-ac51-10596c9582bc",
+        "6d7576c8-710b-4723-abe4-7a2622dfa100",
+        "bc505759-7db8-493d-80fc-e71a018e75b3"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0005",
+      "query": "busqueda sparse FTS5",
+      "expect_ids": [
+        "6d7576c8-710b-4723-abe4-7a2622dfa100",
+        "fad824ea-8fef-49a4-99a4-df103d5ac193",
+        "16d1e4b4-36e2-481e-85d9-5819ed25423b",
+        "793cb64e-ac50-4dea-be2f-bb68993f524e"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0006",
+      "query": "decision sobre el modelo de embeddings",
+      "expect_ids": [
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+        "7edf71d6-73c6-415c-8765-61a8b765b30c",
+        "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0"
+      ],
+      "n_relevant": 3
+    },
+    {
+      "id": "gs-0007",
+      "query": "decision arquitectura orquestador",
+      "expect_ids": [
+        "80959ae6-b9ad-4670-a8ed-4e961a33e209"
+      ],
+      "n_relevant": 1
+    },
+    {
+      "id": "gs-0008",
+      "query": "orquestador Ultron auto-routing",
+      "expect_ids": [
+        "80959ae6-b9ad-4670-a8ed-4e961a33e209",
+        "3c8fbf90-08c2-4d8d-aa30-12efe8eeadf8"
+      ],
+      "n_relevant": 2
+    },
+    {
+      "id": "gs-0009",
+      "query": "hooks de sesion SessionStart",
+      "expect_ids": [
+        "2bcb78d4-10b1-43aa-961a-cb3ff77e46be",
+        "f2a6f696-6958-4c22-93da-10e25523dd05",
+        "c689a453-5c26-4089-b316-afa13ef9a0fe",
+        "1513b859-a1fd-4290-b428-baeca49a5892",
+        "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46",
+        "6b541336-52f0-4b97-96b1-4f860700bdbb"
+      ],
+      "n_relevant": 6
+    },
+    {
+      "id": "gs-0010",
+      "query": "candidato de memoria pendiente de validacion",
+      "expect_ids": [],
+      "n_relevant": 0
+    },
+    {
+      "id": "gs-0011",
+      "query": "qdrant embeddings recall decision",
+      "expect_ids": [
+        "7edf71d6-73c6-415c-8765-61a8b765b30c",
+        "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191"
+      ],
+      "n_relevant": 3
+    },
+    {
+      "id": "gs-0012",
+      "query": "memoria sparse orquestador",
+      "expect_ids": [
+        "fad824ea-8fef-49a4-99a4-df103d5ac193",
+        "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
+      ],
+      "n_relevant": 2
+    },
+    {
+      "id": "gs-0013",
+      "query": "AI Router zonas de routing",
+      "expect_ids": [
+        "e77543ca-fe30-4174-9410-d6429577a7f3",
+        "f8c7416a-357b-4964-aba6-1a20e4d348f4"
+      ],
+      "n_relevant": 2
+    },
+    {
+      "id": "gs-0014",
+      "query": "groq primary fallback gemini decision router",
+      "expect_ids": [
+        "7caad075-0d41-428d-8e0d-8e7b939770a1",
+        "f07d1200-4278-4c6c-8f68-099d915a53af",
+        "4a072bad-669c-4f6c-834c-11d6a2d14894"
+      ],
+      "n_relevant": 3
+    },
+    {
+      "id": "gs-0015",
+      "query": "kanban gitignored estado local proyecto",
+      "expect_ids": [
+        "916c855f-b4eb-4552-b087-4a699d39b3e8",
+        "71de3d8b-44ef-41f3-8e29-4bd15dca9d70"
+      ],
+      "n_relevant": 2
+    },
+    {
+      "id": "gs-0016",
+      "query": "PII gate pre-commit seguridad repo publico",
+      "expect_ids": [
+        "1972a91e-d80b-4758-9e22-a64aaa3dd337",
+        "6246e6ae-39dd-4317-96c8-36dd21c6a6c4",
+        "489018af-b7a1-42ec-afea-185a05cf3c4e",
+        "34d88511-e2e0-485f-bbb9-e90ff5d6a512"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0017",
+      "query": "CodeGraph grafo simbolos nodos edges MCP",
+      "expect_ids": [
+        "a4fd4b83-ae35-4edf-ab44-56136becf3ff",
+        "a462b5d4-048d-4cce-b164-34767b0c4a3f",
+        "7cd8df5a-544e-4a07-b8a1-8b2aaecb0236",
+        "d4fd828b-ed14-4ac4-b9b9-3ae801bb6f8d"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0018",
+      "query": "brain.db SQLite unica fuente verdad escritor",
+      "expect_ids": [
+        "02c967ab-425b-4a2a-b772-ab25708f4819",
+        "7e860365-5572-47d2-9e60-43724fc15086",
+        "3ef59fce-9f35-44bc-908a-f26505355bc9",
+        "fc5b7fc9-d864-41e8-ad33-a834ba461b98",
+        "71866ddb-86e9-47ec-8fff-5ba2cf74c23f",
+        "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
+      ],
+      "n_relevant": 6
+    },
+    {
+      "id": "gs-0019",
+      "query": "skills lazy dispatcher v2 inyeccion on-demand",
+      "expect_ids": [
+        "fabf7504-4cd0-4f01-ab75-d0d856ab55b9",
+        "04350eab-ce6a-4766-862e-abcddcead0cc",
+        "cd478cbe-d4fd-40ab-a537-907003fb8672",
+        "f032349e-6b57-4649-bff1-88281d0ef601",
+        "e9b17077-d335-4522-a512-7c18bae0c6f9"
+      ],
+      "n_relevant": 5
+    },
+    {
+      "id": "gs-0020",
+      "query": "delegacion automatica directiva imperativa orquestador",
+      "expect_ids": [
+        "c2575e50-8507-4eae-aae0-293b793c5366",
+        "e7b6fa9c-303c-40b0-b760-96e02d233442"
+      ],
+      "n_relevant": 2
+    },
+    {
+      "id": "gs-0021",
+      "query": "Tauri build:local build:app diferencia binario",
+      "expect_ids": [
+        "a23b517a-b8de-4201-b2dc-25b312795ecf"
+      ],
+      "n_relevant": 1
+    },
+    {
+      "id": "gs-0022",
+      "query": "Kirkardo harness determinista evaluacion categorias",
+      "expect_ids": [
+        "af3871e3-869f-478d-a6d0-79def2728e12",
+        "74d95681-c41c-4781-bbe5-fbf9b3f1994a",
+        "31735d87-6244-458d-b969-c089167a851f",
+        "3bc0395f-96e5-444d-ab25-9c664e5ae031"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0023",
+      "query": "E5 large cold start latencia limite fisico CPU",
+      "expect_ids": [
+        "43f9ffc4-3477-4319-9ab7-e774e2f69ad4",
+        "37d2d995-48ac-4723-8c27-66c015977b31",
+        "13b8a0ef-d3e1-40ce-a1fa-9492ddb4214d",
+        "836c5649-3f1b-41b5-a32f-f385b821a7b3",
+        "dd4f30f9-ac09-47c7-871b-51f8e5b27dae"
+      ],
+      "n_relevant": 5
+    },
+    {
+      "id": "gs-0024",
+      "query": "observabilidad hooks timing logging errores silenciosos",
+      "expect_ids": [
+        "e2e51556-1773-45b3-a11f-752f88852ff6",
+        "3dcac7ec-d301-43d2-9307-4e4ceadfebcd",
+        "514a2b87-6ed0-4364-8bd1-74009db91223"
+      ],
+      "n_relevant": 3
+    },
+    {
+      "id": "gs-0025",
+      "query": "UserPromptSubmit rendimiento latencia prompts",
+      "expect_ids": [
+        "2bcb78d4-10b1-43aa-961a-cb3ff77e46be",
+        "bd05cb21-81da-4db7-9b1a-77a6c05be8a1",
+        "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46"
+      ],
+      "n_relevant": 3
+    },
+    {
+      "id": "gs-0026",
+      "query": "token budget compartido capas memories agents skills",
+      "expect_ids": [
+        "9d699817-8ad0-42e6-88b1-cc8b6062a148",
+        "4d310137-3231-42d2-bd4b-20e779a3f267"
+      ],
+      "n_relevant": 2
+    },
+    {
+      "id": "gs-0027",
+      "query": "CI cargo test vitest tiempo ejecucion GitHub Actions",
+      "expect_ids": [
+        "79d74641-ea1d-4d82-bcb2-b5d8f89694dc",
+        "2812d16a-b959-446e-a341-4e6a58d1f5d9",
+        "521244fc-8b28-44d0-9200-2205ec965bf4",
+        "84a560ad-21f4-4a7e-ab99-8fcd8c5caa80"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0028",
+      "query": "reranker BGERerankerV2M3 cross-encoder mejora recall",
+      "expect_ids": [
+        "619b9c9c-ed0c-46fa-8117-80373fe2e7cf",
+        "0faefb1f-b3ca-4e90-a015-19985b62201d",
+        "6829fd8d-197a-45ab-88b4-1ccedb16b3fe"
+      ],
+      "n_relevant": 3
+    },
+    {
+      "id": "gs-0029",
+      "query": "eval recall@k 1.0 reconcile in_sync sqlite qdrant",
+      "expect_ids": [
+        "58189956-7142-4171-9a0a-ce76e1022c3f",
+        "0a8544e2-e6bf-4042-add0-e0fcca8f25e0",
+        "1835bc07-b307-4f4d-af5e-2c72e28e15b0",
+        "8e4083d2-0198-457c-b986-dcd6dce0dbf5"
+      ],
+      "n_relevant": 4
+    },
+    {
+      "id": "gs-0030",
+      "query": "codex CLI AI routing zona code politica CLI-first",
+      "expect_ids": [
+        "da03ab9a-df96-44f4-97d9-73b966f0f27b",
+        "6889279b-700f-4a07-8d6f-a620c5e6fb0b",
+        "34c43863-15a6-4b2f-a4ff-d603fb16a090",
+        "5938e0eb-58de-4bec-8a77-0a31bd6a7b79"
+      ],
+      "n_relevant": 4
+    }
+  ]
+}
