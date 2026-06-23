@@ -3,7 +3,6 @@
     "id": "chat",
     "label": "General chat",
     "category": "chat",
-    "task_class": "light",
     "primary": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",
@@ -21,7 +20,6 @@
     "id": "code-edit",
     "label": "Code edit (multi-file)",
     "category": "code",
-    "task_class": "medium",
     "primary": {
       "provider_id": "codex-cli",
       "model": "gpt-5",
@@ -44,7 +42,6 @@
     "id": "code-review",
     "label": "Code review",
     "category": "code",
-    "task_class": "light",
     "primary": {
       "provider_id": "codex-cli",
       "model": "gpt-5",
@@ -62,7 +59,6 @@
     "id": "research-web",
     "label": "Web research with grounding",
     "category": "research",
-    "task_class": "medium",
     "primary": {
       "provider_id": "gemini",
       "model": "gemini-2.5-flash",
@@ -80,7 +76,6 @@
     "id": "summarize",
     "label": "Summarize document",
     "category": "chat",
-    "task_class": "trivial",
     "primary": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",
@@ -98,7 +93,6 @@
     "id": "routing-decision",
     "label": "Router judge (decide which zone to use)",
     "category": "system",
-    "task_class": "trivial",
     "primary": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",
@@ -117,7 +111,6 @@
     "id": "code-fast-local",
     "label": "Fast offline code completion",
     "category": "code",
-    "task_class": "light",
     "primary": {
       "provider_id": "ollama",
       "model": "qwen2.5-coder:32b",
@@ -129,7 +122,6 @@
     "id": "utility",
     "label": "Utility (internal automation tasks)",
     "category": "system",
-    "task_class": "trivial",
     "primary": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",
@@ -147,7 +139,6 @@
     "id": "light",
     "label": "Light (fast single-turn completions)",
     "category": "chat",
-    "task_class": "light",
     "primary": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",

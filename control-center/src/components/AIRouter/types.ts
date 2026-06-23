@@ -151,8 +151,6 @@ export interface Zone {
   label: string;
   /** Top-level category derived from the id prefix. */
   category: string;
-  /** Computational weight class. Used to pre-fill provider suggestions. */
-  task_class: ProviderClass;
   /** Primary provider/model assignment. */
   primary: ZoneAssignment;
   /**
@@ -191,7 +189,8 @@ export interface ModelMetrics {
 }
 
 export interface RouterMetrics {
-  tokens_saved_total: number;
+  /** Tokens de salida acumulados del proveedor fallback barato (no = ahorro de contexto). */
+  fallback_output_tokens: number;
   cost_saved_usd: number;
   by_class: Record<string, ClassMetrics>;
   /**
@@ -233,7 +232,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "usage.refresh_with_claude",
     label: "Refresh Usage Stats",
     category: "usage",
-    task_class: "light",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [{ provider_id: "gemini", model: "gemini-2.5-flash", max_tokens: 0 }],
   },
@@ -241,7 +240,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "usage.analyse",
     label: "Analyse Usage Patterns",
     category: "usage",
-    task_class: "medium",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
   },
@@ -249,7 +248,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "news.generate_with_ai",
     label: "Generate News Summary",
     category: "news",
-    task_class: "light",
+
     primary: { provider_id: "gemini", model: "gemini-2.5-flash", max_tokens: 0 },
     fallbacks: [{ provider_id: "anthropic", model: "claude-haiku-4-5-20251001", max_tokens: 0 }],
   },
@@ -257,7 +256,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "memory.consolidate",
     label: "Consolidate Memory",
     category: "memory",
-    task_class: "medium",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [],
   },
@@ -265,7 +264,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "memory.kg_extract",
     label: "Extract Knowledge Graph",
     category: "memory",
-    task_class: "medium",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [{ provider_id: "ollama", model: "qwen2.5-coder:32b", max_tokens: 0 }],
   },
@@ -273,7 +272,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "notifications.fix_one",
     label: "Fix Single Alert",
     category: "notifications",
-    task_class: "medium",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
   },
@@ -281,7 +280,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "notifications.fix_all",
     label: "Bulk Fix Alerts",
     category: "notifications",
-    task_class: "heavy",
+
     primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
     fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
   },
@@ -289,7 +288,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "plans.sprint_ai",
     label: "AI Sprint Planning",
     category: "plans",
-    task_class: "heavy",
+
     primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
     fallbacks: [{ provider_id: "gemini", model: "gemini-2.5-pro", max_tokens: 0 }],
   },
@@ -297,7 +296,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "mcps.add_with_ai",
     label: "Register MCP with AI",
     category: "mcps",
-    task_class: "medium",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [],
   },
@@ -305,7 +304,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "code.explain",
     label: "Explain Code",
     category: "code",
-    task_class: "light",
+
     primary: { provider_id: "groq", model: "llama-3.3-70b-versatile", max_tokens: 0 },
     fallbacks: [{ provider_id: "anthropic", model: "claude-haiku-4-5-20251001", max_tokens: 0 }],
   },
@@ -313,7 +312,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "code.review",
     label: "Review Code",
     category: "code",
-    task_class: "medium",
+
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
     fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
   },
@@ -321,7 +320,7 @@ export const DEFAULT_ZONES: Zone[] = [
     id: "system.diagnose",
     label: "Diagnose System",
     category: "system",
-    task_class: "heavy",
+
     primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
     fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
   },

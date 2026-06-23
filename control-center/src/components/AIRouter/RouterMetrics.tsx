@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ModelMetrics, RouterMetrics as RouterMetricsType } from "./types";
 
 const PLACEHOLDER_METRICS: RouterMetricsType = {
-  tokens_saved_total: 0,
+  fallback_output_tokens: 0,
   cost_saved_usd: 0,
   by_class: {},
   real_fallback_rate: 0,
@@ -115,7 +115,8 @@ export function RouterMetrics() {
     try {
       const result = (await invoke("ai_router_metrics")) as RouterMetricsType;
       setMetrics({
-        tokens_saved_total: result?.tokens_saved_total ?? 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fallback_output_tokens: result?.fallback_output_tokens ?? (result as any)?.tokens_saved_total ?? 0,
         cost_saved_usd: result?.cost_saved_usd ?? 0,
         // Prefer the new contract fields; fall back to legacy fallback_rate if absent.
         real_fallback_rate: result?.real_fallback_rate ?? result?.fallback_rate ?? 0,
@@ -185,9 +186,9 @@ export function RouterMetrics() {
         <>
           <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
             <StatCard
-              label="Tokens ahorrados"
-              value={formatNum(metrics.tokens_saved_total)}
-              sub="servidos por fallback mas barato"
+              label="Tokens salida fallback"
+              value={formatNum(metrics.fallback_output_tokens)}
+              sub="Tokens de salida del fallback barato (no = ahorro de contexto)"
               color="var(--color-success)"
             />
             <StatCard

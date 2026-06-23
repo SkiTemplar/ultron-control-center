@@ -267,9 +267,9 @@ pub(super) fn rank_skills(
 
 /// Build the orchestration context for a prompt. Pure read — writes no memory.
 /// Paso de mejora de prompt (cat13). Determinista y rapido: clasifica la
-/// vaguedad, sugiere el modo ULTRON y reescribe el prompt con el encuadre de
-/// trabajo del intent. El texto original SIEMPRE va incluido literal — el
-/// feedback del usuario es el entregable, la mejora solo lo enmarca.
+/// vaguedad, sugiere el modo ULTRON y extiende el prompt con un encuadre
+/// APPENDED por intent (advisory; no reemplaza el prompt enviado al modelo).
+/// El texto original SIEMPRE va incluido literal — el feedback del usuario es el entregable.
 pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
     let p = prompt.trim();
     let lower = p.to_lowercase();

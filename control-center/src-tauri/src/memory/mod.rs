@@ -157,14 +157,13 @@ pub mod schema_v3;
 pub mod schema_v4;
 pub mod service;
 pub mod sqlite_store;
-// Fase D/E (Olas 5/7): cheap-brain LLM tasks, contradiction, reflection, evals.
+// Fase D/E (Olas 5/7): cheap-brain LLM tasks, contradiction, evals.
 pub mod ai_tasks;
 pub mod contradiction;
 pub mod evals;
 // OLA C: pure ranking-quality metrics (precision@k/recall@k/MRR/nDCG/context-waste)
 // for the golden set. No I/O — unit-testable without Qdrant. See evals.rs for the loader.
 pub mod eval_metrics;
-pub mod reflection;
 // OLA A (2026-06-04): write-path secret/PII detector. Built + tested in isolation;
 // wiring into MemoryService::create_candidate is gated on confirmation.
 pub mod redaction;

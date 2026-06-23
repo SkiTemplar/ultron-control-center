@@ -166,7 +166,6 @@ pub struct Zone {
     pub id: String,
     pub label: String,
     pub category: String,
-    pub task_class: ProviderClass,
     pub primary: ZoneAssignment,
     #[serde(default)]
     pub fallbacks: Vec<ZoneAssignment>,
@@ -365,7 +364,8 @@ pub(crate) const RECENT_FALLBACK_WINDOW: usize = 200;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouterMetrics {
-    pub tokens_saved_total: u64,
+    #[serde(alias = "tokens_saved_total")]
+    pub fallback_output_tokens: u64,
     pub cost_saved_usd: f64,
     pub by_class: HashMap<String, ClassMetrics>,
     /// Ratio of calls that fell back to a secondary provider (0.0..=1.0).

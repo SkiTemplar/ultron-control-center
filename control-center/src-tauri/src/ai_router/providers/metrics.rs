@@ -111,7 +111,9 @@ pub(crate) fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<
 
     // --- Savings ---
     if s.success && s.output_tokens > 0 && s.cost_per_mtok < s.primary_cost_per_mtok {
-        metrics.tokens_saved_total = metrics.tokens_saved_total.saturating_add(s.output_tokens);
+        metrics.fallback_output_tokens = metrics
+            .fallback_output_tokens
+            .saturating_add(s.output_tokens);
         let delta = (s.primary_cost_per_mtok - s.cost_per_mtok).max(0.0);
         metrics.cost_saved_usd += (s.output_tokens as f64) * delta / 1_000_000.0;
     }

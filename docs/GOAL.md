@@ -29,9 +29,10 @@ Un sistema de IA personal que supere a cualquier setup de andar por casa, con es
 5. **Activación automática de skills/agentes sin cargarlas en contexto.** Todas `.disabled` salvo
    el núcleo; el dispatcher propone un **GRUPO** de candidatos y la IA elige el más potente. → cat4.
 
-6. **Mejora de prompting automática.** El sistema afina el prompt del usuario (clarifica intent,
-   añade contexto/constraints, elige modo) ANTES de ejecutar. `prompt-optimizer` cableado como
-   paso previo del orquestador, no como skill huérfana. → cat13.
+6. **Mejora de prompting automática.** El sistema genera un encuadre SUGERIDO (advisory) para el
+   prompt; el consumidor (UI/hook) decide si usarlo. El prompt ejecutado NO se reescribe
+   automaticamente. `prompt-optimizer` cableado como paso previo del orquestador, no como skill
+   huérfana. → cat13.
 
 7. **Sistema de hooks inmejorable — cubrir TODAS las categorías de hooks de Claude Code**, no solo
    las ~9 actuales. Evaluar cuáles aportan a ULTRON y cablear los útiles; editar/crear/ver desde UI. → cat9.

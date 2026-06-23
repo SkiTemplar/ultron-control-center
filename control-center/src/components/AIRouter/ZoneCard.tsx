@@ -9,12 +9,6 @@ import type { Zone, ZoneAssignment, Provider } from "./types";
 import type { KeyValidation, ZoneEditorAction } from "./zoneEditorReducer";
 import { AssignmentRow } from "./ZoneEditorRows";
 
-const TASK_CLASS_COLORS: Record<string, string> = {
-  trivial: "var(--color-success)",
-  light: "var(--color-warn)",
-  medium: "#a875ff",
-  heavy: "var(--color-danger)",
-};
 
 export function ZoneCard({
   zone,
@@ -92,16 +86,6 @@ export function ZoneCard({
             >
               {zone.id}
             </code>
-            <span
-              className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-              style={{
-                background: `${TASK_CLASS_COLORS[zone.task_class] ?? "var(--color-text-faint)"}22`,
-                color: TASK_CLASS_COLORS[zone.task_class] ?? "var(--color-text-faint)",
-                border: `1px solid ${TASK_CLASS_COLORS[zone.task_class] ?? "var(--color-text-faint)"}44`,
-              }}
-            >
-              {zone.task_class}
-            </span>
             {chainHasWarning && (
               <span
                 className="rounded px-1.5 py-0.5 text-[10px] font-semibold"

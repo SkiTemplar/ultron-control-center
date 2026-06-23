@@ -90,7 +90,7 @@ fn seed_zones_ship_no_dead_gemini_cli() {
 #[test]
 fn retire_gemini_cli_swaps_primary_and_dedups() {
     use crate::ai_router::store::retire_gemini_cli;
-    use crate::ai_router::types::{ProviderClass, Zone, ZoneAssignment};
+    use crate::ai_router::types::{Zone, ZoneAssignment};
 
     fn asg(p: &str) -> ZoneAssignment {
         ZoneAssignment {
@@ -104,7 +104,6 @@ fn retire_gemini_cli_swaps_primary_and_dedups() {
             id: id.into(),
             label: id.into(),
             category: "test".into(),
-            task_class: ProviderClass::Light,
             primary: asg(primary),
             fallbacks: fbs.iter().map(|p| asg(p)).collect(),
             system_prompt: None,

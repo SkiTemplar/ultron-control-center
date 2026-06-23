@@ -108,7 +108,7 @@ pub struct StepPlan {
 /// NO una skill huerfana). Rule-based: barato, reproducible, sin red.
 #[derive(Debug, Clone, Serialize)]
 pub struct PromptPlan {
-    /// Prompt reescrito con el encuadre de trabajo del intent detectado.
+    /// Prompt original con encuadre APPENDED por intent. Advisory: no reemplaza el prompt ejecutado.
     pub improved_prompt: String,
     /// Modo ULTRON sugerido: low | medium | high | ultra.
     pub suggested_mode: String,

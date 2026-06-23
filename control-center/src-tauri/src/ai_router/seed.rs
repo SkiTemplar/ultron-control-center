@@ -172,7 +172,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "chat".into(),
             label: "General chat".into(),
             category: "chat".into(),
-            task_class: ProviderClass::Light,
+
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
                 model: "llama-3.3-70b-versatile".into(),
@@ -189,7 +189,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "code-edit".into(),
             label: "Code edit (multi-file)".into(),
             category: "code".into(),
-            task_class: ProviderClass::Medium,
+
             primary: ZoneAssignment {
                 provider_id: "codex-cli".into(),
                 model: "gpt-5".into(),
@@ -213,7 +213,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "code-review".into(),
             label: "Code review".into(),
             category: "code".into(),
-            task_class: ProviderClass::Light,
+
             primary: ZoneAssignment {
                 provider_id: "codex-cli".into(),
                 model: "gpt-5".into(),
@@ -236,7 +236,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "research-web".into(),
             label: "Web research with grounding".into(),
             category: "research".into(),
-            task_class: ProviderClass::Medium,
+
             // primary era gemini-cli (web grounding); muerto 2026-06-19, ahora gemini
             // cloud (mismo modelo, grounding via GEMINI_API_KEY), fallback groq.
             primary: ZoneAssignment {
@@ -255,7 +255,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "summarize".into(),
             label: "Summarize document".into(),
             category: "chat".into(),
-            task_class: ProviderClass::Trivial,
+
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
                 model: "llama-3.3-70b-versatile".into(),
@@ -273,7 +273,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "routing-decision".into(),
             label: "Router judge (decide which zone to use)".into(),
             category: "system".into(),
-            task_class: ProviderClass::Trivial,
+
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
                 model: "llama-3.3-70b-versatile".into(),
@@ -294,7 +294,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "code-fast-local".into(),
             label: "Fast offline code completion".into(),
             category: "code".into(),
-            task_class: ProviderClass::Light,
+
             primary: ZoneAssignment {
                 provider_id: "ollama".into(),
                 model: "qwen2.5-coder:32b".into(),
@@ -307,7 +307,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "utility".into(),
             label: "Utility (internal automation tasks)".into(),
             category: "system".into(),
-            task_class: ProviderClass::Trivial,
+
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
                 model: "llama-3.3-70b-versatile".into(),
@@ -324,7 +324,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             id: "light".into(),
             label: "Light (fast single-turn completions)".into(),
             category: "chat".into(),
-            task_class: ProviderClass::Light,
+
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
                 model: "llama-3.3-70b-versatile".into(),
