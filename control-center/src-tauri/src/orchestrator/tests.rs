@@ -364,3 +364,39 @@ fn step_plans_optimize_each_group_step_by_role() {
     assert_eq!(a.improved_prompt, b.improved_prompt);
     assert_eq!(a.suggested_mode, b.suggested_mode);
 }
+
+/// Delegación automática (plano chat, 2026-06-23): el cableado en orchestrate().
+/// Robusto al entorno: NO depende de que el catálogo tenga agentes — verifica la
+/// COHERENCIA (directiva sii hay un especialista top para un intent delegable
+/// no-trivial), no la presencia del catálogo.
+#[test]
+fn orchestrate_directive_is_coherent_with_top_agent() {
+    // intent=refactor (delegable) + prompt no-trivial. La directiva debe existir
+    // si y solo si el orquestador encontró un especialista top.
+    let ctx = orchestrate(
+        "refactoriza el modulo de recall unificado a async sin romper el recall",
+        None,
+        false,
+    );
+    assert_eq!(
+        ctx.delegation_directive.is_some(),
+        !ctx.delegate_agents.is_empty(),
+        "directiva sii hay especialista top (refactor no-trivial)"
+    );
+    if let Some(d) = &ctx.delegation_directive {
+        assert_eq!(
+            d.agent, ctx.delegate_agents[0].name,
+            "agente = top rankeado"
+        );
+        assert!(!d.objective.is_empty(), "objetivo no vacío");
+        assert!(d.model_hint.is_some(), "model_hint presente");
+    }
+}
+
+#[test]
+fn orchestrate_no_directive_for_trivial_prompt() {
+    // Caso negativo (mandamiento 7): saludo -> sin directiva, sea cual sea el
+    // catálogo (is_nontrivial("hola")=false e intent general no delega).
+    let ctx = orchestrate("hola", None, false);
+    assert!(ctx.delegation_directive.is_none());
+}

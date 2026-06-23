@@ -138,6 +138,16 @@ pub fn orchestrate(
             FORMAT_OVERHEAD_TOKENS,
         );
 
+    // Delegación automática (plano chat, 2026-06-23): si el intent es delegable y
+    // la tarea no-trivial, emite una directiva imperativa con el especialista top
+    // ya rankeado y el prompt optimizado como objetivo. None = sin delegación.
+    let delegation_directive = super::delegation::decide_delegation(
+        intent,
+        prompt,
+        &prompt_plan.improved_prompt,
+        delegate_agents.first(),
+    );
+
     OrchestrationContext {
         prompt: prompt.to_string(),
         route: intent.to_string(),
@@ -152,5 +162,6 @@ pub fn orchestrate(
         cross_project,
         prompt_plan,
         step_plans,
+        delegation_directive,
     }
 }

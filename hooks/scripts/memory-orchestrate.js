@@ -51,7 +51,25 @@ function render(ctx) {
       out.push(`  - ${sp.agent} [${sp.sub_intent}]: ${short}`);
     }
   }
-  if (Array.isArray(ctx.delegate_agents) && ctx.delegate_agents.length) {
+  if (ctx.delegation_directive) {
+    // 2026-06-23: delegación automática (plano chat). La directiva SUSTITUYE al
+    // advisory: es una ORDEN, no una sugerencia. El agente la ejecuta con Agent().
+    const d = ctx.delegation_directive;
+    const model = d.model_hint || 'haiku';
+    out.push('<orchestration-directive trust="system">');
+    out.push('DELEGA AHORA — no hagas este trabajo en el contexto principal.');
+    out.push(`agent: ${d.agent}`);
+    out.push(`objetivo: ${d.objective || ''}`);
+    out.push(`devuelve: ${d.return_format || ''}`);
+    out.push(`modelo: ${model}`);
+    out.push(`motivo: ${d.reason || ''}`);
+    out.push(
+      `Accion: usa la herramienta Agent (subagent_type="${d.agent}", model="${model}") con ese ` +
+        'objetivo. Si delegar es contraproducente (ya tienes el resultado, o la tarea resulto ' +
+        'trivial), dilo en UNA linea y hazlo inline — nunca ignores la directiva en silencio.'
+    );
+    out.push('</orchestration-directive>');
+  } else if (Array.isArray(ctx.delegate_agents) && ctx.delegate_agents.length) {
     out.push('delegate_to (specialist agents, by similarity):');
     for (const a of ctx.delegate_agents.slice(0, 4)) {
       out.push(`  - ${a.name} (${Number(a.score || 0).toFixed(2)})`);
@@ -94,39 +112,46 @@ function render(ctx) {
   return out.join('\n');
 }
 
+function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
+  return {
+    ts: new Date().toISOString(),
+    // cat15.1: latencia de la orquestacion (hot path UserPromptSubmit) para el
+    // LiveSessionMonitor y para diagnosticar la latencia del prompt.
+    elapsed_ms: typeof elapsedMs === 'number' ? elapsedMs : null,
+    // cat9.4: traza si el hot path uso el daemon TCP (sub-segundo) o el spawn
+    // one-shot de fallback (cold E5 ~3.5s). Util para diagnosticar si el daemon
+    // murio entre sesiones y cuantos prompts pagaron el coste completo.
+    daemon_hit: usedDaemon === true,
+    session_id: sessionId || null,
+    project: project || null,
+    prompt: String(prompt || '').slice(0, 280),
+    route: ctx.route || null,
+    workflow: ctx.workflow ? { id: ctx.workflow.id, label: ctx.workflow.label } : null,
+    step_plans: (Array.isArray(ctx.step_plans) ? ctx.step_plans : [])
+      .slice(0, 6)
+      .map((sp) => ({ agent: sp.agent, sub_intent: sp.sub_intent })),
+    agents: (Array.isArray(ctx.delegate_agents) ? ctx.delegate_agents : [])
+      .slice(0, 6)
+      .map((a) => ({ name: a.name, score: Number(a.score || 0) })),
+    skills: (Array.isArray(ctx.delegate_skills) ? ctx.delegate_skills : [])
+      .slice(0, 6)
+      .map((s) => ({ name: s.name, kind: s.kind || '', score: Number(s.score || 0) })),
+    memories: (Array.isArray(ctx.memories) ? ctx.memories : [])
+      .slice(0, 8)
+      .map((m) => ({ scope: m.scope || '', summary: String(m.summary || '').slice(0, 160) })),
+    cross_project: !!ctx.cross_project,
+    warnings: Array.isArray(ctx.warnings) ? ctx.warnings : [],
+    // 2026-06-23: traza de delegación automática para medir la tasa efectiva
+    // (directivas emitidas vs delegaciones realmente ejecutadas por el agente).
+    directive_emitted: !!ctx.delegation_directive,
+    directive_agent: ctx.delegation_directive ? ctx.delegation_directive.agent : null,
+  };
+}
+
 function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
   try {
-    const entry = {
-      ts: new Date().toISOString(),
-      // cat15.1: latencia de la orquestacion (hot path UserPromptSubmit) para el
-      // LiveSessionMonitor y para diagnosticar la latencia del prompt.
-      elapsed_ms: typeof elapsedMs === 'number' ? elapsedMs : null,
-      // cat9.4: traza si el hot path uso el daemon TCP (sub-segundo) o el spawn
-      // one-shot de fallback (cold E5 ~3.5s). Util para diagnosticar si el daemon
-      // murio entre sesiones y cuantos prompts pagaron el coste completo.
-      daemon_hit: usedDaemon === true,
-      session_id: sessionId || null,
-      project: project || null,
-      prompt: String(prompt || '').slice(0, 280),
-      route: ctx.route || null,
-      workflow: ctx.workflow ? { id: ctx.workflow.id, label: ctx.workflow.label } : null,
-      step_plans: (Array.isArray(ctx.step_plans) ? ctx.step_plans : [])
-        .slice(0, 6)
-        .map((sp) => ({ agent: sp.agent, sub_intent: sp.sub_intent })),
-      agents: (Array.isArray(ctx.delegate_agents) ? ctx.delegate_agents : [])
-        .slice(0, 6)
-        .map((a) => ({ name: a.name, score: Number(a.score || 0) })),
-      skills: (Array.isArray(ctx.delegate_skills) ? ctx.delegate_skills : [])
-        .slice(0, 6)
-        .map((s) => ({ name: s.name, kind: s.kind || '', score: Number(s.score || 0) })),
-      memories: (Array.isArray(ctx.memories) ? ctx.memories : [])
-        .slice(0, 8)
-        .map((m) => ({ scope: m.scope || '', summary: String(m.summary || '').slice(0, 160) })),
-      cross_project: !!ctx.cross_project,
-      warnings: Array.isArray(ctx.warnings) ? ctx.warnings : [],
-    };
     // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
-    appendJsonl(ORCH_LOG, entry);
+    appendJsonl(ORCH_LOG, buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon));
   } catch (_) {
     /* never block the prompt */
   }
@@ -178,17 +203,22 @@ async function main() {
   emit(render(ctx));
 }
 
-main()
-  .catch((e) => {
-    // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
-    try {
-      appendJsonl(path.join(os.homedir(), '.ultron', 'logs', 'hook-errors.jsonl'), {
-        hook: 'memory-orchestrate',
-        error: String((e && e.message) || e),
-      });
-    } catch { /* ignore */ }
-    try { emit(''); } catch { /* ignore */ }
-  })
-  .finally(() => {
-    process.exitCode = 0;
-  });
+if (require.main === module) {
+  main()
+    .catch((e) => {
+      // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+      try {
+        appendJsonl(path.join(os.homedir(), '.ultron', 'logs', 'hook-errors.jsonl'), {
+          hook: 'memory-orchestrate',
+          error: String((e && e.message) || e),
+        });
+      } catch { /* ignore */ }
+      try { emit(''); } catch { /* ignore */ }
+    })
+    .finally(() => {
+      process.exitCode = 0;
+    });
+} else {
+  // Exportadas para test (patrón require.main, como en stop-compress-session.js).
+  module.exports = { render, logOrchestration, buildLogEntry };
+}

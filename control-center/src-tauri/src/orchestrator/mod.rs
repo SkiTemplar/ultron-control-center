@@ -13,6 +13,7 @@
 // persistent memory (only the Memory Agent does) and DELEGATES to the real
 // agents in ~/.claude/agents (ghost agents are sanitized out).
 
+pub(crate) mod delegation;
 pub(crate) mod orchestrate;
 pub(crate) mod ranking;
 pub(crate) mod rules;

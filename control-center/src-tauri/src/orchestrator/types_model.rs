@@ -4,6 +4,8 @@ use serde::Serialize;
 
 use crate::commands::memory::recall_unified::RecallEntry;
 
+use super::delegation::DelegationDirective;
+
 /// Token budget cap for the orchestrated prompt context, summed across all
 /// injected layers. Estimated breakdown (per layer, approximate):
 ///
@@ -80,6 +82,11 @@ pub struct OrchestrationContext {
     /// sub-intent de su rol — no solo el encuadre global del turno. Vacio para
     /// turnos de un solo paso / sin workflow.
     pub step_plans: Vec<StepPlan>,
+    /// Directiva imperativa de delegación (plano chat, 2026-06-23). `Some` SOLO
+    /// cuando el intent es delegable y la tarea no-trivial (ver
+    /// `delegation::decide_delegation`). El hook la renderiza como una ORDEN; el
+    /// agente la ejecuta con la herramienta Agent. `None` = comportamiento actual.
+    pub delegation_directive: Option<DelegationDirective>,
 }
 
 /// Encuadre optimizado POR PASO del grupo (cat13.4). `optimize_prompt`/
