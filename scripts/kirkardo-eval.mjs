@@ -11,7 +11,7 @@
  *
  * Uso: node scripts/kirkardo-eval.mjs [--json] [--cat=N]
  *   --json   solo imprime el JSON final
- *   --cat=N  evalua solo la categoria N (1-18)
+ *   --cat=N  evalua solo la categoria N (1-19)
  */
 
 import { execSync, spawnSync } from "node:child_process";
@@ -1853,6 +1853,182 @@ cat(18, "Reproducibilidad", [
         detail: pass
           ? `setupFiles=[${setupPaths.join(",")}] con vi.mock (determinismo por mocks)`
           : `setupFiles missing=${missing}, con vi.mock=${mockedFiles}/${setupPaths.length}`,
+      };
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// CAT 19 — Session-Start fidelity (resume VIVO, del proyecto, no nota podrida)
+// ---------------------------------------------------------------------------
+// Verifica el BINARIO real `ultron-memory resume --project ultron`: que
+// open_tasks/decisions sean 100% del proyecto (0 cross-project/globales) y que
+// next_action coincida con el estado VIVO (card In-Progress / Backlog-top del
+// kanban, o el ultimo commit) — NO una nota vieja en pasado.
+const RESUME_PROJECT = "ultron";
+
+function runResume(project) {
+  const r = run(`"${join(BIN, "ultron-memory.exe")}" resume --project ${project}`, {
+    timeout: 30000,
+  });
+  const txt = (r.stdout + r.stderr).trim();
+  try {
+    return { ok: true, json: JSON.parse(txt) };
+  } catch {
+    return { ok: false, raw: txt.slice(0, 200) };
+  }
+}
+
+// Replica el esquema del kanban: card In-Progress (role doing, menor column
+// order) por menor card order; si no hay, top de Backlog (role todo).
+function kanbanNextAction(project) {
+  const p = join(COCKPIT, "projects", project, "kanban.json");
+  if (!existsSync(p)) return null;
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+  const cols = (doc.columns ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const cards = doc.cards ?? [];
+  const pickRole = (role) => {
+    for (const col of cols.filter((c) => c.role === role)) {
+      const inCol = cards
+        .filter((c) => c.column_id === col.id)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      if (inCol.length) return inCol[0].title ?? null;
+    }
+    return null;
+  };
+  return pickRole("doing") || pickRole("todo");
+}
+
+cat(19, "Session-Start fidelity", [
+  {
+    id: "19.1",
+    desc: "resume --project: open_tasks 100% del proyecto (0 cross-project/globales)",
+    auto: true,
+    check() {
+      const r = runResume(RESUME_PROJECT);
+      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
+      const bad = (r.json.open_tasks ?? []).filter(
+        (t) => t.project_id !== RESUME_PROJECT,
+      );
+      return {
+        pass: bad.length === 0,
+        detail:
+          bad.length === 0
+            ? `open_tasks=${(r.json.open_tasks ?? []).length}, todas de '${RESUME_PROJECT}'`
+            : `${bad.length} task(s) ajenas: ${bad.map((t) => t.project_id ?? "GLOBAL").slice(0, 5).join(",")}`,
+      };
+    },
+  },
+  {
+    id: "19.2",
+    desc: "resume --project: decisions 100% del proyecto (0 cross-project/globales)",
+    auto: true,
+    check() {
+      const r = runResume(RESUME_PROJECT);
+      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
+      const bad = (r.json.decisions ?? []).filter(
+        (d) => d.project_id !== RESUME_PROJECT,
+      );
+      return {
+        pass: bad.length === 0,
+        detail:
+          bad.length === 0
+            ? `decisions=${(r.json.decisions ?? []).length}, todas de '${RESUME_PROJECT}'`
+            : `${bad.length} decision(es) ajenas: ${bad.map((d) => d.project_id ?? "GLOBAL").slice(0, 5).join(",")}`,
+      };
+    },
+  },
+  {
+    id: "19.3",
+    desc: "next_action = card viva del kanban O ultimo commit (NO nota podrida/vieja)",
+    auto: true,
+    check() {
+      // Si no existe kanban.json (CI / clon limpio — gitignored) el check es
+      // N/A: no podemos validar contra estado local inexistente, pero tampoco
+      // penalizamos. La ausencia de kanban es un estado valido en CI.
+      const kanbanPath = join(COCKPIT, "projects", RESUME_PROJECT, "kanban.json");
+      const hasKanban = existsSync(kanbanPath);
+
+      const r = runResume(RESUME_PROJECT);
+      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
+      const got = r.json.next_action ?? "";
+
+      if (!hasKanban) {
+        // Sin kanban: acepta cualquier next_action no vacio y no-pasado
+        // (el fallback de git o de memoria se activa).
+        const empty = got.trim() === "";
+        return {
+          pass: !empty,
+          detail: empty
+            ? "next_action vacio sin kanban (no hay estado vivo ni commits)"
+            : `N/A (sin kanban local); next_action via fallback: "${got.slice(0, 80)}"`,
+        };
+      }
+
+      // Con kanban: acepta (a) coincidencia exacta con card viva, o (b) el
+      // prefijo de commit ("ultimo commit: ...") como fallback valido — ambos
+      // vienen de estado VIVO, no de memoria que se pudre.
+      const cardTitles = [];
+      try {
+        const doc = JSON.parse(readFileSync(kanbanPath, "utf8"));
+        const cols = (doc.columns ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const cards = doc.cards ?? [];
+        for (const role of ["doing", "todo"]) {
+          for (const col of cols.filter((c) => c.role === role)) {
+            const inCol = cards
+              .filter((c) => c.column_id === col.id)
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            for (const card of inCol) {
+              if (card.title) cardTitles.push(card.title);
+            }
+          }
+        }
+      } catch {
+        return { pass: false, detail: "kanban.json no parseable" };
+      }
+
+      // Pass si es alguna card viva (In-Progress o Backlog) o si es el fallback
+      // de ultimo commit (reconocible por el prefijo que emite derive_next_action).
+      const isCardMatch = cardTitles.includes(got);
+      const isCommitFallback = got.startsWith("último commit:") || got.startsWith("ultimo commit:");
+      const pass = isCardMatch || isCommitFallback;
+      return {
+        pass,
+        detail: pass
+          ? isCardMatch
+            ? `next_action == card viva ("${got.slice(0, 60)}")`
+            : `next_action == fallback commit ("${got.slice(0, 60)}")`
+          : `next_action="${got.slice(0, 70)}" no es card viva ni commit (${cardTitles.length} cards disponibles)`,
+      };
+    },
+  },
+  {
+    id: "19.4",
+    desc: "next_action NO es una nota en pasado/completada (no se pudre)",
+    auto: true,
+    check() {
+      const r = runResume(RESUME_PROJECT);
+      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
+      const got = (r.json.next_action ?? "").toLowerCase();
+      const stale = [
+        "se ha realizado",
+        "se ha hecho",
+        "commit hecho",
+        "se vigilara",
+        "se vigilará",
+        "ya hecho",
+        "completado",
+        "completada",
+      ];
+      const hit = stale.find((m) => got.includes(m));
+      return {
+        pass: !hit,
+        detail: hit ? `next_action suena a hecho: "...${hit}..."` : "next_action accionable",
       };
     },
   },

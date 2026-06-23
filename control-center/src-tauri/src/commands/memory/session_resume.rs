@@ -7,6 +7,7 @@
 
 use serde::Serialize;
 
+use crate::commands::memory::kanban_signal;
 use crate::memory::{MemoryItem, MemoryService, MemoryType};
 use crate::workflow_runs::{list_runs_inner, RunStatus, WorkflowRun};
 
@@ -45,9 +46,12 @@ fn to_resume(items: Vec<MemoryItem>) -> Vec<ResumeMemory> {
         .collect()
 }
 
-/// Prefer items of the requested project, accept GLOBAL items (no project),
-/// drop everything else; `project = None` keeps the original cross-project
-/// behaviour. Generic + pure so it is unit-testable without a MemoryItem.
+/// Narrow items to the requested project. `keep_globals` controls whether
+/// GLOBAL items (no project) are appended after the project's own — `pinned`
+/// keeps them, but `open_tasks`/`decisions` MUST NOT (a project's resume was
+/// dragging in unrelated globals: rotar token GitHub, Mundial 2026…).
+/// `project = None` keeps the original cross-project behaviour.
+/// Generic + pure so it is unit-testable without a MemoryItem.
 ///
 /// Fix Kirkardo Pass3 HIGH (2026-06-10): the resume DECLARED a project_id but
 /// injected decisions/tasks/pinned from EVERY project (mandamiento 13 —
@@ -57,6 +61,7 @@ fn prefer_project<T>(
     items: Vec<T>,
     project: Option<&str>,
     limit: usize,
+    keep_globals: bool,
     proj_of: impl Fn(&T) -> Option<String>,
 ) -> Vec<T> {
     match project {
@@ -65,10 +70,112 @@ fn prefer_project<T>(
             let (mine, rest): (Vec<T>, Vec<T>) = items
                 .into_iter()
                 .partition(|it| proj_of(it).as_deref() == Some(p));
+            if !keep_globals {
+                return mine.into_iter().take(limit).collect();
+            }
             let global = rest.into_iter().filter(|it| proj_of(it).is_none());
             mine.into_iter().chain(global).take(limit).collect()
         }
     }
+}
+
+/// Current epoch seconds (cheap, no chrono ceremony).
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Last commit subject from `<root>` with a hard 1500 ms timeout. Best
+/// effort — `None` on error, timeout, or empty output. Never blocks the
+/// session start: if git is stuck (index.lock, network FS…) the child is
+/// killed and we fall through to the next `derive_next_action` fallback.
+///
+/// Pattern: spawn git in a thread and join with timeout so the resume call
+/// site is never blocked longer than TIMEOUT regardless of FS/lock state.
+fn last_commit_subject(root: &std::path::Path) -> Option<String> {
+    use std::time::Duration;
+
+    const TIMEOUT: Duration = Duration::from_millis(1500);
+
+    // Clone the path so it can be moved into the thread (PathBuf is owned).
+    let root_buf = root.to_path_buf();
+    let handle = std::thread::spawn(move || {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root_buf)
+            .args(["log", "-n", "1", "--format=%s"])
+            .output()
+            .ok()
+            .and_then(|out| {
+                if !out.status.success() {
+                    return None;
+                }
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            })
+    });
+
+    // join_timeout is not stable; poll try_join via a channel pattern instead.
+    // We give the thread at most TIMEOUT to finish; if it exceeds that we
+    // abandon it (the thread may still run in background but the resume
+    // proceeds immediately — acceptable for a fire-and-forget subprocess).
+    let start = std::time::Instant::now();
+    const POLL: std::time::Duration = std::time::Duration::from_millis(50);
+    loop {
+        if handle.is_finished() {
+            return handle.join().ok().flatten();
+        }
+        if start.elapsed() >= TIMEOUT {
+            // Let the orphaned thread clean up on its own; we move on.
+            return None;
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+/// Derive a LIVE next-action instead of `open_tasks.first()` (which rotted —
+/// memory has no done/stale state). Priority:
+///   1. Kanban In-Progress card (else Backlog top) of the current project.
+///   2. Last commit subject ("último que pasó").
+///   3. First memory Task that is recent AND not phrased as already-done.
+///   4. A running workflow.
+fn derive_next_action(
+    project: Option<&str>,
+    tasks: &[MemoryItem],
+    active_workflows: &[WorkflowRun],
+) -> Option<String> {
+    let root = crate::ultron_root().ok();
+
+    if let (Some(root), Some(proj)) = (root.as_deref(), project) {
+        if let Some(card) = kanban_signal::kanban_next_action(root, proj) {
+            return Some(card);
+        }
+    }
+    if let Some(root) = root.as_deref() {
+        if let Some(commit) = last_commit_subject(root) {
+            return Some(format!("último commit: {commit}"));
+        }
+    }
+
+    let now = now_secs();
+    tasks
+        .iter()
+        .filter(|t| project.is_none() || t.project_id.as_deref() == project)
+        .find_map(|t| {
+            let s = t.summary.as_deref()?;
+            kanban_signal::memory_task_eligible(s, t.updated_at, now).then(|| s.to_string())
+        })
+        .or_else(|| {
+            active_workflows
+                .first()
+                .map(|w| format!("continue workflow {}", w.workflow_id))
+        })
 }
 
 /// Sync core of session resume — reused by the CLI sidecar (`ultron-memory
@@ -84,34 +191,30 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     // Over-fetch (the store lists newest-first without project filter), then
     // narrow to the requested project + global items.
     let proj = project_id.as_deref();
+    // open_tasks/decisions: SOLO del proyecto (sin globales — mandamiento 13).
+    let raw_tasks =
+        MemoryService::list_active_of_type(MemoryType::Task, 96).map_err(|e| e.to_string())?;
     let decisions = to_resume(prefer_project(
         MemoryService::list_active_of_type(MemoryType::Decision, 96).map_err(|e| e.to_string())?,
         proj,
         8,
+        false,
         |it| it.project_id.clone(),
     ));
-    let open_tasks = to_resume(prefer_project(
-        MemoryService::list_active_of_type(MemoryType::Task, 96).map_err(|e| e.to_string())?,
-        proj,
-        12,
-        |it| it.project_id.clone(),
-    ));
+    let open_tasks = to_resume(prefer_project(raw_tasks.clone(), proj, 12, false, |it| {
+        it.project_id.clone()
+    }));
+    // pinned keeps globals — user-elevated, cross-project on purpose.
     let pinned = to_resume(prefer_project(
         MemoryService::list_pinned(48).map_err(|e| e.to_string())?,
         proj,
         12,
+        true,
         |it| it.project_id.clone(),
     ));
     let stats = MemoryService::stats().map_err(|e| e.to_string())?;
 
-    let next_action = open_tasks
-        .first()
-        .and_then(|t| t.summary.clone())
-        .or_else(|| {
-            active_workflows
-                .first()
-                .map(|w| format!("continue workflow {}", w.workflow_id))
-        });
+    let next_action = derive_next_action(proj, &raw_tasks, &active_workflows);
 
     let mut warnings = Vec::new();
     if stats.candidates_pending > 0 {
@@ -161,19 +264,32 @@ mod tests {
             Some("ultron".into()),
         ];
 
-        let scoped = prefer_project(items.clone(), Some("ultron"), 8, proj);
+        // pinned: keep_globals=true -> proyecto primero, luego globales.
+        let scoped = prefer_project(items.clone(), Some("ultron"), 8, true, proj);
         assert_eq!(
             scoped,
             vec![Some("ultron".to_string()), Some("ultron".to_string()), None],
             "proyecto primero, luego globales; otros proyectos fuera"
         );
 
-        // Caso negativo: un proyecto sin items propios solo recibe globales.
-        let only_global = prefer_project(items.clone(), Some("niajska"), 8, proj);
+        // open_tasks/decisions: keep_globals=false -> SOLO proyecto, 0 globales.
+        let scoped_no_global = prefer_project(items.clone(), Some("ultron"), 8, false, proj);
+        assert_eq!(
+            scoped_no_global,
+            vec![Some("ultron".to_string()), Some("ultron".to_string())],
+            "open_tasks/decisions no arrastran globales"
+        );
+
+        // Caso negativo: proyecto sin items propios -> vacío si no se aceptan globales.
+        let none_for_niajska = prefer_project(items.clone(), Some("niajska"), 8, false, proj);
+        assert!(none_for_niajska.is_empty(), "0 cross-project, 0 globales");
+
+        // Con keep_globals un proyecto sin items propios solo recibe globales.
+        let only_global = prefer_project(items.clone(), Some("niajska"), 8, true, proj);
         assert_eq!(only_global, vec![None]);
 
         // Sin proyecto: comportamiento cross-project original (cap al limite).
-        let cross = prefer_project(items, None, 3, proj);
+        let cross = prefer_project(items, None, 3, false, proj);
         assert_eq!(cross.len(), 3);
         assert_eq!(cross[0], Some("libro".to_string()));
     }

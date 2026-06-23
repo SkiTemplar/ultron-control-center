@@ -15,8 +15,8 @@
  *   - Heurística user: cualquier verbo de acción en imperativo/2ª persona.
  *   - Heurística assistant: marcador de finalización (completado, hecho,
  *     done, aplicado, listo, etc.) en español o inglés.
- *   - Proyecto activo: `~/.ultron/.tmp/current-session.json` →
- *     campo `active_project`; fallback a "ultron".
+ *   - Proyecto: 1) `current-session.json` -> `active_project` (seleccion
+ *     explicita); 2) derivado del `cwd` de la sesion; 3) fallback "ultron".
  *   - Timeout duro 5s. Errores y traza → `~/.claude/logs/kanban-reminder.jsonl`.
  *   - Nunca bloquea: process.exitCode siempre 0, sin output a stderr en hot path.
  *
@@ -246,9 +246,11 @@ function assistantMarkedDone(assistantText) {
   return false;
 }
 
-function loadActiveProject() {
+function loadActiveProject(opts) {
+  const allowDefault = !opts || opts.allowDefault !== false;
+  const fallback = allowDefault ? DEFAULT_PROJECT : '';
   try {
-    if (!fs.existsSync(SESSION_STATE_PATH)) return DEFAULT_PROJECT;
+    if (!fs.existsSync(SESSION_STATE_PATH)) return fallback;
     const raw = fs.readFileSync(SESSION_STATE_PATH, 'utf8');
     const cfg = JSON.parse(raw);
     // Acepta variantes de capitalización (el state actual usa PascalCase).
@@ -259,11 +261,36 @@ function loadActiveProject() {
       cfg.Active_Project ||
       '';
     const name = String(candidate || '').trim();
-    return name || DEFAULT_PROJECT;
+    return name || fallback;
   } catch (err) {
     safeLog({ level: 'warn', msg: 'active_project_read_failed', error: String(err && err.message) });
-    return DEFAULT_PROJECT;
+    return fallback;
   }
+}
+
+// Deriva el proyecto del cwd de la sesion (misma convencion que el resto del
+// sistema: basename del cwd sin puntos iniciales -> '.ultron' => 'ultron').
+function projectFromCwd(cwd) {
+  if (!cwd) return '';
+  try {
+    return path.basename(String(cwd)).replace(/^\.+/, '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+// Resuelve el tablero al que apunta el recordatorio, en orden de fiabilidad:
+//   1) seleccion explicita de tablero (current-session.json -> active_project)
+//   2) proyecto derivado del cwd de ESTA sesion (no asume 'ultron')
+//   3) ultimo recurso: DEFAULT_PROJECT
+// Antes caia SIEMPRE a 'ultron' cuando (1) no estaba poblado, mandando al
+// tablero equivocado en cualquier sesion de otro proyecto.
+function resolveProject(payload) {
+  const explicit = loadActiveProject({ allowDefault: false });
+  if (explicit) return explicit;
+  const fromCwd = projectFromCwd(payload && payload.cwd);
+  if (fromCwd) return fromCwd;
+  return DEFAULT_PROJECT;
 }
 
 function buildReminder(project) {
@@ -301,7 +328,7 @@ function main() {
     return;
   }
 
-  const project = loadActiveProject();
+  const project = resolveProject(payload);
   const reminder = buildReminder(project);
 
   const output = {

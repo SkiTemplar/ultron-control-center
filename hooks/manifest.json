@@ -48,7 +48,7 @@
       "command": "node ~/.ultron/hooks/scripts/kanban-update-reminder.js",
       "script": "~/.ultron/hooks/scripts/kanban-update-reminder.js",
       "timeout_s": 5,
-      "checksum_sha256": "51dae489ce167cb276e6f23edabe8c9da3f82724c8ed962d2af5b2af562de71d",
+      "checksum_sha256": "1171ba27478e072d85609f9bfec131872468682ef4c5ee22fe20c823eeace7d7",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

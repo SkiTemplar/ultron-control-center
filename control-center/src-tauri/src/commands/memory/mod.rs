@@ -14,6 +14,7 @@
 
 pub mod catalog;
 pub mod inbox;
+pub mod kanban_signal;
 pub mod memory_graph;
 pub mod migrate;
 pub mod recall_hybrid;
