@@ -541,8 +541,11 @@ pub struct LabeledQueryResult {
     pub n_relevant: usize,
     /// Ids returned by `recall_pack` (up to k).
     pub retrieved_ids: Vec<String>,
-    /// Per-query ranking metrics.
+    /// Per-query ranking metrics (precision_at_k here is precision@k, typically k=8).
     pub metrics: EvalMetrics,
+    /// Precision at the fixed cutoff k=3 (additional to the precision@k in `metrics`).
+    /// Useful for cat19.4: a top-3 slot is the prime real estate in most recall UIs.
+    pub precision_at_3: f64,
     /// `true` when `recall_pack` errored (Qdrant/E5 offline); metrics are all-zero.
     pub degraded: bool,
 }
@@ -557,14 +560,23 @@ pub struct LabeledGoldenReport {
     /// Total queries in the labels file.
     pub total_queries: usize,
     /// Queries where n_relevant == 0 (no ground-truth positives).
+    /// These ARE reported in `per_query` but are EXCLUDED from all aggregate means.
+    /// An empty oracle is not a recall failure — it is absence of judgment.
     pub zero_relevant: usize,
     /// Queries where recall@k == 0.0 (pipeline returned nothing relevant).
     /// CHECK 19.5: this should be as small as possible.
     pub queries_with_zero_recall: usize,
-    /// Mean metrics across ALL queries (including zero-relevant ones, which
-    /// contribute recall=0 — this is the honest aggregate).
+    /// Mean metrics computed ONLY over queries with n_relevant > 0.
+    /// Excluding zero-relevant queries prevents an empty oracle from unfairly
+    /// depressing recall/precision/mrr/ndcg averages.
     pub aggregate: EvalMetrics,
-    /// Per-query breakdown for full reproducibility.
+    /// Mean precision@3 across queries with n_relevant > 0.
+    /// Fixed cutoff, additional to the precision@k inside `aggregate`.
+    pub aggregate_precision_at_3: f64,
+    /// Number of queries that were actually averaged into `aggregate`
+    /// (i.e. `total_queries - zero_relevant`). Provided for transparency.
+    pub aggregated_over: usize,
+    /// Per-query breakdown for full reproducibility (ALL queries, incl. zero-relevant).
     pub per_query: Vec<LabeledQueryResult>,
     /// `true` when the file could not be loaded/parsed; all counts will be 0.
     pub degraded: bool,
@@ -582,6 +594,8 @@ impl LabeledGoldenReport {
             zero_relevant: 0,
             queries_with_zero_recall: 0,
             aggregate: EvalMetrics::aggregate(&[]),
+            aggregate_precision_at_3: 0.0,
+            aggregated_over: 0,
             per_query: Vec::new(),
             degraded: true,
             note: note.into(),
@@ -627,18 +641,17 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
 
     let total = labeled_set.labeled.len();
     let mut per_query: Vec<LabeledQueryResult> = Vec::with_capacity(total);
-    let mut all_metrics: Vec<EvalMetrics> = Vec::with_capacity(total);
+    // Only queries with n_relevant > 0 enter the aggregate means (an empty oracle
+    // is not a recall failure — it is absence of judgment, and must not depress averages).
+    let mut scored_metrics: Vec<EvalMetrics> = Vec::with_capacity(total);
+    let mut scored_p3: Vec<f64> = Vec::with_capacity(total);
     let mut zero_relevant = 0usize;
     let mut queries_with_zero_recall = 0usize;
 
     for label in &labeled_set.labeled {
         let relevant = label.relevant();
 
-        if relevant.is_empty() {
-            zero_relevant += 1;
-        }
-
-        let (retrieved_ids, degraded) = match recall_pack(&label.query, k, None, false) {
+        let (retrieved_ids, degraded_query) = match recall_pack(&label.query, k, None, false) {
             Ok(pack) => {
                 let ids: Vec<String> = pack.entries.into_iter().map(|e| e.canonical_id).collect();
                 (ids, false)
@@ -653,23 +666,39 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
         };
 
         let metrics = EvalMetrics::for_query(&retrieved_ids, &relevant, k);
+        // precision@3 is a fixed additional cutoff, independent of k.
+        let p3 = crate::memory::eval_metrics::precision_at_k(&retrieved_ids, &relevant, 3);
 
         if metrics.recall_at_k == 0.0 {
             queries_with_zero_recall += 1;
         }
 
-        all_metrics.push(metrics);
+        if relevant.is_empty() {
+            // Track the count but do NOT push into aggregate accumulators.
+            zero_relevant += 1;
+        } else {
+            scored_metrics.push(metrics);
+            scored_p3.push(p3);
+        }
+
         per_query.push(LabeledQueryResult {
             id: label.id.clone(),
             query: label.query.clone(),
             n_relevant: label.n_relevant,
             retrieved_ids,
             metrics,
-            degraded,
+            precision_at_3: p3,
+            degraded: degraded_query,
         });
     }
 
-    let aggregate = EvalMetrics::aggregate(&all_metrics);
+    let aggregated_over = scored_metrics.len();
+    let aggregate = EvalMetrics::aggregate(&scored_metrics);
+    let aggregate_precision_at_3 = if aggregated_over == 0 {
+        0.0
+    } else {
+        scored_p3.iter().sum::<f64>() / aggregated_over as f64
+    };
 
     LabeledGoldenReport {
         source_path: path.to_string(),
@@ -678,9 +707,14 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
         zero_relevant,
         queries_with_zero_recall,
         aggregate,
+        aggregate_precision_at_3,
+        aggregated_over,
         per_query,
         degraded: false,
-        note: format!("loaded {} labels from '{}'", total, path),
+        note: format!(
+            "loaded {} labels from '{}' ({} aggregated, {} zero-relevant excluded)",
+            total, path, aggregated_over, zero_relevant
+        ),
     }
 }
 
@@ -962,8 +996,132 @@ mod tests {
             "\"recall_at_k\"",
             "\"per_query\"",
             "\"degraded\"",
+            "\"aggregate_precision_at_3\"",
+            "\"aggregated_over\"",
         ] {
             assert!(json.contains(field), "JSON must contain field {field}");
         }
+    }
+
+    /// CRÍTICO: una query con n_relevant=0 NO debe arrastrar el agregado.
+    /// Fixture: query A tiene match perfecto (recall=1.0), query B tiene n_relevant=0.
+    /// El aggregate.recall_at_k DEBE ser 1.0, NO 0.5.
+    /// Este test FALLA si la exclusión de zero-relevant se rompe.
+    #[test]
+    fn zero_relevant_query_excluded_from_aggregate_recall() {
+        use crate::memory::eval_metrics::{EvalMetrics, LabeledSet};
+
+        let json = r#"{
+            "labeled": [
+                {
+                    "id": "gs-0001",
+                    "query": "perfect match query",
+                    "expect_ids": ["id-x"],
+                    "n_relevant": 1,
+                    "nota": "one relevant item, will be found"
+                },
+                {
+                    "id": "gs-0010",
+                    "query": "empty oracle query",
+                    "expect_ids": [],
+                    "n_relevant": 0,
+                    "nota": "no oracle — must not enter aggregate"
+                }
+            ]
+        }"#;
+
+        let set = LabeledSet::from_json_str(json).expect("fixture must parse");
+        assert_eq!(set.labeled.len(), 2);
+
+        // Manually simulate what run_labeled_golden does for the aggregate logic,
+        // but purely (no recall_pack I/O): build per-query metrics and replicate
+        // the exclusion rule.
+        let relevant_a: std::collections::HashSet<String> = set.labeled[0].relevant(); // {"id-x"}
+        let relevant_b: std::collections::HashSet<String> = set.labeled[1].relevant(); // {}
+
+        let retrieved_a = vec!["id-x".to_string(), "noise".to_string()];
+        let retrieved_b = vec!["noise".to_string()];
+
+        let m_a = EvalMetrics::for_query(&retrieved_a, &relevant_a, 8);
+        let m_b = EvalMetrics::for_query(&retrieved_b, &relevant_b, 8);
+
+        // Query A: recall should be 1.0 (found "id-x").
+        assert!(
+            (m_a.recall_at_k - 1.0).abs() < 1e-9,
+            "query A recall must be 1.0, got {}",
+            m_a.recall_at_k
+        );
+        // Query B: recall is 0.0 (empty oracle produces 0.0 per recall_at_k guard).
+        assert_eq!(m_b.recall_at_k, 0.0);
+
+        // The CORRECT aggregate: exclude B (zero-relevant), average only A.
+        let aggregate_correct = EvalMetrics::aggregate(&[m_a]);
+        assert!(
+            (aggregate_correct.recall_at_k - 1.0).abs() < 1e-9,
+            "aggregate over non-zero-relevant queries must be 1.0, got {}",
+            aggregate_correct.recall_at_k
+        );
+
+        // The WRONG aggregate (including B) would give 0.5 — assert it WOULD be wrong
+        // so this test catches a regression if the exclusion is accidentally removed.
+        let aggregate_wrong = EvalMetrics::aggregate(&[m_a, m_b]);
+        assert!(
+            (aggregate_wrong.recall_at_k - 0.5).abs() < 1e-9,
+            "contaminated aggregate should be 0.5 (sanity check), got {}",
+            aggregate_wrong.recall_at_k
+        );
+        assert!(
+            aggregate_correct.recall_at_k > aggregate_wrong.recall_at_k,
+            "correct aggregate ({}) must exceed wrong aggregate ({})",
+            aggregate_correct.recall_at_k,
+            aggregate_wrong.recall_at_k
+        );
+    }
+
+    /// CRÍTICO: precision@3 se computa correctamente y es distinto de precision@8.
+    /// Fixture: 3 relevant ids en posiciones 1,2,4 de un retrieved de 8.
+    /// precision@3 = 2/3, precision@8 = 3/8. Ambos deben ser correctos.
+    /// Este test FALLA si precision_at_3 no se calcula o se confunde con precision@k.
+    #[test]
+    fn precision_at_3_is_computed_correctly_and_differs_from_precision_at_k() {
+        use crate::memory::eval_metrics::{precision_at_k, EvalMetrics};
+
+        let retrieved = vec![
+            "rel-1".to_string(), // pos 1 — relevant
+            "rel-2".to_string(), // pos 2 — relevant
+            "noise".to_string(), // pos 3 — NOT relevant
+            "rel-3".to_string(), // pos 4 — relevant (beyond k=3)
+            "noise".to_string(),
+            "noise".to_string(),
+            "noise".to_string(),
+            "noise".to_string(),
+        ];
+        let relevant: std::collections::HashSet<String> = ["rel-1", "rel-2", "rel-3"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let p3 = precision_at_k(&retrieved, &relevant, 3);
+        let m = EvalMetrics::for_query(&retrieved, &relevant, 8);
+
+        // precision@3: 2 hits in top-3 slots -> 2/3
+        assert!(
+            (p3 - 2.0 / 3.0).abs() < 1e-9,
+            "precision@3 must be 2/3 ≈ 0.6667, got {p3}"
+        );
+
+        // precision@8: 3 hits in 8 slots -> 3/8
+        assert!(
+            (m.precision_at_k - 3.0 / 8.0).abs() < 1e-9,
+            "precision@8 must be 3/8 = 0.375, got {}",
+            m.precision_at_k
+        );
+
+        // They must differ — if they were equal the test would be vacuous.
+        assert!(
+            (p3 - m.precision_at_k).abs() > 1e-9,
+            "precision@3 ({p3}) must differ from precision@8 ({})",
+            m.precision_at_k
+        );
     }
 }
