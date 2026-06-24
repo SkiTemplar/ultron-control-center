@@ -357,147 +357,372 @@ cat(1, "Memoria Qdrant", [
 // ---------------------------------------------------------------------------
 // CAT 2 — CodeGraph
 // ---------------------------------------------------------------------------
-cat(2, "CodeGraph", [
+// ---------------------------------------------------------------------------
+// CAT 2 — CodeGraph (consumido e2e)
+//
+// Mandamiento 12: el dato existe (9708 nodos) != se inyecta. cat2 antes grepeaba
+// /codegraph/i (matchea comentarios/codigo muerto) y aceptaba "MCP en config" como
+// verde aunque el .db estuviera stale o el daemon caido. Ahora cada check EJECUTA el
+// binario codegraph / consulta el .db vivo / prueba el watcher round-trip, y asevera
+// sobre OUTPUT observable. Sin datos (clon limpio / CI) -> pass:false "no medible".
+// ---------------------------------------------------------------------------
+const CODEGRAPH_DB = join(ULTRON, ".codegraph", "codegraph.db");
+const CODEGRAPH_PID = join(ULTRON, ".codegraph", "daemon.pid");
+
+// Lector del .db de codegraph via node:sqlite (mismo motor que usa el resto del
+// harness). Devuelve null si el .db no existe o no abre (clon limpio / CI).
+function readCodegraphDb(fn) {
+  if (!existsSync(CODEGRAPH_DB)) return null;
+  let db;
+  try {
+    // node:sqlite via getBuiltinModule: el harness es ESM (sin require) y check() es
+    // sincrono (sin await dynamic-import). getBuiltinModule resuelve el builtin sin importar.
+    const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+    db = new DatabaseSync(CODEGRAPH_DB, { readOnly: true });
+    const out = fn(db);
+    db.close();
+    return out;
+  } catch (e) {
+    try { db && db.close(); } catch {}
+    return { __error: e.message };
+  }
+}
+
+cat(2, "CodeGraph (consumido e2e)", [
   {
     id: "2.1",
-    desc: "MCP codegraph configurado en ~/.claude.json o settings.json",
+    desc: "codegraph CLI vivo + nudge usa cifra real (no '~8k' hardcodeado, dentro de +-30% del nodecount navegable)",
     auto: true,
     check() {
-      // La config MCP principal esta en ~/.claude.json (no settings.json)
-      const claudeJson = join(HOME, ".claude.json");
-      const s1 = readJSON(claudeJson);
-      const s2 = readJSON(SETTINGS_JSON);
-      const mcps1 = s1?.mcpServers ?? {};
-      const mcps2 = s2?.mcpServers ?? {};
-      const allKeys = [...Object.keys(mcps1), ...Object.keys(mcps2)];
-      const has = allKeys.some((k) => k.toLowerCase().includes("codegraph"));
-      return { pass: has, detail: has ? `codegraph en mcpServers (${claudeJson.split(/[/\\]/).pop()})` : "codegraph NO en mcpServers" };
+      // Antes solo verificaba 'codegraph en mcpServers' (config). Ahora: el binario
+      // responde --version Y el numero del nudge (codegraph-reminder.js) refleja el
+      // count navegable real (nodes - file - import), no una constante congelada.
+      const ver = run("codegraph --version 2>&1", { timeout: 15000 });
+      const verOk = /^\d+\.\d+\.\d+/.test(ver.stdout.trim());
+      if (!verOk) return { pass: false, detail: `no medible: codegraph --version no responde (${(ver.stdout + ver.stderr).trim().slice(0, 60)})` };
+      // nodecount navegable real del .db
+      const nav = readCodegraphDb((db) =>
+        db.prepare("SELECT COUNT(*) c FROM nodes WHERE kind NOT IN ('file','import')").get().c,
+      );
+      if (nav === null) return { pass: false, detail: "no medible: codegraph.db ausente (clon limpio/CI)" };
+      if (nav && nav.__error) return { pass: false, detail: `codegraph.db no abre: ${nav.__error}` };
+      // cifra que pregona el hook del nudge
+      const hook = join(HOOKS_SCRIPTS, "codegraph-reminder.js");
+      if (!fileExists(hook)) return { pass: false, detail: "codegraph-reminder.js ausente (no medible)" };
+      const txt = readFileSync(hook, "utf8");
+      const m = txt.match(/~\s*([\d.]+)\s*k\s*simbolos/i);
+      if (!m) return { pass: false, detail: `nudge sin cifra parseable de simbolos; navegable real=${nav}` };
+      const claimed = parseFloat(m[1]) * 1000;
+      const drift = Math.abs(claimed - nav) / nav;
+      return {
+        pass: drift <= 0.30,
+        detail: `codegraph ${ver.stdout.trim().slice(0, 8)}; nudge=~${m[1]}k(${claimed}) vs navegable real=${nav} -> drift ${(drift * 100).toFixed(0)}% (<=30%)`,
+      };
     },
   },
   {
     id: "2.2",
-    desc: "Index codegraph: .codegraph/codegraph.db existe",
+    desc: "Queries reales del .db vivo: COUNT files/nodes/edges>0 + MAX(indexed_at) + 0 drift de schema vs status --json",
     auto: true,
     check() {
-      // Ubicaciones conocidas del .db de codegraph
-      const candidates = [
-        join(ULTRON, ".codegraph", "codegraph.db"),
-        join(ULTRON, "codegraph.db"),
-        join(ULTRON, "code_graph.db"),
-      ];
-      const found = candidates.find((p) => fileExists(p));
-      return { pass: !!found, detail: found ? found.split(/[/\\]/).slice(-2).join("/") : "codegraph.db no encontrado" };
+      // Antes: solo 'el fichero .db existe'. Ahora ejecuta las MISMAS queries que el
+      // comando codegraph_summary haria, asevera enteros>0 sin error, y compara nodes
+      // contra 'codegraph status --json' para detectar bump de schema que rompe el panel.
+      const data = readCodegraphDb((db) => ({
+        files: db.prepare("SELECT COUNT(*) c FROM files").get().c,
+        nodes: db.prepare("SELECT COUNT(*) c FROM nodes").get().c,
+        edges: db.prepare("SELECT COUNT(*) c FROM edges").get().c,
+        maxIndexed: db.prepare("SELECT MAX(indexed_at) m FROM files").get().m,
+      }));
+      if (data === null) return { pass: false, detail: "no medible: codegraph.db ausente (clon limpio/CI)" };
+      if (data.__error) return { pass: false, detail: `codegraph.db no abre: ${data.__error}` };
+      const allPos = data.files > 0 && data.nodes > 0 && data.edges > 0 && Number(data.maxIndexed) > 0;
+      if (!allPos) {
+        return { pass: false, detail: `db vacio o sin indexed_at: files=${data.files} nodes=${data.nodes} edges=${data.edges} maxIndexed=${data.maxIndexed}` };
+      }
+      // drift de schema: el conteo del .db debe coincidir (+-1%) con lo que reporta el binario
+      const st = run("codegraph status --json 2>&1", { timeout: 20000 });
+      let statusNodes = null;
+      try { statusNodes = JSON.parse(st.stdout.trim()).nodeCount ?? null; } catch {}
+      if (statusNodes === null) {
+        return { pass: true, detail: `db OK (files=${data.files} nodes=${data.nodes} edges=${data.edges}); status --json no parseable (sin cruce de drift)` };
+      }
+      const drift = Math.abs(statusNodes - data.nodes) / Math.max(1, data.nodes);
+      return {
+        pass: drift <= 0.01,
+        detail: `files=${data.files} nodes=${data.nodes} edges=${data.edges}; status.nodeCount=${statusNodes} -> drift schema ${(drift * 100).toFixed(2)}% (<=1%)`,
+      };
     },
   },
   {
     id: "2.3",
-    desc: ">= 1 punto de entrada UI para codegraph en src/",
+    desc: "codegraph_summary rinde datos reales: 'codegraph query' devuelve un simbolo conocido con filePath/qualifiedName (no vacio, no error)",
     auto: true,
     check() {
-      const matches = grepInFiles(/codegraph/i, CC_SRC, [".tsx", ".ts"]);
-      // Cuenta archivos unicos
-      const files = new Set(matches.map((m) => m.file));
-      return { pass: files.size >= 1, detail: `${files.size} archivos tsx/ts referencian codegraph` };
+      // Antes grepeaba /codegraph/i en src/ (matchea cualquier mencion). Ahora invoca el
+      // motor de consulta real (lo mismo que alimenta el panel ProjectWorkspace) y asevera
+      // que devuelve un nodo navegable con su ubicacion. La verif VISUAL del panel es 2.7 (manual).
+      if (!existsSync(CODEGRAPH_DB)) return { pass: false, detail: "no medible: codegraph.db ausente (clon limpio/CI)" };
+      const r = run(`codegraph query "MemoryService" --json --limit 3 2>&1`, { timeout: 25000 });
+      let arr;
+      try { arr = JSON.parse(r.stdout.trim()); } catch { return { pass: false, detail: `query no devolvio JSON: ${(r.stdout + r.stderr).trim().slice(0, 100)}` }; }
+      if (!Array.isArray(arr) || arr.length === 0) return { pass: false, detail: "query 'MemoryService' devolvio 0 resultados (indice vacio o motor roto)" };
+      const n = arr[0].node || {};
+      const ok = !!n.filePath && !!(n.qualifiedName || n.name);
+      return {
+        pass: ok,
+        detail: ok
+          ? `${arr.length} hits; top=${n.qualifiedName || n.name} @ ${String(n.filePath).split(/[/\\]/).slice(-1)[0]}`
+          : `hit sin filePath/qualifiedName: ${JSON.stringify(n).slice(0, 120)}`,
+      };
     },
   },
   {
     id: "2.4",
-    desc: "Watcher codegraph activo (db reciente < 7 dias O MCP configurado)",
+    desc: "Daemon del watcher vivo: daemon.pid valido + proceso en ejecucion (no mtime laxo)",
     auto: true,
     check() {
-      const dbPath = join(ULTRON, ".codegraph", "codegraph.db");
-      if (fileExists(dbPath)) {
-        const r = run(`stat -c %Y "${fwd(dbPath)}" 2>/dev/null`);
-        const ts = parseInt(r.stdout.trim(), 10) * 1000;
-        const ageDays = (Date.now() - ts) / (1000 * 3600 * 24);
-        if (!isNaN(ageDays) && ageDays < 7) {
-          return { pass: true, detail: `codegraph.db actualizado hace ${ageDays.toFixed(1)} dias` };
-        }
+      // Antes: 'db reciente <7d O MCP configurado' (mtime/config, no prueba que el daemon
+      // corra). Ahora: parsea daemon.pid y asevera que el PID esta vivo -> el watcher esta
+      // activo (es lo que hace fresco el indice; 2.5 lo prueba e2e).
+      if (!existsSync(CODEGRAPH_PID)) return { pass: false, detail: "no medible: daemon.pid ausente (daemon no arrancado)" };
+      let pid = null;
+      try {
+        const raw = readFileSync(CODEGRAPH_PID, "utf8").trim();
+        pid = raw.startsWith("{") ? JSON.parse(raw).pid : parseInt(raw, 10);
+      } catch (e) { return { pass: false, detail: `daemon.pid ilegible: ${e.message}` }; }
+      if (!pid || isNaN(pid)) return { pass: false, detail: `daemon.pid sin pid valido` };
+      // Liveness portable en Windows (powershell Get-Process); fallback a kill -0 en *nix.
+      const ps = run(`powershell -NoProfile -Command "if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'ALIVE' } else { 'DEAD' }"`, { timeout: 15000 });
+      let alive = /ALIVE/.test(ps.stdout);
+      if (!ps.ok && !/ALIVE|DEAD/.test(ps.stdout)) {
+        const k = run(`kill -0 ${pid} 2>/dev/null && echo ALIVE || echo DEAD`, { timeout: 10000 });
+        alive = /ALIVE/.test(k.stdout);
       }
-      // Fallback: MCP configurado implica watcher del daemon externo
-      const claudeJson = join(HOME, ".claude.json");
-      const s = readJSON(claudeJson);
-      const has = Object.keys(s?.mcpServers ?? {}).some((k) => k.toLowerCase().includes("codegraph"));
-      return { pass: has, detail: has ? "MCP codegraph configurado (daemon con watcher)" : "ni db reciente ni MCP" };
+      return { pass: alive, detail: alive ? `daemon vivo (pid=${pid})` : `daemon.pid=${pid} pero el proceso NO existe (watcher muerto, indice se quedara stale)` };
     },
+  },
+  {
+    id: "2.5",
+    desc: "Watcher cobertura+frescura (e2e): simbolo temporal __kirkardo_probe en un .rs bajo .ultron aparece en query y desaparece al borrarlo",
+    auto: true,
+    check() {
+      // El borde mas comun: codigo recien escrito. Crea fn __kirkardo_probe_<rand>() en un
+      // .rs temporal bajo .ultron, hace poll a 'codegraph query' hasta hallarlo, lo borra y
+      // verifica que desaparece. Prueba el watcher + freshness de extremo a extremo.
+      if (!existsSync(CODEGRAPH_DB)) return { pass: false, detail: "no medible: codegraph.db ausente (clon limpio/CI)" };
+      const sym = `__kirkardo_probe_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
+      const dir = join(ULTRON, ".codegraph_probe_tmp");
+      const file = join(dir, "probe.rs");
+      // rm -rf via run() (rmSync no esta importado en el harness): borra fichero+dir del fixture.
+      const cleanup = () => { run(`rm -rf "${fwd(dir)}"`, { timeout: 8000 }); };
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(file, `pub fn ${sym}() -> u32 { 42 }\n`, "utf8");
+      } catch (e) { cleanup(); return { pass: false, detail: `no se pudo crear el fixture: ${e.message}` }; }
+      // poll aparicion (max ~24s)
+      let appeared = 0;
+      for (let i = 0; i < 12; i++) {
+        const r = run(`codegraph query "${sym}" --json --limit 2 2>&1`, { timeout: 12000 });
+        if (r.stdout.includes(sym)) { appeared = (i + 1) * 2; break; }
+        run("sleep 2", { timeout: 4000 });
+      }
+      if (!appeared) {
+        cleanup();
+        return { pass: false, detail: `watcher NO indexo el simbolo nuevo tras ~24s (codigo recien escrito invisible al indice)` };
+      }
+      // borrar y poll desaparicion (max ~16s)
+      cleanup();
+      let gone = 0;
+      for (let i = 0; i < 8; i++) {
+        run("sleep 2", { timeout: 4000 });
+        const r = run(`codegraph query "${sym}" --json --limit 2 2>&1`, { timeout: 12000 });
+        if (!r.stdout.includes(sym)) { gone = (i + 1) * 2; break; }
+      }
+      return {
+        pass: appeared > 0 && gone > 0,
+        detail: gone > 0
+          ? `watcher OK: indexado en ~${appeared}s, removido en ~${gone}s tras borrar`
+          : `indexado en ~${appeared}s pero NO removido tras borrar (~16s) -> indice acumula fantasmas`,
+      };
+    },
+  },
+  {
+    id: "2.6",
+    desc: "Consumo real del nudge (Mandamiento 12): de las sesiones recientes que leyeron codigo, >=80% usaron codegraph_* (el dato existe != se consume)",
+    auto: true,
+    check() {
+      // El nudge es VOLUNTARIO: el modelo puede ignorarlo y explorar a ciegas. Mide el ratio
+      // (sesiones con tool_use mcp__codegraph__*)/(sesiones que leyeron codigo via Read-de-codigo/
+      // Grep/Glob) en los ultimos transcripts. known_red: hoy 7/10=0.70 < 0.80 -> FAIL honesto
+      // (30% de sesiones de codigo siguen explorando el FS teniendo el indice).
+      const projDir = join(CLAUDE, "projects", ("C--Users-" + (process.env.USERNAME||process.env.USER||"user") + "--ultron"));
+      if (!existsSync(projDir)) return { pass: false, detail: "no medible: dir de transcripts ausente" };
+      let files;
+      try {
+        files = readdirSync(projDir)
+          .filter((f) => f.endsWith(".jsonl"))
+          .map((f) => ({ f: join(projDir, f), m: statSync(join(projDir, f)).mtimeMs }))
+          .sort((a, b) => b.m - a.m)
+          .slice(0, 40);
+      } catch (e) { return { pass: false, detail: `no medible: error leyendo transcripts (${e.message})` }; }
+      if (files.length === 0) return { pass: false, detail: "no medible: 0 transcripts .jsonl" };
+      const codeExt = /\.(rs|ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|swift|c|cc|cpp|h|hpp|cs|vue)$/i;
+      let codeSessions = 0, cgSessions = 0;
+      for (const { f } of files) {
+        let usedCode = false, usedCg = false, lines;
+        try { lines = readFileSync(f, "utf8").split("\n"); } catch { continue; }
+        for (const ln of lines) {
+          if (!ln.trim()) continue;
+          let o; try { o = JSON.parse(ln); } catch { continue; }
+          const content = o.message && o.message.content;
+          if (!Array.isArray(content)) continue;
+          for (const c of content) {
+            if (!c || c.type !== "tool_use") continue;
+            const nm = c.name || "";
+            if (/codegraph/i.test(nm)) usedCg = true;
+            if (nm === "Grep" || nm === "Glob") usedCode = true;
+            if (nm === "Read" && codeExt.test((c.input && c.input.file_path) || "")) usedCode = true;
+          }
+        }
+        if (usedCode) codeSessions++;
+        if (usedCg) cgSessions++;
+      }
+      if (codeSessions === 0) return { pass: false, detail: "no medible: 0 sesiones recientes leyeron codigo" };
+      const ratio = cgSessions / codeSessions;
+      return {
+        pass: ratio >= 0.8,
+        detail: `consumo codegraph: ${cgSessions}/${codeSessions} sesiones de codigo (ratio ${ratio.toFixed(2)} vs >=0.80)`,
+      };
+    },
+  },
+  {
+    id: "2.7",
+    desc: "Panel CodeGraph (ProjectWorkspace) muestra conteos reales sin 'sin indexar'/error — verificacion visual",
+    auto: false,
+    check: null,
   },
 ]);
 
 // ---------------------------------------------------------------------------
 // CAT 3 — AI Routing
 // ---------------------------------------------------------------------------
-cat(3, "AI Routing", [
+cat(3, "AI Routing (route real)", [
   {
     id: "3.1",
-    desc: "claude CLI en PATH",
+    desc: "claude CLI en PATH (el orquestador propio; no lo rutea el AI Router pero debe existir)",
     auto: true,
     check() {
       const r = run("claude --version 2>&1 | head -1");
-      return { pass: r.ok || r.stdout.includes("claude"), detail: r.stdout.trim().slice(0, 80) || r.stderr.trim().slice(0, 80) };
+      return {
+        pass: r.ok || /claude/i.test(r.stdout),
+        detail: r.stdout.trim().slice(0, 80) || r.stderr.trim().slice(0, 80) || "claude no en PATH",
+      };
     },
   },
   {
     id: "3.2",
-    desc: "codex CLI en PATH",
+    desc: "invariantes de politica en zones.json: code=>codex-cli, chat/utility/light=>groq, 0 gemini-cli (retirado)",
     auto: true,
     check() {
-      const r = run("codex --version 2>&1 | head -1");
-      return { pass: r.ok, detail: r.stdout.trim().slice(0, 80) || r.stderr.trim().slice(0, 80) };
+      const zones = readJSON(ZONES_JSON);
+      if (!Array.isArray(zones) || zones.length === 0) {
+        return { pass: false, detail: "no medible: zones.json ausente o vacio (clon limpio/CI)" };
+      }
+      // chat/utility/light son el plano FAST groq-first; summarize/routing-decision comparten el plano.
+      const GROQ_FIRST = new Set(["chat", "utility", "light", "summarize", "routing-decision"]);
+      const viol = [];
+      for (const z of zones) {
+        const pid = z.primary?.provider_id ?? "?";
+        const chain = [pid, ...(z.fallbacks ?? []).map((f) => f.provider_id)];
+        // Code zones arrancan por CLI (codex-cli). code-fast-local se queda en ollama por ser offline.
+        if (z.category === "code" && z.id !== "code-fast-local" && pid !== "codex-cli") {
+          viol.push(`code:${z.id} primary=${pid}!=codex-cli`);
+        }
+        if (GROQ_FIRST.has(z.id) && pid !== "groq") {
+          viol.push(`fast:${z.id} primary=${pid}!=groq`);
+        }
+        // gemini-cli RETIRADO 2026-06-19 (Google corto el free-tier OAuth): 0 en cualquier cadena.
+        if (chain.includes("gemini-cli")) viol.push(`${z.id}:gemini-cli en cadena`);
+      }
+      return {
+        pass: viol.length === 0,
+        detail: viol.length === 0 ? `${zones.length} zonas cumplen la politica CLI-first` : viol.slice(0, 4).join(" | "),
+      };
     },
   },
   {
     id: "3.3",
-    desc: "0 zonas en zones.json con provider_id inexistente en providers.json",
+    desc: "codex-cli AUTENTICADO: 'codex exec --sandbox read-only' responde exit 0 sin auth/login/IneligibleTier",
     auto: true,
     check() {
-      const zones = readJSON(ZONES_JSON);
-      const providers = readJSON(join(COCKPIT, "ai-router", "providers.json"));
-      if (!zones || !providers) return { pass: false, detail: "zones.json o providers.json no encontrado" };
-      const providerIds = new Set(providers.map((p) => p.id ?? p.provider_id));
-      const orphanZones = [];
-      for (const z of zones) {
-        const pid = z.primary?.provider_id;
-        if (pid && !providerIds.has(pid)) orphanZones.push(`${z.id}:${pid}`);
-        for (const fb of z.fallbacks ?? []) {
-          if (fb.provider_id && !providerIds.has(fb.provider_id)) orphanZones.push(`${z.id}:fb:${fb.provider_id}`);
-        }
+      // El subcomando REAL de call_cli (ai_router/exec.rs): codex exec <prompt> --sandbox read-only
+      // --skip-git-repo-check. stdin cerrado (</dev/null): sin el, codex bloquea esperando
+      // "additional input from stdin" y agota el timeout. Distingue instalado de autenticado-y-rutea.
+      const probe = run(
+        `codex exec "reply with just the word OK and nothing else" --sandbox read-only --skip-git-repo-check </dev/null 2>&1`,
+        { timeout: 120000 },
+      );
+      const out = probe.stdout + probe.stderr;
+      // Tokens de fallo de AUTENTICACION. OJO: NO usar la palabra "Failed" suelta: codex emite
+      // "SessionStart Failed" (sus propios hooks, ajenos al login) en stdout aun autenticado.
+      const authFail = /not logged in|please (log|sign) ?in|run `?codex login|IneligibleTier|unauthorized|\b401\b|invalid api key/i.test(out);
+      const replied = /\bOK\b/.test(out);
+      if (!probe.ok) {
+        return { pass: false, detail: `codex exec exit=${probe.code} (no autenticado/no instalado/timeout): ${out.trim().slice(-120)}` };
       }
-      return { pass: orphanZones.length === 0, detail: orphanZones.length === 0 ? "0 orphan providers" : orphanZones.join(", ") };
+      return {
+        pass: !authFail && replied,
+        detail: authFail ? `auth fail en stdout: ${out.trim().slice(-120)}` : `exit 0, modelo respondio OK=${replied}`,
+      };
     },
   },
   {
     id: "3.4",
-    desc: "cargo test ai_router pasa",
+    desc: "fallback ROLLING < 10% (recent_routes ventana viva, NO acumulado historico) + by_class del dia",
     auto: true,
     check() {
-      // Pasa el filtro como argumento posicional a cargo test.
-      // --test-threads=1: serie -> determinista. Algunos tests del router comparten
-      // metrics.json y bajo paralelismo dan flakiness (ver card tests-no-hermeticos).
-      const r = run("cargo test --lib --quiet ai_router -- --test-threads=1 2>&1", {
-        cwd: join(CC, "src-tauri"),
-        timeout: 180000,
-      });
-      const txt = r.stdout + r.stderr;
-      const failed = /test result: FAILED|\bFAILED\b/.test(txt);
-      const passed = /test result: ok/i.test(txt) || (r.ok && !failed);
-      return { pass: passed && !failed, detail: txt.slice(-300) };
+      const m = readJSON(METRICS_JSON);
+      if (!m) return { pass: false, detail: "no medible: metrics.json ausente (clon limpio/CI)" };
+      const rr = Array.isArray(m.recent_routes) ? m.recent_routes : null;
+      if (!rr || rr.length < 10) {
+        return { pass: false, detail: `no medible: recent_routes insuficiente (${rr ? rr.length : "ausente"} < 10)` };
+      }
+      // Ventana rolling (RECENT_FALLBACK_WINDOW=200 en ai_router/types.rs): mide el comportamiento
+      // ACTUAL. El cat3.5 viejo promediaba routes_total (708) de configs/dias muertos -> sesgo historico.
+      const fb = rr.filter(Boolean).length;
+      const rate = fb / rr.length;
+      // Frescura: las clases con trafico deben tener date==hoy (no puntuar sobre historia muerta).
+      const today = new Date().toISOString().slice(0, 10);
+      const active = Object.values(m.by_class ?? {}).filter((v) => v && (v.count ?? 0) > 0);
+      const stale = active.filter((v) => v.date !== today).length;
+      const fresh = active.length > 0 && stale === 0;
+      return {
+        pass: rate < 0.1 && fresh,
+        detail: `rolling_fallback=${(rate * 100).toFixed(1)}% (${fb}/${rr.length}) by_class_hoy=${fresh} (stale=${stale}/${active.length})`,
+      };
     },
   },
   {
     id: "3.5",
-    desc: "real_fallback_rate < 10% (metrics.json del dia)",
+    desc: "cargo test ai_router ejecuta tests reales y pasan (logica cadena/quota/cli, no solo exit 0)",
     auto: true,
     check() {
-      const m = readJSON(METRICS_JSON);
-      if (!m) return { pass: false, detail: "metrics.json no encontrado" };
-      // Ratio REAL acumulado = real_fallback_count / routes_total. NO uso el EMA fallback_rate
-      // (se infla con historia) ni solo recent_routes (da 0% volatil si no hubo rutas recientes
-      // -> falso pass que cazo el audit independiente 2026-06-21).
-      const total = m.routes_total ?? 0;
-      const fb = m.real_fallback_count ?? 0;
-      if (total < 10) return { pass: false, detail: `datos insuficientes (routes_total=${total})` };
-      const rate = fb / total;
-      return { pass: rate < 0.1, detail: `real_fallback=${(rate * 100).toFixed(1)}% (${fb}/${total})` };
+      // Baseline de la LOGICA de routing (cadena primary->fallback, quota, sandbox flag). NO es e2e
+      // contra provider vivo (eso lo cubren 3.3 codex + 3.4 metrics); endurece el viejo 3.4 exigiendo
+      // que CORRIO >0 tests ('test result: ok. N passed') y NO el verde vacuo de exit 0 con 0 tests.
+      const r = run("cargo test --lib --quiet ai_router -- --test-threads=1 2>&1", {
+        cwd: join(CC, "src-tauri"),
+        timeout: 240000,
+      });
+      const txt = r.stdout + r.stderr;
+      const failed = /test result: FAILED|\bFAILED\b/.test(txt);
+      const ranOk = txt.match(/test result: ok\.\s*(\d+)\s*passed/i);
+      const passedN = ranOk ? parseInt(ranOk[1], 10) : 0;
+      return {
+        pass: !failed && passedN > 0,
+        detail: failed ? `FAILED: ${txt.slice(-200)}` : `test result: ok, ${passedN} passed`,
+      };
     },
   },
 ]);
@@ -505,98 +730,305 @@ cat(3, "AI Routing", [
 // ---------------------------------------------------------------------------
 // CAT 4 — Skill/Agent Routing
 // ---------------------------------------------------------------------------
-cat(4, "Skill/Agent Routing", [
+// ---------------------------------------------------------------------------
+// CAT 4 — Skill/Agent Routing (OUTPUT del hook, no rankCandidates)
+// ---------------------------------------------------------------------------
+// Endurecida 2026-06-24: la cat vieja medía rankCandidates() sobre 21 casos
+// sintéticos con el trigger LITERAL — nunca ejecutaba main()/buildInjectionBlock
+// ni observaba el additionalContext que de verdad llega al modelo. Verificado en
+// runtime: un prompt TDD rutea bien PERO inyecta el SKILL.md del NAMESPACE
+// catch-all 'superpowers' (name: superpowers) en vez del de TDD, y ADEMÁS arrastra
+// un ecc:hexagonal-architecture irrelevante. cat4.5 medía --v3 mientras el binario
+// LIVE de settings.json es v2 (sin fallback semántico). Esta versión EJECUTA el
+// hook real (routing-dispatcher.v2.js por stdin) y asevera sobre su salida.
+const DISPATCHER_V2 = join(SKILL_LAZY, "routing-dispatcher.v2.js");
+
+// Ejecuta el hook con {prompt} por stdin y devuelve el additionalContext + lo
+// parseado: skills inyectadas (bloques [skill-inyectada:X]) y candidatos sugeridos
+// (Suggested: / "1)" / "2)" del hint). Fail-safe: ok=false si el hook no emite JSON.
+function runDispatcher(prompt) {
+  let r;
+  try {
+    r = spawnSync("node", [DISPATCHER_V2], {
+      input: JSON.stringify({ prompt, hook_event_name: "UserPromptSubmit" }),
+      encoding: "utf8",
+      timeout: 30000,
+      cwd: ULTRON,
+    });
+  } catch (e) {
+    return { ok: false, raw: String(e) };
+  }
+  const out = (r.stdout ?? "").trim();
+  let ac;
+  try {
+    ac = JSON.parse(out).hookSpecificOutput?.additionalContext ?? "";
+  } catch {
+    return { ok: false, raw: out.slice(0, 160) };
+  }
+  // skills inyectadas: id + cuerpo del SKILL.md de cada bloque
+  const blocks = [];
+  const blockRe = /--- \[skill-inyectada: ([^\]]+)\] ---\n([\s\S]*?)\n--- \[fin skill-inyectada: \1\] ---/g;
+  let bm;
+  while ((bm = blockRe.exec(ac)) !== null) blocks.push({ id: bm[1], body: bm[2] });
+  // candidatos sugeridos observables en el hint (sin contenido inyectado)
+  const labels = [];
+  const sug = ac.match(/Suggested:\s*\w+:(\S+)/);
+  if (sug) labels.push(sug[1]);
+  const numRe = /\d\)\s*\w+:([^\s(]+)/g;
+  let nm;
+  while ((nm = numRe.exec(ac)) !== null) labels.push(nm[1]);
+  return {
+    ok: true,
+    ac,
+    len: ac.length,
+    injectedIds: blocks.map((b) => b.id),
+    blocks,
+    candidates: [...new Set(labels)],
+  };
+}
+
+// Extrae el `name:` del front-matter YAML del cuerpo de un bloque inyectado.
+function injectedSkillName(body) {
+  const m = (body || "").match(/^\s*name:\s*([^\n]+)/m);
+  return m ? m[1].trim().replace(/^["']|["']$/g, "") : null;
+}
+
+// CASES e2e del hook: prompt -> id esperado en el top-3 OBSERVABLE del
+// additionalContext (Suggested + candidatos del hint), no rankCandidates. Mismo set
+// que el harness viejo medía in-process, ahora cruzado contra la SALIDA real del
+// hook. Incluye casos EN donde el OUTPUT no lista el id (p.ej. el hint de
+// "code-reviewer" solo lleva 1 candidato) -> ya no es 100% trivial.
+const ROUTING_CASES = [
+  { prompt: "activa don claudio para el netcode de ue5", expected: "don-claudio" },
+  { prompt: "tio gilito, anade un gasto a mi presupuesto", expected: "tio-gilito" },
+  { prompt: "modo tolkien, escribe el siguiente capitulo", expected: "tolkien" },
+  { prompt: "jordan, necesito un pitch para inversores b2b", expected: "jordan-belfort" },
+  { prompt: "mike tyson, revisa la jerarquia visual del landing", expected: "mike-tyson" },
+  { prompt: "alfred, mata el proceso y limpia la carpeta local", expected: "alfred" },
+  { prompt: "arregla los tipos de typescript en este componente react", expected: "typescript-pro" },
+  { prompt: "optimiza el uso de memoria en rust con tokio", expected: "rust-engineer" },
+  { prompt: "audita la seguridad: posible sql injection y owasp", expected: "security-auditor" },
+  { prompt: "tengo un stack trace y un panic, encuentra la causa raiz", expected: "debugger" },
+  { prompt: "haz tdd con red green refactor antes de implementar", expected: "superpowers:test-driven-development" },
+  { prompt: "haz un security scan del repositorio buscando cve", expected: "security-scan" },
+  { prompt: "consolida memoria y ordena el index de .ultron", expected: "consolidate-memory" },
+  { prompt: "revisa el pr buscando problemas de calidad de codigo", expected: "pr-review-toolkit:code-reviewer" },
+  { prompt: "review this pull request for code quality issues", expected: "code-reviewer" },
+  { prompt: "profile the hot path, there is an n+1 query bottleneck", expected: "performance-engineer" },
+  { prompt: "design a kubernetes helm chart for the cluster", expected: "kubernetes-specialist" },
+  { prompt: "write a rag pipeline with a vector db and embeddings", expected: "ai-engineer" },
+  { prompt: "set up a github actions ci cd pipeline", expected: "devops-engineer" },
+  { prompt: "merge a postgresql schema migration with zero-downtime", expected: "database-migrations" },
+  { prompt: "systematic debugging, I cannot find the intermittent bug", expected: "superpowers:systematic-debugging" },
+];
+
+// Negativos: NO deben inyectar nada (additionalContext sin Suggested/skill).
+const NEGATIVE_CASES = ["gracias", "que hora es", "vale perfecto", "buenos dias", "ok dale"];
+
+// Prompts representativos para el techo de context_chars (uno carga la persona
+// dominante de un FAST PATH, otro arrastra el bug del namespace + ECC).
+const CTX_PROMPTS = [
+  "haz tdd con red green refactor antes de implementar",
+  "optimiza el uso de memoria en rust con tokio",
+  "audita la seguridad: posible sql injection y owasp",
+];
+const CTX_MAX_CHARS = 12000;
+
+cat(4, "Skill/Agent Routing (output del hook)", [
   {
     id: "4.1",
-    desc: "_verify_final.js pasa (Failed: 0)",
+    desc: "SKILL.md correcto inyectado: el bloque de un superpowers:* trae su propio name, no el namespace catch-all 'superpowers'",
     auto: true,
     check() {
-      const script = join(SKILL_LAZY, "_verify_final.js");
-      if (!fileExists(script)) return { pass: false, detail: "_verify_final.js no existe" };
-      const r = run(`node "${fwd(script)}" 2>&1`, { timeout: 30000, cwd: ULTRON });
-      const txt = r.stdout + r.stderr;
-      // Formato actual: "  Passed: 26\n  Failed: 0"
-      const failedMatch = txt.match(/Failed:\s*([0-9]+)/i);
-      const failed = failedMatch ? parseInt(failedMatch[1], 10) : -1;
-      const passedMatch = txt.match(/Passed:\s*([0-9]+)/i);
-      const passed = passedMatch ? parseInt(passedMatch[1], 10) : 0;
-      return { pass: failed === 0 && passed > 0, detail: `Passed=${passed}, Failed=${failed}` };
+      if (!fileExists(DISPATCHER_V2)) return { pass: false, detail: "no medible: routing-dispatcher.v2.js ausente" };
+      // Cada superpowers:* debe inyectar SU SKILL.md (name == sub-skill), NO el del
+      // namespace 'superpowers'. Hoy resolveSkillMdPath cae en skills/superpowers.disabled
+      // (name: superpowers) -> el modelo recibe el manifiesto genérico, no la guía pedida.
+      const cases = [
+        { prompt: "haz tdd con red green refactor antes de implementar", id: "superpowers:test-driven-development", expectName: "test-driven-development" },
+        { prompt: "haz un debug sistematico de este bug intermitente sin causa obvia", id: "superpowers:systematic-debugging", expectName: "systematic-debugging" },
+      ];
+      const bad = [];
+      let checked = 0;
+      for (const c of cases) {
+        const r = runDispatcher(c.prompt);
+        if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
+        const blk = r.blocks.find((b) => b.id === c.id);
+        if (!blk) { bad.push(`${c.id}:no-inyectado`); continue; }
+        checked++;
+        const nm = injectedSkillName(blk.body);
+        if (nm !== c.expectName) bad.push(`${c.id}:name="${nm}"(esp ${c.expectName})`);
+      }
+      if (checked === 0) return { pass: false, detail: "no medible: ningún superpowers:* llegó a inyectarse" };
+      return {
+        pass: bad.length === 0,
+        detail: bad.length === 0
+          ? `${checked} superpowers:* inyectan su SKILL.md propio`
+          : `${bad.length} con SKILL.md erróneo (namespace catch-all): ${bad.join(", ")}`,
+      };
     },
   },
   {
     id: "4.2",
-    desc: "accuracy@1 >= 90% (dispatcher)",
+    desc: "0 falsos positivos ECC: prompts no-ECC (TDD/commit/debug) no inyectan ningún ecc:*",
     auto: true,
     check() {
-      const script = join(SKILL_LAZY, "_accuracy_at3.js");
-      if (!fileExists(script)) return { pass: false, detail: "_accuracy_at3.js no existe" };
-      const r = run(`node "${fwd(script)}" 2>&1`, { timeout: 30000, cwd: ULTRON });
-      const txt = r.stdout + r.stderr;
-      // Formato: "  accuracy@1: 95.2% (20/21)"
-      const m = txt.match(/accuracy@1:\s*([0-9.]+)%/i);
-      if (!m) {
-        // Fallback: busca cualquier porcentaje de accuracy
-        const m2 = txt.match(/accuracy.*?([0-9]+\.[0-9]+)%/i);
-        if (m2) return { pass: parseFloat(m2[1]) >= 90, detail: `accuracy=${m2[1]}%` };
-        return { pass: false, detail: "no se pudo parsear accuracy@1: " + txt.slice(-100) };
+      if (!fileExists(DISPATCHER_V2)) return { pass: false, detail: "no medible: routing-dispatcher.v2.js ausente" };
+      // Set-trampa: ninguno pide arquitectura hexagonal/puertos-adaptadores. Si el
+      // hook inyecta un ecc:* es un falso positivo (floor ECC rebajado). Verificado
+      // hoy: TDD arrastra ecc:hexagonal-architecture -> FAIL honesto.
+      const trap = [
+        "haz tdd con red green refactor antes de implementar",
+        "git commit con conventional commits",
+        "haz un debug sistematico de este bug intermitente",
+        "optimiza el uso de memoria en rust con tokio",
+      ];
+      const offenders = [];
+      for (const p of trap) {
+        const r = runDispatcher(p);
+        if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
+        const ecc = r.injectedIds.filter((id) => id.startsWith("ecc:"));
+        if (ecc.length) offenders.push(`"${p.slice(0, 24)}"->${ecc.join("/")}`);
       }
-      const pct = parseFloat(m[1]);
-      return { pass: pct >= 90, detail: `accuracy@1=${pct.toFixed(1)}%` };
+      return {
+        pass: offenders.length === 0,
+        detail: offenders.length === 0
+          ? `${trap.length} prompts no-ECC, 0 ecc:* inyectados`
+          : `${offenders.length} falsos positivos ECC: ${offenders.join(" | ")}`,
+      };
     },
   },
   {
     id: "4.3",
-    desc: "keep_active <= 12 en skills-registry.json",
+    desc: "accuracy@3 por OUTPUT del hook >= 90% (id esperado en el top-3 observable, no rankCandidates)",
     auto: true,
     check() {
-      const reg = readJSON(SKILLS_REGISTRY_COCKPIT);
-      if (!reg) return { pass: false, detail: "skills-registry.json no encontrado" };
-      const keepActive = reg.filter((e) => e.keep_active === true).length;
-      return { pass: keepActive <= 12, detail: `keep_active=${keepActive}` };
+      if (!fileExists(DISPATCHER_V2)) return { pass: false, detail: "no medible: routing-dispatcher.v2.js ausente" };
+      let hits = 0;
+      const miss = [];
+      for (const c of ROUTING_CASES) {
+        const r = runDispatcher(c.prompt);
+        if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
+        const top3 = r.candidates.slice(0, 3);
+        if (top3.includes(c.expected)) hits++;
+        else miss.push(`"${c.prompt.slice(0, 26)}"->${JSON.stringify(top3)}(esp ${c.expected})`);
+      }
+      const pct = (hits / ROUTING_CASES.length) * 100;
+      return {
+        pass: pct >= 90,
+        detail: `accuracy@3(output)=${pct.toFixed(1)}% (${hits}/${ROUTING_CASES.length})` +
+          (miss.length ? ` miss: ${miss.slice(0, 2).join(" | ")}` : ""),
+      };
     },
   },
   {
     id: "4.4",
-    desc: "accuracy@3 = 100% (dispatcher propone top3 correctamente)",
+    desc: "casos negativos: 'gracias'/'que hora es' -> additionalContext sin routing (vacío, 0 skills)",
     auto: true,
     check() {
-      // El criterio real: el dispatcher devuelve un top-3 (grupo) para el harness
-      // accuracy@3 = 100% verifica que el top3 incluye la skill correcta
-      const script = join(SKILL_LAZY, "_accuracy_at3.js");
-      if (!fileExists(script)) return { pass: false, detail: "script no existe" };
-      const r = run(`node "${fwd(script)}" 2>&1`, { timeout: 30000, cwd: ULTRON });
-      const txt = r.stdout + r.stderr;
-      // Formato: "  accuracy@3: 100.0% (21/21)"
-      const m = txt.match(/accuracy@3:\s*([0-9.]+)%/i);
-      if (!m) return { pass: false, detail: "no se pudo parsear accuracy@3: " + txt.slice(-100) };
-      const pct = parseFloat(m[1]);
-      return { pass: pct >= 90, detail: `accuracy@3=${pct.toFixed(1)}%` };
+      if (!fileExists(DISPATCHER_V2)) return { pass: false, detail: "no medible: routing-dispatcher.v2.js ausente" };
+      const offenders = [];
+      for (const p of NEGATIVE_CASES) {
+        const r = runDispatcher(p);
+        if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
+        // negativo limpio = sin candidato sugerido Y sin skill inyectada
+        if (r.candidates.length > 0 || r.injectedIds.length > 0) {
+          offenders.push(`"${p}"->cand=${JSON.stringify(r.candidates)} inj=${JSON.stringify(r.injectedIds)}`);
+        }
+      }
+      return {
+        pass: offenders.length === 0,
+        detail: offenders.length === 0
+          ? `${NEGATIVE_CASES.length} negativos -> 0 routing (correcto)`
+          : `${offenders.length} negativos rutearon algo: ${offenders.join(" | ")}`,
+      };
     },
   },
   {
     id: "4.5",
-    desc: "v3 semantico: > 0 matches en test set (--v3)",
+    desc: "binario LIVE == medido: si settings.json apunta a v2 (sin fallback semántico), prompt ambiguo NO emite [semantic-fallback]",
     auto: true,
     check() {
-      const script = join(SKILL_LAZY, "_accuracy_at3.js");
-      if (!fileExists(script)) return { pass: false, detail: "script no existe" };
-      // Timeout 90 s: embed_skills.py batch_query carga sentence-transformers una sola
-      // vez para todas las queries (~34 s), mucho menos que los ~120 s del modo secuencial
-      // (12 llamadas x ~10 s/llamada). Sin pipe a tail: la linea clave
-      // "semantic accuracy@3: X% (N/M)" puede ser cualquier linea del output.
-      const r = run(`node "${script}" --v3 2>&1`, { timeout: 90000 });
-      const txt = r.stdout + r.stderr;
-      // Parsea "semantic accuracy@3: 91.7% (11/12)" -> hits=11, total=12
-      const mAcc = txt.match(/semantic\s+accuracy@3:\s*[\d.]+%\s*\((\d+)\/(\d+)\)/i);
-      if (mAcc) {
-        const hits = parseInt(mAcc[1], 10);
-        const total = parseInt(mAcc[2], 10);
-        return { pass: hits > 0, detail: `v3 hits=${hits}/${total}; semantic accuracy@3 OK` };
+      // cat4.5 vieja medía --v3 (fallback semántico) mientras el hook LIVE de
+      // settings.json es routing-dispatcher.v2.js (solo triggers literales). Medir el
+      // binario que de verdad corre: con v2 vivo, un prompt ambiguo (sin trigger) NO
+      // debe emitir [semantic-fallback] (v2 no lo tiene) -> known_red hasta migrar a v3
+      // o etiquetar el modo. Si LIVE ya fuese v3, el check exige que SÍ lo emita.
+      const s = readJSON(SETTINGS_JSON);
+      if (!s) return { pass: false, detail: "no medible: settings.json ausente" };
+      let liveCmd = null;
+      for (const group of s.hooks?.UserPromptSubmit ?? []) {
+        for (const h of group.hooks ?? []) {
+          if (h.command && /routing-dispatcher/.test(h.command)) liveCmd = h.command;
+        }
       }
-      // Fallback: si el subprocess fallo del todo
-      const unavail = /semantic\s+unavailable:\s*(\d+)/i.exec(txt);
-      const unavailN = unavail ? parseInt(unavail[1], 10) : 0;
-      return { pass: false, detail: `v3 hits=0; unavailable=${unavailN}; ${txt.slice(-120)}` };
+      if (!liveCmd) return { pass: false, detail: "no medible: ningún routing-dispatcher en UserPromptSubmit" };
+      const isV3 = /routing-dispatcher\.v3/.test(liveCmd);
+      const ambiguous = "necesito ayuda con esto que tengo aqui montado";
+      const r = runDispatcher(ambiguous);
+      if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
+      const hasFallback = /\[semantic-fallback\]/i.test(r.ac);
+      if (isV3) {
+        return { pass: hasFallback, detail: `LIVE=v3; prompt ambiguo semantic-fallback=${hasFallback}` };
+      }
+      // LIVE = v2: NO puede ofrecer fallback semántico; medir v3 sería medir un binario muerto.
+      return {
+        pass: false,
+        detail: `LIVE=v2 (sin fallback semántico) pero la métrica histórica media --v3; prompt ambiguo no rutea (semantic-fallback=${hasFallback})`,
+      };
+    },
+  },
+  {
+    id: "4.6",
+    desc: "context_chars techo: additionalContext <= 12000 chars en prompts representativos (cap inflado silencioso)",
+    auto: true,
+    check() {
+      if (!fileExists(DISPATCHER_V2)) return { pass: false, detail: "no medible: routing-dispatcher.v2.js ausente" };
+      // Un prompt puede inflar el bloque (14032 chars visto con TDD por el namespace
+      // catch-all + ECC). El cap de 3 inyecciones no acota los chars. Mide el OUTPUT real.
+      const over = [];
+      let maxLen = 0;
+      for (const p of CTX_PROMPTS) {
+        const r = runDispatcher(p);
+        if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
+        maxLen = Math.max(maxLen, r.len);
+        if (r.len > CTX_MAX_CHARS) over.push(`"${p.slice(0, 24)}"=${r.len}`);
+      }
+      return {
+        pass: over.length === 0,
+        detail: over.length === 0
+          ? `max additionalContext=${maxLen} chars (<=${CTX_MAX_CHARS})`
+          : `${over.length} sobre techo (${CTX_MAX_CHARS}): ${over.join(", ")} [max=${maxLen}]`,
+      };
+    },
+  },
+  {
+    id: "4.7",
+    desc: "keep_active vs disco: carpetas no-.disabled con SKILL.md en ~/.claude/skills == keep_active del registry y <= 12",
+    auto: true,
+    check() {
+      // cat4.3 vieja solo leía el JSON del registry. El criterio real es el DISCO: una
+      // skill activa es una carpeta NO terminada en .disabled con SKILL.md (excluye
+      // dotdirs como .git y dirs auxiliares sin manifiesto como 'learned').
+      if (!existsSync(SKILLS_DIR)) return { pass: false, detail: "no medible: ~/.claude/skills ausente" };
+      let active;
+      try {
+        active = readdirSync(SKILLS_DIR, { withFileTypes: true })
+          .filter((e) => e.isDirectory() && !e.name.startsWith(".") && !e.name.endsWith(".disabled"))
+          .filter((e) => existsSync(join(SKILLS_DIR, e.name, "SKILL.md")))
+          .map((e) => e.name);
+      } catch (e) {
+        return { pass: false, detail: `no medible: readdir falló (${e.message})` };
+      }
+      const reg = readJSON(SKILLS_REGISTRY_COCKPIT);
+      const keepActive = reg ? reg.filter((x) => x.keep_active === true).length : null;
+      const diskCount = active.length;
+      const matchesRegistry = keepActive === null ? true : diskCount === keepActive;
+      return {
+        pass: diskCount <= 12 && matchesRegistry,
+        detail: `disco=${diskCount} (<=12) keep_active=${keepActive ?? "N/A"} match=${matchesRegistry}` +
+          (matchesRegistry ? "" : ` [divergencia disco/registry]`),
+      };
     },
   },
 ]);
@@ -817,7 +1249,16 @@ cat(6, "Documentacion", [
 // ---------------------------------------------------------------------------
 // CAT 7 — Calidad de Codigo
 // ---------------------------------------------------------------------------
-cat(7, "Calidad de Codigo", [
+// ---------------------------------------------------------------------------
+// CAT 7 — Calidad de Codigo + Frescura del binario
+// ---------------------------------------------------------------------------
+// 7.1-7.5: calidad (clippy/tsc/lineas/tests). 7.3 (.rs >800L) PRESERVADO.
+// 7.6-7.9: FRESCURA (mandamiento 3): el sidecar que ejecutan los hooks debe
+// corresponder a HEAD, ser identico al binario recien compilado, y los hooks
+// deben ARRANCAR de verdad (no solo pasar node --check). El gotcha mas caro del
+// proyecto: bin/ultron-memory.exe stale -> "parece que no se aplico". Nada lo
+// guardaba; ahora si.
+cat(7, "Calidad de Codigo + Frescura del binario", [
   {
     id: "7.1",
     desc: "cargo clippy --lib --bins -- -D warnings pasa",
@@ -828,7 +1269,6 @@ cat(7, "Calidad de Codigo", [
         timeout: 120000,
       });
       const txt = r.stdout + r.stderr;
-      const hasWarnings = /error\[/i.test(txt) || /warning: unused/i.test(txt) && /D warnings/.test(txt);
       const ok = r.ok && !txt.includes("error[E") && !/^error/.test(txt.trim());
       return { pass: ok, detail: txt.slice(-200) };
     },
@@ -838,10 +1278,7 @@ cat(7, "Calidad de Codigo", [
     desc: "tsc --noEmit 0 errores",
     auto: true,
     check() {
-      const r = run("npx tsc --noEmit 2>&1 | tail -10", {
-        cwd: CC,
-        timeout: 60000,
-      });
+      const r = run("npx tsc --noEmit 2>&1 | tail -10", { cwd: CC, timeout: 60000 });
       const txt = r.stdout + r.stderr;
       const hasErrors = /error TS[0-9]/i.test(txt);
       return { pass: r.ok && !hasErrors, detail: txt.slice(-200) || "OK" };
@@ -852,15 +1289,19 @@ cat(7, "Calidad de Codigo", [
     desc: "0 archivos .rs > 800 lineas (excluyendo target/)",
     auto: true,
     check() {
+      // PRESERVADO: anti-patron de fichero monolitico. find real + conteo de lineas.
       const r = run(
         `find "${CC_TAURI}" -name "*.rs" -not -path "*/target/*" -type f 2>/dev/null`,
-        { cwd: ULTRON }
+        { cwd: ULTRON },
       );
       const files = r.stdout.trim().split("\n").filter(Boolean);
       const over = files.filter((f) => countLines(f) > 800);
       return {
         pass: over.length === 0,
-        detail: over.length === 0 ? "0 .rs >800L" : over.map((f) => `${f.split("/").slice(-1)[0]}:${countLines(f)}L`).join(", "),
+        detail:
+          over.length === 0
+            ? "0 .rs >800L"
+            : over.map((f) => `${f.split("/").slice(-1)[0]}:${countLines(f)}L`).join(", "),
       };
     },
   },
@@ -869,15 +1310,15 @@ cat(7, "Calidad de Codigo", [
     desc: "0 archivos .tsx > 800 lineas",
     auto: true,
     check() {
-      const r = run(
-        `find "${CC_SRC}" -name "*.tsx" -type f 2>/dev/null`,
-        { cwd: ULTRON }
-      );
+      const r = run(`find "${CC_SRC}" -name "*.tsx" -type f 2>/dev/null`, { cwd: ULTRON });
       const files = r.stdout.trim().split("\n").filter(Boolean);
       const over = files.filter((f) => countLines(f) > 800);
       return {
         pass: over.length === 0,
-        detail: over.length === 0 ? "0 .tsx >800L" : over.map((f) => `${f.split("/").slice(-2).join("/")}:${countLines(f)}L`).join(", "),
+        detail:
+          over.length === 0
+            ? "0 .tsx >800L"
+            : over.map((f) => `${f.split("/").slice(-2).join("/")}:${countLines(f)}L`).join(", "),
       };
     },
   },
@@ -886,9 +1327,6 @@ cat(7, "Calidad de Codigo", [
     desc: "cargo test --lib --bins pasa (0 failures)",
     auto: true,
     check() {
-      // exit code 0 + no FAILED = OK (puede haber 0 tests si features finance no activas).
-      // --test-threads=1: serie -> determinista (evita la flakiness de tests que comparten
-      // metrics.json bajo paralelismo; ver card tests-no-hermeticos).
       const r = run("cargo test --lib --quiet -- --test-threads=1 2>&1", {
         cwd: join(CC, "src-tauri"),
         timeout: 240000,
@@ -899,172 +1337,512 @@ cat(7, "Calidad de Codigo", [
       return { pass: ok && !failed, detail: txt.slice(-200) };
     },
   },
+  {
+    id: "7.6",
+    desc: "sidecar deployado fresco: mtime(bin/ultron-memory.exe) >= ultimo commit que toca memory/",
+    auto: true,
+    check() {
+      // Mandamiento 3: el .exe que ejecutan los hooks debe ser POSTERIOR al ultimo
+      // cambio en memory/. Si quedo mas viejo -> "parece que no se aplico" (stale binary).
+      const binPath = join(BIN, "ultron-memory.exe");
+      if (!existsSync(binPath)) {
+        return { pass: false, detail: "no medible: bin/ultron-memory.exe ausente" };
+      }
+      // git log -1 --format=%ct (epoch s) del ultimo commit que toca el modulo memory/.
+      const r = run(
+        `git log -1 --format=%ct -- control-center/src-tauri/src/memory/`,
+        { cwd: ULTRON, timeout: 15000 },
+      );
+      const commitSec = parseInt(r.stdout.trim(), 10);
+      if (!r.ok || !Number.isFinite(commitSec) || commitSec <= 0) {
+        return { pass: false, detail: "no medible: git log -1 memory/ sin commit (clon shallow/sin historial)" };
+      }
+      let binSec;
+      try {
+        binSec = Math.floor(statSync(binPath).mtimeMs / 1000);
+      } catch (e) {
+        return { pass: false, detail: "no medible: statSync(bin) fallo: " + e.message };
+      }
+      const driftMin = ((binSec - commitSec) / 60).toFixed(1);
+      return {
+        pass: binSec >= commitSec,
+        detail:
+          binSec >= commitSec
+            ? `bin fresco: mtime ${driftMin}min DESPUES del commit memory/`
+            : `STALE: bin ${Math.abs(driftMin)}min ANTES del ultimo commit memory/ -> rebuild+redeploy`,
+      };
+    },
+  },
+  {
+    id: "7.7",
+    desc: "bin/ultron-memory.exe identico a target/release/ (cmp -s) — sin paso de copia olvidado",
+    auto: true,
+    check() {
+      // Tras `cargo build --release` hay que COPIAR a bin/. Si se olvida, el .exe
+      // deployado diverge del compilado. cmp -s exit 0 == byte-identicos.
+      const binPath = join(BIN, "ultron-memory.exe");
+      const relPath = join(CC, "src-tauri", "target", "release", "ultron-memory.exe");
+      if (!existsSync(binPath)) return { pass: false, detail: "no medible: bin/ultron-memory.exe ausente" };
+      if (!existsSync(relPath)) {
+        return { pass: false, detail: "no medible: target/release/ultron-memory.exe ausente (sin build local)" };
+      }
+      const r = run(
+        `cmp -s "${fwd(binPath)}" "${fwd(relPath)}"; echo $?`,
+        { cwd: ULTRON, timeout: 20000 },
+      );
+      const code = parseInt(r.stdout.trim().split("\n").pop(), 10);
+      return {
+        pass: code === 0,
+        detail:
+          code === 0
+            ? "bin/ == target/release/ (byte-identicos)"
+            : `DIVERGEN (cmp exit=${code}): falta copiar el binario recien compilado a bin/`,
+      };
+    },
+  },
+  {
+    id: "7.8",
+    desc: "version embebido == HEAD: el .exe imprime el git SHA y coincide con rev-parse HEAD",
+    auto: true,
+    check() {
+      // Unica prueba honesta de que el .exe corresponde a HEAD (mtime reciente lo
+      // puede falsear un `touch`). known_red: HOY no existe subcomando que emita SHA
+      // -> `version` da exit!=0 "unknown subcommand". ESE es el hallazgo (mandamiento 3):
+      // sin SHA embebido no se puede verificar correspondencia exacta exe<->commit.
+      const binPath = join(BIN, "ultron-memory.exe");
+      if (!existsSync(binPath)) return { pass: false, detail: "no medible: bin/ultron-memory.exe ausente" };
+      const rHead = run(`git rev-parse --short HEAD`, { cwd: ULTRON, timeout: 10000 });
+      const head = rHead.stdout.trim();
+      if (!rHead.ok || !head) return { pass: false, detail: "no medible: git rev-parse HEAD fallo" };
+      // Prueba el subcomando que DEBERIA emitir el SHA.
+      const rVer = run(`"${fwd(binPath)}" version 2>&1`, { cwd: ULTRON, timeout: 15000 });
+      const out = (rVer.stdout + rVer.stderr).trim();
+      // Falla honesta: no hay subcomando 'version' (unknown subcommand) o no imprime el SHA.
+      if (!rVer.ok || /unknown subcommand|unrecognized|no such/i.test(out)) {
+        return {
+          pass: false,
+          detail: `sin SHA embebido: 'version' -> "${out.slice(0, 80)}" (anadir build.rs git SHA + subcomando para verificar exe==HEAD)`,
+        };
+      }
+      const emits = out.includes(head);
+      return {
+        pass: emits,
+        detail: emits ? `version embebe HEAD ${head}` : `version="${out.slice(0, 60)}" NO contiene HEAD ${head}`,
+      };
+    },
+  },
+  {
+    id: "7.9",
+    desc: "cada hook ARRANCA sin crash (exit 0 + sin Error:/excepcion); los inyectores SessionStart emiten stdout no vacio",
+    auto: true,
+    check() {
+      // cat12.4 hace solo `node --check` (sintaxis): un hook sintacticamente valido
+      // puede PETAR al arrancar (require ausente, path Windows, JSON.parse de stdin).
+      // Aqui se EJECUTA cada hook con un payload minimo y se asevera el arranque real.
+      // Payload rico que cubre SessionStart + UserPromptSubmit + PreToolUse.
+      const PAYLOAD = JSON.stringify({
+        cwd: ULTRON,
+        source: "startup",
+        hook_event_name: "SessionStart",
+        prompt: "refactoriza el modulo de auth",
+        tool_name: "Glob",
+        tool_input: { pattern: "*.rs" },
+        transcript_path: "",
+      });
+      if (!existsSync(HOOKS_SCRIPTS)) return { pass: false, detail: "no medible: hooks/scripts ausente" };
+      // Lista los .js de hooks via find (mismo patron que cat12.4).
+      const rLs = run(`find "${fwd(HOOKS_SCRIPTS)}" -maxdepth 1 -name "*.js" 2>/dev/null`, { cwd: ULTRON });
+      const hooks = rLs.stdout.trim().split("\n").filter(Boolean);
+      if (hooks.length === 0) return { pass: false, detail: "no medible: 0 hooks .js en hooks/scripts" };
+      // Inyectores SessionStart/UserPromptSubmit: su unico proposito es emitir
+      // additionalContext -> stdout vacio = no-op silencioso (mandamiento 11). El resto
+      // (capture/sync/relay) son side-effect y producen stdout vacio LEGITIMAMENTE.
+      const MUST_EMIT = new Set([
+        "memory-session-resume.js",
+        "memory-orchestrate.js",
+        "load-cross-project-memory.js",
+        "session-start-override.js",
+      ]);
+      const CRASH = /\b(TypeError|ReferenceError|SyntaxError|RangeError|MODULE_NOT_FOUND)\b|Cannot read|is not a function|Error:/;
+      const crashed = [];
+      const silentInjectors = [];
+      for (const f of hooks) {
+        const name = f.split(/[/\\]/).pop();
+        let r;
+        try {
+          r = spawnSync("node", [f], { input: PAYLOAD, encoding: "utf8", timeout: 30000, cwd: ULTRON });
+        } catch (e) {
+          crashed.push(`${name}:spawn-fail`);
+          continue;
+        }
+        const out = (r.stdout ?? "") + (r.stderr ?? "");
+        if (r.status !== 0 || CRASH.test(out)) {
+          crashed.push(`${name}:exit=${r.status}`);
+          continue;
+        }
+        if (MUST_EMIT.has(name) && (r.stdout ?? "").trim().length === 0) {
+          silentInjectors.push(name);
+        }
+      }
+      const bad = crashed.length + silentInjectors.length;
+      return {
+        pass: bad === 0,
+        detail:
+          bad === 0
+            ? `${hooks.length} hooks arrancan OK; ${MUST_EMIT.size} inyectores emiten contexto`
+            : `crash=[${crashed.join(", ")}] inyector-silencioso=[${silentInjectors.join(", ")}]`,
+      };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
 // CAT 8 — UI funcional
 // ---------------------------------------------------------------------------
-cat(8, "UI funcional", [
+cat(8, "UI funcional (cableada)", [
   {
     id: "8.1",
-    desc: "0 console.log en src/ (excl tests)",
+    desc: "invoke<->generate_handler!: 0 comandos invocados sin registrar (botones no-op), modulo finance",
     auto: true,
     check() {
-      // Usa grep Node.js nativo para evitar problemas de rutas Windows
-      const matches = grepInFiles(/console\.log/, CC_SRC, [".tsx", ".ts"])
-        .filter((m) => {
-          // Excluir comentados y archivos de test
-          if (/^\s*\/\//.test(m.text)) return false;
-          if (m.file.includes("__tests__") || m.file.includes(".test.") || m.file.includes(".spec.")) return false;
-          return true;
-        });
-      return { pass: matches.length === 0, detail: `${matches.length} console.log en src/` };
+      const libPath = join(CC_TAURI, "lib.rs");
+      if (!fileExists(libPath) || !fileExists(CC_SRC)) {
+        return { pass: false, detail: "no medible: falta lib.rs o control-center/src" };
+      }
+      // Invocados: invoke("x") / invoke<T>("x") -- primer string literal. Saltamos
+      // lineas de comentario (JSDoc/line): un invoke("x") dentro de /** ... */ NO es
+      // una llamada real (p.ej. recall_semantic solo vive en doc-comments de types/).
+      const INVOKE_RE = /\binvoke\s*(?:<[^>]*>)?\s*\(\s*["'`]([a-zA-Z_][a-zA-Z0-9_]*)["'`]/;
+      const invoked = new Set();
+      let dynamicInvokes = 0;
+      for (const m of grepInFiles(/\binvoke\s*(?:<[^>]*>)?\s*\(/, CC_SRC, [".ts", ".tsx"])) {
+        if (/^\s*(\/\/|\*|\/\*)/.test(m.text)) continue;
+        const mm = m.text.match(INVOKE_RE);
+        if (mm) invoked.add(mm[1]);
+        else if (!/\bimport\b/.test(m.text)) dynamicInvokes++; // invoke(var,...) sin literal
+      }
+      if (invoked.size === 0) return { pass: false, detail: "no medible: 0 invoke literales extraidos (regex/fuente cambio)" };
+      // Registrados: bloque generate_handler![ ... ] de lib.rs. Cada linea
+      // `modulo::sub::nombre,` aporta la ULTIMA componente como nombre de comando.
+      // Las lineas finance van precedidas de `#[cfg(feature = "finance")]`.
+      const lib = readFileSync(libPath, "utf8");
+      const gs = lib.indexOf("generate_handler![");
+      const ge = gs >= 0 ? lib.indexOf("])", gs) : -1;
+      if (gs < 0 || ge < 0) return { pass: false, detail: "no medible: generate_handler! no encontrado en lib.rs" };
+      const registered = new Set();
+      const financeReg = new Set();
+      let gate = false;
+      for (const raw of lib.slice(gs, ge).split("\n")) {
+        const line = raw.trim();
+        if (line.includes('feature = "finance"')) { gate = true; continue; }
+        const m = line.match(/^#?\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*,?$/);
+        if (m && !line.startsWith("//") && !line.includes("generate_handler")) {
+          const n = m[1];
+          if (n === "cfg" || n === "feature") continue;
+          if (gate) { financeReg.add(n); gate = false; } else registered.add(n);
+        } else { gate = false; }
+      }
+      // Un comando registrado-y-no-usado no es no-op; el no-op es invocar-sin-registrar.
+      const orphans = [...invoked].filter((c) => !registered.has(c) && !financeReg.has(c)).sort();
+      return {
+        pass: orphans.length === 0,
+        detail:
+          `invocados=${invoked.size} registrados=${registered.size} finance=${financeReg.size} dyn(var)=${dynamicInvokes} | ` +
+          (orphans.length === 0 ? "0 huerfanos (sin botones no-op)" : `HUERFANOS(no-op): ${orphans.join(", ")}`),
+      };
     },
   },
   {
     id: "8.2",
-    desc: "0 prompts hardcodeados inline (string literal de prompt real en .tsx, excl getPrompt/button_prompts)",
+    desc: "tray-action contrato: 0 acciones emitidas en tray.rs sin listener en tauri-events.ts (y viceversa)",
     auto: true,
     check() {
-      // El check viejo (regex /invoke.*prompt.*['"]/ + filtro /getPrompt|button_prompts|PROMPT/i)
-      // era CO-EXTENSIVO: toda linea que matcheaba se excluia -> nunca podia fallar.
-      // Ahora detecto STRINGS de prompt LITERALES de verdad: `prompt: "Eres ..."`, `prompt: \`You are ...\``
-      // con un verbo/comienzo de instruccion real. El filtro de exclusion deja getPrompt/button_prompts
-      // (factories legitimas) pero ya NO excluye por la palabra "PROMPT" (eso anulaba el check).
-      const promptLiteral = /prompt\s*[:=]\s*[`'"]\s*(Eres|You are|Act as|Actua|Genera|Generate|Write|Escribe|Analiza|Analyze|Resume|Summarize|Translate|Traduce|Given the|Dado el)/i;
-      const matches = grepInFiles(promptLiteral, CC_SRC, [".tsx"])
-        .filter((m) => !/getPrompt|button_prompts/.test(m.text));
+      const trayPath = join(CC_TAURI, "tray.rs");
+      const eventsPath = join(CC_SRC, "lib", "tauri-events.ts");
+      if (!fileExists(trayPath) || !fileExists(eventsPath)) {
+        return { pass: false, detail: "no medible: falta tray.rs o tauri-events.ts" };
+      }
+      const tray = readFileSync(trayPath, "utf8");
+      const events = readFileSync(eventsPath, "utf8");
+      // Emitidas: del `let action = match id { \"x\" => \"y\", ... }` que precede al
+      // emit(\"tray-action\", {action}). Capturamos el destino \"y\" de cada arm.
+      const emitted = new Set();
+      const mm = tray.match(/let\s+action\s*=\s*match\s+id\s*\{([\s\S]*?)\};/);
+      if (mm) for (const a of mm[1].matchAll(/"[a-z_]+"\s*=>\s*"([a-z_]+)"/g)) emitted.add(a[1]);
+      if (emitted.size === 0) return { pass: false, detail: "no medible: 0 acciones emitidas extraidas de tray.rs (forma del match cambio)" };
+      // Manejadas: cada `case \"x\":` del switch de tauri-events.ts.
+      const handled = new Set();
+      for (const a of events.matchAll(/case\s+"([a-z_]+)"\s*:/g)) handled.add(a[1]);
+      const noListener = [...emitted].filter((a) => !handled.has(a)).sort();
+      const noEmit = [...handled].filter((a) => !emitted.has(a)).sort();
       return {
-        pass: matches.length === 0,
-        detail: matches.length === 0
-          ? "0 prompts inline reales"
-          : `${matches.length} prompts inline: ${matches.slice(0, 3).map((m) => m.file.split(/[/\\]/).pop() + ":" + m.line).join(", ")}`,
+        pass: noListener.length === 0 && noEmit.length === 0,
+        detail:
+          `emitidas=[${[...emitted].sort().join(",")}] manejadas=[${[...handled].sort().join(",")}] | ` +
+          (noListener.length === 0 && noEmit.length === 0
+            ? "contrato cerrado"
+            : `emitidas_sin_listener(no-op)=[${noListener.join(",")}] listener_sin_emit=[${noEmit.join(",")}]`),
       };
     },
   },
   {
     id: "8.3",
-    desc: "Todas las tabs cargan sin crash (verificacion visual)",
-    auto: false,
-    check: null,
+    desc: "Finance en el binario desplegado: build:local (--features finance) y NO build:app",
+    auto: true,
+    check() {
+      const finSrc = join(CC_TAURI, "finance.rs");
+      if (!fileExists(finSrc)) {
+        return { pass: true, detail: "N/A: finance.rs ausente (clon publico, no build:local-capable)" };
+      }
+      const exe = join(CC, "src-tauri", "target", "release", "control-center.exe");
+      if (!fileExists(exe)) return { pass: false, detail: "no medible: control-center.exe no construido (target/release ausente)" };
+      let lat;
+      try { lat = readFileSync(exe).toString("latin1"); }
+      catch (e) { return { pass: false, detail: "no medible: no se pudo leer el .exe: " + e.message }; }
+      // Deteccion RELATIVA: los command-name strings no siempre quedan contiguos en
+      // release; usamos varios anchors no-finance para confirmar que la deteccion
+      // string funciona, y luego buscamos los comandos finance con el MISMO metodo.
+      const anchors = ["kanban_load", "spawn_session", "ai_router_list_zones", "memory_inbox_list", "list_skills"];
+      const anchorHits = anchors.filter((a) => lat.includes(a)).length;
+      if (anchorHits < 2) {
+        return { pass: false, detail: `no medible: solo ${anchorHits}/5 anchors detectados (binario strip/ofuscado; metodo string no fiable)` };
+      }
+      const finCmds = ["finance_overview", "finance_sync", "finance_open_setup"];
+      const finHits = finCmds.filter((f) => lat.includes(f));
+      return {
+        pass: finHits.length >= 1,
+        detail:
+          `anchors=${anchorHits}/5 finance_cmds_en_exe=${finHits.length}/3 | ` +
+          (finHits.length >= 1
+            ? `finance compilado (${finHits.join(",")})`
+            : "finance AUSENTE del .exe desplegado -> es build:app, no build:local"),
+      };
+    },
   },
   {
     id: "8.4",
-    desc: "0 botones no-op (onClick sin invoke/navigate) — verificacion visual",
+    desc: "Todas las tabs montan sin TabErrorBoundary y panel renderiza >0 chars (Playwright sobre dev server) -- verificacion visual",
     auto: false,
-    check: null,
+  },
+  {
+    id: "8.5",
+    desc: "0 mensajes console.* tras navegar todas las tabs (Playwright captura consola real) -- verificacion visual",
+    auto: false,
   },
 ]);
 
 // ---------------------------------------------------------------------------
 // CAT 9 — Hooks
 // ---------------------------------------------------------------------------
-cat(9, "Hooks", [
+// ---------------------------------------------------------------------------
+// CAT 9 — Hooks (arranque resiliente) — ENDURECIDA e2e (2026-06-24)
+// ---------------------------------------------------------------------------
+// Antes: manifest-parity + paths-existen + LATENCIA leida de hook-timing.jsonl
+// (last5, log historico que ROTA a 1MiB y esta dominado por posttoolfail/codegraph
+// -> muestras sesgables/perdidas) + grep "|| true" (pattern-only). El medidor leia
+// historia, no veia el fail-safe-silencioso real. Ahora: salud POSITIVA del resume
+// (estructura del artefacto que llega al modelo), caso negativo RUIDOSO (bin roto ->
+// AC sin resume + exit 0 PERO debe dejar rastro en hook-errors.jsonl), y LATENCIA EN
+// CALIENTE cronometrando el spawn real 3x (p50). manifest-parity preservado (9.1).
+const ORCH_HOOK = join(HOOKS_SCRIPTS, "memory-orchestrate.js");
+const HOOK_ERRORS_LOG = join(ULTRON, "logs", "hook-errors.jsonl");
+
+// Cuenta lineas no vacias de un .jsonl (0 si no existe).
+function jsonlLineCount(p) {
+  if (!existsSync(p)) return 0;
+  try { return readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).length; }
+  catch { return 0; }
+}
+
+// Mediana de un array de numeros (orden asc, promedio de centrales si par).
+function median(arr) {
+  if (!arr.length) return Infinity;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// Cronometra el spawn COMPLETO (incluye arranque de node) de un hook con stdin
+// dado, n veces. Devuelve { samples[], exits[] }. Mide EN CALIENTE, no lee logs
+// historicos sesgables (hook-timing.jsonl rota y se domina por otros hooks).
+function timeHookSpawns(hookPath, stdinObj, n, perRunTimeoutMs) {
+  const input = JSON.stringify(stdinObj);
+  const samples = [];
+  const exits = [];
+  for (let i = 0; i < n; i++) {
+    const t0 = Date.now();
+    const r = spawnSync("node", [hookPath], {
+      input,
+      encoding: "utf8",
+      timeout: perRunTimeoutMs,
+      cwd: ULTRON,
+      windowsHide: true,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    samples.push(Date.now() - t0);
+    exits.push(r.status);
+  }
+  return { samples, exits };
+}
+
+// Parsea el additionalContext del stdout JSON de un hook. Devuelve "" si AC vacio,
+// null si el stdout NO es JSON valido (distinto de AC vacio).
+function hookAdditionalContext(out) {
+  try {
+    const j = JSON.parse(out);
+    return j.hookSpecificOutput?.additionalContext ?? j.additionalContext ?? "";
+  } catch {
+    return null;
+  }
+}
+
+cat(9, "Hooks (arranque resiliente)", [
   {
     id: "9.1",
-    desc: "manifest.json parity con settings.json (hook scripts coinciden)",
+    desc: "manifest.json parity: todos los scripts del manifest existen en disco",
     auto: true,
     check() {
-      if (!fileExists(HOOKS_MANIFEST)) return { pass: false, detail: "manifest.json no encontrado" };
+      if (!fileExists(HOOKS_MANIFEST)) return { pass: false, detail: "no medible: manifest.json ausente" };
       const manifest = readJSON(HOOKS_MANIFEST);
       const settings = readJSON(SETTINGS_JSON);
-      if (!manifest || !settings) return { pass: false, detail: "no se pudo parsear JSON" };
-
-      // Extrae scripts del manifest
+      if (!manifest || !settings) return { pass: false, detail: "no medible: manifest/settings no parseables" };
       const manifestScripts = new Set(
-        (manifest.hooks ?? []).map((h) => h.script?.replace("~", HOME).replace(/\\/g, "/"))
+        (manifest.hooks ?? []).map((h) => h.script?.replace("~", HOME).replace(/\\/g, "/")),
       );
-      // Extrae comandos de settings.json hooks
-      const settingsCommands = [];
-      for (const event of Object.values(settings.hooks ?? {})) {
-        for (const group of event) {
-          for (const h of group.hooks ?? []) {
-            if (h.command) settingsCommands.push(h.command.replace(/\\/g, "/"));
-          }
-        }
-      }
-
-      // Verifica que los scripts del manifest existen en disco
-      let missingFromDisk = 0;
-      for (const s of manifestScripts) {
-        if (s && !existsSync(s)) missingFromDisk++;
-      }
-
-      return {
-        pass: missingFromDisk === 0,
-        detail: `manifest: ${manifestScripts.size} scripts, ${missingFromDisk} no existen en disco`,
-      };
+      let missing = 0;
+      for (const s of manifestScripts) if (s && !existsSync(s)) missing++;
+      return { pass: missing === 0, detail: `manifest: ${manifestScripts.size} scripts, ${missing} no existen en disco` };
     },
   },
   {
     id: "9.2",
-    desc: "Todos los paths de hook en settings.json existen en disco",
+    desc: "SALUD: resume hook sano emite JSON SessionStart + bloque <ultron-memory-resume (el artefacto que llega al modelo)",
     auto: true,
     check() {
-      const settings = readJSON(SETTINGS_JSON);
-      if (!settings) return { pass: false, detail: "settings.json no encontrado" };
-      const missing = [];
-      for (const event of Object.values(settings.hooks ?? {})) {
-        for (const group of event) {
-          for (const h of group.hooks ?? []) {
-            if (!h.command) continue;
-            // Extrae la ruta del script del comando "node /path/to/script.js"
-            const m = h.command.match(/(?:node|python|uv run python)\s+"?([^"'\s]+\.[a-z]+)"?/i);
-            if (!m) continue;
-            const scriptPath = m[1].replace(/\\/g, "/");
-            if (!existsSync(scriptPath)) missing.push(scriptPath.split("/").slice(-1)[0]);
-          }
-        }
-      }
+      if (!fileExists(RESUME_HOOK)) return { pass: false, detail: "no medible: memory-session-resume.js ausente" };
+      const r = spawnSync("node", [RESUME_HOOK], {
+        input: JSON.stringify({ cwd: ULTRON, source: "startup", hook_event_name: "SessionStart" }),
+        encoding: "utf8",
+        timeout: 30000,
+        cwd: ULTRON,
+        windowsHide: true,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      const out = (r.stdout ?? "").trim();
+      let j;
+      try { j = JSON.parse(out); }
+      catch { return { pass: false, detail: `stdout no es JSON: ${out.slice(0, 80)}` }; }
+      const ev = j.hookSpecificOutput?.hookEventName;
+      const ac = j.hookSpecificOutput?.additionalContext ?? "";
+      const hasEvent = ev === "SessionStart";
+      const hasResume = ac.includes("<ultron-memory-resume");
+      const longEnough = ac.length > 50;
       return {
-        pass: missing.length === 0,
-        detail: missing.length === 0 ? "todos los scripts existen" : `missing: ${missing.join(", ")}`,
+        pass: r.status === 0 && hasEvent && hasResume && longEnough,
+        detail: `exit=${r.status} hookEventName=${ev} ac_len=${ac.length} hasResumeBlock=${hasResume}`,
       };
     },
   },
   {
     id: "9.3",
-    desc: "memory-session-resume < 500ms (hook-timing.jsonl)",
+    desc: "CASO NEGATIVO RUIDOSO: bin roto -> AC sin <ultron-memory-resume + exit 0 PERO deja linea en hook-errors.jsonl (fail ruidosa, no silenciosa)",
     auto: true,
     check() {
-      // Formato actual: {"ts":"...", "hook":"memory-session-resume", "elapsed_ms":104, "exit_code":0}
-      const timingFile = join(ULTRON, "logs", "hook-timing.jsonl");
-      if (!fileExists(timingFile)) return { pass: false, detail: "hook-timing.jsonl ausente" };
-      const lines = readFileSync(timingFile, "utf8").trim().split("\n").filter(Boolean);
-      const entries = lines
-        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-        .filter((e) => e && e.hook === "memory-session-resume");
-      if (entries.length === 0) return { pass: false, detail: "sin entradas memory-session-resume en timing" };
-      const last5 = entries.slice(-5);
-      const maxMs = Math.max(...last5.map((e) => e.elapsed_ms ?? e.duration_ms ?? 9999));
-      return { pass: maxMs < 500, detail: `max_last5_resume=${maxMs}ms` };
+      // known_red HOY: findBinary()/runCli() tragan el fallo del binario en
+      // silencio (try/catch interno) -> el hook sale 0 con AC sin resume y NO
+      // escribe a hook-errors.jsonl. logHookError solo se llama en el catch del
+      // top-level main(), que NO se dispara porque runCli devuelve null SIN lanzar.
+      // El usuario arranca MUDO sin senal accionable (mandamiento 11). Verificado en
+      // runtime 2026-06-24: hook-errors.jsonl 0->0. FAIL honesto hasta que el hook
+      // registre el binario ausente/roto en hook-errors.jsonl.
+      if (!fileExists(RESUME_HOOK)) return { pass: false, detail: "no medible: memory-session-resume.js ausente" };
+      // Fixture: archivo que EXISTE (findBinary lo acepta como ULTRON_MEMORY_BIN)
+      // pero NO es ejecutable -> spawnSync del binario falla -> runCli devuelve null.
+      let fakeBin;
+      try {
+        const tmpDir = join(ULTRON, ".tmp", "kirkardo");
+        mkdirSync(tmpDir, { recursive: true });
+        fakeBin = join(tmpDir, "fake-ultron-memory-broken.txt");
+        writeFileSync(fakeBin, "not a binary\n");
+      } catch (e) {
+        return { pass: false, detail: `no medible: no se pudo crear fixture: ${e.message}` };
+      }
+      const before = jsonlLineCount(HOOK_ERRORS_LOG);
+      // cwd a un proyecto INEXISTENTE -> projectIdFromCwd da basura -> sin context.md
+      // -> el resume del binario es la unica fuente de <ultron-memory-resume>.
+      const fakeCwd = join(ULTRON, ".tmp", "kirkardo", "nonexistent-project-xyz");
+      const r = spawnSync("node", [RESUME_HOOK], {
+        input: JSON.stringify({ cwd: fakeCwd, source: "startup", hook_event_name: "SessionStart" }),
+        encoding: "utf8",
+        timeout: 30000,
+        cwd: ULTRON,
+        windowsHide: true,
+        maxBuffer: 8 * 1024 * 1024,
+        env: { ...process.env, ULTRON_MEMORY_BIN: fwd(fakeBin) },
+      });
+      const after = jsonlLineCount(HOOK_ERRORS_LOG);
+      const out = (r.stdout ?? "").trim();
+      const ac = hookAdditionalContext(out);
+      // (a) no crashea: exit 0 + JSON valido + el binario roto NO produjo resume
+      const safe = r.status === 0 && ac !== null && !ac.includes("<ultron-memory-resume");
+      // (b) RUIDOSO: dejo rastro accionable (>=1 linea nueva en hook-errors.jsonl)
+      const noisy = after > before;
+      return {
+        pass: safe && noisy,
+        detail: safe
+          ? `fail-safe OK (exit 0, sin resume) pero RUIDO=${noisy} (hook-errors.jsonl ${before}->${after}; el fallo del binario no deja rastro accionable)`
+          : `fail-safe ROTO: exit=${r.status} ac_null=${ac === null} hadResume=${ac !== null && ac.includes("<ultron-memory-resume")}`,
+      };
     },
   },
   {
     id: "9.4",
-    desc: "memory-orchestrate < 300ms (hook-timing.jsonl)",
+    desc: "LATENCIA EN CALIENTE resume: p50 de spawn real 3x < 1500ms (mide el artefacto, no hook-timing.jsonl historico)",
     auto: true,
     check() {
-      const timingFile = join(ULTRON, "logs", "hook-timing.jsonl");
-      if (!fileExists(timingFile)) return { pass: false, detail: "hook-timing.jsonl ausente" };
-      const lines = readFileSync(timingFile, "utf8").trim().split("\n").filter(Boolean);
-      const entries = lines
-        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-        .filter((e) => e && e.hook === "memory-orchestrate");
-      if (entries.length === 0) return { pass: false, detail: "sin entradas memory-orchestrate en timing" };
-      const last5 = entries.slice(-5);
-      const maxMs = Math.max(...last5.map((e) => e.elapsed_ms ?? e.duration_ms ?? 9999));
-      return { pass: maxMs < 300, detail: `max_last5_orchestrate=${maxMs}ms` };
+      if (!fileExists(RESUME_HOOK)) return { pass: false, detail: "no medible: memory-session-resume.js ausente" };
+      const { samples, exits } = timeHookSpawns(
+        RESUME_HOOK,
+        { cwd: ULTRON, source: "startup", hook_event_name: "SessionStart" },
+        3,
+        30000,
+      );
+      const p50 = median(samples);
+      const allOk = exits.every((e) => e === 0);
+      return {
+        pass: allOk && p50 < 1500,
+        detail: `p50=${p50}ms samples=[${samples.join(",")}]ms exits=[${exits.join(",")}] (umbral 1500ms; incluye spawn de node)`,
+      };
     },
   },
   {
     id: "9.5",
-    desc: "0 hooks con error silenciado (|| true en scripts clave)",
+    desc: "LATENCIA EN CALIENTE orchestrate: p50 de spawn real 3x < 300ms (daemon caliente)",
     auto: true,
     check() {
-      // Usa grep Node.js para evitar problemas Windows
-      const matches = grepInFiles(/\|\|\s*true/, HOOKS_SCRIPTS, [".js"]);
-      return { pass: matches.length === 0, detail: `${matches.length} ocurrencias de || true en hooks` };
+      // known_red en arranque limpio: el daemon serve (E5 residente) NO esta
+      // caliente al inicio de cada sesion, asi que el spawn one-shot paga el
+      // cold-load de E5-large. Verificado en runtime 2026-06-24 desde estado de
+      // arranque (daemon muerto): samples [2758,583,207]ms -> p50=583ms; curva de
+      // warmup visible (el 1er spawn arranca el daemon via spawnDetached, los
+      // siguientes empiezan a pegarle por TCP). > 300ms -> FAIL honesto. NO relajar
+      // el umbral: 300ms solo es alcanzable con el daemon ya residente; el limite
+      // fisico real (E5 CPU cold) queda declarado aqui (mandamiento 13). Volatil por
+      // diseno: si una sesion previa dejo el daemon caliente, p50 puede caer ~178ms
+      // y pasar -> mide el regimen REAL del momento, no una historia vieja del log.
+      if (!fileExists(ORCH_HOOK)) return { pass: false, detail: "no medible: memory-orchestrate.js ausente" };
+      const { samples, exits } = timeHookSpawns(
+        ORCH_HOOK,
+        { prompt: "arregla el bug del router", cwd: ULTRON, source: "user-prompt" },
+        3,
+        20000,
+      );
+      const p50 = median(samples);
+      const allOk = exits.every((e) => e === 0);
+      return {
+        pass: allOk && p50 < 300,
+        detail: `p50=${p50}ms samples=[${samples.join(",")}]ms exits=[${exits.join(",")}] (umbral 300ms; daemon frio paga cold-E5 ~2.7-11s en el 1er spawn)`,
+      };
     },
   },
 ]);
@@ -2206,6 +2984,726 @@ cat(19, "Session-Start fidelity (e2e hook)", [
       return {
         pass: pc.length <= MAX && dups === 0,
         detail: `lineas=${pc.length} (max ${MAX}) near_dups=${dups}`,
+      };
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// CAT 20 — Write-path real (dedupe + PII + sink + ledger)
+// ---------------------------------------------------------------------------
+// e2e del WRITE-PATH de memoria: cada check EJECUTA SQL real contra brain.db o
+// el binario `candidate` y asevera sobre el dato persistido (no sobre codigo).
+// Las consultas a brain.db corren en un subproceso `node --input-type=module`
+// (node:sqlite es experimental -> aislado del proceso del harness); el SQL viaja
+// por STDIN y la ruta de la BD por argv, evitando todo problema de quoting.
+const BRAIN_DB = join(ULTRON, "brain.db");
+const ULTRON_MEM = join(BIN, "ultron-memory.exe");
+
+// Ejecuta `sql` (SELECT) sobre brain.db INLINE (mismo patron probado que
+// readCodegraphDb en cat2: node:sqlite via getBuiltinModule, sincrono). El
+// subproceso base64 anterior petaba con "statement has been finalized".
+// Devuelve { rows } | { err } | { nodata } (BD ausente: clon limpio/CI). NUNCA lanza.
+function sql20(sql) {
+  if (!existsSync(BRAIN_DB)) return { nodata: true };
+  let db;
+  try {
+    const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+    db = new DatabaseSync(BRAIN_DB, { readOnly: true });
+    const rows = db.prepare(sql).all();
+    db.close();
+    return { rows };
+  } catch (e) {
+    try { db && db.close(); } catch {}
+    return { err: String(e?.message || e).slice(0, 160) };
+  }
+}
+
+cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
+  {
+    id: "20.1",
+    desc: "dedupe activo: ningun content_hash con > 3 copias 'active' en brain.db (advisory-only hoy)",
+    auto: true,
+    check() {
+      const q = sql20(
+        "SELECT content_hash, COUNT(*) c FROM memory_items " +
+          "WHERE status='active' AND content_hash IS NOT NULL AND content_hash<>'' " +
+          "GROUP BY content_hash HAVING c>1 ORDER BY c DESC LIMIT 1",
+      );
+      if (q.nodata) return { pass: false, detail: "no medible: brain.db ausente (clon limpio/CI)" };
+      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+      const max = q.rows.length ? q.rows[0].c : 0;
+      // KNOWN_RED: dedupe es advisory (create_candidate marca Merge pero no fusiona).
+      // Medido 2026-06-24: max=211 (mismo error WebFetch repetido) -> FAIL honesto.
+      return { pass: max <= 3, detail: `max copias activas de un content_hash=${max} (umbral <=3)` };
+    },
+  },
+  {
+    id: "20.2",
+    desc: "posttoolfail rate-limit: total/distinct < 3 en capture_source='posttoolfail-capture' (inundacion de ruido)",
+    auto: true,
+    check() {
+      const q = sql20(
+        "SELECT COUNT(*) total, COUNT(DISTINCT content_hash) distinct_h FROM memory_items " +
+          "WHERE status='active' AND capture_source='posttoolfail-capture'",
+      );
+      if (q.nodata) return { pass: false, detail: "no medible: brain.db ausente (clon limpio/CI)" };
+      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+      const total = q.rows[0]?.total ?? 0;
+      const distinct = q.rows[0]?.distinct_h ?? 0;
+      if (total === 0) return { pass: true, detail: "0 items posttoolfail-capture (nada que limitar)" };
+      const ratio = distinct > 0 ? total / distinct : Infinity;
+      // KNOWN_RED: medido 244/10 = 24.4x -> FAIL (sin rate-limit por hash).
+      return {
+        pass: ratio < 3,
+        detail: `posttoolfail total/distinct=${total}/${distinct}=${ratio.toFixed(1)}x (umbral <3)`,
+      };
+    },
+  },
+  {
+    id: "20.3",
+    desc: "sink de decisiones con consumidor: decisions-pending.jsonl no debe crecer append-only sin drenador en src-tauri",
+    auto: true,
+    check() {
+      // El sink vive por proyecto: cockpit/projects/<proj>/decisions-pending.jsonl.
+      const sinkUltron = join(COCKPIT, "projects", "ultron", "decisions-pending.jsonl");
+      const sinkLegacy = join(COCKPIT, "decisions-pending.jsonl");
+      const sink = existsSync(sinkUltron) ? sinkUltron : existsSync(sinkLegacy) ? sinkLegacy : null;
+      if (!sink) return { pass: true, detail: "sin decisions-pending.jsonl (nada que drenar)" };
+      // Consumidor real = codigo Rust en src-tauri que LEE/drena el fichero.
+      const consumers = grepCount(/decisions[-_]pending/, CC_TAURI, [".rs"]);
+      const lines = (() => {
+        try {
+          return readFileSync(sink, "utf8").split("\n").filter(Boolean).length;
+        } catch {
+          return -1;
+        }
+      })();
+      // KNOWN_RED: grep en src-tauri = 0 (sink muerto que crece sin sumidero). El check
+      // 17.4 viejo pasaba VERDE por existir el fichero (premiaba el sintoma de la enfermedad).
+      return {
+        pass: consumers > 0,
+        detail:
+          consumers > 0
+            ? `decisions-pending.jsonl tiene ${consumers} consumidor(es) Rust`
+            : `decisions-pending.jsonl existe (${lines} lineas) SIN consumidor en src-tauri (grep=0) -> sink muerto`,
+      };
+    },
+  },
+  {
+    id: "20.4",
+    desc: "redaction PII e2e: candidato con email/telefono/ruta C:/Users queda redactado en el item persistido",
+    auto: true,
+    check() {
+      if (!existsSync(ULTRON_MEM)) return { pass: false, detail: "no medible: ultron-memory.exe ausente" };
+      if (!existsSync(BRAIN_DB)) return { pass: false, detail: "no medible: brain.db ausente" };
+      const marker = `kirkardo_pii_${Date.now()}`;
+      const email = "redacttest@example.com";
+      const phoneDigits = "698 123 456";
+      const winPath = ("C:/Users/" + (process.env.USERNAME||process.env.USER||"user") + "/secreto_pii.txt");
+      const payload = JSON.stringify({
+        type: "fact",
+        scope: "session",
+        title: marker,
+        summary: `contacto ${email} tel +34 ${phoneDigits} ruta ${winPath}`,
+        confidence: 0.9,
+        project: "ultron",
+      });
+      // Crea el candidato por la ruta real del binario (write-path productivo).
+      const r = run(`"${fwd(ULTRON_MEM)}" candidate`, { input: payload, timeout: 30000 });
+      const out = (r.stdout || "") + (r.stderr || "");
+      const idm = out.match(/"candidate_id"\s*:\s*"([0-9a-f-]+)"/i);
+      if (!idm) return { pass: false, detail: `candidate no devolvio id: ${out.slice(0, 120)}` };
+      const q = sql20(`SELECT proposed_summary ps FROM memory_candidates WHERE id='${idm[1]}'`);
+      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+      const ps = q.rows[0]?.ps ?? "";
+      const leaks = [
+        ps.includes(email) && "email",
+        ps.includes(phoneDigits) && "telefono",
+        /C:[\\/]Users[\\/]/i.test(ps) && "ruta",
+      ].filter(Boolean);
+      // KNOWN_RED: medido 2026-06-24 -> proposed_summary persiste TODO verbatim
+      // (la redaction solo cubre credenciales con prefijo, NO PII de usuario).
+      return {
+        pass: leaks.length === 0,
+        detail:
+          leaks.length === 0
+            ? "email/telefono/ruta redactados en el item persistido"
+            : `PII sin redactar en proposed_summary: ${leaks.join(", ")}`,
+      };
+    },
+  },
+  {
+    id: "20.5",
+    desc: "redaction de campos codegraph e2e: file_path/signature con token (ghp_/sk-) quedan redactados",
+    auto: true,
+    check() {
+      if (!existsSync(ULTRON_MEM)) return { pass: false, detail: "no medible: ultron-memory.exe ausente" };
+      if (!existsSync(BRAIN_DB)) return { pass: false, detail: "no medible: brain.db ausente" };
+      const marker = `kirkardo_cg_${Date.now()}`;
+      const fp = ("C:/Users/" + (process.env.USERNAME||process.env.USER||"user") + "/secret/ghp_AAAABBBBCCCCDDDDEEEE.rs");
+      const sig = 'fn leak() { let t = "sk-abcdef1234567890"; }';
+      const payload = JSON.stringify({
+        type: "fact",
+        scope: "session",
+        title: marker,
+        summary: "codegraph probe",
+        file_path: fp,
+        signature: sig,
+        confidence: 0.9,
+        project: "ultron",
+      });
+      const r = run(`"${fwd(ULTRON_MEM)}" candidate`, { input: payload, timeout: 30000 });
+      const out = (r.stdout || "") + (r.stderr || "");
+      const idm = out.match(/"candidate_id"\s*:\s*"([0-9a-f-]+)"/i);
+      if (!idm) return { pass: false, detail: `candidate no devolvio id: ${out.slice(0, 120)}` };
+      const q = sql20(
+        `SELECT proposed_file_path fp, proposed_signature sig FROM memory_candidates WHERE id='${idm[1]}'`,
+      );
+      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+      const gotFp = q.rows[0]?.fp ?? "";
+      const gotSig = q.rows[0]?.sig ?? "";
+      const leaks = [
+        /ghp_[A-Za-z0-9]/.test(gotFp) && "ghp_token",
+        /sk-[a-z0-9]{6,}/i.test(gotSig) && "sk_token",
+        /C:[\\/]Users[\\/]/i.test(gotFp) && "ruta",
+      ].filter(Boolean);
+      // KNOWN_RED: solo se mapean los campos; ninguna redaction sobre
+      // proposed_file_path/proposed_signature -> tokens persisten verbatim.
+      return {
+        pass: leaks.length === 0,
+        detail:
+          leaks.length === 0
+            ? "campos codegraph redactados"
+            : `secreto sin redactar en campos codegraph: ${leaks.join(", ")}`,
+      };
+    },
+  },
+  {
+    id: "20.6",
+    desc: "integridad ledger single-writer: 0 items 'active' sin NINGUN evento (escritura que salto MemoryService)",
+    auto: true,
+    check() {
+      // No uso 'NOT EXISTS created' (sobre-cuenta: muchos items legitimos entran via
+      // event_type='imported', no 'created' -> daria ~3139 falsos positivos). El hallazgo
+      // honesto (audit 2026-06-24) es el item activo SIN evento de ningun tipo: prueba de
+      // una escritura que esquivo el ledger del MemoryService (sin redaction/dedupe).
+      const q = sql20(
+        "SELECT COUNT(*) n FROM memory_items i WHERE i.status='active' " +
+          "AND NOT EXISTS (SELECT 1 FROM memory_events e WHERE e.memory_id=i.id)",
+      );
+      if (q.nodata) return { pass: false, detail: "no medible: brain.db ausente (clon limpio/CI)" };
+      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+      const orphans = q.rows[0]?.n ?? -1;
+      // KNOWN_RED: medido 2026-06-24 -> 1 item activo huerfano (regla de oro ya violada).
+      return { pass: orphans === 0, detail: `items 'active' sin evento alguno=${orphans} (regla single-writer)` };
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// CAT 21 — Estado vivo (codigo muerto: Stale / TTL / cierre-kanban / deprecation)
+// ---------------------------------------------------------------------------
+// Cuatro metricas estructuralmente VERDES que NO son salud (verde-vacuo):
+//   - Status::Stale: ningun path productivo lo escribe -> stats.stale==0 eterno.
+//   - expires_at/TTL: siempre None y el recall NUNCA filtra por expires_at
+//     (engine.rs governance gate: status/valid_to/project/source/sensitivity,
+//     jamas expires_at) -> un item caducado sigue saliendo en recall.
+//   - deprecation_entries: tabla vacia -> doctor.overdue=0 por vacuidad.
+//   - cierre-kanban: el unico mecanismo es un Stop hook (kanban-update-reminder)
+//     que SOLO emite texto "RECORDATORIO"; nunca mueve la card a 'done' ni
+//     escribe kanban.json.
+// Todos ejecutan un artefacto REAL (hook/binario/brain.db) y aseveran sobre su
+// output observable. Los cuatro son known_red HOY: deben FALLAR honesto. Sin
+// datos (clon limpio/CI sin brain.db/kanban/binario) -> pass:false con detail
+// "no medible: <que falta>" (nunca pass por vacuidad).
+const KANBAN_CAT21 = join(COCKPIT, "projects", "ultron", "kanban.json");
+const KANBAN_REMINDER_HOOK = join(HOOKS_SCRIPTS, "kanban-update-reminder.js");
+
+// python -c en UNA sola linea (sin '\n' literal, que el shell no reconvierte a
+// salto y rompe el parser de python). Statements unidos por ';'. Requiere
+// 'python' en PATH; sin el, las funciones devuelven null -> el check degrada a
+// "no medible" (pass:false), nunca a verde por vacuidad.
+function pyLine(stmts) {
+  return `python -c ${JSON.stringify(stmts.join(";"))}`;
+}
+function sqliteScalar(query) {
+  if (!existsSync(BRAIN_DB)) return null;
+  const r = run(
+    pyLine([
+      "import sqlite3",
+      `c=sqlite3.connect(${JSON.stringify(fwd(BRAIN_DB))})`,
+      `print(c.execute(${JSON.stringify(query)}).fetchone()[0])`,
+    ]),
+    { timeout: 20000 },
+  );
+  if (!r.ok) return null;
+  const n = parseInt(r.stdout.trim(), 10);
+  return Number.isNaN(n) ? null : n;
+}
+
+cat(21, "Estado vivo (codigo muerto: Stale/TTL/cierre-kanban)", [
+  {
+    id: "21.1",
+    desc: "cierre-kanban e2e: el Stop hook con transcript de tarea-hecha CIERRA la card (role=done) o escribe el kanban, NO solo emite texto RECORDATORIO",
+    auto: true,
+    check() {
+      if (!fileExists(KANBAN_REMINDER_HOOK)) {
+        return { pass: false, detail: "no medible: falta hooks/scripts/kanban-update-reminder.js" };
+      }
+      if (!fileExists(KANBAN_CAT21)) {
+        return { pass: false, detail: "no medible: falta cockpit/projects/ultron/kanban.json (clon limpio/CI)" };
+      }
+      // Fixture: usuario pide tarea completable + asistente la marca hecha + commit.
+      const logsDir = join(ULTRON, "logs");
+      try { if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true }); } catch {}
+      const fixture = join(logsDir, `kirkardo-cat21-transcript-${Date.now()}.jsonl`);
+      const transcript = [
+        JSON.stringify({ type: "user", message: { role: "user", content: "implementa el cierre automatico de cards en el kanban" } }),
+        JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Listo. He completado la tarea y la card ya esta hecha. Commit aplicado." }] } }),
+      ].join("\n");
+
+      // Conteo de cards en columnas role=done ANTES (detecta cierre real).
+      const countDone = (raw) => {
+        try {
+          const d = JSON.parse(raw);
+          const doneCols = new Set((d.columns ?? []).filter((c) => c.role === "done").map((c) => c.id));
+          return (d.cards ?? []).filter((c) => doneCols.has(c.column_id)).length;
+        } catch { return null; }
+      };
+      const before = (() => { try { return readFileSync(KANBAN_CAT21, "utf8"); } catch { return null; } })();
+      const doneBefore = before === null ? null : countDone(before);
+
+      let out = "", code = -1;
+      try {
+        writeFileSync(fixture, transcript, "utf8");
+        const payload = JSON.stringify({
+          transcript_path: fwd(fixture),
+          cwd: fwd(ULTRON),
+          hook_event_name: "Stop",
+          session_id: "kirkardo-cat21",
+        });
+        // stdin via spawnSync DIRECTO (el helper run() NO reenvia opts.input);
+        // mismo patron que runResumeHook.
+        const r = spawnSync("node", [KANBAN_REMINDER_HOOK], {
+          input: payload, encoding: "utf8", timeout: 15000, cwd: ULTRON,
+        });
+        out = (r.stdout ?? "").trim();
+        code = r.status;
+      } catch (e) {
+        return { pass: false, detail: `excepcion ejecutando el hook: ${e.message}` };
+      } finally {
+        try { run(`rm -f "${fwd(fixture)}"`, { timeout: 5000 }); } catch {}
+      }
+
+      const after = (() => { try { return readFileSync(KANBAN_CAT21, "utf8"); } catch { return null; } })();
+      const doneAfter = after === null ? null : countDone(after);
+      const kanbanChanged = before !== null && after !== null && before !== after;
+      const cardClosed = doneBefore !== null && doneAfter !== null && doneAfter > doneBefore;
+      const realClose = cardClosed || kanbanChanged;
+      const onlyReminder = /RECORDATORIO/i.test(out) && !realClose;
+
+      return {
+        pass: realClose,
+        detail: realClose
+          ? `cierre real detectado (cards_done ${doneBefore}->${doneAfter}, kanban_changed=${kanbanChanged})`
+          : onlyReminder
+            ? `solo RECORDATORIO de texto, kanban INTACTO (cards_done=${doneBefore}); no-op de cierre (mandamiento 11)`
+            : `sin cierre ni recordatorio (exit=${code}, out="${out.slice(0, 80)}")`,
+      };
+    },
+  },
+  {
+    id: "21.2",
+    desc: "Stale vivo: existe un path que transiciona items a Status::Stale Y stats.stale lo refleja (hoy ningun path lo escribe -> stale==0 estructural)",
+    auto: true,
+    check() {
+      // stats.stale es el contador productivo. NINGUN subcomando transiciona a
+      // Stale (deprecate escribe status=deprecated, nunca stale). Si 0 items en
+      // stale, la metrica es verde-vacua: codigo muerto.
+      const r = run(`"${fwd(join(BIN, "ultron-memory.exe"))}" stats 2>&1`, { timeout: 15000 });
+      let stale = null;
+      try { stale = JSON.parse(r.stdout.trim()).stale; } catch {}
+      if (stale === null || stale === undefined) {
+        // Fallback a brain.db directo (CI/sin binario sano).
+        stale = sqliteScalar("SELECT COUNT(*) FROM memory_items WHERE status='stale'");
+      }
+      if (stale === null || stale === undefined) {
+        return { pass: false, detail: "no medible: ni stats ni brain.db dieron el conteo de stale" };
+      }
+      // Status presentes (evidencia de que 'stale' jamas aparece).
+      const distinct = (() => {
+        if (!existsSync(BRAIN_DB)) return "";
+        const q = run(
+          pyLine([
+            "import sqlite3",
+            `c=sqlite3.connect(${JSON.stringify(fwd(BRAIN_DB))})`,
+            "print(','.join(s for (s,) in c.execute(\"SELECT DISTINCT status FROM memory_items ORDER BY status\")))",
+          ]),
+          { timeout: 15000 },
+        );
+        return q.ok ? q.stdout.trim() : "";
+      })();
+      return {
+        // PASS solo si la transicion a Stale ESTA viva (>=1 item stale). Hoy 0 -> FAIL.
+        pass: stale >= 1,
+        detail: stale >= 1
+          ? `stale=${stale} (la transicion productiva esta viva)`
+          : `stale=${stale} -> NINGUN path escribe Status::Stale (codigo muerto); status presentes: [${distinct}]`,
+      };
+    },
+  },
+  {
+    id: "21.3",
+    desc: "TTL vivo e2e: un item con expires_at en el pasado NO debe salir en recall (hoy expires_at nunca se setea y el recall no lo filtra -> el item caducado sale)",
+    auto: true,
+    check() {
+      if (!existsSync(BRAIN_DB)) return { pass: false, detail: "no medible: falta brain.db (clon limpio/CI)" };
+      const binPath = join(BIN, "ultron-memory.exe");
+      if (!fileExists(binPath)) return { pass: false, detail: "no medible: falta bin/ultron-memory.exe" };
+
+      const probeId = "kirkardo-ttl-probe-cat21";
+      const token = "Zxqvprobe"; // token raro: el probe sera el unico sparse hit
+      const past = Math.floor(Date.now() / 1000) - 999999; // ~11.5 dias en el pasado
+      const now = Math.floor(Date.now() / 1000);
+
+      // Inserta un item ACTIVO scope=global source=direct con expires_at en el
+      // pasado. (No hay subcomando 'insert'; el unico modo de tener un item activo
+      // con TTL pasado es escribirlo en brain.db — los triggers FTS lo indexan.)
+      const vals = {
+        id: probeId, type: "fact", scope: "global",
+        title: `${token} ${token}`,
+        summary: `${token} ${token} ${token} item caducado de prueba`,
+        content: token, status: "active", confidence: 0.9, importance: 0.9,
+        stability: "stable", sensitivity: "normal", source: "direct",
+        created_at: now, updated_at: now, expires_at: past,
+        token_estimate: 10, access_count: 0, validated_by_user: 0, pinned: 0,
+        schema_version: 1, content_hash: "kprobehash21",
+      };
+      const ins = run(
+        pyLine([
+          "import sqlite3,json",
+          `c=sqlite3.connect(${JSON.stringify(fwd(BRAIN_DB))})`,
+          `c.execute('DELETE FROM memory_items WHERE id=?', (${JSON.stringify(probeId)},))`,
+          `v=json.loads(${JSON.stringify(JSON.stringify(vals))})`,
+          "k=list(v.keys())",
+          "c.execute('INSERT INTO memory_items ('+','.join(k)+') VALUES ('+','.join('?'*len(k))+')',[v[x] for x in k])",
+          "c.commit()",
+          "c.close()",
+          "print('OK')",
+        ]),
+        { timeout: 20000 },
+      );
+      if (!/OK/.test(ins.stdout)) {
+        return { pass: false, detail: `no medible: no se pudo insertar el probe (${(ins.stderr || ins.stdout).slice(0, 120)})` };
+      }
+
+      // Limpieza garantizada del probe pase lo que pase.
+      const cleanup = () => {
+        run(
+          pyLine([
+            "import sqlite3",
+            `c=sqlite3.connect(${JSON.stringify(fwd(BRAIN_DB))})`,
+            `c.execute('DELETE FROM memory_items WHERE id=?', (${JSON.stringify(probeId)},))`,
+            "c.commit()",
+            "c.close()",
+          ]),
+          { timeout: 15000 },
+        );
+      };
+
+      let leaked = false, total = 0;
+      try {
+        const r = run(`"${fwd(binPath)}" recall "${token}" 2>&1`, { timeout: 60000 });
+        let entries = [];
+        try { entries = JSON.parse(r.stdout.trim()).entries ?? []; } catch {}
+        total = entries.length;
+        leaked = entries.some((e) => `${e.summary ?? ""}${e.title ?? ""}`.includes(token));
+      } finally {
+        cleanup();
+      }
+
+      return {
+        // PASS si el item caducado fue EXCLUIDO del recall (TTL honrado). Hoy sale -> FAIL.
+        pass: !leaked,
+        detail: leaked
+          ? `item con expires_at ${past} (pasado) SALE en recall (${total} entries) -> TTL no se honra (codigo muerto)`
+          : `item caducado correctamente excluido del recall (TTL honrado, ${total} entries)`,
+      };
+    },
+  },
+  {
+    id: "21.4",
+    desc: "deprecation_deadlines NO-vacuo: deprecation_entries tiene >=1 fila (si 0 -> N/A explicito, NO verde); doctor.overdue=0 sobre tabla vacia no es salud",
+    auto: true,
+    check() {
+      const total = sqliteScalar("SELECT COUNT(*) FROM deprecation_entries");
+      if (total === null) {
+        return { pass: false, detail: "no medible: falta brain.db o python sqlite3 (clon limpio/CI)" };
+      }
+      if (total === 0) {
+        // Tabla vacia: doctor reporta overdue=0 por VACUIDAD, no por salud (nada se
+        // deprecia con entrada de ledger). FAIL/N/A explicito, nunca pass por vacio.
+        return {
+          pass: false,
+          detail: "N/A: deprecation_entries VACIA (0 filas) -> doctor.overdue=0 por vacuidad, no por salud; ningun path escribe el ledger de deprecacion",
+        };
+      }
+      // Con >=1 fila el check vive: 0 deadlines vencidos = salud real.
+      const overdue = sqliteScalar(
+        "SELECT COUNT(*) FROM deprecation_entries WHERE deadline IS NOT NULL AND deadline <> '' AND deadline < strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+      );
+      if (overdue === null) {
+        return { pass: false, detail: `deprecation_entries=${total} pero no se pudo medir overdue` };
+      }
+      return {
+        pass: overdue === 0,
+        detail: `deprecation_entries=${total} filas, overdue=${overdue} (deadlines vencidos)`,
+      };
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// CAT 22 — Delegacion coherente (calidad>tokens, agente correcto) — e2e hook
+// ---------------------------------------------------------------------------
+// Ejecuta el ARTEFACTO real (memory-orchestrate.js) que decide la delegacion y
+// asevera sobre la <orchestration-directive> que de verdad llega al modelo, NO
+// sobre decide_delegation() invocada a mano. La directiva contradice hoy el
+// feedback literal del usuario (2026-06-24: calidad>tokens -> Sonnet/Opus, NUNCA
+// haiku para trabajo de codigo): orchestrator/delegation.rs model_for_intent()
+// mapea security/bug_fix/refactor/performance/testing/architecture_review a HAIKU.
+// known_red: 22.1 y 22.2 DEBEN fallar hoy (haiku donde se exige calidad).
+
+// route -> set de agentes validos. Espejo de orchestrator/ranking.rs
+// preferred_specialists(intent): el agente de la directiva es el top de
+// delegate_agents (boost + floor sobre ese set), asi que un agente fuera del
+// set para su route es incoherencia (route=rust => cpp-pro es valido por estar
+// listado como fallback; route=rust => python-pro NO lo seria).
+const ROUTE_VALID_AGENTS = {
+  security: ["security-auditor", "penetration-tester", "ultron-security", "code-reviewer"],
+  bug_fix: ["debugger", "error-detective", "qa-expert"],
+  performance: ["performance-engineer", "ultron-perf", "debugger"],
+  testing: ["test-automator", "qa-expert", "code-reviewer"],
+  refactor: ["refactoring-specialist", "ultron-refactor", "code-reviewer"],
+  architecture_review: ["architect-reviewer", "microservices-architect", "cloud-architect", "ultron-arch"],
+  feature: ["architect-reviewer", "fullstack-developer", "code-reviewer"],
+  research: ["ai-engineer", "llm-architect", "architect-reviewer"],
+  database: ["postgres-pro", "sql-pro", "database-administrator"],
+  rust: ["rust-engineer", "cpp-pro"],
+  python: ["python-pro", "backend-developer"],
+  typescript: ["typescript-pro", "javascript-pro", "frontend-developer"],
+  golang: ["golang-pro", "backend-developer"],
+  csharp: ["csharp-developer", "backend-developer"],
+  ml: ["ml-engineer", "mlops-engineer", "ai-engineer"],
+  data_eng: ["data-engineer", "database-administrator"],
+  devops: ["devops-engineer", "deployment-engineer", "kubernetes-specialist", "docker-expert"],
+  docker: ["devops-engineer", "deployment-engineer", "kubernetes-specialist", "docker-expert"],
+  cloud_infra: ["terraform-engineer", "cloud-architect", "kubernetes-specialist"],
+  api_design: ["api-designer", "backend-developer"],
+  llm: ["llm-architect", "ai-engineer", "ml-engineer"],
+};
+
+// Ejecuta el hook con stdin {prompt,cwd} y parsea la <orchestration-directive>
+// del additionalContext renderizado. Devuelve { ok, route, directive|null }.
+function runOrchestrate(prompt, cwd) {
+  const input = JSON.stringify({ prompt, cwd, hook_event_name: "UserPromptSubmit" });
+  let r;
+  try {
+    r = spawnSync("node", [ORCH_HOOK], { input, encoding: "utf8", timeout: 60000, cwd: ULTRON });
+  } catch (e) {
+    return { ok: false, raw: String(e) };
+  }
+  const out = (r.stdout ?? "").trim();
+  let ac = "";
+  try {
+    const j = JSON.parse(out);
+    ac = j.hookSpecificOutput?.additionalContext ?? j.additionalContext ?? "";
+  } catch {
+    return { ok: false, raw: out.slice(0, 160) };
+  }
+  const route = (ac.match(/route="([^"]*)"/) || [])[1] ?? "";
+  const m = ac.match(/<orchestration-directive[^>]*>([\s\S]*?)<\/orchestration-directive>/);
+  if (!m) return { ok: true, route, directive: null, ac };
+  const body = m[1];
+  const field = (k) => (body.match(new RegExp("^" + k + ":\\s*(.*)$", "m")) || [])[1]?.trim() ?? "";
+  return {
+    ok: true,
+    route,
+    directive: { agent: field("agent"), model: field("modelo"), reason: field("motivo") },
+    ac,
+  };
+}
+
+// Prompts de codigo NO-trivial cuyo intent mapea a un especialista de revision/
+// fix/refactor (los que hoy reciben haiku). Sin nombres de tecnologia para no
+// disparar el Pass-1 de dominio (rust/sql/ts -> sonnet) y aislar el bug del
+// modelo: la decision de modelo por ROL de revision, no por lenguaje.
+const HAIKU_INTENT_PROMPTS = [
+  ["security", "audita el modulo de autenticacion siguiendo OWASP buscando vulnerabilidades"],
+  ["refactor", "refactoriza este modulo para reducir la deuda tecnica y deduplica la logica repetida"],
+  ["bug_fix", "arregla el bug que hace crash a la aplicacion al guardar un cambio"],
+  ["performance", "optimiza el rendimiento del hot path que esta lento por un cuello de botella"],
+  ["testing", "escribe tests unitarios y de cobertura para el modulo de recall"],
+];
+
+// Prompts mono-stack (un lenguaje/dominio claro) para coherencia agente<->route.
+const STACK_PROMPTS = [
+  "refactoriza el modulo de memoria escrito en rust para reducir el acoplamiento",
+  "arregla el bug en este archivo typescript que rompe el render del componente",
+  "optimiza esta consulta sql query que hace un full table scan en postgres",
+  "implementa una nueva funcion en python con fastapi para el endpoint de usuarios",
+  "implementa un microservicio en golang con grpc para el gateway de eventos",
+];
+
+// Meta-tareas: el escritor unico de memoria / edicion de skill / kanban NO se
+// delegan a un subagente generico -> directive debe ser null.
+const META_PROMPTS = [
+  "consolida la memoria y fusiona las notas duplicadas del index",
+  "edita la skill de ultron para mejorar su descripcion de triggers",
+  "mueve la card del kanban a la columna done porque ya esta hecha",
+  "olvida esa decision y actualiza la memoria con la nueva politica del proyecto",
+];
+
+// Negativos: charla / pregunta corta -> 0 directiva (caso negativo, mandamiento 7).
+const NEGATIVE_PROMPTS = ["hola que tal como estas hoy", "que hora es ahora mismo"];
+
+function orchHookAvailable() {
+  return fileExists(ORCH_HOOK) && fileExists(join(BIN, "ultron-memory.exe"));
+}
+
+cat(22, "Delegacion coherente (calidad>tokens)", [
+  {
+    id: "22.1",
+    desc: "model_hint respeta calidad>tokens: review/fix/refactor/perf/test -> sonnet|opus, NUNCA haiku",
+    auto: true,
+    check() {
+      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta memory-orchestrate.js o bin/ultron-memory.exe (clon limpio/CI)" };
+      const QUALITY = new Set(["sonnet", "opus"]);
+      const bad = [], seen = [];
+      for (const [label, prompt] of HAIKU_INTENT_PROMPTS) {
+        const r = runOrchestrate(prompt, ULTRON);
+        if (!r.ok) return { pass: false, detail: `hook no emitio salida (${label}): ${r.raw ?? ""}` };
+        if (!r.directive) { bad.push(`${label}:sin-directiva`); continue; }
+        seen.push(`${label}=${r.directive.model}`);
+        if (!QUALITY.has((r.directive.model || "").toLowerCase())) bad.push(`${label}:${r.directive.model || "?"}`);
+      }
+      return {
+        pass: bad.length === 0,
+        detail: bad.length === 0
+          ? `${seen.length} intents de codigo con model_hint in {sonnet,opus}: ${seen.join(", ")}`
+          : `${bad.length}/${HAIKU_INTENT_PROMPTS.length} con modelo barato (contradice calidad>tokens): ${bad.join(", ")}`,
+      };
+    },
+  },
+  {
+    id: "22.2",
+    desc: "opus para razonamiento profundo: revision de arquitectura -> opus (jamas haiku)",
+    auto: true,
+    check() {
+      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
+      const r = runOrchestrate(
+        "revisa la arquitectura del nuevo pipeline de recall: trade-offs, modulos y su acoplamiento",
+        ULTRON,
+      );
+      if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
+      if (!r.directive) return { pass: false, detail: `route=${r.route} sin directiva para un prompt de arquitectura no-trivial` };
+      const model = (r.directive.model || "").toLowerCase();
+      return {
+        pass: model === "opus",
+        detail: `route=${r.route} agent=${r.directive.agent} model=${model} (se exige opus para razonamiento profundo)`,
+      };
+    },
+  },
+  {
+    id: "22.3",
+    desc: "agente coherente con el route (agent in preferred_specialists(route)); coherencia >= 90%",
+    auto: true,
+    check() {
+      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
+      const mism = [];
+      let evaluated = 0;
+      for (const prompt of STACK_PROMPTS) {
+        const r = runOrchestrate(prompt, ULTRON);
+        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
+        if (!r.directive) continue; // sin directiva no aporta a coherencia (lo cubre 22.1/22.5)
+        evaluated++;
+        const valid = ROUTE_VALID_AGENTS[r.route];
+        if (!valid) { mism.push(`${r.route}:route-desconocido(${r.directive.agent})`); continue; }
+        if (!valid.includes(r.directive.agent)) mism.push(`${r.route}->${r.directive.agent}`);
+      }
+      if (evaluated === 0) return { pass: false, detail: "0 directivas emitidas sobre prompts mono-stack (sospechoso)" };
+      const rate = (evaluated - mism.length) / evaluated;
+      return {
+        pass: rate >= 0.9,
+        detail: mism.length === 0
+          ? `${evaluated}/${evaluated} agentes coherentes con su route (100%)`
+          : `coherencia=${(rate * 100).toFixed(0)}% (${mism.length} incoherente(s): ${mism.join(", ")})`,
+      };
+    },
+  },
+  {
+    id: "22.4",
+    desc: "agente resoluble por la herramienta Agent: fileExists(~/.claude/agents/<name>.md) para cada directiva",
+    auto: true,
+    check() {
+      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
+      const prompts = [...HAIKU_INTENT_PROMPTS.map((p) => p[1]), ...STACK_PROMPTS];
+      const emitted = new Set();
+      for (const prompt of prompts) {
+        const r = runOrchestrate(prompt, ULTRON);
+        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
+        if (r.directive && r.directive.agent) emitted.add(r.directive.agent);
+      }
+      if (emitted.size === 0) return { pass: false, detail: "0 agentes emitidos sobre el set delegable (sospechoso)" };
+      const unresolved = [...emitted].filter(
+        (n) => !fileExists(join(AGENTS_DIR, `${n}.md`)) && !fileExists(join(AGENTS_DIR, `${n}.md.disabled`)),
+      );
+      return {
+        pass: unresolved.length === 0,
+        detail: unresolved.length === 0
+          ? `${emitted.size} agentes distintos emitidos, todos resueltos en ~/.claude/agents/`
+          : `${unresolved.length}/${emitted.size} agentes NO resolubles (Agent tool no los acepta): ${unresolved.join(", ")}`,
+      };
+    },
+  },
+  {
+    id: "22.5",
+    desc: "meta-tareas NO delegables (consolida memoria / edita skill / mueve card / olvida) -> directive null",
+    auto: true,
+    check() {
+      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
+      const leaked = [];
+      for (const prompt of META_PROMPTS) {
+        const r = runOrchestrate(prompt, ULTRON);
+        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
+        if (r.directive) leaked.push(`"${prompt.slice(0, 24)}"->${r.directive.agent}`);
+      }
+      return {
+        pass: leaked.length === 0,
+        detail: leaked.length === 0
+          ? `${META_PROMPTS.length} meta-tareas sin directiva (no delegables)`
+          : `${leaked.length} meta-tarea(s) delegada(s) por error: ${leaked.join(" | ")}`,
+      };
+    },
+  },
+  {
+    id: "22.6",
+    desc: "negativos (charla/pregunta corta) -> directive null (caso negativo)",
+    auto: true,
+    check() {
+      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
+      const leaked = [];
+      for (const prompt of NEGATIVE_PROMPTS) {
+        const r = runOrchestrate(prompt, ULTRON);
+        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
+        if (r.directive) leaked.push(`"${prompt}"->${r.directive.agent}`);
+      }
+      return {
+        pass: leaked.length === 0,
+        detail: leaked.length === 0
+          ? `${NEGATIVE_PROMPTS.length} negativos sin directiva (correcto)`
+          : `${leaked.length} negativo(s) con directiva (falso positivo): ${leaked.join(" | ")}`,
       };
     },
   },
