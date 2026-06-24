@@ -34,8 +34,16 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 const HOME = os.homedir();
+const ULTRON_ROOT = path.join(HOME, '.ultron');
+// Umbral ALTO de cierre automatico: solo se mueve a Done una card cuyo titulo
+// (sin prefijo [..]) matchea >=0.7 (Jaccard de tokens) el asunto de un commit
+// RECIENTE. Conservador por diseno: titulos largos (una card con descripcion)
+// no matchean un asunto corto -> nunca se cierran por error. La evidencia es el
+// commit (trabajo hecho Y registrado), no una mencion difusa del transcript.
+const CLOSE_THRESHOLD = 0.7;
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'kanban-reminder.jsonl');
 const SESSION_STATE_PATH = path.join(HOME, '.ultron', '.tmp', 'current-session.json');
 const KANBAN_BASE = path.join(HOME, '.ultron', 'cockpit', 'projects');
@@ -293,6 +301,76 @@ function resolveProject(payload) {
   return DEFAULT_PROJECT;
 }
 
+// Asuntos de commits recientes del repo en `root` (evidencia dura de trabajo
+// hecho-y-registrado). Best-effort: [] ante cualquier fallo. Nunca lanza.
+function recentCommitSubjects(root) {
+  try {
+    const out = execFileSync(
+      'git',
+      ['-C', root, 'log', '--since=18 hours ago', '--format=%s', '-n', '40'],
+      { encoding: 'utf8', timeout: 4000 },
+    );
+    return out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+// Jaccard de tokens (reusa tokenize: minusculas + sin diacriticos).
+function jaccardTokens(a, b) {
+  const A = new Set(tokenize(a));
+  const B = new Set(tokenize(b));
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const x of A) if (B.has(x)) inter++;
+  return inter / (A.size + B.size - inter);
+}
+
+// Cierra (mueve a la columna role=done) las cards VIVAS (doing/todo) cuyo titulo
+// matchea FUERTE (>=CLOSE_THRESHOLD) el asunto de un commit reciente. Escritura
+// inmutable de kanban.json. Devuelve los titulos cerrados ([] si ninguno o sin
+// kanban). Conservador: ante duda NO cierra (el recordatorio cubre el resto).
+function closeCompletedCards(project, root) {
+  const kanbanPath = path.join(KANBAN_BASE, project, 'kanban.json');
+  if (!fs.existsSync(kanbanPath)) return [];
+  let doc;
+  try {
+    doc = JSON.parse(fs.readFileSync(kanbanPath, 'utf8'));
+  } catch (_) {
+    return [];
+  }
+  const cols = Array.isArray(doc.columns) ? doc.columns : [];
+  const doneCol = cols.find((c) => c.role === 'done');
+  if (!doneCol) return [];
+  const liveColIds = new Set(
+    cols.filter((c) => c.role === 'doing' || c.role === 'todo').map((c) => c.id),
+  );
+  const subjects = recentCommitSubjects(root);
+  if (!subjects.length) return [];
+
+  const closed = [];
+  const cards = Array.isArray(doc.cards) ? doc.cards : [];
+  const newCards = cards.map((card) => {
+    if (!liveColIds.has(card.column_id)) return card;
+    const bare = String(card.title || '').replace(/^\[[^\]]*\]\s*/, '');
+    if (bare.length < 8) return card; // titulos triviales no se auto-cierran
+    const hit = subjects.some((s) => jaccardTokens(bare, s) >= CLOSE_THRESHOLD);
+    if (!hit) return card;
+    closed.push(String(card.title || ''));
+    return { ...card, column_id: doneCol.id };
+  });
+
+  if (closed.length) {
+    try {
+      fs.writeFileSync(kanbanPath, JSON.stringify({ ...doc, cards: newCards }, null, 2));
+    } catch (err) {
+      safeLog({ level: 'warn', msg: 'kanban_write_failed', error: String(err && err.message) });
+      return [];
+    }
+  }
+  return closed;
+}
+
 function buildReminder(project) {
   const kanbanPath = path.join(KANBAN_BASE, project, 'kanban.json');
   return (
@@ -329,12 +407,27 @@ function main() {
   }
 
   const project = resolveProject(payload);
-  const reminder = buildReminder(project);
+  const root = (payload && payload.cwd) || ULTRON_ROOT;
+
+  // Mandamiento 11: no solo recordar — ACTUAR. Cierra cards cumplidas (match
+  // fuerte con commit reciente) antes de emitir el recordatorio para el resto.
+  const closed = closeCompletedCards(project, root);
+
+  let context = buildReminder(project);
+  if (closed.length) {
+    context =
+      'BOARD ACTUALIZADO: ' +
+      closed.length +
+      ' card(s) cerradas por match con commit reciente -> ' +
+      closed.map((t) => '"' + clamp(t, 60) + '"').join(', ') +
+      '. ' +
+      context;
+  }
 
   const output = {
     hookSpecificOutput: {
       hookEventName: 'Stop',
-      additionalContext: reminder,
+      additionalContext: context,
     },
   };
 
@@ -342,8 +435,9 @@ function main() {
 
   safeLog({
     level: 'info',
-    msg: 'reminder_emitted',
+    msg: closed.length ? 'cards_closed_and_reminder' : 'reminder_emitted',
     project,
+    closed,
     session_id: payload.session_id || null,
   });
 }
