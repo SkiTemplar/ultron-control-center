@@ -9,9 +9,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { runCli, projectIdFromCwd, daemonRequest, spawnDetached } = require('./lib/ultron-memory-cli');
+const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary } = require('./lib/ultron-memory-cli');
 const { appendJsonl } = require('./lib/jsonl-log');
-const { observe } = require('./lib/hook-obs');
+const { observe, logHookError } = require('./lib/hook-obs');
 observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
@@ -194,6 +194,16 @@ async function main() {
     const args = ['orchestrate', prompt];
     if (project) args.push('--project', project);
     ctx = runCli(args, { timeoutMs: 11000 }); // colchon cold-hit E5 del proceso one-shot
+    // cat9 (mandamiento 11: prohibido el no-op silencioso). Si ni el daemon ni el
+    // spawn one-shot devolvieron orquestacion, es FALLO real del sidecar (no hay
+    // "vacio legitimo" aqui: un prompt no vacio sano siempre produce un objeto de
+    // ruta). Deja rastro accionable ADEMAS del fail-safe emit('') de abajo.
+    if (ctx === null) {
+      const reason = findBinary()
+        ? 'sidecar orchestrate FALLO (binario presente pero status!=0 / timeout / JSON no parseable)'
+        : 'sidecar orchestrate FALLO (binario ultron-memory ausente: no instalado / ULTRON_MEMORY_BIN invalido)';
+      logHookError('memory-orchestrate', reason);
+    }
   }
   if (!ctx) {
     emit('');

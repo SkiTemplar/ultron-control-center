@@ -10,7 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { runCli, projectIdFromCwd } = require('./lib/ultron-memory-cli');
+const { runCli, projectIdFromCwd, findBinary } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
 observe('memory-session-resume');
 
@@ -155,6 +155,18 @@ function main() {
     project ? ['resume', '--project', project] : ['resume'],
     { timeoutMs: 11000 } // colchon para cold-hit E5 post-warmup; bajar a 3000 con daemon serve
   );
+  // cat9.3 (mandamiento 11: prohibido el no-op silencioso). runCli devuelve null
+  // SOLO ante FALLO real del sidecar (binario ausente/no ejecutable, status!=0,
+  // timeout, JSON corrupto), NUNCA por "proyecto sin memoria" (el binario sano
+  // responde un objeto JSON aunque vacio). Asi que resume===null == fallo real ->
+  // deja rastro accionable en hook-errors.jsonl ADEMAS del fail-safe (no inunda:
+  // el vacio legitimo es un objeto, no null).
+  if (resume === null) {
+    const reason = findBinary()
+      ? 'sidecar resume FALLO (binario presente pero status!=0 / timeout / JSON no parseable)'
+      : 'sidecar resume FALLO (binario ultron-memory ausente: no instalado / ULTRON_MEMORY_BIN invalido)';
+    logHookError('memory-session-resume', reason);
+  }
   // cat17.2: inyecta tambien el scratch L0 preservado en la ultima compactacion
   // (aunque no haya resume del sidecar).
   const l0 = readL0Scratch();
