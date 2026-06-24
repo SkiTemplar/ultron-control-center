@@ -21,11 +21,16 @@
     "label": "Code edit (multi-file)",
     "category": "code",
     "primary": {
-      "provider_id": "codex-cli",
-      "model": "gpt-5",
+      "provider_id": "claude",
+      "model": "claude-sonnet-4-6",
       "max_tokens": 4096
     },
     "fallbacks": [
+      {
+        "provider_id": "codex-cli",
+        "model": "gpt-5",
+        "max_tokens": 4096
+      },
       {
         "provider_id": "codex",
         "model": "gpt-5",
@@ -43,11 +48,16 @@
     "label": "Code review",
     "category": "code",
     "primary": {
-      "provider_id": "codex-cli",
-      "model": "gpt-5",
+      "provider_id": "claude",
+      "model": "claude-sonnet-4-6",
       "max_tokens": 2048
     },
     "fallbacks": [
+      {
+        "provider_id": "codex-cli",
+        "model": "gpt-5",
+        "max_tokens": 2048
+      },
       {
         "provider_id": "gemini",
         "model": "gemini-2.5-flash",

@@ -622,7 +622,7 @@ cat(3, "AI Routing (route real)", [
   },
   {
     id: "3.2",
-    desc: "invariantes de politica en zones.json: code=>codex-cli, chat/utility/light=>groq, 0 gemini-cli (retirado)",
+    desc: "invariantes de politica en zones.json: code=>claude (codex-cli fallback), chat/utility/light=>groq, 0 gemini-cli (retirado)",
     auto: true,
     check() {
       const zones = readJSON(ZONES_JSON);
@@ -635,9 +635,15 @@ cat(3, "AI Routing (route real)", [
       for (const z of zones) {
         const pid = z.primary?.provider_id ?? "?";
         const chain = [pid, ...(z.fallbacks ?? []).map((f) => f.provider_id)];
-        // Code zones arrancan por CLI (codex-cli). code-fast-local se queda en ollama por ser offline.
-        if (z.category === "code" && z.id !== "code-fast-local" && pid !== "codex-cli") {
-          viol.push(`code:${z.id} primary=${pid}!=codex-cli`);
+        // Decision 2026-06-24: code zones arrancan por Claude (primary=claude),
+        // con codex-cli como fallback en la cadena. code-fast-local se queda en
+        // ollama por ser offline.
+        if (z.category === "code" && z.id !== "code-fast-local") {
+          if (pid !== "claude") {
+            viol.push(`code:${z.id} primary=${pid}!=claude`);
+          } else if (!chain.includes("codex-cli")) {
+            viol.push(`code:${z.id} sin codex-cli en fallback`);
+          }
         }
         if (GROQ_FIRST.has(z.id) && pid !== "groq") {
           viol.push(`fast:${z.id} primary=${pid}!=groq`);

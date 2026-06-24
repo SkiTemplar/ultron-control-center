@@ -33,9 +33,10 @@ fn codex_cli_uses_exec_subcommand_not_dash_p() {
 }
 
 #[test]
-fn seed_providers_includes_all_six_targets() {
+fn seed_providers_includes_all_targets() {
     let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
     for expected in [
+        "claude",
         "claude-haiku",
         "codex",
         "gemini",

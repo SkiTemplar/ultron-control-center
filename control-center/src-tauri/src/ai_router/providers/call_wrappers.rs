@@ -443,7 +443,7 @@ pub(crate) fn try_assignment_call(
 
     const MAX_RETRIES: u32 = 3;
     match provider.id.as_str() {
-        "claude-haiku" => with_retry(MAX_RETRIES, || {
+        "claude" | "claude-haiku" => with_retry(MAX_RETRIES, || {
             call_anthropic(
                 &provider,
                 &assignment.model,

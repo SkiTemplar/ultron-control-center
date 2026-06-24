@@ -61,7 +61,7 @@ fn probe_provider(provider: &Provider) -> bool {
     let mut req = client.get(&url);
 
     // Per-provider auth headers.
-    if provider.id == "claude-haiku" {
+    if provider.id == "claude" || provider.id == "claude-haiku" {
         if let Ok(key) = std::env::var(&provider.key_env_var) {
             req = req
                 .header("x-api-key", key)

@@ -4,6 +4,28 @@ use super::types::{ApiKeyStatus, Provider, ProviderClass, ProviderKind, Zone, Zo
 
 pub(crate) fn seed_providers() -> Vec<Provider> {
     vec![
+        // Anthropic Claude via the Messages HTTP API (x-api-key auth). The
+        // 'claude' id is the CODE-zone primary (decision 2026-06-24: "primary
+        // con Claude SDK"); 'claude-haiku' stays defined for cheap/light use.
+        // Both dispatch to call_anthropic in try_assignment_call.
+        Provider {
+            id: "claude".into(),
+            name: "Anthropic Claude (Sonnet)".into(),
+            cost_per_mtok: 9.0,
+            supports: vec![
+                ProviderClass::Light,
+                ProviderClass::Medium,
+                ProviderClass::Heavy,
+            ],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: Some("https://api.anthropic.com/v1/models".into()),
+            kind: ProviderKind::Cloud,
+            key_env_var: "ANTHROPIC_API_KEY".into(),
+            base_url: "https://api.anthropic.com".into(),
+            default_model: "claude-sonnet-4-6".into(),
+            models: vec!["claude-sonnet-4-6".into(), "claude-opus-4-8".into()],
+            cli_command: None,
+        },
         Provider {
             id: "claude-haiku".into(),
             name: "Anthropic Claude Haiku".into(),
@@ -190,12 +212,20 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             label: "Code edit (multi-file)".into(),
             category: "code".into(),
 
+            // Decision 2026-06-24: code zones go Claude-first (Sonnet via the
+            // Anthropic Messages API). codex-cli (ChatGPT OAuth, free at point
+            // of use) stays as the first fallback, then the previous chain.
             primary: ZoneAssignment {
-                provider_id: "codex-cli".into(),
-                model: "gpt-5".into(),
+                provider_id: "claude".into(),
+                model: "claude-sonnet-4-6".into(),
                 max_tokens: 4096,
             },
             fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "codex-cli".into(),
+                    model: "gpt-5".into(),
+                    max_tokens: 4096,
+                },
                 ZoneAssignment {
                     provider_id: "codex".into(),
                     model: "gpt-5".into(),
@@ -214,16 +244,21 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             label: "Code review".into(),
             category: "code".into(),
 
+            // Decision 2026-06-24: Claude-first (Sonnet), codex-cli as the first
+            // fallback, then gemini cloud. gemini-cli retirado 2026-06-19
+            // (IneligibleTierError). Ambos providers retirados siguen definidos
+            // en seed_providers por si se restauran.
             primary: ZoneAssignment {
-                provider_id: "codex-cli".into(),
-                model: "gpt-5".into(),
+                provider_id: "claude".into(),
+                model: "claude-sonnet-4-6".into(),
                 max_tokens: 2048,
             },
             fallbacks: vec![
-                // claude-haiku retirado del fallback (cuenta Anthropic sin creditos:
-                // 0/9 intentos, solo inflaba fail_count). gemini-cli retirado 2026-06-19
-                // (IneligibleTierError). Fallback = gemini cloud (API). Ambos providers
-                // siguen definidos en seed_providers por si se restauran.
+                ZoneAssignment {
+                    provider_id: "codex-cli".into(),
+                    model: "gpt-5".into(),
+                    max_tokens: 2048,
+                },
                 ZoneAssignment {
                     provider_id: "gemini".into(),
                     model: "gemini-2.5-flash".into(),
