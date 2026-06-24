@@ -340,7 +340,7 @@
       "command": "node ~/.ultron/hooks/scripts/notify-relay.js",
       "script": "~/.ultron/hooks/scripts/notify-relay.js",
       "timeout_s": 15,
-      "checksum_sha256": "b52c18a69578cbd6f8230f41af90af575330933f351c9c0e72b7677365336339",
+      "checksum_sha256": "0676fcd53228f655629a6fbe419df2ff12b698a4e809b308e4dce13a930868e0",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
