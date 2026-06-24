@@ -39,6 +39,7 @@ const SKILLS_REGISTRY_COCKPIT = join(SKILL_LAZY, "skills-registry.json");
 const SKILLS_REGISTRY_ROOT = join(ULTRON, "skills-registry.json");
 const ZONES_JSON = join(COCKPIT, "ai-router", "zones.json");
 const METRICS_JSON = join(COCKPIT, "ai-router", "metrics.json");
+const GOLDEN_LABELS = join(COCKPIT, "memory-rework", "evals", "golden_labels.json");
 const AGENTS_DIR = join(CLAUDE, "agents");
 const SKILLS_DIR = join(CLAUDE, "skills");
 
@@ -153,6 +154,29 @@ function readJSON(p) {
   }
 }
 
+// Oraculo de recall NO-circular: eval --golden mide contra labels hand-made
+// (ids verificados), no contra keywords derivadas de la propia query (el `eval`
+// sintetico daba recall=1.0 por construccion). Memoizado: E5 es caro, varios
+// checks de cat1 lo comparten. Devuelve el JSON parseado o null si no medible.
+let _goldenEvalCache;
+function runGoldenEval() {
+  if (_goldenEvalCache !== undefined) return _goldenEvalCache;
+  if (!existsSync(GOLDEN_LABELS)) {
+    _goldenEvalCache = null;
+    return null;
+  }
+  const r = run(
+    `"${fwd(join(BIN, "ultron-memory.exe"))}" eval --golden "${fwd(GOLDEN_LABELS)}"`,
+    { timeout: 120000 },
+  );
+  try {
+    _goldenEvalCache = JSON.parse((r.stdout + r.stderr).trim());
+  } catch {
+    _goldenEvalCache = null;
+  }
+  return _goldenEvalCache;
+}
+
 function countLines(filePath) {
   if (!existsSync(filePath)) return 0;
   try {
@@ -191,22 +215,23 @@ function cat(num, name, checks) {
 cat(1, "Memoria Qdrant", [
   {
     id: "1.1",
-    desc: "recall@8 >= 0.95",
+    desc: "recall@8 >= 0.95 via ORACULO golden (no el eval sintetico circular)",
     auto: true,
     check() {
-      const r = run(`"${join(BIN, "ultron-memory.exe")}" eval`, { timeout: 60000 });
-      const txt = r.stdout + r.stderr;
-      // Intenta parsear JSON (formato actual del binario)
-      try {
-        const j = JSON.parse(txt.trim());
-        const val = j.recall_at_k ?? j.recall_at_8 ?? null;
-        if (val !== null) return { pass: val >= 0.95, detail: `recall_at_k=${val}` };
-      } catch {}
-      // Fallback: parseo por texto
-      const m = txt.match(/recall[@_](?:at_k|at_8|8)\s*[=:]\s*([0-9.]+)/i);
-      if (!m) return { pass: false, detail: "no recall en salida: " + txt.slice(0, 100) };
-      const val = parseFloat(m[1]);
-      return { pass: val >= 0.95, detail: `recall=${val}` };
+      // El `eval` sin --golden es CIRCULAR: deriva expect_any_of de los mismos
+      // terminos de la query -> recall=1.0 por construccion. El oraculo golden
+      // (ids hand-labeled) mide recall real. Hoy 0.73 vs GOAL 0.95 -> FAIL honesto.
+      if (!existsSync(GOLDEN_LABELS)) {
+        return { pass: false, detail: "golden_labels.json ausente (no medible sin oraculo)" };
+      }
+      const j = runGoldenEval();
+      if (!j) return { pass: false, detail: "eval --golden no devolvio JSON parseable" };
+      const recall = j.aggregate?.recall_at_k ?? null;
+      if (recall === null) return { pass: false, detail: "sin recall_at_k en aggregate" };
+      return {
+        pass: recall >= 0.95,
+        detail: `recall@8(golden)=${recall.toFixed(3)} vs GOAL 0.95 — oraculo no-circular sobre ${j.total_queries ?? "?"} queries`,
+      };
     },
   },
   {
@@ -301,6 +326,30 @@ cat(1, "Memoria Qdrant", [
       const last5 = resumeEntries.slice(-5);
       const maxMs = Math.max(...last5);
       return { pass: maxMs < 3000, detail: `max_last5_resume=${maxMs}ms` };
+    },
+  },
+  {
+    id: "1.6",
+    desc: "precision@3 >= 0.6 y context_waste <= 0.4 (el pack es relevante, no ruido) — oraculo golden",
+    auto: true,
+    check() {
+      // La memoria CONTIENE el dato != lo inyectado es RELEVANTE. Hoy precision@3
+      // ~0.32 y context_waste ~0.68: >2/3 del pack inyectado es ruido (no hay
+      // score-floor en el recall de memorias). FAIL honesto hasta que exista floor.
+      if (!existsSync(GOLDEN_LABELS)) {
+        return { pass: false, detail: "golden_labels.json ausente (no medible)" };
+      }
+      const j = runGoldenEval();
+      if (!j) return { pass: false, detail: "eval --golden no devolvio JSON parseable" };
+      const p3 = j.aggregate_precision_at_3 ?? j.aggregate?.precision_at_3 ?? null;
+      const waste = j.aggregate?.context_waste ?? null;
+      if (p3 === null || waste === null) {
+        return { pass: false, detail: "sin precision@3/context_waste en el aggregate" };
+      }
+      return {
+        pass: p3 >= 0.6 && waste <= 0.4,
+        detail: `precision@3=${p3.toFixed(3)} (>=0.6) context_waste=${waste.toFixed(3)} (<=0.4)`,
+      };
     },
   },
 ]);
@@ -738,6 +787,29 @@ cat(6, "Documentacion", [
       const hasBuildLocal = /build:local/.test(content);
       const correctDesc = /build:local.*escritorio|escritorio.*build:local/i.test(content) || hasBuildLocal;
       return { pass: correctDesc, detail: hasBuildLocal ? "build:local presente en CLAUDE.md" : "build:local AUSENTE" };
+    },
+  },
+  {
+    id: "6.5",
+    desc: "eval rechaza flags desconocidos (no finge medir con recall=1.0 ante un typo)",
+    auto: true,
+    check() {
+      // Hoy `eval --flagquenoexiste` -> exit 0 + recall_at_k=1.0: ignora el flag y
+      // corre el eval sintetico circular. Un typo (--gold por --golden) produce una
+      // metrica falsamente optimista EN SILENCIO (mandamiento 11). known_red hasta
+      // que el parser de args rechace lo desconocido.
+      const r = run(`"${fwd(join(BIN, "ultron-memory.exe"))}" eval --flagquenoexiste 2>&1`, {
+        timeout: 60000,
+      });
+      const txt = r.stdout + r.stderr;
+      const rejected =
+        r.code !== 0 || /unknown|unrecognized|invalid|no such|desconocid/i.test(txt);
+      return {
+        pass: rejected,
+        detail: rejected
+          ? "flag invalido rechazado (exit!=0 o error explicito)"
+          : `flag invalido IGNORADO: exit=${r.code}, finge medir (recall=1.0 sintetico)`,
+      };
     },
   },
 ]);
@@ -1879,6 +1951,131 @@ function runResume(project) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// cat19 e2e — el ARTEFACTO real, no el binario a mano
+// ---------------------------------------------------------------------------
+// runResume() llama al binario directamente; eso NO es lo que el usuario recibe.
+// Lo que llega a su contexto lo produce el hook memory-session-resume.js
+// (lee cwd via stdin -> projectIdFromCwd -> render -> additionalContext).
+// cat19 debe ejecutar ESE hook y aseverar sobre su salida. (Sprint 2026-06-24,
+// causa raiz: cat19=10/10 mientras el resume inyectado llegaba PODRIDO.)
+const RESUME_HOOK = join(HOOKS_SCRIPTS, "memory-session-resume.js");
+
+// Verbos/estados que delatan una tarea ya hecha (no debe seguir viva en el resume).
+const COMPLETED_MARKERS =
+  /\b(actualizad[oa]|commite?ar|complet(ad[oa]|e)|hech[oa]|listo|finalizad[oa]|rebuild|tauri build|se ha (realizado|hecho)|ya hecho)\b/i;
+
+// Ejecuta el HOOK real con stdin {cwd} y devuelve el additionalContext + el
+// bloque <ultron-memory-resume> parseado por secciones.
+function runResumeHook(cwd) {
+  const input = JSON.stringify({ cwd, source: "startup", hook_event_name: "SessionStart" });
+  let r;
+  try {
+    r = spawnSync("node", [RESUME_HOOK], { input, encoding: "utf8", timeout: 30000, cwd: ULTRON });
+  } catch (e) {
+    return { ok: false, raw: String(e) };
+  }
+  const out = (r.stdout ?? "").trim();
+  let ac = "";
+  try {
+    const j = JSON.parse(out);
+    ac = j.hookSpecificOutput?.additionalContext ?? j.additionalContext ?? "";
+  } catch {
+    return { ok: false, raw: out.slice(0, 160) };
+  }
+  const m = ac.match(/<ultron-memory-resume[^>]*>([\s\S]*?)<\/ultron-memory-resume>/);
+  if (!m) return { ok: false, ac, raw: ac.slice(0, 160) };
+  return { ok: true, ac, parsed: parseResumeBlock(m[1]) };
+}
+
+// Parser por secciones del bloque resume. Items = lineas "  - ...". list_noise =
+// lineas no vacias dentro de una seccion de lista que NO son items (markdown crudo
+// volcado por un summary multilinea: el sintoma exacto del render roto).
+function parseResumeBlock(body) {
+  const HEADERS = /^(project|open_tasks|recent_decisions|next_action|warnings|project_context)\b/;
+  const out = {
+    project: "",
+    next_action: "",
+    open_tasks: [],
+    recent_decisions: [],
+    project_context: [],
+    list_noise: {},
+  };
+  let section = null;
+  for (const raw of body.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    const h = line.match(HEADERS);
+    if (h && !line.startsWith("  ")) {
+      section = h[1];
+      if (section === "project") out.project = line.replace(/^project:\s*/, "").trim();
+      if (section === "next_action") out.next_action = line.replace(/^next_action:\s*/, "").trim();
+      continue;
+    }
+    const item = line.match(/^\s{2}-\s(.*)$/);
+    if (item) {
+      if (section === "open_tasks") out.open_tasks.push(item[1].trim());
+      else if (section === "recent_decisions") out.recent_decisions.push(item[1].trim());
+      else if (section === "project_context") out.project_context.push(item[1].trim());
+    } else if (
+      line.trim() !== "" &&
+      (section === "open_tasks" || section === "recent_decisions" || section === "project_context")
+    ) {
+      out.list_noise[section] = (out.list_noise[section] || 0) + 1;
+    } else if (section === "next_action" && line.trim() !== "") {
+      out.next_action += " " + line.trim();
+    }
+  }
+  return out;
+}
+
+// Titulos de cards VIVAS (doing/todo/blocked) del kanban del proyecto. null si no
+// hay kanban (clon limpio / CI): el check degrada a N/A explicito, no a pass falso.
+function liveCardTitles(project) {
+  const p = join(COCKPIT, "projects", project, "kanban.json");
+  if (!existsSync(p)) return null;
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+  const liveCols = new Set(
+    (doc.columns ?? []).filter((c) => ["doing", "todo", "blocked"].includes(c.role)).map((c) => c.id),
+  );
+  return (doc.cards ?? [])
+    .filter((c) => liveCols.has(c.column_id))
+    .map((c) => (c.title ?? "").trim())
+    .filter(Boolean);
+}
+
+const normResume = (s) =>
+  String(s)
+    .toLowerCase()
+    .replace(/[`*#_~\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+// ¿El string de tarea corresponde a alguna card viva? (inclusion bidireccional con
+// un prefijo significativo, tolerante a recortes del render).
+function mapsToLiveCard(taskStr, titles) {
+  const t = normResume(taskStr);
+  if (!t) return false;
+  const key = t.slice(0, 40);
+  return titles.some((title) => {
+    const n = normResume(title);
+    return n.includes(key) || t.includes(n.slice(0, 40));
+  });
+}
+
+// Similitud Jaccard de tokens (split por espacio/barra/coma para cazar
+// "Rust y Tauri" vs "Tauri/Rust" como near-duplicados).
+function jaccardTokens(a, b) {
+  const A = new Set(normResume(a).split(/[\s/,]+/).filter(Boolean));
+  const B = new Set(normResume(b).split(/[\s/,]+/).filter(Boolean));
+  const inter = [...A].filter((x) => B.has(x)).length;
+  return inter / (A.size + B.size - inter || 1);
+}
+
 // Replica el esquema del kanban: card In-Progress (role doing, menor column
 // order) por menor card order; si no hay, top de Backlog (role todo).
 function kanbanNextAction(project) {
@@ -1904,131 +2101,111 @@ function kanbanNextAction(project) {
   return pickRole("doing") || pickRole("todo");
 }
 
-cat(19, "Session-Start fidelity", [
+// cat19 PIVOTADA a e2e (2026-06-24): ejecuta el HOOK real
+// (memory-session-resume.js) y asevera sobre el additionalContext que de verdad
+// llega al modelo, NO sobre 'ultron-memory.exe resume' invocado a mano. La version
+// anterior media el binario y daba 10/10 mientras el resume inyectado llegaba
+// podrido (open_tasks muertas, markdown crudo, project_context duplicado).
+// TODO(siguiente incremento): 19.6 recent_decisions con ventana de frescura (<7d),
+// 19.7 L0-scratch gate (mtime>24h no inyecta / fresco si, clipeado 2000).
+cat(19, "Session-Start fidelity (e2e hook)", [
   {
     id: "19.1",
-    desc: "resume --project: open_tasks 100% del proyecto (0 cross-project/globales)",
+    desc: "el hook real emite resume con project correcto (cwd->projectId) + next_action presente",
     auto: true,
     check() {
-      const r = runResume(RESUME_PROJECT);
-      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
-      const bad = (r.json.open_tasks ?? []).filter(
-        (t) => t.project_id !== RESUME_PROJECT,
-      );
+      const h = runResumeHook(ULTRON);
+      if (!h.ok) return { pass: false, detail: "hook no emitio resume: " + (h.raw ?? "") };
+      const P = h.parsed;
+      const pmatch = P.project === RESUME_PROJECT;
+      const hasNA = P.next_action.trim() !== "";
       return {
-        pass: bad.length === 0,
-        detail:
-          bad.length === 0
-            ? `open_tasks=${(r.json.open_tasks ?? []).length}, todas de '${RESUME_PROJECT}'`
-            : `${bad.length} task(s) ajenas: ${bad.map((t) => t.project_id ?? "GLOBAL").slice(0, 5).join(",")}`,
+        pass: pmatch && hasNA,
+        detail: `project=${P.project || "?"} (esperado ${RESUME_PROJECT}) next_action_present=${hasNA}`,
       };
     },
   },
   {
     id: "19.2",
-    desc: "resume --project: decisions 100% del proyecto (0 cross-project/globales)",
+    desc: "open_tasks inyectadas = card viva del kanban y NO completadas (0 podridas)",
     auto: true,
     check() {
-      const r = runResume(RESUME_PROJECT);
-      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
-      const bad = (r.json.decisions ?? []).filter(
-        (d) => d.project_id !== RESUME_PROJECT,
-      );
+      const h = runResumeHook(ULTRON);
+      if (!h.ok) return { pass: false, detail: "hook no emitio resume: " + (h.raw ?? "") };
+      const titles = liveCardTitles(RESUME_PROJECT);
+      if (!titles) return { pass: true, detail: "N/A (sin kanban local; clon limpio/CI)" };
+      const tasks = h.parsed.open_tasks;
+      const bad = tasks.filter((t) => !mapsToLiveCard(t, titles) || COMPLETED_MARKERS.test(t));
       return {
         pass: bad.length === 0,
         detail:
           bad.length === 0
-            ? `decisions=${(r.json.decisions ?? []).length}, todas de '${RESUME_PROJECT}'`
-            : `${bad.length} decision(es) ajenas: ${bad.map((d) => d.project_id ?? "GLOBAL").slice(0, 5).join(",")}`,
+            ? `${tasks.length} open_tasks, todas = card viva`
+            : `${bad.length}/${tasks.length} podridas (no-card o completada): ${bad.map((b) => b.slice(0, 28)).slice(0, 4).join(" | ")}`,
       };
     },
   },
   {
     id: "19.3",
-    desc: "next_action = card viva del kanban O ultimo commit (NO nota podrida/vieja)",
+    desc: "render limpio: 0 summaries con salto de linea/markdown crudo + 0 ruido en listas",
     auto: true,
     check() {
-      // Si no existe kanban.json (CI / clon limpio — gitignored) el check es
-      // N/A: no podemos validar contra estado local inexistente, pero tampoco
-      // penalizamos. La ausencia de kanban es un estado valido en CI.
-      const kanbanPath = join(COCKPIT, "projects", RESUME_PROJECT, "kanban.json");
-      const hasKanban = existsSync(kanbanPath);
-
-      const r = runResume(RESUME_PROJECT);
-      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
-      const got = r.json.next_action ?? "";
-
-      if (!hasKanban) {
-        // Sin kanban: acepta cualquier next_action no vacio y no-pasado
-        // (el fallback de git o de memoria se activa).
-        const empty = got.trim() === "";
-        return {
-          pass: !empty,
-          detail: empty
-            ? "next_action vacio sin kanban (no hay estado vivo ni commits)"
-            : `N/A (sin kanban local); next_action via fallback: "${got.slice(0, 80)}"`,
-        };
-      }
-
-      // Con kanban: acepta (a) coincidencia exacta con card viva, o (b) el
-      // prefijo de commit ("ultimo commit: ...") como fallback valido — ambos
-      // vienen de estado VIVO, no de memoria que se pudre.
-      const cardTitles = [];
-      try {
-        const doc = JSON.parse(readFileSync(kanbanPath, "utf8"));
-        const cols = (doc.columns ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        const cards = doc.cards ?? [];
-        for (const role of ["doing", "todo"]) {
-          for (const col of cols.filter((c) => c.role === role)) {
-            const inCol = cards
-              .filter((c) => c.column_id === col.id)
-              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-            for (const card of inCol) {
-              if (card.title) cardTitles.push(card.title);
-            }
-          }
-        }
-      } catch {
-        return { pass: false, detail: "kanban.json no parseable" };
-      }
-
-      // Pass si es alguna card viva (In-Progress o Backlog) o si es el fallback
-      // de ultimo commit (reconocible por el prefijo que emite derive_next_action).
-      const isCardMatch = cardTitles.includes(got);
-      const isCommitFallback = got.startsWith("último commit:") || got.startsWith("ultimo commit:");
-      const pass = isCardMatch || isCommitFallback;
+      const h = runResumeHook(ULTRON);
+      if (!h.ok) return { pass: false, detail: "hook no emitio resume: " + (h.raw ?? "") };
+      const bin = runResume(RESUME_PROJECT);
+      const binTasks = (bin.json?.open_tasks ?? []).map((t) => t.summary ?? "");
+      const dirty = binTasks.filter((s) => s.includes("\n") || /^\s*#/.test(s));
+      const noise = Object.values(h.parsed.list_noise).reduce((a, b) => a + b, 0);
       return {
-        pass,
-        detail: pass
-          ? isCardMatch
-            ? `next_action == card viva ("${got.slice(0, 60)}")`
-            : `next_action == fallback commit ("${got.slice(0, 60)}")`
-          : `next_action="${got.slice(0, 70)}" no es card viva ni commit (${cardTitles.length} cards disponibles)`,
+        pass: dirty.length === 0 && noise === 0,
+        detail: `summaries_multilinea_o_md=${dirty.length} lineas_ruido_en_listas=${noise}`,
       };
     },
   },
   {
     id: "19.4",
-    desc: "next_action NO es una nota en pasado/completada (no se pudre)",
+    desc: "next_action inyectado = card viva o 'ultimo commit:' y NO una nota completada",
     auto: true,
     check() {
-      const r = runResume(RESUME_PROJECT);
-      if (!r.ok) return { pass: false, detail: "resume no devolvio JSON: " + (r.raw ?? "") };
-      const got = (r.json.next_action ?? "").toLowerCase();
-      const stale = [
-        "se ha realizado",
-        "se ha hecho",
-        "commit hecho",
-        "se vigilara",
-        "se vigilará",
-        "ya hecho",
-        "completado",
-        "completada",
-      ];
-      const hit = stale.find((m) => got.includes(m));
+      const h = runResumeHook(ULTRON);
+      if (!h.ok) return { pass: false, detail: "hook no emitio resume: " + (h.raw ?? "") };
+      const na = h.parsed.next_action;
+      if (!na.trim()) return { pass: false, detail: "next_action vacio en el artefacto inyectado" };
+      const titles = liveCardTitles(RESUME_PROJECT);
+      const isCommit = /^(último|ultimo) commit:/i.test(na);
+      const completed = COMPLETED_MARKERS.test(na);
+      if (!titles) {
+        return { pass: isCommit && !completed, detail: `N/A sin kanban; isCommit=${isCommit} completed=${completed}` };
+      }
+      const nk = normResume(na);
+      const isCard = titles.some(
+        (tt) => normResume(tt).includes(nk.slice(0, 40)) || nk.includes(normResume(tt).slice(0, 40)),
+      );
       return {
-        pass: !hit,
-        detail: hit ? `next_action suena a hecho: "...${hit}..."` : "next_action accionable",
+        pass: (isCard || isCommit) && !completed,
+        detail: `isCard=${isCard} isCommit=${isCommit} completed=${completed}: "${na.slice(0, 50)}"`,
+      };
+    },
+  },
+  {
+    id: "19.5",
+    desc: "project_context inyectado <=6 lineas y sin near-duplicados (ruido bajo control)",
+    auto: true,
+    check() {
+      const h = runResumeHook(ULTRON);
+      if (!h.ok) return { pass: false, detail: "hook no emitio resume: " + (h.raw ?? "") };
+      const pc = h.parsed.project_context;
+      const MAX = 6;
+      const JT = 0.5;
+      let dups = 0;
+      for (let i = 0; i < pc.length; i++) {
+        for (let j = i + 1; j < pc.length; j++) {
+          if (jaccardTokens(pc[i], pc[j]) > JT) dups++;
+        }
+      }
+      return {
+        pass: pc.length <= MAX && dups === 0,
+        detail: `lineas=${pc.length} (max ${MAX}) near_dups=${dups}`,
       };
     },
   },

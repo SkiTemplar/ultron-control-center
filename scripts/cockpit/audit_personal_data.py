@@ -83,7 +83,9 @@ PERSONAL_PERSONAS = [
     "warren",
     "don-claudio",
     "terry-davis",
-    "kirkardo",
+    # "kirkardo" NO es PII: es el evaluador publico del sistema (el harness se
+    # llama kirkardo-eval.mjs y aparece en comentarios/docs por todo el repo).
+    # Marcarlo HIGH bloqueaba todo commit que tocara un archivo con esa palabra.
 ]
 
 # Severity buckets.

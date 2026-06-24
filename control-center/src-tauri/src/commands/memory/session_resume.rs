@@ -178,6 +178,25 @@ fn derive_next_action(
         })
 }
 
+/// Fallback for `open_tasks` when the project has no kanban: memory Tasks that
+/// are still ELIGIBLE (recent AND not phrased as already-done), so the resume
+/// never surfaces rotted notes. Replaces the old raw `list_active_of_type`.
+fn eligible_memory_tasks(raw: &[MemoryItem], proj: Option<&str>, now: i64) -> Vec<ResumeMemory> {
+    let filtered: Vec<MemoryItem> = raw
+        .iter()
+        .filter(|t| {
+            t.summary
+                .as_deref()
+                .map(|s| kanban_signal::memory_task_eligible(s, t.updated_at, now))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    to_resume(prefer_project(filtered, proj, 12, false, |it| {
+        it.project_id.clone()
+    }))
+}
+
 /// Sync core of session resume — reused by the CLI sidecar (`ultron-memory
 /// resume`) and the Tauri command. Loads only MINIMAL, bounded slices.
 pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume, String> {
@@ -201,9 +220,29 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
         false,
         |it| it.project_id.clone(),
     ));
-    let open_tasks = to_resume(prefer_project(raw_tasks.clone(), proj, 12, false, |it| {
-        it.project_id.clone()
-    }));
+    // open_tasks: fuente VIVA = kanban (cards In-Progress + Backlog), igual que
+    // next_action. Memoria-Task se pudre (sin estado done) y arrastraba tareas
+    // muertas ("npx tauri build", "# TODO Rebuild"). Fallback a memoria elegible
+    // (reciente + no-completada) solo si el proyecto no tiene kanban.
+    let now = now_secs();
+    let root = crate::ultron_root().ok();
+    let open_tasks: Vec<ResumeMemory> = match (root.as_deref(), proj) {
+        (Some(root), Some(p)) => match kanban_signal::kanban_open_tasks(root, p, 8) {
+            Some(titles) => titles
+                .into_iter()
+                .enumerate()
+                .map(|(i, title)| ResumeMemory {
+                    canonical_id: format!("kanban:{p}:{i}"),
+                    kind: "task".to_string(),
+                    summary: Some(title),
+                    project_id: Some(p.to_string()),
+                    pinned: false,
+                })
+                .collect(),
+            None => eligible_memory_tasks(&raw_tasks, proj, now),
+        },
+        _ => eligible_memory_tasks(&raw_tasks, proj, now),
+    };
     // pinned keeps globals — user-elevated, cross-project on purpose.
     let pinned = to_resume(prefer_project(
         MemoryService::list_pinned(48).map_err(|e| e.to_string())?,

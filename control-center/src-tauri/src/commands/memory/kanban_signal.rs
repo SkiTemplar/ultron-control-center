@@ -9,6 +9,7 @@
 // Pure helpers (text/recency gates, card selection over parsed JSON) are unit
 // tested with fixtures; the only IO is reading `kanban.json` and is isolated.
 
+use serde_json::Value;
 use std::path::Path;
 
 const RECENCY_GATE_SECS: i64 = 14 * 24 * 60 * 60; // 14 days
@@ -56,52 +57,86 @@ pub fn memory_task_eligible(summary: &str, updated_at: i64, now: i64) -> bool {
     is_recent(updated_at, now) && !is_completed_text(summary)
 }
 
+/// Column ids with the given `role`, ordered by their `order` field (lowest
+/// first). Pure over the columns array so it is testable without IO.
+fn ordered_col_ids(columns: &[Value], role: &str) -> Vec<String> {
+    let mut cols: Vec<(&Value, i64)> = columns
+        .iter()
+        .filter(|c| c.get("role").and_then(|r| r.as_str()) == Some(role))
+        .map(|c| {
+            (
+                c,
+                c.get("order").and_then(|o| o.as_i64()).unwrap_or(i64::MAX),
+            )
+        })
+        .collect();
+    cols.sort_by_key(|(_, ord)| *ord);
+    cols.into_iter()
+        .filter_map(|(c, _)| c.get("id").and_then(|i| i.as_str()).map(String::from))
+        .collect()
+}
+
+/// Titles of every card in the given columns, ordered by column then by the
+/// card's `order`. Empty when no card has a title.
+fn ordered_card_titles(cards: &[Value], col_ids: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for cid in col_ids {
+        let mut in_col: Vec<&Value> = cards
+            .iter()
+            .filter(|card| card.get("column_id").and_then(|c| c.as_str()) == Some(cid.as_str()))
+            .collect();
+        in_col.sort_by_key(|card| {
+            card.get("order")
+                .and_then(|o| o.as_i64())
+                .unwrap_or(i64::MAX)
+        });
+        for card in in_col {
+            if let Some(t) = card.get("title").and_then(|t| t.as_str()) {
+                out.push(t.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Pick the live next-action title from an already-parsed kanban document.
 /// Order: first In-Progress (role == "doing") card by column order, else the
 /// top Backlog (role == "todo") card. Returns the card title.
 ///
 /// Pure over the parsed JSON so it is testable from a fixture without IO.
-pub fn next_action_from_kanban(doc: &serde_json::Value) -> Option<String> {
+pub fn next_action_from_kanban(doc: &Value) -> Option<String> {
     let columns = doc.get("columns")?.as_array()?;
     let cards = doc.get("cards")?.as_array()?;
-
-    // role -> ordered list of column ids (lowest `order` first).
-    let by_role = |role: &str| -> Vec<String> {
-        let mut cols: Vec<(&serde_json::Value, i64)> = columns
-            .iter()
-            .filter(|c| c.get("role").and_then(|r| r.as_str()) == Some(role))
-            .map(|c| {
-                (
-                    c,
-                    c.get("order").and_then(|o| o.as_i64()).unwrap_or(i64::MAX),
-                )
-            })
-            .collect();
-        cols.sort_by_key(|(_, ord)| *ord);
-        cols.into_iter()
-            .filter_map(|(c, _)| c.get("id").and_then(|i| i.as_str()).map(String::from))
-            .collect()
-    };
-
-    let pick = |col_ids: &[String]| -> Option<String> {
-        col_ids.iter().find_map(|cid| {
-            let mut in_col: Vec<&serde_json::Value> = cards
-                .iter()
-                .filter(|card| card.get("column_id").and_then(|c| c.as_str()) == Some(cid))
-                .collect();
-            in_col.sort_by_key(|card| {
-                card.get("order")
-                    .and_then(|o| o.as_i64())
-                    .unwrap_or(i64::MAX)
-            });
-            in_col
-                .first()
-                .and_then(|card| card.get("title").and_then(|t| t.as_str()))
-                .map(String::from)
+    ordered_card_titles(cards, &ordered_col_ids(columns, "doing"))
+        .into_iter()
+        .next()
+        .or_else(|| {
+            ordered_card_titles(cards, &ordered_col_ids(columns, "todo"))
+                .into_iter()
+                .next()
         })
-    };
+}
 
-    pick(&by_role("doing")).or_else(|| pick(&by_role("todo")))
+/// Live OPEN TASKS for the resume: titles of In-Progress (role "doing") then
+/// Backlog (role "todo") cards, ordered, capped at `limit`. Memory Tasks rot
+/// (no done/stale state), so the kanban is the live source — the same fix that
+/// moved `next_action` off memory. Done/archived cards never appear.
+pub fn open_tasks_from_kanban(doc: &Value, limit: usize) -> Vec<String> {
+    let columns = match doc.get("columns").and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    let cards = match doc.get("cards").and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    let mut out = ordered_card_titles(cards, &ordered_col_ids(columns, "doing"));
+    out.extend(ordered_card_titles(
+        cards,
+        &ordered_col_ids(columns, "todo"),
+    ));
+    out.truncate(limit);
+    out
 }
 
 /// Read `<root>/cockpit/projects/<project>/kanban.json` and derive the live
@@ -116,6 +151,25 @@ pub fn kanban_next_action(root: &Path, project: &str) -> Option<String> {
     let raw = std::fs::read_to_string(&path).ok()?;
     let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
     next_action_from_kanban(&doc)
+}
+
+/// Read the project's kanban and return its LIVE open-task titles (capped).
+/// `None` when there is no kanban for the project or it has no live cards — the
+/// caller then falls back to eligible (recent + not-done) memory tasks.
+pub fn kanban_open_tasks(root: &Path, project: &str, limit: usize) -> Option<Vec<String>> {
+    let path = root
+        .join("cockpit")
+        .join("projects")
+        .join(project)
+        .join("kanban.json");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let tasks = open_tasks_from_kanban(&doc, limit);
+    if tasks.is_empty() {
+        None
+    } else {
+        Some(tasks)
+    }
 }
 
 #[cfg(test)]
@@ -189,5 +243,34 @@ mod tests {
         let old = now - (20 * 24 * 60 * 60);
         assert!(!is_recent(old, now));
         assert!(!memory_task_eligible("tarea valida pero vieja", old, now));
+    }
+
+    // open_tasks salen del kanban VIVO: In-Progress primero, luego Backlog, y
+    // las cards Done NUNCA aparecen (el bug que pudria el resume con memoria).
+    #[test]
+    fn open_tasks_lists_live_cards_doing_then_backlog_excluding_done() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "En curso", "order": 0},
+            {"id": "b2", "column_id": "c-back", "title": "Backlog dos", "order": 1},
+            {"id": "b1", "column_id": "c-back", "title": "Backlog uno", "order": 0},
+            {"id": "z1", "column_id": "c-done", "title": "Tarea hecha", "order": 0}
+        ]));
+        let tasks = open_tasks_from_kanban(&doc, 8);
+        assert_eq!(tasks, vec!["En curso", "Backlog uno", "Backlog dos"]);
+        assert!(
+            !tasks.iter().any(|t| t == "Tarea hecha"),
+            "las cards Done jamas son open_tasks"
+        );
+    }
+
+    // Caso negativo: el limite recorta la lista (resume acotado).
+    #[test]
+    fn open_tasks_respects_limit() {
+        let doc = kanban(serde_json::json!([
+            {"id": "b1", "column_id": "c-back", "title": "a", "order": 0},
+            {"id": "b2", "column_id": "c-back", "title": "b", "order": 1},
+            {"id": "b3", "column_id": "c-back", "title": "c", "order": 2}
+        ]));
+        assert_eq!(open_tasks_from_kanban(&doc, 2), vec!["a", "b"]);
     }
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-06-23",
+  "generated_at": "2026-06-24",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -171,7 +171,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
-      "checksum_sha256": "11878145e2bf71640fcfa7030b1dc092763cac09d2885aa4e2f7484f3424e4ea",
+      "checksum_sha256": "45f46c8a42902b9ff0fc686bb7a27585433e2db185c77302b7ff5375a3eb5832",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

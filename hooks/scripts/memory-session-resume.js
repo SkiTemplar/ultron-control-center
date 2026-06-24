@@ -70,6 +70,45 @@ function readProjectContext(projectId) {
   }
 }
 
+// Dedupe + cap de las lineas de project_context. El Stop hook acumula en
+// context.md frases casi identicas ("ULTRON es Rust+Tauri" x6); inyectarlas todas
+// es ruido. Defensa en el punto de inyeccion (la captura duplicada se trata aparte).
+const CONTEXT_MAX_LINES = 6;
+const JACCARD_DUP = 0.5;
+
+function normCtx(s) {
+  return String(s)
+    .toLowerCase()
+    .replace(/[`*#_~]/g, '')
+    .replace(/[/,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function jaccardCtx(a, b) {
+  const A = new Set(normCtx(a).split(' ').filter(Boolean));
+  const B = new Set(normCtx(b).split(' ').filter(Boolean));
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const x of A) if (B.has(x)) inter++;
+  return inter / (A.size + B.size - inter);
+}
+
+// Lineas unicas (sin near-duplicados) de project_context, capadas a maxLines.
+function dedupeContextLines(text, maxLines = CONTEXT_MAX_LINES) {
+  const lines = text
+    .split('\n')
+    .map((l) => l.replace(/^\s*-\s*/, '').trim())
+    .filter(Boolean);
+  const kept = [];
+  for (const line of lines) {
+    if (kept.some((k) => normCtx(k) === normCtx(line) || jaccardCtx(k, line) > JACCARD_DUP)) continue;
+    kept.push(line);
+    if (kept.length >= maxLines) break;
+  }
+  return kept;
+}
+
 function render(r, projectContext) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
   r = r || {};
@@ -92,8 +131,11 @@ function render(r, projectContext) {
   if (r.next_action) out.push(`next_action: ${r.next_action}`);
   if (Array.isArray(r.warnings) && r.warnings.length) out.push(`warnings: ${r.warnings.join('; ')}`);
   if (projectContext) {
-    out.push('project_context (que es este proyecto / en que andas — captura automatica):');
-    for (const line of projectContext.split('\n')) out.push(`  ${line}`);
+    const ctxLines = dedupeContextLines(projectContext);
+    if (ctxLines.length) {
+      out.push('project_context (que es este proyecto / en que andas — captura automatica):');
+      for (const line of ctxLines) out.push(`  - ${line}`);
+    }
   }
   out.push('</ultron-memory-resume>');
   return out.join('\n');
@@ -137,5 +179,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectContext, render, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
+  module.exports = { readL0Scratch, readProjectContext, render, dedupeContextLines, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
 }
