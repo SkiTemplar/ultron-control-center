@@ -10,6 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { runCli, projectIdFromCwd, findBinary } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
 observe('memory-session-resume');
@@ -109,8 +110,61 @@ function dedupeContextLines(text, maxLines = CONTEXT_MAX_LINES) {
   return kept;
 }
 
-function render(r, projectContext) {
+// Nota VIVA del medidor (audit 2026-06-25): el resume arrastraba una nota
+// MEMORIZADA (p.ej. "9.31") que el harness en vivo desmentia (7.95). Inyectamos
+// la cifra fresca de logs/kirkardo-eval.json para que el modelo no crea el numero
+// viejo. Gate de frescura (<48h) + fail-safe (mand. 12: tener el dato != usarlo).
+const HARNESS_JSON = path.join(os.homedir(), '.ultron', 'logs', 'kirkardo-eval.json');
+const HARNESS_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+
+function readHarnessNote() {
+  try {
+    const st = fs.statSync(HARNESS_JSON);
+    if (Date.now() - st.mtimeMs > HARNESS_MAX_AGE_MS) return ''; // stale -> no inyectar nota vieja
+    const d = JSON.parse(fs.readFileSync(HARNESS_JSON, 'utf8'));
+    if (typeof d.overall !== 'number') return '';
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const lag = (Array.isArray(d.laggards) ? d.laggards : [])
+      .slice(0, 4)
+      .map((l) => `cat${l.cat}=${Math.round(l.nota * 10) / 10}`)
+      .join(', ');
+    return (
+      `harness (medidor honesto, logs/kirkardo-eval.json): overall ${r2(d.overall)}` +
+      (typeof d.overall_core === 'number' ? ` (core ${r2(d.overall_core)})` : '') +
+      (lag ? ` | laggards: ${lag}` : '') +
+      ' -- nota VIVA; ignora cifras memorizadas distintas.'
+    );
+  } catch {
+    return '';
+  }
+}
+
+// HEAD real precomputado (audit 2026-06-25): el resume no reflejaba branch/sha,
+// asi que el modelo no podia cazar discrepancias y hacia arqueologia git al
+// arrancar. Lo calculamos UNA vez aqui (3 git baratos) para que el modelo NO los
+// repita. Fail-safe + timeout corto.
+function readHead(cwd) {
+  try {
+    const o = { cwd, encoding: 'utf8', timeout: 2500, stdio: ['ignore', 'pipe', 'ignore'] };
+    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], o).trim();
+    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], o).trim();
+    const subject = execFileSync('git', ['log', '-1', '--pretty=%s'], o).trim();
+    if (!branch || !sha) return '';
+    return `${branch} @ ${sha} -- ${subject}`;
+  } catch {
+    return '';
+  }
+}
+
+function render(r, projectContext, opts = {}) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
+  // Directiva de arranque (audit 2026-06-25): inyectabamos datos sin NINGUNA
+  // instruccion -> el modelo quemaba tokens en arqueologia git y devolvia menus.
+  out.push(
+    'startup_policy: FIATE de este resume; NO ejecutes git diff/log/status para reconstruir estado salvo que sea insuficiente. EJECUTA el next_action de abajo como orden; ante ambiguedad propon UNA accion y pregunta, NO un menu.'
+  );
+  if (opts.head) out.push(`head: ${opts.head}`);
+  if (opts.harnessNote) out.push(opts.harnessNote);
   r = r || {};
   if (r.project_id) out.push(`project: ${r.project_id}`);
   if (Array.isArray(r.active_workflows) && r.active_workflows.length) {
@@ -128,7 +182,13 @@ function render(r, projectContext) {
     out.push('pinned_memories:');
     for (const p of r.pinned.slice(0, 8)) out.push(`  - ${p.summary || ''}`);
   }
-  if (r.next_action) out.push(`next_action: ${r.next_action}`);
+  // next_action como ORDEN, no etiqueta (audit 2026-06-25): renderizarlo como
+  // dato suelto hacia que el modelo lo ignorara y devolviera un menu.
+  if (r.next_action) {
+    out.push(`next_action: ${r.next_action}`);
+  } else if (opts.harnessNote) {
+    out.push('next_action: (sin tarea fijada) -- propon a partir de los laggards del harness (arriba), NO arqueologia git.');
+  }
   if (Array.isArray(r.warnings) && r.warnings.length) out.push(`warnings: ${r.warnings.join('; ')}`);
   if (projectContext) {
     const ctxLines = dedupeContextLines(projectContext);
@@ -173,11 +233,13 @@ function main() {
   // Contexto del proyecto actual (independiente del sidecar: se inyecta aunque
   // el resume Rust falle).
   const projectContext = readProjectContext(project);
-  if (!resume && !projectContext) {
+  const harnessNote = readHarnessNote();
+  const head = readHead(cwd);
+  if (!resume && !projectContext && !harnessNote && !head) {
     emit(l0);
     return;
   }
-  emit(render(resume, projectContext) + l0);
+  emit(render(resume, projectContext, { harnessNote, head }) + l0);
 }
 
 // Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script
@@ -191,5 +253,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectContext, render, dedupeContextLines, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
+  module.exports = { readL0Scratch, readProjectContext, render, dedupeContextLines, readHarnessNote, readHead, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
 }
