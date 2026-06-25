@@ -141,7 +141,7 @@
       "command": "node ~/.ultron/hooks/scripts/load-cross-project-memory.js",
       "script": "~/.ultron/hooks/scripts/load-cross-project-memory.js",
       "timeout_s": 8,
-      "checksum_sha256": "76dfc938a4f6fe35a8a5dfd235e2c9527bb08b0560c526040aec09d2b52df5fe",
+      "checksum_sha256": "e2e0c78392a297093f0b7a02ce612a5e98b4ef4bf78a4e4a4b6a6ffa95a85456",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

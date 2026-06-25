@@ -171,13 +171,25 @@ function buildContext(projects, currentCwd) {
   }));
   scored.sort((a, b) => b.similarity - a.similarity || b.mtime - a.mtime);
 
-  const nearProjects = scored.filter((p) => p.similarity >= MIN_SIMILARITY_FOR_BODY);
-  // Fallback: if the active cwd shares nothing with any project (e.g. running
-  // from System32), still expand the single most recently-touched memory so
-  // the session has at least some persistent state to draw from.
+  // El proyecto ACTUAL ya lo carga Claude Code nativamente (su MEMORY.md ES la
+  // auto-memoria de la sesion); re-expandir su body aqui lo inyectaba DOS veces
+  // (~860 tokens/sesion duplicados, medido 2026-06-25). Lo excluimos del body;
+  // sigue en el indice (1 linea) como referencia.
+  // Igualdad ROBUSTA: cwdToSlug no normaliza '.' (p.ej. .ultron) -> no coincide
+  // con el slug del proyecto (--ultron). Comparamos colapsando TODO no-alfanumerico.
+  const normSlug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const cwdNorm = normSlug(currentCwd);
+  const isCwdProject = (p) => normSlug(p.project) === cwdNorm;
+  const cwdHasOwnMemory = scored.some(isCwdProject);
+  const nearProjects = scored.filter(
+    (p) => p.similarity >= MIN_SIMILARITY_FOR_BODY && !isCwdProject(p)
+  );
+  // Fallback: si el cwd NO tiene memoria propia (p.ej. corriendo desde System32),
+  // expande el ajeno mas reciente para tener algo de estado. Si el cwd SI tiene
+  // memoria propia (ya cargada nativa), no expandimos ajenos: solo seria ruido.
   const bodyProjects = nearProjects.length > 0
     ? nearProjects.slice(0, MAX_FULL_BODY_PROJECTS)
-    : scored.slice(0, 1);
+    : (cwdHasOwnMemory ? [] : scored.slice(0, 1));
 
   const lines = [];
   lines.push('## Cross-project memory index — loaded by user:session:load-cross-project-memory');
