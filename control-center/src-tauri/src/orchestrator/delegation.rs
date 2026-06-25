@@ -226,4 +226,48 @@ mod tests {
         assert_eq!(model_for_intent("feature").as_deref(), Some("sonnet"));
         assert_eq!(model_for_intent("security").as_deref(), Some("haiku"));
     }
+
+    // --- Tests de selección canónica (fix 2026-06-25) ---
+    // Verifican que el ancla de la directiva usa preferred_specialists(intent)
+    // y NO simplemente el [0] reordenado por E5.
+
+    /// (a) intent="rust": cpp-pro primero en la lista E5, rust-engineer segundo.
+    /// La directiva debe apuntar a rust-engineer (canónico), no a cpp-pro.
+    #[test]
+    fn canonical_anchor_rust_ignores_e5_order() {
+        use crate::orchestrator::ranking::preferred_specialists;
+
+        let agents = vec![agent("cpp-pro"), agent("rust-engineer")];
+        let preferred = preferred_specialists("rust");
+        let directive_agent = preferred
+            .iter()
+            .find_map(|p| agents.iter().find(|a| a.name == *p))
+            .or_else(|| agents.first());
+
+        assert_eq!(
+            directive_agent.map(|a| a.name.as_str()),
+            Some("rust-engineer"),
+            "intent=rust: la directiva debe apuntar a rust-engineer aunque cpp-pro sea [0]"
+        );
+    }
+
+    /// (b) intent="refactor": ultron-refactor primero, refactoring-specialist segundo.
+    /// La directiva debe apuntar a refactoring-specialist (primer canónico del intent).
+    #[test]
+    fn canonical_anchor_refactor_ignores_e5_order() {
+        use crate::orchestrator::ranking::preferred_specialists;
+
+        let agents = vec![agent("ultron-refactor"), agent("refactoring-specialist")];
+        let preferred = preferred_specialists("refactor");
+        let directive_agent = preferred
+            .iter()
+            .find_map(|p| agents.iter().find(|a| a.name == *p))
+            .or_else(|| agents.first());
+
+        assert_eq!(
+            directive_agent.map(|a| a.name.as_str()),
+            Some("refactoring-specialist"),
+            "intent=refactor: la directiva debe apuntar a refactoring-specialist aunque ultron-refactor sea [0]"
+        );
+    }
 }

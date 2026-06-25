@@ -141,11 +141,20 @@ pub fn orchestrate(
     // Delegación automática (plano chat, 2026-06-23): si el intent es delegable y
     // la tarea no-trivial, emite una directiva imperativa con el especialista top
     // ya rankeado y el prompt optimizado como objetivo. None = sin delegación.
+    //
+    // Fix 2026-06-25: la DIRECTIVA se ancla al primer especialista canónico
+    // de `preferred_specialists(intent)` que esté presente en `delegate_agents`,
+    // en lugar de al [0] reordenado por E5 (que puede subir cpp-pro sobre
+    // rust-engineer, etc.). La lista visible `delegate_agents` no cambia.
+    let directive_agent = super::ranking::preferred_specialists(intent)
+        .iter()
+        .find_map(|p| delegate_agents.iter().find(|a| a.name == *p))
+        .or_else(|| delegate_agents.first());
     let delegation_directive = super::delegation::decide_delegation(
         intent,
         prompt,
         &prompt_plan.improved_prompt,
-        delegate_agents.first(),
+        directive_agent,
     );
 
     OrchestrationContext {

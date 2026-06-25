@@ -384,9 +384,20 @@ fn orchestrate_directive_is_coherent_with_top_agent() {
         "directiva sii hay especialista top (refactor no-trivial)"
     );
     if let Some(d) = &ctx.delegation_directive {
+        // Fix 2026-06-25: la directiva apunta al primer preferred_specialist
+        // del intent presente en delegate_agents, NO necesariamente al [0]
+        // reordenado por E5. Verificamos que d.agent coincide con el canónico
+        // o, en su defecto, con el primero de la lista (fallback).
+        let preferred = crate::orchestrator::ranking::preferred_specialists("refactor");
+        let canonical = preferred
+            .iter()
+            .find_map(|p| ctx.delegate_agents.iter().find(|a| a.name == *p))
+            .or_else(|| ctx.delegate_agents.first())
+            .map(|a| a.name.as_str());
         assert_eq!(
-            d.agent, ctx.delegate_agents[0].name,
-            "agente = top rankeado"
+            Some(d.agent.as_str()),
+            canonical,
+            "agente = especialista canónico del intent (no necesariamente [0] E5)"
         );
         assert!(!d.objective.is_empty(), "objetivo no vacío");
         assert!(d.model_hint.is_some(), "model_hint presente");
