@@ -384,3 +384,22 @@ pub fn query_items(
     let items: Vec<MemoryItem> = rows.flatten().collect();
     Ok((items, total))
 }
+
+/// Find all item ids that start with `prefix` (any status, any sensitivity).
+///
+/// Used by the `forget --id` CLI subcommand to resolve an unambiguous short
+/// prefix to a full UUID before delegating to `MemoryService::forget`.
+/// The caller validates that exactly one id is returned (ambiguity guard).
+pub fn find_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<String>, MemoryError> {
+    // LIKE pattern: prefix% (case-sensitive for UUIDs — all lower-hex).
+    let pattern = format!("{prefix}%");
+    let mut stmt = conn
+        .prepare("SELECT id FROM memory_items WHERE id LIKE ?1")
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("find_ids_by_prefix prepare: {e}")))?;
+    let ids: Vec<String> = stmt
+        .query_map(params![pattern], |r| r.get(0))
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("find_ids_by_prefix query: {e}")))?
+        .flatten()
+        .collect();
+    Ok(ids)
+}

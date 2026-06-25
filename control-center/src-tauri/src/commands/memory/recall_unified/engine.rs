@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::memory::model::now_millis;
 use crate::memory::qdrant_index;
+use crate::memory::redaction;
 use crate::memory::sqlite_store as store;
 use crate::memory::{
     Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Source, Status,
@@ -140,6 +141,18 @@ pub(crate) fn assemble_pack(
         } else {
             (item.summary.clone(), item.token_estimate)
         };
+        // READ-PATH PII gate: redact email/phone/user-path from the summary that
+        // is injected into the prompt context. The item in brain.db is NOT mutated
+        // here — this is a defence-in-depth read-path guard so that items stored
+        // before the write-path PII classifier existed never expose raw PII to the
+        // model. Only the injected text is redacted; the stored item is untouched.
+        let summary = summary.map(|s| {
+            if redaction::contains_pii(&s) {
+                redaction::redact_pii(&s)
+            } else {
+                s
+            }
+        });
         total_tokens += entry_tokens;
         let reason = match (fh.dense_rank, fh.sparse_rank) {
             (Some(d), Some(s)) => format!("dense#{} + sparse#{}", d + 1, s + 1),

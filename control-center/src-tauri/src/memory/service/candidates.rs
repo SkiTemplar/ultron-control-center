@@ -24,12 +24,21 @@ impl MemoryService {
         // proposed text BEFORE it is persisted to brain.db or later embedded into
         // Qdrant. Defensive — only detected secrets are redacted; normal text is
         // left untouched. See memory/redaction.rs and CONTRACTS-2026-06-04.md.
+        // Code-location fields (proposed_file_path, proposed_signature) are also
+        // redacted: a tool/hook may embed a token (ghp_, sk-) in a file path or
+        // signature line, e.g. `C:/Users/name/ghp_token/repo` or a fn signature
+        // containing a hard-coded key. Credential redaction applies to all fields;
+        // PII (user-path) redaction in the write-path PII guard below covers them
+        // as well via the combined `proposed_text` scan.
         let mut redacted = false;
         redacted |= redaction::redact_in_place(&mut cand.proposed_title);
         redacted |= redaction::redact_in_place(&mut cand.proposed_summary);
         redacted |= redaction::redact_in_place(&mut cand.proposed_content);
         redacted |= redaction::redact_in_place(&mut cand.proposed_content_json);
         redacted |= redact_tags(&mut cand.proposed_tags);
+        // Code-location fields — credential redaction (ghp_, sk-, AKIA, Bearer…).
+        redacted |= redaction::redact_in_place(&mut cand.proposed_file_path);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_signature);
 
         // Basic FTS dedupe: flag near-identical ACTIVE items as duplicates so the
         // inbox can merge instead of creating a redundant memory. (Semantic dedupe
@@ -70,11 +79,51 @@ impl MemoryService {
             }
         }
 
+        // Write-path PII guard (defence-in-depth for items AFTER the credential
+        // gate): detect email/phone/user-path in the proposed text. If found,
+        // also apply PII redaction and elevate the risk marker identically to
+        // the credential path — the promoted item will be marked Secret on
+        // approve, excluding it from recall (sensitivity gate in assemble_pack).
+        let proposed_text = [
+            cand.proposed_title.as_deref(),
+            cand.proposed_summary.as_deref(),
+            cand.proposed_content.as_deref(),
+            cand.proposed_file_path.as_deref(),
+            cand.proposed_signature.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+        // NO `!redacted`: credencial y PII son ortogonales — un campo puede llevar
+        // un token y OTRO una ruta con username; ambas deben redactarse (audit 2026-06-25).
+        if redaction::contains_pii(&proposed_text) {
+            // Redact PII from the candidate fields in place (including codegraph
+            // fields: a path like C:\Users\name\repo contains the real username).
+            if let Some(ref mut t) = cand.proposed_title {
+                *t = redaction::redact_pii(t);
+            }
+            if let Some(ref mut s) = cand.proposed_summary {
+                *s = redaction::redact_pii(s);
+            }
+            if let Some(ref mut c) = cand.proposed_content {
+                *c = redaction::redact_pii(c);
+            }
+            if let Some(ref mut fp) = cand.proposed_file_path {
+                *fp = redaction::redact_pii(fp);
+            }
+            if let Some(ref mut sig) = cand.proposed_signature {
+                *sig = redaction::redact_pii(sig);
+            }
+        }
+
         // Write-path sensitivity (OLA A / H2): a candidate that carried a
-        // credential is quarantined (never auto-approved) and tagged so the
-        // promoted item is marked Secret on approve. `redacted` reuses the same
-        // detector as redaction::classify_sensitivity; takes precedence over Merge.
-        if redacted {
+        // credential OR PII is quarantined (never auto-approved) and tagged so
+        // the promoted item is marked Secret on approve. `redacted` reuses the
+        // same detector as redaction::classify_sensitivity; takes precedence
+        // over Merge. PII-only items also get Secret so the recall gate fires.
+        let has_pii = redaction::contains_pii(&proposed_text);
+        if redacted || has_pii {
             cand.recommended_action = CandidateAction::Quarantine;
             cand.risk_level = SECRET_RISK_MARKER.to_string();
         }

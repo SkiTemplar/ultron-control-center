@@ -445,6 +445,119 @@ fn assemble_pack_respects_per_call_token_cap() {
     );
 }
 
+// -----------------------------------------------------------------------
+// READ-PATH PII gate (assemble_pack). Verifies that summary text containing
+// PII (email, phone, user path) is redacted BEFORE it enters the context
+// pack, even when the item is stored without a `Secret` sensitivity tag.
+// This is the defence-in-depth guard for items persisted before the
+// write-path PII classifier existed. Negative case: a clean summary is
+// returned verbatim.
+// -----------------------------------------------------------------------
+#[test]
+fn assemble_pack_redacts_pii_in_summary() {
+    use crate::memory::model::MemoryItem;
+    use crate::memory::sqlite_store::{apply_schema, insert_item};
+    use crate::memory::{MemoryType, Sensitivity, Source};
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+    apply_schema(&conn).expect("schema");
+
+    // Item with PII in summary but sensitivity=Internal (not yet elevated):
+    // simulates a legacy item stored before the write-path PII gate existed.
+    let mut pii_item = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Global,
+        Source::ToolObserved,
+        Status::Active,
+    );
+    pii_item.summary = Some(
+        "contacto test@example.com tel +34 698 123 456 ruta C:/Users/TestUser/secret.txt"
+            .to_string(),
+    );
+    pii_item.sensitivity = Sensitivity::Internal; // NOT escalated — pre-gate row
+    pii_item.token_estimate = 40;
+    insert_item(&conn, &pii_item).expect("insert pii_item");
+
+    // Clean item: must pass through unchanged.
+    let mut clean_item = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Global,
+        Source::ToolObserved,
+        Status::Active,
+    );
+    clean_item.summary = Some("arquitectura de memoria ULTRON brain.db".to_string());
+    clean_item.sensitivity = Sensitivity::Internal;
+    clean_item.token_estimate = 20;
+    insert_item(&conn, &clean_item).expect("insert clean_item");
+
+    let fused: Vec<FusedHit> = vec![
+        FusedHit {
+            canonical_id: pii_item.id.clone(),
+            rrf_score: 0.9,
+            dense_rank: Some(0),
+            sparse_rank: None,
+            dense_score: Some(0.9),
+        },
+        FusedHit {
+            canonical_id: clean_item.id.clone(),
+            rrf_score: 0.8,
+            dense_rank: Some(1),
+            sparse_rank: None,
+            dense_score: Some(0.8),
+        },
+    ];
+
+    let (injected, _discarded, _tokens) =
+        assemble_pack(&conn, &fused, 8, None, false, PER_CALL_TOKEN_CAP);
+
+    // Both items must be injected (they are Active and within budget).
+    assert_eq!(injected.len(), 2, "both active items must be injected");
+
+    let pii_entry = injected
+        .iter()
+        .find(|e| e.canonical_id == pii_item.id)
+        .expect("pii item must be in pack");
+
+    // NEGATIVE CASE: the raw PII must NOT appear in the injected summary.
+    let injected_summary = pii_entry.summary.as_deref().unwrap_or("");
+    assert!(
+        !injected_summary.contains("test@example.com"),
+        "raw email must be absent from injected summary; got: {injected_summary}"
+    );
+    assert!(
+        !injected_summary.contains("698 123 456"),
+        "raw phone must be absent from injected summary; got: {injected_summary}"
+    );
+    assert!(
+        !injected_summary.contains("TestUser"),
+        "raw user path must be absent from injected summary; got: {injected_summary}"
+    );
+    // Redaction placeholders must be present.
+    assert!(
+        injected_summary.contains("[REDACTED_EMAIL]"),
+        "email placeholder must be present; got: {injected_summary}"
+    );
+    assert!(
+        injected_summary.contains("[REDACTED_PHONE]"),
+        "phone placeholder must be present; got: {injected_summary}"
+    );
+    assert!(
+        injected_summary.contains("[REDACTED_PATH]"),
+        "path placeholder must be present; got: {injected_summary}"
+    );
+
+    // Clean item must NOT be modified.
+    let clean_entry = injected
+        .iter()
+        .find(|e| e.canonical_id == clean_item.id)
+        .expect("clean item must be in pack");
+    assert_eq!(
+        clean_entry.summary.as_deref(),
+        Some("arquitectura de memoria ULTRON brain.db"),
+        "clean summary must be returned verbatim"
+    );
+}
+
 // ---------------------------------------------------------------------
 // END-TO-END runtime verification (Fase A+B). #[ignore]d because it hits
 // the REAL Qdrant (127.0.0.1:6333) + ~/.ultron/brain.db and downloads the

@@ -89,6 +89,7 @@ function run(cmd, opts = {}) {
         timeout: opts.timeout ?? 30000,
         cwd: opts.cwd ?? ULTRON,
         env: { ...process.env, ...opts.env },
+        input: opts.input, // FIX 2026-06-25: run() ignoraba el stdin payload (20.4/20.5 nunca median)
       });
     } else {
       r = spawnSync(cmd, {
@@ -97,6 +98,7 @@ function run(cmd, opts = {}) {
         timeout: opts.timeout ?? 30000,
         cwd: opts.cwd ?? ULTRON,
         env: { ...process.env, ...opts.env },
+        input: opts.input, // FIX 2026-06-25: run() ignoraba el stdin payload (20.4/20.5 nunca median)
       });
     }
     return { ok: r.status === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", code: r.status };
@@ -3106,14 +3108,14 @@ cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
       const marker = `kirkardo_pii_${Date.now()}`;
       const email = "redacttest@example.com";
       const phoneDigits = "698 123 456";
-      const winPath = ("C:/Users/" + (process.env.USERNAME||process.env.USER||"user") + "/secreto_pii.txt");
+      const winPath = "C:/Users/TestUser/secreto_pii.txt"; // ruta sintetica, NO username real (audit 2026-06-25)
       const payload = JSON.stringify({
         type: "fact",
         scope: "session",
         title: marker,
         summary: `contacto ${email} tel +34 ${phoneDigits} ruta ${winPath}`,
         confidence: 0.9,
-        project: "ultron",
+        project: "__kirkardo_test__", // scope efimero aislado del corpus productivo (audit 2026-06-25)
       });
       // Crea el candidato por la ruta real del binario (write-path productivo).
       const r = run(`"${fwd(ULTRON_MEM)}" candidate`, { input: payload, timeout: 30000 });
@@ -3147,7 +3149,7 @@ cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
       if (!existsSync(ULTRON_MEM)) return { pass: false, detail: "no medible: ultron-memory.exe ausente" };
       if (!existsSync(BRAIN_DB)) return { pass: false, detail: "no medible: brain.db ausente" };
       const marker = `kirkardo_cg_${Date.now()}`;
-      const fp = ("C:/Users/" + (process.env.USERNAME||process.env.USER||"user") + "/secret/ghp_AAAABBBBCCCCDDDDEEEE.rs");
+      const fp = "C:/Users/TestUser/secret/ghp_AAAABBBBCCCCDDDDEEEE.rs"; // ruta sintetica, NO username real (audit 2026-06-25)
       const sig = 'fn leak() { let t = "sk-abcdef1234567890"; }';
       const payload = JSON.stringify({
         type: "fact",
@@ -3157,7 +3159,7 @@ cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
         file_path: fp,
         signature: sig,
         confidence: 0.9,
-        project: "ultron",
+        project: "__kirkardo_test__", // scope efimero aislado del corpus productivo (audit 2026-06-25)
       });
       const r = run(`"${fwd(ULTRON_MEM)}" candidate`, { input: payload, timeout: 30000 });
       const out = (r.stdout || "") + (r.stderr || "");

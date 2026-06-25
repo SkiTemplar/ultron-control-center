@@ -38,9 +38,9 @@ mod tests;
 pub use schema::{apply_schema, open_conn};
 
 pub use items::{
-    count_by_source, count_items_by_status, delete_item, find_active_by_content_hash, get_item,
-    insert_item, item_exists_by_qdrant_id, list_by_type_status, list_items, list_pinned,
-    query_items, search_items,
+    count_by_source, count_items_by_status, delete_item, find_active_by_content_hash,
+    find_ids_by_prefix, get_item, insert_item, item_exists_by_qdrant_id, list_by_type_status,
+    list_items, list_pinned, query_items, search_items,
 };
 
 pub use events::{insert_event, list_events_for};

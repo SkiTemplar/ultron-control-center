@@ -224,6 +224,66 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
+        // Governed, selective hard-delete by item id.
+        //
+        // Event-sourced: removes the row from brain.db (SQLite SoT) + its Qdrant
+        // point (dense index), then appends a `MemoryEvent` (Updated, reason
+        // "forgotten") with a `before` snapshot — the only surviving audit record.
+        // Reuses the exact `MemoryService::forget` path wired to the Tauri
+        // `memory_forget` command (see commands/memory/inbox.rs).
+        //
+        // Accepts a full UUID or an unambiguous id PREFIX (≥ 4 hex chars). When a
+        // prefix is supplied the sidecar resolves it against brain.db (exact-start
+        // search) and rejects the call when the prefix is absent or ambiguous
+        // (matches > 1 item) — so a partial id can never delete the wrong item.
+        //
+        // Flags:
+        //   --id <id|prefix>   required — the item to forget
+        //   --dry-run          print what WOULD be forgotten without mutating
+        //   --reason <R>       optional free-text reason (logged in the audit event)
+        //
+        // Usage:
+        //   ultron-memory forget --id 7cd41c41 --dry-run
+        //   ultron-memory forget --id 7cd41c41 --reason "PII purge audit-2026-06-25"
+        //   ultron-memory forget --id 84afaee2-3b1a-4c2f-8e0d-000000000000 --reason "PII"
+        "forget" => {
+            let id_prefix = flag_value(&args, "--id")
+                .ok_or_else(|| "forget requires --id <id|prefix>".to_string())?;
+            let dry = has_flag(&args, "--dry-run");
+            let reason = flag_value(&args, "--reason");
+
+            // Resolve prefix → full id via the canonical store.
+            let resolved_id = resolve_id_prefix(&id_prefix)?;
+
+            if dry {
+                // Dry-run: fetch + display the item that would be forgotten.
+                let item = ul::memory::MemoryService::get(&resolved_id)
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| format!("item '{resolved_id}' not found"))?;
+                Ok(serde_json::json!({
+                    "dry_run": true,
+                    "would_forget": {
+                        "id": item.id,
+                        "type": item.kind.as_str(),
+                        "status": item.status.as_str(),
+                        "sensitivity": item.sensitivity.as_str(),
+                        "summary": item.summary,
+                    }
+                }))
+            } else {
+                ul::memory::MemoryService::forget(
+                    &resolved_id,
+                    ul::memory::Actor::System,
+                    reason,
+                )
+                .map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({
+                    "forgotten": resolved_id,
+                    "ok": true,
+                }))
+            }
+        }
+
         // Bulk-deprecate every ACTIVE item of a type (purge bloat, e.g.
         // codebase_fact). --dry-run only counts. Reuses set_status per id so
         // FTS5 + Qdrant stay in sync; appends a Deprecated event per item.
@@ -264,7 +324,7 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|capture|edge|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -494,6 +554,33 @@ fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Value, String
 
 fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
+}
+
+/// Resolve an id prefix (≥ 1 hex char) to an unambiguous full item id.
+///
+/// Returns the full id when exactly one ACTIVE or non-active item starts with
+/// the prefix. Errors when:
+/// - The prefix is empty or contains only whitespace.
+/// - No item id starts with the prefix.
+/// - More than one item id starts with the prefix (ambiguous).
+///
+/// Accepts a full UUID as well (pass-through when the item exists).
+fn resolve_id_prefix(prefix: &str) -> Result<String, String> {
+    let prefix = prefix.trim();
+    if prefix.is_empty() {
+        return Err("--id must not be empty".to_string());
+    }
+    // Open a read-only connection for the prefix scan.
+    let conn = ul::memory::sqlite_store::open_conn().map_err(|e| e.to_string())?;
+    let matches =
+        ul::memory::sqlite_store::find_ids_by_prefix(&conn, prefix).map_err(|e| e.to_string())?;
+    match matches.len() {
+        0 => Err(format!("no item found with id prefix '{prefix}'")),
+        1 => Ok(matches.into_iter().next().unwrap()),
+        n => Err(format!(
+            "prefix '{prefix}' is ambiguous — matches {n} items; use a longer prefix"
+        )),
+    }
 }
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
