@@ -63,14 +63,12 @@ str_enum! {
         Decision => "decision",
         Constraint => "constraint",
         Task => "task",
-        WorkflowState => "workflow_state",
         CodebaseFact => "codebase_fact",
         Skill => "skill",
         AgentNote => "agent_note",
         SessionSummary => "session_summary",
         ErrorResolution => "error_resolution",
         Architecture => "architecture",
-        ToolUsage => "tool_usage",
         UserProfile => "user_profile",
     }
 }

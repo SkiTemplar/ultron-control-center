@@ -63,14 +63,12 @@ const TYPE_OPTIONS = [
   "decision",
   "constraint",
   "task",
-  "workflow_state",
   "codebase_fact",
   "skill",
   "agent_note",
   "session_summary",
   "error_resolution",
   "architecture",
-  "tool_usage",
   "user_profile",
 ] as const;
 

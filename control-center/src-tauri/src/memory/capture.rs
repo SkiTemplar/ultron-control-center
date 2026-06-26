@@ -126,10 +126,13 @@ fn extraction_prompt(transcript: &str) -> String {
     };
     format!(
         "Extrae como mucho {MAX_FACTS} hechos DURADEROS y reutilizables de esta sesion \
-         (decisiones tecnicas, preferencias del usuario, hechos del proyecto, restricciones). \
+         (decisiones tecnicas, preferencias del usuario, hechos del proyecto, restricciones, \
+         o identidad/rol estable del usuario). \
          Ignora lo efimero. Una linea por hecho, formato exacto:\n\
          TIPO | titulo corto | resumen de una frase | importancia\n\
-         donde TIPO es uno de: decision, preference, fact, constraint, task; \
+         donde TIPO es uno de: decision, preference, fact, constraint, task, user_profile; \
+         usa user_profile SOLO para identidad/rol/forma-de-trabajar ESTABLE del usuario \
+         (quien es, a que se dedica, como prefiere trabajar), no para gustos puntuales (eso es preference); \
          e importancia es un numero entre 0 y 1 que refleja cuan importante y duradero \
          es el hecho (las decisiones y restricciones suelen ser altas, los resumenes bajos).\n\
          No incluyas secretos ni tokens. Si no hay nada relevante, responde NADA.\n\n\
@@ -226,8 +229,8 @@ fn type_base_importance(kind: MemoryType) -> f32 {
         MemoryType::Decision | MemoryType::Constraint | MemoryType::Architecture => 0.78,
         MemoryType::Preference | MemoryType::UserProfile => 0.70,
         MemoryType::CodebaseFact | MemoryType::ErrorResolution | MemoryType::Skill => 0.62,
-        MemoryType::Fact | MemoryType::Task | MemoryType::ToolUsage => 0.55,
-        MemoryType::WorkflowState | MemoryType::AgentNote => 0.48,
+        MemoryType::Fact | MemoryType::Task => 0.55,
+        MemoryType::AgentNote => 0.48,
         MemoryType::SessionSummary => 0.40,
     }
 }
@@ -445,6 +448,45 @@ mod tests {
             "la config de fábrica DEBE poder auto-aprobar el fact de máxima confianza del \
              path de captura (conf={ceiling:.3} vs umbral de fábrica {DEFAULT_AUTO_APPROVE_THRESHOLD})"
         );
+    }
+
+    #[test]
+    fn prompt_offers_user_profile_type() {
+        // 1.4: el extractor SOLO puede emitir tipos que el prompt le ofrece. Para que
+        // `user_profile` deje de ser una categoría vacía-sin-productor, el prompt debe
+        // ofrecerla (el parser ya la mapea). ROJO si el prompt no la lista.
+        let p = extraction_prompt("una sesion de prueba con suficiente contenido para no truncar");
+        assert!(
+            p.contains("user_profile"),
+            "el extraction_prompt debe ofrecer user_profile como tipo capturable"
+        );
+        // Regresión 1.4: los tipos retirados NO deben reaparecer ofrecidos en el prompt.
+        assert!(
+            !p.contains("tool_usage"),
+            "tool_usage retirado: el prompt no debe ofrecerlo"
+        );
+        assert!(
+            !p.contains("workflow_state"),
+            "workflow_state retirado: el prompt no debe ofrecerlo"
+        );
+    }
+
+    #[test]
+    fn retired_memory_types_no_longer_parse() {
+        // 1.4: `tool_usage` y `workflow_state` se retiran (sin productor). El parser de
+        // captura ya no debe reconocerlos como MemoryType. ROJO mientras sigan en el enum.
+        assert!(
+            MemoryType::parse("tool_usage").is_none(),
+            "tool_usage retirado"
+        );
+        assert!(
+            MemoryType::parse("workflow_state").is_none(),
+            "workflow_state retirado"
+        );
+        // Sanidad: los tipos CONSERVADOS siguen parseando (skill/architecture tienen productor).
+        assert!(MemoryType::parse("user_profile").is_some());
+        assert!(MemoryType::parse("skill").is_some());
+        assert!(MemoryType::parse("architecture").is_some());
     }
 
     // Small helper: Fact is a private test-local struct without Clone.

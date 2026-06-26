@@ -67,7 +67,8 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   RRF con 211 hits idénticos). `supersede()` (`mutations.rs:306`) **0 callers** → estado nunca se actualiza solo.
   Threshold por defecto **0.85 inalcanzable** (techo de `derive_confidence` ~0.76) → auto-approve es código
   muerto para captura. **5 categorías vacías** (`user_profile`/`skill`/`architecture`/`tool_usage`/`workflow_state`)
-  por falta de productor. **NUEVO:** los 478 `codebase_fact` están **todos deprecated** (0 activos) → se capturan
+  por falta de productor. *(→ 1.4 HECHO: user_profile poblado; tool_usage/workflow_state retirados del enum;
+  skill/architecture conservados por tener productor vivo — enum a 12 variantes.)* **NUEVO:** los 478 `codebase_fact` están **todos deprecated** (0 activos) → se capturan
   pero no entran a recall (mand. 12).
 - **Hooks — la superficie REAL es ~30 eventos (el usuario tenía razón; mi verificador se equivocó):** Claude Code
   soporta **~30 tipos de evento de hook** — SessionStart, Setup, UserPromptSubmit, UserPromptExpansion, PreToolUse,
@@ -224,9 +225,22 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   (`contradiction.rs`) solo da boolean; clasificar "misma entidad, distinto valor" (state-update → `supersede`) vs
   "conflicto real" (→ Quarantine) es LLM-dependiente y merece su iteración con clasificador + eval — supersede mal
   aplicado deprecaría memoria válida (aunque reversible). No rushear.
-- ☐ **1.4 Productores para las 5 categorías vacías.** Extender la extracción para emitir `user_profile` (y decidir
-  `skill`/`architecture`/`tool_usage`/`workflow_state`): cablear productor o retirarlas del enum/UI (mand. 12). *Evidencia:*
-  `capture.rs:126-135`. *Hecho:* `user_profile` se llena solo tras sesiones.
+- ✅ **1.4 user_profile poblado · tool_usage/workflow_state retirados · skill/architecture conservados (HECHO 2026-06-26).**
+  Decisión #2 resuelta. *Diagnóstico runtime:* las 5 estaban a 0; el `extraction_prompt` (`capture.rs`) solo ofrecía al LLM
+  `decision/preference/fact/constraint/task` → las otras nunca se emitían. **(A) user_profile POBLADO:** añadido al prompt
+  con guía que lo distingue de `preference` (identidad/rol/forma-de-trabajar ESTABLE); el parser ya lo mapeaba; el match
+  `type_base_importance` ya lo cubría (0.70). **(B) tool_usage + workflow_state RETIRADOS** (sin productor real): fuera del
+  enum `MemoryType` (`model.rs`), del match (`capture.rs`) y del `TYPE_OPTIONS` del frontend (`MemoryBrowser.tsx`).
+  **(C) skill + architecture CONSERVADOS:** tienen productor vivo — `skill` lo crea `post_install.rs` (registro de
+  instalaciones de Library para routing), `architecture` lo usa `migrations.rs` (ETL kg) + `classify_band` (gobernanza);
+  vacías por dormidas, no muertas. Checks conductuales (`capture.rs`): `prompt_offers_user_profile_type` (+ regresión: el
+  prompt NO ofrece los retirados) y `retired_memory_types_no_longer_parse` (`parse("tool_usage"|"workflow_state")`==None;
+  skill/architecture/user_profile siguen). Suite memory **217/217**; tsc 0; verificación adversarial 2-lentes (0
+  bloqueantes; integridad=pass, retirada completa sin huérfanos; el struct `WorkflowState` de `workflow_runs.rs` es OTRO
+  tipo, intacto). Sidecar redeployado. **ALCANCE REAL (mand. 13):** el productor de user_profile queda CABLEADO y testeado
+  a nivel de contrato (offer + parse + match); la EMISIÓN real end-to-end (que el LLM extractor emita `kind=UserProfile`
+  en una sesión con identidad) NO está medida con eval determinista — se observará en captura real. No se vende "se llena
+  solo" como verificado.
 - ☐ **1.5 `codebase_fact` muerto en recall (NUEVO).** 478 capturados, **todos deprecated** (0 activos) → el codegraph
   se captura pero no se inyecta (mand. 12). Decidir: activarlos (que entren a recall) o dejar de capturarlos. *Hecho:*
   o `codebase_fact` activos > 0 y recallables, o se deja de escribir.
@@ -312,8 +326,9 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 1. **Memoria viva (1.3):** ¿el supersede automático actúa solo en contradicciones de "estado del mismo hecho", o también
    deprecia proactivamente lo que lleva N días sin accederse?
-2. **Categorías vacías (1.4):** `user_profile`/`skill`/`architecture`/`tool_usage`/`workflow_state` — ¿se pueblan o se
-   retiran del enum? (5 tipos, no 2).
+2. **Categorías vacías (1.4):** **RESUELTO (2026-06-26)** — `user_profile` poblado (productor en el prompt);
+   `tool_usage`/`workflow_state` retirados (sin productor); `skill`/`architecture` conservados (productor vivo:
+   `post_install` / `migrations`+gobernanza). Enum a 12 variantes vivas.
 3. **`codebase_fact` (1.5):** ¿se activan para recall o se deja de capturarlos?
 4. **Poda (2.2):** **RESUELTO** — no se poda el catálogo ([[no-podar-catalogo-skills]]); solo honestidad de conteo.
 5. **Batch (3.6):** ¿se retira de la barra para agrandar el kanban, o se mantiene?
