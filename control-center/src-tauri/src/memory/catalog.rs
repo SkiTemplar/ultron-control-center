@@ -276,6 +276,121 @@ pub fn index_skills() -> Result<(usize, usize), String> {
     Ok((ok, err))
 }
 
+/// Qdrant collection holding ALL skills (enabled + disabled) for lazy-dispatch
+/// evaluation. Separate from `ultron_catalog` so the orchestrator's active
+/// routing is never contaminated with disabled skills.
+pub const SKILLS_LAZY_COLLECTION: &str = "ultron_skills_lazy";
+
+/// Index ALL skills (enabled AND disabled) into `ultron_skills_lazy` for
+/// off-line accuracy evaluation of E5 vs mpnet routing. Disabled skills are
+/// the ones the lazy dispatcher injects on-demand, so they must be present
+/// here even though they are excluded from `ultron_catalog`.
+///
+/// Mirrors `index_skills` exactly, with three differences:
+///   1. Calls `ensure_collection_dim` first (creates the collection if absent).
+///   2. Does NOT skip disabled skills — every skill with a non-empty description
+///      is indexed regardless of `enabled` status.
+///   3. Adds an `enabled` boolean to the payload so callers can filter or weight
+///      results downstream.
+///
+/// Idempotent (deterministic id = `deterministic_id("skill::{name}")`).
+/// Returns `(indexed, errors)`.
+pub fn index_skills_lazy() -> Result<(usize, usize), String> {
+    crate::qdrant::ensure_collection_dim(SKILLS_LAZY_COLLECTION, 1024)?;
+
+    let probe = crate::qdrant::embed_e5("warmup", false)?;
+    if probe.iter().all(|&x| x == 0.0) {
+        return Err("E5 model unavailable (zero vector) — cannot index skills lazy".to_string());
+    }
+
+    let skills = crate::skills::list_skills_with_origin_inner(None)
+        .map_err(|e| format!("list skills: {e}"))?;
+
+    let mut ok = 0usize;
+    let mut err = 0usize;
+    for skill in skills {
+        // Index ALL skills — disabled ones are what the lazy dispatcher injects.
+        // Only skip skills whose description is empty (embeds to noise).
+        if skill.description.trim().is_empty() {
+            continue;
+        }
+        let name = skill.name;
+        let description = skill.description;
+        let kind = classify_skill_kind(&name, &description);
+
+        let vector = match crate::qdrant::embed_e5(&format!("{name}: {description}"), false) {
+            Ok(v) => v,
+            Err(_) => {
+                err += 1;
+                continue;
+            }
+        };
+        let mut payload: HashMap<String, serde_json::Value> = HashMap::new();
+        payload.insert("entity".to_string(), "skill".into());
+        payload.insert("name".to_string(), name.clone().into());
+        payload.insert("description".to_string(), description.into());
+        payload.insert("kind".to_string(), kind.into());
+        payload.insert("path".to_string(), skill.path.into());
+        // Extra field (vs ultron_catalog): lets callers distinguish active from
+        // lazy-only skills without a second lookup.
+        payload.insert("enabled".to_string(), skill.enabled.into());
+
+        let id = deterministic_id(&format!("skill::{name}")).to_string();
+        match crate::qdrant::upsert_e5(SKILLS_LAZY_COLLECTION, &id, vector, payload) {
+            Ok(()) => ok += 1,
+            Err(_) => err += 1,
+        }
+    }
+    Ok((ok, err))
+}
+
+/// Semantic search over `ultron_skills_lazy` (ALL skills, enabled + disabled).
+/// No entity filter — every point in the collection is a skill. Returns up to
+/// `k` hits ordered by cosine similarity descending (Qdrant guarantees this).
+/// Empty when E5/Qdrant unavailable.
+pub fn search_skills_lazy(query: &str, k: u32) -> Vec<CatalogHit> {
+    let vector = match crate::qdrant::embed_e5(query, true) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    if vector.iter().all(|&x| x == 0.0) {
+        return Vec::new();
+    }
+    match crate::qdrant::search_with_vector(SKILLS_LAZY_COLLECTION, vector, k, None) {
+        Ok(hits) => hits
+            .into_iter()
+            .map(|h| CatalogHit {
+                entity: h
+                    .payload
+                    .get("entity")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("skill")
+                    .to_string(),
+                name: h
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: h
+                    .payload
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                score: h.score,
+                kind: h
+                    .payload
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Warm `ultron_catalog` once per process start: index agents + skills if the
 /// collection looks empty/stale. Idempotent (deterministic upsert). Designed to
 /// run inside `spawn_blocking` from the Tauri `setup()` so it never blocks
@@ -413,6 +528,17 @@ mod tests {
                 "Idiomatic Rust ownership and trait patterns."
             ),
             "technical"
+        );
+    }
+
+    #[test]
+    fn lazy_collection_is_distinct_from_catalog() {
+        // Ensures the two collections never point to the same Qdrant namespace.
+        // A naming collision would let index_skills_lazy overwrite active-routing
+        // points in ultron_catalog with disabled-skill vectors.
+        assert_ne!(
+            SKILLS_LAZY_COLLECTION, CATALOG_COLLECTION,
+            "lazy collection must be separate from the orchestrator catalog"
         );
     }
 

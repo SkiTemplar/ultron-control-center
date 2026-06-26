@@ -315,6 +315,13 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     mover resultados; `_accuracy_at3.js --v3` lo mide) + portar el reranker (`embed_skills._rerank`) a Rust. Alternativa
     (descartada salvo orden del usuario): daemon Python residente con mpnet — mantiene el acc conocido pero añade un runtime
     Python permanente (~400MB). *Hecho:* `skill_query` al daemon E5 <800ms warm + acc@3 sin regresión + v3 cableado a v3.
+    *✅ PROGRESO (2026-06-26) — capacidad construida + GATE MEDIDO:* `index_skills_lazy` + `search_skills_lazy` (collection
+    `ultron_skills_lazy` E5 1024d, **129 skills incl. `.disabled`**) + subcomandos `reindex-skills-lazy`/`skill-query`
+    (delegado a rust-engineer contra contrato fijo; build release 0 warn; `ultron_catalog` intacto). **Medición acc@3 sobre los
+    12 casos skill-scoped del harness: E5 = 100% (12/12) vs mpnet `embed_skills.py` = 91.7% (11/12)** — E5 NO degrada, MEJORA
+    (acierta `test-driven-development`, que mpnet falla). El gate ("si E5 degrada, abortar sin escribir el daemon") está superado.
+    *☐ Siguiente:* cmd `skill_query` en el daemon `serve.rs` (residente, sub-segundo) + cablear `v3.js` al daemon + retirar
+    `embed_skills.py` del hot path + reindex lazy en el warmup de SessionStart.
   - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
     (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
     100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses

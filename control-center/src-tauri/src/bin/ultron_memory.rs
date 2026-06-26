@@ -323,6 +323,61 @@ fn run() -> Result<serde_json::Value, String> {
         // `run_daemon` blocks forever serving requests, OR returns immediately with
         // `already_running` when a live daemon already owns the lockfile. Spawned
         // DETACHED by the SessionStart memory-warmup hook.
+        // (Re)index ALL skills (enabled + disabled) into `ultron_skills_lazy`.
+        // Used to measure acc@3 of E5 routing over the full lazy-dispatch corpus
+        // before wiring the hot path. Never touches `ultron_catalog`.
+        //   ultron-memory reindex-skills-lazy
+        "reindex-skills-lazy" => {
+            let (ok, err) = ul::memory::catalog::index_skills_lazy()?;
+            to_json(serde_json::json!({
+                "indexed": ok,
+                "errors": err,
+                "collection": ul::memory::catalog::SKILLS_LAZY_COLLECTION,
+            }))
+        }
+        // Semantic skill search over the full lazy corpus (enabled + disabled).
+        //   ultron-memory skill-query <prompt> [--top N]   (default N=5)
+        // Returns a JSON array of hits ordered by E5 cosine similarity desc.
+        "skill-query" => {
+            let top: u32 = flag_value(&args, "--top")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5);
+            // Build prompt: collect positional tokens after the subcommand,
+            // skipping value flags (--top N, --project P) and bare flags (--*).
+            let mut parts: Vec<String> = Vec::new();
+            let mut i = 2usize;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--project" | "--top" => {
+                        i += 2; // skip flag + its value
+                    }
+                    s if s.starts_with("--") => {
+                        i += 1; // skip unknown boolean flag
+                    }
+                    _ => {
+                        parts.push(args[i].clone());
+                        i += 1;
+                    }
+                }
+            }
+            let prompt = parts.join(" ");
+            if prompt.trim().is_empty() {
+                return Err("skill-query requires a prompt argument".to_string());
+            }
+            let hits = ul::memory::catalog::search_skills_lazy(&prompt, top);
+            let result: Vec<serde_json::Value> = hits
+                .into_iter()
+                .map(|h| {
+                    serde_json::json!({
+                        "name": h.name,
+                        "score": h.score,
+                        "kind": h.kind,
+                        "description": h.description,
+                    })
+                })
+                .collect();
+            to_json(result)
+        }
         "serve" => ul::serve::run_daemon(),
         // Report whether a live daemon is reachable (lockfile + ping). Read-only.
         "serve-ping" => Ok(ul::serve::ping_status()),
@@ -337,7 +392,7 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
