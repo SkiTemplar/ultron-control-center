@@ -305,10 +305,16 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   deadline de 4.5s, recablear v3 al hot path haría que **cada prompt ambiguo (conf<0.80) esperase +4.5s y recibiese vacío** —
   exactamente la regresión por la que se retiró el 2026-06-10 (`manifest.json:362`). **NO recablear hasta acelerar el embed.**
   Dos sub-tareas:
-  - ☐ **(a) BLOQUEANTE — daemon de embeddings de skills.** mpnet residente en RAM (proceso largo) que sirva `query` a la
-    collection `ultron_skills` en sub-segundo (espejo del daemon E5 de memoria, que usa OTRO modelo). Solo con esto el branch B
-    de v3 aporta en vez de costar. Es el trabajo real que hace "v3 funcione" (pilar #5). *Hecho:* `embed_skills query` <800ms warm
-    → recablear `settings.json`+`manifest.json` a v3 → check conductual: prompt ambiguo recibe hint semántico en <1s.
+  - ◐ **(a) BLOQUEANTE — daemon de skills. Camino de reuse VERIFICADO (2026-06-26).** La INFRA E5 ya existe y es reusable:
+    daemon `serve.rs` residente+warm + collection `ultron_catalog` (E5 1024d) que el orquestador YA consulta sub-segundo
+    (`rank_skills`←`search_catalog`). PERO `catalog::index_skills` **excluye las `.disabled` por diseño** (`catalog.rs:16-18` —
+    el orquestador no debe rutear a skills apagadas), y el v3 lazy existe JUSTO para inyectar las `.disabled`. Propósitos opuestos
+    sobre el estado → **no hay reuse a coste cero**. El reuse real = **añadir al daemon E5 un cmd `skill_query` sobre una collection
+    E5 con TODAS las skills (incl. disabled), reindexada desde `ultron_skills` (hoy mpnet 768d) a E5 1024d**; el v3.js consulta al
+    daemon (cero proceso Python, cero modelo extra). *Coste honesto (mand. 13):* re-index + **re-eval de acc@3** (E5 vs mpnet puede
+    mover resultados; `_accuracy_at3.js --v3` lo mide) + portar el reranker (`embed_skills._rerank`) a Rust. Alternativa
+    (descartada salvo orden del usuario): daemon Python residente con mpnet — mantiene el acc conocido pero añade un runtime
+    Python permanente (~400MB). *Hecho:* `skill_query` al daemon E5 <800ms warm + acc@3 sin regresión + v3 cableado a v3.
   - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
     (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
     100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses
