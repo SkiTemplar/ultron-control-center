@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-06-25",
+  "generated_at": "2026-06-26",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -171,7 +171,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
-      "checksum_sha256": "20df836cb6925307e598197914f8b476a752796f3a9ccc5b57d2b9a76cf0300a",
+      "checksum_sha256": "885581d000258f6020f474de7106d1b745e3fa4f378842c5898bca3d5ee8f747",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -321,7 +321,7 @@
       "command": "node ~/.ultron/hooks/scripts/subagent-harvest.js",
       "script": "~/.ultron/hooks/scripts/subagent-harvest.js",
       "timeout_s": 20,
-      "checksum_sha256": "a29e2ee39362b65c0a66d0ab7bdf23645ab4056c81ad546be3565654ed2d1946",
+      "checksum_sha256": "7132a2ca9a04056c25c811dec7c5e72e171e92a7aa93ccfdf3b9759860039d6f",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",

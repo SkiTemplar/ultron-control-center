@@ -90,12 +90,10 @@ try {
             $exitCode = $LASTEXITCODE
         }
         "gemini" {
-            # We funnel Gemini through the existing Python helper so model
-            # selection + stdout layout match the rest of the system.
-            $script = Join-Path $env:USERPROFILE ".ultron\scripts\cockpit\gemini_cli.py"
-            $modelArg = if ($model) { $model } else { "gemini-3.1-pro-preview" }
-            $stdoutText = ("" | & uv run python $script --model $modelArg $prompt 2>&1) | Out-String
-            $exitCode = $LASTEXITCODE
+            # gemini-cli retirado el 2026-06-19 (Google corto el OAuth free-tier).
+            # El provider gemini CLOUD vive en el AI Router (Rust), no por este helper
+            # (el helper CLI de gemini ya no existe). Fallar fuerte, no no-op silencioso (mand. 11).
+            throw "provider 'gemini' (CLI) retirado; usa el AI Router (gemini cloud) o claude/codex"
         }
     }
 } catch {

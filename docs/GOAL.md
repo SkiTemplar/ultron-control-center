@@ -73,7 +73,10 @@ de buildear). El feedback literal del usuario ES el entregable.
 **Gate de laggard (anti-promedio):** "acabado" = `min(nota_categoría) >= 9.5`, **no** que el
 promedio llegue a 9.5. Un overall ponderado alto puede esconder una categoría rota (una cat con
 muchos checks verdes compensa otra en rojo). El harness emite `all_cats_pass`, `worst_cat` y
-`laggards`; `node scripts/kirkardo-eval.mjs --gate` devuelve exit ≠0 si alguna categoría incumple.
+`laggards`. `node scripts/kirkardo-eval.mjs` aplica **gate por defecto**: exit ≠0 si alguna
+categoría incumple (`--no-gate` para reporte sin gate). La métrica de salud honesta es
+`all_cats_pass` + `overall_core` (las 14 core), **no** `overall`. Un run scoped (`--cat=N`) escribe
+`kirkardo-eval.scoped.json` y **no** pisa la nota canónica (un run parcial no puede declarar al sistema en 10).
 
 ## Límites físicos declarados (2026-06-23)
 

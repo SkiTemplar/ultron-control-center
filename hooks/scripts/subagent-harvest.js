@@ -27,7 +27,7 @@ observe('subagent-harvest');
 
 const HOME = os.homedir();
 const TMP_DIR = path.join(HOME, '.ultron', '.tmp');
-const LOG_PATH = path.join(TMP_DIR, 'subagent-harvest.jsonl');
+const LOG_PATH = process.env.SUBAGENT_HARVEST_LOG || path.join(TMP_DIR, 'subagent-harvest.jsonl');
 const MIN_CANDIDATE_CHARS = 80; // skip trivial / empty results
 const SIDECAR_TIMEOUT_MS = 12000;
 
@@ -64,6 +64,30 @@ function projectName(cwd) {
   } catch (_) {
     return 'ultron';
   }
+}
+
+// 0.3: resuelve el nombre del agente tolerando variantes de shape del payload
+// SubagentStop (snake/camel, anidado). Antes solo miraba agent_type/subagent_type/
+// agent -> 239 'unknown' historicos.
+function resolveAgent(stdin) {
+  const direct =
+    stdin.agent_type || stdin.subagent_type || stdin.agentType || stdin.subagentType ||
+    stdin.agent || stdin.agent_name ||
+    (stdin.task && (stdin.task.subagent_type || stdin.task.agent_type)) ||
+    (stdin.tool_input && (stdin.tool_input.subagent_type || stdin.tool_input.agent_type));
+  const name = typeof direct === 'string' ? direct.trim() : '';
+  return name || 'unknown';
+}
+
+// 0.3: identidad de la TAREA (label/description). Util cuando el agente es un wrapper
+// generico (workflow-subagent / general-purpose) y el especialista real esta aqui.
+function resolveLabel(stdin) {
+  const src =
+    stdin.label || stdin.description ||
+    (stdin.task && (stdin.task.label || stdin.task.description)) ||
+    (stdin.tool_input && stdin.tool_input.description) ||
+    stdin.name;
+  return typeof src === 'string' ? src.trim().slice(0, 120) : '';
 }
 
 // Pull a text result out of the SubagentStop payload, tolerant of shape drift.
@@ -111,17 +135,23 @@ function main() {
 
   const cwd = stdin.cwd || process.cwd();
   const project = projectName(cwd);
-  const agent = stdin.agent_type || stdin.subagent_type || stdin.agent || 'unknown';
+  const agent = resolveAgent(stdin);
+  const label = resolveLabel(stdin);
   const resultText = extractResultText(stdin);
 
   // Sink 1: scratch log (always, writer_path NONE).
-  appendScratchLog({
+  const record = {
     ts: new Date().toISOString(),
     project,
     agent,
     chars: resultText.length,
     preview: resultText.slice(0, 200),
-  });
+  };
+  // Identidad de la tarea: desambigua wrappers genericos (workflow-subagent / general-purpose).
+  if (label) record.label = label;
+  // Diagnostico (mand. 10): si no hay nombre, deja las claves del payload para fijar el campo real.
+  if (agent === 'unknown') record._keys = Object.keys(stdin).slice(0, 25);
+  appendScratchLog(record);
 
   // Sink 2: governed candidate (best-effort, writer_path MemoryService).
   if (resultText.length < MIN_CANDIDATE_CHARS) return;

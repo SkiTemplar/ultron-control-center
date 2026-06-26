@@ -46,7 +46,10 @@ const SKILLS_DIR = join(CLAUDE, "skills");
 const ARGS = process.argv.slice(2);
 const FLAG_JSON = ARGS.includes("--json");
 const FLAG_CAT = ARGS.find((a) => a.startsWith("--cat="))?.split("=")[1];
-const FLAG_GATE = ARGS.includes("--gate"); // exit !=0 si alguna cat < umbral (gate CI estricto)
+// 0.4 (medidor honesto): gate por DEFECTO. Un harness que imprime "VERDICT: FAIL"
+// pero sale con codigo 0 es un no-op silencioso (mand. 11). El exit codifica el
+// veredicto salvo --no-gate explicito (reporte puro sin gate).
+const FLAG_GATE = !ARGS.includes("--no-gate");
 
 // El GOAL exige 9.5 en CADA categoria, no solo en el promedio. El overall ponderado
 // enmascara laggards (una cat rota se diluye entre checks verdes de otras categorias).
@@ -3796,12 +3799,20 @@ async function evaluate() {
   const coreTotal = coreRated.reduce((s, c) => s + c.total, 0);
   const overallCore = coreTotal > 0 ? (corePass / coreTotal) * 10 : 0;
 
+  // 0.4: un run scoped (--cat=N) NO refleja la salud del sistema entero. No debe
+  // pisar el JSON canonico que lee el resume, ni afirmar all_cats_pass (el "10" del
+  // 06-25 era un run cat19 sobre el canonico: overall=10, core=0, all_cats_pass=true).
+  const isScoped = catsToRun.length < CATS.length;
+
   const output = {
     generated_at: new Date().toISOString(),
     deterministic: true,
+    scoped: isScoped,
+    cats_run: catsToRun.map((c) => c.num),
     overall: parseFloat(overall.toFixed(2)),
     overall_core: parseFloat(overallCore.toFixed(2)),
-    all_cats_pass: allCatsPass,
+    // all_cats_pass solo es afirmable en un run COMPLETO; un scoped no puede.
+    all_cats_pass: isScoped ? false : allCatsPass,
     laggard_threshold: LAGGARD_THRESHOLD,
     worst_cat: worst ? { cat: worst.cat, name: worst.name, nota: parseFloat(worst.nota.toFixed(1)) } : null,
     laggards,
@@ -3810,10 +3821,11 @@ async function evaluate() {
     cats: results,
   };
 
-  // Escribe JSON
+  // Escribe JSON. scoped -> fichero aparte (no contamina el canonico que lee el resume).
   const logsDir = join(ULTRON, "logs");
   if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
-  writeFileSync(join(logsDir, "kirkardo-eval.json"), JSON.stringify(output, null, 2), "utf8");
+  const outName = isScoped ? "kirkardo-eval.scoped.json" : "kirkardo-eval.json";
+  writeFileSync(join(logsDir, outName), JSON.stringify(output, null, 2), "utf8");
 
   // Imprime resumen
   if (!FLAG_JSON) {
@@ -3847,7 +3859,10 @@ async function evaluate() {
       console.log(`VERDICT: FAIL — ${laggards.length} laggard(s) < ${LAGGARD_THRESHOLD}: ${lg}`);
       if (worst) console.log(`         worst_cat: cat${worst.cat} ${worst.name} = ${worst.nota.toFixed(1)}`);
     }
-    console.log(`JSON: ${join(logsDir, "kirkardo-eval.json")}`);
+    if (isScoped) {
+      console.log(`SCOPED RUN (cat=${FLAG_CAT}) — NO actualiza la nota de sistema (escrito en ${outName}). La nota canonica solo cambia con un run COMPLETO.`);
+    }
+    console.log(`JSON: ${join(logsDir, outName)}`);
   } else {
     console.log(JSON.stringify(output, null, 2));
   }
@@ -3859,7 +3874,10 @@ evaluate()
   .then((out) => {
     // --gate: exit !=0 si alguna categoria esta por debajo del umbral (gate CI estricto).
     // Sin el flag mantiene exit 0 (compatibilidad) pero imprime VERDICT: FAIL.
-    if (FLAG_GATE && !out.all_cats_pass) process.exit(2);
+    // gate basado en los laggards de las cats que REALMENTE corrieron: un scoped que
+    // pasa su cat no debe fallar (all_cats_pass se fuerza false por honestidad, pero
+    // NO debe gatear un scoped verde).
+    if (FLAG_GATE && out.laggards.length > 0) process.exit(2);
   })
   .catch((e) => {
     console.error("Error en kirkardo-eval:", e);

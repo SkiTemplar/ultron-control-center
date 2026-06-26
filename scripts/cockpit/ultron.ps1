@@ -412,21 +412,13 @@ switch ($Command.ToLower()) {
     }
 
     "gemini" {
-        # Wrapper limpio sobre el CLI gemini (OAuth, cuota generosa).
-        # ultron gemini "<prompt>"            inline
-        # ultron gemini --file <path>          desde archivo
-        # ultron gemini --model <id> "<...>"   forzar modelo
-        # ultron gemini --json "<...>"          output estructurado
-        if (-not $Rest -or $Rest.Count -eq 0) {
-            Write-Host "ULTRON Gemini CLI wrapper (OAuth, no rate-limit issues)" -ForegroundColor Cyan
-            Write-Host "Usage:" -ForegroundColor Yellow
-            Write-Host '  ultron gemini "<prompt>"'
-            Write-Host "  ultron gemini --file <path>"
-            Write-Host "  ultron gemini --model gemini-3.1-pro-preview `"<prompt>`""
-            Write-Host "  ultron gemini --json `"<prompt>`""
-            exit 1
-        }
-        Invoke-Py "gemini_cli.py" $Rest
+        # gemini-cli retirado el 2026-06-19 (Google corto el OAuth free-tier).
+        # El provider gemini CLOUD sigue vivo en el AI Router (Settings -> API Keys),
+        # no por este wrapper de CLI (el helper ya no existe). Mensaje honesto en
+        # vez de invocar un script ausente (mand. 11: prohibido el no-op silencioso).
+        Write-Host "ULTRON: 'ultron gemini' (CLI) fue retirado el 2026-06-19 (Google corto el OAuth free-tier)." -ForegroundColor Yellow
+        Write-Host "Usa el AI Router (gemini cloud) o 'ultron claude' / 'ultron codex'." -ForegroundColor Cyan
+        exit 1
     }
 
     "tui" {

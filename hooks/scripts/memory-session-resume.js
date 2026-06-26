@@ -117,22 +117,32 @@ function dedupeContextLines(text, maxLines = CONTEXT_MAX_LINES) {
 const HARNESS_JSON = path.join(os.homedir(), '.ultron', 'logs', 'kirkardo-eval.json');
 const HARNESS_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
-function readHarnessNote() {
+function readHarnessNote(jsonPath = HARNESS_JSON) {
   try {
-    const st = fs.statSync(HARNESS_JSON);
+    const st = fs.statSync(jsonPath);
     if (Date.now() - st.mtimeMs > HARNESS_MAX_AGE_MS) return ''; // stale -> no inyectar nota vieja
-    const d = JSON.parse(fs.readFileSync(HARNESS_JSON, 'utf8'));
-    if (typeof d.overall !== 'number') return '';
+    const d = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    // 0.4: un run scoped (--cat=N) NO refleja la salud del sistema; no inyectar su nota
+    // (el "10" del 06-25 era un run cat19 sobre el canonico).
+    if (d.scoped === true) return '';
+    if (typeof d.overall !== 'number' && typeof d.overall_core !== 'number') return '';
     const r2 = (n) => Math.round(n * 100) / 100;
     const lag = (Array.isArray(d.laggards) ? d.laggards : [])
       .slice(0, 4)
       .map((l) => `cat${l.cat}=${Math.round(l.nota * 10) / 10}`)
       .join(', ');
+    // Metrica de salud HONESTA: all_cats_pass + laggards primero (el GOAL exige >=9.5 en
+    // TODAS), luego core (cats 1-14) y overall. NO liderar con overall (diluido).
+    const pass = d.all_cats_pass === true ? 'PASS' : 'FAIL';
+    const nums = [
+      typeof d.overall_core === 'number' ? `core ${r2(d.overall_core)}` : null,
+      typeof d.overall === 'number' ? `overall ${r2(d.overall)}` : null,
+    ].filter(Boolean).join(' ');
     return (
-      `harness (medidor honesto, logs/kirkardo-eval.json): overall ${r2(d.overall)}` +
-      (typeof d.overall_core === 'number' ? ` (core ${r2(d.overall_core)})` : '') +
+      `harness (medidor honesto, logs/kirkardo-eval.json): all_cats_pass=${pass}` +
+      (nums ? ` | ${nums}` : '') +
       (lag ? ` | laggards: ${lag}` : '') +
-      ' -- nota VIVA; ignora cifras memorizadas distintas.'
+      ' -- nota VIVA de run COMPLETO; ignora cifras memorizadas distintas.'
     );
   } catch {
     return '';
