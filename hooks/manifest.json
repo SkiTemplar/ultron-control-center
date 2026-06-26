@@ -182,19 +182,19 @@
       "description": "Resume acotado (workflows activos, tareas abiertas, decisiones, pinned, next action) leido del SoT via 'ultron-memory resume'. SOLO LECTURA del sidecar; no escribe."
     },
     {
-      "id": "routing-dispatcher.v2",
+      "id": "routing-dispatcher.v3",
       "event": "UserPromptSubmit",
       "matcher": "*",
-      "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
-      "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
+      "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
+      "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "timeout_s": 5,
-      "checksum_sha256": "6449b3cd709ba2bbacc50cd463b90872d4fa959ff3bd79204dd295a94747a02a",
+      "checksum_sha256": "fd61c511a2d934801b7659756182b7acf2065426c83e78c8feac365a4f045b92",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "UserPromptSubmit: dispatcher determinista de skills/personas (scoring por senales, sin LLM) + lazy-inject del SKILL.md on-demand. Sustituye al v3 semantico en el hot path (2026-06-10: v3 anadia 4.5s y devolvia vacio)."
+      "description": "UserPromptSubmit: dispatcher v3 = v2 determinista + fallback semantico. En prompts de baja confianza (<0.80) consulta el daemon E5 (skill_query sobre ultron_skills_lazy, incl. .disabled, ~42ms warm) y anade un hint de skills por similitud. Reactivado 2026-06-26 al migrar del subproceso embed_skills.py (~10s) al daemon E5 residente. Fail-safe: sin daemon, degrada al determinista v2 sin coste."
     },
     {
       "id": "save-user-prompt",
@@ -357,11 +357,6 @@
       "id": "mem0-sync",
       "reason": "Mem0 muerto. Borrado del repo 2026-06-08; sus helpers de seguridad viven ahora en hooks/scripts/lib/security-helpers.js (fix require roto 2026-06-10).",
       "former_event": "Stop"
-    },
-    {
-      "id": "routing-dispatcher (v3 wrapper desplegado)",
-      "reason": "Retirado del hot path 2026-06-10: la via semantica v3 anadia ~4.5s por prompt y devolvia vacio (deadline 4.5s < coste real ~9.3s del subproceso). settings.json apunta ahora a cockpit/skill-lazy/routing-dispatcher.v2.js (determinista, accuracy@3 100%). v3 sigue versionado en cockpit/skill-lazy/ como base del experimento F3.",
-      "former_event": "UserPromptSubmit"
     },
     {
       "id": "session-recall-inject",

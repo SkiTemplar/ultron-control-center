@@ -326,9 +326,13 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     de 4.5 s. *✅ v3.js CABLEADO (2026-06-26):* `querySemanticSkills` ahora hace `daemonRequest({cmd:'skill_query', prompt, top})`
     reusando el cliente compartido `hooks/scripts/lib/ultron-memory-cli.js` — 0 spawn de Python; cabecera/comentarios reescritos
     (no mienten). Verificado AISLADO (sin tocar `settings.json`): prompt "historia épica de fantasía con elfos y anillos" →
-    `[semantic-fallback]` con `tolkien` top vía daemon; determinista intacto (`_accuracy_at3.js` acc@3 21/21). *☐ Queda
-    (ACTIVACIÓN — toca el HOT PATH → verificación del usuario):* flip `settings.json`/`manifest` v2→v3 + retirar `embed_skills.py`
-    del hot path + reindex lazy en el warmup de SessionStart (hoy manual con `reindex-skills-lazy`).
+    `[semantic-fallback]` con `tolkien` top vía daemon; determinista intacto (`_accuracy_at3.js` acc@3 21/21). *✅ ACTIVADO (2026-06-26):*
+    `~/.claude/settings.json` UserPromptSubmit → `routing-dispatcher.v3.js`; `manifest.json` regenerado a v3 (gate de paridad
+    verde, descripción honesta, entry "retired" obsoleto eliminado). `embed_skills.py` FUERA del hot path (queda como indexador
+    offline). **Se aplica desde la PRÓXIMA sesión de Claude Code** (settings se carga al inicio de sesión). *Pendiente menor
+    (declarado, NO bloqueante — la collection persiste en Qdrant en disco):* auto-reindex idempotente de `ultron_skills_lazy` en
+    el warmup/daemon (hoy manual `reindex-skills-lazy`) ante borrado de Qdrant o alta/baja de skills. **Verificación del usuario:**
+    sesión nueva → prompts fluidos + en prompt ambiguo aparece `[semantic-fallback]`. **2.5(a) cerrada salvo OK visual;** resta 2.5(b) gate CI.
   - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
     (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
     100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses
