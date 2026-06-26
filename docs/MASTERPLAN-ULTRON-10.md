@@ -333,10 +333,14 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     (declarado, NO bloqueante — la collection persiste en Qdrant en disco):* auto-reindex idempotente de `ultron_skills_lazy` en
     el warmup/daemon (hoy manual `reindex-skills-lazy`) ante borrado de Qdrant o alta/baja de skills. **Verificación del usuario:**
     sesión nueva → prompts fluidos + en prompt ambiguo aparece `[semantic-fallback]`. **2.5(a) cerrada salvo OK visual;** resta 2.5(b) gate CI.
-  - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
-    (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
-    100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses
-    (que no dependan de `~/.claude` poblado) antes de gatear, para no volver el merge frágil.
+  - ◐ **(b) Gate de routing en CI — gate PORTABLE hecho; acc@3 e2e necesita fixtures (2026-06-26).** *Verificado:* los harnesses
+    NO son portables a CI — `v2.js` lee candidatas de `~/.claude/skills` (L898) + ECC cache (L1131) + proyectos (L945), y
+    `_verify_final.js` exige 232 entradas del ECC cache (L59); en un checkout limpio darían acc@3<100% → falso-fail (justo lo que
+    este item advertía). *✅ HECHO:* job `routing-dispatcher` en `ci.yml` (ubuntu, PORTABLE, no toca `~/.claude`): `node --check`
+    + require-chain de v2+v3+cliente-daemon → atrapa el fallo catastrófico (un dispatcher roto deja el hook UserPromptSubmit
+    muerto → TODOS los prompts sin routing en silencio; exactamente el riesgo del `require` al daemon que v3 añadió hoy). YAML
+    validado. *☐ Queda (gate acc@3 e2e):* fixtures de skills de prueba en el repo + `SKILLS_DIR` inyectable en v2 para que
+    `_accuracy_at3.js` corra determinista en CI — sub-tarea mayor (refactor del descubrimiento de candidatas de v2).
 
 ---
 

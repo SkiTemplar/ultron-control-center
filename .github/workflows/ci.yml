@@ -159,6 +159,31 @@ jobs:
         working-directory: control-center
         run: npm test
 
+  routing-dispatcher:
+    name: Routing dispatcher loads (syntax + require chain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # 2.5(b): hasta hoy CI NO validaba NADA del dispatcher de skills, así que un
+    # v2/v3 roto (sintaxis o un require movido — p.ej. el cliente del daemon E5
+    # que v3 importa) dejaba el hook UserPromptSubmit muerto y TODOS los prompts
+    # sin routing, en silencio. Este gate es PORTABLE (no toca ~/.claude del
+    # usuario): solo confirma que la cadena del dispatcher carga. El gate de
+    # accuracy@3 e2e queda pendiente: necesita fixtures de skills en el repo
+    # (v2 hoy lee candidatas de ~/.claude/skills + ECC cache → no es portable).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Dispatcher loads (syntax + require chain)
+        run: |
+          node --check cockpit/skill-lazy/routing-dispatcher.v2.js
+          node --check cockpit/skill-lazy/routing-dispatcher.v3.js
+          node --check hooks/scripts/lib/ultron-memory-cli.js
+          node -e "require('./cockpit/skill-lazy/routing-dispatcher.v2.js'); require('./cockpit/skill-lazy/routing-dispatcher.v3.js'); require('./hooks/scripts/lib/ultron-memory-cli.js'); console.log('routing dispatcher require chain OK');"
+
   # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
   # removed during the 2026-06-04 cleanup. The 15.x Python test suite that
   # lived in `tests/` has been archived to `_legacy_archive/tests-python-15x/`
