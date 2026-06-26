@@ -11,36 +11,28 @@
  *   (default 0.80), v3 queries the `ultron_skills` Qdrant collection for top-3
  *   semantically similar skills and appends them as a supplementary hint.
  *
- * INTEGRATION WITH embed_skills.py
- * ----------------------------------
- * embed_skills.py exposes a CLI sub-command that always outputs JSON by default:
- *   uv run python ~/.ultron/scripts/cockpit/embed_skills.py query "<text>" --top 3
+ * INTEGRATION WITH THE E5 DAEMON (2026-06-26)
+ * --------------------------------------------
+ * Branch B no longer spawns Python. It sends a `skill_query` over TCP loopback
+ * to the resident `ultron-memory serve` daemon (the one that already keeps E5
+ * warm for the orchestrator). The daemon searches `ultron_skills_lazy` (E5
+ * 1024d, ALL skills incl. `.disabled`) and returns the top-N hits.
  *
- * NOTE: do NOT pass --json — that flag does not exist; the script exits with
- * code 2 on unrecognized arguments, causing querySemanticSkills to return null.
+ *   querySemanticSkills() -> daemonRequest({cmd:'skill_query', prompt, top})
  *
- * v3 spawns this as a child process bounded by the shared deadline.  If the
- * process times out, returns a non-zero exit code, or produces unparseable
- * output the semantic hint is silently omitted — the deterministic routing
- * hint from v2 is always emitted regardless.
+ * WHY THIS REPLACED THE embed_skills.py SUBPROCESS
+ * -------------------------------------------------
+ * The old path ran `uv run python embed_skills.py query` per prompt, which
+ * reloads the mpnet model every process: ~10.4 s warm (measured). That blew the
+ * hook's 4.5 s shared deadline, so the semantic hint was ALWAYS skipped — it was
+ * retired from the hot path on 2026-06-10 for exactly this reason. The daemon
+ * keeps E5 resident, so the same query is ~42 ms warm (measured), comfortably
+ * inside budget. acc@3 on the harness skill-scoped cases is HIGHER with E5
+ * (100% vs mpnet 91.7%).
  *
- * WHY A SUBPROCESS INSTEAD OF DIRECT QDRANT CALL
- * -----------------------------------------------
- * The hook runs inside the Claude Code Node.js process.  Loading the
- * sentence-transformers model and qdrant-client from Node would require
- * either a heavy native addon or an HTTP call.  The subprocess approach:
- *   - Reuses the already-cached Python model (paraphrase-multilingual-mpnet-base-v2).
- *   - Keeps the Node hook dependency-free (no npm install required).
- *   - Adds ~200-800 ms latency on a warm Python + model cache (OS disk cache hot).
- *   - Degrades gracefully: any failure is swallowed in a try/catch.
- *
- * COLD-START WARNING
- * ------------------
- * The first subprocess call after a system reboot can take 9-12 s because
- * sentence-transformers loads a ~400 MB model from disk.  The shared deadline
- * fires, the semantic hint is silently skipped, and the hook still emits the
- * deterministic result within 5 s.  Subsequent calls within the same OS
- * session hit the disk page cache and complete in < 1 s.
+ * FAIL-SAFE: if no daemon is up (lockfile absent / connect error / timeout),
+ * `daemonRequest` resolves null and the semantic hint is silently omitted — the
+ * deterministic v2 routing hint is always emitted regardless.
  *
  * TIMEOUT BUDGET — SHARED DEADLINE
  * ----------------------------------
@@ -80,7 +72,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFile } = require('child_process');
+// Cliente TCP compartido del daemon E5 residente (lockfile + loopback, fail-safe).
+// Reusa el transporte de memory-orchestrate en vez de re-spawnear Python por prompt.
+const { daemonRequest } = require('../../hooks/scripts/lib/ultron-memory-cli.js');
 
 const HOME = os.homedir();
 
@@ -151,96 +145,37 @@ const SEMANTIC_TIMEOUT_MS = 8000;
 /** Number of semantic candidates to request from Qdrant. */
 const SEMANTIC_TOP_N = 3;
 
-/**
- * Absolute path to the embed_skills.py script.
- * Resolved once at module load time.
- */
-const EMBED_SKILLS_PY = path.join(
-  HOME, '.ultron', 'scripts', 'cockpit', 'embed_skills.py'
-);
-
-/**
- * Python executable: prefer 'uv' so the correct virtual-env is used.
- * Falls back to plain 'python' for environments where uv is absent.
- */
-const UV_BIN = 'uv';
-
 // ---------------------------------------------------------------------------
 // Semantic query helper
 // ---------------------------------------------------------------------------
 
 /**
- * Query ultron_skills Qdrant collection for top-N semantically similar skills.
+ * Query the resident E5 daemon for the top-N semantically similar skills over
+ * the `ultron_skills_lazy` collection (ALL skills incl. `.disabled`).
  *
- * Spawns: uv run python <embed_skills.py> query "<text>" --top N
- * (No --json flag — the script outputs a JSON array to stdout by default.)
+ * Sub-second warm (~42 ms measured) over a TCP loopback call to the daemon that
+ * already keeps E5 resident — vs the ~10 s the old `embed_skills.py` subprocess
+ * paid per prompt (reloading mpnet per process). That 10 s is why the semantic via
+ * was retired from the hot path on 2026-06-10; the daemon brings it back within
+ * budget. `daemonRequest` is the shared fail-safe client (lockfile + loopback);
+ * if no daemon is up it resolves null and the semantic hint is simply omitted.
  *
- * Returns an array of result objects on success, or null on any failure
- * (timeout, non-zero exit, parse error, Qdrant unreachable).
- *
- * @param {string} promptText        - The user prompt (truncated to 500 chars for speed).
- * @param {number} topN              - Number of results to request.
- * @param {number} [timeoutMs]       - Hard timeout in ms; defaults to SEMANTIC_TIMEOUT_MS.
- *                                     Pass the shared-deadline remainder so the call never
- *                                     exceeds the hook's total budget.
+ * @param {string} promptText  - The user prompt (truncated to 500 chars for speed).
+ * @param {number} topN        - Number of results to request.
+ * @param {number} [timeoutMs] - Shared-deadline remainder; bounds the daemon call
+ *                               so it never exceeds the hook's total budget.
  * @returns {Promise<Array<{name:string, score:number, description:string}>|null>}
  */
-function querySemanticSkills(promptText, topN, timeoutMs) {
+async function querySemanticSkills(promptText, topN, timeoutMs) {
   const effectiveTimeout = (typeof timeoutMs === 'number' && timeoutMs > 0)
     ? timeoutMs
     : SEMANTIC_TIMEOUT_MS;
-
-  return new Promise(function (resolve) {
-    const queryText = promptText.slice(0, 500);
-    // NOTE: embed_skills.py query always outputs JSON to stdout by default.
-    // Do NOT pass --json (unrecognized flag → exit code 2 → null result).
-    const args = [
-      'run', '--no-sync', 'python', EMBED_SKILLS_PY,
-      'query', queryText,
-      '--top', String(topN),
-    ];
-
-    let settled = false;
-
-    const timer = setTimeout(function () {
-      if (!settled) {
-        settled = true;
-        // On Windows, child.kill() only signals the immediate `uv` process,
-        // not the Python grandchild it spawned.  The grandchild keeps running
-        // and Node's event loop stays alive waiting for the child stdio streams
-        // to close — delaying process.exit well past the hook deadline.
-        // Fix: destroy the stdio streams and call child.unref() so Node stops
-        // waiting for the orphaned Python process and can exit on its own.
-        try { child.kill(); } catch (_) {}
-        try { if (child.stdout) child.stdout.destroy(); } catch (_) {}
-        try { if (child.stderr) child.stderr.destroy(); } catch (_) {}
-        child.unref();
-        resolve(null);
-      }
-    }, effectiveTimeout);
-
-    const child = execFile(UV_BIN, args, { encoding: 'utf8', windowsHide: true }, function (err, out) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-
-      if (err) {
-        resolve(null);
-        return;
-      }
-      try {
-        const parsed = JSON.parse((out || '').trim());
-        if (!Array.isArray(parsed)) { resolve(null); return; }
-        resolve(parsed);
-      } catch (_) {
-        resolve(null);
-      }
-    });
-
-    child.on('error', function () {
-      if (!settled) { settled = true; clearTimeout(timer); resolve(null); }
-    });
-  });
+  // The daemon returns a JSON array of skill hits on success, or {error:...}.
+  const resp = await daemonRequest(
+    { cmd: 'skill_query', prompt: promptText.slice(0, 500), top: topN },
+    effectiveTimeout,
+  );
+  return Array.isArray(resp) ? resp : null;
 }
 
 // ---------------------------------------------------------------------------

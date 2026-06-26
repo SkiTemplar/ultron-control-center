@@ -323,9 +323,12 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     *✅ cmd daemon HECHO (2026-06-26):* `skill_query` en `serve.rs` (Req.top + brazo + lock E5 compartido con orchestrate + 2
     tests herméticos). **Verificado runtime: 42-44 ms warm** (vs 10.4 s del CLI mpnet → ~240×), resultados correctos
     (`test-driven-development` top 0.847 para el prompt TDD que mpnet falla). El branch B del v3 ahora cabe de sobra en el budget
-    de 4.5 s. *☐ Queda (toca el HOT PATH del usuario → checkpoint con verificación):* cablear `v3.js`
-    (`querySemanticSkills` → TCP al daemon, no `uv run python`) + `settings.json`/`manifest` v2→v3 + retirar `embed_skills.py`
-    del hot path + reindex lazy en el warmup de SessionStart (hoy se hace a mano con `reindex-skills-lazy`).
+    de 4.5 s. *✅ v3.js CABLEADO (2026-06-26):* `querySemanticSkills` ahora hace `daemonRequest({cmd:'skill_query', prompt, top})`
+    reusando el cliente compartido `hooks/scripts/lib/ultron-memory-cli.js` — 0 spawn de Python; cabecera/comentarios reescritos
+    (no mienten). Verificado AISLADO (sin tocar `settings.json`): prompt "historia épica de fantasía con elfos y anillos" →
+    `[semantic-fallback]` con `tolkien` top vía daemon; determinista intacto (`_accuracy_at3.js` acc@3 21/21). *☐ Queda
+    (ACTIVACIÓN — toca el HOT PATH → verificación del usuario):* flip `settings.json`/`manifest` v2→v3 + retirar `embed_skills.py`
+    del hot path + reindex lazy en el warmup de SessionStart (hoy manual con `reindex-skills-lazy`).
   - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
     (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
     100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses
