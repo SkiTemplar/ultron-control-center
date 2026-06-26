@@ -166,7 +166,16 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
     }
     let mut must = vec![serde_json::json!({ "key": "status", "match": { "value": "active" } })];
     if let Some(pid) = project_id {
-        must.push(serde_json::json!({ "key": "project_id", "match": { "value": pid } }));
+        // 1.0 (recall cross-project): ademas del proyecto, admite items AMBIENTE
+        // (sin project_id en el payload, ~82% del corpus) -> dejan de ser invisibles
+        // desde una sesion de proyecto. La relevancia da la precision; el filtro solo
+        // excluye memorias de OTRO proyecto IDENTIFICADO.
+        must.push(serde_json::json!({
+            "should": [
+                { "key": "project_id", "match": { "value": pid } },
+                { "is_empty": { "key": "project_id" } }
+            ]
+        }));
     }
     let filter = serde_json::json!({ "must": must });
     match crate::qdrant::search_with_vector(COLLECTION, vector, k, Some(filter)) {

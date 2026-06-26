@@ -30,6 +30,71 @@ fn rrf_empty_input_is_empty() {
     assert!(rrf_fuse(&[vec![]], RRF_K).is_empty());
 }
 
+// 1.0 (recall cross-project): items con project_id=NULL son AMBIENTE y se inyectan
+// bajo un filtro de proyecto (como Global); las memorias de OTRO proyecto IDENTIFICADO
+// NO. Sin el fix, el 82% del corpus (NULL) era invisible -> "memoria muerta fuera de
+// ULTRON" (en Oryntics: 76 memorias reales devolvian 0).
+#[test]
+fn assemble_pack_admits_ambient_null_project_items() {
+    use crate::memory::model::MemoryItem;
+    use crate::memory::sqlite_store::{apply_schema, insert_item};
+    use crate::memory::{MemoryType, Sensitivity, Source};
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+    apply_schema(&conn).expect("schema");
+
+    let mk = |project: Option<&str>, sm: &str| {
+        let mut it = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Project,
+            Source::ToolObserved,
+            Status::Active,
+        );
+        it.summary = Some(sm.to_string());
+        it.sensitivity = Sensitivity::Internal;
+        it.project_id = project.map(str::to_string);
+        it.token_estimate = 20;
+        insert_item(&conn, &it).expect("insert");
+        it.id
+    };
+
+    let ambient = mk(None, "Oryntics es una empresa de IA"); // project_id NULL
+    let same = mk(Some("ultron"), "ultron internal"); // otro proyecto
+    let foreign = mk(Some("otra-cosa"), "foreign project"); // otro proyecto
+
+    let fused: Vec<FusedHit> = [&ambient, &same, &foreign]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| FusedHit {
+            canonical_id: (*id).clone(),
+            rrf_score: 1.0 - i as f32 * 0.01,
+            dense_rank: Some(i),
+            sparse_rank: None,
+            dense_score: Some(0.5),
+        })
+        .collect();
+
+    // Recall scoped a "oryntics" (un proyecto SIN memoria propia tagueada).
+    let (injected, _d, _t) = assemble_pack(
+        &conn,
+        &fused,
+        8,
+        Some("oryntics"),
+        false,
+        PER_CALL_TOKEN_CAP,
+    );
+    let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
+
+    assert!(
+        inj.contains(&&ambient),
+        "item AMBIENTE (project_id=NULL) debe inyectarse bajo filtro de proyecto"
+    );
+    assert!(
+        !inj.contains(&&same) && !inj.contains(&&foreign),
+        "memorias de OTRO proyecto IDENTIFICADO NO deben inyectarse"
+    );
+}
+
 // Governance invariants of the recall pipeline, unit-tested WITHOUT Qdrant/E5
 // (Ola 3 D2): rejected/deprecated/secret/cross-project NEVER reach the pack;
 // active in-project AND global-scope items DO. Protects Ola 0 + Ola 1a in CI.

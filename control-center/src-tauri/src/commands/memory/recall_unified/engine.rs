@@ -99,8 +99,17 @@ pub(crate) fn assemble_pack(
             // project — UNLESS cross_project is set, which relaxes ONLY this
             // project-equality gate (every security/quality gate below still
             // applies, so items from other projects flow in but Secret never does).
+            //
+            // 1.0 (recall cross-project): items con project_id=NULL son AMBIENTE (no
+            // pertenecen a ningun proyecto) y aplican en todas partes, como Global.
+            // Sin esto, el 82% del corpus (project_id NULL) era INVISIBLE desde
+            // cualquier sesion de proyecto -> "la memoria no funciona fuera de
+            // ULTRON" (en Oryntics: 76 memorias reales devolvian 0). La relevancia
+            // (RRF + denso + re-ranker) da la precision; el gate solo excluye
+            // memorias de OTRO proyecto IDENTIFICADO.
             if !cross_project
                 && item.scope != Scope::Global
+                && item.project_id.is_some()
                 && item.project_id.as_deref() != Some(pid)
             {
                 discarded.push(discard(&format!("project filter ({pid})")));
