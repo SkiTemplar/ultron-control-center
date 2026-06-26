@@ -320,8 +320,12 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     (delegado a rust-engineer contra contrato fijo; build release 0 warn; `ultron_catalog` intacto). **Medición acc@3 sobre los
     12 casos skill-scoped del harness: E5 = 100% (12/12) vs mpnet `embed_skills.py` = 91.7% (11/12)** — E5 NO degrada, MEJORA
     (acierta `test-driven-development`, que mpnet falla). El gate ("si E5 degrada, abortar sin escribir el daemon") está superado.
-    *☐ Siguiente:* cmd `skill_query` en el daemon `serve.rs` (residente, sub-segundo) + cablear `v3.js` al daemon + retirar
-    `embed_skills.py` del hot path + reindex lazy en el warmup de SessionStart.
+    *✅ cmd daemon HECHO (2026-06-26):* `skill_query` en `serve.rs` (Req.top + brazo + lock E5 compartido con orchestrate + 2
+    tests herméticos). **Verificado runtime: 42-44 ms warm** (vs 10.4 s del CLI mpnet → ~240×), resultados correctos
+    (`test-driven-development` top 0.847 para el prompt TDD que mpnet falla). El branch B del v3 ahora cabe de sobra en el budget
+    de 4.5 s. *☐ Queda (toca el HOT PATH del usuario → checkpoint con verificación):* cablear `v3.js`
+    (`querySemanticSkills` → TCP al daemon, no `uv run python`) + `settings.json`/`manifest` v2→v3 + retirar `embed_skills.py`
+    del hot path + reindex lazy en el warmup de SessionStart (hoy se hace a mano con `reindex-skills-lazy`).
   - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
     (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
     100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses

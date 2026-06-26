@@ -44,12 +44,14 @@ const MAX_REQUEST_BYTES: u64 = 256 * 1024;
 struct Req {
     /// Per-launch shared token (must match the lockfile's). Anti-accident only.
     token: Option<String>,
-    /// "orchestrate" | "ping" | "shutdown".
+    /// "orchestrate" | "skill_query" | "ping" | "shutdown".
     cmd: String,
-    /// Prompt to route (orchestrate only).
+    /// Prompt to route / query (orchestrate + skill_query).
     prompt: Option<String>,
     /// Project slug for project-scoped recall (orchestrate only).
     project: Option<String>,
+    /// Top-N semantic skill hits to return (skill_query only; default 5).
+    top: Option<u32>,
 }
 
 /// `~/.ultron/run/orchestrate.json` — the discovery lockfile.
@@ -102,6 +104,22 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
             false,
         ),
         "shutdown" => (json!({ "ok": true, "shutting_down": true }), true),
+        "skill_query" => {
+            // Semantic skill match over `ultron_skills_lazy` (E5 1024d, incl.
+            // `.disabled`). Warm in the daemon → sub-second, vs the ~10 s the
+            // standalone embed_skills.py paid per process. This is what lets the
+            // v3 dispatcher's semantic fallback run inside the hook budget.
+            let prompt = req.prompt.as_deref().unwrap_or("");
+            if prompt.trim().is_empty() {
+                return (json!({ "error": "empty prompt" }), false);
+            }
+            let top = req.top.unwrap_or(5);
+            let hits = crate::memory::catalog::search_skills_lazy(prompt, top);
+            match serde_json::to_value(&hits) {
+                Ok(v) => (v, false),
+                Err(e) => (json!({ "error": format!("serialize: {e}") }), false),
+            }
+        }
         "orchestrate" => {
             let prompt = req.prompt.as_deref().unwrap_or("");
             if prompt.trim().is_empty() {
@@ -280,8 +298,9 @@ fn handle_conn(
     };
     last_activity.store(now_ms(), Ordering::Relaxed);
 
-    // Serialize only the heavy orchestrate path; ping/shutdown stay lock-free.
-    let (resp, shutdown) = if req.cmd == "orchestrate" {
+    // Serialize the heavy E5 paths (orchestrate + skill_query both embed via the
+    // process-global E5 OnceCell); ping/shutdown stay lock-free.
+    let (resp, shutdown) = if req.cmd == "orchestrate" || req.cmd == "skill_query" {
         let _guard = orch_lock.lock().unwrap_or_else(|p| p.into_inner());
         handle_request(&req, token, started)
     } else {
@@ -306,6 +325,7 @@ mod tests {
             cmd: cmd.to_string(),
             prompt: None,
             project: None,
+            top: None,
         }
     }
 
@@ -359,6 +379,18 @@ mod tests {
         // prompt is None -> handled before any embed; hermetic (no Qdrant/E5).
         let (resp, shutdown) =
             handle_request(&req(Some("tok"), "orchestrate"), "tok", Instant::now());
+        assert_eq!(
+            resp.get("error").and_then(Value::as_str),
+            Some("empty prompt")
+        );
+        assert!(!shutdown);
+    }
+
+    #[test]
+    fn empty_prompt_skill_query_errors_without_touching_e5() {
+        // prompt is None -> handled before any embed; hermetic (no Qdrant/E5).
+        let (resp, shutdown) =
+            handle_request(&req(Some("tok"), "skill_query"), "tok", Instant::now());
         assert_eq!(
             resp.get("error").and_then(Value::as_str),
             Some("empty prompt")
