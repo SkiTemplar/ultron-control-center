@@ -8,14 +8,16 @@
  * schema correcto (Card: id, column_id, title, description, tags, order,
  * created_at, updated_at) sin tener que reinventarlo a mano cada vez.
  *
- * Las columnas se referencian por ROL (todo|doing|blocked|done), no por id,
- * porque los ids son largos y volatiles; el rol es estable. El backend
+ * Las columnas se referencian por ROL (todo|doing|blocked|done) o por NOMBRE
+ * (substring case-insensitive). El rol resuelve a la primera columna del rol;
+ * el nombre permite apuntar a una columna concreta cuando hay varias del mismo
+ * rol (ej. embudos de ventas con multiples columnas "doing"). El backend
  * normaliza `order` al cargar, asi que no hace falta que sea perfecto.
  *
  * Uso:
  *   node scripts/kanban.mjs list   [proyecto]
- *   node scripts/kanban.mjs add    <proyecto> <todo|doing|blocked|done> "titulo" ["desc"] [--tags a,b]
- *   node scripts/kanban.mjs mv     <proyecto> "<id|substr-titulo>" <todo|doing|blocked|done>
+ *   node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]
+ *   node scripts/kanban.mjs mv     <proyecto> "<id|substr-titulo>" <rol|nombre-columna>
  *   node scripts/kanban.mjs rm     <proyecto> "<id|substr-titulo>"
  *   node scripts/kanban.mjs archive-done <proyecto>   (mueve las Done a archives/<fecha>.json)
  *
@@ -54,6 +56,25 @@ function colByRole(board, role) {
   const col = (board.columns || []).find((c) => c.role === role);
   if (!col) fail(`no hay columna con rol "${role}" (roles: ${(board.columns || []).map((c) => c.role).join(', ')})`);
   return col;
+}
+
+const COLUMN_ROLES = ['todo', 'doing', 'blocked', 'done'];
+
+function resolveColumn(board, ref) {
+  const cols = board.columns || [];
+  // 1) rol exacto primero (retrocompatibilidad con proyectos existentes)
+  if (COLUMN_ROLES.includes(ref)) {
+    const byRole = cols.find((c) => c.role === ref);
+    if (byRole) return byRole;
+  }
+  // 2) nombre de columna por substring (case-insensitive)
+  const low = ref.toLowerCase();
+  const matches = cols.filter((c) => (c.name || '').toLowerCase().includes(low));
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0) {
+    fail(`ninguna columna matchea "${ref}" (roles: ${cols.map((c) => c.role).join(', ')}; nombres: ${cols.map((c) => c.name).join(', ')})`);
+  }
+  fail(`"${ref}" es ambiguo entre columnas: ${matches.map((m) => m.name).join(', ')}`);
 }
 
 function findCard(board, needle) {
@@ -119,7 +140,7 @@ function cmdList(proj) {
 
 function cmdAdd(proj, role, title, desc, tags) {
   const { path, board } = loadBoard(proj);
-  const col = colByRole(board, role);
+  const col = resolveColumn(board, role);
   const ts = nowIso();
   const card = {
     id: newId(),
@@ -144,7 +165,7 @@ function cmdAdd(proj, role, title, desc, tags) {
 function cmdMv(proj, needle, role) {
   const { path, board } = loadBoard(proj);
   const card = findCard(board, needle);
-  const col = colByRole(board, role);
+  const col = resolveColumn(board, role);
   const from = roleLabel(board, card.column_id);
   card.column_id = col.id;
   card.updated_at = nowIso();
@@ -193,13 +214,13 @@ switch (cmd) {
     break;
   case 'add': {
     const [proj, role, title, desc] = rest;
-    if (!proj || !role || !title) fail('uso: add <proyecto> <todo|doing|blocked|done> "titulo" ["desc"] [--tags a,b]');
+    if (!proj || !role || !title) fail('uso: add <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]');
     cmdAdd(proj, role, title, desc && !desc.startsWith('--') ? desc : '', parseTags(rest));
     break;
   }
   case 'mv': {
     const [proj, needle, role] = rest;
-    if (!proj || !needle || !role) fail('uso: mv <proyecto> "<id|substr>" <todo|doing|blocked|done>');
+    if (!proj || !needle || !role) fail('uso: mv <proyecto> "<id|substr>" <rol|nombre-columna>');
     cmdMv(proj, needle, role);
     break;
   }
@@ -215,8 +236,8 @@ switch (cmd) {
   default:
     console.log('kanban.mjs - CRUD del Kanban de ULTRON\n');
     console.log('  node scripts/kanban.mjs list   [proyecto]');
-    console.log('  node scripts/kanban.mjs add    <proyecto> <todo|doing|blocked|done> "titulo" ["desc"] [--tags a,b]');
-    console.log('  node scripts/kanban.mjs mv     <proyecto> "<id|substr>" <todo|doing|blocked|done>');
+    console.log('  node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]');
+    console.log('  node scripts/kanban.mjs mv     <proyecto> "<id|substr>" <rol|nombre-columna>');
     console.log('  node scripts/kanban.mjs rm     <proyecto> "<id|substr>"');
     console.log('  node scripts/kanban.mjs archive-done <proyecto>');
     console.log('\n  proyecto por defecto: ultron');
