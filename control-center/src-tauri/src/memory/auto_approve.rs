@@ -193,11 +193,20 @@ pub fn classify_band(candidate: &MemoryCandidate, threshold: f32) -> AutoBand {
     }
 }
 
+/// Tags que marcan que una verificación del write-path NO pudo completarse: el
+/// juez de contradicción expiró / su conn falló (`unjudged`), o la búsqueda de
+/// duplicados devolvió Err (`dedup-unverified`). FAIL-CLOSED: un candidato así NO
+/// es "clean" — sin verdicto verificado espera ojo humano en el inbox, nunca
+/// auto-active. (Antes el write-path fallaba OPEN: timeout/Err => sin marca =>
+/// `clean` => se auto-aprobaba sin haber comprobado contradicción ni duplicado.)
+pub const UNVERIFIED_TAGS: [&str; 2] = ["unjudged", "dedup-unverified"];
+
 /// SECURITY SALVAGUARDA. A candidate is eligible for auto-approval ONLY when it
-/// is "clean": no secret marker, no contradiction findings, and NO duplicate.
-/// Secret-bearing, contradicting or DUPLICATE candidates ALWAYS require human
-/// review — this function returns `false` for them regardless of the
-/// `auto_approve` setting. Pure (no I/O) so it is unit-tested without the DB.
+/// is "clean": no secret marker, no contradiction findings, NO duplicate, and no
+/// INCOMPLETE-VERIFICATION marker (see `UNVERIFIED_TAGS`). Secret-bearing,
+/// contradicting, DUPLICATE or UNVERIFIED candidates ALWAYS require human review —
+/// this returns `false` for them regardless of the `auto_approve` setting. Pure
+/// (no I/O) so it is unit-tested without the DB.
 #[must_use]
 pub fn candidate_is_clean(candidate: &MemoryCandidate) -> bool {
     let is_secret = candidate
@@ -208,7 +217,13 @@ pub fn candidate_is_clean(candidate: &MemoryCandidate) -> bool {
     // approve-clean un duplicado (asi se acumularon 101 grupos content_hash
     // identicos, uno con 211 copias activas que sesgaban el recall). Va al inbox.
     let has_duplicate = !candidate.duplicate_candidates.is_empty();
-    !is_secret && !has_contradiction && !has_duplicate
+    // 1.7 fail-closed: una verificación incompleta (juez timeout / dedup Err) NO
+    // puede auto-aprobarse — el candidato espera adjudicación humana en el inbox.
+    let has_unverified = candidate
+        .proposed_tags
+        .iter()
+        .any(|t| UNVERIFIED_TAGS.iter().any(|u| t.eq_ignore_ascii_case(u)));
+    !is_secret && !has_contradiction && !has_duplicate && !has_unverified
 }
 
 #[cfg(test)]
@@ -233,6 +248,35 @@ mod tests {
             !candidate_is_clean(&c),
             "un candidato con duplicado_candidates NO es clean"
         );
+    }
+
+    #[test]
+    fn unjudged_candidate_is_not_clean() {
+        // 1.7 fail-closed: si el juez de contradicción no pudo emitir verdicto
+        // (timeout / conn falló), el candidato lleva "unjudged" y NO debe
+        // auto-aprobarse — espera ojo humano en el inbox (antes fail-OPEN: una
+        // Fact que contradice un ACTIVE se colaba a active sin verificar).
+        let mut c = clean_candidate();
+        assert!(candidate_is_clean(&c), "baseline limpio");
+        c.proposed_tags.push("unjudged".to_string());
+        assert!(
+            !candidate_is_clean(&c),
+            "un candidato sin verdicto de contradicción NO es clean"
+        );
+    }
+
+    #[test]
+    fn dedup_unverified_candidate_is_not_clean() {
+        // 1.7 fail-closed: si la búsqueda de duplicados falló (Err de FTS5/SQLite),
+        // el candidato lleva "dedup-unverified" y NO debe auto-aprobarse — así un
+        // fallo transitorio no puede regresar el bug 1.2 (las 211 copias).
+        let mut c = clean_candidate();
+        c.proposed_tags.push("dedup-unverified".to_string());
+        assert!(!candidate_is_clean(&c));
+        // Case-insensitive: un marcador en mayúsculas también bloquea.
+        let mut c2 = clean_candidate();
+        c2.proposed_tags.push("UNJUDGED".to_string());
+        assert!(!candidate_is_clean(&c2));
     }
 
     #[test]

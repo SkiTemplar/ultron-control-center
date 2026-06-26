@@ -210,7 +210,8 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 > `if let Ok(..)` traga Err de FTS5/SQLite → puede regresar el bug 1.2 de las 211 copias ante fallo transitorio); (c)
 > **cobertura PII más estrecha que credenciales** (`candidates.rs:87-97`: `proposed_text` excluye `proposed_content_json`
 > y `proposed_tags` → PII solo en esos campos no marca `risk_level=secret`). El path conversacional NO popula esos campos,
-> pero otras rutas a `create_candidate` (agentes/import) sí. Candidata a casilla 1.7 / sub-ítems de Fase 1.
+> pero otras rutas a `create_candidate` (agentes/import) sí. **→ CERRADA en la casilla 1.7 (2026-06-26):
+> write-path fail-closed end-to-end.**
 - ✅ **1.2 Dedup ACTIVO — fuga de 211 copias CERRADA (2026-06-26).** En `create_candidate`, si hay `duplicate_candidates`: NO
   auto-aprobar (forzar Merge) **o** merge real (bump `access_count`/`importance` del existente). Añadir
   `!duplicate_candidates.is_empty()` a la negación de `candidate_is_clean` (`auto_approve.rs:189-195`). Backfill: colapsar
@@ -259,6 +260,23 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   **≥6 chars con dígito Y letra** (gate que evita falsos positivos en prosa). 28 tests verdes (positivo + negativo:
   "trabajar"/"simplicidad"/"constancia" NO se redactan). **Verificado runtime:** "la clave es Patata2024" → "la clave
   es [REDACTED:secret]" en el write-path. Sidecar redeployado.
+
+- ✅ **1.7 (NUEVA) Write-path fail-CLOSED — 3 fugas de gobernanza cerradas (HECHO 2026-06-26).** Deuda detectada al
+  cerrar 1.1: con auto-approve ON (el usuario lo tiene a 0.65) el write-path fallaba OPEN — cuando NO podía verificar,
+  trataba al candidato como "clean" y lo auto-promovía a ACTIVE. **Mecanismo central:** `candidate_is_clean`
+  (`auto_approve.rs`) rechaza candidatos con un `UNVERIFIED_TAGS` (`unjudged`/`dedup-unverified`, case-insensitive) →
+  sin verdicto verificado, al inbox. **(a) contradicción fail-closed END-TO-END:** nueva
+  `qdrant_index::search_dense_checked` → `Option` (None = Qdrant/E5 caído), `contradiction::check` → `Option<Vec>`, el
+  match marca `unjudged` cuando la infra no verificó (5 ramas exhaustivas); además el juez usa summary **O content**
+  (antes summary=None saltaba el detector sin marca). **(b) dedup fail-closed:** `search_items` y
+  `find_active_by_content_hash` Err → `dedup-unverified` (antes el Err se tragaba → podía regresar el bug 1.2 de las 211
+  copias). **(c) PII a paridad con credenciales:** `pii_scan_text` + redacción cubren ahora `content_json`, `tags` y
+  `proposed_symbol` (antes excluidos → PII ahí no elevaba Secret). Checks conductuales: `unjudged`/`dedup-unverified`
+  no-clean (rojo→verde), `pii_scan_covers_content_json_tags_and_symbol` (atado a `contains_pii`). Suite memory **221/221**;
+  build release exit 0; sidecar redeployado. **Verificación adversarial:** workflow 2-lentes (cazó el fail-open residual
+  de infra, cerrado) + rust-engineer (5 PASS, cazó el fail-open de summary=None, cerrado). *Residual declarado (mand. 13):*
+  el juez-LLM-None sigue conservador (no marca); el fail-closed cubre la infra de BÚSQUEDA. *Falso positivo descartado:*
+  "`redact_pii` destruye JSON" — usa offsets, no tokeniza por espacios.
 
 > **Quitado de la lista de defectos:** "decisions siempre al inbox" (`auto_approve.rs:167-180`) es **intencional**
 > (Decision/Architecture siempre necesitan ojo humano, testeado). No es bug; documentarlo como invariante de gobernanza.

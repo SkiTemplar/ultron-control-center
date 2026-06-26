@@ -11,6 +11,36 @@ use super::super::MemoryError;
 use super::super::{redaction, sqlite_store as store};
 use super::{raised_sensitivity, redact_tags, sync_index, MemoryService, SECRET_RISK_MARKER};
 
+/// Añade un marcador de verificación-incompleta a `tags` (idempotente). Estos
+/// marcadores (`auto_approve::UNVERIFIED_TAGS`) hacen `candidate_is_clean` devolver
+/// false → FAIL-CLOSED: lo que el write-path no pudo verificar NO se auto-aprueba.
+fn mark_unverified(tags: &mut Vec<String>, marker: &str) {
+    if !tags.iter().any(|t| t.eq_ignore_ascii_case(marker)) {
+        tags.push(marker.to_string());
+    }
+}
+
+/// Texto concatenado de TODOS los campos del candidato que deben pasar el scan de
+/// PII (paridad con la redacción de credenciales, que ya cubre `content_json` y
+/// `tags`). Su omisión pre-1.7 dejaba PII en `content_json`/`tags` sin elevar Secret.
+pub(super) fn pii_scan_text(cand: &MemoryCandidate) -> String {
+    let tags_joined = cand.proposed_tags.join(" ");
+    [
+        cand.proposed_title.as_deref(),
+        cand.proposed_summary.as_deref(),
+        cand.proposed_content.as_deref(),
+        cand.proposed_content_json.as_deref(),
+        cand.proposed_file_path.as_deref(),
+        cand.proposed_signature.as_deref(),
+        cand.proposed_symbol.as_deref(),
+        Some(tags_joined.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
 impl MemoryService {
     // -- candidate intake (what hooks/agents call) ---------------------------
 
@@ -39,17 +69,32 @@ impl MemoryService {
         // Code-location fields — credential redaction (ghp_, sk-, AKIA, Bearer…).
         redacted |= redaction::redact_in_place(&mut cand.proposed_file_path);
         redacted |= redaction::redact_in_place(&mut cand.proposed_signature);
+        // 1.7: proposed_symbol ("file_path:symbol") puede llevar una ruta con username.
+        redacted |= redaction::redact_in_place(&mut cand.proposed_symbol);
 
         // Basic FTS dedupe: flag near-identical ACTIVE items as duplicates so the
         // inbox can merge instead of creating a redundant memory. (Semantic dedupe
         // + contradiction detection via embeddings/AI routing is Fase D — TODO below.)
         if let Some(summary) = cand.proposed_summary.clone() {
             if !summary.trim().is_empty() {
-                if let Ok(similar) = store::search_items(&conn, &summary, Status::Active, 3) {
-                    let dups: Vec<String> = similar.into_iter().map(|i| i.id).collect();
-                    if !dups.is_empty() {
-                        cand.duplicate_candidates = dups;
-                        cand.recommended_action = CandidateAction::Merge;
+                match store::search_items(&conn, &summary, Status::Active, 3) {
+                    Ok(similar) => {
+                        let dups: Vec<String> = similar.into_iter().map(|i| i.id).collect();
+                        if !dups.is_empty() {
+                            cand.duplicate_candidates = dups;
+                            cand.recommended_action = CandidateAction::Merge;
+                        }
+                    }
+                    Err(e) => {
+                        // 1.7 fail-closed: no se pudo comprobar duplicados (Err FTS5/SQLite).
+                        // Marcar NO auto-aprobable para que un fallo transitorio no regrese
+                        // el bug 1.2 (las 211 copias). Va al inbox.
+                        eprintln!(
+                            "[service::create_candidate] dedupe search failed: {e} — \
+                             candidate {} marked dedup-unverified",
+                            cand.id
+                        );
+                        mark_unverified(&mut cand.proposed_tags, "dedup-unverified");
                     }
                 }
             }
@@ -66,16 +111,28 @@ impl MemoryService {
             // DIFFERENT project/scope is a near-duplicate, NOT a duplicate — never merge
             // across the project boundary. find_active_by_content_hash filters by
             // (scope, project_id) so cross-project collisions can't trigger a Merge.
-            if let Ok(Some(existing)) = store::find_active_by_content_hash(
+            match store::find_active_by_content_hash(
                 &conn,
                 &probe_hash,
                 probe.scope,
                 probe.project_id.as_deref(),
             ) {
-                if !cand.duplicate_candidates.contains(&existing.id) {
-                    cand.duplicate_candidates.push(existing.id);
+                Ok(Some(existing)) => {
+                    if !cand.duplicate_candidates.contains(&existing.id) {
+                        cand.duplicate_candidates.push(existing.id);
+                    }
+                    cand.recommended_action = CandidateAction::Merge;
                 }
-                cand.recommended_action = CandidateAction::Merge;
+                Ok(None) => {} // verificado: sin duplicado exacto.
+                Err(e) => {
+                    // 1.7 fail-closed: hash-dedupe no verificable (Err) -> inbox.
+                    eprintln!(
+                        "[service::create_candidate] content-hash dedupe failed: {e} — \
+                         candidate {} marked dedup-unverified",
+                        cand.id
+                    );
+                    mark_unverified(&mut cand.proposed_tags, "dedup-unverified");
+                }
             }
         }
 
@@ -84,17 +141,10 @@ impl MemoryService {
         // also apply PII redaction and elevate the risk marker identically to
         // the credential path — the promoted item will be marked Secret on
         // approve, excluding it from recall (sensitivity gate in assemble_pack).
-        let proposed_text = [
-            cand.proposed_title.as_deref(),
-            cand.proposed_summary.as_deref(),
-            cand.proposed_content.as_deref(),
-            cand.proposed_file_path.as_deref(),
-            cand.proposed_signature.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ");
+        // 1.7: el scan PII cubre los MISMOS campos que la redacción de credenciales
+        // (que ya incluye content_json en L37 + tags en L38). Antes excluía
+        // content_json y tags → PII ahí (rutas de agentes/import) no elevaba Secret.
+        let proposed_text = pii_scan_text(&cand);
         // NO `!redacted`: credencial y PII son ortogonales — un campo puede llevar
         // un token y OTRO una ruta con username; ambas deben redactarse (audit 2026-06-25).
         if redaction::contains_pii(&proposed_text) {
@@ -114,6 +164,17 @@ impl MemoryService {
             }
             if let Some(ref mut sig) = cand.proposed_signature {
                 *sig = redaction::redact_pii(sig);
+            }
+            // 1.7: redactar también symbol, content_json y tags (paridad scan↔redacción)
+            // — una PII embebida ahí ya no se persiste en claro.
+            if let Some(ref mut sym) = cand.proposed_symbol {
+                *sym = redaction::redact_pii(sym);
+            }
+            if let Some(ref mut cj) = cand.proposed_content_json {
+                *cj = redaction::redact_pii(cj);
+            }
+            for tag in cand.proposed_tags.iter_mut() {
+                *tag = redaction::redact_pii(tag);
             }
         }
 
@@ -156,8 +217,22 @@ impl MemoryService {
         //   None in < 50 ms, so the budget is never reached in the happy path.
         const CONTRADICTION_BUDGET_MS: u64 = 2_000;
         if !redacted {
-            if let Some(summary) = cand.proposed_summary.as_deref() {
-                let summary_owned = summary.to_string();
+            // 1.7: usa el MEJOR texto disponible — summary, o content como fallback — para
+            // el juez de contradicción. Antes solo corría con summary => un candidato sin
+            // summary pero con content (p.ej. captura de símbolos) saltaba el detector SIN
+            // marca y podía auto-aprobarse sin verificar. Sin NINGÚN texto no hay proposición
+            // que pueda contradecir (limpio legítimo, no fail-open).
+            let check_text = cand
+                .proposed_summary
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| {
+                    cand.proposed_content
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                });
+            if let Some(text) = check_text {
+                let summary_owned = text.to_string();
                 let project_id_owned = probe.project_id.clone();
 
                 // Spawn the check onto a scoped OS thread so we can time-box it
@@ -178,7 +253,7 @@ impl MemoryService {
                 });
 
                 match rx.recv_timeout(std::time::Duration::from_millis(CONTRADICTION_BUDGET_MS)) {
-                    Ok(Some(findings)) if !findings.is_empty() => {
+                    Ok(Some(Some(findings))) if !findings.is_empty() => {
                         for f in &findings {
                             if !cand.contradiction_candidates.contains(&f.conflicting_id) {
                                 cand.contradiction_candidates.push(f.conflicting_id.clone());
@@ -188,23 +263,30 @@ impl MemoryService {
                         // OUT of recall until adjudicated (takes precedence over Merge).
                         cand.recommended_action = CandidateAction::Quarantine;
                     }
-                    Ok(_) => {
-                        // No findings (empty vec) or open_conn failed — proceed normally.
+                    Ok(Some(Some(_no_findings))) => {
+                        // Verificado: la búsqueda corrió y el juez no halló contradicción.
+                    }
+                    Ok(Some(None)) => {
+                        // 1.7 fail-closed END-TO-END: la infra de búsqueda (Qdrant/E5)
+                        // estaba caída → NO se pudo verificar contradicción. Antes `check`
+                        // colapsaba esto a "sin contradicción" (fail-OPEN). Marcar unjudged.
+                        mark_unverified(&mut cand.proposed_tags, "unjudged");
+                    }
+                    Ok(None) => {
+                        // 1.7 fail-closed: el thread no pudo abrir conn → NO verificado.
+                        mark_unverified(&mut cand.proposed_tags, "unjudged");
                     }
                     Err(_timeout_or_disconnect) => {
-                        // Budget expired or thread panicked.  FAIL-OPEN: create the
-                        // candidate without a contradiction verdict rather than blocking
-                        // the hook.  Tag it so the dashboard can surface unjudged items
-                        // for later review.
+                        // 1.7 fail-closed: budget expirado o thread panicó → NO verificado
+                        // (antes fail-OPEN: se auto-aprobaba sin verdicto). Tag unjudged →
+                        // inbox; el hook nunca se cuelga por un juez lento.
                         eprintln!(
-                            "[service::create_candidate] contradiction judge timed out \
-                             after {CONTRADICTION_BUDGET_MS}ms — candidate {} will be \
-                             created as unjudged",
+                            "[service::create_candidate] contradiction check unresolved \
+                             (timeout >{CONTRADICTION_BUDGET_MS}ms or thread panic) — \
+                             candidate {} marked unjudged",
                             cand.id
                         );
-                        if !cand.proposed_tags.contains(&"unjudged".to_string()) {
-                            cand.proposed_tags.push("unjudged".to_string());
-                        }
+                        mark_unverified(&mut cand.proposed_tags, "unjudged");
                     }
                 }
             }

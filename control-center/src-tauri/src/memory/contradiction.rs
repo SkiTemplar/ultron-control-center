@@ -6,10 +6,11 @@
 // feeds `MemoryCandidate::contradiction_candidates` + a recommended action of
 // `Quarantine`. It NEVER writes items and NEVER auto-approves.
 //
-// FAIL-SAFE by construction:
-//   - The semantic step (search_dense + the LLM judge) is fully isolated in
-//     `check`. When Qdrant/E5 is off, `search_dense` returns an empty vec and
-//     `check` returns no findings -- the candidate pipeline is never blocked.
+// FAIL-SAFE by construction (1.7: now fail-CLOSED on infra):
+//   - The semantic step (dense search + the LLM judge) is isolated in `check`.
+//     When Qdrant/E5 is off, `check` returns `None` (NOT verifiable) so the
+//     write-path marks the candidate `unjudged` and never auto-approves it; the
+//     pipeline is never BLOCKED (the hook still completes).
 //   - The LLM judge (`ai_tasks::judge_contradiction`) is tolerant: on any
 //     parse/route failure it reports `false` (no contradiction), so a degraded
 //     model can never spuriously quarantine a memory.
@@ -53,12 +54,14 @@ impl ContradictionFinding {
 /// to `project_id`) and return every one the LLM judge marks as a
 /// contradiction.
 ///
-/// Degradation contract:
-///   - Empty / whitespace-only proposal  -> empty vec (nothing to compare).
-///   - Qdrant/E5 unavailable             -> `search_dense` empties -> empty vec.
-///   - A neighbour id no longer in SQLite -> skipped (never errors).
-///   - The LLM judge unavailable          -> `judge_contradiction` returns
-///     false -> no finding.
+/// Degradation contract (1.7 fail-closed):
+///   - Empty / whitespace-only proposal   -> `Some(vec![])` (nothing to compare).
+///   - Qdrant/E5 unavailable              -> `None` (NOT verifiable → the caller
+///     marks the candidate `unjudged` and never auto-approves it).
+///   - Query ran but found 0 neighbours    -> `Some(vec![])` (verified clean).
+///   - A neighbour id no longer in SQLite  -> skipped (never errors).
+///   - The LLM judge unavailable           -> conservative `false` (declared
+///     residual: the SEARCH infra is fail-closed; the judge stays advisory).
 ///
 /// This function performs the network/DB/LLM work and is therefore NOT unit
 /// tested here; `recommended_action` (the pure decision) is.
@@ -67,15 +70,19 @@ pub fn check(
     conn: &Connection,
     proposed_summary: &str,
     project_id: Option<&str>,
-) -> Vec<ContradictionFinding> {
+) -> Option<Vec<ContradictionFinding>> {
     let proposed = proposed_summary.trim();
     if proposed.is_empty() {
-        return Vec::new();
+        return Some(Vec::new()); // nada que comparar = verificado-vacío (no infra-fail)
     }
 
-    // Dense neighbours (best-first). Empty when Qdrant/E5 are off -> clean
-    // degradation to "no contradictions found".
-    let neighbour_ids = super::qdrant_index::search_dense(proposed, NEIGHBOUR_LIMIT, project_id);
+    // 1.7 fail-closed end-to-end: distinguir "infra de búsqueda caída" (Qdrant/E5
+    // off → `None`, el caller marca `unjudged`) de "se consultó y no hay vecinos"
+    // (`Some(vec![])`). Antes `search_dense` colapsaba ambos a un vec vacío, que el
+    // pipeline trataba como "verificado limpio" → con auto-approve ON y Qdrant
+    // caído, una Fact contradictoria se auto-promovía.
+    let neighbour_ids =
+        super::qdrant_index::search_dense_checked(proposed, NEIGHBOUR_LIMIT, project_id)?;
 
     let mut findings: Vec<ContradictionFinding> = Vec::new();
     for id in neighbour_ids {
@@ -107,7 +114,10 @@ pub fn check(
         }
     }
 
-    findings
+    // La búsqueda densa quedó VERIFICADA (Some). Residual declarado (mand. 13): el
+    // juez LLM sigue conservador — un None del modelo no marca ese vecino; el
+    // fail-closed cubre la infra de BÚSQUEDA, el juez-LLM-caído es residual menor.
+    Some(findings)
 }
 
 /// Decide the recommended disposition for a candidate given its contradiction

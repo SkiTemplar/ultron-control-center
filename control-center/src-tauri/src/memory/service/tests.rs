@@ -52,6 +52,46 @@ fn pending_item_is_not_recall_eligible() {
 }
 
 #[test]
+fn pii_scan_covers_content_json_tags_and_symbol() {
+    // 1.7: el scan PII del write-path DEBE cubrir content_json y tags (paridad con la
+    // redacción de credenciales). Antes los excluía → PII ahí no elevaba Secret. Atado
+    // al detector REAL: si pii_scan_text omitiera un campo, contains_pii daría false.
+    use crate::memory::redaction;
+    let email = "persona@correo-ejemplo.com";
+
+    // PII SOLO en content_json:
+    let mut c1 = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    c1.proposed_content_json = Some(format!("{{\"contacto\":\"{email}\"}}"));
+    assert!(
+        redaction::contains_pii(&super::candidates::pii_scan_text(&c1)),
+        "PII en content_json debe entrar al scan (antes se excluía)"
+    );
+
+    // PII SOLO en un tag:
+    let mut c2 = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    c2.proposed_tags = vec![format!("owner:{email}")];
+    assert!(
+        redaction::contains_pii(&super::candidates::pii_scan_text(&c2)),
+        "PII en un tag debe entrar al scan"
+    );
+
+    // PII SOLO en proposed_symbol ("file_path:symbol"):
+    let mut c4 = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    c4.proposed_symbol = Some(format!("ruta/{email}:simbolo"));
+    assert!(
+        redaction::contains_pii(&super::candidates::pii_scan_text(&c4)),
+        "PII en proposed_symbol debe entrar al scan"
+    );
+
+    // Control: sin PII el scan no dispara.
+    let mut c3 = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    c3.proposed_summary = Some("decision tecnica sin datos personales".into());
+    assert!(!redaction::contains_pii(&super::candidates::pii_scan_text(
+        &c3
+    )));
+}
+
+#[test]
 fn deprecated_item_drops_out_of_active_recall() {
     let conn = mem_conn();
     let mut item = MemoryItem::new(

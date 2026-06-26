@@ -195,6 +195,40 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
     }
 }
 
+/// Como `search_dense` pero DISTINGUE "infra de búsqueda no disponible" de "0
+/// vecinos": `None` = E5 no embebió (Err / vector cero) o Qdrant devolvió Err →
+/// NO verificable; `Some(vec)` = la consulta se ejecutó (vec vacío = sin vecinos).
+/// Lo usa el detector de contradicción (1.7) para no tratar "Qdrant caído" como
+/// "sin contradicción" → fail-closed end-to-end.
+pub fn search_dense_checked(query: &str, k: u32, project_id: Option<&str>) -> Option<Vec<String>> {
+    let vector = crate::qdrant::embed_e5(query, true).ok()?;
+    if vector.iter().all(|&x| x == 0.0) {
+        return None; // E5 stub / unavailable -> NO verificable
+    }
+    let mut must = vec![serde_json::json!({ "key": "status", "match": { "value": "active" } })];
+    if let Some(pid) = project_id {
+        must.push(serde_json::json!({
+            "should": [
+                { "key": "project_id", "match": { "value": pid } },
+                { "is_empty": { "key": "project_id" } }
+            ]
+        }));
+    }
+    let filter = serde_json::json!({ "must": must });
+    let hits = crate::qdrant::search_with_vector(COLLECTION, vector, k, Some(filter)).ok()?;
+    Some(
+        hits.into_iter()
+            .map(|h| {
+                h.payload
+                    .get("canonical_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or(h.id)
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod reconcile_tests {
     use super::diff_ids;
