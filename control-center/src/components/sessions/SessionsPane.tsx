@@ -15,7 +15,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SessionInfo, ProjectGroup } from "./sessionTypes";
+import type {
+  SessionInfo,
+  ProjectGroup,
+  SessionOrchestration,
+  LiveFeedLite,
+} from "./sessionTypes";
 import { SessionCard } from "./SessionCard";
 
 // ---------------------------------------------------------------------------
@@ -117,10 +122,11 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 
 interface ProjectBlockProps {
   group: ProjectGroup;
+  orchBySession: Record<string, SessionOrchestration>;
   onOpenProject?: (projectId: string) => void;
 }
 
-function ProjectBlock({ group, onOpenProject }: ProjectBlockProps) {
+function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps) {
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   const totalCount = group.sessions.length + group.subagents.length;
 
@@ -159,6 +165,7 @@ function ProjectBlock({ group, onOpenProject }: ProjectBlockProps) {
             <SessionCard
               key={s.session_id}
               session={s}
+              orchestration={orchBySession[s.session_id] ?? null}
               onOpenProject={onOpenProject}
             />
           ))}
@@ -212,6 +219,7 @@ function ProjectBlock({ group, onOpenProject }: ProjectBlockProps) {
                 <SessionCard
                   key={s.session_id}
                   session={s}
+                  orchestration={orchBySession[s.session_id] ?? null}
                   onOpenProject={onOpenProject}
                 />
               ))}
@@ -229,6 +237,9 @@ function ProjectBlock({ group, onOpenProject }: ProjectBlockProps) {
 
 export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  // Orquestación del último turno por session_id (live_session_feed). El Monitor
+  // enriquece cada tarjeta con intent/workflow/agentes/skills/memoria de ESA sesión.
+  const [orchBySession, setOrchBySession] = useState<Record<string, SessionOrchestration>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(true);
@@ -246,8 +257,22 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
   const fetchSessions = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
     try {
-      const data = await invoke<SessionInfo[]>("list_active_sessions");
+      // Sesiones + feed de orquestación en paralelo. El feed es complementario:
+      // si falla, las sesiones se muestran igual (sin el bloque de orquestación).
+      const [data, feed] = await Promise.all([
+        invoke<SessionInfo[]>("list_active_sessions"),
+        invoke<LiveFeedLite>("live_session_feed", { limit: 50 }).catch(() => null),
+      ]);
       setSessions(data);
+      if (feed) {
+        // feed.orchestrations viene newest-first: la PRIMERA entrada de cada
+        // session_id es su último turno orquestado.
+        const map: Record<string, SessionOrchestration> = {};
+        for (const o of feed.orchestrations) {
+          if (o.session_id && !(o.session_id in map)) map[o.session_id] = o;
+        }
+        setOrchBySession(map);
+      }
       setError(null);
       setLastUpdated(new Date());
     } catch (err) {
@@ -522,6 +547,7 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
             <ProjectBlock
               key={group.project_path}
               group={group}
+              orchBySession={orchBySession}
               onOpenProject={onOpenProject}
             />
           ))}

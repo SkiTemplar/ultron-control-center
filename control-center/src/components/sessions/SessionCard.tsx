@@ -12,7 +12,26 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SessionInfo } from "./sessionTypes";
+import type { SessionInfo, SessionOrchestration } from "./sessionTypes";
+
+// Tinte por tipo de skill (espejo de LiveSessionMonitor para coherencia visual).
+const KIND_TINT: Record<string, string> = {
+  persona: "#a855f7",
+  technical: "#3b82f6",
+  meta: "#22c55e",
+};
+
+/** ¿La orquestación tiene algo que mostrar más allá del header? */
+function hasOrchestration(o: SessionOrchestration | null | undefined): o is SessionOrchestration {
+  if (!o) return false;
+  return Boolean(
+    o.route ||
+      o.workflow?.label ||
+      o.agents.length > 0 ||
+      o.skills.length > 0 ||
+      o.memories.length > 0,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Cache de resúmenes reales por session_id.
@@ -166,6 +185,8 @@ function ContextBar({ pct }: ContextBarProps) {
 
 interface SessionCardProps {
   session: SessionInfo;
+  /** Último turno orquestado de ESTA sesión (correlación por session_id). */
+  orchestration?: SessionOrchestration | null;
   onOpenProject?: (projectId: string) => void;
 }
 
@@ -173,7 +194,7 @@ interface SessionCardProps {
 // SessionCard — componente principal
 // ---------------------------------------------------------------------------
 
-export function SessionCard({ session, onOpenProject }: SessionCardProps) {
+export function SessionCard({ session, orchestration, onOpenProject }: SessionCardProps) {
   const {
     session_id,
     project_name,
@@ -352,6 +373,119 @@ export function SessionCard({ session, onOpenProject }: SessionCardProps) {
         >
           {truncate(last_prompt, 100)}
         </p>
+      )}
+
+      {/* ── Bloque de orquestación de ESTA sesión (último turno) ── */}
+      {hasOrchestration(orchestration) && (
+        <div
+          className="flex flex-col gap-1.5 border-t pt-2"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <p
+            className="text-[9px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            Orquestación
+          </p>
+
+          {/* intent + workflow + cross-project */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {orchestration.route && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[9.5px] font-semibold"
+                style={{
+                  background: "rgba(88,166,255,0.10)",
+                  color: "var(--color-accent)",
+                  border: "1px solid rgba(88,166,255,0.28)",
+                }}
+                title="Intent detectado por el orquestador"
+              >
+                {orchestration.route}
+              </span>
+            )}
+            {orchestration.workflow?.label && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[9.5px]"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                wf: {orchestration.workflow.label}
+              </span>
+            )}
+            {orchestration.cross_project && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[9.5px] font-medium"
+                style={{
+                  background: "rgba(234,179,8,0.12)",
+                  color: "#ca8a04",
+                  border: "1px solid rgba(234,179,8,0.30)",
+                }}
+              >
+                cross-project
+              </span>
+            )}
+          </div>
+
+          {/* agentes sugeridos (top 3 por score) */}
+          {orchestration.agents.length > 0 && (
+            <p
+              className="text-[10px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
+            >
+              <span style={{ color: "var(--color-text-faint)" }}>agentes </span>
+              {orchestration.agents
+                .slice(0, 3)
+                .map((a) => `${a.name} ${a.score.toFixed(2)}`)
+                .join(" · ")}
+            </p>
+          )}
+
+          {/* skills aceptadas */}
+          {orchestration.skills.length > 0 && (
+            <p
+              className="flex flex-wrap items-center gap-x-1.5 text-[10px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
+            >
+              <span style={{ color: "var(--color-text-faint)" }}>skills</span>
+              {orchestration.skills.slice(0, 4).map((s, i) => (
+                <span key={`${s.name}-${i}`} className="inline-flex items-center gap-1">
+                  {s.name}
+                  {s.kind && (
+                    <span
+                      className="text-[8px] uppercase"
+                      style={{ color: KIND_TINT[s.kind] ?? "var(--color-text-faint)" }}
+                    >
+                      {s.kind}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </p>
+          )}
+
+          {/* memoria inyectada (1 línea, truncada) */}
+          {orchestration.memories.length > 0 && (
+            <p
+              className="truncate text-[10px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+              title={orchestration.memories[0].summary}
+            >
+              <span style={{ color: "var(--color-text-faint)" }}>
+                [{orchestration.memories[0].scope}]
+              </span>{" "}
+              {orchestration.memories[0].summary}
+              {orchestration.memories.length > 1 && (
+                <span style={{ color: "var(--color-text-faint)" }}>
+                  {" "}
+                  +{orchestration.memories.length - 1}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
       )}
 
       {/* ── Fila 7: botón "Abrir en Projects" ── */}

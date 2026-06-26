@@ -32,3 +32,48 @@ export interface ProjectGroup {
   /** Subagentes ligados al mismo proyecto. */
   subagents: SessionInfo[];
 }
+
+// ---------------------------------------------------------------------------
+// Orquestación por sesión.
+//
+// Espejo parcial de OrchestrateLogEntry (backend: commands/sessions_sub/
+// live_session.rs). El hook UserPromptSubmit escribe cada turno en
+// ~/.claude/logs/orchestrate.jsonl con el session_id de la sesión PRINCIPAL,
+// que es el mismo UUID que nombra el transcript → se correlaciona 1:1 con
+// SessionInfo.session_id. Los subagentes (is_subagent) no tienen turno propio
+// en este log, así que simplemente no traen orquestación.
+// ---------------------------------------------------------------------------
+
+export interface OrchAgent {
+  name: string;
+  score: number;
+}
+
+export interface OrchSkill {
+  name: string;
+  kind: string;
+  score: number;
+}
+
+export interface OrchMemory {
+  scope: string;
+  summary: string;
+}
+
+/** Último turno orquestado de una sesión (route → workflow → agentes → skills → memoria). */
+export interface SessionOrchestration {
+  ts: string | null;
+  session_id: string | null;
+  prompt: string | null;
+  route: string | null;
+  workflow: { id: string | null; label: string | null } | null;
+  agents: OrchAgent[];
+  skills: OrchSkill[];
+  memories: OrchMemory[];
+  cross_project: boolean;
+}
+
+/** Forma mínima de live_session_feed que consume el Monitor (solo orquestaciones). */
+export interface LiveFeedLite {
+  orchestrations: SessionOrchestration[];
+}
