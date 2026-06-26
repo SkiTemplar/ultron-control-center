@@ -210,9 +210,11 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 - ☐ **1.5 `codebase_fact` muerto en recall (NUEVO).** 478 capturados, **todos deprecated** (0 activos) → el codegraph
   se captura pero no se inyecta (mand. 12). Decidir: activarlos (que entren a recall) o dejar de capturarlos. *Hecho:*
   o `codebase_fact` activos > 0 y recallables, o se deja de escribir.
-- ☐ **1.6 Cobertura del detector de secretos (residual; PII ya cerrada).** El detector PII está hecho (06-25). Queda el
-  caso "secreto genérico en prosa" (p. ej. "la clave es Patata2024", sin prefijo `sk-`): heurística de entropía/longitud +
-  key-names. *Hecho:* un secreto en prosa NO se auto-aprueba; caso negativo en el harness. *(Prioridad baja: PII —lo grave— ya está.)*
+- ✅ **1.6 Secretos en prosa detectados (2026-06-26; PII ya estaba).** *HECHO:* Pass 3 en `redaction.rs`
+  (`detect_prose_secrets`): keyword (clave/contraseña/password/token/secret…) + conector (es/son/:/=) + valor mixto
+  **≥6 chars con dígito Y letra** (gate que evita falsos positivos en prosa). 28 tests verdes (positivo + negativo:
+  "trabajar"/"simplicidad"/"constancia" NO se redactan). **Verificado runtime:** "la clave es Patata2024" → "la clave
+  es [REDACTED:secret]" en el write-path. Sidecar redeployado.
 
 > **Quitado de la lista de defectos:** "decisions siempre al inbox" (`auto_approve.rs:167-180`) es **intencional**
 > (Decision/Architecture siempre necesitan ojo humano, testeado). No es bug; documentarlo como invariante de gobernanza.

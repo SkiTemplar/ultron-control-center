@@ -149,6 +149,75 @@ fn value_looks_secret(value: &str) -> bool {
     )
 }
 
+/// Pass 3 (1.6): a labeled secret in PROSE, e.g. "la clave es Patata2024" or
+/// "contraseña: hunter2A". A secret KEYWORD, an optional connector (es/son/:/=),
+/// then a VALUE that looks like a secret: a token run >= 6 chars containing BOTH a
+/// digit AND a letter. The mixed-alphanumeric gate avoids redacting ordinary prose
+/// words ("trabajar", "simplicidad", "constancia"). Only the value span is returned.
+fn detect_prose_secrets(text: &str) -> Vec<SecretHit> {
+    const KW: &[&str] = &[
+        "clave",
+        "contraseña",
+        "contrasena",
+        "contrasenia",
+        "password",
+        "passwd",
+        "secret",
+        "secreto",
+        "token",
+        "passphrase",
+    ];
+    const CONNECTOR: &[&str] = &["es", "son", "era", "=", ":"];
+    let norm = |w: &str| {
+        w.trim_matches(|c: char| !c.is_alphanumeric())
+            .to_lowercase()
+    };
+    let bytes = text.as_bytes();
+    let mut words: Vec<(&str, usize)> = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        let s = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        words.push((&text[s..i], s));
+    }
+    let mut hits = Vec::new();
+    let mut w = 0usize;
+    while w < words.len() {
+        if KW.contains(&norm(words[w].0).as_str()) {
+            let mut j = w + 1;
+            if j < words.len() && CONNECTOR.contains(&norm(words[j].0).as_str()) {
+                j += 1;
+            }
+            if j < words.len() {
+                let (vw, vs) = words[j];
+                let lead = vw.bytes().take_while(|&b| !is_token_char(b)).count();
+                let run = token_run_len(&vw[lead..]);
+                let val = &vw[lead..lead + run];
+                let has_digit = val.bytes().any(|b| b.is_ascii_digit());
+                let has_alpha = val.bytes().any(|b| b.is_ascii_alphabetic());
+                if run >= 6 && has_digit && has_alpha {
+                    let start = vs + lead;
+                    hits.push(SecretHit {
+                        kind: SecretKind::AssignedSecret,
+                        start,
+                        end: start + run,
+                    });
+                    w = j + 1;
+                    continue;
+                }
+            }
+        }
+        w += 1;
+    }
+    hits
+}
+
 /// Detect secret material in `text`. Hits are returned ordered by `start`,
 /// non-overlapping (earlier/longer match wins).
 #[must_use]
@@ -270,6 +339,14 @@ pub fn detect_secrets(text: &str) -> Vec<SecretHit> {
         }
 
         prev_word = Some(word);
+    }
+
+    // Pass 3 (1.6): labeled secrets in prose ("la clave es Patata2024"). Merge
+    // non-overlapping with the prefix/assignment hits above.
+    for h in detect_prose_secrets(text) {
+        if !hits.iter().any(|e| h.start < e.end && e.start < h.end) {
+            hits.push(h);
+        }
     }
 
     hits.sort_by_key(|h| h.start);
@@ -859,5 +936,23 @@ mod tests {
             classify_sensitivity_with_pii("arquitectura de memoria ULTRON brain.db"),
             Sensitivity::Internal,
         );
+    }
+
+    #[test]
+    fn detects_labeled_secret_in_prose() {
+        // 1.6: secreto etiquetado en prosa, sin prefijo conocido (sk-/ghp_/...).
+        assert!(contains_secret("la clave es Patata2024"));
+        assert!(redact("la clave es Patata2024").contains("[REDACTED:secret]"));
+        assert!(!redact("la clave es Patata2024").contains("Patata2024"));
+        assert!(contains_secret("contraseña: hunter2A"));
+        assert!(contains_secret("el token es abc123XYZ"));
+    }
+
+    #[test]
+    fn prose_secret_gate_avoids_plain_prose_false_positives() {
+        // Gate (>=6 chars + digito + letra) -> NO redacta prosa normal.
+        assert!(!contains_secret("la clave del exito es trabajar duro"));
+        assert!(!contains_secret("la clave es la simplicidad"));
+        assert!(!contains_secret("el secreto es la constancia"));
     }
 }
