@@ -67,6 +67,7 @@ pub use projects::agents;
 pub use sessions_sub::live_session;
 pub use sessions_sub::pty;
 pub use sessions_sub::session_manager;
+pub use sessions_sub::session_summary;
 pub use sessions_sub::sessions;
 pub use sessions_sub::tabs;
 

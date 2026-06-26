@@ -10,7 +10,16 @@
 //   - Botón "Abrir en Projects" (solo si matched_project_id != null)
 //   - Badge "subagente" cuando is_subagent = true
 
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { SessionInfo } from "./sessionTypes";
+
+// ---------------------------------------------------------------------------
+// Cache de resúmenes reales por session_id.
+// A nivel de módulo: sobrevive re-renders Y unmount/remount del componente
+// (p.ej. cuando la sesión pasa a "dead" y se oculta/muestra de nuevo).
+// ---------------------------------------------------------------------------
+const realSummaryCache = new Map<string, string>();
 
 // ---------------------------------------------------------------------------
 // Helpers de presentación
@@ -183,6 +192,37 @@ export function SessionCard({ session, onOpenProject }: SessionCardProps) {
     is_subagent,
   } = session;
 
+  // ── Resumen real (lazy, cacheado) ────────────────────────────────────────
+  // Muestra last_activity_summary (truncado crudo) como placeholder inmediato.
+  // Invoca summarize_session_activity UNA VEZ por session_id y reemplaza cuando
+  // resuelve. Si rechaza, mantiene el placeholder sin ruido en UI.
+  const [realSummary, setRealSummary] = useState<string | null>(
+    () => realSummaryCache.get(session_id) ?? null,
+  );
+  const [summaryFetching, setSummaryFetching] = useState(false);
+
+  useEffect(() => {
+    // Acierto de caché — no re-invocar (cubre el caso de remount)
+    if (realSummaryCache.has(session_id)) {
+      setRealSummary(realSummaryCache.get(session_id) ?? null);
+      return;
+    }
+
+    setSummaryFetching(true);
+    invoke<string>("summarize_session_activity", { sessionId: session_id })
+      .then((summary) => {
+        realSummaryCache.set(session_id, summary);
+        setRealSummary(summary);
+      })
+      .catch((e: unknown) => {
+        console.debug("[SessionCard] summarize_session_activity rejected:", e);
+      })
+      .finally(() => {
+        setSummaryFetching(false);
+      });
+  }, [session_id]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const canOpenProject = matched_project_id !== null;
 
   const handleOpenProject = () => {
@@ -280,13 +320,22 @@ export function SessionCard({ session, onOpenProject }: SessionCardProps) {
         <TokenStat label="out" value={fmtTokens(output_tokens)} />
       </div>
 
-      {/* ── Fila 5: qué hace ahora (last_activity_summary) ── */}
-      {last_activity_summary && (
+      {/* ── Fila 5: resumen real (AI) / placeholder crudo ── */}
+      {(realSummary !== null || last_activity_summary !== null) && (
         <p
           className="text-[11px] leading-snug"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          {truncate(last_activity_summary, 120)}
+          {realSummary === null && summaryFetching && (
+            <span
+              className="mr-1 text-[9.5px]"
+              style={{ color: "var(--color-text-faint)" }}
+              aria-hidden
+            >
+              ···
+            </span>
+          )}
+          {truncate(realSummary ?? last_activity_summary ?? "", 120)}
         </p>
       )}
 

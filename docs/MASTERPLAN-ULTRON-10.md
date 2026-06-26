@@ -306,8 +306,16 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 # FASE 3 — Interfaz: de cáscaras a producto (mucho ya construido — ver verificación)
 
-- ☐ **3.1 Monitor con resumen REAL** — `last_activity_summary` pasa por `route('summarize')` (async/cacheado por
-  `session_id`) en vez de truncar a 200 chars (`session_jsonl.rs:24`). *(Única cáscara confirmada del Monitor.)*
+- ◐ **3.1 Monitor con resumen REAL — CÓDIGO LISTO, verificación visual PENDIENTE (2026-06-26).** Nuevo comando Tauri
+  `summarize_session_activity(session_id)` (`commands/sessions_sub/session_summary.rs`): resuelve el transcript bajo
+  `~/.claude/projects`, lee el último turno assistant COMPLETO (no el truncado de 200), lo pasa por `route("summarize")`,
+  cachea por `(session_id, hash_del_texto)`. Frontend (`components/sessions/SessionCard.tsx`): invoke LAZY por sesión —
+  el truncado queda como placeholder inmediato y se reemplaza por el resumen real al resolver (indicador `···`); cache de
+  módulo para no re-invocar en el polling de 4s. Path-traversal cerrado (rechaza `..`/separadores en session_id).
+  `cargo check` 0/0 + **6 tests** (cache/hash/guard) + `tsc` 0; backend cableado en `lib.rs`. Implementado por agentes
+  especialistas (rust + react) contra contrato fijo, revisado y hardened en el hilo principal. **PENDIENTE (mand. 8):**
+  rebuild de la app (`npm run build:local`, requiere cerrar ULTRON) + verificación visual del usuario en Sessions →
+  Monitor. Hasta ese OK no es ✅.
 - ☐ **3.2 Monitor en directo** — unificar sobre `live_session.rs` + eventos `workflow:*` + el **`SubagentStop` ya cableado**
   (`subagent-harvest`) para mostrar subagentes en vivo.
 - ◐ **3.3 AI Router UI — solo nota de alcance.** La UI **NO está vacía** y la app **sí llama `route()`** (dashboard de

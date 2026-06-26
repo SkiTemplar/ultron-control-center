@@ -308,6 +308,8 @@ pub fn run() {
             commands::live_session::live_session_feed,
             // -- Gestor multi-sesion: lee ~/.claude/projects/*.jsonl (estado/modelo/context%) --
             commands::session_manager::list_active_sessions,
+            // -- Resumen REAL de sesión vía AI Router (lazy, cacheado por session_id+hash) --
+            commands::session_summary::summarize_session_activity,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,

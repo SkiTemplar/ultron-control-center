@@ -10,6 +10,7 @@
 pub mod live_session;
 pub mod pty;
 pub mod session_manager;
+pub mod session_summary;
 // Sub-módulos internos del gestor de sesiones (cat7.3 split): parseo JSONL y
 // inferencia de metadatos. No exportan al frontend; solo los usa session_manager.
 pub(crate) mod session_jsonl;
@@ -20,5 +21,6 @@ pub mod tabs;
 pub use live_session::*;
 pub use pty::*;
 pub use session_manager::*;
+pub use session_summary::summarize_session_activity;
 pub use sessions::*;
 pub use tabs::*;
