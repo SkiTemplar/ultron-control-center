@@ -297,25 +297,39 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   ruteable (entrada v2 + persona jordan); `ui-ux-pro-max`/`gamedev-engineer` están cubiertas por personas + `ui-designer`
   activa. Decisión: marcar `lazy_loadable` las que falten **o** aceptar que las personas las cubren (entonces no es deuda).
   Y corregir el catálogo stale de la skill activa `ultron` (quitar "78 agents/79 skills" → "catálogo lazy").
-- ☐ **2.5 v3 semántico DEBE funcionar (el usuario lo confirma).** Hoy solo lo invoca `_accuracy_at3.js --v3` (diagnóstico que
-  no gatea) → puede romperse en silencio. Añadir vía semántica de **fallback v2→v3** para prompts que no superen el umbral
-  determinista (invoca `embed_skills.py`), y **gatear v3 en CI**. *Hecho:* un prompt ambiguo que el v2 no matchea recibe
-  inyección semántica del v3; check conductual en `_accuracy_at3.js` con casos ambiguos que SÍ gatea.
+- ◐ **2.5 v3 semántico — alcance CORREGIDO en runtime (2026-06-26): el cuello es LATENCIA, no cableado.** *Entendido (medido):*
+  el código del fallback **ya existe y es maduro** en `routing-dispatcher.v3.js` (branch B semántico cuando conf<0.80; shared
+  deadline 4.5s que acota TODO el I/O y nunca rompe el hook de 5s; mata el subproceso Python huérfano en Windows). El problema
+  NO es "añadir el fallback" sino que **`embed_skills.py query` tarda ~10.4s en caliente** (medido 3×: 10.8/10.4/10.2s, tras
+  warm-up) porque recarga el modelo mpnet 768d + reranker en CADA proceso (`SentenceTransformer(...)`, sin daemon). Con el
+  deadline de 4.5s, recablear v3 al hot path haría que **cada prompt ambiguo (conf<0.80) esperase +4.5s y recibiese vacío** —
+  exactamente la regresión por la que se retiró el 2026-06-10 (`manifest.json:362`). **NO recablear hasta acelerar el embed.**
+  Dos sub-tareas:
+  - ☐ **(a) BLOQUEANTE — daemon de embeddings de skills.** mpnet residente en RAM (proceso largo) que sirva `query` a la
+    collection `ultron_skills` en sub-segundo (espejo del daemon E5 de memoria, que usa OTRO modelo). Solo con esto el branch B
+    de v3 aporta en vez de costar. Es el trabajo real que hace "v3 funcione" (pilar #5). *Hecho:* `embed_skills query` <800ms warm
+    → recablear `settings.json`+`manifest.json` a v3 → check conductual: prompt ambiguo recibe hint semántico en <1s.
+  - ☐ **(b) Gate de routing en CI (independiente, SIN latencia para el usuario).** Hoy **CI no valida NADA del dispatcher**
+    (`.github/workflows/` sin refs) → v2/v3 pueden romperse en silencio. Cablear `_accuracy_at3.js` (acc@3 determinista, hoy
+    100% local, exit-gated) + `_verify_final.js` (26/0 local) como job. *Pendiente:* confirmar portabilidad CI de los harnesses
+    (que no dependan de `~/.claude` poblado) antes de gatear, para no volver el merge frágil.
 
 ---
 
 # FASE 3 — Interfaz: de cáscaras a producto (mucho ya construido — ver verificación)
 
-- ◐ **3.1 Monitor con resumen REAL — CÓDIGO LISTO, verificación visual PENDIENTE (2026-06-26).** Nuevo comando Tauri
+- ✅ **3.1 Monitor con resumen REAL — VERIFICADO VISUALMENTE (2026-06-26).** Nuevo comando Tauri
   `summarize_session_activity(session_id)` (`commands/sessions_sub/session_summary.rs`): resuelve el transcript bajo
   `~/.claude/projects`, lee el último turno assistant COMPLETO (no el truncado de 200), lo pasa por `route("summarize")`,
   cachea por `(session_id, hash_del_texto)`. Frontend (`components/sessions/SessionCard.tsx`): invoke LAZY por sesión —
   el truncado queda como placeholder inmediato y se reemplaza por el resumen real al resolver (indicador `···`); cache de
   módulo para no re-invocar en el polling de 4s. Path-traversal cerrado (rechaza `..`/separadores en session_id).
   `cargo check` 0/0 + **6 tests** (cache/hash/guard) + `tsc` 0; backend cableado en `lib.rs`. Implementado por agentes
-  especialistas (rust + react) contra contrato fijo, revisado y hardened en el hilo principal. **PENDIENTE (mand. 8):**
-  rebuild de la app (`npm run build:local`, requiere cerrar ULTRON) + verificación visual del usuario en Sessions →
-  Monitor. Hasta ese OK no es ✅.
+  especialistas (rust + react) contra contrato fijo, revisado y hardened en el hilo principal. **VERIFICADO (2026-06-26):**
+  rebuild `build:local` desplegado (binario fresco) + **verificación visual confirmada por el usuario** (Sessions → Monitor).
+  **Ampliado el mismo día (commit `2e58603`):** cada tarjeta añade el bloque de **orquestación por sesión**
+  (intent/workflow/agentes/skills/memoria), correlacionado por `session_id` vía `live_session_feed` — base de 3.2. Aparte,
+  commit `3785ab8`: el botón *Rebuild* de Ajustes usaba `tauri build` público (perdía Finance) → ahora `build:local`.
 - ☐ **3.2 Monitor en directo** — unificar sobre `live_session.rs` + eventos `workflow:*` + el **`SubagentStop` ya cableado**
   (`subagent-harvest`) para mostrar subagentes en vivo.
 - ◐ **3.3 AI Router UI — solo nota de alcance.** La UI **NO está vacía** y la app **sí llama `route()`** (dashboard de
