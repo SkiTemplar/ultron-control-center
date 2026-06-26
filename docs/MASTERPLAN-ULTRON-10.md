@@ -329,10 +329,14 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     `[semantic-fallback]` con `tolkien` top vía daemon; determinista intacto (`_accuracy_at3.js` acc@3 21/21). *✅ ACTIVADO (2026-06-26):*
     `~/.claude/settings.json` UserPromptSubmit → `routing-dispatcher.v3.js`; `manifest.json` regenerado a v3 (gate de paridad
     verde, descripción honesta, entry "retired" obsoleto eliminado). `embed_skills.py` FUERA del hot path (queda como indexador
-    offline). **Se aplica desde la PRÓXIMA sesión de Claude Code** (settings se carga al inicio de sesión). *Pendiente menor
-    (declarado, NO bloqueante — la collection persiste en Qdrant en disco):* auto-reindex idempotente de `ultron_skills_lazy` en
-    el warmup/daemon (hoy manual `reindex-skills-lazy`) ante borrado de Qdrant o alta/baja de skills. **Verificación del usuario:**
-    sesión nueva → prompts fluidos + en prompt ambiguo aparece `[semantic-fallback]`. **2.5(a) cerrada salvo OK visual;** resta 2.5(b) gate CI.
+    offline). **Se aplica desde la PRÓXIMA sesión de Claude Code** (settings se carga al inicio de sesión). *✅ auto-reindex
+    idempotente HECHO (2026-06-26):* `maybe_index_skills_lazy()` (`catalog.rs`, probe + skip si poblada) llamada en el arranque
+    del daemon (`serve.rs`, best-effort). **Verificado:** daemon con collection poblada → skip (lockfile instantáneo, count
+    intacto 113, sin "indexed" en log, `skill_query` 37 ms). La rama index-si-vacía se ejecuta; caso negativo limpio no probado
+    porque un `DELETE` HTTP de la collection corrompió Qdrant por lock de Windows → recuperado reiniciando Qdrant.
+    *Lección operativa:* NO hacer `DELETE` HTTP de collections Qdrant en Windows (lock → estado inconsistente "no existe en
+    memoria / datos en disco"); para reset, reiniciar Qdrant (re-lee disco). **Verificación del usuario:** sesión nueva → prompts
+    fluidos + en prompt ambiguo aparece `[semantic-fallback]`. **2.5(a) CERRADA salvo OK visual;** resta 2.5(b) gate CI.
   - ◐ **(b) Gate de routing en CI — gate PORTABLE hecho; acc@3 e2e necesita fixtures (2026-06-26).** *Verificado:* los harnesses
     NO son portables a CI — `v2.js` lee candidatas de `~/.claude/skills` (L898) + ECC cache (L1131) + proyectos (L945), y
     `_verify_final.js` exige 232 entradas del ECC cache (L59); en un checkout limpio darían acc@3<100% → falso-fail (justo lo que

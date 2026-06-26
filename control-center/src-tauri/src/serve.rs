@@ -214,6 +214,17 @@ pub fn run_daemon() -> Result<Value, String> {
     // Warm E5 ONCE up front so the very first orchestrate request is already hot.
     let _ = crate::qdrant::embed_e5("warmup", true);
 
+    // Idempotent: keep `ultron_skills_lazy` populated so the v3 semantic fallback
+    // (skill_query) works after a Qdrant wipe / skill change without a manual
+    // `reindex-skills-lazy`. Cheap (one probe search, then skip if populated).
+    // Best-effort: a failure here must not stop the daemon from serving.
+    match crate::memory::catalog::maybe_index_skills_lazy() {
+        Ok((n, _)) if n > 0 => {
+            eprintln!("ultron-memory serve: indexed {n} lazy skills into ultron_skills_lazy");
+        }
+        _ => {}
+    }
+
     // Publish discovery lockfile (token never leaves ~/.ultron/run, gitignored).
     let lock = lockfile_path();
     if let Some(parent) = lock.parent() {

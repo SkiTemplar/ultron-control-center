@@ -391,6 +391,21 @@ pub fn search_skills_lazy(query: &str, k: u32) -> Vec<CatalogHit> {
     }
 }
 
+/// Idempotent warm of `ultron_skills_lazy`: if a probe query returns nothing the
+/// collection is (re)built with `index_skills_lazy`; otherwise it's a no-op. Cheap
+/// to call on every daemon start (one probe search, then skip). This keeps the v3
+/// semantic fallback working after a Qdrant wipe or a skill add/remove without a
+/// manual `reindex-skills-lazy`. `(0, 0)` means "already populated — skipped".
+pub fn maybe_index_skills_lazy() -> Result<(usize, usize), String> {
+    // Generic probe — matches across skill descriptions regardless of which are
+    // installed, so a populated collection always returns ≥1 hit.
+    let already = search_skills_lazy("orchestrator master router skill", 1);
+    if !already.is_empty() {
+        return Ok((0, 0)); // already populated
+    }
+    index_skills_lazy()
+}
+
 /// Warm `ultron_catalog` once per process start: index agents + skills if the
 /// collection looks empty/stale. Idempotent (deterministic upsert). Designed to
 /// run inside `spawn_blocking` from the Tauri `setup()` so it never blocks
