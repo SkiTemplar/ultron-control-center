@@ -196,10 +196,14 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   va al inbox, NUNCA auto-active; test `candidate_with_duplicate_is_not_clean` verde). Backfill gobernado (forget de 332
   extras, conserva 1 por grupo, 0 fallos): **grupos duplicados activos 101 → 0**, "Fallo de WebFetch" 211→1, items
   3304→2978. Verificado runtime + doctor ok; sidecar redeployado.
-- ☐ **1.3 Auto-supersede (MEMORIA VIVA — el eslabón que falta).** Cablear `supersede()` (hoy 0 callers) a (a) un
-  subcomando del sidecar y (b) el path de contradicción: cuando es "misma entidad, distinto valor", en vez de Quarantine
-  (`contradiction.rs:121-127`) ejecutar `supersede(old→deprecated/valid_to, new→Active)`. *Hecho:* "faltan 10"→"faltan 2"
-  deja UN solo Active fresco; test conductual.
+- ◐ **1.3 supersede VIVO (subcomando) — auto-trigger por contradicción PENDIENTE (2026-06-26).** Cablear `supersede()`
+  (hoy 0 callers) a (a) un subcomando del sidecar y (b) el path de contradicción. *✅ HECHO (a):* subcomando gobernado
+  `ultron-memory supersede --old <id>` (nuevo item por stdin) → `supersede()` deja de ser código muerto (0 callers→1).
+  **Verificado e2e:** viejo→Deprecated (`superseded_by`, `valid_to=now`, recuperable), nuevo→Active (`supersedes`,
+  `valid_to=null`), recall prefiere el nuevo. *☐ PENDIENTE (b) auto-trigger:* el detector de contradicción
+  (`contradiction.rs`) solo da boolean; clasificar "misma entidad, distinto valor" (state-update → `supersede`) vs
+  "conflicto real" (→ Quarantine) es LLM-dependiente y merece su iteración con clasificador + eval — supersede mal
+  aplicado deprecaría memoria válida (aunque reversible). No rushear.
 - ☐ **1.4 Productores para las 5 categorías vacías.** Extender la extracción para emitir `user_profile` (y decidir
   `skill`/`architecture`/`tool_usage`/`workflow_state`): cablear productor o retirarlas del enum/UI (mand. 12). *Evidencia:*
   `capture.rs:126-135`. *Hecho:* `user_profile` se llena solo tras sesiones.

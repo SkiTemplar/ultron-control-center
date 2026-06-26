@@ -158,6 +158,19 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
+        // 1.3 (memoria viva): supersede gobernado. `--old <id>` + NUEVO item por
+        // stdin -> el viejo pasa a Deprecated (valid_to=now, recuperable), el nuevo
+        // a Active, enlazados supersedes/superseded_by. Hace VIVA supersede()
+        // (antes 0 callers = codigo muerto). El estado se actualiza en vez de acumular.
+        "supersede" => {
+            let old_id = flag_value(&args, "--old")
+                .ok_or_else(|| "supersede requiere --old <id>".to_string())?;
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| format!("read stdin: {e}"))?;
+            emit_supersede(&buf, &old_id)
+        }
         // CODEGRAPH (Fase 3a): ingest a directed code-graph edge from stdin.
         //
         // Reads one JSON object from stdin:
@@ -324,7 +337,7 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -460,6 +473,46 @@ fn emit_candidate(json: &str) -> Result<String, String> {
         .and_then(|x| x.as_str())
         .map(String::from);
     MemoryService::create_candidate(&c).map_err(|e| e.to_string())
+}
+
+/// 1.3 (memoria viva): construye el NUEVO item desde el JSON de stdin y supersede
+/// `old_id` (viejo -> Deprecated/valid_to=now, nuevo -> Active, enlazados). El
+/// project_id sigue la misma precedencia que la captura: payload -> git-root(cwd).
+/// supersede() ya redacta secretos en el write-path; este es un camino EXPLICITO
+/// (no auto): el auto-trigger por contradiccion "misma entidad, distinto valor"
+/// queda para una iteracion con clasificador dedicado.
+fn emit_supersede(json: &str, old_id: &str) -> Result<serde_json::Value, String> {
+    use ul::memory::model::MemoryItem;
+    use ul::memory::{Actor, MemoryService, MemoryType, Scope, Source, Status};
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("parse supersede json: {e}"))?;
+    let kind = v.get("type").and_then(|x| x.as_str()).unwrap_or("fact");
+    let scope = v.get("scope").and_then(|x| x.as_str()).unwrap_or("project");
+    let mut item = MemoryItem::new(
+        MemoryType::parse(kind).unwrap_or(MemoryType::Fact),
+        Scope::parse(scope).unwrap_or(Scope::Project),
+        Source::ToolObserved,
+        Status::Active,
+    );
+    item.title = v.get("title").and_then(|x| x.as_str()).map(String::from);
+    item.summary = v.get("summary").and_then(|x| x.as_str()).map(String::from);
+    item.content = v.get("content").and_then(|x| x.as_str()).map(String::from);
+    item.project_id = v
+        .get("project")
+        .and_then(|x| x.as_str())
+        .map(String::from)
+        .or_else(cwd_project);
+    if let Some(conf) = v.get("confidence").and_then(serde_json::Value::as_f64) {
+        item.confidence = (conf as f32).clamp(0.0, 1.0);
+    }
+    let new = MemoryService::supersede(old_id, item, Actor::User).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "old_id": old_id,
+        "new_id": new.id,
+        "old_status": "deprecated",
+        "new_status": "active",
+    }))
 }
 
 /// Parse a JSON object from stdin and insert it as a code-graph edge into
