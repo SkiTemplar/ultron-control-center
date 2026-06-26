@@ -189,10 +189,13 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 - ☐ **1.1 Threshold alcanzable + invariante testado.** El default 0.85 es inalcanzable (techo `derive_confidence`
   ~0.76, `capture.rs:276-292` vs `auto_approve.rs:39`) → bajar a ~0.72 o elevar el techo; test "config de fábrica PUEDE
   auto-aprobar un fact de alta confianza". *Hecho:* test rojo sin el fix, verde con él.
-- ☐ **1.2 Dedup ACTIVO (cierra la fuga de 211 copias).** En `create_candidate`, si hay `duplicate_candidates`: NO
+- ✅ **1.2 Dedup ACTIVO — fuga de 211 copias CERRADA (2026-06-26).** En `create_candidate`, si hay `duplicate_candidates`: NO
   auto-aprobar (forzar Merge) **o** merge real (bump `access_count`/`importance` del existente). Añadir
   `!duplicate_candidates.is_empty()` a la negación de `candidate_is_clean` (`auto_approve.rs:189-195`). Backfill: colapsar
-  los 101 grupos activos (empezar por `78daab37`=211). *Hecho:* 0 grupos de hash idéntico nuevos; check Kirkardo "no duplicados activos".
+  los 101 grupos activos (empezar por `78daab37`=211). *✅ HECHO:* `candidate_is_clean` excluye duplicados (un duplicado
+  va al inbox, NUNCA auto-active; test `candidate_with_duplicate_is_not_clean` verde). Backfill gobernado (forget de 332
+  extras, conserva 1 por grupo, 0 fallos): **grupos duplicados activos 101 → 0**, "Fallo de WebFetch" 211→1, items
+  3304→2978. Verificado runtime + doctor ok; sidecar redeployado.
 - ☐ **1.3 Auto-supersede (MEMORIA VIVA — el eslabón que falta).** Cablear `supersede()` (hoy 0 callers) a (a) un
   subcomando del sidecar y (b) el path de contradicción: cuando es "misma entidad, distinto valor", en vez de Quarantine
   (`contradiction.rs:121-127`) ejecutar `supersede(old→deprecated/valid_to, new→Active)`. *Hecho:* "faltan 10"→"faltan 2"

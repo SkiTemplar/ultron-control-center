@@ -7,7 +7,9 @@
 //
 //   A candidate is auto-approved ONLY when it is "clean":
 //     * its `risk_level` is NOT the secret marker ("secret"), AND
-//     * it carries NO `contradiction_candidates`.
+//     * it carries NO `contradiction_candidates`, AND
+//     * it has NO `duplicate_candidates` (1.2: a duplicate goes to the inbox,
+//       never auto-active — that is how 211 identical copies once leaked in).
 //
 //   Anything secret-bearing or contradicting an active memory ALWAYS stays in the
 //   inbox for explicit human adjudication, no matter what the toggle says. This
@@ -181,17 +183,21 @@ pub fn classify_band(candidate: &MemoryCandidate, threshold: f32) -> AutoBand {
 }
 
 /// SECURITY SALVAGUARDA. A candidate is eligible for auto-approval ONLY when it
-/// is "clean": no secret marker and no contradiction findings. Secret-bearing or
-/// contradicting candidates ALWAYS require human review — this function returns
-/// `false` for them regardless of the `auto_approve` setting. Pure (no I/O) so it
-/// is unit-tested without the DB or the settings file.
+/// is "clean": no secret marker, no contradiction findings, and NO duplicate.
+/// Secret-bearing, contradicting or DUPLICATE candidates ALWAYS require human
+/// review — this function returns `false` for them regardless of the
+/// `auto_approve` setting. Pure (no I/O) so it is unit-tested without the DB.
 #[must_use]
 pub fn candidate_is_clean(candidate: &MemoryCandidate) -> bool {
     let is_secret = candidate
         .risk_level
         .eq_ignore_ascii_case(SECRET_RISK_MARKER);
     let has_contradiction = !candidate.contradiction_candidates.is_empty();
-    !is_secret && !has_contradiction
+    // 1.2: un candidato con duplicados NO es "clean" -> nunca auto-aprobar ni
+    // approve-clean un duplicado (asi se acumularon 101 grupos content_hash
+    // identicos, uno con 211 copias activas que sesgaban el recall). Va al inbox.
+    let has_duplicate = !candidate.duplicate_candidates.is_empty();
+    !is_secret && !has_contradiction && !has_duplicate
 }
 
 #[cfg(test)]
@@ -202,6 +208,20 @@ mod tests {
     fn clean_candidate() -> MemoryCandidate {
         // `MemoryCandidate::new` defaults risk_level="low" and no contradictions.
         MemoryCandidate::new(MemoryType::Fact, Scope::Project)
+    }
+
+    #[test]
+    fn candidate_with_duplicate_is_not_clean() {
+        // 1.2: un duplicado NO debe auto-aprobarse ni colarse por approve-clean
+        // (asi se acumularon las 211 copias activas que sesgaban el recall).
+        let mut c = clean_candidate();
+        assert!(candidate_is_clean(&c), "baseline limpio");
+        c.duplicate_candidates
+            .push("existing-active-id".to_string());
+        assert!(
+            !candidate_is_clean(&c),
+            "un candidato con duplicado_candidates NO es clean"
+        );
     }
 
     #[test]
