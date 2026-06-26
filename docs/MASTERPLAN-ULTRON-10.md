@@ -69,7 +69,8 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   muerto para captura. **5 categorías vacías** (`user_profile`/`skill`/`architecture`/`tool_usage`/`workflow_state`)
   por falta de productor. *(→ 1.4 HECHO: user_profile poblado; tool_usage/workflow_state retirados del enum;
   skill/architecture conservados por tener productor vivo — enum a 12 variantes.)* **NUEVO:** los 478 `codebase_fact` están **todos deprecated** (0 activos) → se capturan
-  pero no entran a recall (mand. 12).
+  pero no entran a recall (mand. 12). *(→ 1.5 HECHO: el productor murió en el bulk-deprecate del 06-07; ya NO se
+  capturan; el codegraph se consume por el MCP + `codegraph_summary`, no por brain.db.)*
 - **Hooks — la superficie REAL es ~30 eventos (el usuario tenía razón; mi verificador se equivocó):** Claude Code
   soporta **~30 tipos de evento de hook** — SessionStart, Setup, UserPromptSubmit, UserPromptExpansion, PreToolUse,
   PermissionRequest, PermissionDenied, PostToolUse, PostToolUseFailure, PostToolBatch, Notification, MessageDisplay,
@@ -241,9 +242,18 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   a nivel de contrato (offer + parse + match); la EMISIÓN real end-to-end (que el LLM extractor emita `kind=UserProfile`
   en una sesión con identidad) NO está medida con eval determinista — se observará en captura real. No se vende "se llena
   solo" como verificado.
-- ☐ **1.5 `codebase_fact` muerto en recall (NUEVO).** 478 capturados, **todos deprecated** (0 activos) → el codegraph
-  se captura pero no se inyecta (mand. 12). Decidir: activarlos (que entren a recall) o dejar de capturarlos. *Hecho:*
-  o `codebase_fact` activos > 0 y recallables, o se deja de escribir.
+- ✅ **1.5 `codebase_fact` — decisión #3: NO capturar (ya de facto) + guard de regresión (HECHO 2026-06-26).**
+  *Diagnóstico runtime:* los 478 (413 `posttooluse_symbol` + 64 imports ETL + 1 test) se **deprecaron en masa** el
+  2026-06-07 (evento `bulk-deprecate type=codebase_fact`, Kirkardo R5) y **el productor está MUERTO** — `capture-symbols.js`
+  solo existe como propuesta en un audit (`audits/.../proposed-files/`), nunca cableado; ningún hook activo captura símbolos
+  hoy. *Premisa corregida:* no es "se captura pero no se inyecta" → es "ya NO se captura, y NUNCA debe inyectarse al
+  conversacional". El codegraph **sí tiene consumo real**, pero NO es brain.db: el **MCP codegraph** (sesiones CLI) +
+  `codegraph_summary` (panel ProjectWorkspace). Reactivarlos sería deshacer R5 (saturaban el pack y expulsaban conocimiento
+  real; `engine.rs:83-86` los excluye por diseño). *HECHO:* guard conductual
+  `assemble_pack_excludes_codebase_fact_even_when_active` (`recall_unified/tests.rs`): un codebase_fact ACTIVE se descarta
+  del pack (atribución explícita) mientras un Fact ACTIVE de control sí entra. **Caso negativo demostrado** (mand. 7):
+  deshabilitada la exclusión en `engine.rs` el guard se pone ROJO; restaurada, VERDE. Suite recall_unified 11/11; sin
+  cambio de comportamiento → sin rebuild. **Los 478 deprecated quedan para la limpieza física de 4.3** (no molestan al recall).
 - ✅ **1.6 Secretos en prosa detectados (2026-06-26; PII ya estaba).** *HECHO:* Pass 3 en `redaction.rs`
   (`detect_prose_secrets`): keyword (clave/contraseña/password/token/secret…) + conector (es/son/:/=) + valor mixto
   **≥6 chars con dígito Y letra** (gate que evita falsos positivos en prosa). 28 tests verdes (positivo + negativo:
@@ -329,7 +339,9 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 2. **Categorías vacías (1.4):** **RESUELTO (2026-06-26)** — `user_profile` poblado (productor en el prompt);
    `tool_usage`/`workflow_state` retirados (sin productor); `skill`/`architecture` conservados (productor vivo:
    `post_install` / `migrations`+gobernanza). Enum a 12 variantes vivas.
-3. **`codebase_fact` (1.5):** ¿se activan para recall o se deja de capturarlos?
+3. **`codebase_fact` (1.5):** **RESUELTO (2026-06-26)** — NO capturar (ya de facto: productor muerto desde el
+   bulk-deprecate del 06-07) y NO reactivar (deshacer R5 saturaría el pack). El codegraph se consume por el MCP +
+   `codegraph_summary`, no por brain.db. Guard de regresión añadido. Los 478 deprecated → limpieza física en 4.3.
 4. **Poda (2.2):** **RESUELTO** — no se poda el catálogo ([[no-podar-catalogo-skills]]); solo honestidad de conteo.
 5. **Batch (3.6):** ¿se retira de la barra para agrandar el kanban, o se mantiene?
 6. **v3 semántico (2.5):** **RESUELTO** — se cablea (el usuario lo quiere funcionando).

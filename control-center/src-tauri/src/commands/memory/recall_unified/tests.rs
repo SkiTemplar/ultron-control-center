@@ -95,6 +95,66 @@ fn assemble_pack_admits_ambient_null_project_items() {
     );
 }
 
+// 1.5 (codebase_fact estructural): los code-locations por símbolo son datos para
+// impact-analysis (codegraph MCP + codegraph_summary), NO memoria conversacional. A
+// ~478 items saturaban el pack y expulsaban conocimiento real (Kirkardo R5, bulk-deprecate
+// 2026-06-07). Aunque un codebase_fact estuviera ACTIVE, NUNCA debe entrar al pack
+// conversacional. Guard de regresión: falla si alguien quita la exclusión por kind.
+#[test]
+fn assemble_pack_excludes_codebase_fact_even_when_active() {
+    use crate::memory::model::MemoryItem;
+    use crate::memory::sqlite_store::{apply_schema, insert_item};
+    use crate::memory::{MemoryType, Sensitivity, Source};
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+    apply_schema(&conn).expect("schema");
+
+    let mk = |kind: MemoryType, sm: &str| {
+        let mut it = MemoryItem::new(kind, Scope::Project, Source::CodeObserved, Status::Active);
+        it.summary = Some(sm.to_string());
+        it.sensitivity = Sensitivity::Internal;
+        it.project_id = None; // ambiente: saca el filtro de proyecto de la ecuación
+        it.token_estimate = 20;
+        insert_item(&conn, &it).expect("insert");
+        it.id
+    };
+
+    // Ambos ACTIVE y ambiente: la ÚNICA diferencia es el kind.
+    let structural = mk(MemoryType::CodebaseFact, "fn assemble_pack en engine.rs");
+    let conversational = mk(MemoryType::Fact, "el usuario prefiere E5 1024d para recall");
+
+    let fused: Vec<FusedHit> = [&structural, &conversational]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| FusedHit {
+            canonical_id: (*id).clone(),
+            rrf_score: 1.0 - i as f32 * 0.01,
+            dense_rank: Some(i),
+            sparse_rank: None,
+            dense_score: Some(0.5),
+        })
+        .collect();
+
+    let (injected, discarded, _t) =
+        assemble_pack(&conn, &fused, 8, None, false, PER_CALL_TOKEN_CAP);
+    let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
+
+    assert!(
+        !inj.contains(&&structural),
+        "un codebase_fact ACTIVE NUNCA debe entrar al pack conversacional (es estructural; va por el codegraph MCP)"
+    );
+    assert!(
+        inj.contains(&&conversational),
+        "control: un Fact conversacional ACTIVE sí se inyecta (el filtro es por kind, no global)"
+    );
+    assert!(
+        discarded
+            .iter()
+            .any(|d| d.canonical_id == structural && d.reason.contains("codebase_fact")),
+        "el descarte del codebase_fact debe atribuirse explícitamente a su exclusión por kind"
+    );
+}
+
 // Governance invariants of the recall pipeline, unit-tested WITHOUT Qdrant/E5
 // (Ola 3 D2): rejected/deprecated/secret/cross-project NEVER reach the pack;
 // active in-project AND global-scope items DO. Protects Ola 0 + Ola 1a in CI.
