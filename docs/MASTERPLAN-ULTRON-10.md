@@ -166,7 +166,7 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 > El salto de "acumula" a "se autogobierna y se actualiza". Lo que cumple tu "no acordarme de nada".
 
-- ◐ **1.0 (P0 · NÚCLEO) Recall cross-project — read-path RESUELTO (2026-06-26).** *Diagnóstico runtime
+- ✅ **1.0 (P0 · NÚCLEO) Recall cross-project — read+write-path RESUELTOS (2026-06-26).** *Diagnóstico runtime
   2026-06-26 (sesión Oryntics del usuario):* **82% de memorias con `project_id=NULL`** (3086/3783); el recall
   **scoped a un proyecto FILTRA** todo lo no-coincidente → `recall --project ORYNTICS` devuelve **0** aunque hay **76
   memorias sobre Oryntics** — el recall GLOBAL las encuentra al instante (*"Oryntics es una empresa de soluciones con
@@ -181,8 +181,11 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   memorias de OTRO proyecto IDENTIFICADO; la relevancia da la precisión. **Verificado runtime:** recall scoped a
   ORYNTICS **0 → 8** (las 8 sobre Oryntics: *"empresa B2B de integración AI con dos clientes"*); ULTRON sigue trayendo
   lo suyo sin fugas; golden eval **recall@k 1.0**, 0 leaks; test `assemble_pack_admits_ambient_null_project_items`
-  verde; sidecar redeployado. *☐ PENDIENTE write-path (refinamiento, YA NO bloqueante):* taggear `project_id` por
-  git-root en captura + backfill → da BOOST de proyecto propio cuando dos proyectos solapan temas.
+  verde; sidecar redeployado. *✅ HECHO write-path (2026-06-26):* `emit_candidate` deriva `project_id` del **git-root
+  del cwd** (normalizado, ".ultron"→"ultron") cuando el payload no lo trae — antes el flag `--project` se ignoraba →
+  NULL. **Verificado runtime:** captura nueva desde ~/.ultron tagea `project:ultron` (antes NULL); robusto a subcarpetas;
+  fuera de repo git → None (ambiente). Backfill de los 3086 NULL existentes: NO necesario (el read-path los trata como
+  ambiente; el proyecto-origen no es inferible a posteriori).
 - ☐ **1.1 Threshold alcanzable + invariante testado.** El default 0.85 es inalcanzable (techo `derive_confidence`
   ~0.76, `capture.rs:276-292` vs `auto_approve.rs:39`) → bajar a ~0.72 o elevar el techo; test "config de fábrica PUEDE
   auto-aprobar un fact de alta confianza". *Hecho:* test rojo sin el fix, verde con él.

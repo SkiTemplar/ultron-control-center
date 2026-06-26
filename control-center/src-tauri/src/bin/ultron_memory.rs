@@ -338,6 +338,30 @@ fn run() -> Result<serde_json::Value, String> {
 /// silently dropped, causing every hook-sourced candidate to land with the
 /// default confidence=0.5, which is below REJECT_THRESHOLD=0.55 — the
 /// auto-approve band-A logic therefore auto-rejected all of them as noise.
+/// Project slug = basename del git-root del cwd con el que se invoca el sidecar
+/// (los hooks de captura lo spawnean con el cwd de la sesion). Robusto a
+/// subcarpetas: una sesion en ~/.ultron/control-center taggea "ultron", no
+/// "control-center". Devuelve None fuera de un repo git (-> memoria AMBIENTE,
+/// que el read-path inyecta en todas partes). 1.0 write-path.
+fn cwd_project() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(&cwd)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let root = String::from_utf8(out.stdout).ok()?;
+    // Normaliza como projectName(cwd) en los hooks: quita los puntos iniciales
+    // (".ultron" -> "ultron") para casar con el slug canonico existente.
+    std::path::Path::new(root.trim())
+        .file_name()
+        .map(|n| n.to_string_lossy().trim_start_matches('.').to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn emit_candidate(json: &str) -> Result<String, String> {
     use ul::memory::{model::CandidateAction, MemoryCandidate, MemoryService, MemoryType, Scope};
     let v: serde_json::Value =
@@ -401,7 +425,16 @@ fn emit_candidate(json: &str) -> Result<String, String> {
     // AND as a `project:<id>` tag, because the candidate round-trips through
     // SQLite (no project column) before approval; to_item recovers it from the
     // tag. Without this, CLI-ingested memories land project_id = None.
-    let project_id = v.get("project").and_then(|x| x.as_str()).map(String::from);
+    // 1.0 write-path: precedencia = payload "project" (explicito) -> git-root del
+    // cwd de la sesion (canonico, robusto a subcarpetas) -> None (ambiente). Antes
+    // solo miraba el payload (que los hooks NO rellenan) -> 82% del corpus quedaba
+    // project_id=NULL ("memoria muerta fuera de ULTRON"). El flag --project (basename,
+    // a veces un subdir o el home) se ignora a proposito: git-root es lo correcto.
+    let project_id = v
+        .get("project")
+        .and_then(|x| x.as_str())
+        .map(String::from)
+        .or_else(cwd_project);
     c.proposed_project_id = project_id.clone();
     let mut tags: Vec<String> = v
         .get("tags")
