@@ -81,7 +81,7 @@ const board = {
   cards: [],
   default_agent: 'frontend-developer',
   default_prompt_template:
-    'Construye/ajusta esta web clonando la identidad REAL del negocio (logo, colores de su marca o sector). Cero gradientes morados ni estetica generica de IA. Lo menos by-code posible: parte de un theme de web-factory. Genera 3 variantes de diseno sobre el mismo contenido. Backend (reservas) solo si el tier lo pide.',
+    'Construye UNA web RESPONSIVE (mobile-first, menu hamburguesa en movil) clonando la identidad REAL del negocio (logo, colores de su marca/sector) y usando sus FOTOS PUBLICAS de Google Maps. Cero gradientes morados ni estetica generica de IA. Incluye un selector de disenos DEMO separable: 2-3 esteticas conmutables sobre el mismo contenido, en un bloque HTML/JS delimitado por comentarios para poder quitarlo en la version final. Backend (sistema de reservas + panel de administracion, via Supabase) solo si el tier lo pide.',
   schema_version: 1,
 };
 mkdirSync(projDir, { recursive: true });
