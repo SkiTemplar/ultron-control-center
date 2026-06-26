@@ -1,6 +1,7 @@
 // hooks_admin/io.rs — Settings I/O: read, flatten, mutate, discover plugin hooks.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -98,10 +99,42 @@ pub(crate) fn flatten_hooks(root: &serde_json::Value) -> Vec<Hook> {
     out
 }
 
+/// `<plugin>@<marketplace>` -> enabled, leido de settings.json `enabledPlugins`.
+/// Ausente o `true` => activo; `false` explicito => plugin (y sus hooks) inerte.
+fn read_enabled_plugins() -> HashMap<String, bool> {
+    let mut map = HashMap::new();
+    if let Ok(v) = read_settings_value() {
+        if let Some(obj) = v.get("enabledPlugins").and_then(|x| x.as_object()) {
+            for (k, val) in obj {
+                if let Some(b) = val.as_bool() {
+                    map.insert(k.clone(), b);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Un plugin esta inerte cuando settings.json lo marca explicitamente `false`
+/// (clave `<plugin>@<marketplace>`). 0.6: sin esto, la pestana pintaba como
+/// activos los ~28 hooks de `ecc@ecc=false`.
+fn plugin_is_disabled(plugin: &str, mkt: &str, enabled: &HashMap<String, bool>) -> bool {
+    matches!(enabled.get(&format!("{plugin}@{mkt}")), Some(false))
+}
+
+/// Clave de version numerica para comparar "5.0.7" < "6.0.3" sin libreria semver
+/// (compara componente a componente). Permite quedarnos con UNA version por plugin.
+fn version_key(name: &str) -> Vec<u64> {
+    name.split(|c: char| !c.is_ascii_digit())
+        .filter_map(|s| s.parse::<u64>().ok())
+        .collect()
+}
+
 /// Walk `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/hooks/hooks.json`
-/// and flatten each one into Hook records tagged with `source = "plugin:<mkt>/<plugin>"`.
-/// Read-only and tolerant — a malformed plugin hooks.json is silently
-/// skipped so it never breaks the whole listing.
+/// y aplana cada uno a Hook con `source = "plugin:<mkt>/<plugin>"`. 0.6: cruza con
+/// `enabledPlugins` (plugins desactivados -> hooks `enabled=false`, no "activos") y
+/// se queda con UNA sola version por plugin (no contar doble 5.0.7 + 6.0.3).
+/// Read-only y tolerante: un hooks.json corrupto se salta sin romper el listado.
 pub(crate) fn discover_plugin_hooks() -> Vec<Hook> {
     let mut out: Vec<Hook> = Vec::new();
     let Some(home) = dirs::home_dir() else {
@@ -111,6 +144,7 @@ pub(crate) fn discover_plugin_hooks() -> Vec<Hook> {
     if !cache_root.exists() {
         return out;
     }
+    let enabled = read_enabled_plugins();
     let Ok(marketplaces) = fs::read_dir(&cache_root) else {
         return out;
     };
@@ -129,34 +163,44 @@ pub(crate) fn discover_plugin_hooks() -> Vec<Hook> {
                 continue;
             }
             let plugin_name = plugin.file_name().to_string_lossy().to_string();
+            let disabled = plugin_is_disabled(&plugin_name, &mkt_name, &enabled);
+
+            // Una sola version por plugin: la mas alta con hooks.json.
             let Ok(versions) = fs::read_dir(&plugin_path) else {
                 continue;
             };
+            let mut candidates: Vec<(Vec<u64>, std::path::PathBuf)> = Vec::new();
             for version in versions.flatten() {
-                let version_path = version.path();
-                if !version_path.is_dir() {
-                    continue;
+                let vp = version.path();
+                if vp.is_dir() && vp.join("hooks").join("hooks.json").exists() {
+                    candidates.push((version_key(&version.file_name().to_string_lossy()), vp));
                 }
-                let hooks_file = version_path.join("hooks").join("hooks.json");
-                if !hooks_file.exists() {
-                    continue;
+            }
+            let Some((_, version_path)) = candidates.into_iter().max_by(|a, b| a.0.cmp(&b.0))
+            else {
+                continue;
+            };
+
+            let hooks_file = version_path.join("hooks").join("hooks.json");
+            let Ok(raw) = fs::read_to_string(&hooks_file) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let wrapped = if value.get("hooks").is_some() {
+                value
+            } else {
+                serde_json::json!({ "hooks": value })
+            };
+            let source = format!("plugin:{}/{}", mkt_name, plugin_name);
+            for mut hook in flatten_hooks(&wrapped) {
+                hook.source = source.clone();
+                // Plugin desactivado => hooks inertes (mand. 11: no mentir el estado).
+                if disabled {
+                    hook.enabled = false;
                 }
-                let Ok(raw) = fs::read_to_string(&hooks_file) else {
-                    continue;
-                };
-                let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
-                    continue;
-                };
-                let wrapped = if value.get("hooks").is_some() {
-                    value
-                } else {
-                    serde_json::json!({ "hooks": value })
-                };
-                let source = format!("plugin:{}/{}", mkt_name, plugin_name);
-                for mut hook in flatten_hooks(&wrapped) {
-                    hook.source = source.clone();
-                    out.push(hook);
-                }
+                out.push(hook);
             }
         }
     }
@@ -388,4 +432,34 @@ pub(crate) fn delete_entry_by_id(
         return Err(format!("hook id '{}' not found", target_id));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_plugin_marked_inert() {
+        let mut m = HashMap::new();
+        m.insert("ecc@ecc".to_string(), false);
+        m.insert("superpowers@superpowers-marketplace".to_string(), true);
+        // explicit false -> inerte (el caso ECC que pintaba 28 hooks "activos")
+        assert!(plugin_is_disabled("ecc", "ecc", &m));
+        // explicit true -> activo
+        assert!(!plugin_is_disabled(
+            "superpowers",
+            "superpowers-marketplace",
+            &m
+        ));
+        // ausente -> activo (no sobre-desactivar)
+        assert!(!plugin_is_disabled("missing", "x", &m));
+    }
+
+    #[test]
+    fn version_key_orders_numerically() {
+        assert!(version_key("6.0.3") > version_key("5.0.7"));
+        assert!(version_key("6.0.10") > version_key("6.0.3"));
+        assert_eq!(version_key("2.0.0-rc.1"), vec![2, 0, 0, 1]);
+        assert!(version_key("").is_empty());
+    }
 }

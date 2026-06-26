@@ -1,15 +1,48 @@
 // Constants, color helpers, and name-derivation utilities for Hooks viewer.
 
+// 0.6: superficie REAL de eventos de hook de Claude Code (~30, no 9). Antes solo
+// se modelaban 9 -> no se podian ver ni crear hooks de los ~21 restantes.
 export const EVENT_OPTIONS: readonly string[] = [
-  "PreToolUse",
-  "PostToolUse",
-  "UserPromptSubmit",
+  // Sesion / ciclo de vida
   "SessionStart",
   "SessionEnd",
-  "Stop",
+  "Setup",
+  // Prompt
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  // Tools
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "PostToolBatch",
+  "PermissionRequest",
+  "PermissionDenied",
+  // Subagentes / tareas
+  "SubagentStart",
   "SubagentStop",
-  "PreCompact",
+  "TaskCreated",
+  "TaskCompleted",
+  "TeammateIdle",
+  // Fin de turno
+  "Stop",
+  "StopFailure",
+  // Display / notificaciones
   "Notification",
+  "MessageDisplay",
+  // Entorno / ficheros
+  "InstructionsLoaded",
+  "ConfigChange",
+  "CwdChanged",
+  "FileChanged",
+  // Worktrees
+  "WorktreeCreate",
+  "WorktreeRemove",
+  // Compactacion
+  "PreCompact",
+  "PostCompact",
+  // MCP elicitation
+  "Elicitation",
+  "ElicitationResult",
 ] as const;
 
 export const DEFAULT_PAYLOAD = `{
@@ -60,6 +93,8 @@ export function eventColors(event: string): EventColors {
         chipBorder: "rgba(251, 191, 36, 0.45)",
         sidebarActive: "rgba(251, 191, 36, 0.10)",
       };
+    case "TaskCreated":
+    case "TaskCompleted":
     case "SessionStart":
       return {
         ribbon: "rgba(132, 204, 22, 0.55)",
@@ -69,6 +104,7 @@ export function eventColors(event: string): EventColors {
         chipBorder: "rgba(132, 204, 22, 0.45)",
         sidebarActive: "rgba(132, 204, 22, 0.10)",
       };
+    case "FileChanged":
     case "SessionEnd":
       return {
         ribbon: "rgba(45, 212, 191, 0.55)",
@@ -78,6 +114,8 @@ export function eventColors(event: string): EventColors {
         chipBorder: "rgba(45, 212, 191, 0.45)",
         sidebarActive: "rgba(45, 212, 191, 0.10)",
       };
+    case "PostToolUseFailure":
+    case "StopFailure":
     case "Stop":
       return {
         ribbon: "rgba(248, 113, 113, 0.55)",
@@ -87,6 +125,7 @@ export function eventColors(event: string): EventColors {
         chipBorder: "rgba(248, 113, 113, 0.45)",
         sidebarActive: "rgba(248, 113, 113, 0.10)",
       };
+    case "SubagentStart":
     case "SubagentStop":
       return {
         ribbon: "rgba(248, 113, 113, 0.40)",
@@ -96,6 +135,7 @@ export function eventColors(event: string): EventColors {
         chipBorder: "rgba(248, 113, 113, 0.35)",
         sidebarActive: "rgba(248, 113, 113, 0.08)",
       };
+    case "PostCompact":
     case "PreCompact":
       return {
         ribbon: "rgba(244, 114, 182, 0.55)",

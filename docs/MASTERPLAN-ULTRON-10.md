@@ -147,7 +147,7 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   SUPERSEDED en la nota 06-24 (ya auto-corregida a 7.5 en su propia línea + audit 06-25 + resume vivo 7.59). Nota: las
   menciones "NO 9.31" del audit son **correctivas** → se conservan (por eso `grep 9.31 = 0` no es criterio válido).
   `cockpit/projects` untracked con contenidos gitignored = correcto, sin acción.
-- ☐ **0.6 Auditoría REAL de hooks (~30 eventos) + la pestaña deja de mentir.** DOS cosas, no una. **(A) Tipos de
+- ✅ **0.6 Auditoría REAL de hooks (~30 eventos) + la pestaña deja de mentir (HECHO 2026-06-26).** DOS cosas, no una. **(A) Tipos de
   evento:** ULTRON usa ~9 de ~30 ([[claude-code-hook-events-30]]); mapear evento→usado/sin-usar y **ampliar
   `EVENT_OPTIONS`** (`constants.ts:3-13`) para poder ver/crear los ~21 restantes (priorizando alto valor:
   SubagentStart/Stop, PostToolUseFailure, TaskCreated/Completed, FileChanged). **(B) Conteo de Library:** cruzar
@@ -155,6 +155,10 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   activos (ECC sale activo siendo `false`, `settings.json:269`), deduplicar versiones cacheadas y separar contador
   user vs plugin → los "75" dejan de mentir. *Hecho:* tabla evento→usado/sin-usar de los ~30; la pestaña distingue
   activo de inerte y ofrece los eventos reales. Alimenta 3.2/3.9. Kirkardo 11.
+  *Código HECHO + verificado (2026-06-26):* (A) `EVENT_OPTIONS` ampliado a 30 + colores (tsc 0 err); (B)
+  `discover_plugin_hooks` cruza `enabledPlugins` (plugins off → hooks inertes) + 1 versión por plugin; **2 tests Rust
+  verdes**, lib compila release. **HECHO: rebuild desplegado + verificación visual confirmada por el usuario** (~30
+  eventos creables · ECC inerte · conteo baja). Separar contador user/plugin (B3) queda como display (campo `source`).
 
 ---
 
@@ -162,6 +166,16 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 > El salto de "acumula" a "se autogobierna y se actualiza". Lo que cumple tu "no acordarme de nada".
 
+- ☐ **1.0 (P0 · NÚCLEO) Recall cross-project — "la memoria no funciona fuera de ULTRON".** *Diagnóstico runtime
+  2026-06-26 (sesión Oryntics del usuario):* **82% de memorias con `project_id=NULL`** (3086/3783); el recall
+  **scoped a un proyecto FILTRA** todo lo no-coincidente → `recall --project ORYNTICS` devuelve **0** aunque hay **76
+  memorias sobre Oryntics** — el recall GLOBAL las encuentra al instante (*"Oryntics es una empresa de soluciones con
+  IA"*). Dos bugs que se componen: **(read-path, INMEDIATO)** cuando el scope de proyecto está vacío/escaso, fallback a
+  globales/NULL de alta relevancia (o no hard-filtrar); **(write-path, durable)** taggear `project_id` real por
+  **git-root** (no `basename(cwd)` → genera basura: el basename del home, "src", subdirs) + backfill de los 3086 NULL donde se infiera.
+  *Hecho:* en una sesión de Oryntics, "busca info sobre Oryntics" inyecta la memoria real; check conductual: recall
+  scoped a un proyecto sin memoria propia devuelve los hits globales relevantes (hoy: 0). **Es el fix de mayor impacto
+  del plan — explica la decepción del usuario y el motivo real de que "todo parezca no servir".**
 - ☐ **1.1 Threshold alcanzable + invariante testado.** El default 0.85 es inalcanzable (techo `derive_confidence`
   ~0.76, `capture.rs:276-292` vs `auto_approve.rs:39`) → bajar a ~0.72 o elevar el techo; test "config de fábrica PUEDE
   auto-aprobar un fact de alta confianza". *Hecho:* test rojo sin el fix, verde con él.
