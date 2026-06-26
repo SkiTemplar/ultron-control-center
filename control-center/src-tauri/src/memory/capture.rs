@@ -7,7 +7,9 @@
 //      (`metrics.json`) with real traffic using the user's configured keys;
 //   2. turns each fact into a `MemoryCandidate` (so redaction + dedupe run in
 //      `MemoryService::create_candidate`), landing it in the governed inbox for
-//      human approval — never auto-promoted to active.
+//      human approval. With auto-approve OFF (the default) it is never promoted;
+//      with the toggle ON, only a CLEAN fact clearing the BAND-A floor is — see
+//      `auto_approve::classify_band` (the secret/contradiction/duplicate gate holds).
 //
 // Fail-safe: if the router has no usable provider, it degrades to a cheap local
 // heuristic so the Stop hook never errors and a candidate is still proposed.
@@ -409,6 +411,40 @@ mod tests {
         let imp = derive_importance(&f, true);
         assert_ne!(conf_router, imp, "confidence and importance must differ");
         assert!((0.05..=0.95).contains(&conf_router));
+    }
+
+    #[test]
+    fn factory_threshold_can_auto_approve_top_confidence_capture() {
+        // INVARIANTE 1.1 (conductual, cross-module): la confianza MÁXIMA que el
+        // write-path de captura puede emitir —router + `llm_score = 1.0`, cuerpo
+        // no trivial, tipo auto-aprobable— DEBE caer en BAND A bajo la config de
+        // FÁBRICA. Si el umbral de fábrica supera el techo de `derive_confidence`,
+        // el auto-approve es código MUERTO para captura conversacional (todo fact
+        // del Stop-hook se queda en el inbox por más limpio y seguro que sea — el
+        // bug que cierra 1.1). El test falla con el viejo umbral 0.85 (0.762 < 0.85
+        // → Pending) y pasa con el umbral alcanzable.
+        use super::super::auto_approve::{classify_band, AutoBand, DEFAULT_AUTO_APPROVE_THRESHOLD};
+        let top = Fact {
+            kind: MemoryType::Fact,
+            title: "t".into(),
+            body: "un hecho concreto y verificable del proyecto con detalle suficiente".into(),
+            llm_score: Some(1.0),
+        };
+        // Techo REAL del path de captura (no un número mágico): se ata el test a la
+        // función productora, así que subir el umbral por encima de este techo lo rompe.
+        let ceiling = derive_confidence(&top, true);
+        assert!(
+            ceiling < 0.85,
+            "premisa del bug: el techo de captura ({ceiling:.3}) queda bajo el viejo umbral 0.85"
+        );
+        let mut cand = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+        cand.confidence = ceiling;
+        assert_eq!(
+            classify_band(&cand, DEFAULT_AUTO_APPROVE_THRESHOLD),
+            AutoBand::Approve,
+            "la config de fábrica DEBE poder auto-aprobar el fact de máxima confianza del \
+             path de captura (conf={ceiling:.3} vs umbral de fábrica {DEFAULT_AUTO_APPROVE_THRESHOLD})"
+        );
     }
 
     // Small helper: Fact is a private test-local struct without Clone.

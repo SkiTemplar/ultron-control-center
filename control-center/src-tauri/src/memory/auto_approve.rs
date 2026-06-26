@@ -35,10 +35,21 @@ use super::model::MemoryCandidate;
 const SECRET_RISK_MARKER: &str = "secret";
 
 /// Default confidence floor for BAND A (auto-approve). A candidate must reach
-/// this confidence AND be clean to be auto-promoted. Chosen at 0.85 so only
-/// high-certainty captures (verifiable code locations 0.95, explicit "remember
-/// that…" 0.9) flow without review; inferred decisions (0.7) fall to BAND B.
-pub const DEFAULT_AUTO_APPROVE_THRESHOLD: f32 = 0.85;
+/// this confidence AND be clean to be auto-promoted.
+///
+/// Set to 0.72 — ABOVE the mid-confidence band (inferred decisions land at ~0.70,
+/// which must keep falling to BAND B) yet BELOW the real ceiling of the capture
+/// write-path. `derive_confidence` (capture.rs) tops out at 0.762 (a
+/// router-extracted fact with self-reported `llm_score = 1.0`); the previous 0.85
+/// was UNREACHABLE for any conversational capture, so BAND A was dead code — the
+/// Stop-hook could never auto-promote even the cleanest, highest-certainty fact
+/// (bug 1.1). The narrow [0.72, 0.762] window admits only router-extracted facts
+/// whose model self-score is ≥ ~0.86, clean, non-decision, non-architecture.
+/// Explicit code-location captures (`capture-symbols.js` emits confidence 0.95)
+/// still clear it. Auto-approve stays strictly OPT-IN (default OFF), so this
+/// changes nothing until the user enables the toggle. Invariant tested in
+/// `capture.rs::factory_threshold_can_auto_approve_top_confidence_capture`.
+pub const DEFAULT_AUTO_APPROVE_THRESHOLD: f32 = 0.72;
 
 /// Persisted memory settings. Older files stay readable — serde fills any
 /// missing key with its default (so adding fields is backward-compatible).
@@ -52,7 +63,7 @@ pub struct MemorySettings {
     /// BAND A confidence floor. A clean candidate with `confidence >= threshold`
     /// is auto-approved; `[reject_threshold, threshold)` (or a decision/architecture
     /// kind) stays pending; below `reject_threshold` is auto-rejected. Defaults to
-    /// `DEFAULT_AUTO_APPROVE_THRESHOLD` (0.85) for files written before this field.
+    /// `DEFAULT_AUTO_APPROVE_THRESHOLD` (0.72) for files written before this field.
     #[serde(default = "default_auto_approve_threshold")]
     pub auto_approve_threshold: f32,
 }
@@ -132,7 +143,7 @@ pub enum AutoBand {
 /// FAIL-SAFE BAND A floor. Returns the persisted `auto_approve_threshold` when
 /// readable; on ANY settings read issue returns `f32::INFINITY`, so nothing can
 /// clear BAND A — a settings glitch can never widen auto-approval. (`read_settings`
-/// is already default-safe, but a default-filled struct would yield 0.85 here,
+/// is already default-safe, but a default-filled struct would yield 0.72 here,
 /// which is still permissive; an explicit infinity makes the failure mode strict.)
 #[must_use]
 pub fn auto_approve_threshold() -> f32 {

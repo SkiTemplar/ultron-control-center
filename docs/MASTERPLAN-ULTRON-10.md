@@ -186,9 +186,29 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   NULL. **Verificado runtime:** captura nueva desde ~/.ultron tagea `project:ultron` (antes NULL); robusto a subcarpetas;
   fuera de repo git → None (ambiente). Backfill de los 3086 NULL existentes: NO necesario (el read-path los trata como
   ambiente; el proyecto-origen no es inferible a posteriori).
-- ☐ **1.1 Threshold alcanzable + invariante testado.** El default 0.85 es inalcanzable (techo `derive_confidence`
-  ~0.76, `capture.rs:276-292` vs `auto_approve.rs:39`) → bajar a ~0.72 o elevar el techo; test "config de fábrica PUEDE
-  auto-aprobar un fact de alta confianza". *Hecho:* test rojo sin el fix, verde con él.
+- ✅ **1.1 Threshold alcanzable + invariante testado (HECHO 2026-06-26).** El default 0.85 era inalcanzable: el techo
+  matemático de `derive_confidence` (`capture.rs:276-293`) es **0.762** (router + `llm_score=1.0`: `0.7·0.66+0.3·1.0`)
+  → BAND A era código MUERTO para captura conversacional (todo fact del Stop-hook se quedaba en el inbox por limpio que
+  fuera). *HECHO:* `DEFAULT_AUTO_APPROVE_THRESHOLD` 0.85→**0.72** (const en `auto_approve.rs`), triplemente acotado:
+  `>0.70` (la confianza media/inferida sigue a BAND B) y `<0.762` (alcanzable) → ventana estrecha `[0.72,0.762]` que solo
+  admite router-extracted con self-score ≥~0.86, limpio, no decision/architecture. Sigue OPT-IN (default OFF). Check
+  conductual cross-module `capture.rs::factory_threshold_can_auto_approve_top_confidence_capture`: **ROJO sin el fix**
+  (conf 0.762 < 0.85 → Pending), **VERDE con él** (→ Approve); ata el umbral al techo REAL productor, así que volver a
+  subirlo por encima del techo lo rompe. Suite memory **215/215** (0 rotos); build release exit 0; sidecar redeployado
+  (doctor: binario en uso == desplegado, recall@8=1.0, leaks=0). Verificación adversarial 3-lentes (0 bloqueantes; cazó
+  y corrigió 2 comentarios stale: doc de `auto_approve_threshold` y la ruta inexistente "remember 0.9"). **ALCANCE REAL
+  (mand. 13):** el `memory-settings.json` del usuario ya tiene `auto_approve:true, threshold:0.65` → el cambio del DEFAULT
+  no altera SU runtime (su archivo manda); el valor es fresh-installs + el fallback de serde + el invariante anti-regresión.
+
+> **Deuda de gobernanza detectada al cerrar 1.1 (verificación adversarial 3-lentes · NO bloqueante · fuera de 1.1).**
+> Hacer BAND A alcanzable + el usuario con auto-approve ON (0.65) activa 3 fallos silenciosos PRE-EXISTENTES que el techo
+> 0.762-vs-0.85 anestesiaba: (a) **contradiction-judge fail-open por timeout** (`candidates.rs:180-208`: en
+> `RecvTimeoutError` solo añade tag `unjudged` y `contradiction_candidates` queda vacío → `candidate_is_clean=true`,
+> una Fact que SÍ contradice un ACTIVE se auto-promueve bajo carga/429); (b) **dedup silent-on-error** (`candidates.rs:48,69`
+> `if let Ok(..)` traga Err de FTS5/SQLite → puede regresar el bug 1.2 de las 211 copias ante fallo transitorio); (c)
+> **cobertura PII más estrecha que credenciales** (`candidates.rs:87-97`: `proposed_text` excluye `proposed_content_json`
+> y `proposed_tags` → PII solo en esos campos no marca `risk_level=secret`). El path conversacional NO popula esos campos,
+> pero otras rutas a `create_candidate` (agentes/import) sí. Candidata a casilla 1.7 / sub-ítems de Fase 1.
 - ✅ **1.2 Dedup ACTIVO — fuga de 211 copias CERRADA (2026-06-26).** En `create_candidate`, si hay `duplicate_candidates`: NO
   auto-aprobar (forzar Merge) **o** merge real (bump `access_count`/`importance` del existente). Añadir
   `!duplicate_candidates.is_empty()` a la negación de `candidate_is_clean` (`auto_approve.rs:189-195`). Backfill: colapsar
