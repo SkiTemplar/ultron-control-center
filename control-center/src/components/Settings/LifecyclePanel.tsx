@@ -340,8 +340,9 @@ export function LifecyclePanel() {
             <div className="text-[13px] font-semibold">Rebuild from source</div>
             <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
               Runs{" "}
-              <code style={{ fontFamily: "var(--font-mono)" }}>npm run tauri build</code>{" "}
-              in a new terminal. Relaunch after the build finishes.
+              <code style={{ fontFamily: "var(--font-mono)" }}>npm run build:local</code>{" "}
+              in a new terminal (includes the Finance tab when its local sources
+              are present). Relaunch after the build finishes.
             </p>
           </div>
           <button

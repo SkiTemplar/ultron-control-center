@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 /// Spawn wt.exe in a new window running either the uninstaller or
-/// `npm run tauri build`. The Control Center keeps running; the spawned
+/// `npm run build:local` (Finance-aware build). The Control Center keeps running; the spawned
 /// terminal shows progress / asks for confirmation. Fire-and-forget —
 /// we do not wait for completion.
 #[cfg(target_os = "windows")]
@@ -70,8 +70,14 @@ Write-Host '[ULTRON] git pull...' -ForegroundColor Cyan
 git pull --ff-only
 Write-Host '[ULTRON] npm install...' -ForegroundColor Cyan
 npm install
-Write-Host '[ULTRON] tauri build...' -ForegroundColor Cyan
-npm run tauri build
+# v2.7.2 fix: usar build:local (no `tauri build`). build:local autodetecta las
+# fuentes locales de Finance (src-tauri/src/finance.rs + src/components/Finance.tsx)
+# y, si existen, compila CON Finance (VITE_FINANCE=1 + --features finance). El
+# `tauri build` pelado producia el binario PUBLICO sin Finance — el usuario perdia
+# la pestana Finance en cada rebuild desde Ajustes. En un clon publico sin esas
+# fuentes, build:local cae a un build sin Finance (equivalente a build:app).
+Write-Host '[ULTRON] build:local (incluye Finance si las fuentes locales existen)...' -ForegroundColor Cyan
+npm run build:local
 $buildExit = $LASTEXITCODE
 if ($buildExit -ne 0) {
     Write-Host ''
