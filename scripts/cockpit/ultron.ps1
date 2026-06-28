@@ -258,20 +258,13 @@ function Show-News {
     }
 
     $today = Get-Date -Format "yyyy-MM-dd"
-    # Try new newsletter format first, then legacy md digest
-    $digest = Join-Path $newsDir "newsletter-$today.html"
-    if (-not (Test-Path $digest)) { $digest = Join-Path $newsDir "$today.md" }
+    $digest = Join-Path $newsDir "$today.md"
     if (Test-Path $digest) {
         Write-Host "[Digest $today]" -ForegroundColor Cyan
         Write-Host "  $digest" -ForegroundColor DarkGray
-        # For HTML newsletters show a note; md digests can be cat'd directly
-        if ($digest.EndsWith(".html")) {
-            Write-Host "  (HTML newsletter — open in browser or run: ultron news open)" -ForegroundColor DarkGray
-        } else {
-            Get-Content $digest
-        }
+        Get-Content $digest
     } else {
-        Write-Host "[News] No digest for $today — generate with: ultron tui (key 2)" -ForegroundColor DarkGray
+        Write-Host "[News] No digest for $today -- Alerts Bus only" -ForegroundColor DarkGray
     }
 }
 

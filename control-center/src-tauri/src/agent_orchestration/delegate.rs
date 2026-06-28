@@ -179,7 +179,10 @@ pub async fn delegate_task_inner(
         serde_json::json!({
             "agent": agent_trim,
             "task_preview": truncate(task, 160),
-            "use_cheap_model": req.use_cheap_model,
+            // "cheap_model_requested" reflects the caller's intent; in this
+            // polling path the flag has no effect on provider/model after
+            // Gemini was retired (2026-06-19).
+            "cheap_model_requested": req.use_cheap_model,
             "provider": provider, // claude | codex
             "started_at": crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
             "timeout_secs": timeout_secs,
@@ -306,7 +309,7 @@ pub async fn delegate_task_inner(
         agent: agent_trim.to_string(),
         task_preview: truncate(task, 200),
         cwd: req.cwd.clone(),
-        used_cheap_model: req.use_cheap_model,
+        cheap_model_requested: req.use_cheap_model,
         started_at: crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
         status: log_status.to_string(),
         session_id: Some(session_id.clone()),
@@ -367,7 +370,7 @@ pub async fn delegate_task_fire_and_forget(
         serde_json::json!({
             "agent": agent_trim,
             "task_preview": truncate(task, 160),
-            "use_cheap_model": req.use_cheap_model,
+            "cheap_model_requested": req.use_cheap_model,
             "started_at": crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
         }),
     );
@@ -400,7 +403,7 @@ pub async fn delegate_task_fire_and_forget(
         agent: agent_trim.to_string(),
         task_preview: truncate(task, 200),
         cwd: cwd_for_log,
-        used_cheap_model: req.use_cheap_model,
+        cheap_model_requested: req.use_cheap_model,
         started_at: crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
         status: status.to_string(),
         session_id: None,

@@ -1081,11 +1081,10 @@ write_feature_flags() {
 
     # Read previous answers as defaults if features.json already exists; this
     # is what makes re-running idempotent — your previous choices win.
-    local d_news="false" d_gaming="true" d_personal="true" d_schedules="true"
+    local d_gaming="true" d_personal="true" d_schedules="true"
     local d_selfimp="true" d_notif="true" d_usage="false" d_sessions="true"
     local d_projects="true" d_plans="false"
     if [[ -f "$features_file" ]] && have_cmd jq; then
-        d_news="$(jq -r '.news // false'         "$features_file" 2>/dev/null || echo false)"
         d_gaming="$(jq -r '.gaming // true'      "$features_file" 2>/dev/null || echo true)"
         d_personal="$(jq -r '.personal // true'  "$features_file" 2>/dev/null || echo true)"
         d_schedules="$(jq -r '.schedules // true' "$features_file" 2>/dev/null || echo true)"
@@ -1104,15 +1103,14 @@ write_feature_flags() {
         if confirm "${name} (${note})" "$def_yn"; then echo "true"; else echo "false"; fi
     }
 
-    local news gaming personal schedules selfimp notif usage sessions projects plans
+    local gaming personal schedules selfimp notif usage sessions projects plans
     if [[ $NON_INTERACTIVE -eq 1 ]]; then
-        news="$d_news"; gaming="$d_gaming"; personal="$d_personal"
+        gaming="$d_gaming"; personal="$d_personal"
         schedules="$d_schedules"; selfimp="$d_selfimp"; notif="$d_notif"
         usage="$d_usage"; sessions="$d_sessions"; projects="$d_projects"; plans="$d_plans"
         info "non-interactive: keeping previous / default toggle values"
     else
         info "Enable optional features? Press Enter to accept the default."
-        news="$(ask_toggle      "News digest"       "$d_news"      "Gemini-generated daily newsletter (cost-heavy)")"
         gaming="$(ask_toggle    "Gaming utilities"  "$d_gaming"    "game detector + tweaks panel")"
         personal="$(ask_toggle  "Personal section"  "$d_personal"  "private profile slots in the cockpit")"
         schedules="$(ask_toggle "Schedules"         "$d_schedules" "systemd timer / cron management")"
@@ -1126,7 +1124,6 @@ write_feature_flags() {
 
     cat > "$features_file" <<EOF
 {
-  "news": ${news},
   "gaming": ${gaming},
   "personal": ${personal},
   "schedules": ${schedules},

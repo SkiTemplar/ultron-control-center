@@ -67,7 +67,9 @@ export type SessionProvider = "claude" | "codex";
  * como antes. Internamente: `session` = consolidación, distinguida por
  * el campo `provider`. `ide` = abrir el path en el IDE preferido.
  * Nota: `gemini` fue eliminado 2026-06-19 (Google cortó el free-tier
- * OAuth); legacy items con kind="gemini" normalizan a "claude".
+ * OAuth). La normalización "gemini"→"claude" aplica solo al campo
+ * `default_provider`/`provider` del proyecto (vía `normalise_provider`
+ * en Rust); el campo `kind` de un item no se normaliza en carga.
  */
 export type LauncherItemKind =
   | "exe"
@@ -81,7 +83,7 @@ export type LauncherItemKind =
  *  `kind`; the other fields are payload-shaped:
  *   - exe     → `path` (absolute) + optional `args[]`
  *   - folder  → `path` (absolute directory)
- *   - claude/codex/gemini → `cwd` (absolute directory)  [legacy kinds]
+ *   - claude/codex → `cwd` (absolute directory)  [legacy kinds]
  *   - session → `cwd` (absolute) + `provider` field elige el binario.
  *   - ide     → resuelve el path del proyecto y abre el preferred_ide.
  *  `label` is free text shown in the row chip (falls back to a derived

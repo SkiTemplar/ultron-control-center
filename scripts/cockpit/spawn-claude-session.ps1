@@ -223,9 +223,8 @@ if ($respectClipboard) {
 # starting Claude, so it shows up at the top of the terminal.
 if ($clipboardSeeded) {
     if ($respectClipboard -and $promptText -and $promptText.Trim().Length -gt 0) {
-        # Use the caller's `prompt` field as the literal banner — news.rs
-        # passes a short hint there ("El prompt está en el portapapeles,
-        # guarda el HTML en ~/.ultron/cockpit/news/newsletter-...html").
+        # Use the caller's `prompt` field as the literal banner.
+        # The caller that seeded the clipboard passes a short hint there.
         $msg = $promptText
     } elseif ($pasteOnly) {
         # Stronger wording when the caller explicitly asked for paste-only:

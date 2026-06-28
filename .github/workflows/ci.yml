@@ -120,11 +120,11 @@ jobs:
         # stated explicitly so it visibly shares the profile (and its tuning)
         # with the clippy step.
         #
-        # cat12: dropped `--bins` here. The ultron-memory / ultron-embed bins
-        # carry NO `#[test]` (verified: they run 0 tests), so `--bins` only
-        # added two extra heavy LINK steps (each links fastembed/ort/tauri) for
+        # cat12: dropped `--bins` here. The ultron-memory bin
+        # carries NO `#[test]` (verified: it runs 0 tests), so `--bins` only
+        # added an extra heavy LINK step (links fastembed/ort/tauri) for
         # zero coverage. clippy above still compiles+lints `--lib --bins`, so the
-        # bins are still gated for compilation — only their redundant test-link
+        # bin is still gated for compilation — only its redundant test-link
         # is gone. Trims the Rust job toward the <300 s target without losing any
         # assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
         working-directory: control-center/src-tauri
