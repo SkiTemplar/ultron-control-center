@@ -484,6 +484,24 @@ pub fn reranker_enabled() -> bool {
     )
 }
 
+/// Returns `true` when `ULTRON_CR` is set to `"1"` or `"true"`.
+///
+/// Controls **Contextual Retrieval (CR)**: when active, `MemoryItem::searchable_text`
+/// prefixes each passage with project and type context before embedding:
+/// `"Proyecto: {project_id}. Tipo: {kind}.\n{title}\n{summary}\n{content}"`.
+/// This separates items from different projects/types in the vector space,
+/// reducing cross-project recall collisions (e.g. a "decision" query for
+/// `ultron` retrieving unrelated decisions from `sistemasdistribuidos`).
+///
+/// Default **OFF** — with the flag absent the baseline (nDCG@8 / recall@8)
+/// is byte-for-byte identical to the previous behaviour.
+///
+/// Not feature-gated — callers can check the flag regardless of whether the
+/// `qdrant` Cargo feature is enabled.
+pub fn cr_enabled() -> bool {
+    matches!(std::env::var("ULTRON_CR").as_deref(), Ok("1") | Ok("true"))
+}
+
 /// Lazy `BGERerankerV2M3` — one instance per process, shared across threads.
 /// Initialised on the first call to `rerank_pairs`; afterwards all calls pay
 /// only the inference cost.
