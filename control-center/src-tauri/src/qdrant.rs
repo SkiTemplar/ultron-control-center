@@ -459,6 +459,114 @@ pub async fn qdrant_status() -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-encoder re-ranker — BGERerankerV2M3 (feature = "qdrant")
+// ---------------------------------------------------------------------------
+//
+// Opt-in via `ULTRON_RERANK=1` (default OFF). With the flag absent the recall
+// pipeline is byte-for-byte identical to the baseline (nDCG@8 / recall@8
+// unchanged). When active, `engine.rs` passes the top RERANK_TOP_N (24)
+// fused candidates through the cross-encoder after the heuristic quality
+// multiplier and before `assemble_pack`.
+//
+// Public API (consumed by engine.rs and the warmup subcommand):
+//   `reranker_enabled()`               — flag check; non-feature-gated
+//   `rerank_pairs(query, docs)`        — cross-encoder score; feature-gated
+//   `warmup_reranker()`                — force model init; feature-gated
+
+/// Returns `true` when `ULTRON_RERANK` is set to `"1"` or `"true"`.
+///
+/// Not feature-gated — callers can check the flag regardless of whether the
+/// `qdrant` Cargo feature is enabled.
+pub fn reranker_enabled() -> bool {
+    matches!(
+        std::env::var("ULTRON_RERANK").as_deref(),
+        Ok("1") | Ok("true")
+    )
+}
+
+/// Lazy `BGERerankerV2M3` — one instance per process, shared across threads.
+/// Initialised on the first call to `rerank_pairs`; afterwards all calls pay
+/// only the inference cost.
+#[cfg(feature = "qdrant")]
+static RERANKER: OnceCell<fastembed::TextRerank> = OnceCell::new();
+
+/// Re-rank `docs` (id, text) pairs against `query` using `BGERerankerV2M3`.
+///
+/// Returns `Vec<(id, cross_encoder_score)>` ordered by score **DESC**. The
+/// caller maps the returned order back onto its candidate list.
+///
+/// The fast-path guard (`docs.is_empty()`) returns immediately without
+/// touching the model — used for hermetic tests.
+///
+/// # Errors
+///
+/// Returns `Err(String)` when the model cannot be initialised or the rerank
+/// call fails. The caller in `engine.rs` **must** fall back to the existing
+/// order on `Err` and never propagate the error — recall must continue even
+/// if the re-ranker is unavailable.
+#[cfg(feature = "qdrant")]
+pub fn rerank_pairs(query: &str, docs: &[(String, String)]) -> Result<Vec<(String, f32)>, String> {
+    use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
+
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let reranker = RERANKER.get_or_try_init(|| {
+        TextRerank::try_new(
+            RerankInitOptions::new(RerankerModel::BGERerankerV2M3)
+                .with_cache_dir(fastembed_cache_dir())
+                .with_show_download_progress(false),
+        )
+        .map_err(|e| format!("reranker init (BGERerankerV2M3): {e}"))
+    })?;
+
+    let texts: Vec<&str> = docs.iter().map(|(_, text)| text.as_str()).collect();
+    let results = reranker
+        .rerank(query, texts, false, None)
+        .map_err(|e| format!("reranker rerank call: {e}"))?;
+
+    // `results` is already sorted score DESC by fastembed; map index → id.
+    Ok(results
+        .iter()
+        .map(|r| (docs[r.index].0.clone(), r.score))
+        .collect())
+}
+
+/// Stub when the `qdrant` feature is absent. Always returns `Err` so callers
+/// fall back to the existing order (identical to flag-OFF behaviour).
+#[cfg(not(feature = "qdrant"))]
+pub fn rerank_pairs(
+    _query: &str,
+    _docs: &[(String, String)],
+) -> Result<Vec<(String, f32)>, String> {
+    Err("rerank_pairs: qdrant feature not enabled".to_string())
+}
+
+/// Force `BGERerankerV2M3` to initialise (downloading ~1 GB on first use) by
+/// running one trivial rerank. Call from the `warmup` sidecar subcommand
+/// **only** when `reranker_enabled()` is true — the download must not be
+/// triggered for users who have not opted in.
+///
+/// # Errors
+/// Returns `Err` if the model download or init fails. The caller logs the
+/// error but must not block the session.
+#[cfg(feature = "qdrant")]
+pub fn warmup_reranker() -> Result<(), String> {
+    rerank_pairs(
+        "warmup",
+        &[("__warmup__".to_string(), "warmup document".to_string())],
+    )
+    .map(|_| ())
+}
+
+/// Stub when the `qdrant` feature is absent.
+#[cfg(not(feature = "qdrant"))]
+pub fn warmup_reranker() -> Result<(), String> {
+    Err("warmup_reranker: qdrant feature not enabled".to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

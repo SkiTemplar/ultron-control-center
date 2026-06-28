@@ -221,8 +221,24 @@ fn run() -> Result<serde_json::Value, String> {
                 Ok(v) => v.iter().any(|&x| x != 0.0),
                 Err(_) => false,
             };
+            // Cross-encoder warmup: only when ULTRON_RERANK is active.
+            // Guard prevents the ~1 GB BGERerankerV2M3 download for users who
+            // have not opted in. FAIL-SAFE: errors are logged but never block
+            // the session or change the `warmed` (E5) status.
+            let reranker_warmed = if ul::qdrant::reranker_enabled() {
+                match ul::qdrant::warmup_reranker() {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "reranker warmup failed (non-fatal)");
+                        false
+                    }
+                }
+            } else {
+                false
+            };
             Ok(serde_json::json!({
                 "warmed": warmed,
+                "reranker_warmed": reranker_warmed,
                 "ms": started.elapsed().as_millis() as u64,
             }))
         }
