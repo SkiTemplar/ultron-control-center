@@ -430,14 +430,20 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 - ☐ **4.1 Página técnica "Cómo funciona ULTRON de verdad"** en la web, desde este mapa: write-path de memoria, los
   los **hooks (~9 usados de ~30 disponibles)**, routing lazy (v2 + v3 cuando se cablee), orquestación con telemetría, interfaz.
   El manual del usuario y el argumento de venta. **Se actualiza al cerrar cada fase.**
-- ◐ **4.2 Docs coherentes — investigado (2026-06-28): menos roto de lo asumido.** Las refs a gemini-CLI/Mem0 en
+- ✅ **4.2 Docs coherentes + provider gemini-CLI erradicado (CERRADO 2026-06-28).** El usuario decidió retirar el
+  provider gemini de sesiones; erradicado de `App.tsx`, las 6 superficies de spawn, `tray.rs` y `COMMANDS.md:43`
+  (commits `36f7bd5`/`12953d3`). gemini cloud del router intacto. *(Histórico abajo.)* Las refs a gemini-CLI/Mem0 en
   `INSTALL.md`/`INTEGRATION.md`/`MAINTAINERS.md`/`COMMANDS.md:178` son **historia honesta** (documentan que murieron) → se
   conservan. `GOAL.md` limpio. **PERO `COMMANDS.md:43` "Spawn Gemini session" NO es solo doc:** la app tiene el comando VIVO
   (`App.tsx:463` + gemini como provider en 6 superficies de lanzamiento de sesiones). Con el free-tier OAuth de gemini-CLI
   muerto el spawn está roto para el usuario típico, pero puede funcionar con un CLI de pago → **decisión de producto del
   usuario** (quitar el provider gemini vs dejarlo) + cambio frontend multi-archivo + verificación visual. No es fix de docs
   autónomo. *Pendiente: decisión del usuario sobre el provider gemini.*
-- ◐ **4.3 Limpieza física — premisa CORREGIDA (2026-06-28, mirar-antes-de-borrar): BGE-small NO es huérfano simple.**
+- ✅ **4.3 Limpieza física BGE legacy (CERRADO 2026-06-28, verificado en runtime).** El código 384d ya se había
+  retirado en `005f763` (`qdrant.rs` solo tiene `embed_e5`; `qdrant_embed_query` y `bin/ultron_embed.rs` ya NO existen).
+  Borrados hoy: modelo BGE-small (128MB) + `ultron-embed.exe` (26MB) huérfanos; `recall_hybrid` (último caller del store
+  384d) erradicado + `QdrantStore.capabilities()` honestizado (`111d3c4`). `.tmp` conservado (subagent-harvest vivo +
+  backups). E5 intacto. *(Premisa original abajo, ya superada.)* **premisa CORREGIDA (2026-06-26, mirar-antes-de-borrar): BGE-small NO era huérfano simple.**
   `.fastembed_cache` = 2.3GB (E5 2.1GB vivo + BGE-small ~128MB). BGE-small está **referenciado en código vivo**: sidecar
   `ultron-embed.exe` (`bin/ultron_embed.rs`) + `qdrant.rs::embed()` (384d) + `qdrant_store.rs` + `recall_hybrid.rs:97` +
   el comando Tauri `qdrant_embed_query`. Contradice el "DESCARTADO" de la memoria. NO hay collection 384d en el doctor →
@@ -445,7 +451,10 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   end-to-end que ese embedding legacy no se invoca, retirar código+sidecar+modelo juntos, idealmente rama reversible). `.tmp`
   (28MB) tiene un backup `brain-pre-purge-2026-06-07.db` (16MB) + el `subagent-harvest.jsonl` VIVO (lo consume 2.1) + backups
   de kanban → borrado SELECTIVO, no wholesale. *Pendiente: verificación + go del usuario para retirar el subsistema BGE legacy.*
-- ◐ **4.4 ERRADICAR los fantasmas — alcance corregido.** **Mem0: borrar completo** (`StoreKind::Mem0` en `mod.rs:137`,
+- ✅ **4.4 ERRADICAR los fantasmas — CERRADO (2026-06-28).** Mem0 (`12ded09`) + gemini-CLI COMPLETO: Control Center
+  back+front (`36f7bd5`), scripts `.ps1`/`.py`/`.js` — 6 superficies de spawn (`8b9b773`), modo News Digest entero
+  (`12953d3`), fixes post-audit (`8b0de21`). Audit adversarial 16-agentes: **0 CRITICAL/HIGH, cero regresiones de lo
+  vivo**; tsc/cargo/tests/harnesses verdes. *(Alcance original abajo.)* **Mem0: borrar completo** (`StoreKind::Mem0` en `mod.rs:137`,
   `Mem0Entry`/`mem0_entries` en `project_context.rs`, `.mem0-opt-out.json`, líneas dup en `.gitignore`, comentarios "retired",
   "Sincronizar a Mem0"). **Gemini: solo el CLI muerto** (call-sites de `gemini_cli.py`) — **NO** el provider gemini cloud
   (`seed.rs:66-81`, fallback VIVO intencional; borrarlo rompe el router, mand. 13). **EXCEPCIÓN (no borrar):** los guardas
