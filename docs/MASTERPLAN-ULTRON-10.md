@@ -333,7 +333,7 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   pestañas Skills/Agents"). El template público del repo (`~/.ultron/skills/ultron/SKILL.md`) decía "dual/triple LLM mode"
   (muerto) → corregido a "AI Router (primary→fallback)". Re-embebida en `ultron_catalog` + `ultron_skills_lazy` para purgar
   el texto stale del índice. *(El fix de la skill activa vive fuera del repo, en ~/.claude; el del template es committable.)*
-- ◐ **2.5 v3 semántico — alcance CORREGIDO en runtime (2026-06-26): el cuello es LATENCIA, no cableado.** *Entendido (medido):*
+- ✅ **2.5 v3 semántico — (a) activado en hot path + (b) gate acc@3 en CI HECHOS. Alcance CORREGIDO en runtime (2026-06-26): el cuello era LATENCIA, no cableado.** *Entendido (medido):*
   el código del fallback **ya existe y es maduro** en `routing-dispatcher.v3.js` (branch B semántico cuando conf<0.80; shared
   deadline 4.5s que acota TODO el I/O y nunca rompe el hook de 5s; mata el subproceso Python huérfano en Windows). El problema
   NO es "añadir el fallback" sino que **`embed_skills.py query` tarda ~10.4s en caliente** (medido 3×: 10.8/10.4/10.2s, tras
@@ -379,8 +379,13 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
     este item advertía). *✅ HECHO:* job `routing-dispatcher` en `ci.yml` (ubuntu, PORTABLE, no toca `~/.claude`): `node --check`
     + require-chain de v2+v3+cliente-daemon → atrapa el fallo catastrófico (un dispatcher roto deja el hook UserPromptSubmit
     muerto → TODOS los prompts sin routing en silencio; exactamente el riesgo del `require` al daemon que v3 añadió hoy). YAML
-    validado. *☐ Queda (gate acc@3 e2e):* fixtures de skills de prueba en el repo + `SKILLS_DIR` inyectable en v2 para que
-    `_accuracy_at3.js` corra determinista en CI — sub-tarea mayor (refactor del descubrimiento de candidatas de v2).
+    validado. *✅ HECHO — gate acc@3 e2e (2026-06-28):* la premisa "necesita fixtures de skills" era FALSA (mand. 2). Verificado
+    en runtime: los 21 casos de `_accuracy_at3.js` resuelven de las tablas hardcodeadas PERSONAS/PLUGINS/AGENTS de v2 → con un
+    árbol de descubrimiento VACÍO acc@3 sigue 100% (21/21). *Hecho:* un solo env `ULTRON_ROUTING_FIXTURES` raíza los 4 roots de
+    descubrimiento (SKILLS_DIR/ECC_CACHE_ROOT/ULTRON_SKILLS_DIR/PROJECTS_DIR) bajo un fixtures tree cuando está set —
+    **unset = byte-idéntico a producción** (verificado: acc@3 100% + `_verify_final` 26/0 sin el env). El job `routing-dispatcher`
+    de `ci.yml` añade el step "accuracy@3 gate" (`ULTRON_ROUTING_FIXTURES=<tmp vacío> node _accuracy_at3.js`; exit 1 si <100% →
+    caza regresiones del RANKER, no solo de sintaxis). Verificado local: gate exit 0, YAML válido. **2.5(b) CERRADA → Fase 2 COMPLETA.**
 
 ---
 

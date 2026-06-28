@@ -31,8 +31,16 @@ const path = require('path');
 const os = require('os');
 
 const HOME = os.homedir();
+// CI/test override (casilla 2.5b): when ULTRON_ROUTING_FIXTURES points at a
+// fixtures tree, every candidate-discovery root resolves under it — so the
+// acc@3 harness is deterministic in CI, where ~/.claude/skills and the ECC
+// cache don't exist. UNSET in production => paths are byte-identical to before.
+const _FIX = process.env.ULTRON_ROUTING_FIXTURES || '';
+function _routeRoot(sub, realPath) {
+  return _FIX ? path.join(_FIX, sub) : realPath;
+}
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'routing-dispatcher.jsonl');
-const SKILLS_DIR = path.join(HOME, '.claude', 'skills');
+const SKILLS_DIR = _routeRoot('claude-skills', path.join(HOME, '.claude', 'skills'));
 const REGISTRY_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'skills-registry.json');
 
 // cat9.4/cat15.1: per-hook timing + error logging. Fail-safe: a missing
@@ -56,7 +64,7 @@ try {
  * survives a plugin update.  If the cache root does not exist the ECC
  * subsystem degrades silently.
  */
-const ECC_CACHE_ROOT = path.join(HOME, '.claude', 'plugins', 'cache', 'ecc', 'ecc');
+const ECC_CACHE_ROOT = _routeRoot('ecc', path.join(HOME, '.claude', 'plugins', 'cache', 'ecc', 'ecc'));
 
 /**
  * Minimum raw score (sum of W_TRIGGER/W_STRONG/W_CONTEXT hits) that an ECC
@@ -84,14 +92,14 @@ const MED_THRESHOLD = 0.50;
  * global Claude skills dir used by lazy-injection) — it points to ULTRON's
  * own skill store under ~/.ultron/skills/.
  */
-const ULTRON_SKILLS_DIR = path.join(HOME, '.ultron', 'skills');
+const ULTRON_SKILLS_DIR = _routeRoot('ultron-skills', path.join(HOME, '.ultron', 'skills'));
 
 /**
  * Root of per-project rosters.  Each project may have:
  *   pinned-agents.json  → { "pinned": ["agent-id", ...] }
  *   agent-roster.json   → { "entries": [{ "name": "agent-id", ... }] }
  */
-const PROJECTS_DIR = path.join(HOME, '.ultron', 'cockpit', 'projects');
+const PROJECTS_DIR = _routeRoot('projects', path.join(HOME, '.ultron', 'cockpit', 'projects'));
 
 // Lazy injection settings
 const LAZY_SCORE_THRESHOLD = 0.80;

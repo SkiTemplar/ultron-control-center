@@ -166,10 +166,12 @@ jobs:
     # 2.5(b): hasta hoy CI NO validaba NADA del dispatcher de skills, así que un
     # v2/v3 roto (sintaxis o un require movido — p.ej. el cliente del daemon E5
     # que v3 importa) dejaba el hook UserPromptSubmit muerto y TODOS los prompts
-    # sin routing, en silencio. Este gate es PORTABLE (no toca ~/.claude del
-    # usuario): solo confirma que la cadena del dispatcher carga. El gate de
-    # accuracy@3 e2e queda pendiente: necesita fixtures de skills en el repo
-    # (v2 hoy lee candidatas de ~/.claude/skills + ECC cache → no es portable).
+    # sin routing, en silencio. Dos gates PORTABLES (no tocan ~/.claude del
+    # usuario): (1) la cadena del dispatcher carga; (2) accuracy@3 == 100% sobre
+    # los 21 casos representativos. El acc@3 es e2e y determinista porque esos
+    # casos resuelven de las tablas PERSONAS/PLUGINS/AGENTS de v2 (verificado:
+    # 21/21 con un árbol de descubrimiento VACÍO), así que ULTRON_ROUTING_FIXTURES
+    # apuntando a un dir vacío hace el harness portable sin fixtures de skills.
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -183,6 +185,14 @@ jobs:
           node --check cockpit/skill-lazy/routing-dispatcher.v3.js
           node --check hooks/scripts/lib/ultron-memory-cli.js
           node -e "require('./cockpit/skill-lazy/routing-dispatcher.v2.js'); require('./cockpit/skill-lazy/routing-dispatcher.v3.js'); require('./hooks/scripts/lib/ultron-memory-cli.js'); console.log('routing dispatcher require chain OK');"
+      - name: accuracy@3 gate (deterministic table-based ranker)
+        run: |
+          # _accuracy_at3.js exits 1 if acc@3 < 100% -> a ranker regression fails
+          # CI. ULTRON_ROUTING_FIXTURES at an empty dir makes the candidate
+          # discovery (normally ~/.claude/skills + ECC cache) portable, while the
+          # 21 representative cases still resolve from v2's hardcoded tables.
+          mkdir -p "${RUNNER_TEMP}/ultron-route-fixtures"
+          ULTRON_ROUTING_FIXTURES="${RUNNER_TEMP}/ultron-route-fixtures" node cockpit/skill-lazy/_accuracy_at3.js
 
   # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
   # removed during the 2026-06-04 cleanup. The 15.x Python test suite that
