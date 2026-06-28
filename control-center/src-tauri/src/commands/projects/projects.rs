@@ -317,7 +317,7 @@ pub async fn project_claude_md_save(project_path: String, content: String) -> Re
 // ---- v2.9.5: rich project context aggregator ----
 
 /// Load all context signals for the per-project Context sub-tab in one call:
-/// CLAUDE.md content + path, Mem0 memories, KG entities, bug cards,
+/// CLAUDE.md content + path, KG entities, bug cards,
 /// decision records, git summary, and next-step suggestions.
 #[tauri::command]
 pub async fn project_context_load(

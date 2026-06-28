@@ -1,8 +1,8 @@
 // Dashboard — Memory system status card.
 //
 // Reflects the *current* memory system: the MemoryService (SQLite FTS5 + Qdrant
-// semantic) with the candidate inbox. The old ECC / Knowledge-Graph / Mem0
-// stores were dropped from the SoT, so they are no longer surfaced here.
+// semantic) with the candidate inbox. Legacy stores (ECC, KG) are no longer
+// part of the SoT and are not surfaced here.
 //
 // Data sources:
 //   memory_stats()  → active items + pending candidates in the inbox.
@@ -33,8 +33,8 @@ interface MemoryStats {
   candidates_pending: number;
 }
 
-// The new memory system is SQLite (lexical) + Qdrant (semantic). Anything else
-// the health probe still reports (ecc/kg/mem0) is legacy and intentionally hidden.
+// The active memory system is SQLite (lexical) + Qdrant (semantic). Any other
+// store keys the health probe may report are legacy and intentionally hidden.
 const STORE_LABELS: Record<string, string> = {
   qdrant: "Qdrant (semántico)",
   sqlite: "SQLite (FTS5)",

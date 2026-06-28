@@ -2,9 +2,9 @@
 //!
 //! Canonical guard meant to run BEFORE persisting text to SQLite and BEFORE
 //! generating embeddings, so a leaked credential never reaches `brain.db`,
-//! Qdrant, logs or backups. It consolidates and broadens the narrow
-//! `crate::mem0::redact` (which only scrubbed Mem0 `m0-` tokens and bare
-//! `Token ` headers) into a reusable detector for the memory write-path.
+//! Qdrant, logs or backups. It is the authoritative detector for the memory
+//! write-path, covering well-known credential shapes, header values, and
+//! vendor-token prefixes (including the legacy `m0-` prefix).
 //!
 //! STATUS (2026-06-06): wired into the single-writer critical path. The
 //! detector runs inside `MemoryService::create_candidate` (see
@@ -30,7 +30,7 @@ pub enum SecretKind {
     AwsAccessKey,
     SlackToken,
     GitlabToken,
-    Mem0Token,
+    VendorToken,
     BearerHeader,
     TokenHeader,
     PrivateKeyBlock,
@@ -49,7 +49,7 @@ impl SecretKind {
             Self::AwsAccessKey => "aws_access_key",
             Self::SlackToken => "slack_token",
             Self::GitlabToken => "gitlab_token",
-            Self::Mem0Token => "mem0_token",
+            Self::VendorToken => "vendor_token",
             Self::BearerHeader => "bearer",
             Self::TokenHeader => "token",
             Self::PrivateKeyBlock => "private_key",
@@ -97,7 +97,7 @@ fn classify_token(tok: &str) -> Option<SecretKind> {
         ("xoxa-", SecretKind::SlackToken, 20),
         ("xoxs-", SecretKind::SlackToken, 20),
         ("glpat-", SecretKind::GitlabToken, 20),
-        ("m0-", SecretKind::Mem0Token, 12),
+        ("m0-", SecretKind::VendorToken, 12),
     ];
     for &(prefix, kind, min_len) in RULES {
         if tok.len() >= min_len && tok.starts_with(prefix) {
@@ -724,10 +724,10 @@ mod tests {
     }
 
     #[test]
-    fn detects_mem0_token_like_legacy_redact() {
+    fn detects_vendor_m0_token_pattern() {
         let t = "leaked m0-supersecretvalue123 in body";
         assert!(contains_secret(t));
-        assert_eq!(detect_secrets(t)[0].kind, SecretKind::Mem0Token);
+        assert_eq!(detect_secrets(t)[0].kind, SecretKind::VendorToken);
     }
 
     #[test]

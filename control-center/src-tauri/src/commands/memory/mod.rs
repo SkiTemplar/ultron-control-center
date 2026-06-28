@@ -3,8 +3,7 @@
 // Groups all memory-subsystem Tauri commands:
 //   memory_graph  — Unified search + tree snapshot across all layers (lógica conservada, comandos Tauri des-registrados para Fase 3)
 //
-// Retirados (wave2-mem0-ecc, 2026-06-06):
-//   mem0          — Mem0 cloud memory CRUD + diagnostics
+// Retirados (wave2, 2026-06-06):
 //   kg            — Local knowledge-graph editor (comandos Tauri; lógica en src/kg.rs conservada)
 //   ecc_memory    — ECC graph reader (read-only display)
 //   memory_status — Memory tab status cards + sync/index ops

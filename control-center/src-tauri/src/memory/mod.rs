@@ -3,10 +3,6 @@
 // Introduces a unified abstraction over the active memory backends:
 //   - KgStore     : local kg.jsonl        (read + write)
 //
-// Retired (wave2-mem0-ecc, 2026-06-06):
-//   - Mem0Store   : Mem0 cloud REST API   (removed — crate::mem0 retired)
-//   - EccStore    : ECC JSONL snapshot    (removed — crate::ecc_memory retired)
-//
 // Plus a `HybridRecall` orchestrator that fans out a query across all
 // registered stores, merges results, deduplicates by id, and returns them
 // sorted by descending relevance score.
@@ -52,7 +48,7 @@ pub enum MemoryError {
 pub struct MemoryDoc {
     /// The text body of the memory.
     pub text: String,
-    /// Optional namespace / user scope (maps to Mem0's `user_id` concept).
+    /// Optional namespace / user scope.
     pub namespace: Option<String>,
     /// Arbitrary key-value tags attached to this document.
     pub tags: Vec<(String, String)>,
@@ -103,7 +99,7 @@ pub struct MemoryHit {
 pub struct Query {
     /// Full-text or semantic search query string.
     pub text: String,
-    /// Optional namespace filter (Mem0 `user_id`, KG entity type, …).
+    /// Optional namespace filter (KG entity type, scope, …).
     pub namespace: Option<String>,
     /// Maximum number of results to return per store.
     pub limit: Option<u32>,
@@ -134,7 +130,6 @@ impl Query {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StoreKind {
-    Mem0,
     Ecc,
     Kg,
     Mock,
@@ -211,9 +206,8 @@ pub struct Capabilities {
 /// Implementations MUST be `Send + Sync` so they can be stored in
 /// `Arc<dyn MemoryStore>` and shared across Tokio tasks.
 ///
-/// All methods are **synchronous** by design.  Async backends (Mem0 REST)
-/// wrap their blocking calls with `reqwest::blocking` or `std::thread::block_on`
-/// so the trait stays object-safe without `async_trait` overhead.
+/// All methods are **synchronous** by design so the trait stays object-safe
+/// without `async_trait` overhead.
 pub trait MemoryStore: Send + Sync {
     /// Write a new document to the store and return the stored record with
     /// its assigned `id` and `score = 1.0`.
@@ -249,10 +243,6 @@ pub trait MemoryStore: Send + Sync {
     /// Return the static capability flags for this store.
     fn capabilities(&self) -> Capabilities;
 }
-
-// Mem0Store and EccStore adapters retired (wave2-mem0-ecc, 2026-06-06).
-// The StoreKind variants Mem0/Ecc are kept in the enum for payload
-// compatibility but no live adapter uses them.
 
 // ---------------------------------------------------------------------------
 // KgStore adapter  (read + write)

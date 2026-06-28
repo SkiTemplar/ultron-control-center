@@ -60,15 +60,14 @@ export type RecallSemanticResult = QdrantHit[];
 /**
  * Result of `recall_last_session` / `recall_last_session_global`. Built from
  * the most recent Claude Code JSONL transcript for the chosen project (or
- * globally), with a mem0 fallback when no local JSONL matches.
+ * globally).
  *
  * Backend: `src-tauri/src/recall.rs::RecallResult`.
  */
 export type RecallResult = {
-  /** True when either a JSONL transcript or mem0 returned content. */
+  /** True when a JSONL transcript returned content. */
   found: boolean;
-  /** UUID of the matched session (file stem). Null when falling back to mem0
-   *  or when nothing was found. */
+  /** UUID of the matched session (file stem). Null when nothing was found. */
   session_id: string | null;
   /** ISO 8601 mtime of the matched JSONL. */
   last_active_iso: string | null;
@@ -76,6 +75,6 @@ export type RecallResult = {
   summary_md: string;
   /** Paste-ready first prompt for a fresh session. */
   suggested_prompt: string;
-  /** "jsonl" | "mem0" | "none". */
+  /** "jsonl" | "none". */
   source: string;
 };

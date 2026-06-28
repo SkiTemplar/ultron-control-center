@@ -2,14 +2,13 @@
 //
 // Loads a rich snapshot for the per-project "Context" sub-tab:
 //   - CLAUDE.md content (with path detection across 3 candidate locations)
-//   - Mem0 memories searched by project name
 //   - KG entities related to the project
 //   - Active bug cards from the kanban board
 //   - decision.jsonl records (optional)
 //   - Git summary (branch + last 10 commits)
 //   - Next steps (In Progress kanban cards)
 //
-// All operations are best-effort: a missing Mem0 key or absent git repo
+// All operations are best-effort: an absent git repo or missing file
 // returns None/empty rather than failing the whole command. The frontend
 // renders each section independently and shows actionable empty states.
 
@@ -27,8 +26,6 @@ pub struct ProjectContextPayload {
     pub claude_md: Option<String>,
     /// Absolute path where CLAUDE.md was found or would be created
     pub claude_md_path: Option<String>,
-    /// Memories retrieved from Mem0 (up to 5 most recent)
-    pub mem0_entries: Vec<Mem0Entry>,
     /// KG entities whose observations/relations mention this project
     pub kg_entities: Vec<KgEntitySnap>,
     /// Kanban cards tagged "bug" in non-Done columns
@@ -39,15 +36,6 @@ pub struct ProjectContextPayload {
     pub git_summary: Option<GitSummary>,
     /// In-Progress kanban cards (title only)
     pub next_steps: Vec<String>,
-    /// Human-readable explanation when Mem0 is not configured
-    pub mem0_error: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Mem0Entry {
-    pub id: String,
-    pub memory: String,
-    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -289,8 +277,6 @@ fn load_decisions(project_id: &str) -> Vec<DecisionRecordSnap> {
         .collect()
 }
 
-// mem0 search retired (wave2-mem0-ecc, 2026-06-06). mem0_entries is always empty.
-
 // ---------------------------------------------------------------------------
 // Main aggregator entry point
 // ---------------------------------------------------------------------------
@@ -300,7 +286,6 @@ pub async fn load_inner(
     project_name: String,
     project_path: String,
 ) -> Result<ProjectContextPayload, String> {
-    // All sections run concurrently. mem0 retired (wave2-mem0-ecc, 2026-06-06).
     let path_clone = project_path.clone();
     let id_clone = project_id.clone();
     let name_clone = project_name.clone();
@@ -342,13 +327,11 @@ pub async fn load_inner(
     Ok(ProjectContextPayload {
         claude_md,
         claude_md_path: claude_md_path_display,
-        mem0_entries: Vec::new(),
         kg_entities,
         recent_bugs,
         recent_decisions,
         git_summary,
         next_steps,
-        mem0_error: None,
     })
 }
 

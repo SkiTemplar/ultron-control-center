@@ -126,7 +126,6 @@ str_enum! {
         ToolObserved => "tool_observed",
         CodeObserved => "code_observed",
         WorkflowGenerated => "workflow_generated",
-        ImportedMem0 => "imported_mem0",
         ImportedEcc => "imported_ecc",
         ImportedKg => "imported_kg",
         ImportedSessions => "imported_sessions",
