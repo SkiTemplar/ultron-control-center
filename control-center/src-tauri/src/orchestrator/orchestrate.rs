@@ -93,7 +93,10 @@ pub fn orchestrate(
     // blows the latency budget, so FTS5 sparse + the confidence/recency re-ranker
     // carry it. Quality callers (dense_enabled=true) and the manual Memory Browser
     // (recall_unified command) keep full hybrid recall.
-    let memories = match build_trace(prompt, 12, project_id, cross_project, dense_enabled) {
+    // limit=8: alineado con DEFAULT_LIMIT y el golden eval (k=8). 12 forzaba a
+    // rellenar el pack con cola BM25 irrelevante (context_waste ~0.59); el
+    // relevance-floor de assemble_pack + este techo dejan el pack few-and-good.
+    let memories = match build_trace(prompt, 8, project_id, cross_project, dense_enabled) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected

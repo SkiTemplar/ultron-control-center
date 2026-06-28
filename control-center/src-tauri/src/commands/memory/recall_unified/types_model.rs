@@ -9,6 +9,17 @@ pub(super) const DEFAULT_LIMIT: usize = 8;
 /// Top-K pulled from each source before fusion.
 pub(super) const FANOUT_K: usize = 30;
 
+/// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A fused hit with NO
+/// dense (semantic) backing whose sparse (BM25) rank is at or beyond this cutoff
+/// is lexical TAIL noise: it shares a stray term with the query but E5 did not
+/// rank it relevant at all. The sparse fanout is widened (×12 when dense is off)
+/// to push in-project items PAST the governance gates — this floor stops that
+/// same widening from injecting the BM25 tail (the "Mundial 2026 / menú de 5
+/// decisiones" class of irrelevant hits). dense-backed hits (any dense rank) and
+/// sparse-TOP hits (rank < cutoff) always pass. Calibrated against the golden
+/// eval: must not drop recall@8 (baseline 0.868) while cutting context_waste.
+pub(super) const SPARSE_TAIL_CUTOFF: usize = 15;
+
 /// Maximum token budget for the assembled pack **per recall call** — an
 /// anti-bloat ceiling for a SINGLE injection. This is NOT a cumulative
 /// per-session budget: every recall receives the full cap, so the memory is

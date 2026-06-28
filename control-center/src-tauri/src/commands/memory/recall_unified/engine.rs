@@ -19,7 +19,7 @@ use crate::memory::{
 
 use super::types_model::{
     DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, FANOUT_K, PER_CALL_TOKEN_CAP,
-    RRF_K,
+    RRF_K, SPARSE_TAIL_CUTOFF,
 };
 use crate::commands::memory::recall_unified::rrf_fuse;
 
@@ -59,6 +59,20 @@ pub(crate) fn assemble_pack(
         };
         if injected.len() >= limit {
             discarded.push(discard("below result limit"));
+            continue;
+        }
+        // Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A hit with NO
+        // dense (semantic) backing whose sparse (BM25) rank is in the TAIL shares
+        // only a stray term with the query — E5 did not rank it relevant at all.
+        // The widened BM25 fanout exists to push in-project items past the
+        // governance gates, NOT to inject the lexical tail; this floor drops it so
+        // the pack stays few-and-good (kills the "Mundial 2026 / menú de 5
+        // decisiones" class). dense-backed hits (any rank) and sparse-TOP hits
+        // (rank < cutoff) always pass. Cheap: runs before get_item.
+        if fh.dense_rank.is_none() && fh.sparse_rank.is_some_and(|r| r >= SPARSE_TAIL_CUTOFF) {
+            discarded.push(discard(
+                "below relevance floor (BM25 tail, no dense backing)",
+            ));
             continue;
         }
         let item = match store::get_item(conn, &fh.canonical_id) {

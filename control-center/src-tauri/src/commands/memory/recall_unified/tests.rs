@@ -683,6 +683,90 @@ fn assemble_pack_redacts_pii_in_summary() {
     );
 }
 
+// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A fused hit with NO
+// dense backing whose sparse rank is in the BM25 TAIL (>= SPARSE_TAIL_CUTOFF) is
+// lexical noise (shares a stray term; E5 did not rank it relevant) and must be
+// DROPPED — this is the fix for the "Mundial 2026 / menú de 5 decisiones" class
+// of irrelevant memories that flooded the orchestrate pack. dense-backed hits
+// (any rank) and sparse-TOP hits (rank < cutoff) must still inject. Unit-tested
+// without Qdrant/E5; falls RED if the floor is removed.
+#[test]
+fn assemble_pack_drops_bm25_tail_without_dense_backing() {
+    use super::super::types_model::SPARSE_TAIL_CUTOFF;
+    use crate::memory::model::MemoryItem;
+    use crate::memory::sqlite_store::{apply_schema, insert_item};
+    use crate::memory::{MemoryType, Sensitivity, Source};
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+    apply_schema(&conn).expect("schema");
+
+    let mk = |sm: &str| {
+        let mut it = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
+        it.summary = Some(sm.to_string());
+        it.sensitivity = Sensitivity::Internal;
+        it.project_id = None; // ambiente: saca el filtro de proyecto de la ecuación
+        it.token_estimate = 20;
+        insert_item(&conn, &it).expect("insert");
+        it.id
+    };
+
+    let dense_backed = mk("relevante via semantica E5"); // dense_rank=Some -> pasa
+    let sparse_top = mk("relevante via BM25 termino fuerte"); // sparse rank bajo -> pasa
+    let bm25_tail = mk("Fuente de datos cambiada a TheSportsDB para el Mundial 2026"); // cola sin dense -> FUERA
+
+    let fused = vec![
+        FusedHit {
+            canonical_id: dense_backed.clone(),
+            rrf_score: 0.030,
+            dense_rank: Some(5),
+            sparse_rank: None,
+            dense_score: Some(0.82),
+        },
+        FusedHit {
+            canonical_id: sparse_top.clone(),
+            rrf_score: 0.025,
+            dense_rank: None,
+            sparse_rank: Some(2), // top BM25 (< cutoff)
+            dense_score: None,
+        },
+        FusedHit {
+            canonical_id: bm25_tail.clone(),
+            rrf_score: 0.018,
+            dense_rank: None,
+            sparse_rank: Some(SPARSE_TAIL_CUTOFF + 5), // cola BM25, sin dense
+            dense_score: None,
+        },
+    ];
+
+    let (injected, discarded, _t) =
+        assemble_pack(&conn, &fused, 8, None, false, PER_CALL_TOKEN_CAP);
+    let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
+
+    assert!(
+        inj.contains(&&dense_backed),
+        "un hit con respaldo dense (cualquier rango) debe inyectarse"
+    );
+    assert!(
+        inj.contains(&&sparse_top),
+        "un hit sparse-TOP (rank < cutoff) debe inyectarse aunque no tenga dense"
+    );
+    assert!(
+        !inj.contains(&&bm25_tail),
+        "un hit de cola BM25 sin respaldo dense NO debe inyectarse (relevance floor)"
+    );
+    assert!(
+        discarded
+            .iter()
+            .any(|d| d.canonical_id == bm25_tail && d.reason.contains("relevance floor")),
+        "el descarte de la cola BM25 debe atribuirse al relevance floor"
+    );
+}
+
 // ---------------------------------------------------------------------
 // END-TO-END runtime verification (Fase A+B). #[ignore]d because it hits
 // the REAL Qdrant (127.0.0.1:6333) + ~/.ultron/brain.db and downloads the
