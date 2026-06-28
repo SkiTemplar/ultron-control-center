@@ -277,7 +277,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   }
 
   async function setDefaultProvider(projectId: string, provider: SessionProvider) {
-    const providers: SessionProvider[] = ["claude", "codex", "gemini"];
+    const providers: SessionProvider[] = ["claude", "codex"];
     setProjects((prev) =>
       prev.map((proj) => {
         if (proj.id !== projectId) return proj;
@@ -402,7 +402,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         while ((m = re.exec(iArgs)) !== null) args.push(m[1] !== undefined ? m[1] : m[2]);
       }
       const needsPath = iKind === "exe" || iKind === "folder" || iKind === "ide";
-      const needsCwd = iKind === "session" || iKind === "claude" || iKind === "codex" || iKind === "gemini";
+      const needsCwd = iKind === "session" || iKind === "claude" || iKind === "codex";
       const item: LauncherItem = {
         kind: iKind,
         path: needsPath ? trimmed(iPath) || (iKind === "ide" ? itemTarget.path ?? null : null) : null,

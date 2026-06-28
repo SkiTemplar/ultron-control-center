@@ -8,8 +8,8 @@ import type { Tab } from "./Sidebar";
 // v15.3.7: palette expanded from ~20 entries to a full system command
 // surface — maintenance commands (fetched dynamically via
 // `list_maintenance_commands`), diagnostics (Doctor, Full Diagnostic,
-// Pending Items, Codex adversarial review), AI spawn (Claude / Codex /
-// Gemini), Memory rebuild, app lifecycle (Close, Rebuild, Update). Plus a
+// Pending Items, Codex adversarial review), AI spawn (Claude / Codex),
+// Memory rebuild, app lifecycle (Close, Rebuild, Update). Plus a
 // fuzzy scorer so users can type "skreg" → "Skill registry rebuild".
 
 export type PaletteAction = {

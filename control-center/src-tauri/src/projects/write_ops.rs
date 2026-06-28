@@ -393,7 +393,7 @@ pub(crate) fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> 
             }
             path_ps_safe(path)?;
         }
-        "claude" | "codex" | "gemini" | "session" => {
+        "claude" | "codex" | "session" => {
             let cwd = item
                 .cwd
                 .as_deref()

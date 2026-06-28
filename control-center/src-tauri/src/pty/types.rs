@@ -41,19 +41,19 @@ pub struct PtySession {
     /// events immediately as the PTY produced output, but the frontend
     /// `EmbeddedTerminal` registers its `listen()` *after* the React mount
     /// has finished and the Tauri IPC handshake completes (tens to hundreds
-    /// of ms). The first burst of output from Claude/Codex/Gemini — the TUI
+    /// of ms). The first burst of output from Claude/Codex — the TUI
     /// splash, banner and entire initial paint — was emitted into a void:
     /// the listener wasn't subscribed yet, so the chunks were lost forever.
     /// TUIs don't periodically repaint, so the terminal stayed blank.
     ///
     /// Fix: capture every byte the reader produces into this buffer and
-    /// HOLD live emission until the frontend calls `pty_replay`. The
-    /// replay call returns the buffered bytes and flips `subscribed=true`,
-    /// after which the reader thread starts emitting `pty:data:<id>`
-    /// events in real time. This way there is exactly one path bytes can
-    /// reach the frontend — first as replay, then as live events — with
-    /// no duplication and no loss. Capped at 256 KiB to bound memory;
-    /// older bytes are dropped from the front when full.
+    /// HOLD live emission until the frontend calls `pty_replay`. The replay
+    /// call returns the buffered bytes and flips `subscribed=true`, after
+    /// which the reader thread starts emitting `pty:data:<id>` events in
+    /// real time. This way there is exactly one path bytes can reach the
+    /// frontend — first as replay, then as live events — with no duplication
+    /// and no loss. Capped at 256 KiB to bound memory; older bytes are
+    /// dropped from the front when full.
     pub output_buffer: Vec<u8>,
     /// Has the frontend subscribed via `pty_replay`? While false, the
     /// reader thread captures bytes into `output_buffer` but does NOT

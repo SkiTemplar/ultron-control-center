@@ -56,24 +56,24 @@ export type SpawnResult = {
   provider: string;
 };
 
-export type SessionProvider = "claude" | "gemini" | "codex";
+export type SessionProvider = "claude" | "codex";
 
 /** Kind of a launcher item inside a project's `items[]`.
  *
  * v15.4.11 — el dropdown del UI expone 3 kinds principales (folder /
  * ide / session) más `exe` como avanzado. Los kinds legacy
- * `claude` / `codex` / `gemini` siguen siendo válidos en el backend
- * (proyectos existentes los usan) y se renderizan como built-in chips
- * exactamente como antes. Internamente: `session` = consolidación de
- * los 3, distinguidos por el campo `provider`. `ide` = abrir el path
- * en el IDE preferido del proyecto.
+ * `claude` / `codex` siguen siendo válidos en el backend (proyectos
+ * existentes los usan) y se renderizan como built-in chips exactamente
+ * como antes. Internamente: `session` = consolidación, distinguida por
+ * el campo `provider`. `ide` = abrir el path en el IDE preferido.
+ * Nota: `gemini` fue eliminado 2026-06-19 (Google cortó el free-tier
+ * OAuth); legacy items con kind="gemini" normalizan a "claude".
  */
 export type LauncherItemKind =
   | "exe"
   | "folder"
   | "claude"
   | "codex"
-  | "gemini"
   | "ide"
   | "session";
 
@@ -93,7 +93,7 @@ export type LauncherItem = {
   args?: string[] | null;
   label?: string | null;
   /** v15.4.11 — solo aplica cuando kind === "session". Uno de
-   *  claude/codex/gemini. */
+   *  claude/codex. */
   provider?: SessionProvider | null;
 };
 
@@ -130,9 +130,9 @@ export type ProjectInfo = {
    *  without an on-disk migration. */
   items?: LauncherItem[] | null;
   /** Preferred session provider for this project. Always one of
-   *  "claude" | "codex" | "gemini" — the Rust loader normalises legacy
-   *  entries (missing field / typos) to "claude" before returning, so the
-   *  UI can safely read it without a null check. */
+   *  "claude" | "codex" — the Rust loader normalises legacy entries
+   *  (missing field / typos / "gemini") to "claude" before returning,
+   *  so the UI can safely read it without a null check. */
   default_provider?: SessionProvider | null;
   /** fb-016 — preferred shell for non-AI terminals spawned in this
    *  project's workspace. One of "powershell" | "powershell-admin" |

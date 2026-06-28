@@ -160,11 +160,11 @@ pub async fn delegate_task_inner(
          {COMPLETION_SENTINEL}"
     );
 
-    // Multi-IA dispatch: pick the cheapest correct agentic CLI for this agent
-    // WITHOUT the user asking. Fall back HARD to Claude when the chosen CLI is
-    // not installed, so a missing codex/gemini binary never breaks delegation
-    // (zero observable change when the router cannot improve on Claude).
-    let chosen = provider_router::infer_pty_provider(agent_trim, req.use_cheap_model);
+    // Multi-IA dispatch: pick the correct agentic CLI for this agent WITHOUT
+    // the user asking. Fall back HARD to Claude when the chosen CLI is not
+    // installed, so a missing codex binary never breaks delegation (zero
+    // observable change when the router cannot improve on Claude).
+    let chosen = provider_router::infer_pty_provider(agent_trim);
     let provider = if chosen == provider_router::PtyProvider::Claude
         || crate::pty::cli_on_path(chosen.as_str())
     {
@@ -180,7 +180,7 @@ pub async fn delegate_task_inner(
             "agent": agent_trim,
             "task_preview": truncate(task, 160),
             "use_cheap_model": req.use_cheap_model,
-            "provider": provider, // claude | codex | gemini (multi-IA dispatch)
+            "provider": provider, // claude | codex
             "started_at": crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
             "timeout_secs": timeout_secs,
         }),

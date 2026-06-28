@@ -3,7 +3,7 @@
 // Two interaction modes:
 //   1. run_inline       — batch invocation that returns stdout in-app.
 //                         Uses cmd.exe /C as a uniform launcher so .cmd
-//                         shims (codex, gemini via npm) and reparse-point
+//                         shims (codex via npm) and reparse-point
 //                         binaries (claude in ~/.local/bin) resolve via
 //                         the user's PATH and PATHEXT.
 //   2. spawn_session    — opens Windows Terminal (wt.exe) with the chosen
@@ -109,7 +109,7 @@ pub struct SpawnFlags {
     ///
     /// Backwards compat: `None` (or absent in JSON) is the historical
     /// behaviour — no prefix is added to the prompt. Only Claude sessions
-    /// honour the directive today; codex/gemini ignore it silently.
+    /// honour the directive today; codex ignores it silently.
     #[serde(default)]
     pub agent: Option<String>,
 }
@@ -153,7 +153,6 @@ pub fn base64_encode(input: &str) -> String {
 fn validate_provider(p: &str) -> Result<&'static str, String> {
     match p {
         "claude" => Ok("claude"),
-        "gemini" => Ok("gemini"),
         "codex" => Ok("codex"),
         other => Err(format!("unknown provider '{}'", other)),
     }
@@ -346,7 +345,7 @@ pub async fn spawn_session_inner(
         // skip Set-Clipboard. Callers that prime the clipboard themselves
         // (news.rs after `news_html_generator.py --clipboard`) MUST set this
         // — otherwise the spawn script overwrites the real prompt with the
-        // short `seed` banner and the user pastes garbage into Gemini.
+        // short `seed` banner and the user pastes garbage into the AI CLI.
         "respectClipboard": flags.respect_clipboard,
         // free_tier: activo cuando el caller lo pide explicitamente O cuando el
         // proxy-state persistido esta habilitado (auto-ON al 98% de cuota).

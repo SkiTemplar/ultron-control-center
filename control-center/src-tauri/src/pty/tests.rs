@@ -54,11 +54,11 @@ fn build_command_accepts_known_providers() {
         let r = build_command(p, None);
         assert!(r.is_ok(), "provider {p} should be accepted");
     }
-    // claude/codex/gemini hacen un probe REAL de PATH (where/which). En un
-    // runner de CI sin las CLIs instaladas eso es Err legitimo — el test
-    // hermetico acepta Ok o el error especifico de PATH, y rechaza
-    // cualquier otro fallo (provider desconocido, probe roto, etc.).
-    for p in ["claude", "codex", "gemini"] {
+    // claude/codex hacen un probe REAL de PATH (where/which). En un runner
+    // de CI sin las CLIs instaladas eso es Err legitimo — el test hermetico
+    // acepta Ok o el error especifico de PATH, y rechaza cualquier otro
+    // fallo (provider desconocido, probe roto, etc.).
+    for p in ["claude", "codex"] {
         match build_command(p, None) {
             Ok(_) => {}
             Err(e) => assert!(

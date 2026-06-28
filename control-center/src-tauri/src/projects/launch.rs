@@ -465,7 +465,7 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
                 .map_err(|e| format!("spawn explorer: {}", e))?;
             Ok(())
         }
-        "claude" | "codex" | "gemini" => {
+        "claude" | "codex" => {
             let cwd = item.cwd.clone();
             let kind = item.kind.clone();
             crate::sessions::spawn_session_inner(app, kind, None, cwd, None)

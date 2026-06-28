@@ -8,7 +8,6 @@
 //   - Open ULTRON        -> show + focus main window
 //   - New Claude session -> emits "tray-action" {action:"new_claude"}
 //   - New Codex session  -> emits "tray-action" {action:"new_codex"}
-//   - New Gemini session -> emits "tray-action" {action:"new_gemini"}
 //   - Open Plans         -> emits "tray-action" {action:"open_plans"}
 //   - Open Memory        -> emits "tray-action" {action:"open_memory"}
 //   - separator
@@ -70,8 +69,6 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let new_claude_i =
         MenuItem::with_id(app, "new_claude", "New Claude session", true, None::<&str>)?;
     let new_codex_i = MenuItem::with_id(app, "new_codex", "New Codex session", true, None::<&str>)?;
-    let new_gemini_i =
-        MenuItem::with_id(app, "new_gemini", "New Gemini session", true, None::<&str>)?;
     let plans_i = MenuItem::with_id(app, "open_plans", "Open Plans", true, None::<&str>)?;
     let memory_i = MenuItem::with_id(app, "open_memory", "Open Memory", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
@@ -83,7 +80,6 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             &open_i,
             &new_claude_i,
             &new_codex_i,
-            &new_gemini_i,
             &plans_i,
             &memory_i,
             &sep,
@@ -114,7 +110,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     crate::pty::kill_all_inner();
                     app.exit(0);
                 }
-                "new_claude" | "new_codex" | "new_gemini" | "open_plans" | "open_memory" => {
+                "new_claude" | "new_codex" | "open_plans" | "open_memory" => {
                     // Surface the window first so the user sees the
                     // response, then emit. Frontend listens on
                     // "tray-action" and routes to the existing flow
@@ -124,7 +120,6 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let action = match id {
                         "new_claude" => "new_claude",
                         "new_codex" => "new_codex",
-                        "new_gemini" => "new_gemini",
                         "open_plans" => "open_plans",
                         "open_memory" => "open_memory",
                         _ => return,

@@ -125,7 +125,7 @@ pub(super) fn resolve_powershell_exe() -> String {
 
 /// Resolve a provider slug to the CommandBuilder that actually spawns it.
 ///
-/// Windows-specific bug fix (2026-05-23): the Claude/Codex/Gemini CLIs are
+/// Windows-specific bug fix (2026-05-23): the Claude/Codex CLIs are
 /// installed as `.cmd` shim scripts (e.g. `claude.cmd` under the npm prefix
 /// or `~/.local/bin`). portable-pty's `CommandBuilder::new("claude")` ends up
 /// in CreateProcessW with a bare argv0 of `claude`, which does NOT walk
@@ -139,18 +139,20 @@ pub(super) fn resolve_powershell_exe() -> String {
 /// and `powershell-admin` re-launches PowerShell elevated through UAC
 /// (Start-Process -Verb RunAs) without keeping the elevated session attached
 /// to our PTY (UAC always opens a fresh console window).
+///
+/// Note: `gemini` was removed 2026-06-19 — Google cut the free-tier OAuth.
 pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, String> {
     let trimmed = provider.trim();
     if trimmed.is_empty() {
         return Err("provider is empty".to_string());
     }
     match trimmed {
-        "claude" | "codex" | "gemini" => {
+        "claude" | "codex" => {
             // v2.6 bug fix: pre-validate the binary exists on PATH. Without
-            // this, codex/gemini just opens a PTY that immediately dies
-            // because cmd.exe ran but the shim wasn't found — the user
-            // sees a blank terminal instead of a clear error. Run `where`
-            // on Windows (POSIX `which` on others) and surface the result.
+            // this, codex just opens a PTY that immediately dies because
+            // cmd.exe ran but the shim wasn't found — the user sees a blank
+            // terminal instead of a clear error. Run `where` on Windows
+            // (POSIX `which` on others) and surface the result.
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;

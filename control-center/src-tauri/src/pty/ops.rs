@@ -32,8 +32,8 @@ pub fn spawn_inner<R: Runtime>(
         .map_err(|e| format!("openpty: {e}"))?;
 
     // Build the command. provider is one of:
-    //   claude / codex / gemini  — AI CLI providers
-    //   powershell               — plain Windows PowerShell 5.1 PTY
+    //   claude / codex  — AI CLI providers
+    //   powershell      — plain Windows PowerShell 5.1 PTY
     //   powershell-admin         — UAC-elevated PowerShell (new window)
     // agent maps to `--agent <slug>` when supported (claude). prompt is
     // reserved for P4 (clipboard prime flow); not embedded in the command line.
@@ -61,7 +61,7 @@ pub fn spawn_inner<R: Runtime>(
     for (k, v) in std::env::vars() {
         cmd.env(k, v);
     }
-    // Force xterm-256color so TUIs (Claude, Codex, Gemini) render the
+    // Force xterm-256color so TUIs (Claude, Codex) render the
     // box-drawing characters + ANSI sequences they rely on. The Control
     // Center process's TERM is typically empty on Windows, which causes
     // some CLIs to fall back to a dumb mode where the UI never paints.

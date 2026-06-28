@@ -35,18 +35,6 @@ export const PROVIDERS: Record<SessionProvider, ProviderMeta> = {
     ],
     defaultModel: "",
   },
-  gemini: {
-    label: "Gemini",
-    accent: "var(--color-warn)",
-    acceptsModel: true,
-    models: [
-      { id: "gemini-3.1-pro-preview", label: "3.1 Pro · best quality" },
-      { id: "gemini-3.1-flash-lite", label: "3.1 Flash Lite · fast" },
-      { id: "gemini-2.5-pro", label: "2.5 Pro · stable" },
-      { id: "gemini-2.5-flash", label: "2.5 Flash · stable fast" },
-    ],
-    defaultModel: "gemini-3.1-pro-preview",
-  },
   codex: {
     label: "Codex",
     accent: "#a875ff",

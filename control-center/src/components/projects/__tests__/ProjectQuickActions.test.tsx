@@ -91,11 +91,6 @@ describe("ProjectQuickActions — rendering (V1)", () => {
     expect(screen.getByText("Codex")).toBeTruthy();
   });
 
-  it("renders Gemini label when default_provider is gemini", () => {
-    renderActions({ default_provider: "gemini" });
-    expect(screen.getByText("Gemini")).toBeTruthy();
-  });
-
   it("renders Launch all button when items has at least one non-folder item", () => {
     renderActions({
       items: [{ kind: "claude", cwd: "C:\\projects\\alpha" }],

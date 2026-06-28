@@ -35,7 +35,6 @@ export function AppHealthCard({ report }: { report: DiagnosticReport }) {
       <div className="grid gap-1 sm:grid-cols-3">
         <HealthRow k="claude" v={report.app.claude_in_path ? "in PATH" : "missing"} ok={report.app.claude_in_path} />
         <HealthRow k="codex" v={report.app.codex_in_path ? "in PATH" : "missing"} ok={report.app.codex_in_path} />
-        <HealthRow k="gemini" v={report.app.gemini_in_path ? "in PATH" : "missing"} ok={report.app.gemini_in_path} />
         <HealthRow k="qdrant" v={report.app.qdrant_running ? "running (:6333)" : "not reachable"} ok={report.app.qdrant_running} />
         <HealthRow k="projects.json" v={report.app.projects_json_ok ? "ok" : "missing/corrupt"} ok={report.app.projects_json_ok} />
       </div>

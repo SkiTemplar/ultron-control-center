@@ -1,7 +1,7 @@
 # Installing ULTRON Control Center (app v2.7.1+ · core v15.5.x)
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
-that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
+that orchestrates Claude Code and Codex through their official CLIs.
 It runs entirely on your machine and uses your existing subscriptions — no
 API keys, no cloud services, no admin rights.
 
@@ -82,8 +82,8 @@ non-zero code.
    Linux for `install.sh`), PowerShell 5+ or bash 3.2+, enough RAM/disk, and
    that `github.com` is reachable.
 2. **Prerequisites.** Probes `git`, `node` (v22+), `rustc`, `uv`, and
-   `claude` (a hard requirement), plus the optional `codex` and `gemini`
-   CLIs. Missing tools are auto-installed where possible (winget on Windows;
+   `claude` (a hard requirement), plus the optional `codex`
+   CLI. Missing tools are auto-installed where possible (winget on Windows;
    apt/dnf/pacman on Linux). If a required tool cannot be installed
    automatically, it points you at the official documentation and exits.
 3. **Qdrant.** Downloads the native Qdrant binary (no Docker) into
