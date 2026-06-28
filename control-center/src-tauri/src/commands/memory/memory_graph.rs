@@ -177,25 +177,8 @@ pub async fn unified_search_inner(
 
     let kg_graph = search_nodes_inner(needle.clone()).unwrap_or_default();
 
-    // Qdrant semantic layer — uses real BGE vectors when the `qdrant` feature
-    // is active (default). Falls back to empty when Qdrant is not running.
-    let qdrant_results = if needle.is_empty() {
-        Vec::new()
-    } else {
-        let needle_q = needle.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            crate::qdrant::search("ultron_sessions", &needle_q, 10)
-        })
-        .await
-        .unwrap_or_else(|join_err| {
-            eprintln!("[memory_graph] qdrant spawn_blocking panicked: {join_err}");
-            Ok(Vec::new())
-        })
-        .unwrap_or_else(|qdrant_err| {
-            eprintln!("[memory_graph] qdrant search error: {qdrant_err}");
-            Vec::new()
-        })
-    };
+    // 384-d legacy Qdrant semantic layer retired 2026-06-28.
+    let qdrant_results: Vec<crate::qdrant::QdrantHit> = Vec::new();
 
     Ok(UnifiedSearchResults {
         skills,

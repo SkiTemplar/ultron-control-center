@@ -34,7 +34,7 @@ export type QdrantHitKind =
   | "file"
   | string;
 
-/** A single result from `invoke("recall_semantic", { query, k })`. */
+/** A single Qdrant point hit (id + score + payload). */
 export type QdrantHit = {
   /** Qdrant point id (normalised to string). */
   id: string;
@@ -54,7 +54,7 @@ export type QdrantHit = {
   };
 };
 
-/** Return type of `invoke("recall_semantic", ...)`. */
+/** Array of Qdrant point hits (legacy alias, kept for type consumers). */
 export type RecallSemanticResult = QdrantHit[];
 
 /**

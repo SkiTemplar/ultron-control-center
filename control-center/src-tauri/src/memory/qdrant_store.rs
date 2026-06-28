@@ -3,24 +3,21 @@
 // Wraps the existing `crate::qdrant` functions (HTTP REST, no gRPC) and
 // exposes them through the `MemoryStore` trait.
 //
-// Search/add/delete target the `ultron_sessions` collection, RETIRED 2026-06-20
-// (write-dead legacy, data migrated to brain.db). These three paths are now dead
-// code: the only LIVE caller is `memory_health`, which calls `health()` only —
-// and `health()` does a general `qdrant_ping`, not a collection query, so it
-// keeps working after the collection is gone. Left in place to avoid churning
-// the MemoryStore trait; do not wire new callers to this adapter.
+// The `ultron_sessions` collection (384-d BGE) was retired 2026-06-20 and the
+// 384-d embedding path was removed 2026-06-28. `add()` and `search()` now return
+// `RemoteUnavailable` immediately. The only LIVE method is `health()`, which
+// calls `qdrant_ping` (no collection query) and is used by `memory_health`.
 
 use super::{
     Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind,
 };
 
 const COLLECTION: &str = "ultron_sessions";
-const DEFAULT_K: u32 = 10;
 
 /// `MemoryStore` implementation backed by the local Qdrant instance.
 ///
-/// Search embeds the query text with BGE-small-EN-v1.5 (via the existing
-/// `crate::qdrant::embed` function) and performs a cosine k-NN search.
+/// `add` and `search` are retired (384-d BGE path removed 2026-06-28). Only
+/// `health` (Qdrant ping) and `delete` remain functional.
 pub struct QdrantStore;
 
 impl QdrantStore {
@@ -37,68 +34,18 @@ impl Default for QdrantStore {
 }
 
 impl MemoryStore for QdrantStore {
-    fn add(&self, doc: MemoryDoc) -> Result<MemoryHit, MemoryError> {
-        // Generate an id and embed the text.
-        let id = format!(
-            "qdrant::{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0)
-        );
-        let vector = crate::qdrant::embed(&doc.text)
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("embed: {e}")))?;
-
-        let mut payload = std::collections::HashMap::new();
-        payload.insert("text".to_string(), serde_json::json!(doc.text));
-        if let Some(ref ns) = doc.namespace {
-            payload.insert("namespace".to_string(), serde_json::json!(ns));
-        }
-
-        crate::qdrant::upsert_point(COLLECTION, &id, vector, payload)
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("upsert: {e}")))?;
-
-        Ok(MemoryHit {
-            id,
-            text: doc.text,
-            score: 1.0,
-            source: StoreKind::Qdrant,
-            namespace: doc.namespace,
-        })
+    fn add(&self, _doc: MemoryDoc) -> Result<MemoryHit, MemoryError> {
+        // 384-d BGE store retired 2026-06-28. Write path is dead.
+        Err(MemoryError::RemoteUnavailable(
+            "384d store retired 2026-06-28".into(),
+        ))
     }
 
-    fn search(&self, query: Query) -> Result<Vec<MemoryHit>, MemoryError> {
-        let k = query.limit.unwrap_or(DEFAULT_K).min(20);
-
-        let hits = crate::qdrant::search(COLLECTION, &query.text, k)
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("qdrant search: {e}")))?;
-
-        let memory_hits = hits
-            .into_iter()
-            .map(|h| {
-                // Extract a human-readable text from the payload if available.
-                let text = h
-                    .payload
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("[qdrant point {}]", h.id));
-                let namespace = h
-                    .payload
-                    .get("namespace")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                MemoryHit {
-                    id: h.id,
-                    text,
-                    score: h.score,
-                    source: StoreKind::Qdrant,
-                    namespace,
-                }
-            })
-            .collect();
-
-        Ok(memory_hits)
+    fn search(&self, _query: Query) -> Result<Vec<MemoryHit>, MemoryError> {
+        // 384-d BGE store retired 2026-06-28. Search path is dead.
+        Err(MemoryError::RemoteUnavailable(
+            "384d store retired 2026-06-28".into(),
+        ))
     }
 
     fn delete(&self, id: &str) -> Result<(), MemoryError> {

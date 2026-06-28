@@ -38,22 +38,6 @@ fn fixture_search_response_parses_three_hits() {
 }
 
 #[test]
-fn embed_returns_384_dims() {
-    let v = embed("hello world semantic recall").expect("embed should succeed");
-    assert_eq!(v.len(), 384, "BGE-small-EN-v1.5 must return 384 dims");
-}
-
-#[test]
-fn embed_non_empty_text_nonzero() {
-    #[cfg(feature = "qdrant")]
-    {
-        let v = embed("testing embeddings").unwrap();
-        let nonzero = v.iter().any(|&x| x != 0.0);
-        assert!(nonzero, "a real embedding should not be all zeros");
-    }
-}
-
-#[test]
 fn qdrant_hit_serializes() {
     let mut payload = HashMap::new();
     payload.insert("text".to_string(), serde_json::json!("hello"));
@@ -72,13 +56,4 @@ fn qdrant_not_running_msg_contains_url() {
     let msg = qdrant_not_running_msg("http://localhost:6333");
     assert!(msg.contains("localhost:6333"));
     assert!(msg.contains("qdrant/releases"));
-}
-
-#[test]
-fn embed_stub_is_384_when_feature_absent() {
-    // This test always runs regardless of feature flag — it exercises the
-    // stub path (cfg(not(feature = "qdrant"))) when the feature is off and
-    // the real embed path when it is on.
-    let v = embed("stub").unwrap();
-    assert_eq!(v.len(), 384);
 }

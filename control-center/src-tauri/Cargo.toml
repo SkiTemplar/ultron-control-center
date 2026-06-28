@@ -9,14 +9,6 @@ edition = "2021"
 name = "control_center_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-# CLI sidecar used by session-recall-inject.js to compute BGE-small embeddings
-# without requiring the full Tauri runtime. Build with:
-#   cargo build --release --bin ultron-embed --features qdrant
-[[bin]]
-name = "ultron-embed"
-path = "src/bin/ultron_embed.rs"
-required-features = ["qdrant"]
-
 # Memory/orchestrator CLI sidecar invoked by the Claude Code hooks (Node) so the
 # hooks reuse the canonical Rust logic instead of duplicating it in JS.
 #   cargo build --release --bin ultron-memory --features qdrant
@@ -77,16 +69,15 @@ tempfile = "3"
 mockall = "0.13"
 
 [features]
-# Enable local Qdrant semantic recall by default so embeddings use real
-# vectors instead of the zero-stub (BGE-small 384d for embed(), E5-large
-# 1024d ~2.2 GB for embed_e5(), the canonical recall embedder). fastembed
-# downloads the ONNX models on first use into the canonical cache
+# Enable local Qdrant semantic recall by default so embed_e5() uses the real
+# MultilingualE5Large (1024-d, ~2.2 GB) instead of the zero-stub. fastembed
+# downloads the ONNX model on first use into the canonical cache
 # ULTRON_FASTEMBED_CACHE (default ~/.ultron/.fastembed_cache/).
 # Disable for CI lean builds: cargo check --no-default-features
 default = ["qdrant"]
 hybrid_recall = []
 # Enable local Qdrant semantic recall. Pulls in fastembed (ONNX runtime +
-# BGE-small-EN-v1.5, ~22 MB download on first use).
+# MultilingualE5Large, first-use download).
 qdrant = ["dep:fastembed"]
 # Enable the Finance tab (reads the local KutxaBank finanzas.db).
 # finance.rs is excluded from the public repo via .gitignore; this feature

@@ -292,7 +292,7 @@ fn check_evals() -> DoctorCheck {
     }
 }
 
-/// The two sidecars must exist under `~/.ultron/bin/` and be non-empty.
+/// The `ultron-memory` sidecar must exist under `~/.ultron/bin/` and be non-empty.
 fn check_sidecars() -> DoctorCheck {
     let bin = ultron_home().map(|h| h.join("bin"));
     let Some(bin) = bin else {
@@ -302,7 +302,7 @@ fn check_sidecars() -> DoctorCheck {
             serde_json::json!({}),
         );
     };
-    let want = ["ultron-memory.exe", "ultron-embed.exe"];
+    let want = ["ultron-memory.exe"];
     let mut missing = Vec::new();
     for name in want {
         let p = bin.join(name);
@@ -313,7 +313,7 @@ fn check_sidecars() -> DoctorCheck {
     }
     let data = serde_json::json!({ "bin": bin.to_string_lossy(), "missing": missing });
     if missing.is_empty() {
-        DoctorCheck::ok("sidecars", "ultron-memory + ultron-embed presentes", data)
+        DoctorCheck::ok("sidecars", "ultron-memory presente", data)
     } else {
         DoctorCheck::error("sidecars", format!("ausente(s): {missing:?}"), data)
     }

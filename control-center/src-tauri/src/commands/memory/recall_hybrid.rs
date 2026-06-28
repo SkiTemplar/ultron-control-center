@@ -49,8 +49,8 @@ pub async fn recall_hybrid(query: String, limit: Option<u32>) -> Result<Vec<Memo
 
 /// Per-store health summary + `embeddings_real` flag.
 ///
-/// `embeddings_real` is `true` when `crate::qdrant::embed` returns a non-zero
-/// vector for a known probe string (i.e. the real fastembed model is active).
+/// `embeddings_real` is `true` when `crate::qdrant::embed_e5` returns a non-zero
+/// vector for a known probe string (i.e. the real E5 model is active).
 #[tauri::command]
 pub async fn memory_health() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -92,9 +92,9 @@ pub async fn memory_health() -> Result<serde_json::Value, String> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Probe whether `crate::qdrant::embed` is returning real (non-zero) vectors.
+/// Probe whether `crate::qdrant::embed_e5` is returning real (non-zero) vectors.
 fn probe_embeddings_real() -> bool {
-    match crate::qdrant::embed("ultron memory probe") {
+    match crate::qdrant::embed_e5("ultron memory probe", true) {
         Ok(v) => v.iter().any(|&x| x != 0.0),
         Err(_) => false,
     }
