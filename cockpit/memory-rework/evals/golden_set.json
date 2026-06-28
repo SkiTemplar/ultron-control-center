@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "generated": "2026-06-21",
-  "note": "Deterministic fixture derived from default_goldens() in memory/evals.rs. expect_ids are stable canonical ids from brain.db that are expected to appear in recall results for each query. Update expect_ids after a full reindex by running: bin/ultron-memory.exe eval --golden --update-ids",
+  "generated": "2026-06-28",
+  "note": "Hand-labeled golden set ampliado 2026-06-28. 12 originales (fixture default_goldens) + 15 nuevas etiquetadas a mano: recall del sidecar + juicio de relevancia ESTRICTO por CONTENIDO del summary (no por rank). expect_ids = canonical_ids juzgados relevantes. ALCANCE: mide ranking-quality dentro de lo recuperable (top-30 candidatos), no recall absoluto; 3 queries con 0 relevantes recuperables se descartaron (gaps: news-digest, feature-flag, supersede).",
   "stats": {
-    "positives": 12,
+    "positives": 27,
     "categories": {
-      "single-term": 4,
-      "multi-term": 5,
-      "decision": 2,
-      "cross-topic": 2
+      "single-term": 7,
+      "multi-term": 10,
+      "decision": 6,
+      "cross-topic": 4
     }
   },
   "positives": [
@@ -172,6 +172,225 @@
       "expect_ids": [
         "fad824ea-8fef-49a4-99a4-df103d5ac193",
         "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
+      ]
+    },
+    {
+      "id": "gs-0013",
+      "query": "gemini",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "f6831bce-3f1f-47fe-972c-234011900b24",
+        "09755f8f-8f61-4ed2-8af3-2ce026cc8723",
+        "ef5b14a5-af37-4cfa-a196-b609261ca4d2",
+        "48fd91e3-f81b-481f-992f-0b9479443673",
+        "a066a9f1-0ead-4036-ba73-90599dd38988"
+      ]
+    },
+    {
+      "id": "gs-0014",
+      "query": "reranker",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "78f1b231-4ad2-4af4-a164-23cac045aaff",
+        "619b9c9c-ed0c-46fa-8117-80373fe2e7cf",
+        "0faefb1f-b3ca-4e90-a015-19985b62201d",
+        "2e5257a4-4450-4ab7-bd83-ccfc19493d63",
+        "46d3a7ef-9762-4bbe-a89b-a3c0f0dc22fc",
+        "68940a16-fe1c-45e4-92d0-776a53f9840b",
+        "c1c39443-d5cf-49be-a32b-d9bb6fe50b21"
+      ]
+    },
+    {
+      "id": "gs-0015",
+      "query": "hooks",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "81fb9e83-3fad-4e35-b99c-9dfe1ea259a0",
+        "6443b17a-5ccd-4056-96c6-e72bd55b2a42",
+        "4e46445e-ff1c-4d36-81f8-11e21a62a050",
+        "e8ccf87d-66ca-4b45-8ad9-02eb2ef5a077",
+        "3dcac7ec-d301-43d2-9307-4e4ceadfebcd",
+        "b1e036cc-5d43-47ff-8948-e6edaac73ffa",
+        "e2e51556-1773-45b3-a11f-752f88852ff6",
+        "7cc23e4a-e804-4fef-be25-2a0bd024a6d0"
+      ]
+    },
+    {
+      "id": "gs-0016",
+      "query": "delegacion",
+      "category": "single-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "e9aa5973-348a-445f-aca8-0cd8c5d72aae",
+        "71238e64-64aa-4bcc-86b2-5ce6a0688f78",
+        "5eb3d8bd-640b-4c28-b06f-29aae47e4b92",
+        "02e81e73-7728-4838-bc96-5c0412ebf014",
+        "c2575e50-8507-4eae-aae0-293b793c5366"
+      ]
+    },
+    {
+      "id": "gs-0017",
+      "query": "erradicar gemini-cli del control center",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "ef5b14a5-af37-4cfa-a196-b609261ca4d2"
+      ]
+    },
+    {
+      "id": "gs-0020",
+      "query": "skills lazy dispatcher routing",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "cd478cbe-d4fd-40ab-a537-907003fb8672",
+        "fabf7504-4cd0-4f01-ab75-d0d856ab55b9",
+        "f032349e-6b57-4649-bff1-88281d0ef601",
+        "05ed5c92-f7df-45e6-b61d-0070c84707b9",
+        "e9b17077-d335-4522-a512-7c18bae0c6f9",
+        "fc1e6173-a2b2-444e-bfeb-ca33afdcf2f4",
+        "14aa3039-52cb-4c86-8917-f27fdb48bfdf"
+      ]
+    },
+    {
+      "id": "gs-0021",
+      "query": "score floor anti-ruido en recall",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "6829fd8d-197a-45ab-88b4-1ccedb16b3fe",
+        "c47456c0-8d83-4755-b3bf-2b96a789f369",
+        "246f7d31-8398-4b16-85b2-d3cf3e9a9ad6"
+      ]
+    },
+    {
+      "id": "gs-0022",
+      "query": "auto-approve threshold de confianza",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "adba3e0c-edae-481d-ac11-a014c69eb45b",
+        "a8c1352e-3d33-4787-96ed-4544ecc218ca",
+        "9ba344ec-2cf5-419a-8624-8cc91eabac4f",
+        "c63b8000-d271-4ef4-9798-92cb654145b1"
+      ]
+    },
+    {
+      "id": "gs-0023",
+      "query": "redaction de secretos PII en memoria",
+      "category": "multi-term",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "1be591c1-cfbb-42fb-835e-f23adfdd49e2",
+        "7a5dc83a-0ec5-40e9-8bbf-b7382fc3e9df",
+        "f3fa6e79-1dbe-4859-97d4-1ccb0fb3eb79"
+      ]
+    },
+    {
+      "id": "gs-0024",
+      "query": "decision sobre erradicar Mem0",
+      "category": "decision",
+      "type": "decision",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "e082a74c-f60d-4fb4-88c9-6657dcc36027"
+      ]
+    },
+    {
+      "id": "gs-0025",
+      "query": "decision politica CLI-first del AI router",
+      "category": "decision",
+      "type": "decision",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "96be930b-3a01-437a-a3f4-70e46f2fafba",
+        "552204ad-e52a-4c2b-b783-4e26e4ee769e",
+        "a310068f-b341-4af4-b759-3507713159fe"
+      ]
+    },
+    {
+      "id": "gs-0026",
+      "query": "decision de no podar el catalogo de skills",
+      "category": "decision",
+      "type": "decision",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "fa0cdedf-ee2e-4107-b625-bf6718e51505"
+      ]
+    },
+    {
+      "id": "gs-0027",
+      "query": "decision del modelo de reranker cross-encoder",
+      "category": "decision",
+      "type": "decision",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "78f1b231-4ad2-4af4-a164-23cac045aaff",
+        "619b9c9c-ed0c-46fa-8117-80373fe2e7cf",
+        "fb9e6bfe-2d24-498f-9bd5-52edc72f7ea0",
+        "0faefb1f-b3ca-4e90-a015-19985b62201d",
+        "2e5257a4-4450-4ab7-bd83-ccfc19493d63",
+        "46d3a7ef-9762-4bbe-a89b-a3c0f0dc22fc",
+        "3e7ebecc-9f6c-45be-88bf-c548d191caea"
+      ]
+    },
+    {
+      "id": "gs-0028",
+      "query": "qdrant E5 sidecar embeddings",
+      "category": "cross-topic",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "566587e8-aa64-4811-a298-baa3714771fc",
+        "b15c9828-19d3-44db-8db6-0a6464822dec",
+        "4d310137-3231-42d2-bd4b-20e779a3f267",
+        "43f9ffc4-3477-4319-9ab7-e774e2f69ad4",
+        "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+        "dd4f30f9-ac09-47c7-871b-51f8e5b27dae",
+        "7edf71d6-73c6-415c-8765-61a8b765b30c"
+      ]
+    },
+    {
+      "id": "gs-0029",
+      "query": "kanban cards estado local del proyecto",
+      "category": "cross-topic",
+      "type": "factual",
+      "scope": "global",
+      "project_id": null,
+      "expect_ids": [
+        "916c855f-b4eb-4552-b087-4a699d39b3e8",
+        "38014d0f-5488-4351-8e11-04386a5865de",
+        "b001a9a7-73f7-4d96-a8a2-7b1267c01c7a",
+        "88f23e64-1ba1-45a6-8c30-034c10da5a7a",
+        "7c541d22-a2f3-4aa5-abf7-5f25cb9471e9",
+        "87acc9f2-7d02-4983-8e57-b86c69722c25",
+        "52dcef57-c2bd-4f7d-8f21-1e3f0b876228"
       ]
     }
   ]
