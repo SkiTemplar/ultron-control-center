@@ -104,9 +104,11 @@ impl MemoryStore for QdrantStore {
     }
 
     fn capabilities(&self) -> Capabilities {
+        // 384-d BGE store retired 2026-06-28: add/search return RemoteUnavailable.
+        // Only health/delete remain, so this store is neither writable nor searchable.
         Capabilities {
-            writable: true,
-            semantic_search: true,
+            writable: false,
+            semantic_search: false,
             persistent: true,
             kind: StoreKind::Qdrant,
         }
@@ -121,7 +123,9 @@ mod tests {
     fn qdrant_store_capabilities() {
         let store = QdrantStore::new();
         let caps = store.capabilities();
-        assert!(caps.semantic_search);
+        // add/search retired 2026-06-28 -> not writable, not searchable.
+        assert!(!caps.writable);
+        assert!(!caps.semantic_search);
         assert!(caps.persistent);
         assert_eq!(caps.kind, StoreKind::Qdrant);
     }
