@@ -426,7 +426,6 @@ def check_cockpit_artifacts() -> list[str]:
         "scripts/cockpit/launch_project.py":   "IDE launcher (4.E)",
         "scripts/cockpit/retention.py":        "log rotation/cleanup (4.D)",
         "scripts/cockpit/ultron.ps1":          "CENTRALITA - single entry point",
-        "scripts/cockpit/news_html_generator.py": "On-demand HTML newsletter generator (v12)",
         "scripts/cockpit/calendar_match.py":   "Calendar deadline matching (4.J)",
         "scripts/cockpit/ai_standup.py":       "AI standup daily (4.M)",
         "scripts/cockpit/memory_sync.py":      "Memory L2 vault sync utility (v12)",

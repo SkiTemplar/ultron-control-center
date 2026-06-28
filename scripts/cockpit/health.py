@@ -46,7 +46,7 @@ EXPECTED_SCRIPTS = [
     "cockpit_base.py", "scan_projects.py", "launch_project.py",
     "retention.py", "should_run.py", "brain_config.py", "ultron_paths.py",
     # News
-    "news_html_generator.py", "news_alerts.py", "github_trending.py",
+    "news_alerts.py", "github_trending.py",
     # Standup + calendar
     "ai_standup.py", "calendar_match.py",
     # MCP
@@ -239,23 +239,6 @@ def check_recent_usage() -> Check:
     return Check("usage data", "ok", f"{recent_count} active sessions (24h)")
 
 
-def check_news_freshness() -> Check:
-    if not NEWS_DIR.exists():
-        return Check("news freshness", "warn", "no news dir")
-    # news_html_generator.py writes news_YYYYMMDD-HHMMSS.html
-    html_files = sorted(NEWS_DIR.glob("news_*.html"),
-                        key=lambda p: p.stat().st_mtime, reverse=True)
-    if not html_files:
-        return Check("news freshness", "warn", "no HTML newsletters yet (run: ultron news)")
-    latest = html_files[0]
-    age_days = (datetime.now() - datetime.fromtimestamp(latest.stat().st_mtime)).days
-    if age_days == 0:
-        return Check("news freshness", "ok", f"today's HTML exists ({latest.stat().st_size}b)")
-    if age_days <= 2:
-        return Check("news freshness", "ok", f"latest: {latest.name} ({age_days}d old)")
-    return Check("news freshness", "warn", f"latest: {latest.name} ({age_days}d old — stale)")
-
-
 def check_consistency() -> Check:
     """v10.5: run consistency_check.py and reflect its exit code in health.
 
@@ -418,7 +401,6 @@ def run_all_checks() -> list[Check]:
         (check_pause_state,       "pause state"),
         (check_recent_audit,      "recent audits"),
         (check_recent_usage,      "usage data"),
-        (check_news_freshness,    "news freshness"),
         (check_session_cache,     "session cache"),
         (check_pending_proposals, "pending proposals"),
         (check_memory_bridge,     "memory bridge"),

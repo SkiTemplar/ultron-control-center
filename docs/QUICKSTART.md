@@ -151,13 +151,11 @@ that previews the removal without touching disk:
 ## Beyond the first 5 minutes
 
 - **AI Router** (Settings → AI Router): pick which provider answers
-  each task (diagnose, news, skill_edit, etc.). Default is Claude for
-  everything; switch news to Gemini if you want longer context.
+  each task (diagnose, skill_edit, etc.). Default is Claude for
+  everything.
 - **Notifications**: the bell icon shows the alerts stream. Click
   **Clear all** to wipe the visible list. Deletion is final — no
   silent backups, no tombstones.
-- **News** (opt-in via installer): generates a daily HTML newsletter
-  from your vault changes. Off by default — costs Gemini tokens.
 
 ---
 

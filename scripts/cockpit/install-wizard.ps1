@@ -106,7 +106,6 @@ $Catalog = @(
     @{ id="ui_tauri_build";  group="Optional UI";                  label="Tauri release build";       note="3-5 min Rust compile, produces installer.exe";                 default=$false; required=$false }
 
     # ---- Optional features --------------------------------------------
-    @{ id="feat_news";          group="Optional features";            label="News digest";               note="Gemini-generated daily newsletter - costs tokens";             default=$false; required=$false }
     @{ id="feat_gaming";        group="Optional features";            label="Gaming utilities";          note="game detector + tweaks panel";                                 default=$false; required=$false }
     @{ id="feat_personal";      group="Optional features";            label="Personal section";         note="private profile slots in the cockpit";                          default=$true;  required=$false }
     @{ id="feat_schedules";     group="Optional features";            label="Schedules";                 note="Windows scheduled-task management";                            default=$false; required=$false }
@@ -365,7 +364,6 @@ function Update-Status {
     if ($Checkboxes["cc_skills_comm"].Checked)  { $minutes += 1 }
     if ($Checkboxes["ui_npm"].Checked)          { $minutes += 2 }
     if ($Checkboxes["ui_tauri_build"].Checked)  { $minutes += 4 }
-    if ($Checkboxes["feat_news"].Checked)       { $minutes += 1 }   # initial digest fetch
     $lblStatus.Text = ("Estimated time: ~" + $minutes + " min")
 }
 

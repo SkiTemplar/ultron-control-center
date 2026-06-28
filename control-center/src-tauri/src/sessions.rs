@@ -343,9 +343,9 @@ pub async fn spawn_session_inner(
         "pasteOnly": flags.paste_only,
         // F10 fix (v15.2.1): forward respect_clipboard so the PS1 script can
         // skip Set-Clipboard. Callers that prime the clipboard themselves
-        // (news.rs after `news_html_generator.py --clipboard`) MUST set this
-        // — otherwise the spawn script overwrites the real prompt with the
-        // short `seed` banner and the user pastes garbage into the AI CLI.
+        // MUST set this — otherwise the spawn script overwrites the real
+        // prompt with the short `seed` banner and the user pastes garbage
+        // into the AI CLI.
         "respectClipboard": flags.respect_clipboard,
         // free_tier: activo cuando el caller lo pide explicitamente O cuando el
         // proxy-state persistido esta habilitado (auto-ON al 98% de cuota).

@@ -99,7 +99,7 @@ non-zero code.
    and prompts to opt into the personal/community ones.
 7. **brain_index.** Initializes the SQLite FTS5 memory index.
 8. **Feature toggles.** The visual wizard (or CLI fallback) asks per
-   optional module (News, Gaming, Personal, Schedules, Self-improve,
+   optional module (Gaming, Personal, Schedules, Self-improve,
    Notifications, Usage, Sessions, Projects, Plans) and writes your
    choices to `~/.ultron/cockpit/features.json`. The desktop app reads
    this file at startup to decide which optional tabs to expose. Opted-out
@@ -131,7 +131,6 @@ cloud fallback in the AI Router via an API key.)
 When the installer prompts you for optional features, the defaults are:
 
 ```
-News digest        [y/N]   default N  (costs Gemini tokens)
 Gaming utilities   [Y/n]   default Y
 Personal section   [Y/n]   default Y
 Schedules          [Y/n]   default Y
@@ -148,7 +147,6 @@ Press Enter at any prompt to take the default. Your choices land in
 
 ```json
 {
-  "news": false,
   "gaming": true,
   "personal": true,
   "schedules": true,

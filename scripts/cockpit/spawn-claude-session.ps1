@@ -76,8 +76,8 @@ $forkSession  = [bool]$cfg.forkSession
 # can declare the contract and so any future regression that re-introduces
 # inline-prompt paths must explicitly skip the pasteOnly branch.
 $pasteOnly    = [bool]$cfg.pasteOnly
-# respectClipboard: caller has already seeded the clipboard (e.g. news.rs ran
-# `news_html_generator.py --clipboard` which placed the *long* prompt there).
+# respectClipboard: caller has already seeded the clipboard itself (a
+# paste-only flow that placed the *long* prompt there before spawning).
 # When $true, we MUST NOT call Set-Clipboard — otherwise we overwrite the
 # real prompt with the short `prompt` field (which is only a banner hint).
 # Backwards-compatible: missing field → $false (legacy behaviour).
