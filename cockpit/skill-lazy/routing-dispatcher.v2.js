@@ -325,7 +325,7 @@ const PERSONAS = [
 const PLUGINS = [
   // Code review
   { id: 'pr-review-toolkit:code-reviewer',   triggers: ['code review', 'review pr', 'revisa el pr'],         strong: ['auditoria de codigo', 'pull request review'],                               context: ['code review', 'revision de codigo'] },
-  { id: 'second-opinion',                    triggers: ['second opinion', 'codex review', 'gemini review', '/second-opinion'], strong: ['external review', 'segunda opinion'],              context: ['codex', 'gemini'] },
+  { id: 'second-opinion',                    triggers: ['second opinion', 'codex review', '/second-opinion'], strong: ['external review', 'segunda opinion'],              context: ['codex', 'gemini'] },
   // Debugging / quality
   { id: 'superpowers:systematic-debugging',  triggers: ['systematic debugging'],                              strong: ['bug sin causa obvia', 'no encuentro el bug', 'debug sistematico'],          context: ['bug intermitente', 'debugging'] },
   { id: 'focused-fix',                       triggers: ['focused fix', 'haz que funcione'],                   strong: ['feature rota', 'modulo con fallos en cascada'],                            context: ['reparar feature', 'fix de modulo'] },

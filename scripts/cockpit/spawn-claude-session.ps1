@@ -91,12 +91,12 @@ $freeTier = [bool]$cfg.freeTier
 # create, diagnose, codex-fallback) where the user already authorized the
 # action by clicking the button. Forcing dangerous=true here saves them from
 # having to click through provider-level confirmations every single time.
-# Claude --dangerously-skip-permissions / Codex --dangerously-bypass /
-# Gemini --yolo all map to the same intent: accept everything by default.
+# Claude --dangerously-skip-permissions / Codex --dangerously-bypass
+# map to the same intent: accept everything by default.
 $dangerous    = $true
 
-if ($provider -notin @("claude", "codex", "gemini")) {
-    throw "Provider must be one of claude / codex / gemini, got '$provider'"
+if ($provider -notin @("claude", "codex")) {
+    throw "Provider must be one of claude / codex, got '$provider'"
 }
 
 function Quote-Single([string]$s) {
@@ -188,15 +188,6 @@ switch ($provider) {
             if ($effort -notin @("low","medium","high","xhigh","max")) { throw "Invalid effort" }
             $inner += " -c model_reasoning_effort=$effort"
         }
-    }
-    "gemini" {
-        # Gemini CLI: --yolo == skip confirmations.
-        if ($dangerous) { $inner += " --yolo" }
-        if ($model) {
-            if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
-            $inner += " -m $model"
-        }
-        # No effort flag in gemini CLI; silently dropped.
     }
 }
 

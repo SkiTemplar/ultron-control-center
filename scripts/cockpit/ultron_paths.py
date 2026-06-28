@@ -92,7 +92,6 @@ ULTRON_HOME  = _resolve("ULTRON_HOME",  "ultron_home",  USER_HOME / ".ultron")
 VAULT_DIR    = _resolve("ULTRON_VAULT", "vault",        USER_HOME / ".ultron-vault")
 CLAUDE_HOME  = _resolve("CLAUDE_HOME",  "claude_home",  USER_HOME / ".claude")
 CODEX_HOME   = _resolve("CODEX_HOME",   "codex_home",   USER_HOME / ".codex")
-GEMINI_HOME  = _resolve("GEMINI_HOME",  "gemini_home",  USER_HOME / ".gemini")
 
 
 # ─── ULTRON_HOME structure ────────────────────────────────────────────────────
@@ -178,8 +177,6 @@ VAULT_GITLEAKS_TOML   = VAULT_DIR / ".gitleaks.toml"
 
 CODEX_AUTH_JSON       = CODEX_HOME / "auth.json"
 CODEX_CONFIG_TOML     = CODEX_HOME / "config.toml"
-GEMINI_OAUTH_JSON     = GEMINI_HOME / "oauth_creds.json"
-GEMINI_SETTINGS_JSON  = GEMINI_HOME / "settings.json"
 
 
 # ─── Convenience facade (typed dot access) ────────────────────────────────────
@@ -196,7 +193,6 @@ class _Paths:
     vault:                   Path = VAULT_DIR
     claude:                  Path = CLAUDE_HOME
     codex:                   Path = CODEX_HOME
-    gemini:                  Path = GEMINI_HOME
 
     cockpit:                 Path = COCKPIT_DIR
     hooks:                   Path = HOOKS_DIR
@@ -246,8 +242,6 @@ class _Paths:
 
     codex_auth_json:         Path = CODEX_AUTH_JSON
     codex_config_toml:       Path = CODEX_CONFIG_TOML
-    gemini_oauth_json:       Path = GEMINI_OAUTH_JSON
-    gemini_settings_json:    Path = GEMINI_SETTINGS_JSON
 
 
 P = _Paths()

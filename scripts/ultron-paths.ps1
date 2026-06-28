@@ -52,8 +52,6 @@ $ultron  = _Resolve-UltronPath 'ULTRON_HOME'  'ultron_home'  (Join-Path $UserHom
 $vault   = _Resolve-UltronPath 'ULTRON_VAULT' 'vault'        (Join-Path $UserHome '.ultron-vault')
 $claude  = _Resolve-UltronPath 'CLAUDE_HOME'  'claude_home'  (Join-Path $UserHome '.claude')
 $codex   = _Resolve-UltronPath 'CODEX_HOME'   'codex_home'   (Join-Path $UserHome '.codex')
-$gemini  = _Resolve-UltronPath 'GEMINI_HOME'  'gemini_home'  (Join-Path $UserHome '.gemini')
-
 $cockpit = Join-Path $ultron 'cockpit'
 
 # Public hashtable. Capitalized name matches PowerShell convention; pscustomobject
@@ -64,7 +62,6 @@ $UltronPaths = [pscustomobject]@{
     vault                  = $vault
     claude                 = $claude
     codex                  = $codex
-    gemini                 = $gemini
 
     cockpit                = $cockpit
     hooks                  = Join-Path $ultron 'hooks'
@@ -119,8 +116,6 @@ $UltronPaths = [pscustomobject]@{
 
     codex_auth_json        = Join-Path $codex 'auth.json'
     codex_config_toml      = Join-Path $codex 'config.toml'
-    gemini_oauth_json      = Join-Path $gemini 'oauth_creds.json'
-    gemini_settings_json   = Join-Path $gemini 'settings.json'
 }
 
 # Cleanup local helpers from caller scope

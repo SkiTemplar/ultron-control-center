@@ -3,7 +3,7 @@
 ULTRON v10.4 - Health check.
 
 Verifies all CORE subsystems in one shot:
-  - Python + Node.js + claude/gemini/codex CLIs in PATH
+  - Python + Node.js + claude/codex CLIs in PATH
   - All cockpit scripts present
   - Config files exist + parse
   - Cron jobs registered
@@ -411,7 +411,6 @@ def run_all_checks() -> list[Check]:
         (check_python_version,    "Python version"),
         (lambda: check_binary("node"),   "node CLI"),
         (lambda: check_binary("claude"), "claude CLI"),
-        (lambda: check_binary("gemini"), "gemini CLI"),
         (lambda: check_binary("codex"),  "codex CLI"),
         (check_scripts,           "scripts"),
         (check_configs,           "configs"),

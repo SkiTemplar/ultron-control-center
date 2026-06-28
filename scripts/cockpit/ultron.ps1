@@ -95,7 +95,6 @@ function Show-Help {
     Write-Host "  Sessions & quick-ask (v11.1):" -ForegroundColor Green
     Write-Host "  ask <pregunta>           Quick-ask via Haiku + mini-memoria (no comillas)"
     Write-Host "  claude [args]            Spawn interactive Claude session in cwd (new tab)"
-    Write-Host "  gemini [args]            Spawn interactive Gemini session in cwd"
     Write-Host "  codex  [args]            Spawn interactive Codex session in cwd"
     Write-Host ""
     Write-Host "  Apps & usage (v11.1):" -ForegroundColor Green
@@ -806,22 +805,6 @@ switch ($Command.ToLower()) {
             if ($Rest) { $cmdLine += " " + ($Rest -join " ") }
             Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $cmdLine -WorkingDirectory $cwd
             Write-Host "[claude] Spawned PowerShell window (cwd=$cwd)" -ForegroundColor Green
-        }
-    }
-
-    "gemini" {
-        # Spawn interactive Gemini session in current cwd.
-        $cwd = Get-Location
-        if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-            $wtArgs = @("new-tab", "--title", "Gemini", "-d", $cwd.Path, "gemini")
-            if ($Rest) { $wtArgs += $Rest }
-            Start-Process wt.exe -ArgumentList $wtArgs
-            Write-Host "[gemini] Spawned new tab in Windows Terminal (cwd=$cwd)" -ForegroundColor Green
-        } else {
-            $cmdLine = "gemini"
-            if ($Rest) { $cmdLine += " " + ($Rest -join " ") }
-            Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $cmdLine -WorkingDirectory $cwd
-            Write-Host "[gemini] Spawned PowerShell window (cwd=$cwd)" -ForegroundColor Green
         }
     }
 
