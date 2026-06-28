@@ -29,6 +29,7 @@ pub mod provider_router;
 pub(crate) mod delegate;
 pub(crate) mod delegation_log;
 pub(crate) mod types;
+pub(crate) mod usage;
 pub(crate) mod workflows;
 
 #[cfg(test)]

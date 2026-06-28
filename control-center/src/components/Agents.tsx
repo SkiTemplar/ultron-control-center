@@ -28,13 +28,14 @@ import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { useLibraryViewMode } from "./library/ViewToggle";
 import { rankBySearch, type SearchableItem } from "../lib/ranked-search";
 
-import type { ProjectLite, ScopeFilter, EnableFilter, DelegationLogEntry } from "./agents/types";
+import type { ProjectLite, ScopeFilter, EnableFilter, DelegationLogEntry, AgentUsage } from "./agents/types";
 import { NO_CATEGORY } from "./agents/types";
 import { deriveCategory, deriveTopGroup, deriveSubGroup } from "./agents/helpers";
 import { AgentsHeader } from "./agents/AgentsHeader";
 import { AgentsFilters } from "./agents/AgentsFilters";
 import { BulkActionBar } from "./agents/BulkActionBar";
 import { DelegationsStrip } from "./agents/DelegationsStrip";
+import { AgentUsageStrip } from "./agents/AgentUsageStrip";
 import { AgentCardGrid } from "./agents/AgentCardGrid";
 import { AgentDetailPane } from "./agents/AgentDetailPane";
 
@@ -69,6 +70,9 @@ export function Agents() {
   // Recent delegations.
   const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
 
+  // Agent usage stats (from subagent-harvest.jsonl via agent_usage_stats).
+  const [usage, setUsage] = useState<AgentUsage[]>([]);
+
   // -------------------------------------------------------------------------
   // Data loading
   // -------------------------------------------------------------------------
@@ -96,6 +100,25 @@ export function Agents() {
       cancelled = true;
       clearInterval(t);
       if (unlisten) unlisten();
+    };
+  }, []);
+
+  // Agent usage stats — polling 30s, gemelo del de delegaciones.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUsage() {
+      try {
+        const list = (await invoke("agent_usage_stats", { project: null })) as AgentUsage[];
+        if (!cancelled) setUsage(list);
+      } catch {
+        if (!cancelled) setUsage([]);
+      }
+    }
+    void loadUsage();
+    const t = setInterval(loadUsage, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
     };
   }, []);
 
@@ -382,6 +405,13 @@ export function Agents() {
           className={selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}
           style={{ minWidth: 0 }}
         >
+          {/* Telemetry strips — driven by their own 30s polling, independent of
+              the agent grid filter; each guards its own empty state. Kept ABOVE
+              the loading/empty/grid switch so they never vanish when a filter
+              empties the grid (mand. 11). */}
+          <AgentUsageStrip usage={usage} />
+          <DelegationsStrip delegations={delegations} />
+
           {loading ? (
             <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
               Loading…
@@ -413,9 +443,6 @@ export function Agents() {
             </div>
           ) : (
             <>
-              {/* Recent delegations strip — pinned above the grid */}
-              <DelegationsStrip delegations={delegations} />
-
               {/* Main content: Blocks / Tree / Grid */}
               {view === "blocks" ? (
                 <BlocksView<AgentEntry>

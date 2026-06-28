@@ -285,8 +285,22 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 # FASE 2 — Orquestación medida y honesta (depende de 0.3)
 
-- ☐ **2.1 Consumir la telemetría de agentes** — panel/subcomando de uso real por agente (count/chars/última-ts).
-  Pre-requisito: 0.3 (atribución arreglada). El dato existe (1066 filas) pero es huérfano sin punto de consumo.
+- ✅ **2.1 Consumir la telemetría de agentes — HECHO (2026-06-28; verificación visual pendiente).** El dato (1215 filas
+  vivas en `.tmp/subagent-harvest.jsonl`) era huérfano: lo consumía solo el CLI `agent-usage.mjs`, **0 puntos de consumo
+  en el producto** (codegraph confirmó cero `agent_usage` en la app → mand. 12). *Hecho:* comando Tauri
+  `agent_usage_stats(project)` (`agent_orchestration/usage.rs`, **porta fielmente** la agregación de `agent-usage.mjs`:
+  count/chars/last_ts/orden DESC/top-5 labels; fichero ausente → `Ok(vec![])`) cableado en `lib.rs` (mand. 4) + tira
+  **"Uso real por agente"** en la pestaña Agents (`AgentUsageStrip.tsx`, gemela de `DelegationsStrip`, polling 30s).
+  **Honestidad (mand. 13):** especialistas reales (rust-engineer, frontend-developer, Explore…) destacados; wrappers
+  genéricos/`unknown` (capturas de sesión sin tipo de agente) agrupados, atenuados y colapsados con nota explícita;
+  header declara alcance `· all projects`. Construido por workflow (rust-engineer ∥ react-specialist, contrato fijo) +
+  **revisión adversarial de 3 lentes** (14 agentes; 10 hallazgos reales, 1 refutado). **7 fixes aplicados** tras la review:
+  `agent=""`→`unknown` y `chars:null`→0 (fidelidad vs .mjs), tira fuera del ternario del filtro (no se desvanece al
+  vaciar la rejilla, mand. 11), tooltip honesto (es SubagentStop=fin, no invocación), test hermético en Windows, + 2
+  tests nuevos (líneas corruptas + fidelidad empty/null). **5 tests verdes**, `tsc` 0, `cargo` 0 warnings, `build:local`
+  verde. *Residual declarado (mand. 13):* el diagnóstico `_keys` (firma de payloads `unknown`, ayuda de atribución) NO se
+  portó a la UI — se queda en el CLI `agent-usage.mjs` (es herramienta de dev, no telemetría de producto). Pre-requisito
+  0.3 estaba hecho. **Falta solo verificación VISUAL del usuario** (Agents → tira "Agent usage").
 - ◐ **2.2 Honestidad de conteo (NO podar — [[no-podar-catalogo-skills]]).** Los "21 code-reviewer / 690 ECC .md" son
   **caché de plugins inerte**; el único registrado es `~/.claude/agents/code-reviewer.md`. **No se borra.** El fix es que
   la app (Skills/Agents/Hooks) no cuente inerte como activo (mismo bug que 0.6). Conservar es gratis (lazy no cuesta tokens del CLI).

@@ -242,6 +242,7 @@ pub fn run() {
             commands::agents::agent_toggle,
             commands::agents::agents_bulk_toggle,
             commands::agents::list_delegations,
+            agent_orchestration::usage::agent_usage_stats,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_write,

@@ -23,6 +23,20 @@ export type DelegationLogEntry = {
   session_id: string | null;
 };
 
+export type LabelCount = {
+  label: string;
+  n: number;
+};
+
+export type AgentUsage = {
+  agent: string;
+  count: number;
+  chars: number;
+  /** ISO 8601 timestamp of the last invocation (empty string if never). */
+  lastTs: string;
+  topLabels: LabelCount[];
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
