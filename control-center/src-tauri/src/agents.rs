@@ -439,24 +439,28 @@ fn project_agents_dir(project_path: &str) -> PathBuf {
 }
 
 /// Plugin agents live three levels deep:
-/// `~/.claude/plugins/cache/<plugin-id>/<plugin-name>/<version>/agents/`.
-/// For each `<plugin-id>/<plugin-name>` pair we keep only the latest
-/// version dir (sorted lex desc).
-fn plugin_agents_dirs() -> Vec<PathBuf> {
+/// `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/agents/`.
+/// For each `<marketplace>/<plugin>` pair we keep only the latest version dir
+/// (sorted lex desc). Each entry carries `disabled = true` when the plugin is
+/// turned off in settings.json `enabledPlugins` (casilla 2.2): its agents are
+/// inert and must NOT be counted as active (mand. 11/13).
+fn plugin_agents_dirs() -> Vec<(bool, PathBuf)> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
     let cache = home.join(".claude").join("plugins").join("cache");
+    let enabled = crate::plugin_state::read_enabled_plugins();
     let mut out = Vec::new();
-    let Ok(plugin_ids) = std::fs::read_dir(&cache) else {
+    let Ok(marketplaces) = std::fs::read_dir(&cache) else {
         return out;
     };
-    for pid_entry in plugin_ids.flatten() {
-        let pid_path = pid_entry.path();
-        if !pid_path.is_dir() {
+    for mkt_entry in marketplaces.flatten() {
+        let mkt_path = mkt_entry.path();
+        if !mkt_path.is_dir() {
             continue;
         }
-        let Ok(plugin_names) = std::fs::read_dir(&pid_path) else {
+        let marketplace = mkt_entry.file_name().to_string_lossy().to_string();
+        let Ok(plugin_names) = std::fs::read_dir(&mkt_path) else {
             continue;
         };
         for pname_entry in plugin_names.flatten() {
@@ -464,6 +468,8 @@ fn plugin_agents_dirs() -> Vec<PathBuf> {
             if !pname_path.is_dir() {
                 continue;
             }
+            let plugin = pname_entry.file_name().to_string_lossy().to_string();
+            let disabled = crate::plugin_state::plugin_is_disabled(&plugin, &marketplace, &enabled);
             let mut versions: Vec<PathBuf> = match std::fs::read_dir(&pname_path) {
                 Ok(rd) => rd
                     .flatten()
@@ -480,7 +486,7 @@ fn plugin_agents_dirs() -> Vec<PathBuf> {
             if let Some(latest) = versions.first() {
                 let agents = latest.join("agents");
                 if agents.is_dir() {
-                    out.push(agents);
+                    out.push((disabled, agents));
                 }
             }
         }
@@ -529,7 +535,7 @@ fn read_agent_meta(path: &Path) -> (String, String, bool) {
     (name, description, has_name && has_description)
 }
 
-fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
+fn collect_agents_from(root: &Path, origin: AgentOrigin, plugin_disabled: bool) -> Vec<AgentEntry> {
     let mut out = Vec::new();
     if !root.exists() {
         return out;
@@ -576,7 +582,8 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
                 path: p.to_string_lossy().to_string(),
                 description,
                 origin: origin.clone(),
-                enabled,
+                // Plugin disabled in settings.json => its agents are inert (2.2).
+                enabled: enabled && !plugin_disabled,
             });
         }
     }
@@ -588,14 +595,18 @@ pub fn list_agents_with_origin_inner(
 ) -> Result<Vec<AgentEntry>, String> {
     let mut out = Vec::new();
     if let Ok(g) = global_agents_dir() {
-        out.extend(collect_agents_from(&g, AgentOrigin::Global));
+        out.extend(collect_agents_from(&g, AgentOrigin::Global, false));
     }
     if let Some(p) = project_path.as_deref() {
         let pdir = project_agents_dir(p);
-        out.extend(collect_agents_from(&pdir, AgentOrigin::Project));
+        out.extend(collect_agents_from(&pdir, AgentOrigin::Project, false));
     }
-    for plugin_dir in plugin_agents_dirs() {
-        out.extend(collect_agents_from(&plugin_dir, AgentOrigin::Plugin));
+    for (disabled, plugin_dir) in plugin_agents_dirs() {
+        out.extend(collect_agents_from(
+            &plugin_dir,
+            AgentOrigin::Plugin,
+            disabled,
+        ));
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)

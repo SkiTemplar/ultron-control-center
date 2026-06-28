@@ -285,7 +285,7 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 # FASE 2 — Orquestación medida y honesta (depende de 0.3)
 
-- ✅ **2.1 Consumir la telemetría de agentes — HECHO (2026-06-28; verificación visual pendiente).** El dato (1215 filas
+- ✅ **2.1 Consumir la telemetría de agentes — HECHO + VERIFICADO VISUALMENTE (2026-06-28).** El dato (1215 filas
   vivas en `.tmp/subagent-harvest.jsonl`) era huérfano: lo consumía solo el CLI `agent-usage.mjs`, **0 puntos de consumo
   en el producto** (codegraph confirmó cero `agent_usage` en la app → mand. 12). *Hecho:* comando Tauri
   `agent_usage_stats(project)` (`agent_orchestration/usage.rs`, **porta fielmente** la agregación de `agent-usage.mjs`:
@@ -300,10 +300,24 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   tests nuevos (líneas corruptas + fidelidad empty/null). **5 tests verdes**, `tsc` 0, `cargo` 0 warnings, `build:local`
   verde. *Residual declarado (mand. 13):* el diagnóstico `_keys` (firma de payloads `unknown`, ayuda de atribución) NO se
   portó a la UI — se queda en el CLI `agent-usage.mjs` (es herramienta de dev, no telemetría de producto). Pre-requisito
-  0.3 estaba hecho. **Falta solo verificación VISUAL del usuario** (Agents → tira "Agent usage").
-- ◐ **2.2 Honestidad de conteo (NO podar — [[no-podar-catalogo-skills]]).** Los "21 code-reviewer / 690 ECC .md" son
-  **caché de plugins inerte**; el único registrado es `~/.claude/agents/code-reviewer.md`. **No se borra.** El fix es que
-  la app (Skills/Agents/Hooks) no cuente inerte como activo (mismo bug que 0.6). Conservar es gratis (lazy no cuesta tokens del CLI).
+  0.3 estaba hecho. **Verificación visual confirmada por el usuario (2026-06-28)** (Agents → tira "Agent usage"; commit `88f0eb7`).
+- ✅ **2.2 Plugins desactivados = inertes (HONESTO + ROUTING; alcance A elegido por el usuario · 2026-06-28).** Bug: ni
+  `list_skills_with_origin_inner` ni `list_agents_with_origin_inner` cruzaban `enabledPlugins`, así que ECC (`ecc@ecc=false`,
+  773 SKILL.md + 254 agentes en caché) surface sus items como **ACTIVOS**. *Hecho:* módulo compartido `plugin_state.rs`
+  (`read_enabled_plugins` + `plugin_is_disabled`, clave `<plugin>@<marketplace>`) reusado por skills+agents
+  (`enabled = sufijo && !plugin_disabled`; outer dir=marketplace, inner=plugin, igual que `discover_plugin_hooks`).
+  **ALCANCE REAL (mand. 13 — la review adversarial cazó mi claim falso de "solo UI"):** `enabled` no solo pinta el conteo;
+  lo leen 4 consumidores de routing — `index_skills`→`ultron_catalog` (orquestador `delegate_agents`),
+  `index_skills_lazy`→payload, y los 2 roster-proposers. **El usuario eligió alcance A (inerte en TODO):** un plugin off
+  tampoco compite en routing/recomendaciones (coherente con el diseño: `ultron_catalog`=enabled→routing,
+  `ultron_skills_lazy`=todas→dispatcher lazy, que SIGUE inyectando ECC on-demand). **Purga del índice stale (finding 3):**
+  `index_skills`/`index_agents` ahora hacen *sync* — `purge_orphans` (scroll+delete por entity; helper puro `orphan_ids`
+  testeado; guardado por `ok>0` para no vaciar el índice en un pase transitorio) borra los puntos fuera del set vivo (ECC
+  ya no se upsertea → se purga). Aplicado en runtime (`ultron-memory catalog` + `reindex-skills-lazy`). **Seguridad de ECC
+  (petición del usuario):** auditoría adversarial de 10 agentes → **ECC LIMPIO** (0/5 amenazas confirmadas; sin exfiltración,
+  secretos, persistencia ni escalada; los hits eran fetch/exec a petición explícita del usuario). Dejar en caché inerte
+  (no podar — [[no-podar-catalogo-skills]]). **562 tests verdes** (`orphan_ids` + `plugin_state` nuevos), `cargo`/`tsc` 0,
+  `build:local` + sidecar verdes. *Pendiente:* purga aplicada + verificación visual del usuario (Skills/Agents → ECC bajo Disabled).
 - ✅ **2.3 No-op `rules.rs:645` — RESUELTO (premisa obsoleta).** `ui_design` alimenta correctamente el routing de SKILLS
   (`preferred_skills`→`rank_skills`→`SkillChoice`); la delegación usa `preferred_specialists` con agentes reales. La ref
   muerta agente↔skill ya se eliminó (documentado `ranking.rs:71-74`). Opcional: test de regresión para que no reaparezca.

@@ -50,6 +50,7 @@ mod migration;
 mod notes;
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod plans;
+mod plugin_state;
 mod plugins_info;
 mod project_agents;
 mod project_context;

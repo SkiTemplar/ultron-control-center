@@ -18,7 +18,7 @@
 // routed to).
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
@@ -46,6 +46,43 @@ fn deterministic_id(key: &str) -> u64 {
     let mut h = DefaultHasher::new();
     key.hash(&mut h);
     h.finish() | 1
+}
+
+/// Ids present in `existing` but absent from the `live` set — the points to
+/// retire from a catalog collection after a re-index (a skill/agent removed
+/// from disk, or a plugin disabled in settings.json so its items dropped out of
+/// the enabled set). Pure + testable; the side-effecting walk lives in
+/// `purge_orphans`.
+fn orphan_ids(existing: &[String], live: &HashSet<String>) -> Vec<String> {
+    existing
+        .iter()
+        .filter(|id| !live.contains(*id))
+        .cloned()
+        .collect()
+}
+
+/// Delete points of `entity` in `collection` whose id is not in `live_ids`.
+/// Best-effort: a scroll error or a per-point delete failure is swallowed so a
+/// purge problem never aborts the (already-committed) upsert pass. Returns the
+/// number of points deleted. The catalog is small (a few thousand points at
+/// most), so one generous scroll covers it.
+fn purge_orphans(collection: &str, entity: &str, live_ids: &HashSet<String>) -> usize {
+    let existing = match crate::qdrant::scroll(collection, 50_000) {
+        Ok(points) => points,
+        Err(_) => return 0,
+    };
+    let existing_ids: Vec<String> = existing
+        .into_iter()
+        .filter(|p| p.payload.get("entity").and_then(|v| v.as_str()) == Some(entity))
+        .map(|p| p.id)
+        .collect();
+    let mut deleted = 0usize;
+    for id in orphan_ids(&existing_ids, live_ids) {
+        if crate::qdrant::delete_point(collection, &id).is_ok() {
+            deleted += 1;
+        }
+    }
+    deleted
 }
 
 /// Parse `name` + `description` from a Claude agent/skill markdown frontmatter
@@ -120,6 +157,7 @@ pub fn index_agents() -> Result<(usize, usize), String> {
 
     let mut ok = 0usize;
     let mut err = 0usize;
+    let mut live_ids: HashSet<String> = HashSet::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("md") {
@@ -154,10 +192,16 @@ pub fn index_agents() -> Result<(usize, usize), String> {
         payload.insert("path".to_string(), path.display().to_string().into());
 
         let id = deterministic_id(&format!("agent::{name}")).to_string();
+        live_ids.insert(id.clone());
         match crate::qdrant::upsert_e5(CATALOG_COLLECTION, &id, vector, payload) {
             Ok(()) => ok += 1,
             Err(_) => err += 1,
         }
+    }
+    // Self-heal: drop agent points no longer present on disk. Guarded by ok>0 so
+    // a transient empty/failed pass never wipes the index.
+    if ok > 0 {
+        purge_orphans(CATALOG_COLLECTION, "agent", &live_ids);
     }
     Ok((ok, err))
 }
@@ -240,6 +284,7 @@ pub fn index_skills() -> Result<(usize, usize), String> {
 
     let mut ok = 0usize;
     let mut err = 0usize;
+    let mut live_ids: HashSet<String> = HashSet::new();
     for skill in skills {
         // Only ENABLED skills with a usable description should compete in the
         // router — a disabled skill must not be delegated to, and an empty
@@ -268,10 +313,17 @@ pub fn index_skills() -> Result<(usize, usize), String> {
         payload.insert("path".to_string(), skill.path.into());
 
         let id = deterministic_id(&format!("skill::{name}")).to_string();
+        live_ids.insert(id.clone());
         match crate::qdrant::upsert_e5(CATALOG_COLLECTION, &id, vector, payload) {
             Ok(()) => ok += 1,
             Err(_) => err += 1,
         }
+    }
+    // Self-heal: drop skill points no longer enabled/present — e.g. a plugin
+    // disabled in settings.json (casilla 2.2) otherwise leaves stale points in
+    // ultron_catalog. Guarded by ok>0 so a transient empty pass never wipes it.
+    if ok > 0 {
+        purge_orphans(CATALOG_COLLECTION, "skill", &live_ids);
     }
     Ok((ok, err))
 }
@@ -503,6 +555,17 @@ mod tests {
         assert_eq!(a, b, "same key -> same id (idempotent upsert)");
         assert_ne!(a, 0);
         assert_ne!(a, deterministic_id("agent::debugger"));
+    }
+
+    #[test]
+    fn orphan_ids_returns_only_ids_absent_from_live() {
+        let existing = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+        let live: HashSet<String> = ["1".to_string(), "3".to_string()].into_iter().collect();
+        // "2" is no longer live -> it is an orphan to retire.
+        assert_eq!(orphan_ids(&existing, &live), vec!["2".to_string()]);
+        // Negative case: nothing orphaned when every existing id is still live.
+        let all: HashSet<String> = existing.iter().cloned().collect();
+        assert!(orphan_ids(&existing, &all).is_empty());
     }
 
     #[test]

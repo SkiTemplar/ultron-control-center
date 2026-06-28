@@ -20,25 +20,29 @@ pub(crate) fn project_skills_dir(project_path: &str) -> PathBuf {
 }
 
 /// Plugin skills live three levels deep:
-/// `~/.claude/plugins/cache/<plugin-id>/<plugin-name>/<version>/skills/`.
-/// For each `<plugin-id>/<plugin-name>` pair we keep only the latest
-/// version dir (sorted lexicographically descending — works for stable
-/// semver tags; `-rc`/`-alpha` suffixes fall back to a sane lex order).
-pub(crate) fn plugin_skills_dirs() -> Vec<PathBuf> {
+/// `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/`.
+/// For each `<marketplace>/<plugin>` pair we keep only the latest version dir
+/// (sorted lexicographically descending — works for stable semver tags;
+/// `-rc`/`-alpha` suffixes fall back to a sane lex order). Each entry carries
+/// `disabled = true` when the plugin is turned off in settings.json
+/// `enabledPlugins` (key `<plugin>@<marketplace>`): casilla 2.2.
+pub(crate) fn plugin_skills_dirs() -> Vec<(bool, PathBuf)> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
     let cache = home.join(".claude").join("plugins").join("cache");
+    let enabled = crate::plugin_state::read_enabled_plugins();
     let mut out = Vec::new();
-    let Ok(plugin_ids) = std::fs::read_dir(&cache) else {
+    let Ok(marketplaces) = std::fs::read_dir(&cache) else {
         return out;
     };
-    for pid_entry in plugin_ids.flatten() {
-        let pid_path = pid_entry.path();
-        if !pid_path.is_dir() {
+    for mkt_entry in marketplaces.flatten() {
+        let mkt_path = mkt_entry.path();
+        if !mkt_path.is_dir() {
             continue;
         }
-        let Ok(plugin_names) = std::fs::read_dir(&pid_path) else {
+        let marketplace = mkt_entry.file_name().to_string_lossy().to_string();
+        let Ok(plugin_names) = std::fs::read_dir(&mkt_path) else {
             continue;
         };
         for pname_entry in plugin_names.flatten() {
@@ -46,6 +50,8 @@ pub(crate) fn plugin_skills_dirs() -> Vec<PathBuf> {
             if !pname_path.is_dir() {
                 continue;
             }
+            let plugin = pname_entry.file_name().to_string_lossy().to_string();
+            let disabled = crate::plugin_state::plugin_is_disabled(&plugin, &marketplace, &enabled);
             // Collect version dirs, keep the lex-desc latest.
             let mut versions: Vec<PathBuf> = match std::fs::read_dir(&pname_path) {
                 Ok(rd) => rd
@@ -63,7 +69,7 @@ pub(crate) fn plugin_skills_dirs() -> Vec<PathBuf> {
             if let Some(latest) = versions.first() {
                 let skills = latest.join("skills");
                 if skills.is_dir() {
-                    out.push(skills);
+                    out.push((disabled, skills));
                 }
             }
         }
@@ -183,6 +189,7 @@ pub(crate) fn collect_skills_from(
     root: &std::path::Path,
     origin: SkillOrigin,
     include_disabled: bool,
+    plugin_disabled: bool,
 ) -> Vec<SkillEntry> {
     let mut out = Vec::new();
     if !root.exists() {
@@ -244,7 +251,8 @@ pub(crate) fn collect_skills_from(
             path: path.to_string_lossy().to_string(),
             description: desc,
             origin: origin.clone(),
-            enabled,
+            // Plugin disabled in settings.json => its skills are inert (2.2).
+            enabled: enabled && !plugin_disabled,
         });
     }
     out
@@ -255,14 +263,24 @@ pub fn list_skills_with_origin_inner(
 ) -> Result<Vec<SkillEntry>, String> {
     let mut out = Vec::new();
     if let Ok(g) = global_skills_dir() {
-        out.extend(collect_skills_from(&g, SkillOrigin::Global, true));
+        out.extend(collect_skills_from(&g, SkillOrigin::Global, true, false));
     }
     if let Some(p) = project_path.as_deref() {
         let pdir = project_skills_dir(p);
-        out.extend(collect_skills_from(&pdir, SkillOrigin::Project, true));
+        out.extend(collect_skills_from(
+            &pdir,
+            SkillOrigin::Project,
+            true,
+            false,
+        ));
     }
-    for plugin_dir in plugin_skills_dirs() {
-        out.extend(collect_skills_from(&plugin_dir, SkillOrigin::Plugin, false));
+    for (disabled, plugin_dir) in plugin_skills_dirs() {
+        out.extend(collect_skills_from(
+            &plugin_dir,
+            SkillOrigin::Plugin,
+            false,
+            disabled,
+        ));
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
