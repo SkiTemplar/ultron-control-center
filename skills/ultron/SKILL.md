@@ -1,6 +1,6 @@
 ---
 name: ultron
-description: Master orchestrator for the ULTRON system. Routes requests across memory layers, skill packs, hooks, and dual/triple LLM mode. Loads on every Ultron session via the SessionStart hook. Customize this file for your own workflows — the shipped version is a minimal starting template.
+description: Master orchestrator for the ULTRON system. Routes requests across memory layers, skill packs, hooks, and the AI Router (primary→fallback chain). Loads on every Ultron session via the SessionStart hook. Customize this file for your own workflows — the shipped version is a minimal starting template.
 ---
 
 # ULTRON — Master Orchestrator

@@ -321,10 +321,18 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 - ✅ **2.3 No-op `rules.rs:645` — RESUELTO (premisa obsoleta).** `ui_design` alimenta correctamente el routing de SKILLS
   (`preferred_skills`→`rank_skills`→`SkillChoice`); la delegación usa `preferred_specialists` con agentes reales. La ref
   muerta agente↔skill ya se eliminó (documentado `ranking.rs:71-74`). Opcional: test de regresión para que no reaparezca.
-- ◐ **2.4 Skills "huérfanas" — separar dos conceptos.** No-inyectable-lazy ≠ no-ruteable. `business-strategist` es
-  ruteable (entrada v2 + persona jordan); `ui-ux-pro-max`/`gamedev-engineer` están cubiertas por personas + `ui-designer`
-  activa. Decisión: marcar `lazy_loadable` las que falten **o** aceptar que las personas las cubren (entonces no es deuda).
-  Y corregir el catálogo stale de la skill activa `ultron` (quitar "78 agents/79 skills" → "catálogo lazy").
+- ✅ **2.4 Skills "huérfanas" NO lo están + catálogo stale del `ultron` corregido (HECHO 2026-06-28).** *Verificado en
+  runtime (skill-query al daemon v3):* `ui-ux-pro-max` surface rank 2 (score 0.842) en un prompt de UI y `gamedev-engineer`
+  rank 3 (0.823) en uno de gamedev — ambas alcanzables por v3 semántico (están en `ultron_skills_lazy`), además cubiertas
+  por personas (mike-tyson/don-claudio, top-1 en esas queries) + skills activas (ui-designer/frontend-design).
+  `business-strategist` además tiene entrada v2 (ruteable determinista). **Decisión: NO son deuda** — v3 + personas las
+  cubren; añadir entradas v2 sería redundante. **Catálogo stale corregido:** la skill activa `~/.claude/skills/ultron/SKILL.md`
+  afirmaba "78 agents / 79 skills activas (verificado 2026-05-27) · 17 pestañas · KIRKARDO R11.2" — mentira que además se
+  **inyectaba en el contexto de routing** (la vi en los resultados de skill-query). Reescrita a una descripción honesta y
+  lazy-aware ("núcleo mínimo activo; el dispatcher v2+v3 inyecta el resto on-demand; los conteos exactos viven en las
+  pestañas Skills/Agents"). El template público del repo (`~/.ultron/skills/ultron/SKILL.md`) decía "dual/triple LLM mode"
+  (muerto) → corregido a "AI Router (primary→fallback)". Re-embebida en `ultron_catalog` + `ultron_skills_lazy` para purgar
+  el texto stale del índice. *(El fix de la skill activa vive fuera del repo, en ~/.claude; el del template es committable.)*
 - ◐ **2.5 v3 semántico — alcance CORREGIDO en runtime (2026-06-26): el cuello es LATENCIA, no cableado.** *Entendido (medido):*
   el código del fallback **ya existe y es maduro** en `routing-dispatcher.v3.js` (branch B semántico cuando conf<0.80; shared
   deadline 4.5s que acota TODO el I/O y nunca rompe el hook de 5s; mata el subproceso Python huérfano en Windows). El problema
