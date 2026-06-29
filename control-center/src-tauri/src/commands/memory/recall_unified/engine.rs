@@ -108,6 +108,16 @@ pub(crate) fn assemble_pack(
                 continue;
             }
         }
+        // TTL: an item with an explicit expiry in the PAST is dead and must never
+        // reach the pack (mandamiento 12: expired data must not pollute context).
+        // `expires_at == None` (the common case) means "no TTL". Same millis basis
+        // as `valid_to`/`now_millis()`. ADDITIVE — legacy/NULL rows are untouched.
+        if let Some(expires_at) = item.expires_at {
+            if expires_at <= now_millis() {
+                discarded.push(discard("expired (expires_at in the past)"));
+                continue;
+            }
+        }
         if let Some(pid) = project_id {
             // Global-scope memories apply everywhere; others must match the
             // project — UNLESS cross_project is set, which relaxes ONLY this
