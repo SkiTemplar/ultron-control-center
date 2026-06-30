@@ -92,7 +92,8 @@ pub struct DelegationDirective {
     pub objective: String,
     /// Formato de salida exigido (resumen compacto).
     pub return_format: String,
-    /// Modelo barato sugerido para la llamada `Agent` del agente (haiku/sonnet).
+    /// Modelo sugerido para la llamada `Agent` del especialista (sonnet/opus,
+    /// política calidad>tokens). Ver `model_for_intent`.
     pub model_hint: Option<String>,
     /// Por qué se delegó (trazabilidad / telemetría).
     pub reason: String,
@@ -107,19 +108,15 @@ pub fn is_nontrivial(prompt: &str) -> bool {
     ACTION_VERBS.iter().any(|v| p.contains(v))
 }
 
-/// Modelo sugerido por rol: review/exploración -> haiku; implementación -> sonnet.
+/// Modelo sugerido para el especialista delegado. Política calidad>tokens
+/// (feedback literal del usuario 2026-06-24): el trabajo delegado a un agente
+/// real SIEMPRE es Sonnet u Opus, NUNCA haiku. Razonamiento profundo
+/// (arquitectura, auditoría de seguridad, performance, investigación) -> opus;
+/// implementación y resto -> sonnet como default de calidad.
 pub fn model_for_intent(intent: &str) -> Option<String> {
     let model = match intent {
-        "security"
-        | "testing"
-        | "bug_fix"
-        | "refactor"
-        | "research"
-        | "performance"
-        | "architecture_review" => "haiku",
-        "feature" | "api_design" | "rust" | "python" | "typescript" | "golang" | "csharp"
-        | "database" | "ml" | "llm" | "devops" | "docker" | "cloud_infra" | "data_eng" => "sonnet",
-        _ => "haiku",
+        "architecture_review" | "security" | "performance" | "research" => "opus",
+        _ => "sonnet",
     };
     Some(model.to_string())
 }
@@ -170,7 +167,8 @@ mod tests {
         );
         let d = d.expect("debe emitir directiva");
         assert_eq!(d.agent, "refactoring-specialist");
-        assert_eq!(d.model_hint.as_deref(), Some("haiku"));
+        // calidad>tokens: refactor delegado -> sonnet (jamás haiku).
+        assert_eq!(d.model_hint.as_deref(), Some("sonnet"));
         assert!(d.return_format.contains("Resumen"));
     }
 
@@ -222,9 +220,38 @@ mod tests {
     }
 
     #[test]
-    fn feature_intent_uses_sonnet() {
-        assert_eq!(model_for_intent("feature").as_deref(), Some("sonnet"));
-        assert_eq!(model_for_intent("security").as_deref(), Some("haiku"));
+    fn model_for_intent_honra_calidad_sobre_tokens() {
+        // Razonamiento profundo -> opus.
+        for deep in ["architecture_review", "security", "performance", "research"] {
+            assert_eq!(
+                model_for_intent(deep).as_deref(),
+                Some("opus"),
+                "intent profundo {deep} debe ir a opus"
+            );
+        }
+        // Implementación / resto -> sonnet (default de calidad).
+        for impl_intent in [
+            "feature",
+            "bug_fix",
+            "refactor",
+            "testing",
+            "rust",
+            "typescript",
+        ] {
+            assert_eq!(
+                model_for_intent(impl_intent).as_deref(),
+                Some("sonnet"),
+                "intent de implementacion {impl_intent} debe ir a sonnet"
+            );
+        }
+        // Caso negativo (mandamiento 7): NINGÚN intent delegable cae en haiku.
+        for &intent in DELEGABLE_INTENTS.iter() {
+            assert_ne!(
+                model_for_intent(intent).as_deref(),
+                Some("haiku"),
+                "intent delegable {intent} NUNCA debe sugerir haiku (calidad>tokens)"
+            );
+        }
     }
 
     // --- Tests de selección canónica (fix 2026-06-25) ---
