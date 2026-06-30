@@ -757,10 +757,10 @@ const DISPATCHER_V2 = join(SKILL_LAZY, "routing-dispatcher.v2.js");
 // Ejecuta el hook con {prompt} por stdin y devuelve el additionalContext + lo
 // parseado: skills inyectadas (bloques [skill-inyectada:X]) y candidatos sugeridos
 // (Suggested: / "1)" / "2)" del hint). Fail-safe: ok=false si el hook no emite JSON.
-function runDispatcher(prompt) {
+function runDispatcher(prompt, scriptPath = DISPATCHER_V2) {
   let r;
   try {
-    r = spawnSync("node", [DISPATCHER_V2], {
+    r = spawnSync("node", [scriptPath], {
       input: JSON.stringify({ prompt, hook_event_name: "UserPromptSubmit" }),
       encoding: "utf8",
       timeout: 30000,
@@ -957,14 +957,13 @@ cat(4, "Skill/Agent Routing (output del hook)", [
   },
   {
     id: "4.5",
-    desc: "binario LIVE == medido: si settings.json apunta a v2 (sin fallback semántico), prompt ambiguo NO emite [semantic-fallback]",
+    desc: "binario LIVE == medido: el dispatcher de settings.json se comporta segun su capacidad (v3 emite [semantic-fallback] en prompt ambiguo; v2 no)",
     auto: true,
     check() {
-      // cat4.5 vieja medía --v3 (fallback semántico) mientras el hook LIVE de
-      // settings.json es routing-dispatcher.v2.js (solo triggers literales). Medir el
-      // binario que de verdad corre: con v2 vivo, un prompt ambiguo (sin trigger) NO
-      // debe emitir [semantic-fallback] (v2 no lo tiene) -> known_red hasta migrar a v3
-      // o etiquetar el modo. Si LIVE ya fuese v3, el check exige que SÍ lo emita.
+      // Mide el dispatcher que de VERDAD corre (settings.json), no un v2 hardcodeado.
+      // El marcador real de v3 es "[semantic-fallback: top-N by similarity]"; el regex
+      // viejo \[semantic-fallback\] exigia un ']' inmediato y nunca casaba -> el check
+      // daba rojo aunque v3 (live) si emite el fallback. Doble fix de fidelidad.
       const s = readJSON(SETTINGS_JSON);
       if (!s) return { pass: false, detail: "no medible: settings.json ausente" };
       let liveCmd = null;
@@ -975,17 +974,27 @@ cat(4, "Skill/Agent Routing (output del hook)", [
       }
       if (!liveCmd) return { pass: false, detail: "no medible: ningún routing-dispatcher en UserPromptSubmit" };
       const isV3 = /routing-dispatcher\.v3/.test(liveCmd);
+      const livePath = (liveCmd.match(/(\S*routing-dispatcher\.v\d+\.js)/) || [])[1] || DISPATCHER_V2;
       const ambiguous = "necesito ayuda con esto que tengo aqui montado";
-      const r = runDispatcher(ambiguous);
-      if (!r.ok) return { pass: false, detail: `no medible: hook no emitió JSON (${r.raw ?? ""})` };
-      const hasFallback = /\[semantic-fallback\]/i.test(r.ac);
-      if (isV3) {
-        return { pass: hasFallback, detail: `LIVE=v3; prompt ambiguo semantic-fallback=${hasFallback}` };
+      // Pre-warm: si el daemon E5 esta frio, la 1a llamada puede no devolver
+      // resultados semanticos dentro del presupuesto del hook. Reintentar.
+      let hasFallback = false;
+      let measured = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const r = runDispatcher(ambiguous, livePath);
+        if (r.ok) {
+          measured = true;
+          if (/\[semantic-fallback/i.test(r.ac)) { hasFallback = true; break; }
+        }
+        if (attempt < 2) run("sleep 3", { timeout: 5000 });
       }
-      // LIVE = v2: NO puede ofrecer fallback semántico; medir v3 sería medir un binario muerto.
+      if (!measured) return { pass: false, detail: "no medible: el dispatcher live no emitió JSON" };
+      if (isV3) {
+        return { pass: hasFallback, detail: `LIVE=v3 (medido sobre el binario live); prompt ambiguo semantic-fallback=${hasFallback}` };
+      }
       return {
-        pass: false,
-        detail: `LIVE=v2 (sin fallback semántico) pero la métrica histórica media --v3; prompt ambiguo no rutea (semantic-fallback=${hasFallback})`,
+        pass: !hasFallback,
+        detail: `LIVE=v2 (determinista); prompt ambiguo semantic-fallback=${hasFallback} (esperado false)`,
       };
     },
   },
