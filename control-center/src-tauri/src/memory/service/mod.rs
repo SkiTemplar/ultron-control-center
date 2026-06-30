@@ -57,6 +57,21 @@ pub struct BulkDeprecateResult {
     pub failed: Vec<(String, String)>,
 }
 
+/// Result of [`MemoryService::mark_stale_aged`]: how many ACTIVE items matched
+/// the age cutoff and how many were transitioned to `Status::Stale`. Honest
+/// scope (mand. 13): "stale" = "not MODIFIED in N days" (`updated_at`), NOT
+/// "unused / no recall-hit" — `last_accessed_at` is not written on the read path
+/// today. Each transition goes through the proven `set_status` path (FTS5 +
+/// Qdrant + event log stay consistent) and is reversible (`Restored`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StaleSweepResult {
+    pub older_than_days: i64,
+    pub matched: usize,
+    pub staled: usize,
+    pub dry_run: bool,
+    pub failed: Vec<(String, String)>,
+}
+
 /// Raise sensitivity to [`Sensitivity::Secret`] when the write-path detected a
 /// credential. Monotonic: it never lowers an already-higher classification (H2 /
 /// OLA A — see CONTRACTS-2026-06-04.md write-path security + recall Secret-gate).

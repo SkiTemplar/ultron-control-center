@@ -13,6 +13,7 @@ use super::super::MemoryError;
 use super::super::{redaction, sqlite_store as store};
 use super::{
     raised_sensitivity, redact_tags, sync_index, BulkDeprecateResult, MemoryService, MemoryStats,
+    StaleSweepResult,
 };
 
 impl MemoryService {
@@ -208,6 +209,60 @@ impl MemoryService {
             deprecated,
             dry_run: false,
             project: proj_owned,
+            failed,
+        })
+    }
+
+    /// Sweep ACTIVE items not MODIFIED in `older_than_days` and transition them to
+    /// [`Status::Stale`] (no longer recall-eligible; `sync_index` drops them from
+    /// the dense index). Reuses the proven [`Self::set_status`] path per id so
+    /// FTS5 triggers + Qdrant + the append-only event log stay consistent — no
+    /// bespoke sync logic.
+    ///
+    /// Honest scope (mand. 13): "stale" here = "not MODIFIED in N days"
+    /// (`updated_at`), NOT "unused / no recall-hit" — `last_accessed_at` is never
+    /// written on the read path today. Pinned and user-validated items are
+    /// protected (never staled). Reversible: `set_status(id, Active)` emits a
+    /// `Restored` event. `dry_run` only counts (mutates nothing).
+    pub fn mark_stale_aged(
+        older_than_days: i64,
+        dry_run: bool,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<StaleSweepResult, MemoryError> {
+        let cutoff = now_millis() - older_than_days.max(0) * 86_400_000;
+        // 100_000 is an effective "all" bound (the active set is ~1.9k items).
+        let (items, _total) =
+            Self::query_items(Some(Status::Active), None, None, false, 0, 100_000)?;
+        let candidates: Vec<MemoryItem> = items
+            .into_iter()
+            .filter(|it| it.updated_at < cutoff && !it.pinned && !it.validated_by_user)
+            .collect();
+        let matched = candidates.len();
+        if dry_run {
+            return Ok(StaleSweepResult {
+                older_than_days,
+                matched,
+                staled: 0,
+                dry_run: true,
+                failed: Vec::new(),
+            });
+        }
+        let reason =
+            reason.unwrap_or_else(|| format!("stale-sweep: sin modificar en >{older_than_days}d"));
+        let mut staled = 0usize;
+        let mut failed: Vec<(String, String)> = Vec::new();
+        for it in candidates {
+            match Self::set_status(&it.id, Status::Stale, actor, Some(reason.clone())) {
+                Ok(_) => staled += 1,
+                Err(e) => failed.push((it.id, e.to_string())),
+            }
+        }
+        Ok(StaleSweepResult {
+            older_than_days,
+            matched,
+            staled,
+            dry_run: false,
             failed,
         })
     }

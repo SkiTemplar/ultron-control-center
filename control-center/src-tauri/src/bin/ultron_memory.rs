@@ -22,6 +22,7 @@
 //!   ultron-memory serve-ping                    # is a live daemon reachable? (read-only)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
+//!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
 
@@ -334,6 +335,26 @@ fn run() -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?;
             to_json(res)
         }
+        // Sweep ACTIVE items not MODIFIED in --older-than-days (default 180) and
+        // transition them to Status::Stale (no longer recall-eligible). --dry-run
+        // only counts. Reuses set_status per id so FTS5 + Qdrant + the event log
+        // stay in sync; pinned and user-validated items are protected. Reversible.
+        //   ultron-memory stale [--older-than-days N] [--dry-run] [--reason R]
+        "stale" => {
+            let days: i64 = flag_value(&args, "--older-than-days")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(180);
+            let dry = has_flag(&args, "--dry-run");
+            let reason = flag_value(&args, "--reason");
+            let res = ul::memory::MemoryService::mark_stale_aged(
+                days,
+                dry,
+                ul::memory::Actor::System,
+                reason,
+            )
+            .map_err(|e| e.to_string())?;
+            to_json(res)
+        }
         // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
         // orchestration drops from ~3.5s (cold model load every spawn) to sub-second.
         // `run_daemon` blocks forever serving requests, OR returns immediately with
@@ -408,7 +429,7 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
