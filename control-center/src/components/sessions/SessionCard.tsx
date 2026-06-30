@@ -13,13 +13,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionInfo, SessionOrchestration } from "./sessionTypes";
-
-// Tinte por tipo de skill (espejo de LiveSessionMonitor para coherencia visual).
-const KIND_TINT: Record<string, string> = {
-  persona: "#a855f7",
-  technical: "#3b82f6",
-  meta: "#22c55e",
-};
+import { KIND_TINT } from "./orchShared";
 
 /** ¿La orquestación tiene algo que mostrar más allá del header? */
 function hasOrchestration(o: SessionOrchestration | null | undefined): o is SessionOrchestration {

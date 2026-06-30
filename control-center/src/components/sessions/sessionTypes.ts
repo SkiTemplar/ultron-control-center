@@ -60,10 +60,16 @@ export interface OrchMemory {
   summary: string;
 }
 
-/** Último turno orquestado de una sesión (route → workflow → agentes → skills → memoria). */
+/**
+ * Último turno orquestado de una sesión (route → workflow → agentes → skills → memoria).
+ * Espejo de OrchestrateLogEntry (backend: commands/sessions_sub/live_session.rs).
+ * `project`/`warnings` los usa el panel GLOBAL (LiveSessionMonitor); las tarjetas
+ * por sesión los ignoran.
+ */
 export interface SessionOrchestration {
   ts: string | null;
   session_id: string | null;
+  project: string | null;
   prompt: string | null;
   route: string | null;
   workflow: { id: string | null; label: string | null } | null;
@@ -71,9 +77,39 @@ export interface SessionOrchestration {
   skills: OrchSkill[];
   memories: OrchMemory[];
   cross_project: boolean;
+  warnings: string[];
 }
 
-/** Forma mínima de live_session_feed que consume el Monitor (solo orquestaciones). */
-export interface LiveFeedLite {
+/** Decisión del dispatcher de routing (timeline del panel global). */
+export interface RoutingLogEntry {
+  ts: string | null;
+  level: string | null;
+  msg: string | null;
+  top: string | null;
+  score: number | null;
+  confidence: number | null;
+}
+
+/** Delegación de agente registrada (delegations.jsonl). */
+export interface DelegationLogEntry {
+  id: string;
+  agent: string;
+  task_preview: string;
+  cwd: string | null;
+  used_cheap_model: boolean;
+  started_at: string;
+  status: string;
+  session_id: string | null;
+}
+
+/**
+ * Feed completo de live_session_feed. Un único fetch sirve a la vez:
+ *   - orchestrations → correlación por session_id (tarjetas) + último turno global
+ *   - routing/delegations → panel global de orquestación
+ */
+export interface LiveSessionFeed {
   orchestrations: SessionOrchestration[];
+  routing: RoutingLogEntry[];
+  delegations: DelegationLogEntry[];
+  generated_at: string;
 }

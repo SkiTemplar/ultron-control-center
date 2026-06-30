@@ -19,9 +19,10 @@ import type {
   SessionInfo,
   ProjectGroup,
   SessionOrchestration,
-  LiveFeedLite,
+  LiveSessionFeed,
 } from "./sessionTypes";
 import { SessionCard } from "./SessionCard";
+import LiveSessionMonitor from "../orchestrator/LiveSessionMonitor";
 
 // ---------------------------------------------------------------------------
 // Constantes
@@ -237,9 +238,13 @@ function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps
 
 export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  // Orquestación del último turno por session_id (live_session_feed). El Monitor
-  // enriquece cada tarjeta con intent/workflow/agentes/skills/memoria de ESA sesión.
+  // Feed completo de orquestación (live_session_feed). UN solo fetch alimenta a la
+  // vez el panel global en vivo (último turno + routing + delegaciones) y la
+  // correlación por session_id que enriquece cada tarjeta.
+  const [feed, setFeed] = useState<LiveSessionFeed | null>(null);
   const [orchBySession, setOrchBySession] = useState<Record<string, SessionOrchestration>>({});
+  // Panel global de orquestación: colapsable para no robar espacio a la lista.
+  const [orchOpen, setOrchOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(true);
@@ -259,16 +264,17 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
     try {
       // Sesiones + feed de orquestación en paralelo. El feed es complementario:
       // si falla, las sesiones se muestran igual (sin el bloque de orquestación).
-      const [data, feed] = await Promise.all([
+      const [data, liveFeed] = await Promise.all([
         invoke<SessionInfo[]>("list_active_sessions"),
-        invoke<LiveFeedLite>("live_session_feed", { limit: 50 }).catch(() => null),
+        invoke<LiveSessionFeed>("live_session_feed", { limit: 50 }).catch(() => null),
       ]);
       setSessions(data);
-      if (feed) {
+      if (liveFeed) {
+        setFeed(liveFeed);
         // feed.orchestrations viene newest-first: la PRIMERA entrada de cada
         // session_id es su último turno orquestado.
         const map: Record<string, SessionOrchestration> = {};
-        for (const o of feed.orchestrations) {
+        for (const o of liveFeed.orchestrations) {
           if (o.session_id && !(o.session_id in map)) map[o.session_id] = o;
         }
         setOrchBySession(map);
@@ -465,6 +471,15 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
 
       {/* ── Cuerpo scrollable ───────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+        {/* Panel GLOBAL de orquestación en vivo (último turno + routing +
+            delegaciones + previsualizador). Comparte el feed con las tarjetas. */}
+        <LiveSessionMonitor
+          feed={feed}
+          error={error}
+          collapsed={!orchOpen}
+          onToggleCollapse={() => setOrchOpen((v) => !v)}
+        />
 
         {/* Estado de carga inicial */}
         {loading && (
