@@ -23,6 +23,7 @@
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
+//!   ultron-memory dep-backfill                      # backfill one-shot del ledger de deprecaciones
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
 
@@ -429,7 +430,17 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>> [--project X] [args]".to_string()),
+        // Backfill one-shot del ledger de deprecaciones (cat21.4):
+        // recorre memory_events WHERE event_type='deprecated' e inserta en
+        // deprecation_entries (INSERT OR IGNORE). Idempotente; retorna
+        // { scanned, inserted, skipped }. Ejecutar UNA VEZ tras deployar el binario.
+        //   ultron-memory dep-backfill
+        "dep-backfill" => {
+            let res = ul::memory::MemoryService::backfill_deprecations()
+                .map_err(|e| e.to_string())?;
+            to_json(res)
+        }
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

@@ -23,6 +23,7 @@
 //   store_impl.rs   — SqliteStore MemoryStore impl + KG import + code edges
 
 pub(crate) mod candidates;
+pub(crate) mod deprecation;
 pub(crate) mod events;
 pub(crate) mod items;
 pub(crate) mod row_mapping;
@@ -51,3 +52,7 @@ pub use candidates::{
 };
 
 pub use store_impl::{import_kg_jsonl, insert_code_edge, SqliteStore};
+
+// Ledger vivo de deprecaciones (cat21.4): escritor único + helper de timestamp.
+// `pub(crate)` porque solo MemoryService (mismo crate) escribe aquí.
+pub(crate) use deprecation::{insert_deprecation_entry, millis_to_iso_utc, DeprecationEntryInput};

@@ -57,6 +57,18 @@ pub struct BulkDeprecateResult {
     pub failed: Vec<(String, String)>,
 }
 
+/// Resultado de [`MemoryService::backfill_deprecations`]: cuántos eventos de
+/// deprecación históricos se escanearon y cuántos se insertaron en el ledger.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BackfillDeprecationsResult {
+    /// Filas de `memory_events` con `event_type='deprecated'` escaneadas.
+    pub scanned: usize,
+    /// Entradas nuevas insertadas en `deprecation_entries`.
+    pub inserted: usize,
+    /// Entradas que ya existían (INSERT OR IGNORE fue no-op).
+    pub skipped: usize,
+}
+
 /// Result of [`MemoryService::mark_stale_aged`]: how many ACTIVE items matched
 /// the age cutoff and how many were transitioned to `Status::Stale`. Honest
 /// scope (mand. 13): "stale" = "not MODIFIED in N days" (`updated_at`), NOT
