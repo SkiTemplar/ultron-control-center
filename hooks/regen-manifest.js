@@ -30,7 +30,13 @@ const CHECK_MODE = process.argv.includes('--check');
 
 function sha256(file) {
   try {
-    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    // Normaliza CRLF->LF antes de hashear (card vrwxcf): con core.autocrlf=true los
+    // hooks estan CRLF en el working tree pero LF en el indice, asi que hashear los
+    // BYTES CRUDOS hacia fluctuar el checksum -> el gate de paridad fallaba en casi
+    // cada commit. Hashear el contenido normalizado lo hace estable y portable
+    // (mismo hash en Windows/Linux, con o sin autocrlf). latin1 preserva bytes 1:1.
+    const normalized = fs.readFileSync(file).toString('latin1').replace(/\r\n/g, '\n');
+    return crypto.createHash('sha256').update(normalized, 'latin1').digest('hex');
   } catch (_) {
     return 'FILE_MISSING';
   }
