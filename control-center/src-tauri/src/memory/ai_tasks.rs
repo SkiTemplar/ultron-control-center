@@ -78,6 +78,19 @@ pub struct ProposedFact {
     pub scope: String,
 }
 
+/// Relación entre un candidato NUEVO y un item EXISTENTE cercano. La devuelve
+/// `classify_contradiction` (juez LLM de 3 salidas) y es la base del
+/// auto-supersede (1.3b): SOLO `StateUpdate` habilita la deprecación automática.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContradictionClass {
+    /// No hay conflicto (temas distintos, o ambos pueden ser ciertos a la vez).
+    NoConflict,
+    /// Misma entidad, valor ACTUALIZADO: el nuevo REEMPLAZA al viejo (state-update).
+    StateUpdate,
+    /// Se contradicen sobre lo mismo pero NO es un update claro → adjudicación humana.
+    RealConflict,
+}
+
 // ---------------------------------------------------------------------------
 // Wire types -- shapes we ask the model to produce. Tolerant on purpose.
 // ---------------------------------------------------------------------------
@@ -100,6 +113,13 @@ struct RawFact {
 struct ContradictionVerdict {
     #[serde(alias = "contradiction", alias = "contradictory", alias = "result")]
     contradicts: bool,
+}
+
+/// Wrapper para la clasificación 3-way. `relation` canónico; toleramos aliases.
+#[derive(Debug, Clone, Deserialize)]
+struct ClassifyVerdict {
+    #[serde(alias = "class", alias = "result", alias = "label")]
+    relation: String,
 }
 
 /// Wrapper for query rewriting. `queries` is canonical; `variants` /
@@ -210,6 +230,42 @@ pub fn judge_contradiction(a: &str, b: &str) -> Option<bool> {
     Some(verdict.contradicts)
 }
 
+/// Clasifica la relación entre una afirmación NUEVA y una EXISTENTE en 3 salidas.
+///
+/// Returns:
+///   - `Some(NoConflict)`   -> no conflictan.
+///   - `Some(StateUpdate)`  -> misma entidad, la nueva REEMPLAZA a la vieja.
+///   - `Some(RealConflict)` -> se contradicen pero no es un update claro.
+///   - `None`               -> indecidible (router down, blank input, unparseable,
+///     etiqueta desconocida).
+///
+/// Los callers DEBEN tratar `None` de forma conservadora: nunca auto-supersede sin
+/// una clasificación confiada `StateUpdate` — así un modelo degradado jamás
+/// deprecia memoria válida (1.3b, mand. fail-safe).
+#[must_use]
+pub fn classify_contradiction(new_stmt: &str, existing_stmt: &str) -> Option<ContradictionClass> {
+    let a = new_stmt.trim();
+    let b = existing_stmt.trim();
+    if a.is_empty() || b.is_empty() {
+        return None;
+    }
+
+    let prompt = build_classify_prompt(a, b);
+    let verdict: ClassifyVerdict = call_json(ZONE_JUDGE, &prompt)?;
+    match verdict.relation.trim().to_ascii_lowercase().as_str() {
+        "none" | "no" | "no_conflict" | "noconflict" | "compatible" => {
+            Some(ContradictionClass::NoConflict)
+        }
+        "state_update" | "stateupdate" | "update" | "supersede" => {
+            Some(ContradictionClass::StateUpdate)
+        }
+        "conflict" | "real_conflict" | "contradiction" | "contradict" => {
+            Some(ContradictionClass::RealConflict)
+        }
+        _ => None, // etiqueta desconocida -> indecidible (conservador: no supersede)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Prompt builders -- kept private and pure (string in, string out).
 // ---------------------------------------------------------------------------
@@ -259,6 +315,25 @@ fn build_judge_prompt(a: &str, b: &str) -> String {
          {{\"contradicts\":true}} or {{\"contradicts\":false}}\n\n\
          Statement A: {a}\n\
          Statement B: {b}"
+    )
+}
+
+fn build_classify_prompt(new_stmt: &str, existing_stmt: &str) -> String {
+    format!(
+        "You compare a NEW statement against an EXISTING remembered statement and \
+         classify their relation as exactly one label:\n\
+         - \"none\": they do not conflict (different subjects, or both can be true).\n\
+         - \"state_update\": SAME subject/entity, but the NEW statement is an UPDATED \
+           value that REPLACES the old one (a changed decision, a moved path, a new \
+           preference about the very same thing). The old value is now outdated.\n\
+         - \"conflict\": they contradict about the same subject but it is NOT a clear \
+           replacement -- genuinely irreconcilable, a human must decide.\n\
+         Be conservative: use \"state_update\" ONLY when it is clearly the SAME thing \
+         being updated. If unsure between update and conflict, choose \"conflict\".\n\
+         Respond with ONLY JSON, no markdown fences, no prose:\n\
+         {{\"relation\":\"none\"}} or {{\"relation\":\"state_update\"}} or {{\"relation\":\"conflict\"}}\n\n\
+         NEW: {new_stmt}\n\
+         EXISTING: {existing_stmt}"
     )
 }
 
@@ -570,6 +645,13 @@ mod tests {
     fn judge_contradiction_blank_inputs_are_undecidable() {
         assert_eq!(judge_contradiction("", "b"), None);
         assert_eq!(judge_contradiction("a", "   "), None);
+    }
+
+    #[test]
+    fn classify_contradiction_blank_inputs_are_undecidable() {
+        // Fail-safe (1.3b): sin texto no hay clasificación → None → nunca supersede.
+        assert_eq!(classify_contradiction("", "b"), None);
+        assert_eq!(classify_contradiction("a", "   "), None);
     }
 
     #[test]

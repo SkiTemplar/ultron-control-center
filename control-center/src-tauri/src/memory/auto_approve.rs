@@ -66,6 +66,12 @@ pub struct MemorySettings {
     /// `DEFAULT_AUTO_APPROVE_THRESHOLD` (0.72) for files written before this field.
     #[serde(default = "default_auto_approve_threshold")]
     pub auto_approve_threshold: f32,
+    /// 1.3b (opt-in, default OFF): cuando ON, un candidato que es un state-update
+    /// 1:1 CLARO de UN item activo lo AUTO-SUPERSEDE (viejo→deprecated,
+    /// nuevo→active) en vez de ir al inbox. Requiere el clasificador 3-way; sin el
+    /// flag el comportamiento es idéntico al actual (Quarantine).
+    #[serde(default = "default_false")]
+    pub auto_supersede: bool,
 }
 
 fn default_false() -> bool {
@@ -81,6 +87,7 @@ impl Default for MemorySettings {
         Self {
             auto_approve: false,
             auto_approve_threshold: DEFAULT_AUTO_APPROVE_THRESHOLD,
+            auto_supersede: false,
         }
     }
 }
@@ -121,6 +128,12 @@ pub fn write_settings(settings: MemorySettings) -> Result<MemorySettings, String
 /// Convenience: is auto-approve currently ON? Fail-safe to `false`.
 pub fn auto_approve_enabled() -> bool {
     read_settings().auto_approve
+}
+
+/// Convenience: is auto-supersede currently ON? Fail-safe to `false` (1.3b).
+/// Opt-in, default OFF — sin esto, una contradicción state-update va al inbox.
+pub fn auto_supersede_enabled() -> bool {
+    read_settings().auto_supersede
 }
 
 /// BAND C floor: a clean candidate below this confidence is pure noise and is

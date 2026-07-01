@@ -219,14 +219,21 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   va al inbox, NUNCA auto-active; test `candidate_with_duplicate_is_not_clean` verde). Backfill gobernado (forget de 332
   extras, conserva 1 por grupo, 0 fallos): **grupos duplicados activos 101 → 0**, "Fallo de WebFetch" 211→1, items
   3304→2978. Verificado runtime + doctor ok; sidecar redeployado.
-- ◐ **1.3 supersede VIVO (subcomando) — auto-trigger por contradicción PENDIENTE (2026-06-26).** Cablear `supersede()`
-  (hoy 0 callers) a (a) un subcomando del sidecar y (b) el path de contradicción. *✅ HECHO (a):* subcomando gobernado
-  `ultron-memory supersede --old <id>` (nuevo item por stdin) → `supersede()` deja de ser código muerto (0 callers→1).
-  **Verificado e2e:** viejo→Deprecated (`superseded_by`, `valid_to=now`, recuperable), nuevo→Active (`supersedes`,
-  `valid_to=null`), recall prefiere el nuevo. *☐ PENDIENTE (b) auto-trigger:* el detector de contradicción
-  (`contradiction.rs`) solo da boolean; clasificar "misma entidad, distinto valor" (state-update → `supersede`) vs
-  "conflicto real" (→ Quarantine) es LLM-dependiente y merece su iteración con clasificador + eval — supersede mal
-  aplicado deprecaría memoria válida (aunque reversible). No rushear.
+- ✅ **1.3 supersede VIVO — (a) subcomando + (b) auto-trigger por contradicción HECHOS (corte seguro opt-in; 2026-07-01).**
+  *✅ (a):* subcomando gobernado `ultron-memory supersede --old <id>` (viejo→Deprecated `superseded_by`/`valid_to=now`
+  recuperable; nuevo→Active; recall prefiere el nuevo). *✅ (b) auto-trigger:* clasificador LLM de 3 salidas
+  `classify_contradiction` (NoConflict/StateUpdate/RealConflict) reemplaza al juez booleano en `check`; decisión **PURA**
+  `supersede_disposition` — CONSERVADORA: auto-supersede SOLO si hay **exactamente 1** finding `StateUpdate`; conflicto
+  real, >1 finding, o flag OFF → **Quarantine** (como hoy). Cableado en `create_candidate`: si dispara, promueve el
+  candidato a ACTIVE deprecando el viejo (reusa `cand.to_item` + `MemoryService::supersede`, con redaction/índice), en
+  orden **fail-safe** (supersede primero; si falla, el candidato queda Pending — no se pierde ni corrompe nada).
+  **Opt-in `auto_supersede` (default OFF)** en `memory-settings.json` → **cero riesgo** para la memoria viva hasta
+  activarlo (mismo patrón que 1.1). **Verificado:** `cargo` 12/12 en `contradiction` (5 de `supersede_disposition`, con
+  **3 casos negativos**: real-conflict / >1-finding / flag-OFF → Quarantine) + fail-safe del clasificador (blank→None).
+  **ALCANCE REAL (mand. 13):** el clasificador LLM aún NO tiene eval de accuracy (state-update vs conflicto real) — por eso
+  el flag va **default OFF**: encenderlo requiere ese eval (un state-update mal clasificado deprecaría memoria válida,
+  reversible). La capacidad está construida y su LÓGICA probada; la confianza para activarla la da el eval (pendiente).
+  **NO time-based** (decisión #1 resuelta: solo contradicciones de estado, no deprecación por "N días sin acceso").
 - ✅ **1.4 user_profile poblado · tool_usage/workflow_state retirados · skill/architecture conservados (HECHO 2026-06-26).**
   Decisión #2 resuelta. *Diagnóstico runtime:* las 5 estaban a 0; el `extraction_prompt` (`capture.rs`) solo ofrecía al LLM
   `decision/preference/fact/constraint/task` → las otras nunca se emitían. **(A) user_profile POBLADO:** añadido al prompt
@@ -488,8 +495,9 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 ## Decisiones abiertas para el usuario (resolver al arrancar cada fase)
 
-1. **Memoria viva (1.3):** ¿el supersede automático actúa solo en contradicciones de "estado del mismo hecho", o también
-   deprecia proactivamente lo que lleva N días sin accederse?
+1. **Memoria viva (1.3):** **RESUELTO (2026-07-01)** — el supersede automático actúa **solo en contradicciones de "estado
+   del mismo hecho"** (state-update 1:1 claro); **NO** deprecación proactiva por "N días sin acceso". Implementado opt-in
+   (`auto_supersede`, default OFF); encenderlo requiere el eval del clasificador (pendiente).
 2. **Categorías vacías (1.4):** **RESUELTO (2026-06-26)** — `user_profile` poblado (productor en el prompt);
    `tool_usage`/`workflow_state` retirados (sin productor); `skill`/`architecture` conservados (productor vivo:
    `post_install` / `migrations`+gobernanza). Enum a 12 variantes vivas.

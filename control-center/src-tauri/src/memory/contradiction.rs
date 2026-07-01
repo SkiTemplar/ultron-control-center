@@ -22,6 +22,7 @@
 
 use rusqlite::Connection;
 
+use super::ai_tasks::ContradictionClass;
 use super::model::CandidateAction;
 use super::sqlite_store as store;
 
@@ -37,15 +38,29 @@ pub struct ContradictionFinding {
     pub conflicting_id: String,
     /// Human-readable justification (e.g. the conflicting item's summary).
     pub reason: String,
+    /// Clasificación 3-way de la relación (1.3b). `new()` deja `RealConflict`
+    /// (conservador → Quarantine); `check` la puebla con el juez.
+    pub class: ContradictionClass,
 }
 
 impl ContradictionFinding {
-    /// Build a finding from a conflicting item id and a reason string.
+    /// Build a finding defaulting to `RealConflict` (conservative → Quarantine).
     #[must_use]
     pub fn new(conflicting_id: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::new_classified(conflicting_id, reason, ContradictionClass::RealConflict)
+    }
+
+    /// Build a finding with an explicit 3-way class (used by `check`).
+    #[must_use]
+    pub fn new_classified(
+        conflicting_id: impl Into<String>,
+        reason: impl Into<String>,
+        class: ContradictionClass,
+    ) -> Self {
         Self {
             conflicting_id: conflicting_id.into(),
             reason: reason.into(),
+            class,
         }
     }
 }
@@ -106,11 +121,18 @@ pub fn check(
             None => continue,
         };
 
-        // The LLM judge is fail-safe: None (undecidable) and Some(false) are
-        // treated as "no conflict", so a degraded model never spuriously
-        // quarantines. Only a confident Some(true) flags a contradiction.
-        if super::ai_tasks::judge_contradiction(proposed, &existing_text) == Some(true) {
-            findings.push(ContradictionFinding::new(existing.id, existing_text));
+        // Clasificación 3-way fail-safe (1.3b): `None` (indecidible) y
+        // `Some(NoConflict)` no marcan nada, así que un modelo degradado nunca
+        // cuarentena ni supersede espuriamente. Solo `StateUpdate`/`RealConflict`
+        // producen finding; la clase la consume `supersede_disposition`.
+        if let Some(class) = super::ai_tasks::classify_contradiction(proposed, &existing_text) {
+            if class != ContradictionClass::NoConflict {
+                findings.push(ContradictionFinding::new_classified(
+                    existing.id,
+                    existing_text,
+                    class,
+                ));
+            }
         }
     }
 
@@ -134,6 +156,44 @@ pub fn recommended_action(findings: &[ContradictionFinding]) -> Option<Candidate
     } else {
         Some(CandidateAction::Quarantine)
     }
+}
+
+/// Disposición de un candidato con contradicciones bajo la política opt-in
+/// `auto_supersede` (1.3b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Disposition {
+    /// Sin contradicciones: el pipeline propio del candidato decide.
+    None,
+    /// Contradice → al inbox para adjudicación humana (comportamiento por defecto).
+    Quarantine,
+    /// Auto-supersede opt-in: state-update 1:1 claro → deprecar ESTE item viejo.
+    Supersede(String),
+}
+
+/// Decide qué hacer con un candidato dadas sus contradicciones y el flag opt-in
+/// `auto_supersede`. PURA (sin I/O), unit-testeada. CONSERVADORA por diseño:
+///   - `auto_supersede` OFF                  -> `Quarantine` (comportamiento actual).
+///   - EXACTAMENTE 1 finding `StateUpdate`   -> `Supersede(id)` (relación 1:1 clara).
+///   - cualquier `RealConflict`, o >1 finding, o mezcla -> `Quarantine` (ojo humano).
+///   - sin findings                          -> `None`.
+///
+/// El gate "exactamente 1 StateUpdate" evita deprecar de más: si el candidato
+/// choca con varios items, o alguno es conflicto real, la relación no es un
+/// simple update → va al inbox. `supersede` es reversible, pero preferimos NO
+/// deprecar memoria válida ante la mínima ambigüedad (mand. fail-safe).
+#[must_use]
+pub fn supersede_disposition(
+    findings: &[ContradictionFinding],
+    auto_supersede: bool,
+) -> Disposition {
+    if findings.is_empty() {
+        return Disposition::None;
+    }
+    if auto_supersede && findings.len() == 1 && findings[0].class == ContradictionClass::StateUpdate
+    {
+        return Disposition::Supersede(findings[0].conflicting_id.clone());
+    }
+    Disposition::Quarantine
 }
 
 // ---------------------------------------------------------------------------
@@ -191,5 +251,57 @@ mod tests {
         let a = ContradictionFinding::new("id", "why");
         let b = ContradictionFinding::new("id", "why");
         assert_eq!(a, b, "findings with identical fields must be equal");
+    }
+
+    // --- supersede_disposition (1.3b) — PURA, sin LLM/DB/red ---
+
+    #[test]
+    fn supersede_off_quarantines_even_state_update() {
+        // Default OFF: aunque sea state-update, sin el flag va al inbox (caso negativo).
+        let f = vec![ContradictionFinding::new_classified(
+            "m1",
+            "r",
+            ContradictionClass::StateUpdate,
+        )];
+        assert_eq!(supersede_disposition(&f, false), Disposition::Quarantine);
+    }
+
+    #[test]
+    fn supersede_on_single_state_update_supersedes() {
+        let f = vec![ContradictionFinding::new_classified(
+            "old-1",
+            "r",
+            ContradictionClass::StateUpdate,
+        )];
+        assert_eq!(
+            supersede_disposition(&f, true),
+            Disposition::Supersede("old-1".to_string())
+        );
+    }
+
+    #[test]
+    fn supersede_on_real_conflict_quarantines() {
+        // Caso negativo (mand. 7): un conflicto real NUNCA auto-supersede.
+        let f = vec![ContradictionFinding::new_classified(
+            "m1",
+            "r",
+            ContradictionClass::RealConflict,
+        )];
+        assert_eq!(supersede_disposition(&f, true), Disposition::Quarantine);
+    }
+
+    #[test]
+    fn supersede_on_multiple_state_updates_quarantines() {
+        // Caso negativo: >1 finding = relación ambigua -> inbox, no deprecar de más.
+        let f = vec![
+            ContradictionFinding::new_classified("a", "r", ContradictionClass::StateUpdate),
+            ContradictionFinding::new_classified("b", "r", ContradictionClass::StateUpdate),
+        ];
+        assert_eq!(supersede_disposition(&f, true), Disposition::Quarantine);
+    }
+
+    #[test]
+    fn supersede_no_findings_is_none() {
+        assert_eq!(supersede_disposition(&[], true), Disposition::None);
     }
 }

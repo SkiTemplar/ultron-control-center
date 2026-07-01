@@ -216,6 +216,10 @@ impl MemoryService {
         //   exhausted and the short-circuit fix is active, the judge returns
         //   None in < 50 ms, so the budget is never reached in the happy path.
         const CONTRADICTION_BUDGET_MS: u64 = 2_000;
+        // 1.3b: si el candidato resulta ser un state-update 1:1 CLARO y `auto_supersede`
+        // está ON, aquí guardamos el id del item viejo a deprecar; se ejecuta DESPUÉS de
+        // insertar el candidato (fail-safe: si algo falla, queda Pending en el inbox).
+        let mut supersede_target: Option<String> = None;
         if !redacted {
             // 1.7: usa el MEJOR texto disponible — summary, o content como fallback — para
             // el juez de contradicción. Antes solo corría con summary => un candidato sin
@@ -259,9 +263,21 @@ impl MemoryService {
                                 cand.contradiction_candidates.push(f.conflicting_id.clone());
                             }
                         }
-                        // Mark for human review; never auto-resolve. Quarantine keeps it
-                        // OUT of recall until adjudicated (takes precedence over Merge).
-                        cand.recommended_action = CandidateAction::Quarantine;
+                        // 1.3b: un state-update 1:1 CLARO (opt-in) auto-supersede al item
+                        // viejo tras insertar; cualquier otra cosa (conflicto real, >1
+                        // finding, o el flag OFF) → Quarantine (OUT de recall hasta que un
+                        // humano adjudique; toma precedencia sobre Merge).
+                        match super::super::contradiction::supersede_disposition(
+                            &findings,
+                            super::super::auto_approve::auto_supersede_enabled(),
+                        ) {
+                            super::super::contradiction::Disposition::Supersede(old_id) => {
+                                supersede_target = Some(old_id);
+                            }
+                            _ => {
+                                cand.recommended_action = CandidateAction::Quarantine;
+                            }
+                        }
                     }
                     Ok(Some(Some(_no_findings))) => {
                         // Verificado: la búsqueda corrió y el juez no halló contradicción.
@@ -308,6 +324,33 @@ impl MemoryService {
             .with_reason(reason)
             .with_after(serde_json::to_string(&cand).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
+
+        // 1.3b AUTO-SUPERSEDE (opt-in, default OFF). El candidato es un state-update
+        // 1:1 de `old_id` → lo promovemos a ACTIVE deprecando el viejo, reusando el
+        // MISMO builder candidate→item que `approve_candidate`. Orden fail-safe: el
+        // `supersede` (crea el nuevo item + deprecia el viejo, con redaction/índice) va
+        // PRIMERO; solo si tiene éxito marcamos el candidato Approved. Si falla, el
+        // candidato ya está Pending en el inbox — no se pierde ni se corrompe nada.
+        if let Some(old_id) = supersede_target {
+            let new_item = cand.to_item(Status::Active, Source::AssistantInferred);
+            drop(conn); // supersede abre su propia conexión.
+            match Self::supersede(&old_id, new_item, Actor::System) {
+                Ok(_) => {
+                    if let Ok(c2) = store::open_conn() {
+                        let _ =
+                            store::set_candidate_status(&c2, &cand.id, CandidateStatus::Approved);
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[service::create_candidate] auto-supersede de {old_id} falló ({e}); \
+                         candidato {} queda Pending en el inbox",
+                        cand.id
+                    );
+                }
+            }
+            return Ok(cand.id.clone());
+        }
 
         // Auto-validation 3-band policy (opt-in). When the persisted `auto_approve`
         // setting is ON and this candidate is CLEAN, the confidence-driven band
