@@ -170,15 +170,25 @@ function runGoldenEval() {
     _goldenEvalCache = null;
     return null;
   }
-  const r = run(
-    `"${fwd(join(BIN, "ultron-memory.exe"))}" eval --golden "${fwd(GOLDEN_LABELS)}"`,
-    { timeout: 120000 },
-  );
-  try {
-    _goldenEvalCache = JSON.parse((r.stdout + r.stderr).trim());
-  } catch {
-    _goldenEvalCache = null;
+  const cmd = `"${fwd(join(BIN, "ultron-memory.exe"))}" eval --golden "${fwd(GOLDEN_LABELS)}"`;
+  // FIDELIDAD (bs60k6): con E5 frio el eval marca degraded:true y usa embeddings
+  // hash de fallback -> recall ~0.18 vs ~0.67 caliente. Medir sobre embeddings
+  // degradados es medir basura, no la calidad real del recall. Reintentar hasta
+  // degraded:false: el modelo E5-large queda en page-cache del OS tras el 1er
+  // cold-load, asi que el 2o/3er intento mide de verdad. Si tras 3 intentos sigue
+  // degradado (p.ej. CI sin modelo), se cachea con degraded:true y los checks de
+  // cat1 lo marcan 'skip' (no puntuan un falso ~0.18 como fallo de calidad).
+  let j = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = run(cmd, { timeout: 120000 });
+    try {
+      j = JSON.parse((r.stdout + r.stderr).trim());
+    } catch {
+      j = null;
+    }
+    if (j && j.degraded !== true) break;
   }
+  _goldenEvalCache = j;
   return _goldenEvalCache;
 }
 
@@ -231,6 +241,9 @@ cat(1, "Memoria Qdrant", [
       }
       const j = runGoldenEval();
       if (!j) return { pass: false, detail: "eval --golden no devolvio JSON parseable" };
+      if (j.degraded === true) {
+        return { skip: true, detail: "E5 degradado (cold-load) tras 3 intentos — recall no medible aqui, no puntuado (evita falso ~0.18 por embeddings hash)" };
+      }
       const recall = j.aggregate?.recall_at_k ?? null;
       if (recall === null) return { pass: false, detail: "sin recall_at_k en aggregate" };
       return {
@@ -346,6 +359,9 @@ cat(1, "Memoria Qdrant", [
       }
       const j = runGoldenEval();
       if (!j) return { pass: false, detail: "eval --golden no devolvio JSON parseable" };
+      if (j.degraded === true) {
+        return { skip: true, detail: "E5 degradado (cold-load) tras 3 intentos — precision no medible aqui, no puntuado" };
+      }
       const p3 = j.aggregate_precision_at_3 ?? j.aggregate?.precision_at_3 ?? null;
       const waste = j.aggregate?.context_waste ?? null;
       if (p3 === null || waste === null) {
@@ -3767,6 +3783,20 @@ async function evaluate() {
         result = check.check();
       } catch (e) {
         result = { pass: false, detail: `exception: ${e.message}` };
+      }
+
+      // skip: la medicion no es fiable en este entorno (p.ej. E5 degradado por
+      // cold-load). NO es un fallo de calidad -> no cuenta en el denominador,
+      // igual que 'manual'. Evita que un fallo de infra se disfrace de fallo real.
+      if (result.skip) {
+        catResult.checks.push({
+          id: check.id,
+          desc: check.desc,
+          status: "skip",
+          pass: null,
+          detail: result.detail ?? "medicion no fiable (skip)",
+        });
+        continue;
       }
 
       catResult.checks.push({
