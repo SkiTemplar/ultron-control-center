@@ -77,6 +77,7 @@ type GitRepoState = {
   behind: number;
   dirty: boolean;
   dirty_count: number;
+  path: string;
 };
 
 type ProjectListEntry = {

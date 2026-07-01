@@ -10,6 +10,7 @@ type GitRepoState = {
   behind: number;
   dirty: boolean;
   dirty_count: number;
+  path: string;
 };
 
 export type GitStatus = {
@@ -34,10 +35,11 @@ export function RepoPanelWidget({ git, meta, onRunGitOp, onOpenRepoModal }: Prop
       {/* Header row */}
       <div className="flex items-center justify-between">
         <span
-          className="text-[10px] font-semibold uppercase tracking-[0.07em]"
+          className="truncate text-[10px] font-semibold uppercase tracking-[0.07em]"
           style={{ color: "var(--color-text-tertiary)" }}
+          title={git.state?.path ?? meta?.path ?? undefined}
         >
-          Repositorio
+          Repositorio{meta?.name ? ` · ${meta.name}` : ""}
         </span>
         {git.state?.is_repo && (
           <div className="flex items-center gap-1">

@@ -4,7 +4,23 @@
 // in that directory. Returns stdout+stderr merged as String.
 // Errors surface as Err(String) so the frontend shows them directly.
 
+use std::collections::HashMap;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+// 3.7: cache TTL de git_repo_state. El panel del repo refresca periodicamente;
+// sin cache cada tick spawnea git.exe (`git_ops.rs`). TTL corto: dato fresco pero
+// sin ráfagas de procesos en refrescos seguidos.
+const REPO_STATE_TTL: Duration = Duration::from_millis(1500);
+
+/// path -> (instante de captura, estado). El instante da el TTL.
+type RepoStateCache = HashMap<String, (Instant, GitRepoState)>;
+
+fn repo_state_cache() -> &'static Mutex<RepoStateCache> {
+    static CACHE: OnceLock<Mutex<RepoStateCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
     let out = Command::new("git")
@@ -54,6 +70,15 @@ pub fn git_fetch(path: String) -> Result<String, String> {
 /// Parses `git status --short --branch` output.
 #[tauri::command]
 pub fn git_repo_state(path: String) -> Result<GitRepoState, String> {
+    // 3.7: sirve el estado cacheado si es reciente (< TTL) para no spawnear git.exe
+    // en cada refresh del panel.
+    if let Ok(cache) = repo_state_cache().lock() {
+        if let Some((ts, state)) = cache.get(&path) {
+            if ts.elapsed() < REPO_STATE_TTL {
+                return Ok(state.clone());
+            }
+        }
+    }
     if !std::path::Path::new(&path).join(".git").exists() {
         return Ok(GitRepoState {
             is_repo: false,
@@ -63,6 +88,7 @@ pub fn git_repo_state(path: String) -> Result<GitRepoState, String> {
             behind: 0,
             dirty: false,
             dirty_count: 0,
+            path: path.clone(),
         });
     }
     let raw = run_git(&["status", "--short", "--branch", "--porcelain=v1"], &path)?;
@@ -98,7 +124,7 @@ pub fn git_repo_state(path: String) -> Result<GitRepoState, String> {
             dirty_count += 1;
         }
     }
-    Ok(GitRepoState {
+    let state = GitRepoState {
         is_repo: true,
         branch,
         remote,
@@ -106,10 +132,15 @@ pub fn git_repo_state(path: String) -> Result<GitRepoState, String> {
         behind,
         dirty: dirty_count > 0,
         dirty_count,
-    })
+        path: path.clone(),
+    };
+    if let Ok(mut cache) = repo_state_cache().lock() {
+        cache.insert(path.clone(), (Instant::now(), state.clone()));
+    }
+    Ok(state)
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub struct GitRepoState {
     pub is_repo: bool,
     pub branch: Option<String>,
@@ -118,6 +149,9 @@ pub struct GitRepoState {
     pub behind: u32,
     pub dirty: bool,
     pub dirty_count: u32,
+    /// Ruta absoluta del repo. Desambigua el panel (antes parecia "siempre Ultron"
+    /// porque no mostraba de que repo era el estado). 3.7.
+    pub path: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -374,5 +408,38 @@ pub fn codegraph_init_project(path: String) -> Result<String, String> {
         } else {
             combined
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_state_cache_roundtrip_and_ttl() {
+        // El cache es la unica pieza nueva de 3.7 con logica; git no interviene.
+        let key = "___kirkardo_git_cache_test___".to_string();
+        let st = GitRepoState {
+            is_repo: true,
+            branch: Some("main".to_string()),
+            remote: None,
+            ahead: 1,
+            behind: 0,
+            dirty: false,
+            dirty_count: 0,
+            path: key.clone(),
+        };
+        repo_state_cache()
+            .lock()
+            .unwrap()
+            .insert(key.clone(), (Instant::now(), st.clone()));
+        let got = repo_state_cache().lock().unwrap().get(&key).cloned();
+        let (ts, cached) = got.expect("estado cacheado presente");
+        assert!(
+            ts.elapsed() < REPO_STATE_TTL,
+            "recien insertado -> dentro de TTL"
+        );
+        assert_eq!(cached.path, key, "el path desambigua el repo");
+        assert_eq!(cached.branch.as_deref(), Some("main"));
     }
 }
