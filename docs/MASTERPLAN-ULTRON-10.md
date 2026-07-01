@@ -403,8 +403,17 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   **Ampliado el mismo día (commit `2e58603`):** cada tarjeta añade el bloque de **orquestación por sesión**
   (intent/workflow/agentes/skills/memoria), correlacionado por `session_id` vía `live_session_feed` — base de 3.2. Aparte,
   commit `3785ab8`: el botón *Rebuild* de Ajustes usaba `tauri build` público (perdía Finance) → ahora `build:local`.
-- ☐ **3.2 Monitor en directo** — unificar sobre `live_session.rs` + eventos `workflow:*` + el **`SubagentStop` ya cableado**
-  (`subagent-harvest`) para mostrar subagentes en vivo.
+- ✅ **3.2 Monitor en directo — subagentes del harvest en el feed (código HECHO + verde; 2026-07-01).** `live_session_feed`
+  expone ahora una 4ª lista `subagents` leída de `~/.ultron/.tmp/subagent-harvest.jsonl` (reusa `read_jsonl_tail` +
+  `usage::harvest_path`, sin duplicar la ruta), **filtrando el ruido** (chars 0 / preview vacío → el hook SubagentStop también
+  recibe payloads que no son subagentes reales, y una tarjeta vacía sería cáscara, mand. 11); `agent` vacío/ausente → "unknown"
+  (el Monitor lo pinta como "subagente"). El `LiveSessionMonitor` añade la sección **"Subagentes recientes"**
+  (agente/label/preview/chars/tiempo). Los eventos `workflow:*` ya se mostraban (liveEvents delegating/delegated). **Verificado:**
+  `cargo test live_session` **4/4** (nuevo `recent_subagents_drops_noise_and_defaults_unknown`, con caso negativo: la fila
+  chars:0 se filtra) + `tsc` 0. **ALCANCE REAL (mand. 13):** son subagentes COMPLETADOS (el hook escribe en SubagentStop = al
+  terminar), no in-flight — el "arrancó en vivo" lo daría un hook `SubagentStart` (item 3.9); la atribución fina del especialista
+  sigue siendo deuda de 0.3 (hoy dominan `unknown`). *Pendiente: rebuild `build:local` (cerrar la app) + verificación visual del
+  usuario (Sessions → Orquestación en vivo → "Subagentes recientes").*
 - ◐ **3.3 AI Router UI — solo nota de alcance.** La UI **NO está vacía** y la app **sí llama `route()`** (dashboard de
   métricas reales). Queda: aviso honesto "el CLI de esta sesión NO se rutea" (mand. 13) + verificar proxy free-tier en runtime.
 - ✅ **3.4 Kanban CREA cards — HECHO.** `kanban_create_card`+`CardEditorModal`. *(Si se quiere auto-crear desde tarea
@@ -413,15 +422,26 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   Queda verificación VISUAL del usuario.
 - ◐ **3.6 Batch (no "RunBatch") fuera + consolidar barra.** Está cableado en varias superficies + cola backend (no es
   huérfano). **Decisión del usuario:** ¿se retira para subir CodeGraph/Repo a la barra de 5 botones y agrandar el kanban?
-- ☐ **3.7 Repo-panel rápido** — `git_repo_state` spawnea `git.exe` por llamada (`git_ops.rs:9-14`); cachear con TTL o usar
-  `git2`; mostrar el path para desambiguar el "siempre Ultron". *(Baja prioridad: 1 proceso por refresh.)*
+- ✅ **3.7 Repo-panel rápido — HECHO (`bed217e`, 2026-06-30).** `git_repo_state` cachea el estado con TTL (ya no
+  spawnea `git.exe` por refresh) + muestra el path del repo para desambiguar el "siempre Ultron".
 - ◐ **3.8 Learn auto — re-especificar o cerrar.** `Learn.tsx` **no tiene** refs Gemini/dual/triple (es estático). Si el
   plan apuntaba a otra superficie, nombrarla; si no, cerrar el item (no hay deuda en Learn.tsx).
-- ☐ **3.9 Adoptar eventos de alto valor de los ~30.** De los ~21 sin usar, cablear los que dan producto:
-  `SubagentStart/Stop` → feed del Monitor en vivo (enlaza 3.2); `PostToolUseFailure` → captura de errores dedicada
-  (hoy `posttoolfail-capture` corre en `PostToolUse` genérico); `TaskCreated/Completed` → kanban auto-crea (enlaza 3.4);
-  `FileChanged` → link doc↔código (un cambio de código marca su doc stale). *Hecho:* ≥2 hooks nuevos de alto valor
-  cableados y verificados en runtime.
+- ✅ **3.9 Adoptar eventos de alto valor — 2 hooks nuevos cableados + consumidos (código HECHO + verde; 2026-07-01).**
+  De los ~21 eventos sin usar, cableados los dos de mayor valor (confirmados como emitidos por `claude-code-guide` contra
+  la doc oficial). **(1) `SubagentStart`** → hook `subagent-lifecycle.js` (registrado en `SubagentStart` + `SubagentStop`)
+  escribe `{event:start|stop, agent_id, agent, label}` a `~/.ultron/.tmp/subagent-lifecycle.jsonl`; `live_session_feed`
+  reduce por `agent_id` (último evento = start → EN VUELO) y el Monitor pinta la sección **"Subagentes activos"** con pulso
+  — **cierra el límite in-flight que 3.2 declaró** (`subagent-harvest.js` de resultados queda intacto). **(2) `PostToolUseFailure`**
+  → `posttoolfail-capture.js` (que ya proponía `error_resolution` al inbox) ahora corre también en el evento dedicado:
+  `PostToolUse` captura fallos CON resultado (is_error/exit≠0), `PostToolUseFailure` los que la tool NI ejecutó
+  (permiso/timeout/harness, `error` top-level) — clases **complementarias**, no un traslado (mand. 13). **Verificado:**
+  `cargo` 5/5 (`running_subagents_pairs_start_and_stop_by_agent_id`, caso negativo start+stop→no activo), `tsc` 0, selftests
+  `subagent-lifecycle` 6/6 + `posttoolfail-capture` 5/5 (caso negativo éxito→null), settings.json válido, `regen-manifest
+  --check` OK (23 hooks). **ALCANCE REAL (mand. 13):** un hook nuevo SOLO se carga al inicio de sesión → la EMISIÓN real
+  se verifica en la PRÓXIMA sesión; aquí queda probada la LÓGICA (selftests con payloads reales) + el consumo. Límite del
+  in-flight: si un `SubagentStop` se pierde, el "start" queda activo hasta salir de la ventana reciente (sin TTL por tiempo
+  en este corte). `TaskCreated/Completed` (kanban auto-crea) y `FileChanged` (doc↔código) quedan como oportunidad futura.
+  *Pendiente: rebuild + verificación en la próxima sesión (lanzar un subagente → "Subagentes activos"; forzar fallo de tool → candidate al inbox).*
 
 ---
 

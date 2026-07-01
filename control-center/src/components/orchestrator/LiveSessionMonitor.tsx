@@ -494,6 +494,103 @@ export default function LiveSessionMonitor({
             </div>
           )}
 
+          {/* Subagentes EN VUELO (SubagentStart sin SubagentStop): el "en vivo"
+              real. El backend reduce el log de ciclo de vida por agent_id. */}
+          {(feed?.running_subagents.length ?? 0) > 0 && (
+            <div>
+              <SectionLabel>Subagentes activos ({feed?.running_subagents.length})</SectionLabel>
+              <div className="flex flex-col gap-0.5">
+                {feed?.running_subagents.map((s) => (
+                  <div key={`run-${s.agent_id}`} className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span
+                        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full"
+                        style={{ background: "var(--color-success, #3fb950)" }}
+                        aria-hidden
+                      />
+                      <span
+                        className="truncate text-[11px]"
+                        style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}
+                      >
+                        {s.agent === "unknown" ? "subagente" : s.agent}
+                      </span>
+                      {s.label && (
+                        <span
+                          className="truncate text-[9px]"
+                          style={{ color: "var(--color-text-faint)" }}
+                          title={s.label}
+                        >
+                          {s.label}
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className="shrink-0 text-[9.5px]"
+                      style={{ color: "var(--color-success, #3fb950)" }}
+                    >
+                      corriendo · {fmtTime(s.started_at)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Subagentes recientes (SubagentStop harvest): tareas de subagente ya
+              TERMINADAS de esta maquina. Complementa "Agentes delegados" (que son
+              delegaciones de la app + eventos workflow:* en vivo). */}
+          {(feed?.subagents.length ?? 0) > 0 && (
+            <div>
+              <SectionLabel>Subagentes recientes</SectionLabel>
+              <p className="mb-1 text-[9px]" style={{ color: "var(--color-text-faint)" }}>
+                Subagentes (Task tool) ya terminados — el hook los registra al finalizar.
+              </p>
+              <div className="flex flex-col gap-1">
+                {feed?.subagents.slice(0, 6).map((s, i) => (
+                  <div key={`sa-${s.ts ?? "x"}-${i}`} className="flex flex-col gap-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="shrink-0" style={{ color: "#a855f7" }} aria-hidden>
+                          ◆
+                        </span>
+                        <span
+                          className="truncate text-[11px]"
+                          style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}
+                        >
+                          {s.agent === "unknown" ? "subagente" : s.agent}
+                        </span>
+                        {s.label && (
+                          <span
+                            className="truncate text-[9px]"
+                            style={{ color: "var(--color-text-faint)" }}
+                            title={s.label}
+                          >
+                            {s.label}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className="shrink-0 text-[9.5px] tabular-nums"
+                        style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+                      >
+                        {s.chars}c · {fmtTime(s.ts)}
+                      </span>
+                    </div>
+                    {s.preview && (
+                      <p
+                        className="truncate text-[10px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                        title={s.preview}
+                      >
+                        {s.preview}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Preview de orquestacion (F2.1 — la insignia): que haria el orquestador
               con un prompt dado, sin ejecutar nada. invoke('orchestrate_prompt'). */}
           <div>

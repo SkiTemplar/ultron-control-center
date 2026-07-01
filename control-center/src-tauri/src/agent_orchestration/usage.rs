@@ -51,7 +51,7 @@ struct HarvestRow {
 // Path resolution — mirrors agent-usage.mjs lines 24-25
 // ---------------------------------------------------------------------------
 
-fn harvest_path() -> Option<PathBuf> {
+pub(crate) fn harvest_path() -> Option<PathBuf> {
     // env override wins (same as the JS script)
     if let Ok(p) = std::env::var("SUBAGENT_HARVEST_LOG") {
         if !p.is_empty() {

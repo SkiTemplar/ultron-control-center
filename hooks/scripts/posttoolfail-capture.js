@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-// hooks/scripts/posttoolfail-capture.js — PostToolUse hook (iter-10, FASE 6).
+// hooks/scripts/posttoolfail-capture.js — PostToolUse + PostToolUseFailure hook
+// (iter-10 FASE 6; dual-wired en masterplan 3.9).
 //
-// Runs after EVERY tool call (matcher "*"). It is CHEAP and returns immediately
-// when the tool succeeded — only when the tool result clearly indicates an
-// error/failure does it PROPOSE an `error_resolution` candidate via
-// `ultron-memory candidate` (writer_path = MemoryService — single writer).
+// Cableado en DOS eventos que capturan clases COMPLEMENTARIAS de fallo:
+//   - PostToolUse (matcher "*")       — fallos CON resultado: tool_response.is_error /
+//                                        status=error / success=false / exit_code!=0.
+//   - PostToolUseFailure (matcher "*") — fallos donde la tool NI ejecutó (permiso /
+//                                        timeout / error de harness): payload sin
+//                                        tool_response pero con `error` top-level.
+// `detectError` cubre ambos shapes; en éxito (PostToolUse) retorna null -> no-op.
+// Cuando hay fallo PROPONE un `error_resolution` candidate via `ultron-memory
+// candidate` (writer_path = MemoryService — single writer).
 // The candidate captures the failing tool + error snippet so a future session
 // can recall "we hit this error before". Lands pending in the governed inbox;
 // never auto-promoted.
@@ -148,10 +154,15 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (e) {
-  // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
-  logHookError('posttoolfail-capture', e);
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+    logHookError('posttoolfail-capture', e);
+  }
+  process.exitCode = 0;
 }
-process.exitCode = 0;
+
+// Exportado para el check conductual (scripts/posttoolfail-capture.selftest.mjs).
+module.exports = { detectError };

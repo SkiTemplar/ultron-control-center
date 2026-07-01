@@ -141,6 +141,62 @@ pub struct RoutingLogEntry {
     pub skills: Option<serde_json::Value>,
 }
 
+/// Fila cruda de `~/.ultron/.tmp/subagent-harvest.jsonl` (la escribe el hook
+/// SubagentStop `hooks/scripts/subagent-harvest.js`). Tolerante a drift de shape.
+#[derive(Debug, Clone, Deserialize)]
+struct SubagentHarvestRow {
+    ts: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    chars: Option<u64>,
+    #[serde(default)]
+    preview: String,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// Un subagente COMPLETADO expuesto al frontend. El hook escribe al TERMINAR, así
+/// que esto son subagentes acabados (no in-flight): el "arrancó" lo daría un hook
+/// SubagentStart (item 3.9). `agent="unknown"` → el frontend lo muestra como
+/// "subagente" (la atribución fina del especialista es deuda de 0.3).
+#[derive(Debug, Clone, Serialize)]
+pub struct SubagentActivity {
+    pub ts: Option<String>,
+    pub project: Option<String>,
+    pub agent: String,
+    pub chars: u64,
+    pub preview: String,
+    pub label: Option<String>,
+}
+
+/// Fila cruda de `~/.ultron/.tmp/subagent-lifecycle.jsonl` (hook
+/// `subagent-lifecycle.js`, cableado en SubagentStart + SubagentStop).
+#[derive(Debug, Clone, Deserialize)]
+struct LifecycleRow {
+    ts: Option<String>,
+    #[serde(default)]
+    event: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// Un subagente EN VUELO: arrancó (SubagentStart) y aún no reportó su
+/// SubagentStop. Da el "en vivo" real que 3.2 no cubría (solo terminados).
+#[derive(Debug, Clone, Serialize)]
+pub struct RunningSubagent {
+    pub agent: String,
+    pub label: Option<String>,
+    pub agent_id: String,
+    pub started_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LiveSessionFeed {
     /// Orchestrations newest-first (route / workflow / agents / skills / memories).
@@ -149,6 +205,10 @@ pub struct LiveSessionFeed {
     pub routing: Vec<RoutingLogEntry>,
     /// Delegated agents newest-first (status: launched/done/timeout/failed).
     pub delegations: Vec<DelegationLogEntry>,
+    /// Finished subagents newest-first (SubagentStop harvest), ruido filtrado.
+    pub subagents: Vec<SubagentActivity>,
+    /// Subagentes EN VUELO ahora (SubagentStart sin SubagentStop posterior).
+    pub running_subagents: Vec<RunningSubagent>,
     pub generated_at: String,
 }
 
@@ -161,6 +221,102 @@ fn now_iso() -> String {
     crate::activity_timeline::epoch_secs_to_iso(secs)
 }
 
+/// Los subagentes recientes ya TERMINADOS, del harvest, newest-first.
+/// Filtra el RUIDO: descarta filas sin texto (chars 0 / preview vacío) — el hook
+/// SubagentStop también recibe payloads que no son subagentes reales (p.ej. un
+/// Stop de sesión con resultado vacío); una tarjeta vacía sería una cáscara
+/// (mand. 11). `agent` vacío/ausente → "unknown" (el frontend lo pinta "subagente").
+fn recent_subagents_from_path(path: &Path, limit: usize) -> Vec<SubagentActivity> {
+    read_jsonl_tail::<SubagentHarvestRow>(path, limit)
+        .into_iter()
+        .filter_map(|r| {
+            let chars = r.chars.unwrap_or(0);
+            let preview = r.preview.trim().to_string();
+            if chars == 0 || preview.is_empty() {
+                return None;
+            }
+            let agent = r
+                .agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("unknown")
+                .to_string();
+            Some(SubagentActivity {
+                ts: r.ts,
+                project: r.project,
+                agent,
+                chars,
+                preview,
+                label: r.label.filter(|l| !l.trim().is_empty()),
+            })
+        })
+        .collect()
+}
+
+/// Reusa `usage::harvest_path` (misma ruta que consume la telemetría 2.1) para no
+/// duplicar la ubicación del log. Sin home dir / sin fichero → vacío.
+fn recent_subagents(limit: usize) -> Vec<SubagentActivity> {
+    match crate::agent_orchestration::usage::harvest_path() {
+        Some(path) => recent_subagents_from_path(&path, limit),
+        None => Vec::new(),
+    }
+}
+
+fn lifecycle_path() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("SUBAGENT_LIFECYCLE_LOG") {
+        if !p.is_empty() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    Some(
+        dirs::home_dir()?
+            .join(".ultron")
+            .join(".tmp")
+            .join("subagent-lifecycle.jsonl"),
+    )
+}
+
+/// Subagentes EN VUELO: reduce el log de ciclo de vida por `agent_id` — un
+/// agent_id cuyo evento MÁS RECIENTE es "start" (sin un "stop" posterior) sigue
+/// vivo. El tail viene newest-first, así que el PRIMER evento visto por agent_id
+/// manda. Sin `agent_id` no se puede emparejar start/stop → se ignora.
+/// LÍMITE (mand. 13): si el SubagentStop se pierde, el "start" queda como activo
+/// hasta salir de la ventana reciente (este corte no lleva TTL por tiempo).
+fn running_subagents_from_path(path: &Path, limit: usize) -> Vec<RunningSubagent> {
+    let rows = read_jsonl_tail::<LifecycleRow>(path, limit);
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut running: Vec<RunningSubagent> = Vec::new();
+    for r in rows {
+        let id = match r.agent_id.as_deref().map(str::trim) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
+        };
+        if !seen.insert(id.clone()) {
+            continue; // ya resuelto por un evento más nuevo de este agent_id
+        }
+        if r.event.as_deref() == Some("start") {
+            running.push(RunningSubagent {
+                agent: r
+                    .agent
+                    .filter(|a| !a.trim().is_empty())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                label: r.label.filter(|l| !l.trim().is_empty()),
+                agent_id: id,
+                started_at: r.ts,
+            });
+        }
+    }
+    running
+}
+
+fn running_subagents(limit: usize) -> Vec<RunningSubagent> {
+    match lifecycle_path() {
+        Some(path) => running_subagents_from_path(&path, limit),
+        None => Vec::new(),
+    }
+}
+
 /// Live Session Monitor: combined recent activity of the active Claude Code
 /// session. Read-only — never writes. `limit` clamps to [1, 200] (default 20).
 #[tauri::command]
@@ -171,11 +327,15 @@ pub fn live_session_feed(limit: Option<usize>) -> Result<LiveSessionFeed, String
     let orchestrations = read_jsonl_tail::<OrchestrateLogEntry>(&logs.join("orchestrate.jsonl"), n);
     let routing = read_jsonl_tail::<RoutingLogEntry>(&logs.join("routing-dispatcher.jsonl"), n);
     let delegations = list_delegations_inner(n).unwrap_or_default();
+    let subagents = recent_subagents(n);
+    let running_subagents = running_subagents(n);
 
     Ok(LiveSessionFeed {
         orchestrations,
         routing,
         delegations,
+        subagents,
+        running_subagents,
         generated_at: now_iso(),
     })
 }
@@ -213,5 +373,72 @@ mod tests {
         let feed = live_session_feed(Some(99_999)).unwrap();
         assert!(feed.routing.len() <= MAX_LIMIT);
         assert!(feed.orchestrations.len() <= MAX_LIMIT);
+        assert!(feed.subagents.len() <= MAX_LIMIT);
+        assert!(feed.running_subagents.len() <= MAX_LIMIT);
+    }
+
+    #[test]
+    fn running_subagents_pairs_start_and_stop_by_agent_id() {
+        let dir = std::env::temp_dir().join("ultron_lifecycle_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("lifecycle.jsonl");
+        std::fs::write(
+            &p,
+            concat!(
+                // sa-1: arrancó y TERMINÓ -> NO activo (caso negativo, mand. 7).
+                r#"{"ts":"2026-07-01T10:00:00Z","event":"start","agent_id":"sa-1","agent":"rust-engineer"}"#,
+                "\n",
+                r#"{"ts":"2026-07-01T10:05:00Z","event":"stop","agent_id":"sa-1","agent":"rust-engineer"}"#,
+                "\n",
+                // sa-2: arrancó y SIGUE vivo -> activo.
+                r#"{"ts":"2026-07-01T10:06:00Z","event":"start","agent_id":"sa-2","agent":"code-reviewer","label":"review feed"}"#,
+                "\n",
+                // sin agent_id -> ignorado (no se puede emparejar).
+                r#"{"ts":"2026-07-01T10:07:00Z","event":"start","agent_id":"","agent":"orphan"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let out = running_subagents_from_path(&p, 20);
+        assert_eq!(out.len(), 1, "solo sa-2 sigue en vuelo");
+        assert_eq!(out[0].agent_id, "sa-2");
+        assert_eq!(out[0].agent, "code-reviewer");
+        assert_eq!(out[0].label.as_deref(), Some("review feed"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn recent_subagents_drops_noise_and_defaults_unknown() {
+        // 3 filas: un subagente real, uno sin tipo (agent:""), y RUIDO (chars:0,
+        // preview vacío — p.ej. un Stop de sesión que el hook también recibe).
+        let dir = std::env::temp_dir().join("ultron_subagents_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("harvest.jsonl");
+        std::fs::write(
+            &p,
+            concat!(
+                r#"{"ts":"2026-07-01T10:00:00Z","project":"ultron","agent":"code-reviewer","chars":120,"preview":"revisó el diff","label":"review"}"#,
+                "\n",
+                r#"{"ts":"2026-07-01T10:01:00Z","project":"ultron","agent":"","chars":80,"preview":"resultado sin tipo"}"#,
+                "\n",
+                r#"{"ts":"2026-07-01T10:02:00Z","project":"ultron","agent":"unknown","chars":0,"preview":""}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let out = recent_subagents_from_path(&p, 10);
+
+        // Caso negativo (mand. 11): la fila de ruido NO debe aparecer.
+        assert_eq!(out.len(), 2, "la fila chars:0/preview vacío debe filtrarse");
+        // newest-first: la fila sin tipo (10:01) va primera; agent:"" -> "unknown".
+        assert_eq!(out[0].agent, "unknown");
+        assert_eq!(out[0].chars, 80);
+        assert!(out[0].label.is_none());
+        // el subagente real conserva nombre y label.
+        assert_eq!(out[1].agent, "code-reviewer");
+        assert_eq!(out[1].label.as_deref(), Some("review"));
+        let _ = std::fs::remove_file(&p);
     }
 }

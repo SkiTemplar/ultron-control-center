@@ -103,13 +103,40 @@ export interface DelegationLogEntry {
 }
 
 /**
+ * Subagente COMPLETADO, cosechado por el hook SubagentStop
+ * (subagent-harvest.jsonl). El hook escribe al TERMINAR, así que son subagentes
+ * acabados (no in-flight). `agent === "unknown"` se muestra como "subagente".
+ */
+export interface SubagentActivity {
+  ts: string | null;
+  project: string | null;
+  agent: string;
+  chars: number;
+  preview: string;
+  label: string | null;
+}
+
+/**
+ * Subagente EN VUELO: arrancó (SubagentStart) y aún no reportó su SubagentStop.
+ * Da el "en vivo" real que SubagentActivity (terminados) no cubre.
+ */
+export interface RunningSubagent {
+  agent: string;
+  label: string | null;
+  agent_id: string;
+  started_at: string | null;
+}
+
+/**
  * Feed completo de live_session_feed. Un único fetch sirve a la vez:
  *   - orchestrations → correlación por session_id (tarjetas) + último turno global
- *   - routing/delegations → panel global de orquestación
+ *   - routing/delegations/subagents/running_subagents → panel global de orquestación
  */
 export interface LiveSessionFeed {
   orchestrations: SessionOrchestration[];
   routing: RoutingLogEntry[];
   delegations: DelegationLogEntry[];
+  subagents: SubagentActivity[];
+  running_subagents: RunningSubagent[];
   generated_at: string;
 }

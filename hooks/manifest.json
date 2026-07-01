@@ -265,7 +265,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "51f6a83af37e2748e3cfa8e5379c9526d552e8c411f2537400c6b5dd5e75a215",
+      "checksum_sha256": "c047876e3a12f67d9eca48a2234ee9f5ce00d188001542d7a1c84cc3066ca2e9",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -275,7 +275,26 @@
       "failure_policy": "no_op",
       "writes_memory": true,
       "writer_path": "MemoryService",
-      "description": "Tras cada tool: si el resultado indica fallo (is_error/status=error/success=false/exit code != 0) PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet del error; cae pending al inbox gobernado, nunca auto-promueve. Si el tool tuvo exito sale en ~120ms sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
+      "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado, nunca auto-promueve. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
+    },
+    {
+      "id": "posttoolfail-capture",
+      "event": "PostToolUseFailure",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
+      "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
+      "timeout_s": 15,
+      "checksum_sha256": "c047876e3a12f67d9eca48a2234ee9f5ce00d188001542d7a1c84cc3066ca2e9",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS",
+        "POSTTOOLFAIL_CAPTURE_DISABLED",
+        "ULTRON_MEMORY_BIN"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": true,
+      "writer_path": "MemoryService",
+      "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado, nunca auto-promueve. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
     },
     {
       "id": "session-end-summary",
@@ -315,6 +334,21 @@
       "description": "Antes de compactar preserva el estado L0 (hechos clave heuristicos del tail) en el fichero de scratch ~/.ultron/.tmp/context.md. Es un fichero de trabajo, NO memoria gobernada; no toca brain.db/Qdrant/sidecar. Fail-safe: error -> exit 0 sin abortar la compactacion."
     },
     {
+      "id": "subagent-lifecycle",
+      "event": "SubagentStart",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/subagent-lifecycle.js",
+      "script": "~/.ultron/hooks/scripts/subagent-lifecycle.js",
+      "timeout_s": 15,
+      "checksum_sha256": "abdedd1b5a3763fcbcfe68f89dc3c4f12ace41f78ebc9916aa42f365e2f818c5",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Registra el ciclo de vida de cada subagente (Task tool): en SubagentStart escribe event=start; en SubagentStop event=stop; ambos al scratch ~/.ultron/.tmp/subagent-lifecycle.jsonl (writer NONE, no toca brain.db/Qdrant). El backend (live_session_feed) reduce por agent_id -> muestra subagentes EN VUELO en el Monitor (masterplan 3.9). Fail-safe: error -> exit 0."
+    },
+    {
       "id": "subagent-harvest",
       "event": "SubagentStop",
       "matcher": "*",
@@ -332,6 +366,21 @@
       "writes_memory": true,
       "writer_path": "MemoryService",
       "description": "Al terminar un subagente registra su resultado: siempre append al scratch ~/.ultron/.tmp/subagent-harvest.jsonl (writer NONE) y, si el resultado es no trivial, PROPONE un candidate agent_note via 'ultron-memory candidate' (escritor unico = sidecar) que cae pending al inbox gobernado; nunca auto-promueve. NO escribe brain.db directamente. Fail-safe: error -> exit 0."
+    },
+    {
+      "id": "subagent-lifecycle",
+      "event": "SubagentStop",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/subagent-lifecycle.js",
+      "script": "~/.ultron/hooks/scripts/subagent-lifecycle.js",
+      "timeout_s": 15,
+      "checksum_sha256": "abdedd1b5a3763fcbcfe68f89dc3c4f12ace41f78ebc9916aa42f365e2f818c5",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Registra el ciclo de vida de cada subagente (Task tool): en SubagentStart escribe event=start; en SubagentStop event=stop; ambos al scratch ~/.ultron/.tmp/subagent-lifecycle.jsonl (writer NONE, no toca brain.db/Qdrant). El backend (live_session_feed) reduce por agent_id -> muestra subagentes EN VUELO en el Monitor (masterplan 3.9). Fail-safe: error -> exit 0."
     },
     {
       "id": "notify-relay",
