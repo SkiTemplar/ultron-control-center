@@ -285,9 +285,6 @@ cockpit/_pending-*.json
 cockpit/diagnostics/*.json
 cockpit/diagnostics/*.zip
 
-# Pending de decisions auto-capturadas (runtime, drenado por el backend) + sidecar de drain
-cockpit/projects/*/decisions-pending.jsonl
-cockpit/projects/*/decisions-pending.draining
 # campana fullize: sidecar proxy vendor + backups kanban
 /proxy/
 .tmp/kanban-backup-*.json

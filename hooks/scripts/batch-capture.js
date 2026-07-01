@@ -6,7 +6,7 @@
  * itself cannot execute it, it must be LEFT in Run Batch (a persistent queue)
  * and never silently dropped, so it surfaces in the Control Center UI.
  *
- * Flow (modelled on stop-compress-session.js's appendPendingDecisions):
+ * Flow (append-to-pending-queue pattern, drained by the Tauri backend):
  *   1. Read the transcript JSONL path from the Stop hook stdin payload.
  *   2. Scan tool_use blocks whose name is Bash / PowerShell whose paired
  *      tool_result is an error (is_error:true) or a permission denial.

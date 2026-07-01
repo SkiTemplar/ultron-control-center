@@ -33,9 +33,9 @@ dimension de embedding incompatible). Ahora:
 ```
 Stop hook (stop-compress-session.js)
   -> extrae hechos de la transcripcion
-  -> append a decisions-pending.jsonl           (candidate, NO memoria)
-  -> backend del Control Center los drena
-  -> MemoryService escribe a brain.db            (unico escritor)
+  -> `ultron-memory capture` propone candidatos   (redaction + inbox gobernado)
+  -> el usuario aprueba/rechaza en el inbox        (nunca auto-promocion)
+  -> MemoryService escribe a brain.db              (unico escritor)
 ```
 
 ## `manifest.json`
@@ -97,7 +97,7 @@ runHook('memory-orchestrate', async () => {
 ### `Stop`
 | Hook | Proposito |
 |------|-----------|
-| `stop-compress-session.js` | Comprime la sesion a hechos -> `decisions-pending.jsonl` (candidate). Upsert a Qdrant `ultron_sessions` **RETIRADO** (`d3a16ff`). |
+| `stop-compress-session.js` | Comprime la sesion a hechos -> `ultron-memory capture` (candidatos al inbox gobernado). Upsert a Qdrant `ultron_sessions` **RETIRADO** (`d3a16ff`); sink `decisions-pending.jsonl` **ERRADICADO** (cat20.3, sin consumidor). |
 | `kanban-update-reminder.js` | Si detecta tarea completada, recuerda actualizar el kanban del proyecto activo. |
 | `batch-capture.js` | Captura comandos REJECTED/FAILED a la cola Run Batch (`queue-pending.jsonl`). |
 

@@ -163,7 +163,7 @@ local scratch files.
 | `memory-orchestrate.js` | UserPromptSubmit | Route the prompt through `ultron-memory orchestrate` (intent → workflow → agents → relevant memories) as context. Read-only. |
 | `save-user-prompt.js` | UserPromptSubmit | Archive each non-trivial prompt to the daily markdown inbox (candidate for `consolidate-memory`). Does not write the SoT. |
 | `posttoolfail-capture.js` | PostToolUse | On a failed tool result, propose an `error_resolution` candidate via the sidecar. Success path exits fast without writing. |
-| `stop-compress-session.js` | Stop | Compress the session into facts and leave them as candidates in `decisions-pending.jsonl` (Decisions panel / backend drain). |
+| `stop-compress-session.js` | Stop | Compress the session into facts and propose them as governed candidates via `ultron-memory capture` (redaction + human-approved inbox). |
 | `kanban-update-reminder.js` | Stop | If a task looks completed, emit a reminder to update the active project's kanban. Read-only. |
 | `batch-capture.js` | Stop | Capture REJECTED / FAILED / `ai_cannot_execute` commands to the Run Batch queue. Operational queue, not semantic memory. |
 | `subagent-harvest.js` | SubagentStop | Record a subagent's result to scratch; if non-trivial, propose an `agent_note` candidate via the sidecar. |

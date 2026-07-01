@@ -11,8 +11,8 @@
  *   2. Parse last N turns (MAX_TURNS = 60) from the JSONL.
  *   3. Invoke Haiku 4.5 (Anthropic) / Groq to extract 3-5 structured facts.
  *      Falls back to rule-based extraction when no API key is available.
- *   4. Append captured decisions to the project's pending queue
- *      (appendPendingDecisions) for the Control Center "Decisions" panel.
+ *   4. Propose the captured facts as governed candidates via the
+ *      `ultron-memory capture` sidecar (redaction + human-approved inbox).
  *   5. Exits 0 always — hook failures must never interrupt user workflow.
  *
  * NOTE: the legacy upsert to the RETIRED Qdrant `ultron_sessions` collection
@@ -369,46 +369,12 @@ function resolveProjectId(cwd) {
   return path.basename(cwd || process.cwd() || 'unknown').replace(/^\./, '');
 }
 
-// Append decision-kind facts to the per-project pending file. The Control
-// Center drains this into proposed decisions (tag: auto-captured) on panel
-// load. Best-effort: never throws into the hot path.
-// Threshold to surface a decision-kind fact as a pending decision. Kept LOW
-// (0.5) on purpose: a fact the extractor already classified as kind="decision"
-// is worth a human glance, and the user filters it with Accept/Reject anyway.
-// A false negative loses the decision forever; a false positive is one click.
-// The Groq route systematically under-scores decisions (~0.3-0.5), so the old
-// 0.7 gate captured nothing — see version_propagate sibling audit 2026-05-30.
-const PENDING_DECISION_MIN_IMPORTANCE = 0.5;
-
-function appendPendingDecisions(projectId, facts, sessionId, date) {
-  try {
-    const decisionFacts = (facts || []).filter(
-      (f) =>
-        f &&
-        f.kind === 'decision' &&
-        (f.importance || 0) >= PENDING_DECISION_MIN_IMPORTANCE &&
-        f.text &&
-        f.text.trim().length >= 5,
-    );
-    if (decisionFacts.length === 0) return;
-    const dir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId);
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, 'decisions-pending.jsonl');
-    for (const f of decisionFacts) {
-      appendJsonl(file, {
-        decision: f.text.slice(0, 120),
-        rationale: `Captado automaticamente del Stop hook (sesion ${sessionId}, ${date}). Revisar y aceptar o rechazar.`,
-        session_id: sessionId,
-        date,
-        tags: ['auto-captured'],
-        source: 'stop-compress-session',
-      });
-    }
-    safeLog({ level: 'info', msg: 'pending_decisions_written', count: decisionFacts.length, projectId, sessionId });
-  } catch (e) {
-    safeLog({ level: 'warn', msg: 'pending_decisions_failed', error: String(e && e.message) });
-  }
-}
+// [erradicado 2026-07-01 · cat20.3] appendPendingDecisions escribia
+// decisions-pending.jsonl por proyecto para un "panel Decisions / backend drain"
+// que NUNCA existio en src-tauri (0 lectores en backend y frontend). Las
+// decisiones ya se capturan por el camino gobernado `ultron-memory capture`
+// (mas abajo) -> inbox de candidatos con redaction + aprobacion humana
+// (single-writer). Era una segunda cola redundante que crecia sin sumidero.
 
 // Captura automatica de CONTEXTO de proyecto (peticion 2026-06-22: "que el
 // sistema sepa de este proyecto cuando toque, captura automatica por proyecto").
@@ -453,7 +419,7 @@ function appendProjectContext(projectId, facts) {
 // Writes cockpit/projects/{projectId}/sessions/{session_id}/compact.json with:
 //   human    — prose summary for humans
 //   machine  — counters/metrics object for tooling
-//   decisions — list of decision-kind facts (reuses what appendPendingDecisions already extracts)
+//   decisions — list of decision-kind facts extracted from the session
 //   next     — list of todo-kind facts as next steps
 //   bugs     — list of bug-kind facts (if any)
 //   arch_delta — recent git commits during the session window (best-effort)
@@ -597,9 +563,6 @@ async function main() {
   // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
   writeCompact(projectId, sessionId, cwd, turns, facts, date);
 
-  // Auto-capture decisions for the Control Center "Decisions" panel. Runs
-  // before the Qdrant path so decisions are still captured if Qdrant is down.
-  appendPendingDecisions(projectId, facts, sessionId, date);
   // Captura automatica de contexto de proyecto (kind=context) -> context.md, que
   // el SessionStart del mismo proyecto reinyecta. Best-effort.
   appendProjectContext(projectId, facts);
@@ -645,8 +608,8 @@ async function main() {
   // collection (384-d BGE) was REMOVED. It wrote memory OUTSIDE the canonical
   // store (brain.db, governed by MemoryService) and used an embedding dimension
   // incompatible with the canonical `ultron_memory` (E5 1024-d). Session capture
-  // now flows through `appendPendingDecisions` (above) and, going forward, the
-  // Stop -> `ultron-memory candidate` path (single-writer). The dead
+  // now flows solely through the Stop -> `ultron-memory capture` path
+  // (single-writer, governed inbox). The dead
   // qdrant*/computeEmbedding helpers were deleted (2026-06-22).
   // See cockpit/memory-rework/STATE-RECONCILIATION-2026-06-04.md (P0-1).
   safeLog({
@@ -669,5 +632,5 @@ if (require.main === module) {
   });
   process.exitCode = 0;
 } else {
-  module.exports = { appendProjectContext, appendPendingDecisions, resolveProjectId };
+  module.exports = { appendProjectContext, resolveProjectId };
 }

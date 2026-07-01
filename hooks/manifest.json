@@ -26,7 +26,7 @@
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 30,
-      "checksum_sha256": "82e9d062dbaa90aef0df285c3c7bbd6d160b762750c282f47ad26e8437f1f484",
+      "checksum_sha256": "54165308e5bf65247b91fa41788259e9c36e0cd80e2f875b33c2b970cd72c4f9",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -39,7 +39,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Comprime la sesion a hechos y los deja como candidates en decisions-pending.jsonl (panel Decisions / drain backend). Upsert directo a Qdrant ultron_sessions RETIRADO en d3a16ff (fuera del SoT)."
+      "description": "Comprime la sesion a hechos y los propone como candidatos gobernados via ultron-memory capture (redaction + inbox con aprobacion humana). Upsert directo a Qdrant ultron_sessions RETIRADO en d3a16ff; sink decisions-pending.jsonl ERRADICADO en cat20.3 (sin consumidor)."
     },
     {
       "id": "kanban-update-reminder",
@@ -63,7 +63,7 @@
       "command": "node ~/.ultron/hooks/scripts/batch-capture.js",
       "script": "~/.ultron/hooks/scripts/batch-capture.js",
       "timeout_s": 10,
-      "checksum_sha256": "da04e4220e68cfb6ec1ab6916839ecf595a9b87bfb71b66966d16afca882c6c0",
+      "checksum_sha256": "175bbd30c2f6f843a55a4d2a5710b6a447c0540f32c08f25fe60dda6a389e9be",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",

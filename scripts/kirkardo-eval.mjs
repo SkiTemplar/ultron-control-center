@@ -2598,36 +2598,9 @@ cat(17, "Calidad de compactacion", [
       return { pass: r.ok, detail: r.ok ? "presente y syntax OK" : r.stderr.slice(0, 100) };
     },
   },
-  {
-    id: "17.4",
-    desc: "decisions-pending.jsonl existe en algun proyecto (pipeline activo)",
-    auto: true,
-    check() {
-      // El archivo puede estar en cockpit/projects/<nombre>/decisions-pending.jsonl
-      // o en ubicaciones raiz
-      const candidates = [
-        join(ULTRON, "decisions-pending.jsonl"),
-        join(ULTRON, "logs", "decisions-pending.jsonl"),
-        join(ULTRON, "batches", "decisions-pending.jsonl"),
-      ];
-      const found = candidates.find((p) => fileExists(p));
-      if (found) return { pass: true, detail: found.split(/[/\\]/).slice(-3).join("/") };
-      // Busca en cockpit/projects/
-      const projectsDir = join(COCKPIT, "projects");
-      if (existsSync(projectsDir)) {
-        try {
-          const projects = readdirSync(projectsDir);
-          for (const proj of projects) {
-            const candidate = join(projectsDir, proj, "decisions-pending.jsonl");
-            if (fileExists(candidate)) {
-              return { pass: true, detail: `cockpit/projects/${proj}/decisions-pending.jsonl` };
-            }
-          }
-        } catch {}
-      }
-      return { pass: false, detail: "decisions-pending.jsonl no encontrado" };
-    },
-  },
+  // [17.4 retirado 2026-07-01 · cat20.3] "decisions-pending.jsonl existe (pipeline
+  // activo)" premiaba el SINTOMA: el sink nunca tuvo consumidor en src-tauri. El
+  // pipeline se enterro (redundante con `ultron-memory capture` -> inbox gobernado).
   {
     id: "17.5",
     desc: "compact.json mas reciente con contenido estructurado real (no stub vacio)",
