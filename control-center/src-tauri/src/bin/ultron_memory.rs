@@ -443,7 +443,15 @@ fn run() -> Result<serde_json::Value, String> {
                 .map_err(|e| e.to_string())?;
             to_json(res)
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill> [--project X] [args]".to_string()),
+        // cat7.8: SHA corto de HEAD embebido en build time (build.rs) para verificar
+        // exe<->commit sin depender del mtime (un `touch` lo falsea). option_env!
+        // degrada a "unknown" si el build no tuvo git disponible.
+        "version" => Ok(serde_json::json!({
+            "bin": "ultron-memory",
+            "pkg_version": env!("CARGO_PKG_VERSION"),
+            "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
+        })),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
