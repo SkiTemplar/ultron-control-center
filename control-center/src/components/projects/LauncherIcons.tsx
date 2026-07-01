@@ -47,28 +47,15 @@ export function CodexMark() {
   );
 }
 
-export function GeminiMark() {
-  return (
-    <span aria-hidden
-      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11.5px] font-bold leading-none"
-      style={{ background: "#4285f4", color: "#fafaf7", fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, monospace)" }}
-    >
-      G
-    </span>
-  );
-}
-
 /** Icon picked from the item for built-in chips. */
 export function BuiltinIcon({ item }: { item: LauncherItem }) {
   const k = item.kind;
   if (k === "folder") return <FolderChipIcon />;
   if (k === "claude") return <ClaudeMark />;
   if (k === "codex") return <CodexMark />;
-  if (k === "gemini") return <GeminiMark />;
   if (k === "session") {
     const p = item.provider ?? "claude";
     if (p === "codex") return <CodexMark />;
-    if (p === "gemini") return <GeminiMark />;
     return <ClaudeMark />;
   }
   if (k === "ide") return <FolderChipIcon />;

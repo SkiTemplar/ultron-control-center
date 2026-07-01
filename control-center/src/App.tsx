@@ -458,18 +458,6 @@ function AppInner() {
           prompt: null,
         }),
     });
-    list.push({
-      id: "ai.spawn.gemini",
-      label: "Spawn Gemini session",
-      description: "Launch the Gemini CLI (Google OAuth, long-context).",
-      group: "AI",
-      run: () =>
-        void runQuiet("Spawn Gemini", "spawn_session", {
-          provider: "gemini",
-          prompt: null,
-        }),
-    });
-
     // -- Maintenance (pulled dynamically from the backend) ------------
     // The backend's `list_maintenance_commands_inner` is the source of
     // truth. Whenever a new MaintenanceCommand is added there it shows

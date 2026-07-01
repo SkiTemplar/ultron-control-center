@@ -54,7 +54,6 @@ export type DiagAppHealth = {
   projects_json_ok: boolean;
   claude_in_path: boolean;
   codex_in_path: boolean;
-  gemini_in_path: boolean;
   qdrant_running: boolean;
   severity: DiagSeverity;
 };

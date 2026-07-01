@@ -3,7 +3,10 @@
 // Envuelve las dos vistas de sesiones bajo la pestaña "Sessions" sin tocar el
 // componente de lanzamiento existente:
 //   - "Monitor" (por defecto): gestor multi-sesión en vivo (SessionsPane) que
-//     lee TODAS las sesiones de Claude Code en disco (estado/modelo/context%).
+//     lee TODAS las sesiones de Claude Code en disco (estado/modelo/context%) Y
+//     muestra arriba el panel GLOBAL de orquestación en vivo (último turno +
+//     routing + delegaciones + previsualizador). Monitor y Orquestación viven
+//     fundidos en una sola pantalla, con un único poll de live_session_feed.
 //   - "Lanzar": el gestor de spawn/workspaces existente (Sessions).
 //
 // Read-only en Monitor: solo VER. La acción "Abrir en Projects" se delega a la
@@ -12,13 +15,11 @@
 import { useState } from "react";
 import { SessionsPane } from "./SessionsPane";
 import { Sessions } from "../Sessions";
-import LiveSessionMonitor from "../orchestrator/LiveSessionMonitor";
 
-type SubView = "monitor" | "orchestration" | "launcher";
+type SubView = "monitor" | "launcher";
 
 const SUBVIEWS: ReadonlyArray<readonly [SubView, string]> = [
   ["monitor", "Monitor"],
-  ["orchestration", "Orquestación"],
   ["launcher", "Lanzar"],
 ];
 
@@ -60,11 +61,6 @@ export function SessionsZone({
 
       <div className="min-h-0 flex-1 overflow-auto">
         {view === "monitor" && <SessionsPane onOpenProject={onOpenProject} />}
-        {view === "orchestration" && (
-          <div className="p-6">
-            <LiveSessionMonitor />
-          </div>
-        )}
         {view === "launcher" && <Sessions />}
       </div>
     </div>

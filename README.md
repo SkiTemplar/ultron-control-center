@@ -199,13 +199,13 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 | Backend (Control Center) | Rust estable (`control-center/src-tauri/src/`) |
 | Memoria (SoT) | SQLite (FTS5) en `~/.ultron/brain.db` |
 | Indice denso | Qdrant nativo (`~/.ultron/qdrant-native/`), coleccion `ultron_memory`, E5 1024d |
-| Embeddings | E5 (denso) via `crate::qdrant::embed_e5`; sidecar `ultron-embed` para hooks |
+| Embeddings | E5 (denso) via `crate::qdrant::embed_e5` dentro de `ultron-memory` |
 | Sidecar CLI hooks | `ultron-memory` (logica canonica reusada por los hooks Node) |
 | Scripting OS | PowerShell 5.1+ / scripts en `cockpit/` |
 | Runtimes LLM | Claude Code (principal); Codex CLI opcional. Gemini CLI retirado 2026-06-19 (Google corto el free-tier OAuth); Gemini queda solo como fallback cloud del AI Router |
 
 Binarios sidecar declarados en `control-center/src-tauri/Cargo.toml`:
-`ultron-embed` y `ultron-memory` (ambos requieren la feature `qdrant`).
+`ultron-memory` (requiere la feature `qdrant`).
 
 ---
 
@@ -249,7 +249,7 @@ npm test       # vitest (frontend)
 │           │                 # projects, system_ops, ...)
 │           ├── ai_router/    # AI Router (mod/exec/health/providers/seed/store/types)
 │           ├── orchestrator/ # mod/orchestrate/ranking/rules/types_model
-│           └── bin/          # sidecars ultron-embed / ultron-memory
+│           └── bin/          # sidecar ultron-memory
 ├── cockpit/                  # config + estado en JSON/markdown
 │   └── ai-router/            # providers.json, zones.json, metrics.json
 ├── hooks/                    # hooks de ciclo de vida

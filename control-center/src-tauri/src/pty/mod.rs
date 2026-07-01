@@ -1,6 +1,6 @@
 // pty/mod.rs — ULTRON Control Center 2.0 — Embedded PTY runtime.
 //
-// Spawns `claude` / `codex` / `gemini` (or arbitrary commands) inside a PTY
+// Spawns `claude` / `codex` (or arbitrary commands) inside a PTY
 // via portable-pty. Each session emits `pty:data:<id>` events with base64
 // chunks; on exit emits `pty:exit:<id>` with the exit code.
 //

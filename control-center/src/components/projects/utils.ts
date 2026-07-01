@@ -24,7 +24,6 @@ export function isBuiltinItem(item: LauncherItem): boolean {
     item.kind === "folder" ||
     item.kind === "claude" ||
     item.kind === "codex" ||
-    item.kind === "gemini" ||
     item.kind === "session" ||
     item.kind === "ide" ||
     item.kind === "exe";
@@ -43,11 +42,9 @@ export function builtinTooltip(item: LauncherItem): string {
       return `Start Claude session in ${item.cwd ?? "cwd"}`;
     case "codex":
       return `Start Codex session in ${item.cwd ?? "cwd"}`;
-    case "gemini":
-      return `Start Gemini session in ${item.cwd ?? "cwd"}`;
     case "session": {
       const p = (item.provider ?? "claude").toString();
-      const pName = p === "codex" ? "Codex" : p === "gemini" ? "Gemini" : "Claude";
+      const pName = p === "codex" ? "Codex" : "Claude";
       return `Start ${pName} session in ${item.cwd ?? "cwd"}`;
     }
     case "ide":
@@ -100,8 +97,6 @@ export function providerBadge(p: SessionProvider): { label: string; tint: string
   switch (p) {
     case "codex":
       return { label: "Codex", tint: "#10a37f" };
-    case "gemini":
-      return { label: "Gemini", tint: "#4285f4" };
     case "claude":
     default:
       return { label: "Claude", tint: "#cc785c" };
@@ -116,7 +111,7 @@ export function providerBadge(p: SessionProvider): { label: string; tint: string
 export const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
   { value: "folder", label: "Folder", hint: "Open the folder in Windows Explorer" },
   { value: "ide", label: "IDE", hint: "Open the project in the preferred IDE (VS Code / Cursor / Rider / CLion / etc.)" },
-  { value: "session", label: "AI session", hint: "Start a new Claude / Codex / Gemini session (selector below)" },
+  { value: "session", label: "AI session", hint: "Start a new Claude / Codex session (selector below)" },
   { value: "exe", label: "Executable (advanced)", hint: "Spawn an .exe / .lnk / .bat with optional arguments" },
 ];
 

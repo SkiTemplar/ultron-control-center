@@ -38,12 +38,14 @@ const { execFileSync } = require('child_process');
 
 const HOME = os.homedir();
 const ULTRON_ROOT = path.join(HOME, '.ultron');
-// Umbral ALTO de cierre automatico: solo se mueve a Done una card cuyo titulo
-// (sin prefijo [..]) matchea >=0.7 (Jaccard de tokens) el asunto de un commit
-// RECIENTE. Conservador por diseno: titulos largos (una card con descripcion)
-// no matchean un asunto corto -> nunca se cierran por error. La evidencia es el
-// commit (trabajo hecho Y registrado), no una mencion difusa del transcript.
-const CLOSE_THRESHOLD = 0.7;
+// Umbral de cierre automatico (Jaccard de tokens sobre el asunto de commit YA
+// SIN su prefijo conventional-commit). Antes era 0.7 contra el asunto crudo:
+// estructuralmente inalcanzable (titulos de card largos vs asuntos cortos
+// "fix(scope): ..."), asi que el cierre era un no-op de facto (cat21.1). Ahora
+// 0.5 sobre el asunto LIMPIO + dos senales de ALTA PRECISION adicionales
+// (cat-code/issue compartido, substring) -> dispara con precision, no por azar.
+// La evidencia sigue siendo el commit (trabajo hecho Y registrado).
+const CLOSE_THRESHOLD = 0.5;
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'kanban-reminder.jsonl');
 const SESSION_STATE_PATH = path.join(HOME, '.ultron', '.tmp', 'current-session.json');
 const KANBAN_BASE = path.join(HOME, '.ultron', 'cockpit', 'projects');
@@ -326,6 +328,28 @@ function jaccardTokens(a, b) {
   return inter / (A.size + B.size - inter);
 }
 
+// Quita el prefijo conventional-commit ("feat(scope): ", "fix!: ") para que las
+// palabras reales del asunto dominen el solape de tokens (el prefijo es ruido).
+function cleanSubject(subject) {
+  return String(subject || '').replace(/^\s*[a-z]+(\([^)]*\))?!?:\s*/i, '');
+}
+
+// Claves de ALTA PRECISION: cat-codes (cat21, cat21.4) e issue-refs (#123). Un
+// commit "(cat21.4)" cierra SOLO una card que comparte exactamente esa clave en
+// su titulo/tags -> cat21.4 != cat21 (especificidad evita cierres gruesos).
+function extractKeys(text) {
+  const keys = new Set();
+  const s = String(text || '').toLowerCase();
+  for (const m of s.matchAll(/\bcat\d+(?:\.\d+)?\b/g)) keys.add(m[0]);
+  for (const m of s.matchAll(/#\d+\b/g)) keys.add(m[0]);
+  return keys;
+}
+
+function sharesKey(a, b) {
+  for (const k of a) if (b.has(k)) return true;
+  return false;
+}
+
 // Cierra (mueve a la columna role=done) las cards VIVAS (doing/todo) cuyo titulo
 // matchea FUERTE (>=CLOSE_THRESHOLD) el asunto de un commit reciente. Escritura
 // inmutable de kanban.json. Devuelve los titulos cerrados ([] si ninguno o sin
@@ -354,7 +378,20 @@ function closeCompletedCards(project, root) {
     if (!liveColIds.has(card.column_id)) return card;
     const bare = String(card.title || '').replace(/^\[[^\]]*\]\s*/, '');
     if (bare.length < 8) return card; // titulos triviales no se auto-cierran
-    const hit = subjects.some((s) => jaccardTokens(bare, s) >= CLOSE_THRESHOLD);
+    const bareLc = bare.toLowerCase();
+    const cardKeys = extractKeys(
+      card.title + ' ' + (Array.isArray(card.tags) ? card.tags.join(' ') : ''),
+    );
+    const hit = subjects.some((s) => {
+      // 1) ALTA PRECISION: cat-code / issue-ref compartido (commit "(cat21.4)"
+      //    cierra la card cat21.4). La senal mas fuerte: trabajo etiquetado.
+      if (cardKeys.size && sharesKey(extractKeys(s), cardKeys)) return true;
+      const cleaned = cleanSubject(s);
+      // 2) substring: el titulo pelado aparece literal en el asunto limpio.
+      if (bareLc.length >= 12 && cleaned.toLowerCase().includes(bareLc)) return true;
+      // 3) fuzzy: Jaccard sobre el asunto SIN prefijo conventional-commit.
+      return jaccardTokens(bare, cleaned) >= CLOSE_THRESHOLD;
+    });
     if (!hit) return card;
     closed.push(String(card.title || ''));
     return { ...card, column_id: doneCol.id };
@@ -362,7 +399,12 @@ function closeCompletedCards(project, root) {
 
   if (closed.length) {
     try {
-      fs.writeFileSync(kanbanPath, JSON.stringify({ ...doc, cards: newCards }, null, 2));
+      // Trailing '\n' para igualar a scripts/kanban.mjs saveBoard (evita diffs
+      // de formato espurios cuando ambos escritores tocan el mismo fichero).
+      fs.writeFileSync(
+        kanbanPath,
+        JSON.stringify({ ...doc, cards: newCards }, null, 2) + '\n',
+      );
     } catch (err) {
       safeLog({ level: 'warn', msg: 'kanban_write_failed', error: String(err && err.message) });
       return [];

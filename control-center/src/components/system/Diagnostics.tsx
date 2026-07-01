@@ -184,7 +184,7 @@ export function Diagnostics() {
         : recent.map((e) => `- [${e.level}] id=${e.event_id} src=${e.source} at=${e.time_created}\n  ${(e.message || "").replace(/\s+/g, " ").trim().slice(0, 240)}`).join("\n");
 
       const healthBlock = report
-        ? [`projects.json: ${report.app.projects_json_ok ? "ok" : "MISSING/CORRUPT"}`, `claude in PATH: ${report.app.claude_in_path ? "yes" : "no"}`, `codex in PATH: ${report.app.codex_in_path ? "yes" : "no"}`, `gemini in PATH: ${report.app.gemini_in_path ? "yes" : "no"}`, `qdrant running: ${report.app.qdrant_running ? "yes" : "no"}`].join("\n")
+        ? [`projects.json: ${report.app.projects_json_ok ? "ok" : "MISSING/CORRUPT"}`, `claude in PATH: ${report.app.claude_in_path ? "yes" : "no"}`, `codex in PATH: ${report.app.codex_in_path ? "yes" : "no"}`, `qdrant running: ${report.app.qdrant_running ? "yes" : "no"}`].join("\n")
         : "(no app health snapshot loaded)";
 
       const fixesBlock = Object.values(FIX_CATALOG).map((f) => `- ${f.kind} (${CATEGORY_LABELS[f.category]}) — ${f.label}: ${f.detail}`).join("\n");

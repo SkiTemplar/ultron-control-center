@@ -65,7 +65,12 @@ pub struct DelegationLogEntry {
     pub agent: String,
     pub task_preview: String,
     pub cwd: Option<String>,
-    pub used_cheap_model: bool,
+    /// Whether the caller requested a cheap model. Note: this field reflects
+    /// the *request*, not the applied provider — in the polling path
+    /// (delegate_task_inner) there is no cheap-model channel after Gemini
+    /// was retired (2026-06-19).
+    #[serde(default, alias = "used_cheap_model")]
+    pub cheap_model_requested: bool,
     pub started_at: String,
     /// "launched" when spawn succeeded, "failed" otherwise. Future: track
     /// "running" / "done" via session_id polling.

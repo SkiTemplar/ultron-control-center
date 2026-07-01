@@ -55,7 +55,9 @@ function render(ctx) {
     // 2026-06-23: delegación automática (plano chat). La directiva SUSTITUYE al
     // advisory: es una ORDEN, no una sugerencia. El agente la ejecuta con Agent().
     const d = ctx.delegation_directive;
-    const model = d.model_hint || 'haiku';
+    // calidad>tokens (feedback 2026-06-24): el especialista delegado nunca cae a
+    // haiku; si el sidecar no sugiere modelo, default de calidad = sonnet.
+    const model = d.model_hint || 'sonnet';
     out.push('<orchestration-directive trust="system">');
     out.push('DELEGA AHORA — no hagas este trabajo en el contexto principal.');
     out.push(`agent: ${d.agent}`);

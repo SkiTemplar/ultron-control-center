@@ -37,7 +37,7 @@ export function AddItemModal({
     itemSaving ||
     ((iKind === "exe" || iKind === "folder") && !iPath.trim()) ||
     (iKind === "ide" && !iPath.trim() && !itemTarget.path) ||
-    ((iKind === "claude" || iKind === "codex" || iKind === "gemini" || iKind === "session") &&
+    ((iKind === "claude" || iKind === "codex" || iKind === "session") &&
       !iCwd.trim() && !itemTarget.path);
 
   return (
@@ -143,13 +143,12 @@ export function AddItemModal({
               >
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
-                <option value="gemini">Gemini</option>
               </select>
             </div>
           )}
 
-          {/* Cwd (session / legacy claude/codex/gemini) */}
-          {(iKind === "claude" || iKind === "codex" || iKind === "gemini" || iKind === "session") && (
+          {/* Cwd (session / legacy claude/codex) */}
+          {(iKind === "claude" || iKind === "codex" || iKind === "session") && (
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
                 Cwd

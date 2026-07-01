@@ -6,7 +6,7 @@
 //
 // v2.7 FULL REDESIGN: dashboard cards are now visually larger.
 //   - `size="lg"` bumps padding, title size, and minHeight so the most
-//     important cards (Mem0, Pending, Backup, Recent*, Crash) feel like
+//     important cards (Pending, Backup, Recent*, Crash) feel like
 //     first-class panels rather than mini-widgets.
 //   - Title is no longer uppercase micro-text. The new baseline is 14px
 //     semibold (sentence case) so titles read like section headings.

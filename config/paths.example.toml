@@ -31,9 +31,7 @@ storage      = "%USERPROFILE%\\.ultron\\qdrant_storage"
 url          = "http://localhost:6333"
 
 [sidecars]
-# Compiled sidecars (regenerable via scripts/install-sidecars.ps1). Override the
-# embed sidecar location with env ULTRON_EMBED_BIN.
-ultron_embed  = "%USERPROFILE%\\.ultron\\bin\\ultron-embed.exe"
+# Compiled sidecars. Override sidecar location with env ULTRON_MEMORY_BIN.
 ultron_memory = "%USERPROFILE%\\.ultron\\bin\\ultron-memory.exe"
 
 [hooks]

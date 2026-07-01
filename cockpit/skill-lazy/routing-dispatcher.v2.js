@@ -325,7 +325,7 @@ const PERSONAS = [
 const PLUGINS = [
   // Code review
   { id: 'pr-review-toolkit:code-reviewer',   triggers: ['code review', 'review pr', 'revisa el pr'],         strong: ['auditoria de codigo', 'pull request review'],                               context: ['code review', 'revision de codigo'] },
-  { id: 'second-opinion',                    triggers: ['second opinion', 'codex review', 'gemini review', '/second-opinion'], strong: ['external review', 'segunda opinion'],              context: ['codex', 'gemini'] },
+  { id: 'second-opinion',                    triggers: ['second opinion', 'codex review', '/second-opinion'], strong: ['external review', 'segunda opinion'],              context: ['codex', 'gemini'] },
   // Debugging / quality
   { id: 'superpowers:systematic-debugging',  triggers: ['systematic debugging'],                              strong: ['bug sin causa obvia', 'no encuentro el bug', 'debug sistematico'],          context: ['bug intermitente', 'debugging'] },
   { id: 'focused-fix',                       triggers: ['focused fix', 'haz que funcione'],                   strong: ['feature rota', 'modulo con fallos en cascada'],                            context: ['reparar feature', 'fix de modulo'] },
@@ -1334,8 +1334,13 @@ function scanEccSkills() {
 /**
  * Pattern identifying ECC planning/orchestration skills that qualify for the
  * lowered re-injection threshold (iter-10 FASE 7).
+ *
+ * "architecture" suelto NO califica: arrastraba `hexagonal-architecture` (patrón
+ * de IMPLEMENTACIÓN, no planning) al floor rebajado de 50, donde verbos genéricos
+ * de un prompt TDD lo cruzaban (score 60) -> falso positivo ECC (cat4.2). Solo
+ * `architecture-decision`/ADR son planning real.
  */
-const ECC_PLANNING_ID_RE = /plan|spec|prd|architecture|design/i;
+const ECC_PLANNING_ID_RE = /plan|spec|prd|design|architecture-decision|adr/i;
 
 /**
  * Lowered raw-score floor applied ONLY to ECC skills whose id matches
@@ -1440,6 +1445,56 @@ function recordInjection(skillId) {
   _injectionHistory.set(skillId, _invocationCounter);
 }
 
+/** Compare dotted version strings numerically: compareVersions("1.10.0","1.9.0") > 0. */
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(function (n) { return parseInt(n, 10) || 0; });
+  const pb = String(b).split('.').map(function (n) { return parseInt(n, 10) || 0; });
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const da = pa[i] || 0;
+    const db = pb[i] || 0;
+    if (da !== db) return da - db;
+  }
+  return 0;
+}
+
+/**
+ * Locate a plugin sub-skill's own SKILL.md inside the plugin cache, picking the
+ * highest installed version. Plugin skills live at:
+ *   ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/<subskill>/SKILL.md
+ * @param {string} nsPrefix  plugin name (e.g. "superpowers")
+ * @param {string} baseName  sub-skill name (e.g. "test-driven-development")
+ * @returns {string|null} absolute path, or null if not found
+ */
+function resolvePluginSkillMd(nsPrefix, baseName) {
+  const cacheRoot = path.join(HOME, '.claude', 'plugins', 'cache');
+  let marketplaces;
+  try {
+    marketplaces = fs.readdirSync(cacheRoot, { withFileTypes: true });
+  } catch (_e) {
+    return null;
+  }
+  const found = [];
+  for (const mk of marketplaces) {
+    if (!mk.isDirectory()) continue;
+    const pluginDir = path.join(cacheRoot, mk.name, nsPrefix);
+    let versions;
+    try {
+      versions = fs.readdirSync(pluginDir, { withFileTypes: true });
+    } catch (_e) {
+      continue;
+    }
+    for (const v of versions) {
+      if (!v.isDirectory()) continue;
+      const p = path.join(pluginDir, v.name, 'skills', baseName, 'SKILL.md');
+      if (fs.existsSync(p)) found.push({ version: v.name, path: p });
+    }
+  }
+  if (found.length === 0) return null;
+  found.sort(function (a, b) { return compareVersions(b.version, a.version); });
+  return found[0].path;
+}
+
 /**
  * Resolve the SKILL.md path for a given skill id.
  *
@@ -1461,22 +1516,31 @@ function resolveSkillMdPath(skillId) {
 
   if (hasColon) {
     const [nsPrefix, baseName] = skillId.split(':', 2);
-    // Candidates in priority order
-    const candidates = [
-      // 1. Sub-skill path: skills/superpowers/brainstorming/SKILL.md
+    // 1-2. Sub-skill inside ~/.claude/skills (active / disabled).
+    const local = [
       path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'),
-      // 2. Sub-skill disabled: skills/superpowers/brainstorming.disabled/SKILL.md
       path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'),
-      // 3. Namespace-level active: skills/superpowers/SKILL.md
-      path.join(SKILLS_DIR, nsPrefix, 'SKILL.md'),
-      // 4. Namespace folder disabled: skills/superpowers.disabled/SKILL.md
-      path.join(SKILLS_DIR, nsPrefix + '.disabled', 'SKILL.md'),
     ];
-    for (const candidate of candidates) {
+    for (const candidate of local) {
       if (fs.existsSync(candidate)) return candidate;
     }
-    // Fall back to namespace folder even if not confirmed to exist (will fail gracefully)
-    return candidates[0];
+    // 3. Plugin-cache sub-skill (canonical home of namespaced plugin skills como
+    //    superpowers:test-driven-development). DEBE ir ANTES del catch-all de
+    //    namespace: si no, un superpowers:* cae en skills/superpowers.disabled/
+    //    SKILL.md (name: superpowers) y el modelo recibe el manifiesto genérico
+    //    del plugin en vez de la guía pedida (cat4.1).
+    const pluginPath = resolvePluginSkillMd(nsPrefix, baseName);
+    if (pluginPath) return pluginPath;
+    // 4-5. Namespace-level catch-all (último recurso).
+    const nsFallbacks = [
+      path.join(SKILLS_DIR, nsPrefix, 'SKILL.md'),
+      path.join(SKILLS_DIR, nsPrefix + '.disabled', 'SKILL.md'),
+    ];
+    for (const candidate of nsFallbacks) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    // Fall back to the sub-skill path even if unconfirmed (will fail gracefully).
+    return local[0];
   }
 
   // Non-namespaced: try disabled variant first (active after apply-lazy-skills.ps1),
@@ -1664,6 +1728,15 @@ async function fetchLazySkillContent(candidates, promptNorm) {
 }
 
 /**
+ * Presupuesto TOTAL de caracteres de contenido SKILL.md inyectado por prompt.
+ * El cap de MAX_LAZY_INJECTIONS solo limita el NÚMERO de skills, no su tamaño:
+ * un único SKILL.md grande (rust-patterns ~13.7k, ecc:django-security ~16.4k)
+ * reventaba el additionalContext (cat4.6, techo 12k). La inyección lazy existe
+ * para AHORRAR contexto, no para volcar 16k de golpe -> se trunca con marcador.
+ */
+const INJECT_CHAR_BUDGET = 10000;
+
+/**
  * Build the injection block appended after the routing hint.
  * @param {Map<string, string>} injectedSkills
  * @returns {string}
@@ -1676,13 +1749,29 @@ function buildInjectionBlock(injectedSkills) {
   // un id distinto pero el MISMO SKILL.md que la via eligible -> ~1.4k tokens
   // duplicados por prompt. El Map dedup por id no lo caza; esto si.
   const seenContent = new Set();
+  let used = 0;
   for (const [skillId, content] of injectedSkills) {
-    const key = content.trim();
-    if (seenContent.has(key)) continue;
-    seenContent.add(key);
+    const trimmed = content.trim();
+    if (seenContent.has(trimmed)) continue;
+    seenContent.add(trimmed);
+
+    const remaining = INJECT_CHAR_BUDGET - used;
+    if (remaining <= 0) break; // presupuesto agotado -> no inyectar más skills
+
+    let body = trimmed;
+    if (body.length > remaining) {
+      // Reserva ~160 chars para el marcador; trunca el cuerpo al resto.
+      const cut = Math.max(0, remaining - 160);
+      body =
+        trimmed.slice(0, cut).trimEnd() +
+        '\n\n[... SKILL.md truncado por presupuesto de contexto (' +
+        trimmed.length +
+        ' chars); abre el archivo completo si necesitas el resto ...]';
+    }
+    used += body.length;
     parts.push(
       '\n\n--- [skill-inyectada: ' + skillId + '] ---\n' +
-      content.trim() +
+      body +
       '\n--- [fin skill-inyectada: ' + skillId + '] ---'
     );
   }

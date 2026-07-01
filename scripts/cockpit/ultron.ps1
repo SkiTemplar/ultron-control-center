@@ -5,7 +5,7 @@
 #   ultron open <project>          - launch project in IDE
 #   ultron projects                - project browser
 #   ultron scan                    - discover projects
-#   ultron news [new]              - today's digest / generate newsletter
+#   ultron news                    - today's digest (Alerts Bus)
 #   ultron health                  - system health check
 #   ultron doctor                  - full doctor diagnostics
 #   ultron memory <status|sync>    - vault sync
@@ -80,7 +80,7 @@ function Show-Help {
     Write-Host "                           Create/remove ULTRON CORE shortcut on Desktop"
     Write-Host "  track [snapshot|summary] Activity tracker"
     Write-Host "  retention [--dry-run]    Run rotation/cleanup policy"
-    Write-Host "  news [new|create]        Show today's digest, or launch HTML generator (Gemini)"
+    Write-Host "  news                     Show today's digest (ALERTS.md)"
     Write-Host "  news purge-alerts        Move stale alerts (>7d) to ALERTS.archive.md"
     Write-Host "  news clear-alerts        Archive everything then wipe ALERTS.md"
     Write-Host "  news alerts-status       Show active/stale/undated counts"
@@ -88,14 +88,12 @@ function Show-Help {
     Write-Host "  dashboard [--print]      Generate (or show) DASHBOARD.md"
     Write-Host "  standup [--print|--gemini]"
     Write-Host "                           Generate (or show) today's standup"
-    Write-Host "  newsletter               (legacy alias) -> news_html_generator.py on-demand"
     Write-Host '  calendar [--sample|--print|--events [file]|--stdin]'
     Write-Host "                           Match Calendar events to projects -> deadlines.json"
     Write-Host ""
     Write-Host "  Sessions & quick-ask (v11.1):" -ForegroundColor Green
     Write-Host "  ask <pregunta>           Quick-ask via Haiku + mini-memoria (no comillas)"
     Write-Host "  claude [args]            Spawn interactive Claude session in cwd (new tab)"
-    Write-Host "  gemini [args]            Spawn interactive Gemini session in cwd"
     Write-Host "  codex  [args]            Spawn interactive Codex session in cwd"
     Write-Host ""
     Write-Host "  Apps & usage (v11.1):" -ForegroundColor Green
@@ -260,20 +258,13 @@ function Show-News {
     }
 
     $today = Get-Date -Format "yyyy-MM-dd"
-    # Try new newsletter format first, then legacy md digest
-    $digest = Join-Path $newsDir "newsletter-$today.html"
-    if (-not (Test-Path $digest)) { $digest = Join-Path $newsDir "$today.md" }
+    $digest = Join-Path $newsDir "$today.md"
     if (Test-Path $digest) {
         Write-Host "[Digest $today]" -ForegroundColor Cyan
         Write-Host "  $digest" -ForegroundColor DarkGray
-        # For HTML newsletters show a note; md digests can be cat'd directly
-        if ($digest.EndsWith(".html")) {
-            Write-Host "  (HTML newsletter — open in browser or run: ultron news open)" -ForegroundColor DarkGray
-        } else {
-            Get-Content $digest
-        }
+        Get-Content $digest
     } else {
-        Write-Host "[News] No digest for $today — generate with: ultron tui (key 2)" -ForegroundColor DarkGray
+        Write-Host "[News] No digest for $today -- Alerts Bus only" -ForegroundColor DarkGray
     }
 }
 
@@ -304,18 +295,12 @@ switch ($Command.ToLower()) {
     "alias"     { Show-Alias }
 
     "news" {
-        # v14.2 Tech/AI focus edition.
-        # `ultron news`               -> show today's digest (read-only)
-        # `ultron news new`           -> launch Gemini HTML generator
+        # `ultron news`               -> show today's digest (Alerts Bus, read-only)
         # `ultron news purge-alerts`  -> move stale alerts (>7d) to archive
         # `ultron news clear-alerts`  -> archive everything then wipe ALERTS.md
         # `ultron news alerts-status` -> active/stale/undated counts
         if ($Rest -and $Rest.Count -gt 0) {
             switch (([string]$Rest[0]).ToLower()) {
-                { $_ -eq "new" -or $_ -eq "create" } {
-                    Invoke-Py "news_html_generator.py" @($Rest | Select-Object -Skip 1)
-                    break
-                }
                 "purge-alerts" {
                     $extra = @($Rest | Select-Object -Skip 1)
                     Invoke-Py "news_alerts.py" (@("purge") + $extra)
@@ -378,11 +363,6 @@ switch ($Command.ToLower()) {
         } else {
             Invoke-Py "ai_standup.py" $Rest
         }
-    }
-
-    "newsletter" {
-        # v12: legacy weekly stub deprecated. Redirects to on-demand HTML generator.
-        Invoke-Py "news_html_generator.py" $Rest
     }
 
     "research" {
@@ -806,22 +786,6 @@ switch ($Command.ToLower()) {
             if ($Rest) { $cmdLine += " " + ($Rest -join " ") }
             Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $cmdLine -WorkingDirectory $cwd
             Write-Host "[claude] Spawned PowerShell window (cwd=$cwd)" -ForegroundColor Green
-        }
-    }
-
-    "gemini" {
-        # Spawn interactive Gemini session in current cwd.
-        $cwd = Get-Location
-        if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-            $wtArgs = @("new-tab", "--title", "Gemini", "-d", $cwd.Path, "gemini")
-            if ($Rest) { $wtArgs += $Rest }
-            Start-Process wt.exe -ArgumentList $wtArgs
-            Write-Host "[gemini] Spawned new tab in Windows Terminal (cwd=$cwd)" -ForegroundColor Green
-        } else {
-            $cmdLine = "gemini"
-            if ($Rest) { $cmdLine += " " + ($Rest -join " ") }
-            Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $cmdLine -WorkingDirectory $cwd
-            Write-Host "[gemini] Spawned PowerShell window (cwd=$cwd)" -ForegroundColor Green
         }
     }
 

@@ -3,7 +3,7 @@
 /// Allowed values for `Project.default_provider`. Centralised so backend
 /// commands (set_default_provider, create_project, update_project) and the
 /// load-time normaliser stay in lock-step.
-pub(crate) const VALID_PROVIDERS: &[&str] = &["claude", "codex", "gemini"];
+pub(crate) const VALID_PROVIDERS: &[&str] = &["claude", "codex"];
 
 /// fb-016 — allowed values for `Project.default_shell`. Anything outside
 /// the allowlist collapses to None at load time so the PTY layer falls

@@ -7,9 +7,8 @@
 // summaries (not full content) under a per-call token cap. Degrades to
 // sparse-only when E5/Qdrant is unavailable.
 //
-// Replaces the old `recall_hybrid` (constant-score union, no RRF) and
-// `recall_semantic`. Those remain registered (no live frontend caller) but are
-// deprecated.
+// Replaces the old `recall_hybrid` (constant-score union, no RRF) and the
+// retired `recall_semantic` (legacy 384-d path, removed 2026-06-28).
 
 pub(crate) mod engine;
 #[cfg(test)]

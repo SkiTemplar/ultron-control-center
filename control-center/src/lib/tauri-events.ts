@@ -7,7 +7,7 @@
 // StrictMode double-mounts don't leak.
 //
 // Backend contract:
-//   - "tray-action": { action: "new_claude" | "new_codex" | "new_gemini"
+//   - "tray-action": { action: "new_claude" | "new_codex"
 //                            | "open_plans" | "open_memory" }
 //
 // Per-project hotkeys are a separate path: the backend emits
@@ -23,14 +23,15 @@ type TabKey =
   | "projects"
   | "mcps"
   | "plans"
+  | "memory"
   | "settings"
   | "system";
 
 /** Provider keys accepted by the spawn_session backend command. */
-type SessionProvider = "claude" | "codex" | "gemini";
+type SessionProvider = "claude" | "codex";
 
 export interface TrayActionPayload {
-  action: "new_claude" | "new_codex" | "new_gemini" | "open_plans";
+  action: "new_claude" | "new_codex" | "open_plans" | "open_memory";
 }
 
 export interface TrayEventOptions {
@@ -79,11 +80,11 @@ export async function setupTrayEventListeners(
         case "new_codex":
           void spawn("codex");
           break;
-        case "new_gemini":
-          void spawn("gemini");
-          break;
         case "open_plans":
           opts.setTab("plans");
+          break;
+        case "open_memory":
+          opts.setTab("memory");
           break;
         default:
           // Unknown action — log so future tray menu changes don't

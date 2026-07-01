@@ -36,11 +36,6 @@ const META: Record<
     color: "#a875ff",
     loginHint: "Ejecuta `codex login` en una terminal.",
   },
-  gemini: {
-    label: "Gemini",
-    color: "var(--color-warn)",
-    loginHint: "Ejecuta `gemini auth login` en una terminal.",
-  },
 };
 
 function formatRelativeIso(iso: string | null): string {
@@ -87,7 +82,7 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
 
   // Lanza la reautenticación abriendo el CLI del proveedor en una terminal.
   //   claude → abre `claude` con `/login` en el portapapeles (pégalo y envía).
-  //   codex / gemini → abre el CLI, que dispara su propio flujo de login (OAuth)
+  //   codex → abre el CLI, que dispara su propio flujo de login (OAuth)
   //     cuando no hay credenciales válidas. El comando manual está en el hint.
   //
   // After spawning, we schedule an automatic re-check after 5 s so the status
@@ -140,11 +135,12 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
         className="text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Estado de los tres CLIs. Solo se verifica presencia y antigüedad del fichero
-        de credenciales — los tokens nunca se leen ni se validan contra la API. Para
-        reautenticarte, pulsa <b>Reautenticar</b>: abre el CLI en una terminal (Claude
-        con <code style={{ fontFamily: "var(--font-mono)" }}>/login</code> listo para
-        pegar; Codex y Gemini lanzan su propio login).
+        Estado de los CLIs activos (Claude y Codex). Solo se verifica presencia y
+        antigüedad del fichero de credenciales — los tokens nunca se leen ni se
+        validan contra la API. Para reautenticarte, pulsa <b>Reautenticar</b>: abre
+        el CLI en una terminal (Claude con{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>/login</code> listo para
+        pegar; Codex lanza su propio login).
       </p>
 
       {error && (

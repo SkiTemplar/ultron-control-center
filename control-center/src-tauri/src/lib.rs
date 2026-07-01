@@ -131,10 +131,9 @@ pub fn init_tracing() {
 
 /// Same as [`init_tracing`] but writes to **stderr**, leaving stdout clean.
 ///
-/// The `ultron-memory` / `ultron-embed` sidecars stream their JSON result on
-/// stdout (the IPC channel the Node hooks parse); trace output must therefore
-/// go to stderr or it would corrupt that channel. Sidecars call this from
-/// their `main()`.
+/// The `ultron-memory` sidecar streams its JSON result on stdout (the IPC
+/// channel the Node hooks parse); trace output must therefore go to stderr
+/// or it would corrupt that channel. Sidecars call this from their `main()`.
 pub fn init_tracing_stderr() {
     init_tracing_inner(true);
 }
@@ -269,7 +268,6 @@ pub fn run() {
             commands::projects::remove_launcher_item,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
-            // -- Qdrant status/embed (recall_semantic retired: legacy 384d path, Ola 0) --
             // -- FINANCE: native read-only dashboard of the Bank/finanzas project --
             // Requires --features finance (local-only; finance.rs excluded from public repo).
             #[cfg(feature = "finance")]

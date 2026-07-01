@@ -24,9 +24,8 @@ pub struct LauncherItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// v15.4.11 — only meaningful when `kind == "session"`. One of
-    /// "claude" / "codex" / "gemini". Lets the UI consolidate the
-    /// three legacy kinds behind a single "Sesion AI" entry with a
-    /// provider sub-selector.
+    /// "claude" / "codex". Lets the UI consolidate the legacy kinds behind a
+    /// single "Sesion AI" entry with a provider sub-selector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
@@ -49,11 +48,10 @@ pub struct ProjectInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<LauncherItem>>,
     /// Preferred session provider when the user hits the project's "main
-    /// launch" path: one of "claude" | "codex" | "gemini". The frontend uses
-    /// it to mark the corresponding chip as the default. Old registries
-    /// without the field default to "claude" at read time — see
-    /// `list_projects_inner`. The launch dispatch is provider-agnostic; this
-    /// field is pure metadata.
+    /// launch" path: one of "claude" | "codex". The frontend uses it to mark
+    /// the corresponding chip as the default. Old registries without the field
+    /// default to "claude" at read time — see `list_projects_inner`. The
+    /// launch dispatch is provider-agnostic; this field is pure metadata.
     pub default_provider: Option<String>,
     /// fb-016 — preferred default shell for new terminals spawned inside
     /// this project's workspace. One of "powershell" | "powershell-admin" |
@@ -152,8 +150,8 @@ pub struct CreateProjectPayload {
     pub ide: Option<String>,
     pub language: Option<String>,
     pub tags: Option<Vec<String>>,
-    /// One of "claude" | "codex" | "gemini". Anything else (or absent) is
-    /// normalised to "claude" before being written to projects.json.
+    /// One of "claude" | "codex". Anything else (or absent) is normalised to
+    /// "claude" before being written to projects.json.
     pub default_provider: Option<String>,
     /// fb-016 — preferred shell for non-AI terminals (optional).
     pub default_shell: Option<String>,
@@ -180,7 +178,7 @@ pub struct UpdateProjectPayload {
     pub tags: Option<Vec<String>>,
     /// Optional update for the project's default provider. None = leave the
     /// existing value untouched (consistent with the rest of the patch
-    /// fields). Any non-`claude/codex/gemini` value collapses to "claude".
+    /// fields). Any non-`claude/codex` value collapses to "claude".
     pub default_provider: Option<String>,
     /// fb-016 — patch the default shell. Empty string clears the field
     /// (loader will read it back as None). Unknown values collapse to None

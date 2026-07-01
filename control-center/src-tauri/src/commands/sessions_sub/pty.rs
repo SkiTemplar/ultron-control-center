@@ -59,8 +59,8 @@ pub async fn pty_summary(session_id: String) -> Option<PtySessionSummary> {
 /// The frontend calls this once, immediately after its `pty:data:<id>`
 /// listener registers, to recover the early output that the reader thread
 /// emitted before the IPC listener was subscribed. Without this, TUIs
-/// (Claude/Codex/Gemini) that paint their UI in the first burst and never
-/// repaint left the embedded terminal blank — the canonical P0 bug.
+/// (Claude/Codex) that paint their UI in the first burst and never repaint
+/// left the embedded terminal blank — the canonical P0 bug.
 #[tauri::command]
 pub async fn pty_replay(session_id: String) -> Result<String, String> {
     replay_inner(session_id)

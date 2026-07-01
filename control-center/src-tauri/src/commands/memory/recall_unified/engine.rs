@@ -108,6 +108,16 @@ pub(crate) fn assemble_pack(
                 continue;
             }
         }
+        // TTL: an item with an explicit expiry in the PAST is dead and must never
+        // reach the pack (mandamiento 12: expired data must not pollute context).
+        // `expires_at == None` (the common case) means "no TTL". Same millis basis
+        // as `valid_to`/`now_millis()`. ADDITIVE — legacy/NULL rows are untouched.
+        if let Some(expires_at) = item.expires_at {
+            if expires_at <= now_millis() {
+                discarded.push(discard("expired (expires_at in the past)"));
+                continue;
+            }
+        }
         if let Some(pid) = project_id {
             // Global-scope memories apply everywhere; others must match the
             // project — UNLESS cross_project is set, which relaxes ONLY this
@@ -349,6 +359,72 @@ pub fn build_trace(
                 })
                 .then_with(|| a.canonical_id.cmp(&b.canonical_id))
         });
+    }
+
+    // Pilar 1 — cross-encoder re-ranker (A/B, ULTRON_RERANK=1, default OFF).
+    //
+    // Takes the top RERANK_TOP_N candidates AFTER the heuristic quality sort
+    // and re-orders them by BGERerankerV2M3 cross-encoder score. Candidates
+    // beyond RERANK_TOP_N keep their existing position after the re-ranked
+    // block. Only the ORDER changes; canonical_id / dense_score are untouched.
+    //
+    // Default OFF guarantee: when ULTRON_RERANK is unset (or any value other
+    // than "1"/"true") this entire block is skipped and `fused` is IDENTICAL
+    // to what the heuristic quality sort produced — the baseline nDCG@8 /
+    // recall@8 is unchanged. This is the A/B measurability invariant.
+    //
+    // Fallback: any error from rerank_pairs is printed to stderr and silently
+    // ignored — the existing `fused` order is preserved and recall continues.
+    // The recall MUST NOT fail because the re-ranker is unavailable.
+    const RERANK_TOP_N: usize = 24;
+    if crate::qdrant::reranker_enabled() {
+        let top_n_len = RERANK_TOP_N.min(fused.len());
+        // Collect (id, text) pairs for the cross-encoder. Items whose text
+        // cannot be resolved (store miss or no summary/title) are omitted from
+        // the pairs list; they will receive NEG_INFINITY in the re-sort and
+        // sink to the bottom of the top-N block, which is acceptable.
+        let pairs: Vec<(String, String)> = fused[..top_n_len]
+            .iter()
+            .filter_map(|hit| {
+                store::get_item(&conn, &hit.canonical_id)
+                    .ok()
+                    .flatten()
+                    .map(|it| {
+                        // Use summary (the prompt-injected form); fall back to
+                        // title, then to an empty string. Empty strings are
+                        // scored poorly by the cross-encoder — an acceptable
+                        // outcome for items without descriptive text.
+                        let text = it.summary.or(it.title).unwrap_or_default();
+                        (hit.canonical_id.clone(), text)
+                    })
+            })
+            .collect();
+
+        match crate::qdrant::rerank_pairs(query, &pairs) {
+            Ok(ranked) => {
+                // Build a score lookup: id → cross-encoder score.
+                let score_map: HashMap<&str, f32> =
+                    ranked.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+                // Re-sort ONLY the top-N slice; the tail keeps its position.
+                // Items not present in score_map (text was empty / not in pairs)
+                // receive NEG_INFINITY and sink within the top-N block.
+                fused[..top_n_len].sort_by(|a, b| {
+                    let sa = score_map
+                        .get(a.canonical_id.as_str())
+                        .copied()
+                        .unwrap_or(f32::NEG_INFINITY);
+                    let sb = score_map
+                        .get(b.canonical_id.as_str())
+                        .copied()
+                        .unwrap_or(f32::NEG_INFINITY);
+                    sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+            Err(e) => {
+                // Graceful fallback: log and keep the heuristic order intact.
+                eprintln!("[reranker] fallback (order unchanged): {e}");
+            }
+        }
     }
 
     // (4)+(5) load items + apply governance + the per-call token cap via the

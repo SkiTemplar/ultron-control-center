@@ -28,7 +28,7 @@ anything.
 
 ### Wizard opt-outs are authoritative (v15.3.5+)
 
-Unchecking any **Optional features** checkbox (News, Gaming, Schedules,
+Unchecking any **Optional features** checkbox (Gaming, Schedules,
 Notifications, Usage, Sessions, Project, Plans, Personal, Self-improve)
 does not just hide the tab — `install.ps1` step 8d
 (`Remove-OptOutFeatureFiles`) physically deletes the corresponding files
@@ -42,7 +42,6 @@ wizard — re-running is idempotent and the purge step is safe to re-do.
 
 | Wizard ID            | Feature              | Files removed when unchecked                                                                                                                |
 | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feat_news`          | News digest          | `scripts/cockpit/news_html_generator.py`, `scripts/cockpit/news_alerts.py`, `scripts/cockpit/templates/newsletter.md.tmpl`, `cockpit/news/` |
 | `feat_gaming`        | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                                       |
 | `feat_schedules`     | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                                     |
 | `feat_notifications` | Notifications        | `scripts/qdrant/qdrant-notify.ps1`                                                                                                          |

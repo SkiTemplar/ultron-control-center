@@ -1,10 +1,13 @@
 // ULTRON Control Center — Auth status module.
 //
-// Detects whether the three CLI peers (Claude, Codex, Gemini) are logged in
+// Detects whether the two active CLI peers (Claude, Codex) are logged in
 // by checking for known credential files on disk. We never read or expose
 // token material — only `exists`, file size, and last-modified time. The
 // UI uses this to surface "logged in" / "expired" / "not configured" hints
 // without forcing the user to spawn each CLI.
+//
+// Note: Gemini CLI was removed 2026-06-19 — Google cut the free-tier OAuth
+// that the CLI depended on. `which gemini` == false on this machine.
 
 use std::fs;
 use std::path::PathBuf;
@@ -116,11 +119,6 @@ fn binary_path(name: &str) -> Option<PathBuf> {
             home.join("AppData/Roaming/npm/codex"),
             home.join(".local/bin/codex.exe"),
         ],
-        "gemini" => vec![
-            home.join("AppData/Roaming/npm/gemini.cmd"),
-            home.join("AppData/Roaming/npm/gemini"),
-            home.join(".local/bin/gemini.exe"),
-        ],
         _ => return None,
     };
     candidates.into_iter().find(|p| p.exists())
@@ -205,7 +203,6 @@ fn check_provider(provider: &str) -> AuthStatusEntry {
     let credential_path = match provider {
         "claude" => home.join(".claude/.credentials.json"),
         "codex" => home.join(".codex/auth.json"),
-        "gemini" => home.join(".gemini/oauth_creds.json"),
         _ => home.clone(),
     };
 
@@ -239,7 +236,6 @@ fn check_provider(provider: &str) -> AuthStatusEntry {
         Some(match provider {
             "claude" => "Run `claude /login` (interactive session) to authenticate.".to_string(),
             "codex" => "Run `codex login` in a terminal to authenticate.".to_string(),
-            "gemini" => "Run `gemini auth login` in a terminal to authenticate.".to_string(),
             _ => "Unknown provider".to_string(),
         })
     } else if expired == Some(true) {
@@ -277,10 +273,6 @@ fn check_provider(provider: &str) -> AuthStatusEntry {
 
 pub fn auth_status_inner() -> AuthStatusReport {
     AuthStatusReport {
-        entries: vec![
-            check_provider("claude"),
-            check_provider("codex"),
-            check_provider("gemini"),
-        ],
+        entries: vec![check_provider("claude"), check_provider("codex")],
     }
 }

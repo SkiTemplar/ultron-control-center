@@ -508,14 +508,14 @@ def _wellknown() -> list[dict]:
             "source": "plugin",
             "triggers": ["second opinion", "otra opinión", "peer review",
                          "validate approach", "contrastar"],
-            "tags": ["review", "codex", "gemini"],
+            "tags": ["review", "codex"],
             "cost_tier": "high",
             "dispatcher_priority": 3,
             "deprecated": False,
             "replaces": [],
             "last_used": None,
             "last_synced": today,
-            "description": "Get a second opinion via Codex or Gemini",
+            "description": "Get a second opinion via Codex",
         },
     ]
 

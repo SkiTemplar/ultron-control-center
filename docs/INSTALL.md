@@ -1,7 +1,7 @@
 # Installing ULTRON Control Center (app v2.7.1+ · core v15.5.x)
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
-that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
+that orchestrates Claude Code and Codex through their official CLIs.
 It runs entirely on your machine and uses your existing subscriptions — no
 API keys, no cloud services, no admin rights.
 
@@ -82,8 +82,8 @@ non-zero code.
    Linux for `install.sh`), PowerShell 5+ or bash 3.2+, enough RAM/disk, and
    that `github.com` is reachable.
 2. **Prerequisites.** Probes `git`, `node` (v22+), `rustc`, `uv`, and
-   `claude` (a hard requirement), plus the optional `codex` and `gemini`
-   CLIs. Missing tools are auto-installed where possible (winget on Windows;
+   `claude` (a hard requirement), plus the optional `codex`
+   CLI. Missing tools are auto-installed where possible (winget on Windows;
    apt/dnf/pacman on Linux). If a required tool cannot be installed
    automatically, it points you at the official documentation and exits.
 3. **Qdrant.** Downloads the native Qdrant binary (no Docker) into
@@ -99,7 +99,7 @@ non-zero code.
    and prompts to opt into the personal/community ones.
 7. **brain_index.** Initializes the SQLite FTS5 memory index.
 8. **Feature toggles.** The visual wizard (or CLI fallback) asks per
-   optional module (News, Gaming, Personal, Schedules, Self-improve,
+   optional module (Gaming, Personal, Schedules, Self-improve,
    Notifications, Usage, Sessions, Projects, Plans) and writes your
    choices to `~/.ultron/cockpit/features.json`. The desktop app reads
    this file at startup to decide which optional tabs to expose. Opted-out
@@ -131,7 +131,6 @@ cloud fallback in the AI Router via an API key.)
 When the installer prompts you for optional features, the defaults are:
 
 ```
-News digest        [y/N]   default N  (costs Gemini tokens)
 Gaming utilities   [Y/n]   default Y
 Personal section   [Y/n]   default Y
 Schedules          [Y/n]   default Y
@@ -148,7 +147,6 @@ Press Enter at any prompt to take the default. Your choices land in
 
 ```json
 {
-  "news": false,
   "gaming": true,
   "personal": true,
   "schedules": true,

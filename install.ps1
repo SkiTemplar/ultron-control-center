@@ -1324,12 +1324,6 @@ function Remove-OptOutFeatureFiles {
     # never throw. ONLY optional feature code — never core (skills, agents,
     # hooks, brain_index, qdrant).
     $optOutManifest = @{
-        feat_news = @(
-            "scripts\cockpit\news_html_generator.py",
-            "scripts\cockpit\news_alerts.py",
-            "scripts\cockpit\templates\newsletter.md.tmpl",
-            "cockpit\news"
-        )
         feat_gaming = @(
             "scripts\cockpit\game_detector.py",
             "scripts\cockpit\gaming-enum.ps1"
@@ -1407,7 +1401,6 @@ function Set-FeatureFlags {
     # Read previous answers as the defaults; falls back to baseline values
     # the first time around.
     $defaults = [ordered]@{
-        news          = $false  # Gemini tokens — off by default
         gaming        = $true
         personal      = $true
         schedules     = $true
@@ -1434,7 +1427,6 @@ function Set-FeatureFlags {
     if ($Script:Selections.Count -gt 0) {
         Write-Info "applying selections from the visual wizard"
         $features = [ordered]@{
-            news          = Get-Choice -Id "feat_news"          -Default $defaults.news
             gaming        = Get-Choice -Id "feat_gaming"        -Default $defaults.gaming
             personal      = Get-Choice -Id "feat_personal"      -Default $defaults.personal
             schedules     = Get-Choice -Id "feat_schedules"     -Default $defaults.schedules
@@ -1456,7 +1448,6 @@ function Set-FeatureFlags {
             Write-Info "Enable optional features? Press Enter to accept the default."
         }
         $features = [ordered]@{
-            news          = Read-FeatureToggle -Name "News digest"      -Default $defaults.news          -Note "Gemini-generated daily newsletter (cost-heavy)"
             gaming        = Read-FeatureToggle -Name "Gaming utilities" -Default $defaults.gaming        -Note "game detector + tweaks panel"
             personal      = Read-FeatureToggle -Name "Personal section" -Default $defaults.personal      -Note "private profile slots in the cockpit"
             schedules     = Read-FeatureToggle -Name "Schedules"        -Default $defaults.schedules     -Note "Windows scheduled-task management"

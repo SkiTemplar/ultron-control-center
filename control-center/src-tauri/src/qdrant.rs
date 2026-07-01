@@ -1,17 +1,17 @@
 // ULTRON Control Center — Qdrant semantic recall.
 //
 // Provides local vector search over session facts stored in a Qdrant instance
-// running on the same machine. Two public entry-points:
+// running on the same machine. Public entry-points:
 //
-//   `embed(text)`               — produce a 384-d BGE-small-EN-v1.5 vector.
-//   `search(collection, query, k)` — embed + query Qdrant, return top-k hits.
+//   `embed_e5(text, is_query)` — produce a 1024-d MultilingualE5Large vector.
+//   `search_with_vector(...)` — k-NN search in Qdrant with a precomputed vector.
+//   `scroll(...)`, `upsert_e5(...)`, `delete_point(...)` — collection helpers.
 //
 // Transport: Qdrant REST API on port 6333 (or QDRANT_URL env var). No gRPC
 // dependency — we reuse the `reqwest` client already in Cargo.toml.
 //
-// Embedding: `fastembed` crate — BGE-small-EN-v1.5 (384d) for embed() and
-// MultilingualE5Large (1024d, ~2.2 GB, the canonical recall embedder) for
-// embed_e5(). ONNX models are cached at the canonical dir
+// Embedding: `fastembed` crate — MultilingualE5Large (1024d, ~2.2 GB, the
+// canonical recall embedder). ONNX models are cached at the canonical dir
 // ULTRON_FASTEMBED_CACHE (default `~/.ultron/.fastembed_cache/`) on first
 // use, and initialised lazily behind a `OnceCell` (first call pays init).
 //
@@ -95,13 +95,6 @@ fn http_client() -> Result<&'static reqwest::blocking::Client, String> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// fastembed — BGE-small-EN-v1.5, 384-dimensional
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "qdrant")]
-static EMBEDDING_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
-
 /// MultilingualE5Large (1024-d, multilingual) — the Fase B canonical embedder.
 #[cfg(feature = "qdrant")]
 static E5_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
@@ -138,65 +131,6 @@ fn fastembed_cache_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".ultron")
         .join(".fastembed_cache")
-}
-
-/// Produce a normalised 384-d embedding vector for `text`.
-///
-/// On the first call the ONNX model is downloaded/verified from the fastembed
-/// model hub and cached at the canonical dir (see [`fastembed_cache_dir`]).
-/// Subsequent calls are served from the in-process `OnceCell`.
-///
-/// Returns `Err` if the model fails to initialise or inference fails.
-#[cfg(feature = "qdrant")]
-pub fn embed(text: &str) -> Result<Vec<f32>, String> {
-    use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-    use std::sync::OnceLock;
-
-    let model = EMBEDDING_MODEL.get_or_try_init(|| {
-        TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::BGESmallENV15)
-                .with_show_download_progress(false)
-                .with_cache_dir(fastembed_cache_dir()),
-        )
-        .map_err(|e| format!("fastembed init: {e}"))
-    })?;
-
-    let mut results = model
-        .embed(vec![text], None)
-        .map_err(|e| format!("fastembed embed: {e}"))?;
-
-    let vec = results
-        .pop()
-        .ok_or_else(|| "fastembed returned empty results".to_string())?;
-
-    // Safety net: real fastembed should never return all-zeros for non-empty text.
-    if vec.iter().all(|&x| x == 0.0) {
-        static ZERO_WARNED: OnceLock<()> = OnceLock::new();
-        ZERO_WARNED.get_or_init(|| {
-            eprintln!(
-                "[memory] EMBED STUB — embed() returned all-zeros despite qdrant feature being ON; \
-                 recall will be degraded. Check the fastembed model cache at \
-                 ULTRON_FASTEMBED_CACHE (default ~/.ultron/.fastembed_cache/)."
-            );
-        });
-    }
-
-    Ok(vec)
-}
-
-/// Stub when the `qdrant` feature is not enabled: returns a zero vector of
-/// length 384 so callers compile and tests can run without the heavy dep.
-#[cfg(not(feature = "qdrant"))]
-pub fn embed(_text: &str) -> Result<Vec<f32>, String> {
-    use std::sync::OnceLock;
-    static WARNED: OnceLock<()> = OnceLock::new();
-    WARNED.get_or_init(|| {
-        eprintln!(
-            "[memory] EMBED STUB — embeddings disabled; recall degraded. \
-             Build with --features qdrant to enable real BGE-small-EN-v1.5 vectors."
-        );
-    });
-    Ok(vec![0.0_f32; 384])
 }
 
 // ---------------------------------------------------------------------------
@@ -261,105 +195,7 @@ pub fn embed_e5(_text: &str, _is_query: bool) -> Result<Vec<f32>, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Qdrant collection bootstrap
-// ---------------------------------------------------------------------------
-
-/// Ensure the collection exists with cosine distance + 384-d vectors.
-/// Idempotent — no-op if the collection is already present.
-pub fn ensure_collection(collection: &str) -> Result<(), String> {
-    let base = qdrant_base_url();
-    let client = http_client()?;
-    let url = format!("{base}/collections/{collection}");
-
-    // Check existence first.
-    let resp = client.get(&url).send().map_err(|e| {
-        if e.is_connect() || e.is_timeout() {
-            qdrant_not_running_msg(&base)
-        } else {
-            format!("qdrant GET collection: {e}")
-        }
-    })?;
-
-    if resp.status().as_u16() == 200 {
-        return Ok(()); // already exists
-    }
-
-    // Create it.
-    let body = serde_json::json!({
-        "vectors": {
-            "size": 384,
-            "distance": "Cosine"
-        }
-    });
-    let create = client
-        .put(&url)
-        .json(&body)
-        .send()
-        .map_err(|e| format!("qdrant PUT collection: {e}"))?;
-
-    if !create.status().is_success() {
-        let status = create.status().as_u16();
-        let text = create.text().unwrap_or_default();
-        return Err(format!("qdrant create collection {status}: {text}"));
-    }
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Upsert
-// ---------------------------------------------------------------------------
-
-/// Upsert a vector + payload into a Qdrant collection.
-///
-/// `id` must be either a UUID string or a u64. We accept any string and let
-/// Qdrant validate it — if you pass an integer-looking string we wrap it in
-/// a numeric JSON value.
-pub fn upsert_point(
-    collection: &str,
-    id: &str,
-    vector: Vec<f32>,
-    payload: HashMap<String, serde_json::Value>,
-) -> Result<(), String> {
-    ensure_collection(collection)?;
-
-    let base = qdrant_base_url();
-    let client = http_client()?;
-
-    // Qdrant accepts either a UUID string or u64 integer as point id.
-    let id_value: serde_json::Value = if let Ok(n) = id.parse::<u64>() {
-        serde_json::Value::Number(n.into())
-    } else {
-        serde_json::Value::String(id.to_string())
-    };
-
-    let body = serde_json::json!({
-        "points": [{
-            "id": id_value,
-            "vector": vector,
-            "payload": payload
-        }]
-    });
-
-    let url = format!("{base}/collections/{collection}/points");
-    let resp = client.put(&url).json(&body).send().map_err(|e| {
-        if e.is_connect() || e.is_timeout() {
-            qdrant_not_running_msg(&base)
-        } else {
-            format!("qdrant upsert: {e}")
-        }
-    })?;
-
-    if !resp.status().is_success() {
-        let status = resp.status().as_u16();
-        let text = resp.text().unwrap_or_default();
-        return Err(format!("qdrant upsert {status}: {text}"));
-    }
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// E5 / 1024-d REST helpers (MEMORY KERNEL Fase B — additive, leaves the legacy
-// 384-d path above untouched; that path is retired in Fase F)
+// E5 / 1024-d REST helpers (MEMORY KERNEL Fase B)
 // ---------------------------------------------------------------------------
 
 /// Like `ensure_collection` but with a caller-specified vector dimension.
@@ -517,13 +353,9 @@ pub fn search_with_vector(
 }
 
 // ---------------------------------------------------------------------------
-// Search
+// Scroll / point types
 // ---------------------------------------------------------------------------
 
-/// Semantic search: embed `query`, run a k-NN search in `collection`, return
-/// up to `k` results ordered by descending score.
-///
-/// Returns `Err` with a friendly message when Qdrant is unreachable.
 /// A raw point fetched from Qdrant (id + payload, no vector).
 #[derive(Debug, Clone)]
 pub struct QdrantPoint {
@@ -589,110 +421,6 @@ pub fn scroll(collection: &str, limit: u32) -> Result<Vec<QdrantPoint>, String> 
         .collect())
 }
 
-pub fn search(collection: &str, query: &str, k: u32) -> Result<Vec<QdrantHit>, String> {
-    let base = qdrant_base_url();
-
-    // Embed the query.
-    let vector = embed(query)?;
-
-    let client = http_client()?;
-    let url = format!("{base}/collections/{collection}/points/search");
-
-    let body = serde_json::json!({
-        "vector": vector,
-        "limit": k,
-        "with_payload": true,
-        "with_vector": false
-    });
-
-    let resp = client.post(&url).json(&body).send().map_err(|e| {
-        if e.is_connect() || e.is_timeout() {
-            qdrant_not_running_msg(&base)
-        } else {
-            format!("qdrant search: {e}")
-        }
-    })?;
-
-    if resp.status().as_u16() == 404 {
-        // Collection does not exist yet — return empty results rather than error.
-        return Ok(Vec::new());
-    }
-
-    if !resp.status().is_success() {
-        let status = resp.status().as_u16();
-        let text = resp.text().unwrap_or_default();
-        return Err(format!("qdrant search {status}: {text}"));
-    }
-
-    #[derive(Deserialize)]
-    struct SearchResponse {
-        result: Vec<RawHit>,
-    }
-    #[derive(Deserialize)]
-    struct RawHit {
-        id: serde_json::Value,
-        score: f32,
-        #[serde(default)]
-        payload: HashMap<String, serde_json::Value>,
-    }
-
-    let parsed: SearchResponse = resp
-        .json()
-        .map_err(|e| format!("qdrant parse response: {e}"))?;
-
-    let hits = parsed
-        .result
-        .into_iter()
-        .map(|h| QdrantHit {
-            id: match h.id {
-                serde_json::Value::String(s) => s,
-                serde_json::Value::Number(n) => n.to_string(),
-                other => other.to_string(),
-            },
-            score: h.score,
-            payload: h.payload,
-        })
-        .collect();
-
-    Ok(hits)
-}
-
-// ---------------------------------------------------------------------------
-// Tauri commands
-// ---------------------------------------------------------------------------
-
-/// Tauri command: produce a 384-d BGE-small-EN-v1.5 embedding for `text`.
-///
-/// Intended for frontend use cases (e.g. client-side similarity comparison,
-/// debugging). JS hooks cannot call Tauri commands — they must use the
-/// `ultron-embed` sidecar binary instead.
-///
-/// # Errors
-/// - `"spawn_blocking: …"` if the thread-pool is saturated.
-/// - `"fastembed init: …"` on first call if the ONNX model cannot be loaded.
-#[tauri::command]
-pub async fn qdrant_embed_query(text: String) -> Result<Vec<f32>, String> {
-    tauri::async_runtime::spawn_blocking(move || embed(&text))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
-/// Tauri command: semantic recall from the `ultron_sessions` Qdrant collection.
-///
-/// Returns up to `k` fact hits. If Qdrant is not running the error string
-/// contains the expected start command.
-///
-/// # Errors
-/// - Qdrant unreachable: `"Qdrant not running at …"` with start instructions.
-/// - Model init failure (first call only): fastembed ONNX download issue.
-#[tauri::command]
-pub async fn recall_semantic(query: String, k: Option<u32>) -> Result<Vec<QdrantHit>, String> {
-    let k = k.unwrap_or(5).min(20);
-    tauri::async_runtime::spawn_blocking(move || search("ultron_sessions", &query, k))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
 // ---------------------------------------------------------------------------
 // Health / status (used by diagnostics panel)
 // ---------------------------------------------------------------------------
@@ -728,6 +456,132 @@ pub async fn qdrant_status() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(qdrant_ping)
         .await
         .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
+// Cross-encoder re-ranker — BGERerankerV2M3 (feature = "qdrant")
+// ---------------------------------------------------------------------------
+//
+// Opt-in via `ULTRON_RERANK=1` (default OFF). With the flag absent the recall
+// pipeline is byte-for-byte identical to the baseline (nDCG@8 / recall@8
+// unchanged). When active, `engine.rs` passes the top RERANK_TOP_N (24)
+// fused candidates through the cross-encoder after the heuristic quality
+// multiplier and before `assemble_pack`.
+//
+// Public API (consumed by engine.rs and the warmup subcommand):
+//   `reranker_enabled()`               — flag check; non-feature-gated
+//   `rerank_pairs(query, docs)`        — cross-encoder score; feature-gated
+//   `warmup_reranker()`                — force model init; feature-gated
+
+/// Returns `true` when `ULTRON_RERANK` is set to `"1"` or `"true"`.
+///
+/// Not feature-gated — callers can check the flag regardless of whether the
+/// `qdrant` Cargo feature is enabled.
+pub fn reranker_enabled() -> bool {
+    matches!(
+        std::env::var("ULTRON_RERANK").as_deref(),
+        Ok("1") | Ok("true")
+    )
+}
+
+/// Returns `true` when `ULTRON_CR` is set to `"1"` or `"true"`.
+///
+/// Controls **Contextual Retrieval (CR)**: when active, `MemoryItem::searchable_text`
+/// prefixes each passage with project and type context before embedding:
+/// `"Proyecto: {project_id}. Tipo: {kind}.\n{title}\n{summary}\n{content}"`.
+/// This separates items from different projects/types in the vector space,
+/// reducing cross-project recall collisions (e.g. a "decision" query for
+/// `ultron` retrieving unrelated decisions from `sistemasdistribuidos`).
+///
+/// Default **OFF** — with the flag absent the baseline (nDCG@8 / recall@8)
+/// is byte-for-byte identical to the previous behaviour.
+///
+/// Not feature-gated — callers can check the flag regardless of whether the
+/// `qdrant` Cargo feature is enabled.
+pub fn cr_enabled() -> bool {
+    matches!(std::env::var("ULTRON_CR").as_deref(), Ok("1") | Ok("true"))
+}
+
+/// Lazy `BGERerankerV2M3` — one instance per process, shared across threads.
+/// Initialised on the first call to `rerank_pairs`; afterwards all calls pay
+/// only the inference cost.
+#[cfg(feature = "qdrant")]
+static RERANKER: OnceCell<fastembed::TextRerank> = OnceCell::new();
+
+/// Re-rank `docs` (id, text) pairs against `query` using `BGERerankerV2M3`.
+///
+/// Returns `Vec<(id, cross_encoder_score)>` ordered by score **DESC**. The
+/// caller maps the returned order back onto its candidate list.
+///
+/// The fast-path guard (`docs.is_empty()`) returns immediately without
+/// touching the model — used for hermetic tests.
+///
+/// # Errors
+///
+/// Returns `Err(String)` when the model cannot be initialised or the rerank
+/// call fails. The caller in `engine.rs` **must** fall back to the existing
+/// order on `Err` and never propagate the error — recall must continue even
+/// if the re-ranker is unavailable.
+#[cfg(feature = "qdrant")]
+pub fn rerank_pairs(query: &str, docs: &[(String, String)]) -> Result<Vec<(String, f32)>, String> {
+    use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
+
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let reranker = RERANKER.get_or_try_init(|| {
+        TextRerank::try_new(
+            RerankInitOptions::new(RerankerModel::BGERerankerV2M3)
+                .with_cache_dir(fastembed_cache_dir())
+                .with_show_download_progress(false),
+        )
+        .map_err(|e| format!("reranker init (BGERerankerV2M3): {e}"))
+    })?;
+
+    let texts: Vec<&str> = docs.iter().map(|(_, text)| text.as_str()).collect();
+    let results = reranker
+        .rerank(query, texts, false, None)
+        .map_err(|e| format!("reranker rerank call: {e}"))?;
+
+    // `results` is already sorted score DESC by fastembed; map index → id.
+    Ok(results
+        .iter()
+        .map(|r| (docs[r.index].0.clone(), r.score))
+        .collect())
+}
+
+/// Stub when the `qdrant` feature is absent. Always returns `Err` so callers
+/// fall back to the existing order (identical to flag-OFF behaviour).
+#[cfg(not(feature = "qdrant"))]
+pub fn rerank_pairs(
+    _query: &str,
+    _docs: &[(String, String)],
+) -> Result<Vec<(String, f32)>, String> {
+    Err("rerank_pairs: qdrant feature not enabled".to_string())
+}
+
+/// Force `BGERerankerV2M3` to initialise (downloading ~1 GB on first use) by
+/// running one trivial rerank. Call from the `warmup` sidecar subcommand
+/// **only** when `reranker_enabled()` is true — the download must not be
+/// triggered for users who have not opted in.
+///
+/// # Errors
+/// Returns `Err` if the model download or init fails. The caller logs the
+/// error but must not block the session.
+#[cfg(feature = "qdrant")]
+pub fn warmup_reranker() -> Result<(), String> {
+    rerank_pairs(
+        "warmup",
+        &[("__warmup__".to_string(), "warmup document".to_string())],
+    )
+    .map(|_| ())
+}
+
+/// Stub when the `qdrant` feature is absent.
+#[cfg(not(feature = "qdrant"))]
+pub fn warmup_reranker() -> Result<(), String> {
+    Err("warmup_reranker: qdrant feature not enabled".to_string())
 }
 
 // ---------------------------------------------------------------------------

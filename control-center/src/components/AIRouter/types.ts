@@ -245,14 +245,6 @@ export const DEFAULT_ZONES: Zone[] = [
     fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
   },
   {
-    id: "news.generate_with_ai",
-    label: "Generate News Summary",
-    category: "news",
-
-    primary: { provider_id: "gemini", model: "gemini-2.5-flash", max_tokens: 0 },
-    fallbacks: [{ provider_id: "anthropic", model: "claude-haiku-4-5-20251001", max_tokens: 0 }],
-  },
-  {
     id: "memory.consolidate",
     label: "Consolidate Memory",
     category: "memory",

@@ -2,53 +2,38 @@
 # Not invoked by hooks, the Control Center, or any installer. Manual multi-CLI
 # consensus launcher. See docs/MAINTAINERS.md.
 #
-# ULTRON v10.9.0 -- Shared-file dual/triple peer launcher
-# Unified replacement for codex-duet.ps1 + gemini-duet.ps1.
+# ULTRON v10.9.0 -- Shared-file peer launcher
+# Unified replacement for codex-duet.ps1.
 #
 # Architecture: writes cmd.exe launcher .cmd files per peer, starts them via
 # ProcessStartInfo.CreateNoWindow=true -- no visible window, no taskbar entry.
-# Peers invoked via PATH-resolved 'codex' / 'gemini' commands: no node.exe path
+# Peers invoked via PATH-resolved 'codex' command: no node.exe path
 # resolution, no Win32 wrapper errors. stdin/stdout redirected inside the .cmd file.
 #
 # Usage (Dual -- Codex only):
 #   shared-duet.ps1 -Peers codex -Mode Dual -Round 1 -Prompt "..."
-# Usage (Triple -- both peers in parallel, preferred form):
+# Usage (both -- Codex, preferred form):
 #   shared-duet.ps1 -Peers both -Mode Triple -Round 1 -PromptFile prompt.txt
-# Usage (Triple -- legacy form, identical behaviour):
+# Usage (both -- legacy form, identical behaviour):
 #   shared-duet.ps1 -Peers both -Mode Max -Round 1 -PromptFile prompt.txt
 # Usage (Round 2+ resume):
-#   shared-duet.ps1 -Peers both -Mode Dual -Round 2 -Prompt "..." -SessionIds '{"codex":"abc","gemini":"xyz"}'
+#   shared-duet.ps1 -Peers both -Mode Dual -Round 2 -Prompt "..." -SessionIds '{"codex":"abc"}'
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('codex','gemini','both')][string]$Peers,
+    [Parameter(Mandatory)][ValidateSet('codex','both')][string]$Peers,
     [Parameter(Mandatory)][ValidateSet('Mini','Dual','Max','Triple')][string]$Mode,
     [Parameter(Mandatory)][int]$Round,
     [string]$PromptFile,
     [string]$Prompt,
     [string]$PromptTemplate,
     [string]$TemplateVars,
-    # JSON {"codex":"<session_id>","gemini":"<session_id>"} -- required for Round > 1
+    # JSON {"codex":"<session_id>"} -- required for Round > 1
     [string]$SessionIds  = '{}',
     [string]$CodexModel  = 'gpt-5.5',
-    # Gemini model alias (resolved to literal name before CLI invocation):
-    #   'pro'        a?? gemini-3.1-pro-preview   (default a?? latest pro preview)
-    #   'pro-3'      a?? gemini-3-pro-preview     (older 3.0, still valid)
-    #   'pro-2.5'    a?? gemini-2.5-pro           (legacy stable, fallback if quota)
-    #   'flash'      a?? gemini-3-flash-preview   (no 3.1 flash exists yet)
-    #   'flash-2.5'  a?? gemini-2.5-flash         (legacy stable)
-    #   'flash-lite' a?? gemini-2.5-flash-lite
-    #   'auto'       a?? gemini-3.1-pro-preview   (router default)
-    # Or pass a literal model name (gemini-3-*-preview / gemini-2.5-*) for full control.
-    [string]$GeminiModel = 'pro',
     [string]$OutputDir   = (Join-Path $env:TEMP 'ultron-shared'),
     [int]$TimeoutSec     = 240,
     [switch]$BypassCaps,
-    # v12 PoF (peer-output-to-file): if set, Gemini runs in auto-edit mode and
-    # the prompt is augmented to instruct the model to write its JSON answer
-    # directly to the output file (bypasses headless stdout, which fails for
-    # gemini-3.1-* preview models that only work in interactive sessions).
-    [switch]$PoF,
     # S2-C MMFP: if set, write the request as a YAML file to
     # ~/.ultron/multimodel/requests/<id>.yaml instead of invoking the peer inline.
     # Returns {"async":true,"request_id":"<id>","request_path":"<path>"} and exits 0.
@@ -59,7 +44,6 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Normalize: -Mode Triple is a semantic alias for (-Mode Max -Peers both).
-# Caps are always counted in triple-caps.json when Peers contains Gemini.
 if ($Mode -eq 'Triple') {
     $Mode  = 'Max'
     $Peers = 'both'
@@ -96,17 +80,13 @@ if ($Round -eq 1 -and $Mode -ne 'Mini' -and -not $BypassCaps -and -not $Async) {
     $today      = Get-Date -Format 'yyyy-MM-dd'
     $sessionDir = Join-Path $env:USERPROFILE ".ultron\sessions\$today"
     New-Item -ItemType Directory -Force -Path $sessionDir | Out-Null
-    $capKey   = if ($Mode -eq 'Max') { 'max' } else { if ($Peers -in 'codex','both') { 'dual' } else { 'dual' } }
+    $capKey   = if ($Mode -eq 'Max') { 'max' } else { 'dual' }
     # User-raised soft cap to 20 (2026-05-05). Caps are informational only a??
     # never block, just emit a Write-Warning when exceeded. Higher cap allows
     # intensive multi-sprint review days without warning noise.
     $capLimit = 20
     if ($Peers -in 'codex','both') {
-        Enforce-Cap -CapsFile (Join-Path $sessionDir 'dual-caps.json')   -Key $capKey   -Limit $capLimit -Label 'Codex'
-    }
-    if ($Peers -in 'gemini','both') {
-        $gKey = if ($Mode -eq 'Max') { 'max' } else { 'triple' }
-        Enforce-Cap -CapsFile (Join-Path $sessionDir 'triple-caps.json') -Key $gKey -Limit $capLimit -Label 'Gemini'
+        Enforce-Cap -CapsFile (Join-Path $sessionDir 'dual-caps.json') -Key $capKey -Limit $capLimit -Label 'Codex'
     }
 }
 
@@ -118,9 +98,6 @@ $sids = try { $SessionIds | ConvertFrom-Json } catch { [pscustomobject]@{} }
 if ($Round -gt 1) {
     if ($Peers -in 'codex','both' -and -not $sids.codex) {
         Write-Error "Round ${Round}: codex session_id required in -SessionIds"; exit 5
-    }
-    if ($Peers -in 'gemini','both' -and -not $sids.gemini) {
-        Write-Error "Round ${Round}: gemini session_id required in -SessionIds"; exit 5
     }
 }
 
@@ -177,8 +154,7 @@ if ($Async) {
 
     # Serialize session_ids to YAML inline object
     $sidsObj      = try { $SessionIds | ConvertFrom-Json } catch { $null }
-    $codexSid     = if ($sidsObj -and $sidsObj.codex)  { $sidsObj.codex }  else { '' }
-    $geminiSid    = if ($sidsObj -and $sidsObj.gemini) { $sidsObj.gemini } else { '' }
+    $codexSid     = if ($sidsObj -and $sidsObj.codex) { $sidsObj.codex } else { '' }
 
     $promptFileLine = if ($PromptFile) { """$($PromptFile -replace '\\','/')""" } else { 'null' }
 
@@ -196,11 +172,9 @@ prompt: |
 $promptYaml
 prompt_file: $promptFileLine
 codex_model: "$CodexModel"
-gemini_model: "$GeminiModel"
 timeout_sec: $TimeoutSec
 session_ids:
   codex: "$codexSid"
-  gemini: "$geminiSid"
 tags: []
 metadata:
   source: "shared-duet --async"
@@ -269,78 +243,7 @@ if ($Peers -in 'codex','both') {
     Write-Host "[SharedDuet] Codex launched hidden (Round=$Round Model=$CodexModel Resume=$isResume)"
 }
 
-if ($Peers -in 'gemini','both') {
-    $gOut = Join-Path $OutputDir "gemini-r$Round-$ts.json"
-    $gErr = Join-Path $OutputDir "gemini-r$Round-$ts.err.txt"
-    $gCmd = Join-Path $OutputDir "gemini-r$Round-$ts.cmd"
-
-    if ($PoF) {
-        # PoF: Gemini writes its JSON answer DIRECTLY to $gOut via the write_file
-        # tool. Required for preview models (gemini-3.1-*) where headless stdout
-        # capture fails with "No capacity available". Auto-edit gives the model
-        # filesystem write capability inside its workspace.
-        $gPromptTmp = Join-Path $OutputDir "prompt-gemini-pof-r$Round-$ts.txt"
-        $pofInstruction = @"
-
-
-## OUTPUT INSTRUCTION (CRITICAL - PoF mode)
-After your analysis, write your COMPLETE response (valid JSON, schema as defined above)
-to this exact filesystem path using the write_file tool:
-
-  $gOut
-
-Do NOT print the JSON to stdout. Just write the file. The user is polling for it.
-The output file MUST contain only the JSON object, nothing else, ready to parse.
-"@
-        $gPromptText = $promptText + $pofInstruction
-        [System.IO.File]::WriteAllText($gPromptTmp, $gPromptText, (New-Object System.Text.UTF8Encoding $false))
-        $resolvedGModel = switch ($GeminiModel) {
-            { $_ -in @('pro','auto') } { 'gemini-3.1-pro-preview' }
-            'pro-3'     { 'gemini-3-pro-preview' }
-            'pro-2.5'   { 'gemini-2.5-pro' }
-            'flash'     { 'gemini-3-flash-preview' }
-            'flash-2.5' { 'gemini-2.5-flash' }
-            'flash-lite'{ 'gemini-2.5-flash-lite' }
-            default     { $GeminiModel }   # literal passthrough
-        }
-        $gFlags = "-p `"`" -m $resolvedGModel --approval-mode auto_edit --skip-trust"
-        $gStdin = $gPromptTmp
-    } else {
-        # Default: headless stdout-redirect mode (works for stable models).
-        # -p "" = headless; prompt comes via stdin.
-        # Gemini --resume accepts "latest" or index (NOT UUID) -- Round 2+ uses "latest".
-        $resolvedGModel = switch ($GeminiModel) {
-            { $_ -in @('pro','auto') } { 'gemini-3.1-pro-preview' }
-            'pro-3'     { 'gemini-3-pro-preview' }
-            'pro-2.5'   { 'gemini-2.5-pro' }
-            'flash'     { 'gemini-3-flash-preview' }
-            'flash-2.5' { 'gemini-2.5-flash' }
-            'flash-lite'{ 'gemini-2.5-flash-lite' }
-            default     { $GeminiModel }
-        }
-        $gFlags = "-p `"`" -m $resolvedGModel --approval-mode plan --output-format json --skip-trust"
-        $gStdin = $promptTmp
-    }
-    if ($Round -gt 1 -and $Mode -ne 'Mini') {
-        $gFlags += " --resume latest"
-    }
-    if ($PoF) {
-        # Stdout is irrelevant in PoF; redirect to a log file for diagnostics only.
-        $gLog = Join-Path $OutputDir "gemini-r$Round-$ts.log.txt"
-        $gLine = "gemini $gFlags < `"$gStdin`" > `"$gLog`" 2> `"$gErr`""
-    } else {
-        $gLine = "gemini $gFlags < `"$gStdin`" > `"$gOut`" 2> `"$gErr`""
-    }
-    Write-Launcher -Path $gCmd -Lines @($gLine)
-    $jobs['gemini'] = @{
-        Proc    = Start-Hidden -CmdFile $gCmd
-        OutFile = $gOut;  ErrFile = $gErr;  PoF = [bool]$PoF
-    }
-    $modeLabel = if ($PoF) { 'PoF (auto-edit)' } else { 'plan' }
-    Write-Host "[SharedDuet] Gemini launched hidden (Round=$Round Alias=$GeminiModel ResolvedModel=$resolvedGModel Mode=$modeLabel)"
-}
-
-# ?? Wait (parallel -- both run simultaneously) ??????????????????????????????????
+# ?? Wait ????????????????????????????????????????????????????????????????????
 $deadline = $startTime.AddSeconds($TimeoutSec)
 foreach ($peer in $jobs.Keys) {
     $job = $jobs[$peer]
@@ -416,58 +319,6 @@ if ($jobs.ContainsKey('codex')) {
     }
 }
 
-# ?? Parse Gemini output ???????????????????????????????????????????????????????
-$geminiResult = $null
-$newGeminiSid = $null
-
-if ($jobs.ContainsKey('gemini')) {
-    $job = $jobs['gemini']
-
-    if (Test-Path $job.OutFile) {
-        $rawLines  = Get-Content $job.OutFile
-        # Skip "Skill X overriding..." pollution lines before the JSON object
-        $jsonStart = -1
-        for ($i = 0; $i -lt $rawLines.Count; $i++) {
-            if ($rawLines[$i] -match '^\s*\{') { $jsonStart = $i; break }
-        }
-        if ($jsonStart -ge 0) {
-            $jsonTxt = ($rawLines[$jsonStart..($rawLines.Count - 1)]) -join "`n"
-            try {
-                $parsed   = $jsonTxt | ConvertFrom-Json
-                $response = $parsed.response
-                # PoF mode (and some plan-mode outputs): Gemini writes raw JSON directly
-                # (no session_id/response wrapper). Detect by presence of 'verdict' field.
-                if ($parsed.verdict -and -not $response) {
-                    $geminiResult = $parsed
-                } elseif ($response) {
-                    # Wrapped response: strip markdown code fences Gemini sometimes adds.
-                    # ([string][char]96) * 3 = ``` -- cast to string first; PS5.1 does not
-                    # support [char] * [int] multiplication (returns null silently).
-                    $_bt3   = ([string][char]96) * 3
-                    $_rp1   = '^' + $_bt3 + 'json\s*'
-                    $_rp2   = '^' + $_bt3 + '\s*'
-                    $_rp3   = '\s*' + $_bt3 + '$'
-                    $clean  = [regex]::Replace([regex]::Replace([regex]::Replace($response, $_rp1, ''), $_rp2, ''), $_rp3, '')
-                    $clean = $clean.Trim()
-                    try   { $geminiResult = $clean | ConvertFrom-Json }
-                    catch { $geminiResult = [pscustomobject]@{ raw_text = $clean } }
-
-                    if ($Round -eq 1 -and $Mode -ne 'Mini' -and $parsed.session_id) {
-                        $newGeminiSid = $parsed.session_id
-                        Write-Host "GEMINI_SESSION_ID=$newGeminiSid"
-                        Set-Content (Join-Path $OutputDir 'last-gemini-session-id.txt') -Value $newGeminiSid -Encoding ascii -NoNewline
-                    }
-                }
-            } catch { Write-Warning "[SharedDuet] Gemini JSON parse failed: $($_.Exception.Message)" }
-        }
-    }
-    if (-not $geminiResult) {
-        $errMsg = if (Test-Path $job.ErrFile) { (Get-Content $job.ErrFile -First 5) -join ' ' } else { '' }
-        Write-Warning "[SharedDuet] Gemini: no output. Exit=$($job.ExitCode) Err=$errMsg"
-        $geminiResult = [pscustomobject]@{ error = 'no_output'; exit_code = $job.ExitCode; stderr_preview = $errMsg }
-    }
-}
-
 # ?? Combined output ???????????????????????????????????????????????????????????
 $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds, 1)
 Write-Host "[SharedDuet] Mode=$Mode Round=$Round Peers=$Peers done in ${elapsed}s"
@@ -478,10 +329,8 @@ $out = [pscustomobject]@{
     peers       = $Peers
     elapsed_s   = $elapsed
     codex       = $codexResult
-    gemini      = $geminiResult
     session_ids = [pscustomobject]@{
-        codex  = if ($newCodexSid)  { $newCodexSid }  else { $sids.codex }
-        gemini = if ($newGeminiSid) { $newGeminiSid } else { $sids.gemini }
+        codex = if ($newCodexSid) { $newCodexSid } else { $sids.codex }
     }
 }
 

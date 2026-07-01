@@ -89,7 +89,9 @@ fn launch_all_filters_folder_items() {
 fn normalise_provider_falls_back_to_claude() {
     assert_eq!(normalise_provider(Some("claude")), "claude");
     assert_eq!(normalise_provider(Some("codex")), "codex");
-    assert_eq!(normalise_provider(Some("gemini")), "gemini");
+    // Legacy "gemini" was a valid provider; now it falls back to "claude"
+    // (gemini-CLI is dead since Google cut free-tier OAuth 2026-06-19).
+    assert_eq!(normalise_provider(Some("gemini")), "claude");
     // Unknown -> claude
     assert_eq!(normalise_provider(Some("foo")), "claude");
     assert_eq!(normalise_provider(None), "claude");

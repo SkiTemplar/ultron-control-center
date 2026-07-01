@@ -278,7 +278,7 @@ cockpit/workdays/_pending-links.jsonl
 cockpit/meta.json
 cockpit/workdays/wd-*.json
 cockpit/_pending-*.json
-# Config local opcional de Mem0 (bank/finanzas ya opted-out en mem0-sync.js)
+# Opt-out local de integraciones externas (runtime, per-instalacion)
 .mem0-opt-out.json
 # Telemetria de maquina (hostname/CPU/disco) y backups zip.
 # Los .md de diagnostico de arquitectura SI se conservan (docs).
@@ -346,7 +346,6 @@ secrets/
 **/secrets.*
 .credentials.json
 **/.credentials.json
-.mem0-opt-out.json
 
 # --- brain.db tambien fuera de la raiz por si se mueve el runtime ---
 **/brain.db

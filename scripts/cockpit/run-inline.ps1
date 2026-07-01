@@ -48,8 +48,8 @@ $provider = [string]$cfg.provider
 $prompt   = [string]$cfg.prompt
 $model    = [string]$cfg.model
 
-if ($provider -notin @("claude", "codex", "gemini")) {
-    throw "Provider must be one of claude / codex / gemini"
+if ($provider -notin @("claude", "codex")) {
+    throw "Provider must be one of claude / codex"
 }
 if ([string]::IsNullOrWhiteSpace($prompt)) {
     throw "Prompt is empty"
@@ -88,12 +88,6 @@ try {
             $args += $prompt
             $stdoutText = ("" | & codex @args 2>&1) | Out-String
             $exitCode = $LASTEXITCODE
-        }
-        "gemini" {
-            # gemini-cli retirado el 2026-06-19 (Google corto el OAuth free-tier).
-            # El provider gemini CLOUD vive en el AI Router (Rust), no por este helper
-            # (el helper CLI de gemini ya no existe). Fallar fuerte, no no-op silencioso (mand. 11).
-            throw "provider 'gemini' (CLI) retirado; usa el AI Router (gemini cloud) o claude/codex"
         }
     }
 } catch {

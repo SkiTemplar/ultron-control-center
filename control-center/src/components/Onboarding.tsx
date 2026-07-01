@@ -47,7 +47,7 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: "Session",
-    def: "One working session with Claude, Codex or Gemini.",
+    def: "One working session with Claude or Codex.",
   },
   {
     term: "Hook",

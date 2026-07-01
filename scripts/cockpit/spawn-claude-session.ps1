@@ -76,8 +76,8 @@ $forkSession  = [bool]$cfg.forkSession
 # can declare the contract and so any future regression that re-introduces
 # inline-prompt paths must explicitly skip the pasteOnly branch.
 $pasteOnly    = [bool]$cfg.pasteOnly
-# respectClipboard: caller has already seeded the clipboard (e.g. news.rs ran
-# `news_html_generator.py --clipboard` which placed the *long* prompt there).
+# respectClipboard: caller has already seeded the clipboard itself (a
+# paste-only flow that placed the *long* prompt there before spawning).
 # When $true, we MUST NOT call Set-Clipboard — otherwise we overwrite the
 # real prompt with the short `prompt` field (which is only a banner hint).
 # Backwards-compatible: missing field → $false (legacy behaviour).
@@ -91,12 +91,12 @@ $freeTier = [bool]$cfg.freeTier
 # create, diagnose, codex-fallback) where the user already authorized the
 # action by clicking the button. Forcing dangerous=true here saves them from
 # having to click through provider-level confirmations every single time.
-# Claude --dangerously-skip-permissions / Codex --dangerously-bypass /
-# Gemini --yolo all map to the same intent: accept everything by default.
+# Claude --dangerously-skip-permissions / Codex --dangerously-bypass
+# map to the same intent: accept everything by default.
 $dangerous    = $true
 
-if ($provider -notin @("claude", "codex", "gemini")) {
-    throw "Provider must be one of claude / codex / gemini, got '$provider'"
+if ($provider -notin @("claude", "codex")) {
+    throw "Provider must be one of claude / codex, got '$provider'"
 }
 
 function Quote-Single([string]$s) {
@@ -189,15 +189,6 @@ switch ($provider) {
             $inner += " -c model_reasoning_effort=$effort"
         }
     }
-    "gemini" {
-        # Gemini CLI: --yolo == skip confirmations.
-        if ($dangerous) { $inner += " --yolo" }
-        if ($model) {
-            if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
-            $inner += " -m $model"
-        }
-        # No effort flag in gemini CLI; silently dropped.
-    }
 }
 
 # Resume / continue ignore the prompt — Claude reuses the prior transcript.
@@ -232,9 +223,8 @@ if ($respectClipboard) {
 # starting Claude, so it shows up at the top of the terminal.
 if ($clipboardSeeded) {
     if ($respectClipboard -and $promptText -and $promptText.Trim().Length -gt 0) {
-        # Use the caller's `prompt` field as the literal banner — news.rs
-        # passes a short hint there ("El prompt está en el portapapeles,
-        # guarda el HTML en ~/.ultron/cockpit/news/newsletter-...html").
+        # Use the caller's `prompt` field as the literal banner.
+        # The caller that seeded the clipboard passes a short hint there.
         $msg = $promptText
     } elseif ($pasteOnly) {
         # Stronger wording when the caller explicitly asked for paste-only:

@@ -18,7 +18,6 @@ const META_AGENTS: &[&str] = &[
     "ultron-context",
     "ultron-docs",
     "ultron-metadata",
-    "ultron-news",
     "ultron-refactor",
     "ultron-self-improve",
     "ultron-skill-editor",

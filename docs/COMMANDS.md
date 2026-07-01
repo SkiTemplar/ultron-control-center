@@ -40,7 +40,7 @@ Press `Ctrl+K` anywhere in the Control Center to open the fuzzy palette. Type a 
 | **Navigate** | Go to Dashboard / Memory / Library (Skills · Agents · Rules · Updates) / Sessions / Projects / MCPs / Settings (and the "More" tier) |
 | **Actions** | Refresh dashboard data · Open Settings · Close Control Center |
 | **Diagnostics** | Run Full Diagnostic · Detect Pending Items · Run Doctor · PC Diagnose (last 24 h) · Codex Adversarial Review · Self-Improve Report |
-| **AI** | Spawn Claude session · Spawn Codex session · Spawn Gemini session |
+| **AI** | Spawn Claude session · Spawn Codex session |
 | **Maintenance** | (dynamic — pulled from `list_maintenance_commands_inner`, see §2) |
 | **Memory** | Qdrant re-embed vault · Embed skills index |
 | **System** | Rebuild Control Center · Uninstall ULTRON · Reset ULTRON mode to autodetect · Purge legacy autostart · Scan projects |

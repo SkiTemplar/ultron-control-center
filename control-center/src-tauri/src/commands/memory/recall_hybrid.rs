@@ -1,56 +1,18 @@
-// ULTRON Control Center — recall_hybrid + memory_health commands (MEMORY CORE D5)
+// ULTRON Control Center — memory_health command (MEMORY CORE D5)
 //
-// recall_hybrid: DEPRECATED — no live frontend callers (verified 2026-06-06).
-//   Retained for backward-compat with any external CLI caller; internally
-//   delegates to the unified recall pipeline (RRF + governance + quality ranker)
-//   so it benefits from the same Pilar 1 fixes without duplicating logic.
+// recall_hybrid (deprecated wrapper) was removed 2026-06-28 — it had no live
+// callers (verified 2026-06-06) and only re-delegated to
+// recall_unified::recall_pack, which is the canonical recall path. Call that
+// directly.
 //
 // memory_health: per-store health check + embeddings_real flag.
 
-use crate::memory::{qdrant_store::QdrantStore, sqlite_store::SqliteStore, KgStore, MemoryHit};
-
-/// Fan-out hybrid recall — DEPRECATED wrapper kept for CLI back-compat.
-///
-/// Delegates to `recall_unified::recall_pack` (RRF + confidence quality ranker +
-/// governance) with `project_id = None` (no project filter; vault NOT gated).
-/// Returns a flat `Vec<MemoryHit>` shaped from the unified pack entries.
-///
-/// Prefer `recall` (recall_unified) for all new callers — it returns the richer
-/// `RecallPack` with per-entry ranks, token estimates, and discard trace.
-#[tauri::command]
-pub async fn recall_hybrid(query: String, limit: Option<u32>) -> Result<Vec<MemoryHit>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        // Delegate to the unified pipeline: no project filter, cross_project=false.
-        // project_id = None means the vault gate in assemble_pack does NOT fire
-        // (gate only activates when project_id.is_some()), so vault items surface
-        // as before — the caller is not inside any project context.
-        let pack = crate::commands::memory::recall_unified::recall_pack(
-            &query,
-            limit.map(|n| n as usize).unwrap_or(20),
-            None,  // project_id = None: no project filter, vault gate inactive
-            false, // cross_project = false
-        )?;
-        // Map RecallEntry -> MemoryHit for backward-compat callers.
-        Ok(pack
-            .entries
-            .into_iter()
-            .map(|e| MemoryHit {
-                id: e.canonical_id,
-                text: e.summary.unwrap_or_default(),
-                score: e.score,
-                source: crate::memory::StoreKind::Sqlite,
-                namespace: e.project_id,
-            })
-            .collect())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
+use crate::memory::{qdrant_store::QdrantStore, sqlite_store::SqliteStore, KgStore};
 
 /// Per-store health summary + `embeddings_real` flag.
 ///
-/// `embeddings_real` is `true` when `crate::qdrant::embed` returns a non-zero
-/// vector for a known probe string (i.e. the real fastembed model is active).
+/// `embeddings_real` is `true` when `crate::qdrant::embed_e5` returns a non-zero
+/// vector for a known probe string (i.e. the real E5 model is active).
 #[tauri::command]
 pub async fn memory_health() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -92,9 +54,9 @@ pub async fn memory_health() -> Result<serde_json::Value, String> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Probe whether `crate::qdrant::embed` is returning real (non-zero) vectors.
+/// Probe whether `crate::qdrant::embed_e5` is returning real (non-zero) vectors.
 fn probe_embeddings_real() -> bool {
-    match crate::qdrant::embed("ultron memory probe") {
+    match crate::qdrant::embed_e5("ultron memory probe", true) {
         Ok(v) => v.iter().any(|&x| x != 0.0),
         Err(_) => false,
     }

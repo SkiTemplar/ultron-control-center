@@ -12,7 +12,8 @@ use super::super::model::{
 use super::super::MemoryError;
 use super::super::{redaction, sqlite_store as store};
 use super::{
-    raised_sensitivity, redact_tags, sync_index, BulkDeprecateResult, MemoryService, MemoryStats,
+    raised_sensitivity, redact_tags, sync_index, BackfillDeprecationsResult, BulkDeprecateResult,
+    MemoryService, MemoryStats, StaleSweepResult,
 };
 
 impl MemoryService {
@@ -140,6 +141,40 @@ impl MemoryService {
         store::insert_item(&conn, &item)?;
         sync_index(&item); // W4: Active -> (re)index ; non-active -> remove from index
 
+        // Ledger vivo (cat21.4): registrar la deprecación en deprecation_entries.
+        // INSERT OR IGNORE con id "dep:{item_id}" => idempotente por diseño.
+        // Solo se ejecuta cuando el status destino es Deprecated (las demás
+        // transiciones — Rejected, Stale, Archived… — no registran en el ledger).
+        // Deadline = updated_at + 90 días ISO UTC (siempre futuro; brain.db < 6 sem).
+        if matches!(status, Status::Deprecated) {
+            let ts = store::millis_to_iso_utc(item.updated_at);
+            let deadline = store::millis_to_iso_utc(item.updated_at + 90 * 24 * 3_600 * 1_000_i64);
+            let entry = store::DeprecationEntryInput {
+                id: format!("dep:{}", item.id),
+                artifact: item.id.clone(),
+                domain: "memory".to_string(),
+                kind: item.kind.as_str().to_string(),
+                owner: None,
+                path: format!("memory://{}", item.id),
+                reason: reason.clone().unwrap_or_else(|| "deprecated".to_string()),
+                replacement: item.superseded_by.clone(),
+                state: "deprecated".to_string(),
+                risk: "low".to_string(),
+                regenerable: 0,
+                size_bytes: None,
+                cleanup_action: "purge".to_string(),
+                rollback_action: "restore".to_string(),
+                first_seen: ts.clone(),
+                last_seen: ts,
+                deadline,
+                retention_class: "memory-90d".to_string(),
+                evidence_json: None,
+                confirmed_by: None,
+                schema_version: 3,
+            };
+            let _ = store::insert_deprecation_entry(&conn, &entry);
+        }
+
         let mut ev = MemoryEvent::new(event_type, Some(item.id.clone()), actor)
             .with_before(before)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
@@ -208,6 +243,60 @@ impl MemoryService {
             deprecated,
             dry_run: false,
             project: proj_owned,
+            failed,
+        })
+    }
+
+    /// Sweep ACTIVE items not MODIFIED in `older_than_days` and transition them to
+    /// [`Status::Stale`] (no longer recall-eligible; `sync_index` drops them from
+    /// the dense index). Reuses the proven [`Self::set_status`] path per id so
+    /// FTS5 triggers + Qdrant + the append-only event log stay consistent — no
+    /// bespoke sync logic.
+    ///
+    /// Honest scope (mand. 13): "stale" here = "not MODIFIED in N days"
+    /// (`updated_at`), NOT "unused / no recall-hit" — `last_accessed_at` is never
+    /// written on the read path today. Pinned and user-validated items are
+    /// protected (never staled). Reversible: `set_status(id, Active)` emits a
+    /// `Restored` event. `dry_run` only counts (mutates nothing).
+    pub fn mark_stale_aged(
+        older_than_days: i64,
+        dry_run: bool,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<StaleSweepResult, MemoryError> {
+        let cutoff = now_millis() - older_than_days.max(0) * 86_400_000;
+        // 100_000 is an effective "all" bound (the active set is ~1.9k items).
+        let (items, _total) =
+            Self::query_items(Some(Status::Active), None, None, false, 0, 100_000)?;
+        let candidates: Vec<MemoryItem> = items
+            .into_iter()
+            .filter(|it| it.updated_at < cutoff && !it.pinned && !it.validated_by_user)
+            .collect();
+        let matched = candidates.len();
+        if dry_run {
+            return Ok(StaleSweepResult {
+                older_than_days,
+                matched,
+                staled: 0,
+                dry_run: true,
+                failed: Vec::new(),
+            });
+        }
+        let reason =
+            reason.unwrap_or_else(|| format!("stale-sweep: sin modificar en >{older_than_days}d"));
+        let mut staled = 0usize;
+        let mut failed: Vec<(String, String)> = Vec::new();
+        for it in candidates {
+            match Self::set_status(&it.id, Status::Stale, actor, Some(reason.clone())) {
+                Ok(_) => staled += 1,
+                Err(e) => failed.push((it.id, e.to_string())),
+            }
+        }
+        Ok(StaleSweepResult {
+            older_than_days,
+            matched,
+            staled,
+            dry_run: false,
             failed,
         })
     }
@@ -345,6 +434,39 @@ impl MemoryService {
         let ev = MemoryEvent::new(EventType::Deprecated, Some(old_id.to_string()), actor)
             .with_reason(format!("superseded by {}", new_item.id));
         let _ = store::insert_event(&conn, &ev);
+
+        // Ledger vivo (cat21.4): registrar la supersesión como deprecación del
+        // item viejo. El `supersede` no pasa por `set_status`, por lo que el
+        // ledger se actualiza aquí directamente. INSERT OR IGNORE = idempotente.
+        {
+            let ts = store::millis_to_iso_utc(old.updated_at);
+            let deadline = store::millis_to_iso_utc(old.updated_at + 90 * 24 * 3_600 * 1_000_i64);
+            let entry = store::DeprecationEntryInput {
+                id: format!("dep:{}", old.id),
+                artifact: old.id.clone(),
+                domain: "memory".to_string(),
+                kind: old.kind.as_str().to_string(),
+                owner: None,
+                path: format!("memory://{}", old.id),
+                reason: format!("superseded by {}", new_item.id),
+                replacement: Some(new_item.id.clone()),
+                state: "deprecated".to_string(),
+                risk: "low".to_string(),
+                regenerable: 0,
+                size_bytes: None,
+                cleanup_action: "purge".to_string(),
+                rollback_action: "restore".to_string(),
+                first_seen: ts.clone(),
+                last_seen: ts,
+                deadline,
+                retention_class: "memory-90d".to_string(),
+                evidence_json: None,
+                confirmed_by: None,
+                schema_version: 3,
+            };
+            let _ = store::insert_deprecation_entry(&conn, &entry);
+        }
+
         let ev2 = MemoryEvent::new(EventType::Created, Some(new_item.id.clone()), actor)
             .with_reason(format!("supersedes {old_id}"));
         let _ = store::insert_event(&conn, &ev2);
@@ -379,6 +501,104 @@ impl MemoryService {
             .with_before(before);
         let _ = store::insert_event(&conn, &ev);
         Ok(())
+    }
+
+    // -- backfill del ledger de deprecaciones (cat21.4) ----------------------
+
+    /// Rellena one-shot `deprecation_entries` con las deprecaciones históricas
+    /// que ya existen en `memory_events` pero aún no tienen entrada en el ledger.
+    ///
+    /// Recorre `memory_events WHERE event_type='deprecated'`, hace LEFT JOIN con
+    /// `memory_items` para obtener `kind` y `superseded_by`, y llama a
+    /// `insert_deprecation_entry` (INSERT OR IGNORE) por cada fila.
+    ///
+    /// `created_at` en `memory_events` es epoch-millis (INTEGER); se convierte a
+    /// ISO-8601 UTC con `millis_to_iso_utc`. El deadline se fija a
+    /// `created_at + 90 días`, que siempre cae en el futuro porque el brain.db
+    /// tiene menos de 6 semanas.
+    ///
+    /// Idempotente: se puede ejecutar varias veces sin duplicar filas.
+    pub fn backfill_deprecations() -> Result<BackfillDeprecationsResult, MemoryError> {
+        let conn = store::open_conn()?;
+
+        // Columna de referencia al item: `memory_id` (schema base).
+        // `created_at` es INTEGER epoch-millis.
+        // LEFT JOIN con memory_items para kind/superseded_by (NULL si el item
+        // fue borrado vía `forget` — en ese caso kind queda como "unknown").
+        let mut stmt = conn
+            .prepare(
+                "SELECT me.memory_id,
+                        me.created_at,
+                        me.reason,
+                        mi.type,
+                        mi.superseded_by
+                 FROM memory_events me
+                 LEFT JOIN memory_items mi ON mi.id = me.memory_id
+                 WHERE me.event_type = 'deprecated'
+                   AND me.memory_id IS NOT NULL
+                 ORDER BY me.created_at ASC",
+            )
+            .map_err(|e| {
+                MemoryError::RemoteUnavailable(format!("backfill_deprecations prepare: {e}"))
+            })?;
+        let rows: Vec<(String, i64, Option<String>, Option<String>, Option<String>)> = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| {
+                MemoryError::RemoteUnavailable(format!("backfill_deprecations query: {e}"))
+            })?
+            .flatten()
+            .collect();
+
+        let scanned = rows.len();
+        let mut inserted = 0usize;
+        let mut skipped = 0usize;
+
+        for (memory_id, created_at_ms, reason, kind_opt, superseded_by) in rows {
+            let ts = store::millis_to_iso_utc(created_at_ms);
+            let deadline = store::millis_to_iso_utc(created_at_ms + 90 * 24 * 3_600 * 1_000_i64);
+            let entry = store::DeprecationEntryInput {
+                id: format!("dep:{memory_id}"),
+                artifact: memory_id.clone(),
+                domain: "memory".to_string(),
+                kind: kind_opt.unwrap_or_else(|| "unknown".to_string()),
+                owner: None,
+                path: format!("memory://{memory_id}"),
+                reason: reason.unwrap_or_else(|| "deprecated".to_string()),
+                replacement: superseded_by,
+                state: "deprecated".to_string(),
+                risk: "low".to_string(),
+                regenerable: 0,
+                size_bytes: None,
+                cleanup_action: "purge".to_string(),
+                rollback_action: "restore".to_string(),
+                first_seen: ts.clone(),
+                last_seen: ts,
+                deadline,
+                retention_class: "memory-90d".to_string(),
+                evidence_json: None,
+                confirmed_by: None,
+                schema_version: 3,
+            };
+            match store::insert_deprecation_entry(&conn, &entry) {
+                Ok(true) => inserted += 1,
+                Ok(false) => skipped += 1,
+                Err(_) => skipped += 1, // error no fatal: continuar con el resto
+            }
+        }
+
+        Ok(BackfillDeprecationsResult {
+            scanned,
+            inserted,
+            skipped,
+        })
     }
 
     // -- stats ---------------------------------------------------------------

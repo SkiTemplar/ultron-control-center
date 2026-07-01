@@ -244,7 +244,6 @@ export function ProjectWizardModal({
               }}
             >
               <option value="claude">Claude</option>
-              <option value="gemini">Gemini</option>
               <option value="codex">Codex</option>
             </select>
           </div>

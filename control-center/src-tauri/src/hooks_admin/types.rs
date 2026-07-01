@@ -87,7 +87,7 @@ pub struct HookNameResult {
 #[derive(Debug, Clone, Serialize)]
 pub struct HookDescription {
     pub id: String,
-    /// Short readable name shown as the card title (e.g. "Sincronizar sesion a Mem0").
+    /// Short readable name shown as the card title (e.g. "Comprimir sesion").
     pub title: String,
     /// One-line description of what the hook does. May be empty.
     pub summary: String,

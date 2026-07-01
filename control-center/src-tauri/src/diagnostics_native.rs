@@ -72,7 +72,6 @@ pub struct AppHealth {
     pub projects_json_ok: bool,
     pub claude_in_path: bool,
     pub codex_in_path: bool,
-    pub gemini_in_path: bool,
     pub qdrant_running: bool,
     pub severity: Severity,
 }
@@ -304,7 +303,6 @@ pub fn check_app_specific() -> AppHealth {
         .unwrap_or(false);
     let claude_in_path = which::which("claude").is_ok();
     let codex_in_path = which::which("codex").is_ok();
-    let gemini_in_path = which::which("gemini").is_ok();
     // Real memory stack: SQLite (brain.db) + Qdrant. Check if qdrant binary
     // or the running service is present. We try a TCP connect on 6333 (default
     // Qdrant HTTP port) — fast and doesn't require spawning a subprocess.
@@ -321,7 +319,6 @@ pub fn check_app_specific() -> AppHealth {
         projects_json_ok,
         claude_in_path,
         codex_in_path,
-        gemini_in_path,
         qdrant_running,
         severity,
     }

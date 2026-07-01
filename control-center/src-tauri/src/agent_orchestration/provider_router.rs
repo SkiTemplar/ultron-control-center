@@ -5,13 +5,12 @@
 // chose WHAT agent; here we choose IN WHICH provider it runs.
 
 /// PTY-spawnable provider for an agent delegation. The PTY layer
-/// (`build_command` in `pty.rs`) only knows how to launch three agentic
+/// (`build_command` in `pty.rs`) only knows how to launch two agentic
 /// CLIs; everything else degrades to Claude.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyProvider {
     Claude,
     Codex,
-    Gemini,
 }
 
 impl PtyProvider {
@@ -21,24 +20,9 @@ impl PtyProvider {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
-            Self::Gemini => "gemini",
         }
     }
 }
-
-// Light agents: review/docs/qa/news — Gemini CLI (free via OAuth) is
-// plenty. Mirrors the AI Router `code-review` / `summarize` zones.
-const LIGHT_AGENTS: &[&str] = &[
-    "code-reviewer",
-    "qa-expert",
-    "ultron-docs",
-    "ultron-changelog",
-    "ultron-news",
-    "documentation-engineer",
-    "accessibility-tester",
-    "knowledge-synthesizer",
-    "dx-optimizer",
-];
 
 // Code-implementation-heavy agents — Codex CLI. Mirrors the AI Router
 // `code-edit` zone (primary codex/gpt-5).
@@ -56,21 +40,16 @@ const CODE_HEAVY_AGENTS: &[&str] = &[
 
 /// Decide which agentic CLI should run a delegation, WITHOUT the user asking.
 ///
-/// Strategy (cheapest correct provider first, Claude as hard fallback):
-///   1. `use_cheap_model` OR a "light" agent  → Gemini CLI (free via OAuth).
-///   2. A code-implementation-heavy agent      → Codex CLI.
-///   3. Otherwise                               → Claude (current behaviour).
+/// Strategy (Codex for code-heavy work, Claude as hard fallback for everything else):
+///   1. A code-implementation-heavy agent → Codex CLI.
+///   2. Otherwise                          → Claude.
 ///
 /// The returned provider is ALWAYS one `build_command` accepts. The caller
 /// is responsible for falling back to Claude when the chosen CLI is not on
-/// PATH (see `pty::cli_on_path`), so a missing codex/gemini install never
-/// breaks a delegation.
-pub fn infer_pty_provider(agent_slug: &str, use_cheap_model: bool) -> PtyProvider {
+/// PATH (see `pty::cli_on_path`), so a missing codex binary never breaks a
+/// delegation.
+pub fn infer_pty_provider(agent_slug: &str) -> PtyProvider {
     let s = agent_slug.trim().to_lowercase();
-
-    if use_cheap_model || LIGHT_AGENTS.iter().any(|a| s == *a || s.contains(a)) {
-        return PtyProvider::Gemini;
-    }
     if CODE_HEAVY_AGENTS.iter().any(|a| s == *a || s.contains(a)) {
         return PtyProvider::Codex;
     }
@@ -82,48 +61,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cheap_flag_routes_to_gemini() {
-        assert_eq!(infer_pty_provider("python-pro", true), PtyProvider::Gemini);
-    }
-
-    #[test]
-    fn light_agent_routes_to_gemini_without_flag() {
-        assert_eq!(
-            infer_pty_provider("code-reviewer", false),
-            PtyProvider::Gemini
-        );
-    }
-
-    #[test]
     fn code_heavy_agent_routes_to_codex() {
+        assert_eq!(infer_pty_provider("rust-engineer"), PtyProvider::Codex);
+        assert_eq!(infer_pty_provider("python-pro"), PtyProvider::Codex);
         assert_eq!(
-            infer_pty_provider("rust-engineer", false),
+            infer_pty_provider("fullstack-developer"),
             PtyProvider::Codex
         );
     }
 
     #[test]
     fn unknown_agent_defaults_to_claude() {
-        assert_eq!(
-            infer_pty_provider("some-random-agent", false),
-            PtyProvider::Claude
-        );
+        assert_eq!(infer_pty_provider("some-random-agent"), PtyProvider::Claude);
+        assert_eq!(infer_pty_provider("security-auditor"), PtyProvider::Claude);
+    }
+
+    #[test]
+    fn light_agent_defaults_to_claude() {
+        // Review/docs/qa agents run on Claude — Gemini CLI retired 2026-06-19.
+        assert_eq!(infer_pty_provider("code-reviewer"), PtyProvider::Claude);
+        assert_eq!(infer_pty_provider("qa-expert"), PtyProvider::Claude);
+        assert_eq!(infer_pty_provider("ultron-docs"), PtyProvider::Claude);
     }
 
     #[test]
     fn provider_strings_match_build_command_contract() {
-        // build_command (pty.rs) matches exactly these three literals.
-        for p in [PtyProvider::Claude, PtyProvider::Codex, PtyProvider::Gemini] {
-            assert!(matches!(p.as_str(), "claude" | "codex" | "gemini"));
+        // build_command (pty.rs) matches exactly these two literals.
+        for p in [PtyProvider::Claude, PtyProvider::Codex] {
+            assert!(matches!(p.as_str(), "claude" | "codex"));
         }
-    }
-
-    #[test]
-    fn cheap_flag_overrides_code_heavy() {
-        // Explicit cheap request beats the code-heavy default.
-        assert_eq!(
-            infer_pty_provider("rust-engineer", true),
-            PtyProvider::Gemini
-        );
     }
 }

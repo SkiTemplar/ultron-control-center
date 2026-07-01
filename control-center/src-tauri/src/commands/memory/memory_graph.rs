@@ -1,6 +1,6 @@
 // Control Center 2.9.x — Unified memory graph search command
 //
-// Backs the new Memory tab tree view. Searches all four local knowledge layers
+// Backs the new Memory tab tree view. Searches all local knowledge layers
 // in parallel (sync, since each inner fn is already blocking) and returns a
 // single aggregated result.
 //
@@ -8,10 +8,6 @@
 //   skills  — grep on name + description from skills::list_skills_with_origin_inner
 //   agents  — grep on name + description from agents::list_agents_inner
 //   rules   — grep on name + relative path from rules::list_inner
-//   mem0    — REMOVED from the read-path (2026-06-05). Mem0 cloud is being retired
-//             in favour of the local brain.db + Qdrant SoT; the unified search no
-//             longer round-trips to api.mem0.ai. The `mem0` result field is kept
-//             (always empty) so the Memory-tab frontend payload shape is unchanged.
 //   kg      — delegate to kg::search_nodes_inner (local JSONL)
 //   qdrant  — semantic hits from the local Qdrant collection
 
@@ -56,9 +52,6 @@ pub struct UnifiedSearchResults {
     pub skills: Vec<SkillHit>,
     pub agents: Vec<AgentHit>,
     pub rules: Vec<RuleHit>,
-    /// Retired read-path: always empty. Mem0 cloud removed (wave2-mem0-ecc, 2026-06-06).
-    /// Kept as empty Vec<serde_json::Value> for frontend payload-shape compatibility.
-    pub mem0: Vec<serde_json::Value>,
     pub kg: Vec<KgEntity>,
     /// Semantic hits from Qdrant ultron_sessions collection.
     pub qdrant: Vec<crate::qdrant::QdrantHit>,
@@ -182,36 +175,15 @@ pub async fn unified_search_inner(
     .await
     .map_err(|e| e.to_string())?;
 
-    // Mem0 cloud layer retired (wave2-mem0-ecc, 2026-06-06): field stays empty for frontend compat.
-    let mem0_results: Vec<serde_json::Value> = Vec::new();
-
     let kg_graph = search_nodes_inner(needle.clone()).unwrap_or_default();
 
-    // Qdrant semantic layer — uses real BGE vectors when the `qdrant` feature
-    // is active (default). Falls back to empty when Qdrant is not running.
-    let qdrant_results = if needle.is_empty() {
-        Vec::new()
-    } else {
-        let needle_q = needle.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            crate::qdrant::search("ultron_sessions", &needle_q, 10)
-        })
-        .await
-        .unwrap_or_else(|join_err| {
-            eprintln!("[memory_graph] qdrant spawn_blocking panicked: {join_err}");
-            Ok(Vec::new())
-        })
-        .unwrap_or_else(|qdrant_err| {
-            eprintln!("[memory_graph] qdrant search error: {qdrant_err}");
-            Vec::new()
-        })
-    };
+    // 384-d legacy Qdrant semantic layer retired 2026-06-28.
+    let qdrant_results: Vec<crate::qdrant::QdrantHit> = Vec::new();
 
     Ok(UnifiedSearchResults {
         skills,
         agents,
         rules,
-        mem0: mem0_results,
         kg: kg_graph.entities,
         qdrant: qdrant_results,
     })

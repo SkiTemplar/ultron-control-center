@@ -183,7 +183,7 @@ export function ProjectRow({
           if (builtin) {
             const tip = builtinTooltip(it);
             const isDefault =
-              (it.kind === "claude" || it.kind === "codex" || it.kind === "gemini") &&
+              (it.kind === "claude" || it.kind === "codex") &&
               it.kind === defaultKind;
             const tipFull = isDefault ? `${tip} — default provider` : tip;
             return (
@@ -291,7 +291,7 @@ export function ProjectRow({
           >
             default
           </span>
-          {(["claude", "codex", "gemini"] as SessionProvider[]).map((prov) => {
+          {(["claude", "codex"] as SessionProvider[]).map((prov) => {
             const active = prov === defaultProvider;
             return (
               <button

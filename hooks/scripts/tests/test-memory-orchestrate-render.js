@@ -12,7 +12,7 @@ const withDirective = render({
     agent: 'refactoring-specialist',
     objective: 'refactoriza recall a async',
     return_format: 'Resumen <=400 tokens',
-    model_hint: 'haiku',
+    model_hint: 'sonnet',
     reason: 'intent=refactor; tarea no-trivial',
   },
 });
@@ -20,7 +20,22 @@ assert.ok(withDirective.includes('<orchestration-directive'), 'falta el bloque d
 assert.ok(withDirective.includes('DELEGA AHORA'), 'falta la orden imperativa');
 assert.ok(withDirective.includes('refactoring-specialist'), 'falta el agente');
 assert.ok(withDirective.includes('subagent_type="refactoring-specialist"'), 'falta la accion Agent');
+assert.ok(withDirective.includes('model="sonnet"'), 'la directiva debe propagar el modelo sugerido');
 assert.ok(!withDirective.includes('delegate_to (specialist agents'), 'la directiva NO debe duplicar el advisory');
+
+// Caso 1b: calidad>tokens — sin model_hint, el render NO cae a haiku (default sonnet).
+const noHint = render({
+  route: 'refactor',
+  delegate_agents: [{ name: 'refactoring-specialist', score: 1.0 }],
+  delegation_directive: {
+    agent: 'refactoring-specialist',
+    objective: 'x',
+    return_format: 'y',
+    reason: 'z',
+  },
+});
+assert.ok(!noHint.includes('haiku'), 'el especialista delegado nunca debe sugerir haiku');
+assert.ok(noHint.includes('model="sonnet"'), 'sin model_hint -> default de calidad sonnet');
 
 // Caso 2: sin directiva -> advisory actual intacto.
 const noDirective = render({
@@ -39,7 +54,7 @@ const entry = buildLogEntry(
       agent: 'refactoring-specialist',
       objective: 'x',
       return_format: 'y',
-      model_hint: 'haiku',
+      model_hint: 'sonnet',
       reason: 'z',
     },
   },
