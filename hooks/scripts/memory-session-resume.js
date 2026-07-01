@@ -173,6 +173,14 @@ function render(r, projectContext, opts = {}) {
   out.push(
     'startup_policy: FIATE de este resume; NO ejecutes git diff/log/status para reconstruir estado salvo que sea insuficiente. EJECUTA el next_action de abajo como orden; ante ambiguedad propon UNA accion y pregunta, NO un menu.'
   );
+  // cat9.3 (mand.11): si el sidecar de recall fallo, DECLARA la degradacion en vez
+  // de emitir un resume que parece normal. El bloque sigue siendo util (head/nota/
+  // contexto son fuentes independientes del sidecar), pero el fallo queda visible.
+  if (opts.degraded) {
+    out.push(
+      'sidecar_status: DEGRADED -- el recall de memoria fallo (binario ultron-memory ausente/roto); este resume trae solo head/nota/contexto, NO memorias del sidecar. Rastro en hook-errors.jsonl.'
+    );
+  }
   if (opts.head) out.push(`head: ${opts.head}`);
   if (opts.harnessNote) out.push(opts.harnessNote);
   r = r || {};
@@ -249,7 +257,7 @@ function main() {
     emit(l0);
     return;
   }
-  emit(render(resume, projectContext, { harnessNote, head }) + l0);
+  emit(render(resume, projectContext, { harnessNote, head, degraded: resume === null }) + l0);
 }
 
 // Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script

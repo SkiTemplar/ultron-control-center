@@ -1819,15 +1819,20 @@ cat(9, "Hooks (arranque resiliente)", [
       const after = jsonlLineCount(HOOK_ERRORS_LOG);
       const out = (r.stdout ?? "").trim();
       const ac = hookAdditionalContext(out);
-      // (a) no crashea: exit 0 + JSON valido + el binario roto NO produjo resume
-      const safe = r.status === 0 && ac !== null && !ac.includes("<ultron-memory-resume");
+      // (a) no crashea: exit 0 + JSON valido. El bloque resume PUEDE existir con
+      // head/nota (fuentes independientes del sidecar), pero si el recall del sidecar
+      // fallo el hook debe DECLARARLO (marca DEGRADED) en vez de emitir un resume que
+      // parece normal (mand.11). El diseno viejo asumia "sidecar = unica fuente".
+      const hasResumeBlock = ac !== null && ac.includes("<ultron-memory-resume");
+      const marksDegraded = ac !== null && /DEGRADED/i.test(ac);
+      const safe = r.status === 0 && ac !== null && (!hasResumeBlock || marksDegraded);
       // (b) RUIDOSO: dejo rastro accionable (>=1 linea nueva en hook-errors.jsonl)
       const noisy = after > before;
       return {
         pass: safe && noisy,
         detail: safe
-          ? `fail-safe OK (exit 0, sin resume) pero RUIDO=${noisy} (hook-errors.jsonl ${before}->${after}; el fallo del binario no deja rastro accionable)`
-          : `fail-safe ROTO: exit=${r.status} ac_null=${ac === null} hadResume=${ac !== null && ac.includes("<ultron-memory-resume")}`,
+          ? `fail-safe OK (exit 0, degradacion ${marksDegraded ? "declarada" : "sin bloque"}) + RUIDO=${noisy} (hook-errors.jsonl ${before}->${after})`
+          : `fail-safe ROTO: exit=${r.status} ac_null=${ac === null} resumeBlock=${hasResumeBlock} marksDegraded=${marksDegraded} (el recall caido debe declararse DEGRADED)`,
       };
     },
   },
