@@ -116,6 +116,9 @@ fn run() -> Result<serde_json::Value, String> {
             }))
         }
         "eval" => {
+            // cat6.5 (mand.11): rechaza flags desconocidos para no fingir medir con
+            // el eval sintetico (recall=1.0) ante un typo como `--gold` por `--golden`.
+            reject_unknown_flags(&args, &["--golden", "--project"])?;
             // `--golden <path>` (with a path argument) loads an EXTERNAL hand-labeled
             // JSON file (schema: `{ "labeled": [...] }`, cat19 FASE A oracle) and
             // returns a `LabeledGoldenReport` directly — the external oracle takes
@@ -782,6 +785,27 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
 /// Whether a boolean flag (e.g. `--golden`) is present anywhere in `args`.
 fn has_flag(args: &[String], flag: &str) -> bool {
     args.iter().any(|a| a == flag)
+}
+
+/// Rechaza cualquier `--flag` en `args` que no este en `allowed`. Sin esto, un
+/// typo (`--gold` por `--golden`) se ignora en silencio y el subcomando finge
+/// medir con el eval sintetico (recall=1.0) — un no-op silencioso (cat6.5,
+/// mandamiento 11). `--flag=valor` se normaliza a `--flag` para el chequeo.
+fn reject_unknown_flags(args: &[String], allowed: &[&str]) -> Result<(), String> {
+    for a in args.iter().skip(2) {
+        let Some(body) = a.strip_prefix("--") else {
+            continue;
+        };
+        let name = body.split('=').next().unwrap_or(body);
+        let full = format!("--{name}");
+        if !allowed.contains(&full.as_str()) {
+            return Err(format!(
+                "flag desconocido: {a} (permitidos aqui: {})",
+                allowed.join(", ")
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// First positional arg(s) after the subcommand, excluding `--project <val>` and

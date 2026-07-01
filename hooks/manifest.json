@@ -63,7 +63,7 @@
       "command": "node ~/.ultron/hooks/scripts/batch-capture.js",
       "script": "~/.ultron/hooks/scripts/batch-capture.js",
       "timeout_s": 10,
-      "checksum_sha256": "175bbd30c2f6f843a55a4d2a5710b6a447c0540f32c08f25fe60dda6a389e9be",
+      "checksum_sha256": "867ca2d71eb9c7bf07b53ca1554627c72f43d1f25ccbe07872f64fadb5279659",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
