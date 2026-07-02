@@ -1,7 +1,10 @@
-// ProjectQuickActions — unit tests (V1 redesign)
+// ProjectQuickActions — unit tests (masterplan 3.6: Batch fuera de la barra)
 //
 // Covers:
-//   (1) Renders V1 base actions (Folder, IDE, AI provider label, Run batch).
+//   (1) Renders V1 base actions (Folder, IDE, AI provider label). Run batch
+//       is OFF by default (masterplan 3.6 — Batch salió de la barra de
+//       acciones de proyecto para ganar espacio para el kanban); solo
+//       aparece con el opt-in showBatch.
 //   (2) The removed actions (Terminal, Refactor IA, README IA) are gone in
 //       both densities.
 //   (3) Click IDE invokes `open_project_in_ide` with {path, preferredIde}.
@@ -41,11 +44,13 @@ const BASE_PROJECT: ProjectInfo = {
 function renderActions(
   overrides: Partial<ProjectInfo> = {},
   density: "compact" | "full" = "compact",
+  showBatch?: boolean,
 ) {
   return render(
     <ProjectQuickActions
       project={{ ...BASE_PROJECT, ...overrides }}
       density={density}
+      showBatch={showBatch}
     />,
   );
 }
@@ -65,13 +70,21 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ProjectQuickActions — rendering (V1)", () => {
-  it("renders Folder, IDE, provider label and Run batch in compact mode", () => {
+  it("renders Folder, IDE and provider label in compact mode", () => {
     renderActions();
     expect(screen.getByText("Folder")).toBeTruthy();
     expect(screen.getByText("IDE")).toBeTruthy();
     // default_provider = "claude" → badge label "Claude"
     expect(screen.getByText("Claude")).toBeTruthy();
-    // BatchDropdown trigger
+  });
+
+  it("does NOT render Run batch by default (masterplan 3.6 — Batch fuera de la barra)", () => {
+    renderActions();
+    expect(screen.queryByText("Run batch")).toBeNull();
+  });
+
+  it("renders Run batch only when showBatch=true (opt-in escape hatch)", () => {
+    renderActions({}, "compact", true);
     expect(screen.getByText("Run batch")).toBeTruthy();
   });
 

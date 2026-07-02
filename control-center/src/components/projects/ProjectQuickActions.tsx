@@ -1,11 +1,18 @@
 // ProjectQuickActions — acciones rápidas de proyecto reutilizables (V1).
 //
-// Fuente única para Folder / IDE / AI (spawn_session external CLI) / Run Batch
+// Fuente única para Folder / IDE / AI (spawn_session external CLI)
 // + Launch all (cuando hay items lanzables).
 //
 // V1 redesign: la vista por-proyecto se reduce a estos botones planos + el
 // Kanban board. Se eliminaron el botón Terminal (terminal embebido fuera) y los
 // botones de densidad full Refactor IA / README IA.
+//
+// masterplan 3.6 (2026-07-02): Batch salió de esta barra por decisión del
+// usuario (ganar espacio para el kanban en ProjectWorkspace). El backend de
+// colas (execute_batch/list_batches/batches_enqueue_manual/...) sigue intacto
+// y Batch sigue visible en el header de la lista de proyectos (Projects.tsx →
+// <BatchDropdown headerStyle />). `showBatch` queda como escape hatch opt-in
+// para una superficie futura que sí lo necesite ahí; por defecto NO se monta.
 //
 // El botón AI lanza una sesión EXTERNA del CLI vía `spawn_session` (wt.exe),
 // NO un terminal embebido (pty_spawn).
@@ -30,10 +37,10 @@ export interface ProjectQuickActionsProps {
   project: ProjectInfo;
   density?: QuickActionsDensity;
   /** Optional callback fired with a batch result toast (success / failure).
-   *  When omitted, BatchDropdown swallows the result silently. */
+   *  Sin efecto mientras showBatch sea false (default). */
   onBatchResult?: (toast: BatchToast) => void;
-  /** Si es false, oculta el BatchDropdown. Default: true.
-   *  Útil en ProjectCard/ProjectRow donde el Batch ya no pertenece al home. */
+  /** Opt-in: monta el BatchDropdown en esta barra. Default: false (masterplan
+   *  3.6 — Batch salió de la barra de acciones de proyecto). */
   showBatch?: boolean;
 }
 
@@ -100,7 +107,7 @@ export function ProjectQuickActions({
   project: p,
   density = "compact",
   onBatchResult,
-  showBatch = true,
+  showBatch = false,
 }: ProjectQuickActionsProps) {
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -182,7 +189,7 @@ export function ProjectQuickActions({
         compact={compact}
       />
 
-      {/* Run Batch — se oculta en ProjectCard/ProjectRow (showBatch=false) */}
+      {/* Run Batch — fuera por defecto (masterplan 3.6); opt-in con showBatch */}
       {showBatch && <BatchDropdown headerStyle onResult={onBatchResult} />}
 
       {/* Exe launch — botones por cada ejecutable configurado en el proyecto */}

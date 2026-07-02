@@ -2,23 +2,32 @@
 //
 // Layout:
 //   1. Identity bar — back button + project name/path + detach
-//   2. Dashboard — "Acciones rapidas": 2 primary cards + secondary tiles
+//   2. Dashboard — "Acciones rapidas": barra de 5 botones (AI, IDE, Folder,
+//      CodeGraph, Repo) + tiles de ejecutables
 //   3. Kanban board — fills all remaining space (flex-1 min-h-0)
+//
+// masterplan 3.6 (2026-07-02): Batch salio de esta barra (el backend de colas
+// —execute_batch/list_batches/etc.— sigue intacto; Batch sigue visible en el
+// header de la lista de proyectos, Projects.tsx). CodeGraph y el panel Git
+// subieron de la grid dedicada (seccion 3 vieja) a esta barra como botones
+// compactos, liberando esa franja de alto fijo para el Kanban. El detalle
+// full de Git (cambios/commit/historial/pull/push) sigue vivo en RepoModal.
+// RepoPanelWidget.tsx queda sin montar en ningun sitio (huerfano intencional,
+// no borrado — ver commit de esta sesion).
 //
 // Design: no emojis, SVG icons from ./icons, semantic color tokens.
 
 import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Bot, Folder, Play, ExternalLink } from "./icons";
+import { Bot, Folder, Play, ExternalLink, GitBranch, Share2 } from "./icons";
 import ProjectBoard from "./ProjectBoard";
 import { RepoModal } from "./RepoModal";
-import BatchDropdown, { type BatchToast } from "./BatchDropdown";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
 import { getPrompt } from "../../lib/button-prompts";
-import { RepoPanelWidget, type GitStatus } from "./RepoPanelWidget";
+import type { GitStatus } from "./RepoPanelWidget";
 
 // ---------------------------------------------------------------------------
 // Inline icons not yet in icons.tsx
@@ -176,7 +185,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
   const [repoModalOpen, setRepoModalOpen] = useState(false);
   const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
@@ -192,13 +200,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [cgBusy, setCgBusy] = useState(false);
 
   const tabsCtx = useProjectsTabs();
-
-  // Auto-fade toast after 6s
-  useEffect(() => {
-    if (!batchToast) return;
-    const t = window.setTimeout(() => setBatchToast(null), 6000);
-    return () => window.clearTimeout(t);
-  }, [batchToast]);
 
   // Load project meta from registry
   useEffect(() => {
@@ -360,6 +361,63 @@ export default function ProjectWorkspace({ projectId }: Props) {
     }
   };
 
+  // Tarjeta única CodeGraph (masterplan 3.6): sin índice → indexar; indexado →
+  // abrir sesión de exploración. Nunca es un no-op (mandamiento 11).
+  const handleCodeGraphCard = async () => {
+    if (!meta || cgBusy) return;
+    if (cgIndexed) {
+      await handleCodeGraphSession();
+    } else {
+      await handleCodeGraphInit();
+    }
+  };
+
+  // Tarjeta única Repo (masterplan 3.6): error de estado → reintenta refresh;
+  // sin repo → git init; con repo → abre el micro GitHub Desktop (RepoModal),
+  // que ya cubre pull/push/fetch/commit/historial.
+  const handleRepoCard = async () => {
+    if (!meta || git.busy) return;
+    if (git.error) {
+      await refreshGit(meta.path);
+      return;
+    }
+    if (git.state?.is_repo) {
+      setRepoModalOpen(true);
+      return;
+    }
+    await runGitOp("git_init");
+  };
+
+  const codeGraphSub = cgBusy
+    ? "Indexando…"
+    : cgIndexed === null
+    ? "Verificando índice…"
+    : cgIndexed
+    ? cgSummary
+      ? `${cgSummary.files} archivos · ${cgSummary.nodes} símbolos`
+      : "Indexado"
+    : "Sin índice — click para indexar";
+
+  const codeGraphTitle = cgIndexed
+    ? "Abrir sesión Claude Code con herramientas codegraph"
+    : "Indexar este proyecto con codegraph init -i";
+
+  const repoSub = !meta
+    ? "Cargando…"
+    : git.error
+    ? "Error de estado — click para reintentar"
+    : git.state?.is_repo
+    ? `${git.state.branch ?? "?"} · ${
+        git.state.dirty
+          ? `${git.state.dirty_count} cambio${git.state.dirty_count !== 1 ? "s" : ""}`
+          : "limpio"
+      }`
+    : "Sin repositorio git — click para crear";
+
+  const repoTitle = git.state?.is_repo
+    ? "Ver cambios, commit e historial (micro GitHub Desktop)"
+    : "git init en este directorio";
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -493,7 +551,24 @@ export default function ProjectWorkspace({ projectId }: Props) {
             disabled={!meta}
             title="Abrir carpeta del proyecto"
           />
-          <BatchDropdown onResult={setBatchToast} cardStyle />
+          <PrimaryCard
+            icon={<Share2 size={16} />}
+            label="CodeGraph"
+            sub={codeGraphSub}
+            tint="var(--color-text-secondary)"
+            onClick={() => void handleCodeGraphCard()}
+            disabled={!meta || cgBusy}
+            title={codeGraphTitle}
+          />
+          <PrimaryCard
+            icon={<GitBranch size={16} />}
+            label="Repo"
+            sub={repoSub}
+            tint={git.state?.dirty ? "#ca8a04" : "var(--color-text-secondary)"}
+            onClick={() => void handleRepoCard()}
+            disabled={!meta || git.busy}
+            title={repoTitle}
+          />
           {executables.map((exe, i) => (
             <PrimaryCard
               key={i}
@@ -508,53 +583,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
         </div>
       </div>
 
-      {/* Batch result toast */}
-      {batchToast && (
-        <div
-          className="flex shrink-0 items-center gap-2 border-b px-4 py-1.5 text-[11px]"
-          style={{
-            borderColor:
-              batchToast.kind === "ok"
-                ? "rgba(63,185,80,0.30)"
-                : "rgba(239,68,68,0.30)",
-            color:
-              batchToast.kind === "ok"
-                ? "var(--color-success, #3fb950)"
-                : "var(--color-danger, #ef4444)",
-          }}
-        >
-          <strong className="shrink-0">{batchToast.title}</strong>
-          {batchToast.body && (
-            <span
-              className="min-w-0 truncate"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              {batchToast.body.slice(0, 200)}
-              {batchToast.body.length > 200 ? "…" : ""}
-            </span>
-          )}
-          <button
-            onClick={() => setBatchToast(null)}
-            className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-60 transition-opacity hover:opacity-100"
-            aria-label="Cerrar notificacion"
-            style={{ color: "inherit" }}
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              aria-hidden
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-      )}
-
       {error && (
         <div
           className="shrink-0 border-b px-4 py-2 text-[11.5px]"
@@ -567,93 +595,11 @@ export default function ProjectWorkspace({ projectId }: Props) {
         </div>
       )}
 
-      {/* ── 3. CodeGraph + Git repo panels ──────────────────────────────── */}
-      <div
-        className="shrink-0 grid gap-3 border-b px-5 py-3"
-        style={{ borderColor: "var(--color-border)", gridTemplateColumns: "1fr 1fr" }}
-      >
-        {/* CodeGraph panel */}
-        <div
-          className="flex flex-col gap-2 rounded-md p-3"
-          style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
-        >
-          <div className="flex items-center justify-between">
-            <span
-              className="text-[10px] font-semibold uppercase tracking-[0.07em]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              CodeGraph
-            </span>
-            <div className="flex items-center gap-1.5">
-              {cgIndexed === false && (
-                <button
-                  type="button"
-                  onClick={() => void handleCodeGraphInit()}
-                  disabled={!meta || cgBusy}
-                  className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
-                  style={{
-                    background: "#1d4ed8",
-                    border: "1px solid #2563eb",
-                    color: "#fff",
-                  }}
-                  title="Indexar este proyecto con codegraph init -i"
-                >
-                  {cgBusy ? "Indexando…" : "Indexar"}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void handleCodeGraphSession()}
-                disabled={!meta}
-                className="rounded px-2 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
-                style={{
-                  background: "var(--color-surface-3)",
-                  border: "1px solid var(--color-border-strong)",
-                  color: "var(--color-text-secondary)",
-                }}
-                title="Abrir sesion Claude Code con herramientas codegraph"
-              >
-                Explorar
-              </button>
-            </div>
-          </div>
-          <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            {cgIndexed === null
-              ? "Verificando índice…"
-              : cgIndexed
-              ? "Indexado — codegraph_explore disponible"
-              : "Sin índice — pulsa Indexar para construirlo"}
-          </p>
-          {cgSummary && (
-            <p
-              className="text-[10.5px] tabular-nums"
-              style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
-              title={
-                cgSummary.last_indexed_at
-                  ? `Último indexado: ${new Date(cgSummary.last_indexed_at).toLocaleString()}`
-                  : undefined
-              }
-            >
-              {cgSummary.files} archivos · {cgSummary.nodes} símbolos · {cgSummary.edges} relaciones
-              {cgSummary.languages.length > 0 &&
-                ` · ${cgSummary.languages
-                  .slice(0, 3)
-                  .map(([l, n]) => `${l}:${n}`)
-                  .join(" ")}`}
-            </p>
-          )}
-        </div>
-
-        {/* Git repo panel — mini GitHub Desktop (extracted to RepoPanelWidget) */}
-        <RepoPanelWidget
-          git={git}
-          meta={meta}
-          onRunGitOp={(op) => void runGitOp(op)}
-          onOpenRepoModal={() => setRepoModalOpen(true)}
-        />
-      </div>
-
-      {/* ── 4. Kanban board — fills all remaining space ──────────────────── */}
+      {/* ── 3. Kanban board — fills all remaining space ─────────────────── */}
+      {/* CodeGraph y Repo ya no tienen una franja dedicada aparte (masterplan
+          3.6): sus botones viven en la barra de "Acciones rapidas" de arriba
+          y el detalle completo de Git vive en RepoModal. Ese espacio queda
+          para el Kanban. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         <ProjectBoard projectId={projectId} />
       </div>
