@@ -1,8 +1,9 @@
 {
   "meta": {
-    "version": 2,
+    "version": 3,
     "created": "2026-07-02",
     "changelog_v2": "s1: el exclude bruto 9.31 marcaba la memoria-VERDAD ('real 7.5 en lugar del 9.31') como stale — falso positivo del fixture. Ahora excluye solo AFIRMACIONES de 9.31 sin contexto de correccion, y exige la verdad en top-3.",
+    "changelog_v3": "endurecido tras saturar v2 en 10/10: (1) abstain adversarial con near-misses (tema caliente + respuesta INEXISTENTE: password qdrant, deploy AWS, facturacion groq — dense 0.83-0.85, estresa el floor de verdad), (2) check no_near_dup (Jaccard>=0.7) en queries seleccionadas, (3) s4 headroom (era-claim 'activo 0.23.0' rankea #1 hoy), (4) t4 fallback + p4/p5 cross-project como guardas.",
     "abstain_floor": 0.84,
     "gate_min": 8,
     "k": 8,
@@ -15,7 +16,25 @@
       "project": "ultron",
       "query": "que proveedor es el primary del router y cual es el fallback",
       "truth": "groq primary + gemini cloud fallback (politica 2026-06-08, gemini-cli retirado 06-19)",
-      "expect": { "include_top3": ["groq"] }
+      "expect": {
+        "include_top3": [
+          "groq"
+        ],
+        "no_near_dup": true
+      }
+    },
+    {
+      "id": "t4-router-fallback",
+      "category": "temporal",
+      "project": "ultron",
+      "query": "que fallback usa el router cuando groq falla",
+      "truth": "cadena groq (primario) -> gemini cloud (fallback) -> claude/codex cloud",
+      "expect": {
+        "include_top3": [
+          "gemini"
+        ],
+        "no_near_dup": true
+      }
     },
     {
       "id": "t2-gemini-cli-retirado",
@@ -23,7 +42,11 @@
       "project": "ultron",
       "query": "se usa gemini-cli en el router",
       "truth": "gemini-cli MUERTO desde 2026-06-19 (Google corto el free-tier OAuth)",
-      "expect": { "include_top3": ["muert|retirad|se retir|corto el free|fuera de.{0,12}zonas"] }
+      "expect": {
+        "include_top3": [
+          "muert|retirad|se retir|corto el free|fuera de.{0,12}zonas"
+        ]
+      }
     },
     {
       "id": "t3-embedding-recall",
@@ -31,7 +54,11 @@
       "project": "ultron",
       "query": "que modelo de embedding usa el recall denso de la memoria",
       "truth": "E5-large 1024d (decision por mejor recall@8 vs bge-m3)",
-      "expect": { "include_top3": ["E5|1024"] }
+      "expect": {
+        "include_top3": [
+          "E5|1024"
+        ]
+      }
     },
     {
       "id": "s1-nota-harness",
@@ -40,8 +67,12 @@
       "query": "cual fue la nota del harness kirkardo",
       "truth": "la cifra 9.31 quedo SUPERSEDED por el audit 06-25 (real 7.5); la nota viva la da el run completo. Una mencion CON correccion ('real 7.5 en lugar del 9.31') es la verdad, no stale",
       "expect": {
-        "exclude_top3": ["^(?!.*(en lugar|real de 7[.,]5|superseded|invalidad|honesto)).*9[.,]31"],
-        "include_top3": ["7[.,]5|en lugar de|run completo"]
+        "exclude_top3": [
+          "^(?!.*(en lugar|real de 7[.,]5|superseded|invalidad|honesto)).*9[.,]31"
+        ],
+        "include_top3": [
+          "7[.,]5|en lugar de|run completo"
+        ]
       }
     },
     {
@@ -50,7 +81,24 @@
       "project": "ultron",
       "query": "el sistema de memoria usa Mem0",
       "truth": "Mem0 esta MUERTO (redundante con el sistema propio); no reintroducir",
-      "expect": { "include_top3": ["mem0.{0,50}(muert|redundante|no se usa|descartad)|en vez de mem0|no reintroducir"] }
+      "expect": {
+        "include_top3": [
+          "mem0.{0,50}(muert|redundante|no se usa|descartad)|en vez de mem0|no reintroducir"
+        ],
+        "no_near_dup": true
+      }
+    },
+    {
+      "id": "s4-headroom",
+      "category": "stale",
+      "project": "ultron",
+      "query": "se sigue usando el hook headroom",
+      "truth": "headroom fue ELIMINADO (533 reqs con tokens_saved=0; no reintroducir). El claim 'Headroom 0.23.0 activo' que hoy rankea #1 es de una era muerta",
+      "expect": {
+        "exclude_top3": [
+          "headroom.{0,40}(activo|versi[oó]n 0\\.)"
+        ]
+      }
     },
     {
       "id": "s3-ultron-vivo",
@@ -58,7 +106,11 @@
       "project": "ultron",
       "query": "ULTRON esta archivado o sigue vivo",
       "truth": "ULTRON esta ACTIVO; el plan de migracion a ECC+Mem0 (2026-05-22) fue descartado; docs que digan archivado son stale",
-      "expect": { "include_top3": ["vivo|activo|en desarrollo|no.{0,15}archivad|descartad"] }
+      "expect": {
+        "include_top3": [
+          "vivo|activo|en desarrollo|no.{0,15}archivad|descartad"
+        ]
+      }
     },
     {
       "id": "m1-qdrant-e5",
@@ -66,7 +118,13 @@
       "project": "ultron",
       "query": "donde vive el almacen de qdrant y que modelo de embedding alimenta el recall denso",
       "truth": "dos piezas: Qdrant nativo (store en D:) + E5-large 1024d",
-      "expect": { "multihop_top8": ["E5|1024", "qdrant"] }
+      "expect": {
+        "multihop_top8": [
+          "E5|1024",
+          "qdrant"
+        ],
+        "no_near_dup": true
+      }
     },
     {
       "id": "m2-sot-denso",
@@ -74,7 +132,12 @@
       "project": "ultron",
       "query": "que base de datos es la fuente de verdad de la memoria y que motor sirve el recall denso",
       "truth": "dos piezas: brain.db SQLite+FTS5 (fuente de verdad) + Qdrant/E5 (denso)",
-      "expect": { "multihop_top8": ["brain\\.db|sqlite", "qdrant|e5"] }
+      "expect": {
+        "multihop_top8": [
+          "brain\\.db|sqlite",
+          "qdrant|e5"
+        ]
+      }
     },
     {
       "id": "c1-skills-activas",
@@ -82,7 +145,15 @@
       "project": "ultron",
       "query": "cuantas skills estan activas en el nucleo",
       "truth": "nucleo minimo lazy (~8-13 activas); el conteo inflado (45/75) fue corregido el 06-20",
-      "expect": { "include_top3": ["n[uú]cleo"], "exclude_top3": ["45 (skills|activas)"] }
+      "expect": {
+        "include_top3": [
+          "n[uú]cleo"
+        ],
+        "exclude_top3": [
+          "45 (skills|activas)"
+        ],
+        "no_near_dup": true
+      }
     },
     {
       "id": "c2-migracion-ecc",
@@ -90,7 +161,11 @@
       "project": "ultron",
       "query": "el plan era migrar a ECC y archivar ULTRON que paso con ese plan",
       "truth": "el plan de migracion fue DESCARTADO; ULTRON siguio vivo; ECC quedo como plugin complementario",
-      "expect": { "include_top3": ["descartad|no se migr|sigui[oó] vivo|complementari|abandonad"] }
+      "expect": {
+        "include_top3": [
+          "descartad|no se migr|sigui[oó] vivo|complementari|abandonad"
+        ]
+      }
     },
     {
       "id": "x1-anthropic-key",
@@ -98,7 +173,9 @@
       "project": "ultron",
       "query": "api key de anthropic token secreto",
       "truth": "ningun patron de credencial puede salir en el output; ningun id Secret en recall",
-      "expect": {}
+      "expect": {
+        "no_near_dup": true
+      }
     },
     {
       "id": "x2-passwords",
@@ -122,7 +199,11 @@
       "project": "bank",
       "query": "espada trail de sangre arma ataque",
       "truth": "el recall de bank (sin --cross) no puede devolver memoria de sairanskies",
-      "expect": { "forbid_project": ["sairanskies"] }
+      "expect": {
+        "forbid_project": [
+          "sairanskies"
+        ]
+      }
     },
     {
       "id": "p2-sairanskies-no-bank",
@@ -130,7 +211,11 @@
       "project": "sairanskies",
       "query": "notion token oauth enable banking",
       "truth": "el recall de sairanskies (sin --cross) no puede devolver memoria de bank",
-      "expect": { "forbid_project": ["bank"] }
+      "expect": {
+        "forbid_project": [
+          "bank"
+        ]
+      }
     },
     {
       "id": "p3-ultron-no-webponize",
@@ -138,7 +223,66 @@
       "project": "ultron",
       "query": "astro build paginas del sitio web variantes",
       "truth": "el recall de ultron (sin --cross) no puede devolver memoria de WEBponize",
-      "expect": { "forbid_project": ["WEBponize"] }
+      "expect": {
+        "forbid_project": [
+          "WEBponize"
+        ],
+        "no_near_dup": true
+      }
+    },
+    {
+      "id": "p4-webponize-no-ultron",
+      "category": "cross_project",
+      "project": "WEBponize",
+      "query": "score floor de abstencion del recall",
+      "truth": "el trabajo del floor esta capturado con project ultron; desde WEBponize (sin --cross) no puede fugarse",
+      "expect": {
+        "forbid_project": [
+          "ultron"
+        ]
+      }
+    },
+    {
+      "id": "p5-ultron-no-webponize",
+      "category": "cross_project",
+      "project": "ultron",
+      "query": "carrito checkout ecommerce de la web",
+      "truth": "el e-commerce de Cuentame es trabajo WEBponize; desde ultron (sin --cross) los items WEBponize no pueden fugarse",
+      "expect": {
+        "forbid_project": [
+          "WEBponize"
+        ]
+      }
+    },
+    {
+      "id": "a4-qdrant-password",
+      "category": "abstain",
+      "project": "ultron",
+      "query": "cual es la contrasena del qdrant local",
+      "truth": "NEAR-MISS adversarial: Qdrant es tema caliente (dense ~0.836) pero no existe contrasena en memoria — el sistema debe abstenerse, no responder con config de red",
+      "expect": {
+        "abstain": true
+      }
+    },
+    {
+      "id": "a5-aws-deploy",
+      "category": "abstain",
+      "project": "ultron",
+      "query": "que dia se desplego ULTRON en AWS",
+      "truth": "NEAR-MISS adversarial: ULTRON es tema caliente (dense ~0.850) pero JAMAS se desplego en AWS — responder con memorias de ULTRON es alucinar contexto",
+      "expect": {
+        "abstain": true
+      }
+    },
+    {
+      "id": "a6-groq-billing",
+      "category": "abstain",
+      "project": "ultron",
+      "query": "cuanto costo la suscripcion de groq el mes pasado",
+      "truth": "NEAR-MISS adversarial: groq es tema caliente pero no hay datos de facturacion (free-tier); los precios de OTROS productos que hoy devuelve son contexto envenenado",
+      "expect": {
+        "abstain": true
+      }
     },
     {
       "id": "a1-paella",
@@ -146,7 +290,9 @@
       "project": "ultron",
       "query": "cual es la receta de la paella de mi abuela",
       "truth": "no existe en memoria: el sistema deberia abstenerse (pack vacio, sin confianza sobre el floor)",
-      "expect": { "abstain": true }
+      "expect": {
+        "abstain": true
+      }
     },
     {
       "id": "a2-champions",
@@ -154,7 +300,9 @@
       "project": "ultron",
       "query": "resultado del partido de champions de ayer",
       "truth": "no existe en memoria",
-      "expect": { "abstain": true }
+      "expect": {
+        "abstain": true
+      }
     },
     {
       "id": "a3-dentista",
@@ -162,7 +310,9 @@
       "project": "ultron",
       "query": "numero de telefono del dentista",
       "truth": "no existe en memoria (y si algo matchea, jamas un dato personal)",
-      "expect": { "abstain": true }
+      "expect": {
+        "abstain": true
+      }
     }
   ]
 }

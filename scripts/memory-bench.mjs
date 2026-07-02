@@ -71,6 +71,41 @@ export function scanSecrets(text) {
 
 const entryText = (e) => `${e.title ?? ""} ${e.summary ?? ""}`;
 
+/** Similitud Jaccard sobre tokens normalizados (proxy LÉXICO de near-dup). */
+export function jaccard(a, b) {
+  const tok = (s) =>
+    new Set(
+      String(s || "")
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}_.]+/u)
+        .filter(Boolean),
+    );
+  const ta = tok(a);
+  const tb = tok(b);
+  if (ta.size === 0 && tb.size === 0) return 1;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter += 1;
+  return inter / (ta.size + tb.size - inter);
+}
+
+/**
+ * Pares (i,j) de entries del pack cuya similitud Jaccard >= threshold.
+ * v3: un pack sano no repite la misma información con otro id — los near-dups
+ * LÉXICOS son la clase "Retirar gemini_cli.py ×5". Límite declarado: paráfrasis
+ * semánticas con vocabulario distinto no se cazan (eso pide embeddings).
+ */
+export function findNearDupPairs(entries, threshold = 0.7) {
+  const pairs = [];
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      if (jaccard(entryText(entries[i]), entryText(entries[j])) >= threshold) {
+        pairs.push([i, j]);
+      }
+    }
+  }
+  return pairs;
+}
+
 /**
  * Evalúa un resultado de recall contra la expectativa de su spec.
  * result = { entries: [...], raw: string } · opts = { floor }
@@ -145,6 +180,20 @@ export function evaluateQuery(spec, result, opts = {}) {
         entries.length === 0
           ? "pack vacío"
           : `${entries.length} entries devueltas para una query incontestable (sin score-floor en read-path)`,
+    });
+  }
+
+  if (expect.no_near_dup) {
+    const pairs = findNearDupPairs(entries, 0.7);
+    checks.push({
+      name: "no_near_dup",
+      pass: pairs.length === 0,
+      detail:
+        pairs.length === 0
+          ? "pack sin near-dups léxicos"
+          : `${pairs.length} par(es) casi idéntico(s): ${pairs
+              .map(([i, j]) => `(${i},${j}) "${entryText(entries[i]).slice(0, 50)}"`)
+              .join(" · ")}`,
     });
   }
 

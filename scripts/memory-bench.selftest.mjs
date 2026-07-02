@@ -19,9 +19,9 @@ const ok = (n) => console.log(`  [PASS] ${n}`);
 const ko = (n, d) => { fail++; console.log(`  [FAIL] ${n}\n         -> ${d}`); };
 const A = (c, n, d) => (c ? ok(n) : ko(n, d));
 
-let evaluateQuery, scanSecrets;
+let evaluateQuery, scanSecrets, jaccard, findNearDupPairs;
 try {
-  ({ evaluateQuery, scanSecrets } = await import(
+  ({ evaluateQuery, scanSecrets, jaccard, findNearDupPairs } = await import(
     pathToFileURL(join(__dirname, "memory-bench.mjs")).href
   ));
 } catch (e) {
@@ -109,6 +109,36 @@ r = evaluateQuery(
   { entries: [entry("hecho ambiente", { project: null }), entry("propio", { project: "bank" })], raw: "" },
 );
 A(r.pass === true, "forbid_project: solo ambiente + proyecto propio -> pass", JSON.stringify(r));
+
+// --- near-dup léxico (v3): el pack no debe traer entries casi idénticas ---------
+A(typeof jaccard === "function" && typeof findNearDupPairs === "function",
+  "jaccard + findNearDupPairs exportados", `${typeof jaccard}/${typeof findNearDupPairs}`);
+
+if (typeof jaccard === "function") {
+  A(jaccard("retirar gemini_cli.py del router", "retirar gemini_cli.py del router") === 1,
+    "jaccard: texto idéntico -> 1", String(jaccard("a b", "a b")));
+  A(jaccard("el perro come pienso", "la bolsa sube en madrid") < 0.2,
+    "jaccard NEGATIVO: textos sin relación -> ~0", String(jaccard("el perro come pienso", "la bolsa sube en madrid")));
+
+  const packDup = [
+    entry("Las referencias a gemini_cli.py se están eliminando, convirtiéndolas en errores retirado"),
+    entry("Las referencias a gemini_cli.py se están eliminando, convirtiéndolas en errores 'retirado'."),
+    entry("El AI Router rutea por groq como primario"),
+  ];
+  const pairs = findNearDupPairs(packDup, 0.7);
+  A(pairs.length === 1 && pairs[0][0] === 0 && pairs[0][1] === 1,
+    "findNearDupPairs caza el par casi idéntico (0,1)", JSON.stringify(pairs));
+
+  const packClean = [entry("groq primario"), entry("qdrant vive en D:"), entry("E5 1024d")];
+  A(findNearDupPairs(packClean, 0.7).length === 0,
+    "findNearDupPairs NEGATIVO: pack limpio -> 0 pares", JSON.stringify(findNearDupPairs(packClean, 0.7)));
+
+  // integración con evaluateQuery: expect.no_near_dup
+  let rn = evaluateQuery({ expect: { no_near_dup: true } }, { entries: packDup, raw: "" });
+  A(rn.pass === false, "no_near_dup NEGATIVO: pack con par casi idéntico -> fail", JSON.stringify(rn));
+  rn = evaluateQuery({ expect: { no_near_dup: true } }, { entries: packClean, raw: "" });
+  A(rn.pass === true, "no_near_dup: pack limpio -> pass", JSON.stringify(rn));
+}
 
 // --- scanSecrets ----------------------------------------------------------------
 const leaks1 = scanSecrets('token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh en el texto');
