@@ -55,6 +55,10 @@ export function AIRouterPage() {
             <p className="mt-0.5 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
               {active.hint}
             </p>
+            <p className="mt-1 text-[11px]" style={{ color: "var(--color-warning, #b58900)" }}>
+              Alcance: el router solo afecta a las llamadas de esta app (zonas). Las sesiones de
+              Claude Code CLI hablan directo con Anthropic y NO pasan por aquí.
+            </p>
           </div>
           <div
             className="inline-flex flex-wrap rounded p-0.5"

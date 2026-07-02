@@ -291,9 +291,14 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             label: "Summarize document".into(),
             category: "chat".into(),
 
+            // 2026-07-01: las zonas INTERNAS (summarize/routing-decision/utility/
+            // light) usan llama-3.1-8b-instant — bucket TPD de groq SEPARADO del
+            // 70b. Compartir bucket agotaba los 100k TPD del 70b con automatización
+            // y disparaba 429→fallback (rolling 15%). 'chat' (cara al usuario)
+            // conserva el 70b.
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
+                model: "llama-3.1-8b-instant".into(),
                 max_tokens: 1024,
             },
             // gemini-cli retirado 2026-06-19 (muerto); queda gemini cloud.
@@ -311,7 +316,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
 
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
+                model: "llama-3.1-8b-instant".into(),
                 max_tokens: 256,
             },
             fallbacks: vec![ZoneAssignment {
@@ -345,7 +350,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
 
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
+                model: "llama-3.1-8b-instant".into(),
                 max_tokens: 512,
             },
             fallbacks: vec![ZoneAssignment {
@@ -362,7 +367,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
 
             primary: ZoneAssignment {
                 provider_id: "groq".into(),
-                model: "llama-3.3-70b-versatile".into(),
+                model: "llama-3.1-8b-instant".into(),
                 max_tokens: 1024,
             },
             // gemini-cli retirado 2026-06-19 (muerto); gemini cloud + ollama local.

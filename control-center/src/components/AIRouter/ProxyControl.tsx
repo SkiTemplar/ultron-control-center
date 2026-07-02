@@ -226,8 +226,8 @@ export function ProxyControl() {
             <p className="text-[12px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
               Cuando está activo, las sesiones nuevas de Claude Code usan el proxy local
               (<span style={{ fontFamily: "var(--font-mono)" }}>:8082</span>) que traduce la API
-              de Anthropic a un backend free-tier (NVIDIA NIM / OpenRouter / Groq). Se activa
-              automáticamente cuando la cuota de Claude llega al límite.{" "}
+              de Anthropic a un backend free-tier (NVIDIA NIM / OpenRouter / Groq). El toggle es
+              manual (el auto-enable por cuota se retiró en DR-11).{" "}
               <span style={{ color: "var(--color-warn, #facc15)", fontWeight: 600 }}>
                 Degrada la calidad: es una red de seguridad, no un reemplazo permanente.
               </span>
