@@ -126,8 +126,8 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   error honesto "retirado" en vez de spawnear un script ausente (mand. 11). *Verificado:* `git grep gemini_cli` en
   `.ps1`/`.py` = 0 (los matches en Rust son los **guardas** `retire_gemini_cli`/`seed_zones_ship_no_dead_gemini_cli`,
   que 4.4 manda conservar); ambos `.ps1` parsean en PS 5.1. **NO se tocó el provider gemini cloud** (`seed.rs:66-81`, vivo).
-  ☐ **Queda (→ 4.4):** `news_html_generator.py` usa gemini-CLI como **motor real** (`shutil.which('gemini')`, binario
-  muerto) y `health.py` lo sondea → repuntar a proveedor vivo o marcar deprecado (necesita decidir proveedor).
+  ✅ **Cerrado vía 4.4 (verificado en runtime 2026-07-02):** `news_html_generator.py` **ya no existe** — el modo
+  News Digest entero se erradicó en `12953d3`; la casilla quedó stale. `ls scripts/cockpit/news_html_generator.py` = 0.
 - ✅ **0.3 Telemetría de agentes — consumo cableado + atribución mejorada (2026-06-26).** El dato ya se capturaba pero
   **nadie lo consumía** (mand. 12). Ahora: (a) `scripts/agent-usage.mjs` agrega el harvest → "agente X invocado N veces" +
   chars + última (real hoy: 861 invocaciones; workflow-subagent 562x, unknown 157x, rust-engineer 15x…); (b) atribución en
@@ -421,8 +421,15 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   terminar), no in-flight — el "arrancó en vivo" lo daría un hook `SubagentStart` (item 3.9); la atribución fina del especialista
   sigue siendo deuda de 0.3 (hoy dominan `unknown`). *Pendiente: rebuild `build:local` (cerrar la app) + verificación visual del
   usuario (Sessions → Orquestación en vivo → "Subagentes recientes").*
-- ◐ **3.3 AI Router UI — solo nota de alcance.** La UI **NO está vacía** y la app **sí llama `route()`** (dashboard de
-  métricas reales). Queda: aviso honesto "el CLI de esta sesión NO se rutea" (mand. 13) + verificar proxy free-tier en runtime.
+- ✅ **3.3 AI Router UI — aviso de alcance + proxy verificado en runtime (HECHO 2026-07-01).** (a) Header de la página
+  AI Router (`index.tsx`) muestra el aviso honesto permanente: "el router solo afecta a las llamadas de esta app; las
+  sesiones de Claude Code CLI hablan directo con Anthropic y NO pasan por aquí" (mand. 13, visible en las 3 sub-tabs).
+  (b) `ProxyControl.tsx` mentía ("se activa automáticamente cuando la cuota llega al límite") — el auto-enable por cuota
+  se retiró en DR-11 (`cbb2d5c`); texto corregido a "toggle manual" (mand. 6). (c) **Proxy free-tier verificado en
+  runtime:** estado persistido coherente (`proxy-state.json enabled:false` + :8082 sin listener), y boot-test real:
+  arrancado `ultron-proxy.mjs` → `/health` = `ok:true, backend NVIDIA NIM, model qwen3-coder-480b, has_key:true,
+  3 backends` → detenido. El proxy FUNCIONA; está apagado por decisión, no roto. `tsc` 0. *Pendiente: entra en el
+  rebuild + verificación visual conjunta de Fase 3.*
 - ✅ **3.4 Kanban CREA cards — HECHO.** `kanban_create_card`+`CardEditorModal`. *(Si se quiere auto-crear desde tarea
   detectada por proyecto, es mejora aparte, no cáscara.)*
 - ✅ **3.5 Botón "Lanzar en carpeta" — HECHO.** `spawn_session(cwd)`+`openDialog{directory:true}` (Projects/Workspace).
@@ -431,8 +438,8 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   huérfano). **Decisión del usuario:** ¿se retira para subir CodeGraph/Repo a la barra de 5 botones y agrandar el kanban?
 - ✅ **3.7 Repo-panel rápido — HECHO (`bed217e`, 2026-06-30).** `git_repo_state` cachea el estado con TTL (ya no
   spawnea `git.exe` por refresh) + muestra el path del repo para desambiguar el "siempre Ultron".
-- ◐ **3.8 Learn auto — re-especificar o cerrar.** `Learn.tsx` **no tiene** refs Gemini/dual/triple (es estático). Si el
-  plan apuntaba a otra superficie, nombrarla; si no, cerrar el item (no hay deuda en Learn.tsx).
+- ✅ **3.8 Learn auto — CERRADO sin deuda (2026-07-01).** `Learn.tsx` no tiene refs Gemini/dual/triple (verificado
+  2026-06-26); nadie nombró otra superficie afectada en 5 sesiones → no hay deuda que re-especificar. Cerrado.
 - ✅ **3.9 Adoptar eventos de alto valor — 2 hooks nuevos cableados + consumidos (código HECHO + verde; 2026-07-01).**
   De los ~21 eventos sin usar, cableados los dos de mayor valor (confirmados como emitidos por `claude-code-guide` contra
   la doc oficial). **(1) `SubagentStart`** → hook `subagent-lifecycle.js` (registrado en `SubagentStart` + `SubagentStop`)
@@ -454,9 +461,13 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 # FASE 4 — Legibilidad y venta (el artefacto durable)
 
-- ☐ **4.1 Página técnica "Cómo funciona ULTRON de verdad"** en la web, desde este mapa: write-path de memoria, los
-  los **hooks (~9 usados de ~30 disponibles)**, routing lazy (v2 + v3 cuando se cablee), orquestación con telemetría, interfaz.
-  El manual del usuario y el argumento de venta. **Se actualiza al cerrar cada fase.**
+- ✅ **4.1 Página técnica "Cómo funciona ULTRON de verdad" — CERRADA (2026-07-02).** `docs/web/como-funciona.html`
+  (autocontenida, misma estética) + enlace "Manual técnico" en el topbar del índice. Cubre: write-path gobernado
+  (con la purga/curación del 07-02), read-path con gates (floor, clamp, trust gate anti-inyección + cobertura),
+  los TRES jueces de medición + los 4 "noes" medidos (reranker, fanout/rrf_k, dense_w, diversidad — el manual
+  documenta lo que NO entró; ese es el argumento de venta), hooks ~9/~30, routing lazy v2+v3, AI Router con
+  alcance declarado (no rutea el CLI), e interfaz. *(Alcance original: write-path, hooks ~9/~30, routing lazy,
+  orquestación con telemetría, interfaz — cubierto. Se actualiza al cerrar cada fase.)* **Verificación visual del usuario: OK (2026-07-02, página enviada y aprobada).**
 - ✅ **4.2 Docs coherentes + provider gemini-CLI erradicado (CERRADO 2026-06-28).** El usuario decidió retirar el
   provider gemini de sesiones; erradicado de `App.tsx`, las 6 superficies de spawn, `tray.rs` y `COMMANDS.md:43`
   (commits `36f7bd5`/`12953d3`). gemini cloud del router intacto. *(Histórico abajo.)* Las refs a gemini-CLI/Mem0 en

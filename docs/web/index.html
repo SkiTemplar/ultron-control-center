@@ -377,6 +377,8 @@
       <a href="#parte-2" class="part partlabel">2 · Por dentro</a>
       <a href="#memory" class="lvl2">Núcleo</a>
       <a href="#recall" class="lvl2">Recall</a>
+      <span class="sep"></span>
+      <a href="como-funciona.html" class="part">Manual técnico</a>
     </nav>
   </div>
 </header>
@@ -1227,6 +1229,29 @@
         <code class="t">MemoryService</code>.
       </p>
     </div>
+
+    <h3>La superficie de enganche: 11 de ~30 eventos</h3>
+    <p>
+      Claude Code expone unos <b>30 tipos de evento</b> de hook a lo largo del ciclo de vida de una
+      sesión. ULTRON cablea los <b>11</b> que le dan señal útil — el resto queda disponible (la
+      pestaña Hooks del Control Center los modela todos y distingue hooks activos de inertes, incluso
+      los de plugins desactivados).
+    </p>
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Evento</th><th>Qué hace ULTRON ahí</th></tr></thead>
+      <tbody>
+        <tr><td><code>SessionStart</code></td><td>Inyecta el resume vivo: nota del harness, HEAD real, tareas abiertas del kanban, contexto del proyecto.</td></tr>
+        <tr><td><code>UserPromptSubmit</code></td><td>Dispatcher de skills (v2 determinista → v3 semántico) + orquestador (intent → especialistas → memorias).</td></tr>
+        <tr><td><code>PreToolUse</code></td><td>Guardas (p. ej. proteger el proceso Qdrant) y nudges (usar codegraph antes de barrer el árbol).</td></tr>
+        <tr><td><code>PostToolUse</code> / <code>PostToolUseFailure</code></td><td>Captura de errores de herramienta como candidatos <code>error_resolution</code> — clases complementarias: fallos con resultado y fallos que ni ejecutaron.</td></tr>
+        <tr><td><code>SubagentStart</code> / <code>SubagentStop</code></td><td>Ciclo de vida de subagentes → telemetría de uso real + sección «Subagentes activos» del Monitor.</td></tr>
+        <tr><td><code>Stop</code></td><td>Captura de memoria de la sesión (arriba) + cierre de tarjetas del kanban al detectar tarea hecha.</td></tr>
+        <tr><td><code>PreCompact</code></td><td>Preserva un scratch L0 con los hechos clave antes de que la compactación los pierda.</td></tr>
+        <tr><td><code>SessionEnd</code> / <code>Notification</code></td><td>Resumen de cierre por sesión · avisos al Control Center.</td></tr>
+      </tbody>
+    </table>
+    </div>
   </div>
 </section>
 
@@ -1262,17 +1287,26 @@
     <h3>Las zonas — mapa intención → ruta</h3>
     <div class="scroll-x">
     <table>
-      <thead><tr><th>Zona</th><th>Clase</th><th>Primario</th><th>Fallback</th></tr></thead>
+      <thead><tr><th>Zona</th><th>Categoría</th><th>Primario</th><th>Fallbacks</th></tr></thead>
       <tbody>
-        <tr><td><code>chat</code></td><td><span class="dim">light</span></td><td><code>claude-haiku</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
-        <tr><td><code>code-edit</code></td><td><span class="dim">medium</span></td><td><code>codex · gpt-5</code></td><td><code>deepseek-coder</code></td></tr>
-        <tr><td><code>research-web</code></td><td><span class="dim">medium</span></td><td><code>gemini-flash</code></td><td><code>claude-haiku</code></td></tr>
-        <tr><td><code>summarize</code></td><td><span class="dim">trivial</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>gemini-flash</code></td></tr>
-        <tr><td><code>routing-decision</code></td><td><span class="dim">trivial</span></td><td><code>claude-haiku</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
-        <tr><td><code>code-fast-local</code></td><td><span class="dim">light</span></td><td><code>ollama · qwen2.5-coder</code></td><td><span class="dim">—</span></td></tr>
+        <tr><td><code>chat</code></td><td><span class="dim">chat</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>gemini-flash</code></td></tr>
+        <tr><td><code>code-edit</code></td><td><span class="dim">code</span></td><td><code>claude · sonnet</code></td><td><code>codex-cli → codex → deepseek</code></td></tr>
+        <tr><td><code>code-review</code></td><td><span class="dim">code</span></td><td><code>claude · sonnet</code></td><td><code>codex-cli → gemini-flash</code></td></tr>
+        <tr><td><code>research-web</code></td><td><span class="dim">research</span></td><td><code>gemini-flash</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
+        <tr><td><code>summarize</code></td><td><span class="dim">chat</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash</code></td></tr>
+        <tr><td><code>routing-decision</code></td><td><span class="dim">system</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash</code></td></tr>
+        <tr><td><code>utility</code></td><td><span class="dim">system</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash</code></td></tr>
+        <tr><td><code>light</code></td><td><span class="dim">chat</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash → ollama</code></td></tr>
+        <tr><td><code>code-fast-local</code></td><td><span class="dim">code</span></td><td><code>ollama · qwen2.5-coder</code></td><td><span class="dim">— (offline por diseño)</span></td></tr>
       </tbody>
     </table>
     </div>
+    <p class="dim" style="font-size:13px">
+      Las zonas internas (<code>summarize</code> / <code>routing-decision</code> / <code>utility</code> /
+      <code>light</code>) usan <code>llama-3.1-8b-instant</code> a propósito: en groq cada modelo tiene su
+      propio límite diario de tokens, y compartir el bucket del 70B hacía que la automatización agotara
+      la cuota del chat y disparara el fallback. <code>chat</code> conserva el 70B.
+    </p>
     <p>
       El catálogo combina proveedores por <b>API</b> —anthropic · codex / groq / deepseek
       (OpenAI-compat) · gemini · ollama (local, sin key)— con <b>CLI</b> de suscripción que se marca
@@ -1440,6 +1474,19 @@
       rápido para el coste/beneficio. La ruta viva y soportada es el SDK de Claude.
     </p>
 
+    <h3>El Monitor: verlo pasar en directo</h3>
+    <p>
+      Toda esa telemetría tiene un punto de consumo visible: el <b>Monitor de sesiones</b> del
+      Control Center. Cada tarjeta de sesión muestra un <b>resumen real</b> del último turno
+      (generado por el router, zona <code class="t">summarize</code> — no un truncado de 200
+      caracteres), el bloque de orquestación de esa sesión (intent · workflow · agentes · skills ·
+      memoria) y dos listas de subagentes: <b>activos</b> —en vuelo ahora mismo, emparejando
+      <code class="t">SubagentStart</code>/<code class="t">Stop</code> por <code class="t">agent_id</code>—
+      y <b>recientes</b>, con agente, etiqueta y tamaño del resultado. La pestaña Agents añade la
+      tira «uso real por agente»: quién se invoca, cuántas veces, con los wrappers genéricos
+      atenuados y declarados en vez de vendidos como especialistas.
+    </p>
+
     <div class="scroll-x">
     <table>
       <thead><tr><th>Intención (regla)</th><th>Workflow</th><th>Especialistas que prioriza</th></tr></thead>
@@ -1523,6 +1570,18 @@
       <code class="t">evals</code> trata cualquier fuga de secreto o de ítem stale como
       <code class="t">Error</code> duro: la recuperación se audita en cada <em>health-check</em>.
     </p>
+
+    <div class="call">
+      <div class="cl">Dos medidores, dos cifras — y se declaran las dos</div>
+      <p>
+        El <code class="t">evals</code> del doctor es un eval <b>interno</b> (queries sintéticas
+        derivadas del propio índice): vigila regresiones del pipeline y hoy da recall@8 = 1.0. Aparte
+        existe un <b>oráculo externo</b> de queries reales escritas a mano contra hechos conocidos,
+        que puntúa bastante más bajo — esa es la métrica que se persigue, y la que usa el harness de
+        evaluación (<code class="t">kirkardo-eval</code>) para negarse a aprobar el sistema mientras
+        no llegue al objetivo. Un sistema que solo publica su eval fácil se está mintiendo.
+      </p>
+    </div>
   </div>
 </section>
 
