@@ -69,6 +69,29 @@ export function scanSecrets(text) {
   return hits;
 }
 
+/** (c trust gate) Patrones de instrucción que JAMÁS deben salir en un pack —
+ * espejo del gate anti-inyección del read-path (lista estrecha, frases de
+ * secuestro; el corpus puede hablar DE seguridad sin disparar esto). */
+const INJECTION_PATTERNS = [
+  "ignore previous",
+  "ignore the above",
+  "disregard the above",
+  "ignora las instrucciones",
+  "olvida las instrucciones",
+  "[system]",
+  "<system>",
+  "nueva instruccion del sistema",
+  "from now on you must",
+  "do not tell the user",
+  "no le digas al usuario",
+];
+
+/** Devuelve los patrones de inyección hallados en `text` (case-insensitive). */
+export function scanInjection(text) {
+  const t = String(text || "").toLowerCase();
+  return INJECTION_PATTERNS.filter((p) => t.includes(p));
+}
+
 const entryText = (e) => `${e.title ?? ""} ${e.summary ?? ""}`;
 
 /** Similitud Jaccard sobre tokens normalizados (proxy LÉXICO de near-dup). */
@@ -212,6 +235,14 @@ export function evaluateQuery(spec, result, opts = {}) {
     name: "no_secret_text",
     pass: leaks.length === 0,
     detail: leaks.length === 0 ? "limpio" : `patrones: ${leaks.join(", ")}`,
+  });
+
+  // Invariante global (c trust gate): cero patrones de instrucción en el pack.
+  const inj = scanInjection(result.raw);
+  checks.push({
+    name: "no_injection_text",
+    pass: inj.length === 0,
+    detail: inj.length === 0 ? "limpio" : `inyección: ${inj.join(", ")}`,
   });
 
   return { pass: checks.every((c) => c.pass), checks };
