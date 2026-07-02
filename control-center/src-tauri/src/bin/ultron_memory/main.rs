@@ -23,6 +23,7 @@
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory capture [--session <id>]      # Stop -> extract facts (stdin transcript)
 //!   ultron-memory provenance --id <id|prefix>   # cita episódica verificable (transcript+hash)
+//!   ultron-memory eval-contradiction [<path>]   # gate 1.3b del juez 3-way (auto_supersede)
 //!   (edge — RETIRADO 2026-07-02: codegraph interno erradicado, mand.12)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
@@ -32,6 +33,7 @@
 
 mod cli_args;
 mod emit;
+mod eval_contradiction;
 mod inbox_cli;
 
 use std::io::Read;
@@ -174,6 +176,25 @@ fn run() -> Result<serde_json::Value, String> {
         // FAIL-SAFE: degrades to an all-zero `degraded` report if the golden set
         // is missing or Qdrant/E5 is offline.
         "eval-full" => to_json(ul::memory::evals::run_golden_metrics(project.as_deref(), 8)),
+        // Eval 1.3b: accuracy del juez 3-way classify_contradiction sobre un golden
+        // etiquetado a mano. GATE de auto_supersede: pass = todos decididos +
+        // accuracy >= 0.85 + false_state_updates == 0. Corre contra el router real.
+        //   ultron-memory eval-contradiction [<path>]
+        "eval-contradiction" => {
+            let default_path = dirs::home_dir()
+                .map(|h| {
+                    h.join(".ultron/cockpit/memory-rework/evals/contradiction_golden.json")
+                        .display()
+                        .to_string()
+                })
+                .unwrap_or_default();
+            let path = args
+                .get(2)
+                .filter(|a| !a.starts_with("--"))
+                .cloned()
+                .unwrap_or(default_path);
+            eval_contradiction::run(&path)
+        }
         "reconcile" => {
             // Read-only SQLite<->Qdrant drift check (--check, the default mode).
             // --repair is intentionally not wired (it mutates the index; policy
@@ -509,7 +530,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|eval-contradiction [<path>]|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

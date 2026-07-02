@@ -44,8 +44,12 @@ use serde::Deserialize;
 const ZONE_EXTRACT: &str = "utility";
 /// Light single-turn zone for query rewriting.
 const ZONE_REWRITE: &str = "light";
-/// Trivial zone for the contradiction yes/no judgement.
-const ZONE_JUDGE: &str = "utility";
+/// Zone for the contradiction judgement. Subida de utility (8b-instant) a chat
+/// (haiku primary) el 2026-07-02: el eval 1.3b midió que el 8b no sostiene el
+/// juicio 3-way (54% con el prompt viejo, 71% con el recalibrado, y 3 falsos
+/// state_update que habrían deprecado memoria válida). El volumen es bajo — el
+/// juez solo corre para candidates con vecinos dense >= 0.83.
+const ZONE_JUDGE: &str = "chat";
 
 /// Upper bound on facts accepted from a single extraction, to keep a runaway
 /// model from flooding the candidate pipeline.
@@ -318,18 +322,38 @@ fn build_judge_prompt(a: &str, b: &str) -> String {
     )
 }
 
+// Recalibrado 2026-07-02 tras el eval 1.3b (`eval-contradiction`): el prompt
+// original clasificaba "conflict" 7/8 pares SIN relación (accuracy 54%, sesgo
+// conflict-por-defecto) y produjo 2 falsos state_update (habrían deprecado
+// memoria válida). Cambios medidos: árbol de decisión explícito que arranca en
+// "¿MISMO sujeto?", none como salida por defecto, y un ejemplo por etiqueta.
+// La duda update-vs-conflict sigue resolviendo a conflict (jamás deprecar en
+// duda); la duda sobre si el sujeto coincide resuelve a none (dos afirmaciones
+// de temas distintos no son adjudicables y solo generan fricción de inbox).
 fn build_classify_prompt(new_stmt: &str, existing_stmt: &str) -> String {
     format!(
-        "You compare a NEW statement against an EXISTING remembered statement and \
-         classify their relation as exactly one label:\n\
-         - \"none\": they do not conflict (different subjects, or both can be true).\n\
-         - \"state_update\": SAME subject/entity, but the NEW statement is an UPDATED \
-           value that REPLACES the old one (a changed decision, a moved path, a new \
-           preference about the very same thing). The old value is now outdated.\n\
-         - \"conflict\": they contradict about the same subject but it is NOT a clear \
-           replacement -- genuinely irreconcilable, a human must decide.\n\
-         Be conservative: use \"state_update\" ONLY when it is clearly the SAME thing \
-         being updated. If unsure between update and conflict, choose \"conflict\".\n\
+        "You compare a NEW statement against an EXISTING remembered statement. \
+         Decide in this order:\n\
+         1. Are they about the SAME specific subject/entity/setting? If they talk \
+            about different things — even related topics in the same system — the \
+            answer is \"none\". Two statements that can both be true are \"none\". \
+            MOST pairs are \"none\".\n\
+         2. Same subject AND the NEW statement gives an updated value/decision that \
+            REPLACES the old one (a changed number, a moved path, a switched \
+            provider, a reversed decision where NEW is clearly the current state): \
+            \"state_update\".\n\
+         3. Same subject, they cannot both be true, and it is NOT clear that NEW \
+            replaces the old (which one is current is ambiguous, or NEW violates an \
+            explicit standing rule in EXISTING): \"conflict\".\n\
+         When unsure between state_update and conflict, choose \"conflict\". When \
+         unsure whether the subject is the same, choose \"none\".\n\
+         Examples:\n\
+         NEW: the API timeout is 30 seconds / EXISTING: the API timeout is 10 \
+         seconds -> {{\"relation\":\"state_update\"}}\n\
+         NEW: the parser fails on em-dash / EXISTING: releases ship on fridays -> \
+         {{\"relation\":\"none\"}}\n\
+         NEW: tests may write to the production db / EXISTING: tests must never \
+         touch the production db -> {{\"relation\":\"conflict\"}}\n\
          Respond with ONLY JSON, no markdown fences, no prose:\n\
          {{\"relation\":\"none\"}} or {{\"relation\":\"state_update\"}} or {{\"relation\":\"conflict\"}}\n\n\
          NEW: {new_stmt}\n\

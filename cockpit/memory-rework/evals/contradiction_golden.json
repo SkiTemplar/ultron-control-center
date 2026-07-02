@@ -1,0 +1,29 @@
+{
+  "_doc": "Golden set 1.3b (2026-07-02) — eval de accuracy de classify_contradiction (juez 3-way). Etiquetado a mano. expect: none | state_update | conflict. Gate para encender auto_supersede: accuracy_decided >= 0.85 y false_state_updates == 0 (un StateUpdate falso depreca memoria valida).",
+  "cases": [
+    { "expect": "state_update", "new": "La migracion de brain.db esta en user_version 5 tras la retirada del codegraph interno", "existing": "brain.db usa user_version 4 con las tablas edges del codegraph" },
+    { "expect": "state_update", "new": "El threshold de auto-approve de memoria es 0.72", "existing": "El threshold de auto-approve de memoria es 0.85" },
+    { "expect": "state_update", "new": "El primary de la zona chat del AI Router es groq", "existing": "El primary de la zona chat del AI Router es gemini-cli" },
+    { "expect": "state_update", "new": "La nota del harness Kirkardo es 9.03", "existing": "La nota del harness Kirkardo es 7.95" },
+    { "expect": "state_update", "new": "Los hooks usan el binario ultron-memory desplegado en ~/.ultron/bin", "existing": "Los hooks usan el binario ultron-memory directamente desde target/release" },
+    { "expect": "state_update", "new": "The dense embedder is multilingual-e5-large at 1024 dimensions", "existing": "The dense embedder is bge-small at 384 dimensions" },
+    { "expect": "state_update", "new": "El budget del juez de contradiccion es 4500 ms", "existing": "El budget del juez de contradiccion es 2000 ms" },
+    { "expect": "state_update", "new": "Qdrant arranca oculto via la tarea programada UltronQdrant", "existing": "Qdrant se arranca a mano con Start-Process desde la consola" },
+    { "expect": "none", "new": "El corredor de fondo entreno cuarenta kilometros semanales durante otono para el maraton de invierno", "existing": "Mantener Autumn activo" },
+    { "expect": "none", "new": "El recall hibrido fusiona sparse FTS5 y denso E5 con RRF", "existing": "El kanban se gestiona por CLI con scripts/kanban.mjs" },
+    { "expect": "none", "new": "Los hooks de Claude Code cargan al inicio de la sesion", "existing": "El repo es publico y no admite rutas personales ni PII" },
+    { "expect": "none", "new": "El taller de ceramica del barrio hornea las piezas esmaltadas a mil doscientos grados", "existing": "La pestana Finance se compila solo con la feature finance" },
+    { "expect": "none", "new": "El doctor reporta la salud de sqlite y de las colecciones qdrant", "existing": "El doctor imprime su informe como JSON en stdout" },
+    { "expect": "none", "new": "E5-large corre en CPU mediante ONNX runtime", "existing": "El reranker cross-encoder quedo desactivado por triplicar la latencia" },
+    { "expect": "none", "new": "PowerShell 5.1 rompe el parser con em-dash en scripts ps1", "existing": "PowerShell 5.1 no soporta los operadores ternarios ni null-coalescing" },
+    { "expect": "none", "new": "The inbox drain applies the same three-band policy as the write path", "existing": "Subagent lifecycle events land in a scratch jsonl log for the Monitor" },
+    { "expect": "conflict", "new": "Mem0 es el sistema de memoria principal de ULTRON", "existing": "Mem0 esta muerto y no debe reintroducirse; la memoria propia es brain.db" },
+    { "expect": "conflict", "new": "El eval de recall puede reutilizar metricas viejas cacheadas para el informe", "existing": "El eval de recall debe correrse siempre de cero, nunca con metricas memorizadas" },
+    { "expect": "conflict", "new": "Los tests pueden tocar la brain.db de produccion directamente", "existing": "Los tests deben ser hermeticos y jamas tocar brain.db real" },
+    { "expect": "conflict", "new": "El release se publica cada viernes de forma automatica", "existing": "El release se publica solo manualmente tras verificacion visual del usuario" },
+    { "expect": "conflict", "new": "The CI gate allows HIGH privacy findings when the push is urgent", "existing": "The CI gate fails on any HIGH privacy finding without exception" },
+    { "expect": "conflict", "new": "El dispatcher carga todas las skills al inicio de cada sesion", "existing": "Las skills viven .disabled y el dispatcher las inyecta on-demand segun el prompt" },
+    { "expect": "conflict", "new": "El orquestador escribe memoria directamente en brain.db cuando lo necesita", "existing": "Solo MemoryService escribe memoria persistente; ningun otro camino toca brain.db" },
+    { "expect": "conflict", "new": "Los secretos detectados se guardan en claro para poder auditarlos despues", "existing": "Los secretos se redactan en el write-path antes de persistir nada" }
+  ]
+}
