@@ -87,6 +87,8 @@ agent_manifest.json
 manifest.cache.json
 
 # === Cockpit runtime (user-specific) ===
+# kanbans/contextos/sesiones por-proyecto: datos personales, NUNCA al repo publico
+cockpit/projects/
 cockpit/projects.json
 cockpit/projects-exclusions.json
 cockpit/bridge-index.json
