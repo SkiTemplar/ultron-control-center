@@ -112,10 +112,10 @@ jobs:
         # doesn't start from zero.  shared-key pins the cache to this job so
         # the key is stable across Cargo.lock-only changes (Swatinem already
         # appends the lock hash as a suffix).
-        # id: cache -- exposes outputs.cache-hit (exact-match boolean, per
-        # Swatinem/rust-cache action.yml) so the two cargo steps below can
-        # skip the network round-trip below when nothing changed.
-        id: cache
+        # cat12.5 NOTE: do NOT wire cache-hit -> CARGO_NET_OFFLINE. Tried on
+        # run #28608208137: exact hit + offline broke with "no matching
+        # package named `base64` found" -- rust-cache PRUNES the registry on
+        # save, so a restored cache is NOT self-sufficient for --offline.
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: control-center/src-tauri
@@ -134,16 +134,6 @@ jobs:
         # identical — avoids compiling integration-test stubs that cargo test
         # doesn't use (those live under tests/ and require a live Qdrant).
         working-directory: control-center/src-tauri
-        env:
-          # cat12.5: on an EXACT cache hit (steps.cache.outputs.cache-hit ==
-          # "true"), the restored ~/.cargo/registry already has every crate
-          # this exact Cargo.lock resolves to -- there is nothing new for
-          # "Updating crates.io index" to fetch, so the ~68s network
-          # round-trip measured on run #28092264557 is pure waste. On a MISS
-          # (new/bumped dependency -> cache-hit="false") this env var is
-          # "false" and cargo goes online exactly as before: never silently
-          # skips a real fetch, only skips a provably-redundant one.
-          CARGO_NET_OFFLINE: ${{ steps.cache.outputs.cache-hit }}
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
       - name: cargo test (unit, lib only)
@@ -165,12 +155,6 @@ jobs:
         # is gone. Trims the Rust job toward the <300 s target without losing any
         # assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
         working-directory: control-center/src-tauri
-        env:
-          # Same reasoning as the clippy step above; in practice cargo only
-          # pays the index-update cost once per job (the clippy invocation
-          # already refreshed it), so this mainly guards the case where
-          # clippy failed/skipped and this step runs first.
-          CARGO_NET_OFFLINE: ${{ steps.cache.outputs.cache-hit }}
         run: cargo test --lib --profile test
 
   typescript:
