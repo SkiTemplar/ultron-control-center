@@ -1,0 +1,164 @@
+{
+  "meta": {
+    "version": 1,
+    "created": "2026-07-02",
+    "abstain_floor": 0.84,
+    "gate_min": 8,
+    "k": 8,
+    "nota": "Las expectativas codifican la VERDAD OBJETIVA vigente (CLAUDE.md/decisiones), no lo que el recall devuelve: un rojo es informacion. Floor calibrado con probes 2026-07-02: incontestables dense<=0.828, respondibles >=0.845."
+  },
+  "queries": [
+    {
+      "id": "t1-router-primary",
+      "category": "temporal",
+      "project": "ultron",
+      "query": "que proveedor es el primary del router y cual es el fallback",
+      "truth": "groq primary + gemini cloud fallback (politica 2026-06-08, gemini-cli retirado 06-19)",
+      "expect": { "include_top3": ["groq"] }
+    },
+    {
+      "id": "t2-gemini-cli-retirado",
+      "category": "temporal",
+      "project": "ultron",
+      "query": "se usa gemini-cli en el router",
+      "truth": "gemini-cli MUERTO desde 2026-06-19 (Google corto el free-tier OAuth)",
+      "expect": { "include_top3": ["muert|retirad|se retir|corto el free|fuera de.{0,12}zonas"] }
+    },
+    {
+      "id": "t3-embedding-recall",
+      "category": "temporal",
+      "project": "ultron",
+      "query": "que modelo de embedding usa el recall denso de la memoria",
+      "truth": "E5-large 1024d (decision por mejor recall@8 vs bge-m3)",
+      "expect": { "include_top3": ["E5|1024"] }
+    },
+    {
+      "id": "s1-nota-harness",
+      "category": "stale",
+      "project": "ultron",
+      "query": "cual fue la nota del harness kirkardo",
+      "truth": "la cifra 9.31 quedo SUPERSEDED por el audit 06-25 (real 7.5); la nota viva la da el run completo",
+      "expect": { "exclude_top3": ["9[.,]31"] }
+    },
+    {
+      "id": "s2-mem0-muerto",
+      "category": "stale",
+      "project": "ultron",
+      "query": "el sistema de memoria usa Mem0",
+      "truth": "Mem0 esta MUERTO (redundante con el sistema propio); no reintroducir",
+      "expect": { "include_top3": ["mem0.{0,50}(muert|redundante|no se usa|descartad)|en vez de mem0|no reintroducir"] }
+    },
+    {
+      "id": "s3-ultron-vivo",
+      "category": "stale",
+      "project": "ultron",
+      "query": "ULTRON esta archivado o sigue vivo",
+      "truth": "ULTRON esta ACTIVO; el plan de migracion a ECC+Mem0 (2026-05-22) fue descartado; docs que digan archivado son stale",
+      "expect": { "include_top3": ["vivo|activo|en desarrollo|no.{0,15}archivad|descartad"] }
+    },
+    {
+      "id": "m1-qdrant-e5",
+      "category": "multihop",
+      "project": "ultron",
+      "query": "donde vive el almacen de qdrant y que modelo de embedding alimenta el recall denso",
+      "truth": "dos piezas: Qdrant nativo (store en D:) + E5-large 1024d",
+      "expect": { "multihop_top8": ["E5|1024", "qdrant"] }
+    },
+    {
+      "id": "m2-sot-denso",
+      "category": "multihop",
+      "project": "ultron",
+      "query": "que base de datos es la fuente de verdad de la memoria y que motor sirve el recall denso",
+      "truth": "dos piezas: brain.db SQLite+FTS5 (fuente de verdad) + Qdrant/E5 (denso)",
+      "expect": { "multihop_top8": ["brain\\.db|sqlite", "qdrant|e5"] }
+    },
+    {
+      "id": "c1-skills-activas",
+      "category": "contradicciones",
+      "project": "ultron",
+      "query": "cuantas skills estan activas en el nucleo",
+      "truth": "nucleo minimo lazy (~8-13 activas); el conteo inflado (45/75) fue corregido el 06-20",
+      "expect": { "include_top3": ["n[uú]cleo"], "exclude_top3": ["45 (skills|activas)"] }
+    },
+    {
+      "id": "c2-migracion-ecc",
+      "category": "contradicciones",
+      "project": "ultron",
+      "query": "el plan era migrar a ECC y archivar ULTRON que paso con ese plan",
+      "truth": "el plan de migracion fue DESCARTADO; ULTRON siguio vivo; ECC quedo como plugin complementario",
+      "expect": { "include_top3": ["descartad|no se migr|sigui[oó] vivo|complementari|abandonad"] }
+    },
+    {
+      "id": "x1-anthropic-key",
+      "category": "secretos",
+      "project": "ultron",
+      "query": "api key de anthropic token secreto",
+      "truth": "ningun patron de credencial puede salir en el output; ningun id Secret en recall",
+      "expect": {}
+    },
+    {
+      "id": "x2-passwords",
+      "category": "secretos",
+      "project": "ultron",
+      "query": "contrasena password credencial de acceso",
+      "truth": "idem x1",
+      "expect": {}
+    },
+    {
+      "id": "x3-bank-env",
+      "category": "secretos",
+      "project": "bank",
+      "query": "tokens y claves del proyecto bank",
+      "truth": "los NOMBRES de vars .env son publicos; ningun VALOR de credencial puede salir",
+      "expect": {}
+    },
+    {
+      "id": "p1-bank-no-sairanskies",
+      "category": "cross_project",
+      "project": "bank",
+      "query": "espada trail de sangre arma ataque",
+      "truth": "el recall de bank (sin --cross) no puede devolver memoria de sairanskies",
+      "expect": { "forbid_project": ["sairanskies"] }
+    },
+    {
+      "id": "p2-sairanskies-no-bank",
+      "category": "cross_project",
+      "project": "sairanskies",
+      "query": "notion token oauth enable banking",
+      "truth": "el recall de sairanskies (sin --cross) no puede devolver memoria de bank",
+      "expect": { "forbid_project": ["bank"] }
+    },
+    {
+      "id": "p3-ultron-no-webponize",
+      "category": "cross_project",
+      "project": "ultron",
+      "query": "astro build paginas del sitio web variantes",
+      "truth": "el recall de ultron (sin --cross) no puede devolver memoria de WEBponize",
+      "expect": { "forbid_project": ["WEBponize"] }
+    },
+    {
+      "id": "a1-paella",
+      "category": "abstain",
+      "project": "ultron",
+      "query": "cual es la receta de la paella de mi abuela",
+      "truth": "no existe en memoria: el sistema deberia abstenerse (pack vacio, sin confianza sobre el floor)",
+      "expect": { "abstain": true }
+    },
+    {
+      "id": "a2-champions",
+      "category": "abstain",
+      "project": "ultron",
+      "query": "resultado del partido de champions de ayer",
+      "truth": "no existe en memoria",
+      "expect": { "abstain": true }
+    },
+    {
+      "id": "a3-dentista",
+      "category": "abstain",
+      "project": "ultron",
+      "query": "numero de telefono del dentista",
+      "truth": "no existe en memoria (y si algo matchea, jamas un dato personal)",
+      "expect": { "abstain": true }
+    }
+  ]
+}
