@@ -343,6 +343,8 @@ id_rsa
 id_ed25519
 secrets/
 **/secrets.*
+# excepcion: codigo fuente del redactor (patrones de DETECCION de secretos, no secretos)
+!control-center/src-tauri/src/memory/redaction/secrets.rs
 .credentials.json
 **/.credentials.json
 
