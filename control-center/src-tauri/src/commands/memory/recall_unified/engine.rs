@@ -41,6 +41,42 @@ use crate::commands::memory::recall_unified::rrf_fuse_weighted;
 /// `PER_CALL_TOKEN_CAP` for the default, or a custom value from the caller. Items are
 /// admitted best-rank-first; the first item is always admitted (with truncation)
 /// even if its token estimate exceeds the budget.
+/// (cat1 ranking, 2026-07-02) Tokens normalizados para el gate de diversidad.
+fn text_tokens(s: &str) -> std::collections::HashSet<String> {
+    s.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric() && c != '.')
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn jaccard_tokens(
+    a: &std::collections::HashSet<String>,
+    b: &std::collections::HashSet<String>,
+) -> f32 {
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let inter = a.intersection(b).count() as f32;
+    inter / (a.len() as f32 + b.len() as f32 - inter)
+}
+
+/// Umbral del gate de diversidad del pack (`ULTRON_PACK_DIVERSITY`): un número
+/// lo activa (p.ej. "0.6"); ausente/"off"/basura -> DESACTIVADO.
+///
+/// VEREDICTO 2026-07-02 (4º no medido): con 0.6/0.65 el oráculo cae 0.682→0.654
+/// y eval-full 0.712→0.681 — los golden sets etiquetan AMBAS variantes near-dup
+/// como relevantes, así que despublicar la segunda cuenta como miss. El gate
+/// queda como capability opt-in: un juez que mida información-por-token (no
+/// ids) podría vindicarlo; no se re-etiquetan los golden para que gane.
+fn pack_diversity_threshold() -> Option<f32> {
+    match std::env::var("ULTRON_PACK_DIVERSITY") {
+        Ok(v) if v.eq_ignore_ascii_case("off") || v.trim() == "0" => None,
+        Ok(v) => v.trim().parse::<f32>().ok(),
+        Err(_) => None,
+    }
+}
+
 pub(crate) fn assemble_pack(
     conn: &rusqlite::Connection,
     fused: &[FusedHit],
@@ -52,6 +88,9 @@ pub(crate) fn assemble_pack(
     let mut injected: Vec<RecallEntry> = Vec::new();
     let mut discarded: Vec<DiscardedHit> = Vec::new();
     let mut total_tokens = 0i64;
+    // (diversidad) token-sets de los textos ORIGINALES ya inyectados.
+    let diversity_thr = pack_diversity_threshold();
+    let mut injected_toks: Vec<std::collections::HashSet<String>> = Vec::new();
     for fh in fused {
         let discard = |reason: &str| DiscardedHit {
             canonical_id: fh.canonical_id.clone(),
@@ -157,6 +196,30 @@ pub(crate) fn assemble_pack(
             discarded.push(discard("sensitivity=secret (excluded from context pack)"));
             continue;
         }
+        // (cat1 ranking, 2026-07-02) GATE DE DIVERSIDAD: un candidato casi
+        // idéntico a algo YA inyectado no quema otro slot — variantes del mismo
+        // hecho comían 6 slots en el oráculo con near-misses esperando. El slot
+        // liberado lo toma el siguiente candidato del fused. Descartado con
+        // razón auditable (mandamiento 11).
+        let cand_toks = diversity_thr.map(|thr| {
+            (
+                thr,
+                text_tokens(&format!(
+                    "{} {}",
+                    item.title.as_deref().unwrap_or(""),
+                    item.summary.as_deref().unwrap_or("")
+                )),
+            )
+        });
+        if let Some((thr, ref toks)) = cand_toks {
+            if injected_toks
+                .iter()
+                .any(|prev| jaccard_tokens(prev, toks) >= thr)
+            {
+                discarded.push(discard("near-dup of an injected entry (pack diversity)"));
+                continue;
+            }
+        }
         // (cat1, 2026-07-02) CLAMP por entrada: cada item aporta como mucho
         // ENTRY_TOKEN_CLAMP (o limit_tokens si es menor — preserva B4 con caps
         // reducidos). El summary inyectado se trunca declarándolo; el contenido
@@ -211,6 +274,11 @@ pub(crate) fn assemble_pack(
             reason,
             token_estimate: entry_tokens,
         });
+        // (diversidad) registrar tokens SOLO de lo realmente inyectado — un
+        // candidato caído después (p.ej. presupuesto) no debe vetar a futuros.
+        if let Some((_, toks)) = cand_toks {
+            injected_toks.push(toks);
+        }
     }
     (injected, discarded, total_tokens)
 }

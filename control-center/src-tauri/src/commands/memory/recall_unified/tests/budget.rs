@@ -184,3 +184,91 @@ fn fat_entries_are_clamped_not_evicting_later_items() {
         "el resumen truncado lo declara"
     );
 }
+
+// (cat1 ranking, 2026-07-02) — diversidad del pack: un candidato casi identico
+// a algo YA inyectado no quema otro slot (medido: el par "Embedding E5 1024d"
+// ~ "Embedding para recall" jac=0.68 comia slots en 6 queries del oraculo, con
+// near-misses esperando en 3 de ellas).
+#[test]
+fn near_dup_candidates_dont_burn_pack_slots() {
+    use crate::memory::model::MemoryItem;
+    use crate::memory::sqlite_store::{apply_schema, insert_item};
+    use crate::memory::{MemoryType, Source};
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+    apply_schema(&conn).expect("schema");
+
+    let mk = |summary: &str| {
+        let mut it = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
+        it.summary = Some(summary.to_string());
+        it.token_estimate = 20;
+        it
+    };
+    // El gate es OPT-IN (default OFF tras el veredicto del 4o no medido); este
+    // test lo activa via env. Ventana de carrera aceptada: 0.6 no altera ningun
+    // otro test de assemble_pack (sus textos puntuan jac < 0.6 entre si).
+    std::env::set_var("ULTRON_PACK_DIVERSITY", "0.6");
+
+    let a = mk("Se decidio usar E5 1024d como modelo de embedding para el recall semantico denso");
+    let b = mk("Se decidio usar E5 1024d como el modelo de embedding para recall semantico");
+    let c = mk("El kanban se edita exclusivamente via scripts con su propio CLI dedicado");
+    for it in [&a, &b, &c] {
+        insert_item(&conn, it).expect("insert");
+    }
+    let fused: Vec<FusedHit> = [&a, &b, &c]
+        .iter()
+        .enumerate()
+        .map(|(i, it)| FusedHit {
+            canonical_id: it.id.clone(),
+            rrf_score: 0.9 - (i as f32) * 0.1,
+            dense_rank: Some(i),
+            sparse_rank: None,
+            dense_score: Some(0.85),
+        })
+        .collect();
+
+    // limit=2: sin diversidad entrarian A+B (casi identicos) y C fuera.
+    let (injected, discarded, _) = assemble_pack(&conn, &fused, 2, None, false, PER_CALL_TOKEN_CAP);
+    let ids: Vec<&str> = injected.iter().map(|e| e.canonical_id.as_str()).collect();
+    assert_eq!(injected.len(), 2, "el pack llena sus 2 slots");
+    assert!(ids.contains(&a.id.as_str()), "A (mejor rank) entra");
+    assert!(
+        ids.contains(&c.id.as_str()),
+        "C entra al slot liberado por el near-dup B: {ids:?}"
+    );
+    assert!(
+        discarded
+            .iter()
+            .any(|d| d.canonical_id == b.id && d.reason.contains("near-dup")),
+        "B descartado con razon near-dup: {discarded:?}"
+    );
+
+    // Caso negativo: dos hechos DISTINTOS del mismo tema no se confunden.
+    let d = mk("El reranker cross-encoder BGE quedo OFF tras el A/B por latencia y calidad");
+    insert_item(&conn, &d).expect("insert");
+    let fused2 = vec![
+        FusedHit {
+            canonical_id: a.id.clone(),
+            rrf_score: 0.9,
+            dense_rank: Some(0),
+            sparse_rank: None,
+            dense_score: Some(0.85),
+        },
+        FusedHit {
+            canonical_id: d.id.clone(),
+            rrf_score: 0.8,
+            dense_rank: Some(1),
+            sparse_rank: None,
+            dense_score: Some(0.84),
+        },
+    ];
+    let (inj2, _, _) = assemble_pack(&conn, &fused2, 2, None, false, PER_CALL_TOKEN_CAP);
+    assert_eq!(inj2.len(), 2, "hechos distintos no se filtran entre si");
+
+    std::env::remove_var("ULTRON_PACK_DIVERSITY");
+}
