@@ -166,7 +166,13 @@ fn capture_install_memory(
     c.importance = 0.62;
     c.confidence = 0.7;
 
-    MemoryService::create_candidate(&c).map_err(|e| format!("create_candidate: {e}"))
+    match MemoryService::create_candidate(&c) {
+        Ok(id) => Ok(id),
+        // Dedupe bloqueante (2026-07-02): reinstalar el mismo repo produce texto
+        // identico -> idempotencia (se devuelve el id existente), no un error.
+        Err(crate::memory::MemoryError::Duplicate(existing_id)) => Ok(existing_id),
+        Err(e) => Err(format!("create_candidate: {e}")),
+    }
 }
 
 // ---------------------------------------------------------------------------

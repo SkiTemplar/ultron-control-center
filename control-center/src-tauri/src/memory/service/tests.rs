@@ -242,3 +242,83 @@ fn create_candidate_redacts_codegraph_fields() {
     let _ = std::mem::size_of::<MemoryService>();
     let _ = conn; // in-memory conn kept alive for schema validity
 }
+
+// ---------------------------------------------------------------------------
+// (a) 2026-07-02 — dedupe EXACTO BLOQUEANTE del write-path.
+// Reproduce las "4 copias de Fallo de WebFetch": contenido identico (mismo
+// scope + proyecto) ya cubierto por un item ACTIVO o un candidato PENDING no
+// debe crear nada nuevo. Frontera CONTRACTS §4: otro proyecto NO es duplicado.
+// ---------------------------------------------------------------------------
+
+fn dedupe_probe(summary: &str, project: &str) -> MemoryCandidate {
+    let mut c = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    c.proposed_title = Some("Fallo de WebFetch".to_string());
+    c.proposed_summary = Some(summary.to_string());
+    c.proposed_project_id = Some(project.to_string());
+    // El candidato persiste el proyecto SOLO via tag (la tabla no tiene columna);
+    // paridad con emit.rs para que el twin leido de SQLite conserve el proyecto.
+    c.proposed_tags = vec![format!("project:{project}")];
+    c
+}
+
+#[test]
+fn exact_duplicate_of_active_item_is_detected_and_respects_project_boundary() {
+    let conn = mem_conn();
+
+    // Seed: el item ACTIVO ya existe (mismo texto, proyecto "ultron").
+    let first = dedupe_probe("Error en WebFetch: timeout tras 30s", "ultron");
+    let item = first.to_item(Status::Active, Source::AssistantInferred);
+    store::insert_item(&conn, &item).unwrap();
+
+    // Twin exacto, mismo proyecto -> detectado.
+    let twin = dedupe_probe("Error en WebFetch: timeout tras 30s", "ultron");
+    let dup = super::candidates::find_exact_duplicate(&conn, &twin).unwrap();
+    assert_eq!(
+        dup.as_deref(),
+        Some(item.id.as_str()),
+        "twin exacto de un item ACTIVO debe detectarse"
+    );
+
+    // Caso negativo: mismo texto pero OTRO proyecto -> NO es duplicado.
+    let other_project = dedupe_probe("Error en WebFetch: timeout tras 30s", "bank");
+    assert_eq!(
+        super::candidates::find_exact_duplicate(&conn, &other_project).unwrap(),
+        None,
+        "la frontera de proyecto (CONTRACTS §4) debe respetarse"
+    );
+
+    // Caso negativo: texto distinto -> NO es duplicado.
+    let fresh = dedupe_probe("Error en WebFetch: DNS NXDOMAIN", "ultron");
+    assert_eq!(
+        super::candidates::find_exact_duplicate(&conn, &fresh).unwrap(),
+        None,
+        "texto nuevo no debe bloquearse"
+    );
+}
+
+#[test]
+fn exact_duplicate_among_pending_candidates_is_detected() {
+    let conn = mem_conn();
+
+    // Candidato A ya PENDING en el inbox.
+    let a = dedupe_probe("Error en WebFetch: tool exit code 200", "ultron");
+    store::insert_candidate(&conn, &a).unwrap();
+
+    // Candidato B identico -> detectado (asi convivieron 4 copias en el inbox
+    // que "Aceptar todos" promovio juntas).
+    let b = dedupe_probe("Error en WebFetch: tool exit code 200", "ultron");
+    let dup = super::candidates::find_exact_duplicate(&conn, &b).unwrap();
+    assert_eq!(
+        dup.as_deref(),
+        Some(a.id.as_str()),
+        "twin PENDING en el inbox debe detectarse"
+    );
+
+    // Caso negativo: el propio candidato no es duplicado de si mismo (recheck
+    // idempotente, p.ej. tras un edit).
+    assert_eq!(
+        super::candidates::find_exact_duplicate(&conn, &a).unwrap(),
+        None,
+        "un candidato no puede ser duplicado de si mismo"
+    );
+}

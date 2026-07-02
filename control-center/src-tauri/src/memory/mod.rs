@@ -21,6 +21,12 @@ pub enum MemoryError {
     #[error("not found: {0}")]
     NotFound(String),
 
+    /// Write-path dedupe (2026-07-02): contenido exactamente identico ya cubierto
+    /// por un item ACTIVO o un candidato PENDING (mismo scope+proyecto). El valor
+    /// es el id existente — los callers pueden tratarlo como no-op idempotente.
+    #[error("duplicate content: already covered by {0}")]
+    Duplicate(String),
+
     /// An I/O error occurred while accessing the backing store.
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),

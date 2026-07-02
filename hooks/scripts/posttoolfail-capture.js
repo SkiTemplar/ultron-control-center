@@ -37,7 +37,17 @@ observe('posttoolfail-capture');
 
 const HOME = os.homedir();
 const MAX_ERROR_CHARS = 1200;
+const MAX_INPUT_CHARS = 240;
 const SIDECAR_TIMEOUT_MS = 10000;
+
+// Tools cuyo campo `code` ES un exit code de proceso. En el resto (WebFetch y
+// amigos HTTP) `code` es un status code: code:200 se capturo 4 veces como
+// "Error en WebFetch: tool exit code 200" (fix 2026-07-02).
+const SHELL_TOOLS_RE = /^(bash|powershell)$/i;
+
+// Marcadores genericos que detectError emite cuando NO hubo stderr/mensaje real.
+// Un candidato hecho SOLO de esto no aporta nada a una sesion futura.
+const GENERIC_ONLY_RE = /^tool (reported is_error|status=error|success=false|exit code -?\d+)$/;
 
 function readStdin() {
   try {
@@ -90,9 +100,16 @@ function detectError(stdin) {
     if (resp.success === false) {
       return String(resp.error || resp.message || resp.stderr || 'tool success=false');
     }
-    const code = resp.exit_code != null ? resp.exit_code : resp.code;
-    if (typeof code === 'number' && code !== 0) {
-      return String(resp.stderr || resp.error || resp.message || `tool exit code ${code}`);
+    // `exit_code` explicito es inequivoco en cualquier tool.
+    const exit = resp.exit_code != null ? resp.exit_code : resp.exitCode;
+    if (typeof exit === 'number' && exit !== 0) {
+      return String(resp.stderr || resp.error || resp.message || `tool exit code ${exit}`);
+    }
+    // `code` a secas SOLO es exit code en tools de shell; sin is_error explicito
+    // del harness, un `code` suelto en una tool no-shell no es señal de fallo.
+    const toolName = String(stdin.tool_name || stdin.toolName || '');
+    if (SHELL_TOOLS_RE.test(toolName) && typeof resp.code === 'number' && resp.code !== 0) {
+      return String(resp.stderr || resp.error || resp.message || `tool exit code ${resp.code}`);
     }
   }
 
@@ -102,6 +119,47 @@ function detectError(stdin) {
   }
 
   return null;
+}
+
+// Gist del input de la tool (comando/url/ruta/query...) — el "QUE se intento",
+// sin el cual una memoria de error no es accionable ("Error en la web" a secas).
+function inputGist(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  const raw =
+    toolInput.command ||
+    toolInput.url ||
+    toolInput.file_path ||
+    toolInput.query ||
+    toolInput.pattern ||
+    toolInput.prompt ||
+    '';
+  return String(raw).replace(/\s+/g, ' ').trim().slice(0, MAX_INPUT_CHARS);
+}
+
+// Construye el candidato de memoria, o null si no debe proponerse nada.
+// GATE DE INFORMATIVIDAD (2026-07-02): un fallo sin sustancia (solo el marcador
+// generico, sin stderr/mensaje) no se memoriza — recordar humo es peor que no
+// recordar. Cuando SI hay señal, el contenido lleva tool + input + error.
+function buildCandidate(stdin) {
+  const errText = detectError(stdin);
+  if (!errText) return null;
+  if (GENERIC_ONLY_RE.test(errText.trim())) return null;
+
+  const toolName = stdin.tool_name || stdin.toolName || 'unknown_tool';
+  const input = inputGist(stdin.tool_input || stdin.toolInput);
+  const clipped = errText.replace(/\s+/g, ' ').slice(0, MAX_ERROR_CHARS);
+
+  return {
+    type: 'error_resolution',
+    scope: 'project',
+    title: `Fallo de ${toolName}`,
+    summary: `Error en ${toolName}${input ? ` (${input.slice(0, 80)})` : ''}: ${clipped.slice(0, 180)}`,
+    content: `tool=${toolName}\n${input ? `input=${input}\n` : ''}error=${clipped}`,
+    confidence: 0.6,
+    source: 'posttoolfail-capture',
+    capture_source: 'posttoolfail-capture',
+    recommended_action: 'review',
+  };
 }
 
 function main() {
@@ -117,28 +175,15 @@ function main() {
     return; // bad payload -> nothing to do
   }
 
-  const errText = detectError(stdin);
-  if (!errText) return; // SUCCESS path: exit 0, no sidecar call, no write.
+  // SUCCESS o fallo sin sustancia: exit 0, no sidecar call, no write.
+  const candidate = buildCandidate(stdin);
+  if (!candidate) return;
 
   const bin = findBinary();
   if (!bin) return;
 
   const cwd = stdin.cwd || process.cwd();
   const project = projectName(cwd);
-  const toolName = stdin.tool_name || stdin.toolName || 'unknown_tool';
-  const clipped = errText.replace(/\s+/g, ' ').slice(0, MAX_ERROR_CHARS);
-
-  const candidate = {
-    type: 'error_resolution',
-    scope: 'project',
-    title: `Fallo de ${toolName}`,
-    summary: `Error en ${toolName}: ${clipped.slice(0, 180)}`,
-    content: `tool=${toolName}\nerror=${clipped}`,
-    confidence: 0.6,
-    source: 'posttoolfail-capture',
-    capture_source: 'posttoolfail-capture',
-    recommended_action: 'review',
-  };
 
   try {
     spawnSync(bin, ['candidate', '--project', project], {
@@ -165,4 +210,4 @@ if (require.main === module) {
 }
 
 // Exportado para el check conductual (scripts/posttoolfail-capture.selftest.mjs).
-module.exports = { detectError };
+module.exports = { detectError, buildCandidate };

@@ -41,6 +41,50 @@ pub(super) fn pii_scan_text(cand: &MemoryCandidate) -> String {
     .join(" ")
 }
 
+/// (a) 2026-07-02 — dedupe EXACTO BLOQUEANTE del write-path. Devuelve el id del
+/// item ACTIVO o candidato PENDING que ya cubre EXACTAMENTE este contenido
+/// (mismo content_hash + mismo scope + mismo project_id), o None. La frontera
+/// scope/proyecto es la del hash-dedupe (CONTRACTS §4): un twin en OTRO proyecto
+/// es near-dup, no duplicado. Complementa al FTS near-dup (que solo MARCA Merge):
+/// sin esto, 4 copias identicas de "Fallo de WebFetch" convivieron en el inbox y
+/// "Aceptar todos" las promovio juntas.
+pub(super) fn find_exact_duplicate(
+    conn: &rusqlite::Connection,
+    cand: &MemoryCandidate,
+) -> Result<Option<String>, MemoryError> {
+    let probe = cand.to_item(Status::Active, Source::AssistantInferred);
+    let probe_text = probe.searchable_text();
+    if probe_text.trim().is_empty() {
+        return Ok(None);
+    }
+    let probe_hash = super::super::texthash::content_hash(&probe_text);
+
+    // 1) Twin ACTIVO exacto (content_hash indexado — barato).
+    if let Some(existing) = store::find_active_by_content_hash(
+        conn,
+        &probe_hash,
+        probe.scope,
+        probe.project_id.as_deref(),
+    )? {
+        return Ok(Some(existing.id));
+    }
+
+    // 2) Twin PENDING en el inbox. El pending son decenas como mucho -> scan lineal.
+    for pending in store::list_candidates(conn, CandidateStatus::Pending, usize::MAX)? {
+        if pending.id == cand.id {
+            continue; // recheck idempotente (p.ej. tras edit) no se auto-bloquea
+        }
+        let p_item = pending.to_item(Status::Active, Source::AssistantInferred);
+        if p_item.scope == probe.scope
+            && p_item.project_id == probe.project_id
+            && super::super::texthash::content_hash(&p_item.searchable_text()) == probe_hash
+        {
+            return Ok(Some(pending.id));
+        }
+    }
+    Ok(None)
+}
+
 impl MemoryService {
     // -- candidate intake (what hooks/agents call) ---------------------------
 
@@ -100,39 +144,34 @@ impl MemoryService {
             }
         }
 
-        // L0 exact dedupe (OLA E): if an ACTIVE item already has the same
-        // content_hash this candidate would produce on approve, flag it as a Merge
-        // candidate. Complements the FTS near-dupe above (exact > lexical-similar).
+        // (a) 2026-07-02 — dedupe EXACTO ahora BLOQUEA (antes: solo marcaba Merge).
+        // Un twin identico (item ACTIVO o candidato PENDING, mismo scope+proyecto)
+        // hace NO-OP el write: evento auditable + Err(Duplicate) con el id que ya
+        // cubre el contenido. El FTS near-dup de arriba sigue SOLO marcando (lo
+        // parecido lo juzga un humano; lo identico no aporta nada y no entra).
+        // Fail-closed sin bloquear: si el check no corre, inbox + dedup-unverified.
         let probe = cand.to_item(Status::Active, Source::AssistantInferred);
-        let probe_text = probe.searchable_text();
-        if !probe_text.trim().is_empty() {
-            let probe_hash = super::super::texthash::content_hash(&probe_text);
-            // Scope/project guard (CONTRACTS §4 + review P1): an exact text match in a
-            // DIFFERENT project/scope is a near-duplicate, NOT a duplicate — never merge
-            // across the project boundary. find_active_by_content_hash filters by
-            // (scope, project_id) so cross-project collisions can't trigger a Merge.
-            match store::find_active_by_content_hash(
-                &conn,
-                &probe_hash,
-                probe.scope,
-                probe.project_id.as_deref(),
-            ) {
-                Ok(Some(existing)) => {
-                    if !cand.duplicate_candidates.contains(&existing.id) {
-                        cand.duplicate_candidates.push(existing.id);
-                    }
-                    cand.recommended_action = CandidateAction::Merge;
-                }
-                Ok(None) => {} // verificado: sin duplicado exacto.
-                Err(e) => {
-                    // 1.7 fail-closed: hash-dedupe no verificable (Err) -> inbox.
-                    eprintln!(
-                        "[service::create_candidate] content-hash dedupe failed: {e} — \
-                         candidate {} marked dedup-unverified",
+        match find_exact_duplicate(&conn, &cand) {
+            Ok(Some(existing_id)) => {
+                let ev = MemoryEvent::new(EventType::Rejected, None, Actor::System).with_reason(
+                    format!(
+                        "candidate {} skipped: exact duplicate of {existing_id} \
+                         (write-path dedupe)",
                         cand.id
-                    );
-                    mark_unverified(&mut cand.proposed_tags, "dedup-unverified");
-                }
+                    ),
+                );
+                let _ = store::insert_event(&conn, &ev);
+                return Err(MemoryError::Duplicate(existing_id));
+            }
+            Ok(None) => {} // verificado: sin duplicado exacto.
+            Err(e) => {
+                // 1.7 fail-closed: dedupe no verificable (Err) -> inbox.
+                eprintln!(
+                    "[service::create_candidate] exact dedupe failed: {e} — \
+                     candidate {} marked dedup-unverified",
+                    cand.id
+                );
+                mark_unverified(&mut cand.proposed_tags, "dedup-unverified");
             }
         }
 
