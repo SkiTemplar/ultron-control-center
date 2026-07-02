@@ -16,7 +16,7 @@ mod tests;
 pub(crate) mod types_model;
 
 pub use engine::{build_trace, recall_pack};
-pub use types_model::rrf_fuse;
+pub use types_model::{rrf_fuse, rrf_fuse_weighted};
 pub use types_model::{
     DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, PER_CALL_TOKEN_CAP,
 };

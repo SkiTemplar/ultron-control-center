@@ -21,7 +21,7 @@ use super::types_model::{
     DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, ENTRY_TOKEN_CLAMP, FANOUT_K,
     PER_CALL_TOKEN_CAP, RRF_K, SPARSE_TAIL_CUTOFF,
 };
-use crate::commands::memory::recall_unified::rrf_fuse;
+use crate::commands::memory::recall_unified::rrf_fuse_weighted;
 
 /// Assemble the compact context pack from fused candidates: load each item and
 /// apply the governance filters — result limit, status=active, project scope
@@ -284,16 +284,22 @@ pub fn build_trace(
         .collect();
 
     // (3) RRF fusion + dedup by canonical_id; cosine similarity carried for tie-break.
-    let mut fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], rrf_k)
-        .into_iter()
-        .map(|(id, score)| FusedHit {
-            dense_rank: dense_rank.get(id.as_str()).copied(),
-            sparse_rank: sparse_rank.get(id.as_str()).copied(),
-            dense_score: dense_score_map.get(id.as_str()).copied(),
-            canonical_id: id,
-            rrf_score: score,
-        })
-        .collect();
+    // (cat1 ranking) Fusión PONDERADA: dense (E5) puede pesar sobre sparse (BM25,
+    // ruidoso con stopwords). ULTRON_DENSE_W default 1.0 = comportamiento clásico.
+    let dense_w = env_knob_f32("ULTRON_DENSE_W", 1.0);
+    let mut fused: Vec<FusedHit> = rrf_fuse_weighted(
+        &[(dense_ids.clone(), dense_w), (sparse_ids.clone(), 1.0)],
+        rrf_k,
+    )
+    .into_iter()
+    .map(|(id, score)| FusedHit {
+        dense_rank: dense_rank.get(id.as_str()).copied(),
+        sparse_rank: sparse_rank.get(id.as_str()).copied(),
+        dense_score: dense_score_map.get(id.as_str()).copied(),
+        canonical_id: id,
+        rrf_score: score,
+    })
+    .collect();
     // B1: tie-break equal RRF scores by REAL cosine similarity. Rank-pure RRF
     // produces many ties; the dense cosine restores a continuous quality signal
     // (the full reranker lands in Ola 4).

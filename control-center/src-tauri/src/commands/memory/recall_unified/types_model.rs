@@ -99,6 +99,23 @@ pub struct RecallTrace {
 
 /// Reciprocal Rank Fusion. Each list is canonical_ids ordered best-first.
 /// `score(d) = Σ_sources 1 / (k + rank + 1)`. Returns `(id, score)` desc.
+/// (cat1 ranking, 2026-07-02) RRF PONDERADO: cada lista aporta
+/// `peso / (k + rank + 1)`. Con pesos 1.0 es idéntico a `rrf_fuse`. Permite
+/// pesar dense (E5, la señal de calidad) sobre sparse (BM25, ruidoso con
+/// stopwords) — knob `ULTRON_DENSE_W` en el engine, default 1.0.
+pub fn rrf_fuse_weighted(lists: &[(Vec<String>, f32)], k: f32) -> Vec<(String, f32)> {
+    use std::collections::HashMap;
+    let mut scores: HashMap<String, f32> = HashMap::new();
+    for (list, weight) in lists {
+        for (rank, id) in list.iter().enumerate() {
+            *scores.entry(id.clone()).or_insert(0.0) += weight / (k + rank as f32 + 1.0);
+        }
+    }
+    let mut out: Vec<(String, f32)> = scores.into_iter().collect();
+    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
 pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
     use std::collections::HashMap;
     let mut scores: HashMap<String, f32> = HashMap::new();
