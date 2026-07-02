@@ -75,6 +75,29 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
     steps:
+      # cat12.5: measured on run #28092264557 (last success, 373s wall-clock,
+      # job=366s) the two biggest single line items inside THIS job were:
+      # (a) tar-extracting the ~2.3 GB Swatinem cache = 96s, and (b) cargo's
+      # "Updating crates.io index" network round-trip = 68s, done twice
+      # (once per cargo invocation) for zero reason on an exact cache hit.
+      # Windows Defender's real-time scanner re-inspects every file the tar
+      # extraction and the compiler/linker write under this workspace and
+      # under CARGO_HOME -- excluding both paths is the standard, widely
+      # documented windows-latest fix for AV-scan-bound CI (checkout/cache-
+      # restore/link are almost pure file I/O). Wrapped in try/catch so a
+      # runner-image policy change degrades to "no speedup", never to a red
+      # job -- this step cannot fail the gate.
+      - name: Exclude workspace + CARGO_HOME from Windows Defender real-time scan
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction Stop
+            Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo" -ErrorAction Stop
+            Write-Host "Defender exclusions added for workspace + CARGO_HOME."
+          } catch {
+            Write-Host "Defender exclusion skipped (unsupported on this runner): $($_.Exception.Message)"
+          }
+
       - name: Checkout
         uses: actions/checkout@v5
 
@@ -89,6 +112,10 @@ jobs:
         # doesn't start from zero.  shared-key pins the cache to this job so
         # the key is stable across Cargo.lock-only changes (Swatinem already
         # appends the lock hash as a suffix).
+        # id: cache -- exposes outputs.cache-hit (exact-match boolean, per
+        # Swatinem/rust-cache action.yml) so the two cargo steps below can
+        # skip the network round-trip below when nothing changed.
+        id: cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: control-center/src-tauri
@@ -107,6 +134,16 @@ jobs:
         # identical — avoids compiling integration-test stubs that cargo test
         # doesn't use (those live under tests/ and require a live Qdrant).
         working-directory: control-center/src-tauri
+        env:
+          # cat12.5: on an EXACT cache hit (steps.cache.outputs.cache-hit ==
+          # "true"), the restored ~/.cargo/registry already has every crate
+          # this exact Cargo.lock resolves to -- there is nothing new for
+          # "Updating crates.io index" to fetch, so the ~68s network
+          # round-trip measured on run #28092264557 is pure waste. On a MISS
+          # (new/bumped dependency -> cache-hit="false") this env var is
+          # "false" and cargo goes online exactly as before: never silently
+          # skips a real fetch, only skips a provably-redundant one.
+          CARGO_NET_OFFLINE: ${{ steps.cache.outputs.cache-hit }}
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
       - name: cargo test (unit, lib only)
@@ -128,6 +165,12 @@ jobs:
         # is gone. Trims the Rust job toward the <300 s target without losing any
         # assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
         working-directory: control-center/src-tauri
+        env:
+          # Same reasoning as the clippy step above; in practice cargo only
+          # pays the index-update cost once per job (the clippy invocation
+          # already refreshed it), so this mainly guards the case where
+          # clippy failed/skipped and this step runs first.
+          CARGO_NET_OFFLINE: ${{ steps.cache.outputs.cache-hit }}
         run: cargo test --lib --profile test
 
   typescript:
@@ -135,6 +178,19 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
+      # Not on the critical path for cat12.5 (this job measured 110s vs the
+      # cargo job's 366s on run #28092264557) -- added for consistency/
+      # headroom as node_modules grows, same no-fail guard as the cargo job.
+      - name: Exclude workspace from Windows Defender real-time scan
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction Stop
+            Write-Host "Defender exclusion added for workspace."
+          } catch {
+            Write-Host "Defender exclusion skipped (unsupported on this runner): $($_.Exception.Message)"
+          }
+
       - name: Checkout
         uses: actions/checkout@v5
 
