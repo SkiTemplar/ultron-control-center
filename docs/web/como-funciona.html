@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cómo funciona ULTRON de verdad — manual técnico</title>
+<meta name="description" content="El manual técnico honesto de ULTRON: write-path de memoria gobernada, recall híbrido con gates, tres jueces de medición, hooks, routing lazy de skills y orquestación multi-IA.">
+<style>
+  :root{
+    --bg:#000000; --bg-1:#070707; --bg-2:#0c0c0d;
+    --ink:#ededed; --ink-2:#b9b9bb; --ink-3:#8a8a8e; --ink-4:#5b5b60;
+    --line:#1a1a1c; --line-2:#26262a;
+    --mono:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,"Segoe UI",system-ui,sans-serif;
+    --maxw:1060px; --pad:22px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink-2);font-family:var(--sans);font-size:15px;line-height:1.7;}
+  a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line-2);}
+  a:hover{border-color:var(--ink-3);}
+  code,pre,.mono{font-family:var(--mono);}
+  code{font-size:12.5px;color:var(--ink);background:var(--bg-2);padding:1px 5px;border:1px solid var(--line);}
+  pre{font-size:12px;line-height:1.75;color:var(--ink-2);background:var(--bg-1);border:1px solid var(--line);padding:18px 20px;overflow-x:auto;margin:18px 0;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);}
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(0,0,0,0.72);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:52px;}
+  .brand{font-family:var(--mono);font-size:12.5px;color:var(--ink);border:none;}
+  .brand .dim{color:var(--ink-3);}
+  .topbar nav a{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);padding:6px 9px;border:none;}
+  .topbar nav a:hover{color:var(--ink);}
+  .hero{border-bottom:1px solid var(--line);padding:80px 0 56px;}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:0.22em;text-transform:uppercase;color:var(--ink-3);margin:0 0 22px;display:flex;align-items:center;gap:10px;}
+  .eyebrow .tick{width:6px;height:6px;background:var(--ink);display:inline-block;}
+  h1{font-size:clamp(30px,6vw,42px);line-height:1.08;margin:0 0 20px;font-weight:580;letter-spacing:-0.03em;color:var(--ink);max-width:24ch;}
+  .lede{font-size:16.5px;line-height:1.65;color:var(--ink-2);max-width:66ch;}
+  .lede b{color:var(--ink);font-weight:520;}
+  section{border-bottom:1px solid var(--line);padding:56px 0;}
+  section:nth-of-type(even){background:var(--bg-1);}
+  h2{font-family:var(--mono);font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-3);margin:0 0 26px;}
+  h3{font-size:17px;color:var(--ink);font-weight:560;letter-spacing:-0.01em;margin:30px 0 10px;}
+  p{max-width:72ch;}
+  ul{max-width:72ch;padding-left:20px;}
+  li{margin:7px 0;}
+  li b, p b{color:var(--ink);font-weight:520;}
+  table{border-collapse:collapse;width:100%;max-width:820px;font-size:13px;margin:16px 0;}
+  th{font-family:var(--mono);font-size:10.5px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-4);text-align:left;padding:8px 12px;border-bottom:1px solid var(--line-2);}
+  td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--ink-2);vertical-align:top;}
+  td.mono{font-family:var(--mono);font-size:12px;color:var(--ink);white-space:nowrap;}
+  .note{font-family:var(--mono);font-size:11.5px;color:var(--ink-4);border-left:2px solid var(--line-2);padding:8px 14px;margin:18px 0;max-width:72ch;}
+  footer{padding:44px 0 60px;font-family:var(--mono);font-size:11.5px;color:var(--ink-4);}
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="wrap">
+  <a class="brand" href="index.html">ULTRON <span class="dim">// cómo funciona</span></a>
+  <nav>
+    <a href="#memoria">memoria</a>
+    <a href="#recall">recall</a>
+    <a href="#medicion">medición</a>
+    <a href="#hooks">hooks</a>
+    <a href="#routing">routing</a>
+    <a href="#router">orquestación</a>
+    <a href="#interfaz">interfaz</a>
+  </nav>
+</div></div>
+
+<div class="hero"><div class="wrap">
+  <p class="eyebrow"><span class="tick"></span> manual técnico · sin marketing</p>
+  <h1>Cómo funciona ULTRON de verdad</h1>
+  <p class="lede">Esta página describe el sistema <b>tal y como está construido y medido</b>, incluida la lista
+  de cosas que se probaron y <b>no</b> funcionaron. Cada afirmación de esta página tiene detrás un test, un
+  benchmark o un evento auditable en el ledger. Si algo de aquí deja de ser cierto, es un bug de documentación.</p>
+</div></div>
+
+<section id="memoria"><div class="wrap">
+  <h2>01 · Memoria — el write-path gobernado</h2>
+  <p>La memoria persistente vive en <code>brain.db</code> (SQLite + FTS5), la <b>única fuente de verdad</b>,
+  con un <b>escritor único</b>: <code>MemoryService</code>. Nada más escribe memoria. El recall denso lo sirve
+  un Qdrant nativo con embeddings E5-large (1024d, prefijos <code>query:</code>/<code>passage:</code>).</p>
+  <p>Nada entra directo. Toda captura (hooks de sesión, resultados de subagentes, decisiones detectadas)
+  se propone como <b>candidato</b> y atraviesa esta cadena antes de ser memoria:</p>
+<pre>hook / agente
+   │  candidato (JSON por stdin → sidecar ultron-memory)
+   ▼
+[gate de informatividad]   un fallo sin sustancia ("tool exit code 1" a secas) no se propone
+[redacción de secretos]    ghp_/sk-/AKIA/… fuera antes de tocar disco
+[redacción + gate PII]     email/teléfono/rutas de usuario → item marcado Secret (fuera de recall)
+[dedupe exacto BLOQUEANTE] twin con mismo content_hash (activo o pendiente, mismo scope+proyecto)
+                           → no-op + evento; el CLI responde {skipped:"duplicate"}
+[detector de contradicción] vecinos densos + juez conservador; conflicto → cuarentena humana;
+                           state-update 1:1 claro (opt-in) → supersede enlazado
+   ▼
+inbox humano  ──o──  auto-approve por bandas (≥umbral → activo · medio → pendiente · ruido → rechazado)
+   ▼
+brain.db (evento auditable por cada transición; forget = borrado duro para PII,
+deprecate --id = retirada RECUPERABLE para hechos de eras muertas)</pre>
+  <p class="note">2026-07-02: se purgaron 121 falsos positivos ("Error en WebFetch: tool exit code 200" — un
+  bug leía el status HTTP como exit code), 1.782 duplicados exactos (582 grupos) y 16 afirmaciones de eras
+  muertas. El corpus pasó de 5.593 a ~3.670 items activos y el dedupe ahora bloquea en el write-path.</p>
+</div></section>
+
+<section id="recall"><div class="wrap">
+  <h2>02 · Recall — el read-path con gates</h2>
+  <p>Una consulta pasa por recuperación híbrida y una cadena de gates hasta convertirse en un
+  <b>pack</b> compacto (k=8, ≤1500 tokens) que se inyecta como contexto. Cada descarte lleva su razón
+  (el subcomando <code>trace</code> expone el pipeline completo, headless):</p>
+<pre>query
+  ├─ denso:  E5 → Qdrant top-30 (cosine)          ├─ sparse: FTS5/BM25 top-30
+  ▼
+RRF (k=60, fusión ponderable) + re-rank de calidad (confianza × recency) + tie-break por cosine e id
+  ▼  por candidato, en orden:
+[status=active] [sin codebase_fact] [vigencia temporal + TTL] [filtro de proyecto (ambiente aplica)]
+[gate vault] [sensitivity ≠ Secret] [TRUST GATE anti-inyección: "ignore previous", "[system]"… → cuarentena]
+[cola BM25 sin respaldo denso → fuera] [clamp 180 tokens/entrada: un resumen gordo no desaloja a nadie]
+  ▼  sobre el pack completo:
+[score-floor 0.83: sin dense ≥ floor NI sparse fuerte → pack VACÍO (abstiene)]
+[TRUST GATE de cobertura: término informativo con 0 documentos en el corpus → abstiene
+ ("¿cuándo se desplegó en AWS?" → el corpus no conoce "AWS" → no se inyectan vecinos temáticos)]</pre>
+  <p>La filosofía: <b>abstenerse es mejor que inyectar relleno</b>. Un pack vacío se declara
+  (<code>abstained: true</code> + warning), nunca en silencio.</p>
+</div></section>
+
+<section id="medicion"><div class="wrap">
+  <h2>03 · Medición — tres jueces y decisiones con evidencia</h2>
+  <p>Ninguna mejora del retrieval se acepta si no mejora (o al menos no daña) a <b>tres jueces
+  independientes</b>:</p>
+  <table>
+    <tr><th>Juez</th><th>Qué mide</th><th>Estado 2026-07-02</th></tr>
+    <tr><td class="mono">memory-bench</td><td>Benchmark adversarial externo: temporal, stale, multi-hop, contradicciones, secretos, cross-project, abstain (near-misses incluidos), + invariantes de inyección/secretos/gobernanza en cada query</td><td class="mono">9.94/10</td></tr>
+    <tr><td class="mono">eval-full</td><td>Golden set etiquetado a mano (ranking-quality, recall@8/nDCG/waste)</td><td class="mono">recall@8 0.712</td></tr>
+    <tr><td class="mono">eval --golden</td><td>Oráculo de labels independiente (29 queries, no circular)</td><td class="mono">recall@8 0.682</td></tr>
+  </table>
+  <p>Y el sistema entero se audita con el harness <b>Kirkardo</b> (22 categorías, checks binarios
+  reproducibles) y <code>doctor</code> (SQLite/Qdrant/reconcile/evals/binario fresco).</p>
+  <h3>Lo que se probó y NO entró (esto también es el manual)</h3>
+  <ul>
+    <li><b>Reranker cross-encoder</b> (BGE-v2-m3): −4.6pp de recall y 3× de latencia → <code>ULTRON_RERANK</code> queda OFF.</li>
+    <li><b>Fanout 50 / RRF k=20</b>: ganaba en un juez, perdía en los otros dos (sobreajuste cazado) → defaults 30/60.</li>
+    <li><b>Pesar denso &gt; sparse</b>: expulsa del top-8 a los relevantes que solo llegan por match léxico → peso 1.0.</li>
+    <li><b>Gate de diversidad del pack</b> (MMR-lite): los golden premian redundancia; queda opt-in hasta tener un juez de información-por-token.</li>
+  </ul>
+  <p class="note">Un "no" medido vale tanto como un "sí": impide comprar mejoras falsas. Los cuatro
+  quedaron como knobs de entorno para futuros A/B.</p>
+</div></section>
+
+<section id="hooks"><div class="wrap">
+  <h2>04 · Hooks — la sesión viva</h2>
+  <p>Claude Code expone ~30 tipos de hook; ULTRON usa <b>~9</b>, elegidos por valor y no por coleccionismo:</p>
+  <table>
+    <tr><th>Hook</th><th>Qué hace</th></tr>
+    <tr><td class="mono">SessionStart</td><td>Resume fiel: nota viva del harness, tareas abiertas del kanban, contexto del proyecto, salud de Qdrant</td></tr>
+    <tr><td class="mono">UserPromptSubmit</td><td>Orchestrate: encuadre por intención, agentes candidatos, memorias relevantes (pack gobernado), directiva de delegación</td></tr>
+    <tr><td class="mono">PostToolUse(+Failure)</td><td>Captura de errores CON contexto (qué se intentó + qué falló) y gate de informatividad</td></tr>
+    <tr><td class="mono">Stop</td><td>Compresión de sesión, drenaje de decisiones, cola Run Batch de comandos rechazados/fallidos</td></tr>
+    <tr><td class="mono">SubagentStop</td><td>Harvest de resultados de subagentes con atribución (agente, label, proyecto)</td></tr>
+    <tr><td class="mono">PreCompact</td><td>Preserva hechos clave L0 antes de compactar el contexto</td></tr>
+  </table>
+  <p>Todos los hooks son <b>no-op-safe</b> (un hook roto jamás bloquea la sesión), con checksums en un
+  manifest versionado cuya paridad se verifica en pre-commit, y selftests conductuales por hook.</p>
+</div></section>
+
+<section id="routing"><div class="wrap">
+  <h2>05 · Skills — routing lazy</h2>
+  <p>El catálogo de skills vive <b>desactivado</b> (<code>.disabled</code>) y no cuesta tokens. Un núcleo
+  mínimo está siempre activo; el resto lo inyecta on-demand el dispatcher según el prompt:</p>
+  <ul>
+    <li><b>v2 determinista</b>: triggers léxicos con frases (no substrings — "arr" → "arregla" fue una lección cara), accuracy@3 medida en harness.</li>
+    <li><b>v3 semántico</b>: fallback por similitud de embeddings cuando lo léxico no matchea, servido por el daemon E5 residente.</li>
+  </ul>
+  <p>Los harnesses <code>_verify_final</code> y <code>_accuracy_at3</code> deben quedar verdes tras tocar
+  el routing. Conservar skills es gratis; activarlas en masa no.</p>
+</div></section>
+
+<section id="router"><div class="wrap">
+  <h2>06 · Orquestación — AI Router</h2>
+  <p><code>route(zone, prompt)</code> camina una cadena primary→fallback por zona: <b>groq</b> como primary
+  y <b>gemini cloud</b> de fallback en zonas generales; <b>CLI-first</b> (codex-cli) en zonas de código;
+  <code>ollama</code> para lo offline. La métrica honesta es <code>real_fallback_rate</code> sobre ventana
+  viva — no la tasa acumulada de intentos.</p>
+  <p class="note">Alcance declarado: el router rutea las llamadas de la app Tauri. NO rutea el CLI de
+  Claude Code, que habla directo con Anthropic. gemini-CLI murió el 2026-06-19 (Google cortó el free-tier
+  OAuth) y fue erradicado; gemini cloud sigue vivo como fallback.</p>
+</div></section>
+
+<section id="interfaz"><div class="wrap">
+  <h2>07 · Interfaz — Control Center</h2>
+  <p>App de escritorio (Tauri 2 + React 19). Las superficies que consumen todo lo anterior:</p>
+  <ul>
+    <li><b>Memory</b>: inbox de candidatos (aprobar/editar/rechazar, auto-approve por bandas) + browser del corpus gobernado.</li>
+    <li><b>Retrieval Inspector</b>: el trace del recall — por qué entró cada memoria y por qué se descartó cada descartada.</li>
+    <li><b>Monitor</b>: sesiones vivas, subagentes en curso, delegaciones y telemetría de routing.</li>
+    <li><b>Skills / Agents / Library</b>: catálogo con toggle lazy, edición con lint, instalación con captura post-install.</li>
+    <li><b>Kanban</b>: estado por proyecto, editado por CLI (<code>scripts/kanban.mjs</code>), con recordatorio automático al cerrar tareas.</li>
+  </ul>
+</div></section>
+
+<footer><div class="wrap">
+  ULTRON · manual técnico · actualizado 2026-07-02 · esta página se regenera al cerrar cada fase del
+  masterplan — si contradice al código, el bug es de la página.
+</div></footer>
+
+</body>
+</html>
