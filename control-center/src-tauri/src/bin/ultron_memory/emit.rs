@@ -187,56 +187,5 @@ pub(crate) fn emit_supersede(json: &str, old_id: &str) -> Result<serde_json::Val
     }))
 }
 
-/// Parse a JSON object from stdin and insert it as a code-graph edge into
-/// `brain.db` via the canonical `insert_code_edge` path.
-///
-/// Required fields: `source`, `target`, `kind`.
-/// All other fields are optional (see subcommand docs above).
-///
-/// Returns `{ "ok": true, "source": "...", "target": "...", "kind": "..." }`
-/// on success, or `{ "ok": false, "error": "..." }` on failure.  The
-/// function never propagates errors to `run()` — callers can always rely on
-/// a well-formed JSON response.
-pub(crate) fn emit_edge(json: &str) -> Result<serde_json::Value, String> {
-    use ul::memory::sqlite_store::insert_code_edge;
-
-    let v: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("parse edge json: {e}"))?;
-
-    let source = v
-        .get("source")
-        .and_then(|x| x.as_str())
-        .ok_or_else(|| "edge json missing 'source'".to_string())?;
-    let target = v
-        .get("target")
-        .and_then(|x| x.as_str())
-        .ok_or_else(|| "edge json missing 'target'".to_string())?;
-    let kind = v
-        .get("kind")
-        .and_then(|x| x.as_str())
-        .ok_or_else(|| "edge json missing 'kind'".to_string())?;
-
-    let file = v.get("file").and_then(|x| x.as_str());
-    let line_from = v.get("line_from").and_then(serde_json::Value::as_i64);
-    let line_to = v.get("line_to").and_then(serde_json::Value::as_i64);
-    let provenance = v.get("provenance").and_then(|x| x.as_str());
-    let project_id = v
-        .get("project")
-        .or_else(|| v.get("project_id"))
-        .and_then(|x| x.as_str());
-
-    match insert_code_edge(
-        source, target, kind, file, line_from, line_to, provenance, project_id,
-    ) {
-        Ok(()) => Ok(serde_json::json!({
-            "ok": true,
-            "source": source,
-            "target": target,
-            "kind": kind,
-        })),
-        Err(e) => Ok(serde_json::json!({
-            "ok": false,
-            "error": e.to_string(),
-        })),
-    }
-}
+// (emit_edge retirado 2026-07-02 — codegraph interno de brain.db erradicado,
+//  mand.12: 0 lectores; el codegraph real es el indexador externo `.codegraph/`.)

@@ -42,37 +42,6 @@ pub fn import_kg_jsonl(conn: &rusqlite::Connection) -> Result<(), MemoryError> {
 }
 
 // ---------------------------------------------------------------------------
-// Codegraph API — thin public wrappers over schema_v4 primitives
-// ---------------------------------------------------------------------------
-
-/// Insert a directed code-graph edge into `brain.db`.
-///
-/// Dedup key: `(source, target, kind, COALESCE(file, ''))` — repeated
-/// observations of the same relationship in the same file are silently
-/// ignored (idempotent).  See [`crate::memory::schema_v4::insert_edge`] for the
-/// full column semantics.
-///
-/// # Errors
-///
-/// Returns [`MemoryError::RemoteUnavailable`] on DB I/O failure.
-#[allow(clippy::too_many_arguments)]
-pub fn insert_code_edge(
-    source: &str,
-    target: &str,
-    kind: &str,
-    file: Option<&str>,
-    line_from: Option<i64>,
-    line_to: Option<i64>,
-    provenance: Option<&str>,
-    project_id: Option<&str>,
-) -> Result<(), MemoryError> {
-    let conn = open_conn()?;
-    crate::memory::schema_v4::insert_edge(
-        &conn, source, target, kind, file, line_from, line_to, provenance, project_id,
-    )
-}
-
-// ---------------------------------------------------------------------------
 // SqliteStore — MemoryStore trait impl (back-compat for recall_hybrid/health)
 // ---------------------------------------------------------------------------
 

@@ -23,6 +23,7 @@
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory capture [--session <id>]      # Stop -> extract facts (stdin transcript)
 //!   ultron-memory provenance --id <id|prefix>   # cita episódica verificable (transcript+hash)
+//!   (edge — RETIRADO 2026-07-02: codegraph interno erradicado, mand.12)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
 //!   ultron-memory dep-backfill                      # backfill one-shot del ledger de deprecaciones
@@ -37,7 +38,7 @@ use std::io::Read;
 
 use cli_args::{flag_value, has_flag, positional, reject_unknown_flags};
 use control_center_lib as ul;
-use emit::{emit_candidate, emit_edge, emit_supersede};
+use emit::{emit_candidate, emit_supersede};
 use inbox_cli::inbox_command;
 
 fn main() {
@@ -201,32 +202,8 @@ fn run() -> Result<serde_json::Value, String> {
                 .map_err(|e| format!("read stdin: {e}"))?;
             emit_supersede(&buf, &old_id)
         }
-        // CODEGRAPH (Fase 3a): ingest a directed code-graph edge from stdin.
-        //
-        // Reads one JSON object from stdin:
-        //   {
-        //     "source":     "mymod::foo",          // required: emitting symbol/module
-        //     "target":     "std::vec::Vec",        // required: callee/import target
-        //     "kind":       "imports",              // required: imports|calls|re-exports|…
-        //     "file":       "src/lib.rs",           // optional: relative source file
-        //     "line_from":  10,                     // optional: line of definition
-        //     "line_to":    10,                     // optional: line of reference
-        //     "provenance": "capture-symbols-js",   // optional: who produced this edge
-        //     "project":    "ultron"                // optional: project slug
-        //   }
-        //
-        // Returns: { "ok": true, "source": "...", "target": "...", "kind": "..." }
-        // or       { "ok": false, "error": "..." } on parse/db failure.
-        //
-        // Duplicate edges (same source+target+kind+file) are silently ignored
-        // (idempotent INSERT OR IGNORE).
-        "edge" => {
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(|e| format!("read stdin: {e}"))?;
-            emit_edge(&buf)
-        }
+        // (subcomando `edge` retirado 2026-07-02 — codegraph interno erradicado,
+        //  mand.12: 0 lectores. El codegraph real es el indexador externo `.codegraph/`.)
         "capture" => {
             // Stop hook -> auto-capture: extract durable facts (via AI Router,
             // which also populates router telemetry) and propose them as inbox
@@ -532,7 +509,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

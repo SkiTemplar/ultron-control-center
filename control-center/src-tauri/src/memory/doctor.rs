@@ -177,10 +177,12 @@ fn check_sqlite() -> DoctorCheck {
     if integrity != "ok" {
         return DoctorCheck::error("sqlite", format!("integrity_check={integrity}"), data);
     }
-    if !(2..=4).contains(&user_version) {
+    // v5 = retirada del codegraph interno (2026-07-02); versiones menores son
+    // DBs aún no migradas (la migración corre en el próximo open_conn del writer).
+    if !(2..=5).contains(&user_version) {
         return DoctorCheck::warn(
             "sqlite",
-            format!("user_version inesperado: {user_version} (esperado 2..=4)"),
+            format!("user_version inesperado: {user_version} (esperado 2..=5)"),
             data,
         );
     }
