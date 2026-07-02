@@ -54,8 +54,15 @@ struct Fact {
 
 /// Extract durable facts from `transcript` and propose them as candidates.
 /// `project` scopes the candidates (falls back to session scope when absent).
+/// `session_id` is the Claude Code session the transcript came from — stamped as
+/// `source_session_id` on every candidate (provenance episódica: with the id the
+/// `provenance` subcommand resolves the real `<session_id>.jsonl` on disk).
 #[must_use]
-pub fn capture_session(transcript: &str, project: Option<&str>) -> CaptureReport {
+pub fn capture_session(
+    transcript: &str,
+    project: Option<&str>,
+    session_id: Option<&str>,
+) -> CaptureReport {
     let trimmed = transcript.trim();
     if trimmed.len() < 40 {
         return CaptureReport {
@@ -86,16 +93,7 @@ pub fn capture_session(transcript: &str, project: Option<&str>) -> CaptureReport
     };
     let mut created = Vec::new();
     for f in facts.into_iter().take(MAX_FACTS) {
-        let mut c = MemoryCandidate::new(f.kind, scope);
-        // Derive VARIED importance/confidence from the fact's type + signals BEFORE
-        // moving its strings into the candidate (fixes the 55%/50%-for-everything
-        // bug: previously importance was hardcoded to 0.55 and confidence left at
-        // the 0.5 default, so every candidate looked identical in the UI).
-        c.importance = derive_importance(&f, router_used);
-        c.confidence = derive_confidence(&f, router_used);
-        c.proposed_title = Some(f.title);
-        c.proposed_summary = Some(f.body.clone());
-        c.proposed_content = Some(f.body);
+        let c = fact_to_candidate(f, scope, router_used, session_id);
         // create_candidate applies redaction + dedupe (content_hash / FTS).
         if let Ok(id) = MemoryService::create_candidate(&c) {
             created.push(id);
@@ -109,6 +107,29 @@ pub fn capture_session(transcript: &str, project: Option<&str>) -> CaptureReport
         strategy: strategy.into(),
         note,
     }
+}
+
+/// Build the governed candidate for one extracted fact. Pure (no I/O) so the
+/// provenance stamping is unit-testable without a DB: importance/confidence are
+/// derived (fixes the 55%/50%-for-everything bug) and `source_session_id` carries
+/// the episodic origin the `provenance` subcommand later resolves to a transcript.
+fn fact_to_candidate(
+    f: Fact,
+    scope: Scope,
+    router_used: bool,
+    session_id: Option<&str>,
+) -> MemoryCandidate {
+    let mut c = MemoryCandidate::new(f.kind, scope);
+    c.importance = derive_importance(&f, router_used);
+    c.confidence = derive_confidence(&f, router_used);
+    c.proposed_title = Some(f.title);
+    c.proposed_summary = Some(f.body.clone());
+    c.proposed_content = Some(f.body);
+    c.source_session_id = session_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    c
 }
 
 /// Prompt the extraction LLM. Asks for a compact, parseable line format so we do
@@ -487,6 +508,42 @@ mod tests {
         assert!(MemoryType::parse("user_profile").is_some());
         assert!(MemoryType::parse("skill").is_some());
         assert!(MemoryType::parse("architecture").is_some());
+    }
+
+    #[test]
+    fn fact_to_candidate_stamps_source_session_id() {
+        // Provenance episódica: el candidate DEBE llevar la sesión de origen para
+        // que `provenance --id` pueda resolver el transcript real en disco.
+        let f = Fact {
+            kind: MemoryType::Decision,
+            title: "t".into(),
+            body: "se decidio estampar provenance episodica en la captura".into(),
+            llm_score: None,
+        };
+        let c = fact_to_candidate(f, Scope::Project, true, Some("1a333f26-abcd-4e5f"));
+        assert_eq!(c.source_session_id.as_deref(), Some("1a333f26-abcd-4e5f"));
+        assert!(c.proposed_summary.is_some());
+    }
+
+    #[test]
+    fn fact_to_candidate_without_session_leaves_no_origin() {
+        // Caso negativo: sin sesión (o en blanco) NO se inventa origen — el item
+        // queda honesto como no-episódico (`provenance` reporta episodic=false).
+        let mk = |sid: Option<&str>| {
+            fact_to_candidate(
+                Fact {
+                    kind: MemoryType::Fact,
+                    title: "t".into(),
+                    body: "un hecho sin sesion de origen conocida".into(),
+                    llm_score: None,
+                },
+                Scope::Session,
+                false,
+                sid,
+            )
+        };
+        assert_eq!(mk(None).source_session_id, None);
+        assert_eq!(mk(Some("   ")).source_session_id, None);
     }
 
     // Small helper: Fact is a private test-local struct without Clone.

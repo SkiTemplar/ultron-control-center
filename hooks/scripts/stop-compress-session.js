@@ -581,7 +581,11 @@ async function main() {
         .map((t) => (typeof t === 'string' ? t : `${t.role || ''}: ${t.text || t.content || ''}`))
         .join('\n')
         .slice(-8000);
-      const cap = spawnSync(memBin, ['capture', '--project', projectId], {
+      // Provenance episódica: --session estampa source_session_id en cada
+      // candidate que la captura proponga (verificable via `provenance --id`).
+      const captureArgs = ['capture', '--project', projectId];
+      if (sessionId) captureArgs.push('--session', String(sessionId));
+      const cap = spawnSync(memBin, captureArgs, {
         input: transcriptText,
         encoding: 'utf8',
         timeout: 25000,

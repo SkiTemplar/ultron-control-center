@@ -21,6 +21,8 @@
 //!   ultron-memory serve                         # persistent daemon: E5 resident, sub-second orchestrate
 //!   ultron-memory serve-ping                    # is a live daemon reachable? (read-only)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
+//!   ultron-memory capture [--session <id>]      # Stop -> extract facts (stdin transcript)
+//!   ultron-memory provenance --id <id|prefix>   # cita episódica verificable (transcript+hash)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
 //!   ultron-memory dep-backfill                      # backfill one-shot del ledger de deprecaciones
@@ -229,11 +231,48 @@ fn run() -> Result<serde_json::Value, String> {
             // Stop hook -> auto-capture: extract durable facts (via AI Router,
             // which also populates router telemetry) and propose them as inbox
             // candidates. Transcript on stdin; never auto-promotes to active.
+            // `--session <id>` stamps source_session_id on every candidate
+            // (provenance episódica — see the `provenance` subcommand).
+            let session = flag_value(&args, "--session");
             let mut buf = String::new();
             std::io::stdin()
                 .read_to_string(&mut buf)
                 .map_err(|e| format!("read stdin: {e}"))?;
-            to_json(ul::memory::capture::capture_session(&buf, project.as_deref()))
+            to_json(ul::memory::capture::capture_session(
+                &buf,
+                project.as_deref(),
+                session.as_deref(),
+            ))
+        }
+        // Provenance episódica (feedback 2026-07-02): cita VERIFICABLE del origen
+        // de una memoria. Devuelve la sesión de captura (source_session_id), el
+        // canal (capture_source), el content_hash del texto vivo, y resuelve el
+        // transcript real `<session_id>.jsonl` bajo ~/.claude/projects/*/ si aún
+        // existe en disco. Read-only; nada se persiste. Un item sin sesión de
+        // origen responde `episodic: false` (honesto — no se inventa procedencia).
+        //   ultron-memory provenance --id <id|prefix>
+        "provenance" => {
+            let id_prefix = flag_value(&args, "--id")
+                .ok_or_else(|| "provenance requires --id <id|prefix>".to_string())?;
+            let resolved_id = resolve_id_prefix(&id_prefix)?;
+            let item = ul::memory::MemoryService::get(&resolved_id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("item '{resolved_id}' not found"))?;
+            let content_hash = ul::memory::texthash::content_hash(&item.searchable_text());
+            let transcript = item
+                .source_session_id
+                .as_deref()
+                .and_then(ul::commands::sessions_sub::session_summary::find_transcript);
+            Ok(serde_json::json!({
+                "id": item.id,
+                "episodic": item.source_session_id.is_some(),
+                "source_session_id": item.source_session_id,
+                "capture_source": item.capture_source,
+                "created_at": item.created_at,
+                "content_hash": content_hash,
+                "transcript": transcript.as_ref().map(|p| p.display().to_string()),
+                "transcript_exists": transcript.is_some(),
+            }))
         }
         "warmup" => {
             // SessionStart warmup (cold-recall fix). Force the lazy E5 ONNX model
@@ -493,7 +532,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|edge|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

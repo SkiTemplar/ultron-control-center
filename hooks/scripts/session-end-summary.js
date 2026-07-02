@@ -155,6 +155,9 @@ function main() {
     source: 'session-end-summary',
     capture_source: 'session-end-summary',
     recommended_action: 'review',
+    // Provenance episódica: campo estructurado (el content de arriba es informativo;
+    // este es el que emit.rs mapea a source_session_id).
+    session_id: sessionId === 'unknown' ? null : sessionId,
   };
 
   try {

@@ -44,7 +44,9 @@ pub(crate) fn cache_put(session_id: &str, hash: u64, summary: &str) {
 // Resolución del transcript: busca <session_id>.jsonl bajo ~/.claude/projects/*/
 // ---------------------------------------------------------------------------
 
-fn find_transcript(session_id: &str) -> Option<std::path::PathBuf> {
+/// Pub: también lo usa el sidecar (`ultron-memory provenance`) para resolver la
+/// cita episódica de una memoria (source_session_id → transcript real en disco).
+pub fn find_transcript(session_id: &str) -> Option<std::path::PathBuf> {
     // Defensa (input boundary): el session_id es un nombre de fichero (UUID). Rechazar
     // vacío o cualquier separador de ruta / `..` para que no se pueda escapar de
     // ~/.claude/projects/ y leer un .jsonl arbitrario que luego iría al LLM (path traversal).

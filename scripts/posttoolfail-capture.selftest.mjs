@@ -91,5 +91,29 @@ A(!!c2 && c2.summary.includes("npm run biuld"), "summary lleva el gist del input
 const c3 = buildCandidate && buildCandidate({ tool_name: "Read", tool_response: { content: "ok" } });
 A(c3 === null, "exito -> buildCandidate null", JSON.stringify(c3));
 
+// ---------------------------------------------------------------------------
+// Provenance episodica (feedback 2026-07-02): el candidato lleva la sesion de
+// origen (emit.rs la mapea a source_session_id; `provenance --id` la resuelve
+// al transcript real). Caso negativo: sin session_id en el payload -> null,
+// no se inventa procedencia.
+// ---------------------------------------------------------------------------
+
+const c4 = buildCandidate && buildCandidate({
+  tool_name: "Bash",
+  session_id: "1a333f26-3721-4b76-b975-7e9dbbab15a7",
+  tool_input: { command: "cargo build" },
+  tool_response: { code: 101, stderr: "error[E0308]: mismatched types" },
+});
+A(!!c4 && c4.session_id === "1a333f26-3721-4b76-b975-7e9dbbab15a7",
+  "candidato lleva session_id (provenance episodica)", JSON.stringify(c4));
+
+const c5 = buildCandidate && buildCandidate({
+  tool_name: "Bash",
+  tool_input: { command: "cargo build" },
+  tool_response: { code: 101, stderr: "error[E0308]: mismatched types" },
+});
+A(!!c5 && c5.session_id === null,
+  "sin session_id en payload -> null (no se inventa origen)", JSON.stringify(c5));
+
 console.log(fail === 0 ? "\nSELFTEST 3.9 (posttoolfail): VERDE" : `\nSELFTEST 3.9 (posttoolfail): ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -168,6 +168,9 @@ function main() {
     source: 'subagent-harvest',
     capture_source: 'subagent-harvest',
     recommended_action: 'review',
+    // Provenance episódica: SubagentStop trae el session_id de la sesión PADRE
+    // (donde vive el transcript que citará `provenance --id`).
+    session_id: stdin.session_id || stdin.sessionId || null,
   };
 
   try {

@@ -159,6 +159,9 @@ function buildCandidate(stdin) {
     source: 'posttoolfail-capture',
     capture_source: 'posttoolfail-capture',
     recommended_action: 'review',
+    // Provenance episódica: sesión de origen -> `ultron-memory provenance --id`
+    // resuelve el transcript real. null cuando el payload no la trae (honesto).
+    session_id: stdin.session_id || stdin.sessionId || null,
   };
 }
 

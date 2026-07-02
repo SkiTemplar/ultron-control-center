@@ -26,7 +26,7 @@
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 30,
-      "checksum_sha256": "269a5c6938bab683c77e6878c373167771ad26385b5d4cc0ac7d8d19c32a1223",
+      "checksum_sha256": "cfcea2761a4a69943d9d5d2b6649e2fd2dda3d6f6490a1a7372ad738d3de5f62",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -265,7 +265,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "6346572669a3e7436cf7edda3fa2c40661b0fce1deb5602c09da8624ef60c154",
+      "checksum_sha256": "935ed8c4e361160f2e7de3b5d9f04dcebf3bc942d6f6f88ce89017e98b0e2896",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -284,7 +284,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "6346572669a3e7436cf7edda3fa2c40661b0fce1deb5602c09da8624ef60c154",
+      "checksum_sha256": "935ed8c4e361160f2e7de3b5d9f04dcebf3bc942d6f6f88ce89017e98b0e2896",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -303,7 +303,7 @@
       "command": "node ~/.ultron/hooks/scripts/session-end-summary.js",
       "script": "~/.ultron/hooks/scripts/session-end-summary.js",
       "timeout_s": 20,
-      "checksum_sha256": "4453837df1175ba94c5265d11b58b83434bce534fd3887adeae3579877bfa827",
+      "checksum_sha256": "a065b3e8fd44d97534063bc5f9d218b5410004e4e47103b292962845306aac76",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -355,7 +355,7 @@
       "command": "node ~/.ultron/hooks/scripts/subagent-harvest.js",
       "script": "~/.ultron/hooks/scripts/subagent-harvest.js",
       "timeout_s": 20,
-      "checksum_sha256": "c90455771609b29b1223fb17a5a1b9cbe216ca866a686c6484c94427365a70e8",
+      "checksum_sha256": "fb186d5d47ca43606961dd2198aa15a50fe59eb208d5f0ddc118830deb7e3f3e",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
