@@ -154,7 +154,8 @@ pub mod model;
 pub mod qdrant_index;
 pub mod qdrant_store;
 pub mod schema_v3;
-// Codegraph (Fase 3a): edges + unresolved_refs tables (user_version 3->4).
+// Schema v5 (2026-07-02): RETIRADA del codegraph interno (drop edges +
+// unresolved_refs, user_version 4->5). El módulo conserva el nombre histórico.
 pub mod schema_v4;
 pub mod service;
 pub mod sqlite_store;

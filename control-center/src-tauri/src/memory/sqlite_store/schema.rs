@@ -205,9 +205,11 @@ pub fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     // registry) + memory_events.trace_id. Idempotent; coordinated single bump.
     super::super::schema_v3::apply_schema_v3(conn)?;
 
-    // CODEGRAPH (Fase 3a, 2026-06-06): additive v4 tables (edges +
-    // unresolved_refs).  Pure DDL, no row mutations.  user_version 3→4.
-    super::super::schema_v4::apply_schema_v4(conn)?;
+    // RETIRADA codegraph interno (2026-07-02, mand.12): drop de `edges` +
+    // `unresolved_refs` (v4, 2026-06-06 — nunca justificado: 0 lectores, productor
+    // descableado; el codegraph real es el indexador externo `.codegraph/`).
+    // Pure DDL, idempotente. user_version 4→5.
+    super::super::schema_v4::apply_schema_v5_retire_codegraph(conn)?;
 
     // CLEANUP (2026-06-05): drop the legacy `memories` and `memories_fts`
     // tables that were created by a pre-kernel schema.  They have 0 rows and

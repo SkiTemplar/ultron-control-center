@@ -51,7 +51,7 @@ pub use candidates::{
     set_candidate_status,
 };
 
-pub use store_impl::{import_kg_jsonl, insert_code_edge, SqliteStore};
+pub use store_impl::{import_kg_jsonl, SqliteStore};
 
 // Ledger vivo de deprecaciones (cat21.4): escritor único + helper de timestamp.
 // `pub(crate)` porque solo MemoryService (mismo crate) escribe aquí.
