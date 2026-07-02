@@ -180,25 +180,20 @@ pub fn auto_approve_threshold() -> f32 {
 /// confidence-driven disposition for clean candidates:
 ///
 ///   * BAND A (`Approve`): `confidence >= threshold`.
-///   * BAND B (`Pending`): `REJECT_THRESHOLD <= confidence < threshold`, OR the
-///     kind is `decision`/`architecture` (interpreting intent is inference — it
-///     always gets a human eye, even at high confidence).
+///   * BAND B (`Pending`): `REJECT_THRESHOLD <= confidence < threshold`.
 ///   * BAND C (`Reject`): `confidence < REJECT_THRESHOLD` (noise).
+///
+/// Feedback del usuario 2026-07-02: `decision`/`architecture` ya NO fuerzan Pending —
+/// entran por confianza como el resto (el sistema decide solo; cero fricción).
+/// La salvaguarda dura sigue intacta: secreto/contradicción/duplicado/unverified
+/// NUNCA llegan aquí (no son clean), sea cual sea el tipo.
 ///
 /// Pure (no I/O): the caller passes the fail-safe `threshold`, so this is unit
 /// tested without the settings file.
 #[must_use]
 pub fn classify_band(candidate: &MemoryCandidate, threshold: f32) -> AutoBand {
-    use super::model::MemoryType;
-    let needs_human_eye = matches!(
-        candidate.proposed_type,
-        MemoryType::Decision | MemoryType::Architecture
-    );
     if candidate.confidence < REJECT_THRESHOLD {
         AutoBand::Reject
-    } else if needs_human_eye {
-        // Mid-or-high confidence interpretation of intent → inbox, never auto.
-        AutoBand::Pending
     } else if candidate.confidence >= threshold {
         AutoBand::Approve
     } else {
@@ -364,20 +359,23 @@ mod tests {
     }
 
     #[test]
-    fn decision_kind_always_pending_even_at_high_confidence() {
+    fn high_confidence_decision_lands_in_band_a() {
+        // Feedback del usuario 2026-07-02: las decisiones entran solas por confianza
+        // (antes forzaban Pending a cualquier confianza = fricción permanente).
         let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
         c.confidence = 0.99;
         assert_eq!(
             classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
-            AutoBand::Pending,
-            "interpreting a decision is inference — it always needs a human eye"
+            AutoBand::Approve
         );
     }
 
     #[test]
-    fn architecture_kind_always_pending() {
+    fn mid_confidence_decision_still_pending() {
+        // Caso negativo: la confianza sigue mandando — una decisión de confianza
+        // media NO se auto-aprueba (banda B, la reviso en sesión).
         let mut c = MemoryCandidate::new(MemoryType::Architecture, Scope::Project);
-        c.confidence = 0.99;
+        c.confidence = 0.65;
         assert_eq!(
             classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
             AutoBand::Pending

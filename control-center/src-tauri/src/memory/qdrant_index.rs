@@ -201,6 +201,16 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
 /// Lo usa el detector de contradicción (1.7) para no tratar "Qdrant caído" como
 /// "sin contradicción" → fail-closed end-to-end.
 pub fn search_dense_checked(query: &str, k: u32, project_id: Option<&str>) -> Option<Vec<String>> {
+    // Floor de VECINDAD para el juez de contradicción (2026-07-02). Sin él, un
+    // top-k SIEMPRE devuelve k vecinos por lejanos que estén, y el juez LLM
+    // decide sobre pares de temas sin relación — un solo falso positivo manda el
+    // candidato a quarantine, así que banda A casi nunca disparaba (caso real:
+    // "entrenó en otoño" marcado como conflicto de "Mantener Autumn activo").
+    // 0.83 = el mismo listón empírico del gate de abstención del read-path
+    // (DEFAULT_RECALL_FLOOR): por debajo, dos textos NO son "el mismo tema" y no
+    // hay proposición que puedan contradecir.
+    const JUDGE_NEIGHBOUR_FLOOR: f32 = 0.83;
+
     let vector = crate::qdrant::embed_e5(query, true).ok()?;
     if vector.iter().all(|&x| x == 0.0) {
         return None; // E5 stub / unavailable -> NO verificable
@@ -218,6 +228,7 @@ pub fn search_dense_checked(query: &str, k: u32, project_id: Option<&str>) -> Op
     let hits = crate::qdrant::search_with_vector(COLLECTION, vector, k, Some(filter)).ok()?;
     Some(
         hits.into_iter()
+            .filter(|h| h.score >= JUDGE_NEIGHBOUR_FLOOR)
             .map(|h| {
                 h.payload
                     .get("canonical_id")

@@ -265,7 +265,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "935ed8c4e361160f2e7de3b5d9f04dcebf3bc942d6f6f88ce89017e98b0e2896",
+      "checksum_sha256": "74b164ae8b3d9ba9adfa2563db0b66197739bf8419691aeb45c334c094f33275",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -284,7 +284,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "935ed8c4e361160f2e7de3b5d9f04dcebf3bc942d6f6f88ce89017e98b0e2896",
+      "checksum_sha256": "74b164ae8b3d9ba9adfa2563db0b66197739bf8419691aeb45c334c094f33275",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",

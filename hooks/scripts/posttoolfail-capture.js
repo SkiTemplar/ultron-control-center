@@ -155,7 +155,10 @@ function buildCandidate(stdin) {
     title: `Fallo de ${toolName}`,
     summary: `Error en ${toolName}${input ? ` (${input.slice(0, 80)})` : ''}: ${clipped.slice(0, 180)}`,
     content: `tool=${toolName}\n${input ? `input=${input}\n` : ''}error=${clipped}`,
-    confidence: 0.6,
+    // 0.74 (>= banda A 0.72): un fallo de tool es un HECHO OBSERVADO del harness
+    // (no inferencia LLM) y el gate de informatividad ya garantizo sustancia ->
+    // con auto-approve ON entra solo (feedback del usuario 2026-07-02: inbox autonomo).
+    confidence: 0.74,
     source: 'posttoolfail-capture',
     capture_source: 'posttoolfail-capture',
     recommended_action: 'review',

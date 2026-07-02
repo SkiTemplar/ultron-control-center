@@ -1,4 +1,5 @@
 {
   "auto_approve": true,
-  "auto_approve_threshold": 0.65
+  "auto_approve_threshold": 0.65,
+  "auto_supersede": false
 }

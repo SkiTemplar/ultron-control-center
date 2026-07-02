@@ -41,6 +41,36 @@ pub(super) fn pii_scan_text(cand: &MemoryCandidate) -> String {
     .join(" ")
 }
 
+/// Solapamiento Jaccard (tokens lowercase >= 3 chars) entre dos textos, en [0,1].
+/// El near-dup del write-path lo usa para CONFIRMAR que un hit de search_items
+/// (query FTS term-OR, diseñada para recall) es de verdad casi-idéntico. Sin esta
+/// confirmación, CUALQUIER candidate que compartiera alguna palabra con los items
+/// de más vocabulario del corpus quedaba marcado "duplicate" (2026-07-02: el 100%
+/// del inbox llevaba los MISMOS 3 duplicate_candidates, de OTROS proyectos), y
+/// como duplicado != clean, el auto-approve no podía disparar jamás. Pure.
+pub(super) fn jaccard_overlap(a: &str, b: &str) -> f32 {
+    use std::collections::HashSet;
+    let toks = |s: &str| -> HashSet<String> {
+        s.split_whitespace()
+            .filter(|t| t.chars().count() >= 3)
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let (sa, sb) = (toks(a), toks(b));
+    // Textos triviales (< 3 tokens) no aportan señal de duplicado.
+    if sa.len() < 3 || sb.len() < 3 {
+        return 0.0;
+    }
+    let inter = sa.intersection(&sb).count() as f32;
+    let union = sa.union(&sb).count() as f32;
+    inter / union
+}
+
+/// Umbral de confirmación near-dup: la mitad del vocabulario compartido. Un
+/// near-dup real (mismo hecho reformulado) lo supera; dos textos que solo
+/// comparten palabras sueltas no.
+pub(super) const NEAR_DUP_JACCARD: f32 = 0.5;
+
 /// (a) 2026-07-02 — dedupe EXACTO BLOQUEANTE del write-path. Devuelve el id del
 /// item ACTIVO o candidato PENDING que ya cubre EXACTAMENTE este contenido
 /// (mismo content_hash + mismo scope + mismo project_id), o None. La frontera
@@ -123,7 +153,21 @@ impl MemoryService {
             if !summary.trim().is_empty() {
                 match store::search_items(&conn, &summary, Status::Active, 3) {
                     Ok(similar) => {
-                        let dups: Vec<String> = similar.into_iter().map(|i| i.id).collect();
+                        // Confirmación Jaccard: search_items es term-OR (recall),
+                        // así que un hit solo cuenta como near-dup si comparte de
+                        // verdad la mitad del vocabulario (ver jaccard_overlap).
+                        let dups: Vec<String> = similar
+                            .into_iter()
+                            .filter(|i| {
+                                let hay = format!(
+                                    "{} {}",
+                                    i.title.as_deref().unwrap_or(""),
+                                    i.summary.as_deref().unwrap_or("")
+                                );
+                                jaccard_overlap(&summary, &hay) >= NEAR_DUP_JACCARD
+                            })
+                            .map(|i| i.id)
+                            .collect();
                         if !dups.is_empty() {
                             cand.duplicate_candidates = dups;
                             cand.recommended_action = CandidateAction::Merge;
@@ -249,12 +293,14 @@ impl MemoryService {
         //   The candidate is still created (ACTIVE or PENDING per band policy)
         //   — the hook never times out because of a slow LLM judge.
         //
-        //   Budget: 2 000 ms — comfortably below CANDIDATE_TIMEOUT_MS (6 000)
-        //   even after accounting for the Qdrant dense-search step (E5 cold-
-        //   start ≤ 3 285 ms in the worst case observed).  When Gemini is
-        //   exhausted and the short-circuit fix is active, the judge returns
-        //   None in < 50 ms, so the budget is never reached in the happy path.
-        const CONTRADICTION_BUDGET_MS: u64 = 2_000;
+        //   Budget: 4 500 ms — below CANDIDATE_TIMEOUT_MS (6 000) pero con hueco
+        //   para el caso REAL medido (2026-07-02): cada spawn del CLI carga E5
+        //   in-proc (~1.4-3.3 s aun con page cache caliente), asi que con 2 000 ms
+        //   TODO candidate one-shot quedaba `unjudged` -> pending -> el inbox
+        //   autonomo se re-acumulaba estructuralmente. Los hooks que llaman
+        //   `candidate` son async/detached (posttoolfail timeout 10 s, stop 25 s),
+        //   de modo que los 2.5 s extra no bloquean nada interactivo.
+        const CONTRADICTION_BUDGET_MS: u64 = 4_500;
         // 1.3b: si el candidato resulta ser un state-update 1:1 CLARO y `auto_supersede`
         // está ON, aquí guardamos el id del item viejo a deprecar; se ejecuta DESPUÉS de
         // insertar el candidato (fail-safe: si algo falla, queda Pending en el inbox).
@@ -520,5 +566,41 @@ impl MemoryService {
         ev.after_json = Some(format!("{{\"candidate_id\":\"{id}\"}}"));
         let _ = store::insert_event(&conn, &ev);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod near_dup_tests {
+    use super::{jaccard_overlap, NEAR_DUP_JACCARD};
+
+    #[test]
+    fn reformulated_same_fact_is_near_dup() {
+        let a = "el sistema usa qdrant nativo para el recall denso con e5 large";
+        let b = "sistema usa qdrant nativo para recall denso (e5 large)";
+        assert!(
+            jaccard_overlap(a, b) >= NEAR_DUP_JACCARD,
+            "el mismo hecho reformulado debe confirmar near-dup"
+        );
+    }
+
+    #[test]
+    fn shared_words_alone_are_not_near_dup() {
+        // El caso REAL del bug 2026-07-02: un summary cualquiera quedaba marcado
+        // duplicado de los items con mas vocabulario del corpus (otros proyectos)
+        // solo por compartir palabras sueltas via la query FTS term-OR.
+        let cand = "Prueba unica de la banda A del auto-approve tras la curacion";
+        let broker = "Broker-Mediated Service Architecture Three-tier system: Broker \
+                      (port 1066) mediates service discovery and load balancing";
+        assert!(
+            jaccard_overlap(cand, broker) < NEAR_DUP_JACCARD,
+            "compartir palabras sueltas NO es un near-dup"
+        );
+    }
+
+    #[test]
+    fn trivial_texts_never_flag() {
+        // Caso negativo: sin masa de tokens no hay señal de duplicado.
+        assert_eq!(jaccard_overlap("hola mundo", "hola mundo"), 0.0);
+        assert_eq!(jaccard_overlap("", "lo que sea con tres tokens"), 0.0);
     }
 }
