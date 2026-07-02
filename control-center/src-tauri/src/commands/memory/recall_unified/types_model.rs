@@ -49,6 +49,10 @@ pub struct RecallPack {
     pub total_tokens: i64,
     pub dense_hits: usize,
     pub sparse_hits: usize,
+    /// (floor) true si el gate de abstención vació el pack: la query no tenía
+    /// ninguna entrada con señal de confianza. Distingue "no hay nada que
+    /// inyectar" de "no encontré nada" para los consumidores del CLI.
+    pub abstained: bool,
 }
 
 /// One fused candidate with its per-source ranks (Retrieval Inspector).

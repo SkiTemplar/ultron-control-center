@@ -431,7 +431,7 @@ pub fn build_trace(
     // pure assemble_pack. Every recall receives the FULL per-call cap — there is
     // NO cumulative per-session budget, so the memory is never silenced
     // mid-session. The item-count `limit` is the primary bloat ceiling.
-    let (injected, discarded, total_tokens) = assemble_pack(
+    let (mut injected, mut discarded, mut total_tokens) = assemble_pack(
         &conn,
         &fused,
         limit,
@@ -441,6 +441,27 @@ pub fn build_trace(
     );
 
     let mut warnings: Vec<String> = Vec::new();
+    // (floor) 2026-07-02 — abstención a nivel de PACK: si NINGUNA entrada trae
+    // señal de confianza (ni dense >= floor ni sparse fuerte), el pack se vacía
+    // en vez de inyectar relleno como contexto. Complementa SPARSE_TAIL_CUTOFF
+    // (que poda la cola léxica ENTRADA a entrada): esto cubre la query
+    // INCONTESTABLE donde todo el pack es cola. memory-bench abstain_empty era
+    // 0/3 sin esto. Auditable: cada entrada vaciada queda en `discarded` y el
+    // pack lleva warning (mandamiento 11: nada de no-ops silenciosos).
+    if let Some(floor) = recall_floor() {
+        if !injected.is_empty() && !pack_has_confident_signal(&injected, floor) {
+            for e in injected.drain(..) {
+                discarded.push(DiscardedHit {
+                    canonical_id: e.canonical_id,
+                    reason: format!("abstain: sin señal de confianza (floor {floor})"),
+                });
+            }
+            total_tokens = 0;
+            warnings.push(format!(
+                "recall abstained — ninguna entrada con dense >= {floor} ni sparse fuerte"
+            ));
+        }
+    }
     if cross_project && project_id.is_some() {
         warnings.push(
             "cross-project recall — project filter relaxed (Secret still excluded)".to_string(),
@@ -493,6 +514,39 @@ pub fn build_trace(
     })
 }
 
+/// Floor por defecto del gate de abstención (E5 cosine). Barrido empírico
+/// 2026-07-02 sobre golden eval-full + memory-bench abstain:
+///   off   -> recall@8 0.637 · abstain 0/3
+///   0.83  -> recall@8 0.610 · abstain 3/3   <- elegido (mínimo coste golden)
+///   0.84  -> recall@8 0.588 · abstain 3/3
+/// Incontestables reales maxean dense <= 0.828. Tuneable por ULTRON_RECALL_FLOOR.
+const DEFAULT_RECALL_FLOOR: f32 = 0.83;
+
+/// Rank FTS máximo que cuenta como "sparse FUERTE" (match léxico exacto, p.ej.
+/// un identificador). Los matches de stopwords caen a ranks profundos (probe
+/// "paella": ranks 11-13), así que no compran confianza.
+const STRONG_SPARSE_RANK: usize = 2;
+
+/// Lee `ULTRON_RECALL_FLOOR`: ausente -> default; "off"/"0" -> gate desactivado;
+/// número -> override; basura -> default (fail-safe: nunca desactiva en silencio).
+fn recall_floor() -> Option<f32> {
+    match std::env::var("ULTRON_RECALL_FLOOR") {
+        Ok(v) if v.eq_ignore_ascii_case("off") || v.trim() == "0" => None,
+        Ok(v) => Some(v.trim().parse::<f32>().unwrap_or(DEFAULT_RECALL_FLOOR)),
+        Err(_) => Some(DEFAULT_RECALL_FLOOR),
+    }
+}
+
+/// (floor) ¿Alguna entrada del pack trae señal de confianza real? Sin ella el
+/// recall debe abstenerse en vez de inyectar relleno (memory-bench, categoría
+/// abstain). dense = E5 cosine crudo; sparse fuerte = rank FTS <= STRONG_SPARSE_RANK.
+pub fn pack_has_confident_signal(entries: &[RecallEntry], floor: f32) -> bool {
+    entries.iter().any(|e| {
+        e.dense_score.is_some_and(|s| s >= floor)
+            || e.sparse_rank.is_some_and(|r| r <= STRONG_SPARSE_RANK)
+    })
+}
+
 /// Sync compact recall pack — reused by the CLI sidecar (`ultron-memory recall`).
 /// `cross_project` relaxes ONLY the project filter (whole-brain recall); Secret
 /// items are still excluded. Every call gets the full `PER_CALL_TOKEN_CAP`;
@@ -509,6 +563,74 @@ pub fn recall_pack(
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),
         total_tokens: t.total_tokens,
+        abstained: t.warnings.iter().any(|w| w.starts_with("recall abstained")),
         entries: t.injected,
     })
+}
+
+#[cfg(test)]
+mod floor_tests {
+    use super::*;
+
+    fn entry(dense: Option<f32>, sparse: Option<usize>) -> RecallEntry {
+        RecallEntry {
+            canonical_id: "x".into(),
+            title: None,
+            summary: Some("s".into()),
+            scope: "project".into(),
+            project_id: None,
+            score: 0.01,
+            dense_rank: None,
+            sparse_rank: sparse,
+            dense_score: dense,
+            reason: "test".into(),
+            token_estimate: 10,
+        }
+    }
+
+    // (floor) 2026-07-02 — el pack abstiene cuando NINGUNA entrada trae señal:
+    // ni dense >= floor ni sparse fuerte. Casos calibrados con el probe real.
+    #[test]
+    fn abstain_gate_needs_dense_floor_or_strong_sparse() {
+        // Incontestable real ("paella", probe 2026-07-02): dense max 0.8049 +
+        // sparse ranks 11-13 (ruido lexico) -> sin señal -> abstiene.
+        let junk = vec![entry(Some(0.8049), None), entry(None, Some(11))];
+        assert!(
+            !pack_has_confident_signal(&junk, 0.84),
+            "relleno sin señal debe abstener"
+        );
+
+        // dense sobre el floor (t1 router: 0.8459) -> confianza (caso negativo).
+        let dense_ok = vec![entry(Some(0.8459), None)];
+        assert!(pack_has_confident_signal(&dense_ok, 0.84));
+
+        // sparse FUERTE (rank <= 2, match lexico exacto tipo identificador)
+        // protege las queries sparse-only aunque el dense sea debil.
+        let sparse_ok = vec![entry(None, Some(0)), entry(Some(0.70), None)];
+        assert!(pack_has_confident_signal(&sparse_ok, 0.84));
+
+        // sparse justo por encima del umbral fuerte NO cuenta como señal.
+        let sparse_weak = vec![entry(None, Some(3))];
+        assert!(!pack_has_confident_signal(&sparse_weak, 0.84));
+
+        // pack vacio: sin señal (gate no-op sobre vacio).
+        assert!(!pack_has_confident_signal(&[], 0.84));
+    }
+
+    #[test]
+    fn recall_floor_env_override_off_and_garbage() {
+        // Solo este test toca la env var (secuencial dentro del test -> sin carrera).
+        std::env::set_var("ULTRON_RECALL_FLOOR", "off");
+        assert_eq!(recall_floor(), None, "off desactiva el gate");
+        std::env::set_var("ULTRON_RECALL_FLOOR", "0.9");
+        assert_eq!(recall_floor(), Some(0.9));
+        std::env::set_var("ULTRON_RECALL_FLOOR", "garbage");
+        assert_eq!(
+            recall_floor(),
+            Some(DEFAULT_RECALL_FLOOR),
+            "valor invalido -> default, no silencio"
+        );
+        std::env::remove_var("ULTRON_RECALL_FLOOR");
+        assert_eq!(recall_floor(), Some(DEFAULT_RECALL_FLOOR));
+    }
 }
