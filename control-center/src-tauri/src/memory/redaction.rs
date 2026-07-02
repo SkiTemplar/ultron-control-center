@@ -15,6 +15,7 @@
 //! Split into two cohesive submodules (cat7.3):
 //!   - `secrets`: credential detection/redaction (write-path).
 //!   - `pii`:     email/phone/user-path detection (read-path + defence-in-depth).
+//!
 //! The full public API is re-exported here so callers keep using
 //! `memory::redaction::<item>` unchanged.
 

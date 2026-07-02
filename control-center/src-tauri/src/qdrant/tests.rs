@@ -75,9 +75,8 @@ fn reranker_disabled_by_default() {
     let prev = std::env::var("ULTRON_RERANK").ok();
     std::env::remove_var("ULTRON_RERANK");
     let result = reranker_enabled();
-    match prev {
-        Some(v) => std::env::set_var("ULTRON_RERANK", v),
-        None => {}
+    if let Some(v) = prev {
+        std::env::set_var("ULTRON_RERANK", v);
     }
     assert!(
         !result,

@@ -1,6 +1,5 @@
 // evals/tests.rs — tests del harness de evals (troceado de evals.rs, 2026-07-02).
 use super::*;
-use super::*;
 
 fn mk_result(matched: bool) -> EvalResult {
     EvalResult {

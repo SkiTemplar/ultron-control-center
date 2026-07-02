@@ -132,7 +132,7 @@ fn aggregate_from_path(path: &Path, project: Option<&str>) -> Result<Vec<AgentUs
         .into_iter()
         .map(|(agent, acc)| {
             let mut pairs: Vec<(String, u64)> = acc.labels.into_iter().collect();
-            pairs.sort_by(|a, b| b.1.cmp(&a.1));
+            pairs.sort_by_key(|p| std::cmp::Reverse(p.1));
             pairs.truncate(5);
             let top_labels = pairs
                 .into_iter()
@@ -149,7 +149,7 @@ fn aggregate_from_path(path: &Path, project: Option<&str>) -> Result<Vec<AgentUs
         .collect();
 
     // Sort DESC by count (mjs line 47)
-    agents.sort_by(|a, b| b.count.cmp(&a.count));
+    agents.sort_by_key(|a| std::cmp::Reverse(a.count));
     Ok(agents)
 }
 

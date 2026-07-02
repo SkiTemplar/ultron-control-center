@@ -541,7 +541,9 @@ impl MemoryService {
             .map_err(|e| {
                 MemoryError::RemoteUnavailable(format!("backfill_deprecations prepare: {e}"))
             })?;
-        let rows: Vec<(String, i64, Option<String>, Option<String>, Option<String>)> = stmt
+        // (memory_id, created_at, reason, type, superseded_by) por evento 'deprecated'
+        type DeprecationRow = (String, i64, Option<String>, Option<String>, Option<String>);
+        let rows: Vec<DeprecationRow> = stmt
             .query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,

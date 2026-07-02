@@ -303,7 +303,7 @@ fn check_evals() -> DoctorCheck {
     evals_verdict(
         golden.aggregate.recall_at_k as f32,
         golden.degraded,
-        smoke.recall_at_k as f32,
+        smoke.recall_at_k,
         smoke.secret_leak_count,
         smoke.stale_leak_count,
     )

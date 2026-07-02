@@ -264,7 +264,7 @@ mod tests {
     fn canonical_anchor_rust_ignores_e5_order() {
         use crate::orchestrator::ranking::preferred_specialists;
 
-        let agents = vec![agent("cpp-pro"), agent("rust-engineer")];
+        let agents = [agent("cpp-pro"), agent("rust-engineer")];
         let preferred = preferred_specialists("rust");
         let directive_agent = preferred
             .iter()
@@ -284,7 +284,7 @@ mod tests {
     fn canonical_anchor_refactor_ignores_e5_order() {
         use crate::orchestrator::ranking::preferred_specialists;
 
-        let agents = vec![agent("ultron-refactor"), agent("refactoring-specialist")];
+        let agents = [agent("ultron-refactor"), agent("refactoring-specialist")];
         let preferred = preferred_specialists("refactor");
         let directive_agent = preferred
             .iter()
