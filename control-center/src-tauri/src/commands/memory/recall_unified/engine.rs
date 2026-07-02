@@ -18,8 +18,8 @@ use crate::memory::{
 };
 
 use super::types_model::{
-    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, FANOUT_K, PER_CALL_TOKEN_CAP,
-    RRF_K, SPARSE_TAIL_CUTOFF,
+    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, ENTRY_TOKEN_CLAMP, FANOUT_K,
+    PER_CALL_TOKEN_CAP, RRF_K, SPARSE_TAIL_CUTOFF,
 };
 use crate::commands::memory::recall_unified::rrf_fuse;
 
@@ -157,20 +157,25 @@ pub(crate) fn assemble_pack(
             discarded.push(discard("sensitivity=secret (excluded from context pack)"));
             continue;
         }
-        if total_tokens + item.token_estimate > limit_tokens && !injected.is_empty() {
+        // (cat1, 2026-07-02) CLAMP por entrada: cada item aporta como mucho
+        // ENTRY_TOKEN_CLAMP (o limit_tokens si es menor — preserva B4 con caps
+        // reducidos). El summary inyectado se trunca declarándolo; el contenido
+        // completo sigue lazy por id. Antes un item gordo se DESCARTABA entero
+        // y desalojaba a relevantes mejor rankeados (fused#3 fuera del pack).
+        let entry_cap = ENTRY_TOKEN_CLAMP.min(limit_tokens);
+        let clamped = item.token_estimate.min(entry_cap);
+        if total_tokens + clamped > limit_tokens && !injected.is_empty() {
             discarded.push(discard("token budget exceeded"));
             continue;
         }
-        // B4: the FIRST item is always admitted even if oversized, but its summary is
-        // truncated to limit_tokens so a single huge memory can't blow the pack.
-        let (summary, entry_tokens) = if injected.is_empty() && item.token_estimate > limit_tokens {
-            let max_chars = (limit_tokens * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
+        let (summary, entry_tokens) = if item.token_estimate > entry_cap {
+            let max_chars = (entry_cap * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
             let truncated = item.summary.as_ref().map(|s| {
                 let mut t: String = s.chars().take(max_chars).collect();
                 t.push_str(" …[truncated to budget]");
                 t
             });
-            (truncated, limit_tokens)
+            (truncated, entry_cap)
         } else {
             (item.summary.clone(), item.token_estimate)
         };

@@ -67,6 +67,21 @@ fn run() -> Result<serde_json::Value, String> {
             // (full hybrid recall + semantic match); see serve.rs for rationale.
             to_json(ul::orchestrator::orchestrate(&prompt, project.as_deref(), true))
         }
+        // Diagnostico completo del retrieval (cat1, 2026-07-02): dense/sparse/
+        // fused con ranks + injected/discarded CON RAZON (token cap, governance,
+        // rank). Es build_trace serializado — lo que ve el Retrieval Inspector,
+        // ahora disponible headless para diagnosticar el golden set.
+        "trace" => {
+            let query = positional(&args)?;
+            let cross = has_flag(&args, "--cross") || has_flag(&args, "--all-projects");
+            to_json(ul::commands::memory::recall_unified::build_trace(
+                &query,
+                8,
+                project.as_deref(),
+                cross,
+                true,
+            )?)
+        }
         "recall" => {
             let query = positional(&args)?;
             // CROSS-PROJECT: --cross / --all-projects relaxes the project filter so

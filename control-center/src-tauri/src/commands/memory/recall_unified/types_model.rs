@@ -28,6 +28,14 @@ pub(super) const SPARSE_TAIL_CUTOFF: usize = 15;
 /// primary bloat control; this token cap only bounds an oversized single item.
 pub const PER_CALL_TOKEN_CAP: i64 = 1500;
 
+/// (cat1, 2026-07-02) Clamp de tokens POR ENTRADA del pack: cada item aporta
+/// como mucho esto (su summary inyectado se trunca; el contenido completo
+/// sigue lazy-loadable por id). Sin clamp, los resúmenes de subagente (~565
+/// tokens) comían el cap de 1500 y desalojaban relevantes mejor rankeados
+/// (trace del golden set: un expect_id en fused#3 fuera por "token budget").
+/// Con 180 y limit=8: 8×180=1440 ≤ 1500 — los 8 slots caben SIEMPRE.
+pub const ENTRY_TOKEN_CLAMP: i64 = 180;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RecallEntry {
     pub canonical_id: String,
