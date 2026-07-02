@@ -330,9 +330,28 @@ fn run() -> Result<serde_json::Value, String> {
         // codebase_fact). --dry-run only counts. Reuses set_status per id so
         // FTS5 + Qdrant stay in sync; appends a Deprecated event per item.
         //   ultron-memory deprecate --type codebase_fact [--dry-run] [--project X] [--reason R]
+        //   ultron-memory deprecate --id <id|prefix> [--reason R]   (curacion de eras, 2026-07-02)
         "deprecate" => {
+            // Modo por-id: deprecacion RECOVERABLE de un item concreto (hechos de
+            // una era superseded: la afirmacion fue real, ya no es verdad vigente).
+            // forget es borrado duro (PII); esto conserva el item fuera de recall.
+            if let Some(id_prefix) = flag_value(&args, "--id") {
+                let resolved_id = resolve_id_prefix(&id_prefix)?;
+                let reason = flag_value(&args, "--reason");
+                let item = ul::memory::MemoryService::deprecate(
+                    &resolved_id,
+                    ul::memory::Actor::System,
+                    reason,
+                )
+                .map_err(|e| e.to_string())?;
+                return Ok(serde_json::json!({
+                    "deprecated": resolved_id,
+                    "status": item.status.as_str(),
+                    "ok": true,
+                }));
+            }
             let kind_s = flag_value(&args, "--type")
-                .ok_or_else(|| "deprecate requires --type <T>".to_string())?;
+                .ok_or_else(|| "deprecate requires --type <T> (bulk) o --id <id> (item)".to_string())?;
             let kind = ul::memory::MemoryType::parse(&kind_s)
                 .ok_or_else(|| format!("invalid memory type '{kind_s}'"))?;
             let dry = has_flag(&args, "--dry-run");

@@ -1,7 +1,8 @@
 {
   "meta": {
-    "version": 1,
+    "version": 2,
     "created": "2026-07-02",
+    "changelog_v2": "s1: el exclude bruto 9.31 marcaba la memoria-VERDAD ('real 7.5 en lugar del 9.31') como stale — falso positivo del fixture. Ahora excluye solo AFIRMACIONES de 9.31 sin contexto de correccion, y exige la verdad en top-3.",
     "abstain_floor": 0.84,
     "gate_min": 8,
     "k": 8,
@@ -37,8 +38,11 @@
       "category": "stale",
       "project": "ultron",
       "query": "cual fue la nota del harness kirkardo",
-      "truth": "la cifra 9.31 quedo SUPERSEDED por el audit 06-25 (real 7.5); la nota viva la da el run completo",
-      "expect": { "exclude_top3": ["9[.,]31"] }
+      "truth": "la cifra 9.31 quedo SUPERSEDED por el audit 06-25 (real 7.5); la nota viva la da el run completo. Una mencion CON correccion ('real 7.5 en lugar del 9.31') es la verdad, no stale",
+      "expect": {
+        "exclude_top3": ["^(?!.*(en lugar|real de 7[.,]5|superseded|invalidad|honesto)).*9[.,]31"],
+        "include_top3": ["7[.,]5|en lugar de|run completo"]
+      }
     },
     {
       "id": "s2-mem0-muerto",
