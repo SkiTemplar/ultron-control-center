@@ -21,10 +21,9 @@
         "3a54a9af-d27a-4638-a07a-3a1213aac77f",
         "d1ac035e-ae28-4465-b2f2-60494b82190a",
         "1571e6c9-2af1-439d-9381-ad8342f10353",
-        "7e860365-5572-47d2-9e60-43724fc15086",
         "3ef59fce-9f35-44bc-908a-f26505355bc9"
       ],
-      "n_relevant": 6
+      "n_relevant": 5
     },
     {
       "id": "gs-0003",
@@ -103,12 +102,6 @@
       "n_relevant": 6
     },
     {
-      "id": "gs-0010",
-      "query": "candidato de memoria pendiente de validacion",
-      "expect_ids": [],
-      "n_relevant": 0
-    },
-    {
       "id": "gs-0011",
       "query": "qdrant embeddings recall decision",
       "expect_ids": [
@@ -141,19 +134,17 @@
       "query": "groq primary fallback gemini decision router",
       "expect_ids": [
         "7caad075-0d41-428d-8e0d-8e7b939770a1",
-        "f07d1200-4278-4c6c-8f68-099d915a53af",
-        "4a072bad-669c-4f6c-834c-11d6a2d14894"
+        "f07d1200-4278-4c6c-8f68-099d915a53af"
       ],
-      "n_relevant": 3
+      "n_relevant": 2
     },
     {
       "id": "gs-0015",
       "query": "kanban gitignored estado local proyecto",
       "expect_ids": [
-        "916c855f-b4eb-4552-b087-4a699d39b3e8",
-        "71de3d8b-44ef-41f3-8e29-4bd15dca9d70"
+        "916c855f-b4eb-4552-b087-4a699d39b3e8"
       ],
-      "n_relevant": 2
+      "n_relevant": 1
     },
     {
       "id": "gs-0016",
@@ -172,23 +163,21 @@
       "expect_ids": [
         "a4fd4b83-ae35-4edf-ab44-56136becf3ff",
         "a462b5d4-048d-4cce-b164-34767b0c4a3f",
-        "7cd8df5a-544e-4a07-b8a1-8b2aaecb0236",
         "d4fd828b-ed14-4ac4-b9b9-3ae801bb6f8d"
       ],
-      "n_relevant": 4
+      "n_relevant": 3
     },
     {
       "id": "gs-0018",
       "query": "brain.db SQLite unica fuente verdad escritor",
       "expect_ids": [
         "02c967ab-425b-4a2a-b772-ab25708f4819",
-        "7e860365-5572-47d2-9e60-43724fc15086",
         "3ef59fce-9f35-44bc-908a-f26505355bc9",
         "fc5b7fc9-d864-41e8-ad33-a834ba461b98",
         "71866ddb-86e9-47ec-8fff-5ba2cf74c23f",
         "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
       ],
-      "n_relevant": 6
+      "n_relevant": 5
     },
     {
       "id": "gs-0019",
@@ -223,12 +212,10 @@
       "id": "gs-0022",
       "query": "Kirkardo harness determinista evaluacion categorias",
       "expect_ids": [
-        "af3871e3-869f-478d-a6d0-79def2728e12",
-        "74d95681-c41c-4781-bbe5-fbf9b3f1994a",
         "31735d87-6244-458d-b969-c089167a851f",
         "3bc0395f-96e5-444d-ab25-9c664e5ae031"
       ],
-      "n_relevant": 4
+      "n_relevant": 2
     },
     {
       "id": "gs-0023",
@@ -308,11 +295,11 @@
       "query": "codex CLI AI routing zona code politica CLI-first",
       "expect_ids": [
         "da03ab9a-df96-44f4-97d9-73b966f0f27b",
-        "6889279b-700f-4a07-8d6f-a620c5e6fb0b",
-        "34c43863-15a6-4b2f-a4ff-d603fb16a090",
+        "96be930b-3a01-437a-a3f4-70e46f2fafba",
         "5938e0eb-58de-4bec-8a77-0a31bd6a7b79"
       ],
-      "n_relevant": 4
+      "n_relevant": 3
     }
-  ]
+  ],
+  "_hygiene_2026_07_02": "Higiene 2026-07-02: 7 expect_ids victimas del sweep de duplicados exactos remapeados a su gemelo ACTIVO (mismo content_hash via ledger de events -> mismo juicio de relevancia); 5 expect_ids retirados por ser era-claims deprecados adrede en la curacion de eras (esperarlos castigaria al recall por hacer lo correcto). n_relevant recalculado. Queries retiradas por quedar vacias: ['gs-0010']."
 }

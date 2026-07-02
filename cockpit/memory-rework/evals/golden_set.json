@@ -3,7 +3,7 @@
   "generated": "2026-06-28",
   "note": "Hand-labeled golden set ampliado 2026-06-28. 12 originales (fixture default_goldens) + 15 nuevas etiquetadas a mano: recall del sidecar + juicio de relevancia ESTRICTO por CONTENIDO del summary (no por rank). expect_ids = canonical_ids juzgados relevantes. ALCANCE: mide ranking-quality dentro de lo recuperable (top-30 candidatos), no recall absoluto; 3 queries con 0 relevantes recuperables se descartaron (gaps: news-digest, feature-flag, supersede).",
   "stats": {
-    "positives": 27,
+    "positives": 26,
     "categories": {
       "single-term": 7,
       "multi-term": 10,
@@ -39,7 +39,6 @@
         "3a54a9af-d27a-4638-a07a-3a1213aac77f",
         "d1ac035e-ae28-4465-b2f2-60494b82190a",
         "1571e6c9-2af1-439d-9381-ad8342f10353",
-        "7e860365-5572-47d2-9e60-43724fc15086",
         "3ef59fce-9f35-44bc-908a-f26505355bc9"
       ]
     },
@@ -141,15 +140,6 @@
       ]
     },
     {
-      "id": "gs-0010",
-      "query": "candidato de memoria pendiente de validacion",
-      "category": "multi-term",
-      "type": "task",
-      "scope": "global",
-      "project_id": null,
-      "expect_ids": []
-    },
-    {
       "id": "gs-0011",
       "query": "qdrant embeddings recall decision",
       "category": "cross-topic",
@@ -182,8 +172,6 @@
       "scope": "global",
       "project_id": null,
       "expect_ids": [
-        "f6831bce-3f1f-47fe-972c-234011900b24",
-        "09755f8f-8f61-4ed2-8af3-2ce026cc8723",
         "ef5b14a5-af37-4cfa-a196-b609261ca4d2",
         "48fd91e3-f81b-481f-992f-0b9479443673",
         "a066a9f1-0ead-4036-ba73-90599dd38988"
@@ -393,5 +381,6 @@
         "52dcef57-c2bd-4f7d-8f21-1e3f0b876228"
       ]
     }
-  ]
+  ],
+  "_hygiene_2026_07_02": "Higiene 2026-07-02: 7 expect_ids victimas del sweep de duplicados exactos remapeados a su gemelo ACTIVO (mismo content_hash via ledger de events -> mismo juicio de relevancia); 5 expect_ids retirados por ser era-claims deprecados adrede en la curacion de eras (esperarlos castigaria al recall por hacer lo correcto). n_relevant recalculado. Queries retiradas por quedar vacias: ['gs-0010']."
 }
