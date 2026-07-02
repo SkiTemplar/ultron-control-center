@@ -252,44 +252,61 @@ fn check_reconcile() -> DoctorCheck {
     }
 }
 
-/// Recall quality + security gate via the canonical smoke `evals::run` (fast,
-/// 12-query set). Green at `recall@8 >= 0.90` and `secret_leak = stale_leak = 0`.
-fn check_evals() -> DoctorCheck {
-    let r = super::evals::run(None, 8);
+/// (unificar medidores, 2026-07-02) Recall quality + security gate. El VEREDICTO
+/// lo decide el GOLDEN (`run_golden_metrics`, el oráculo etiquetado a mano) —
+/// el smoke sintético `evals::run` (substring, fácil) queda SOLO como gate de
+/// leaks y se reporta ETIQUETADO como smoke. Antes el doctor mostraba el 1.000
+/// del smoke como "recall@8" a secas: ese espejismo alimentó el era-claim
+/// "9.73 techo honesto (recall@8=1.000)". Bandas de REGRESIÓN (no de GOAL:
+/// el 0.95 aspiracional lo vigila Kirkardo cat1): warn <0.65 · error <0.50.
+fn evals_verdict(
+    golden_recall: f32,
+    golden_degraded: bool,
+    smoke_recall: f32,
+    secret_leaks: usize,
+    stale_leaks: usize,
+) -> DoctorCheck {
     let data = serde_json::json!({
-        "recall_at_8": r.recall_at_k,
-        "secret_leak": r.secret_leak_count,
-        "stale_leak": r.stale_leak_count,
+        "recall_at_8_golden": golden_recall,
+        "golden_degraded": golden_degraded,
+        "recall_at_8_smoke": smoke_recall,
+        "secret_leak": secret_leaks,
+        "stale_leak": stale_leaks,
     });
-    if r.secret_leak_count > 0 || r.stale_leak_count > 0 {
+    if secret_leaks > 0 || stale_leaks > 0 {
         return DoctorCheck::error(
             "evals",
-            format!(
-                "LEAK · secret={} stale={}",
-                r.secret_leak_count, r.stale_leak_count
-            ),
+            format!("LEAK · secret={secret_leaks} stale={stale_leaks}"),
             data,
         );
     }
-    if r.recall_at_k < 0.85 {
-        DoctorCheck::error(
+    if golden_degraded {
+        return DoctorCheck::warn(
             "evals",
-            format!("recall@8={:.3} (<0.85)", r.recall_at_k),
+            format!("golden no disponible (set ausente o Qdrant caído) · smoke={smoke_recall:.3}"),
             data,
-        )
-    } else if r.recall_at_k < 0.90 {
-        DoctorCheck::warn(
-            "evals",
-            format!("recall@8={:.3} (degradado)", r.recall_at_k),
-            data,
-        )
-    } else {
-        DoctorCheck::ok(
-            "evals",
-            format!("recall@8={:.3} · leaks=0", r.recall_at_k),
-            data,
-        )
+        );
     }
+    let detail = format!("golden recall@8={golden_recall:.3} · smoke={smoke_recall:.3} · leaks=0");
+    if golden_recall < 0.50 {
+        DoctorCheck::error("evals", detail, data)
+    } else if golden_recall < 0.65 {
+        DoctorCheck::warn("evals", detail, data)
+    } else {
+        DoctorCheck::ok("evals", detail, data)
+    }
+}
+
+fn check_evals() -> DoctorCheck {
+    let smoke = super::evals::run(None, 8);
+    let golden = super::evals::run_golden_metrics(None, 8);
+    evals_verdict(
+        golden.aggregate.recall_at_k as f32,
+        golden.degraded,
+        smoke.recall_at_k as f32,
+        smoke.secret_leak_count,
+        smoke.stale_leak_count,
+    )
 }
 
 /// The `ultron-memory` sidecar must exist under `~/.ultron/bin/` and be non-empty.
@@ -626,5 +643,43 @@ mod tests {
         );
         // Un error no-Sqlite tampoco.
         assert!(!is_sqlite_busy(&rusqlite::Error::QueryReturnedNoRows));
+    }
+}
+
+#[cfg(test)]
+mod evals_verdict_tests {
+    use super::*;
+
+    // (unificar medidores, 2026-07-02) — el veredicto de 'evals' se decide por
+    // el GOLDEN (el honesto), no por el smoke sintetico (que dio el "1.000"
+    // que alimento el era-claim '9.73 techo honesto').
+    #[test]
+    fn verdict_bands_on_golden_not_smoke() {
+        // golden sano -> ok, y el detail NOMBRA ambos medidores.
+        let c = evals_verdict(0.712, false, 1.0, 0, 0);
+        assert_eq!(c.severity, Severity::Ok);
+        assert!(c.detail.contains("golden"), "detail={}", c.detail);
+        assert!(c.detail.contains("smoke"), "detail={}", c.detail);
+
+        // golden degradado en regresion -> warn/error aunque el smoke de 1.0.
+        let c = evals_verdict(0.60, false, 1.0, 0, 0);
+        assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
+        let c = evals_verdict(0.40, false, 1.0, 0, 0);
+        assert_eq!(c.severity, Severity::Error, "detail={}", c.detail);
+
+        // leaks mandan SIEMPRE (gate de seguridad del smoke).
+        let c = evals_verdict(0.712, false, 1.0, 1, 0);
+        assert_eq!(c.severity, Severity::Error);
+        assert!(c.detail.contains("LEAK"));
+
+        // golden no disponible (Qdrant caido / set ausente) -> warn declarado,
+        // NO un 0.0 tratado como colapso ni un ok fingido.
+        let c = evals_verdict(0.0, true, 1.0, 0, 0);
+        assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
+        assert!(
+            c.detail.contains("golden no disponible"),
+            "detail={}",
+            c.detail
+        );
     }
 }
