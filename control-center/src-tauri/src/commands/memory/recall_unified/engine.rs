@@ -241,11 +241,14 @@ pub fn build_trace(
     //     for the UserPromptSubmit hook, so orchestrate() runs sparse-only there
     //     while manual recalls (Memory Browser) stay hybrid.
     //     Score-aware (B1): keep the cosine similarity to break RRF ties.
+    // (cat1 ranking) knobs tuneables por env para el A/B (default = consts).
+    let fanout_k = env_knob_usize("ULTRON_FANOUT_K", FANOUT_K);
+    let rrf_k = env_knob_f32("ULTRON_RRF_K", RRF_K);
     let dense_scored = if dense_enabled {
         // Dense (Qdrant) project filter: drop it in cross-project mode so the
         // k-NN is not pre-restricted to the current project at the index level.
         let dense_project = if cross_project { None } else { project_id };
-        qdrant_index::search_dense_scored(query, FANOUT_K as u32, dense_project)
+        qdrant_index::search_dense_scored(query, fanout_k as u32, dense_project)
     } else {
         Vec::new()
     };
@@ -261,9 +264,9 @@ pub fn build_trace(
     //     the BM25 top-30, leaving too few. A wider fanout lets in-project items
     //     reach the gate. Quality callers keep the tight FANOUT_K (dense covers them).
     let sparse_fanout = if dense_enabled {
-        FANOUT_K
+        fanout_k
     } else {
-        FANOUT_K * 12
+        fanout_k * 12
     };
     let sparse_items = MemoryService::search_active(query, sparse_fanout)
         .map_err(|e| format!("sparse search: {e}"))?;
@@ -281,7 +284,7 @@ pub fn build_trace(
         .collect();
 
     // (3) RRF fusion + dedup by canonical_id; cosine similarity carried for tie-break.
-    let mut fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], RRF_K)
+    let mut fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], rrf_k)
         .into_iter()
         .map(|(id, score)| FusedHit {
             dense_rank: dense_rank.get(id.as_str()).copied(),
@@ -532,6 +535,24 @@ const DEFAULT_RECALL_FLOOR: f32 = 0.83;
 /// "paella": ranks 11-13), así que no compran confianza.
 const STRONG_SPARSE_RANK: usize = 2;
 
+/// (cat1 ranking, 2026-07-02) Knobs de retrieval por env para el A/B honesto:
+/// `ULTRON_FANOUT_K` (candidatos por fuente antes de fusionar, default 30) y
+/// `ULTRON_RRF_K` (damping de la fusión, default 60). Fail-safe: ausente o
+/// basura -> default compilado. Mismo patrón que ULTRON_RECALL_FLOOR.
+fn env_knob_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_knob_f32(name: &str, default: f32) -> f32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(default)
+}
+
 /// Lee `ULTRON_RECALL_FLOOR`: ausente -> default; "off"/"0" -> gate desactivado;
 /// número -> override; basura -> default (fail-safe: nunca desactiva en silencio).
 fn recall_floor() -> Option<f32> {
@@ -620,6 +641,26 @@ mod floor_tests {
 
         // pack vacio: sin señal (gate no-op sobre vacio).
         assert!(!pack_has_confident_signal(&[], 0.84));
+    }
+
+    #[test]
+    fn ranking_knobs_env_override_and_fail_safe() {
+        // (cat1 ranking) Solo este test toca estas env vars.
+        std::env::set_var("ULTRON_FANOUT_K", "50");
+        assert_eq!(env_knob_usize("ULTRON_FANOUT_K", 30), 50);
+        std::env::set_var("ULTRON_FANOUT_K", "garbage");
+        assert_eq!(
+            env_knob_usize("ULTRON_FANOUT_K", 30),
+            30,
+            "basura -> default, no silencio"
+        );
+        std::env::remove_var("ULTRON_FANOUT_K");
+        assert_eq!(env_knob_usize("ULTRON_FANOUT_K", 30), 30);
+
+        std::env::set_var("ULTRON_RRF_K", "20.5");
+        assert_eq!(env_knob_f32("ULTRON_RRF_K", 60.0), 20.5);
+        std::env::remove_var("ULTRON_RRF_K");
+        assert_eq!(env_knob_f32("ULTRON_RRF_K", 60.0), 60.0);
     }
 
     #[test]
