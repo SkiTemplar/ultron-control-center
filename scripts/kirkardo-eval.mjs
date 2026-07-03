@@ -3269,11 +3269,17 @@ cat(21, "Estado vivo (codigo muerto: Stale/TTL/cierre-kanban)", [
         return { pass: false, detail: "no medible: falta cockpit/projects/ultron/kanban.json (clon limpio/CI)" };
       }
       // Fixture: usuario pide tarea completable + asistente la marca hecha + commit.
+      // HERMETICO (fidelidad 2026-07-03): el texto lleva un run-id UNICO — con
+      // texto fijo, el auto-log del run ANTERIOR (dedupe Jaccard del hook, que
+      // es la salvaguarda CORRECTA en produccion) bloqueaba la card nueva y el
+      // check leia su PROPIO residuo como "no-op de cierre" (falso negativo).
+      // Tras medir, el kanban se RESTAURA (finally) para no acumular residuo.
       const logsDir = join(ULTRON, "logs");
       try { if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true }); } catch {}
-      const fixture = join(logsDir, `kirkardo-cat21-transcript-${Date.now()}.jsonl`);
+      const runId = Date.now();
+      const fixture = join(logsDir, `kirkardo-cat21-transcript-${runId}.jsonl`);
       const transcript = [
-        JSON.stringify({ type: "user", message: { role: "user", content: "implementa el cierre automatico de cards en el kanban" } }),
+        JSON.stringify({ type: "user", message: { role: "user", content: `implementa la tarea sintetica ${runId} del harness de verificacion e2e` } }),
         JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Listo. He completado la tarea y la card ya esta hecha. Commit aplicado." }] } }),
       ].join("\n");
 
@@ -3313,6 +3319,11 @@ cat(21, "Estado vivo (codigo muerto: Stale/TTL/cierre-kanban)", [
       const after = (() => { try { return readFileSync(KANBAN_CAT21, "utf8"); } catch { return null; } })();
       const doneAfter = after === null ? null : countDone(after);
       const kanbanChanged = before !== null && after !== null && before !== after;
+      // Restaurar el tablero de produccion al estado previo: el check mide el
+      // cierre real pero NO debe dejar la card sintetica en el board.
+      if (kanbanChanged) {
+        try { writeFileSync(KANBAN_CAT21, before, "utf8"); } catch {}
+      }
       const cardClosed = doneBefore !== null && doneAfter !== null && doneAfter > doneBefore;
       const realClose = cardClosed || kanbanChanged;
       const onlyReminder = /RECORDATORIO/i.test(out) && !realClose;
