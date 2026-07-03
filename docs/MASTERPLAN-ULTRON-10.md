@@ -227,12 +227,13 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
   real, >1 finding, o flag OFF → **Quarantine** (como hoy). Cableado en `create_candidate`: si dispara, promueve el
   candidato a ACTIVE deprecando el viejo (reusa `cand.to_item` + `MemoryService::supersede`, con redaction/índice), en
   orden **fail-safe** (supersede primero; si falla, el candidato queda Pending — no se pierde ni corrompe nada).
-  **Opt-in `auto_supersede` (default OFF)** en `memory-settings.json` → **cero riesgo** para la memoria viva hasta
-  activarlo (mismo patrón que 1.1). **Verificado:** `cargo` 12/12 en `contradiction` (5 de `supersede_disposition`, con
-  **3 casos negativos**: real-conflict / >1-finding / flag-OFF → Quarantine) + fail-safe del clasificador (blank→None).
-  **ALCANCE REAL (mand. 13):** el clasificador LLM aún NO tiene eval de accuracy (state-update vs conflicto real) — por eso
-  el flag va **default OFF**: encenderlo requiere ese eval (un state-update mal clasificado deprecaría memoria válida,
-  reversible). La capacidad está construida y su LÓGICA probada; la confianza para activarla la da el eval (pendiente).
+  **Opt-in `auto_supersede`** en `memory-settings.json` (mismo patrón que 1.1). **Verificado:** `cargo` 12/12 en
+  `contradiction` (5 de `supersede_disposition`, con **3 casos negativos**: real-conflict / >1-finding / flag-OFF →
+  Quarantine) + fail-safe del clasificador (blank→None).
+  **ENCENDIDO 2026-07-03** tras pasar el gate 1.3b con quota fresca: 24/24 decididos, accuracy 0.958 (≥0.85),
+  **0 false_state_updates** (el único fallo fue state_update→conflict, la dirección segura: va a Quarantine, no
+  depreca). Verificado e2e en runtime: candidato state-update 1:1 real → item viejo Deprecated con `superseded_by`,
+  nuevo Active con `supersedes`, candidato Approved — memoria que se actualiza sola en vez de acumular eras.
   **NO time-based** (decisión #1 resuelta: solo contradicciones de estado, no deprecación por "N días sin acceso").
 - ✅ **1.4 user_profile poblado · tool_usage/workflow_state retirados · skill/architecture conservados (HECHO 2026-06-26).**
   Decisión #2 resuelta. *Diagnóstico runtime:* las 5 estaban a 0; el `extraction_prompt` (`capture.rs`) solo ofrecía al LLM
@@ -508,7 +509,7 @@ nada sin cablear; 0 PII/secretos en repo público; prohibido el no-op silencioso
 
 1. **Memoria viva (1.3):** **RESUELTO (2026-07-01)** — el supersede automático actúa **solo en contradicciones de "estado
    del mismo hecho"** (state-update 1:1 claro); **NO** deprecación proactiva por "N días sin acceso". Implementado opt-in
-   (`auto_supersede`, default OFF); encenderlo requiere el eval del clasificador (pendiente).
+   (`auto_supersede`); el eval del clasificador (gate 1.3b) pasó el 2026-07-03 (acc 0.958, 0 falsos SU) → **ON**.
 2. **Categorías vacías (1.4):** **RESUELTO (2026-06-26)** — `user_profile` poblado (productor en el prompt);
    `tool_usage`/`workflow_state` retirados (sin productor); `skill`/`architecture` conservados (productor vivo:
    `post_install` / `migrations`+gobernanza). Enum a 12 variantes vivas.
