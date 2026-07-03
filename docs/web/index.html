@@ -423,8 +423,8 @@
         <div class="v">Qdrant <span class="u">· E5 1024-d nativo</span></div>
       </div>
       <div class="cell">
-        <div class="k">Recall en caliente</div>
-        <div class="v">~50–115 ms <span class="tag">objetivo</span></div>
+        <div class="k">Orquestación en caliente</div>
+        <div class="v">p50 ~130–180 ms <span class="tag">medido 2026-07-03</span></div>
       </div>
       <div class="cell">
         <div class="k">Dónde corre</div>
@@ -1576,10 +1576,12 @@
       <p>
         El <code class="t">evals</code> del doctor es un eval <b>interno</b> (queries sintéticas
         derivadas del propio índice): vigila regresiones del pipeline y hoy da recall@8 = 1.0. Aparte
-        existe un <b>oráculo externo</b> de queries reales escritas a mano contra hechos conocidos,
-        que puntúa bastante más bajo — esa es la métrica que se persigue, y la que usa el harness de
-        evaluación (<code class="t">kirkardo-eval</code>) para negarse a aprobar el sistema mientras
-        no llegue al objetivo. Un sistema que solo publica su eval fácil se está mintiendo.
+        existe un <b>oráculo externo</b> de 29 queries reales etiquetadas a mano contra hechos
+        conocidos, que a 2026-07-03 mide <b>recall@8 = 0.68</b> y precision@3 = 0.38 — lejos del
+        objetivo 0.95. Esa es la métrica que se persigue, y la que usa el harness de evaluación
+        (<code class="t">kirkardo-eval</code>) para negarse a aprobar el sistema mientras no llegue
+        (hoy: gate en rojo, y así se publica). Un sistema que solo publica su eval fácil se está
+        mintiendo.
       </p>
     </div>
   </div>
@@ -1592,16 +1594,17 @@
       <div class="sec-kicker"><span class="num">11</span><span>Rendimiento y límites físicos</span><span class="rule"></span></div>
       <h2>Rápido en caliente. Honesto con la física.</h2>
       <p class="sec-sub">
-        ULTRON exprime el hardware manteniendo el modelo de significado <b>residente</b>: el recall
-        en caliente cuesta decenas de milisegundos. Pero hay dos costes que son de <b>física, no de
+        ULTRON exprime el hardware manteniendo el modelo de significado <b>residente</b>: la
+        orquestación completa en caliente mide p50 ≈ 130–180 ms e2e (harness cat9, 2026-07-03,
+        daemon E5 residente). Pero hay dos costes que son de <b>física, no de
         diseño</b> — y se declaran, no se esconden.
       </p>
     </div>
 
     <div class="specbar" style="margin-bottom:8px">
       <div class="cell">
-        <div class="k">Recall en caliente</div>
-        <div class="v">~50–115 ms <span class="tag">objetivo</span></div>
+        <div class="k">Orquestación en caliente</div>
+        <div class="v">p50 ~130–180 ms <span class="tag">medido 2026-07-03</span></div>
       </div>
       <div class="cell">
         <div class="k">Context pack</div>
@@ -1622,8 +1625,8 @@
       <p>
         En caliente, el contexto se inyecta en decenas de milisegundos. Pero el <b>primer</b> recall
         de una sesión carga en RAM el modelo de embeddings E5-large (<b>~2,2 GB</b>): ese arranque
-        cuesta ~2–3 s y no baja de ~500 ms por mucho que se optimice el código — es coste de I/O y de
-        inicializar el runtime ONNX en CPU. La mitigación (pre-calentar el daemon en
+        cuesta ~3–11 s medidos (según presión de I/O) y no baja de ~500 ms por mucho que se optimice
+        el código — es coste de I/O y de inicializar el runtime ONNX en CPU. La mitigación (pre-calentar el daemon en
         <code class="t">SessionStart</code>) es trabajo de hardware/arranque, no de lógica.
       </p>
     </div>
