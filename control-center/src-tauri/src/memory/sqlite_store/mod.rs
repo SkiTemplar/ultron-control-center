@@ -47,8 +47,8 @@ pub use items::{
 pub use events::{insert_event, list_events_for};
 
 pub use candidates::{
-    count_candidates_pending, get_candidate, insert_candidate, list_candidates,
-    set_candidate_status,
+    count_candidates_pending, find_candidate_ids_by_prefix, get_candidate, insert_candidate,
+    list_candidates, set_candidate_status,
 };
 
 pub use store_impl::{import_kg_jsonl, SqliteStore};

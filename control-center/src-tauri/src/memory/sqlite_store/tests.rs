@@ -367,6 +367,37 @@ fn events_are_appended_and_listed() {
 }
 
 #[test]
+fn candidate_prefix_resolves_unique_and_rejects_ambiguous() {
+    use super::candidates::find_candidate_ids_by_prefix;
+    let conn = mem_conn();
+    let mut a = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    a.id = "aabb1111-0000-0000-0000-000000000001".into();
+    let mut b = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    b.id = "aabb2222-0000-0000-0000-000000000002".into();
+    insert_candidate(&conn, &a).unwrap();
+    insert_candidate(&conn, &b).unwrap();
+
+    // Prefijo único -> exactamente 1 match (el UUID completo también resuelve).
+    assert_eq!(
+        find_candidate_ids_by_prefix(&conn, "aabb1").unwrap(),
+        vec![a.id.clone()]
+    );
+    assert_eq!(
+        find_candidate_ids_by_prefix(&conn, &a.id).unwrap(),
+        vec![a.id.clone()]
+    );
+    // Caso negativo 1: prefijo ambiguo -> 2 matches (el caller debe rechazar).
+    assert_eq!(
+        find_candidate_ids_by_prefix(&conn, "aabb").unwrap().len(),
+        2
+    );
+    // Caso negativo 2: prefijo inexistente -> 0 matches.
+    assert!(find_candidate_ids_by_prefix(&conn, "ffff")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn candidate_lifecycle_persists() {
     let conn = mem_conn();
     let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);

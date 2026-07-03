@@ -109,10 +109,12 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
         }
         // Curacion puntual por id (headless): `inbox approve --id X` / `inbox
         // reject --id X [--reason R]`. Reusa los paths canonicos del service
-        // (Actor::User = validacion explicita).
+        // (Actor::User = validacion explicita). Acepta prefijo de id (paridad
+        // con forget/deprecate): se resuelve a UUID completo o falla si 0/>1.
         "approve" | "reject" => {
             let id = crate::cli_args::flag_value(args, "--id")
                 .ok_or_else(|| format!("inbox {sub} requiere --id <candidate-id>"))?;
+            let id = resolve_candidate_id_prefix(&id)?;
             if sub == "approve" {
                 let item = MemoryService::approve_candidate(&id, Actor::User)
                     .map_err(|e| e.to_string())?;
@@ -144,5 +146,26 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                 .to_string(),
         ),
         other => Err(format!("unknown inbox subcommand '{other}'")),
+    }
+}
+
+/// Resolve a candidate-id prefix to an unambiguous full UUID (mirror of the
+/// item-side `resolve_id_prefix` in main.rs). Full UUIDs pass through as the
+/// single match; 0 or >1 matches error so a short prefix can never act on the
+/// wrong candidate.
+fn resolve_candidate_id_prefix(prefix: &str) -> Result<String, String> {
+    let prefix = prefix.trim();
+    if prefix.is_empty() {
+        return Err("--id must not be empty".to_string());
+    }
+    let conn = ul::memory::sqlite_store::open_conn().map_err(|e| e.to_string())?;
+    let matches = ul::memory::sqlite_store::find_candidate_ids_by_prefix(&conn, prefix)
+        .map_err(|e| e.to_string())?;
+    match matches.len() {
+        0 => Err(format!("no candidate found with id prefix '{prefix}'")),
+        1 => Ok(matches.into_iter().next().unwrap()),
+        n => Err(format!(
+            "prefix '{prefix}' is ambiguous — matches {n} candidates; use a longer prefix"
+        )),
     }
 }

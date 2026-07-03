@@ -96,3 +96,28 @@ pub fn count_candidates_pending(conn: &Connection) -> i64 {
     )
     .unwrap_or(0)
 }
+
+/// Find all candidate ids that start with `prefix` (any status).
+///
+/// Mirror of `items::find_ids_by_prefix` for the inbox: lets
+/// `inbox approve/reject --id` resolve an unambiguous short prefix instead of
+/// demanding the full UUID. The caller enforces the exactly-one-match guard.
+pub fn find_candidate_ids_by_prefix(
+    conn: &Connection,
+    prefix: &str,
+) -> Result<Vec<String>, MemoryError> {
+    let pattern = format!("{prefix}%");
+    let mut stmt = conn
+        .prepare("SELECT id FROM memory_candidates WHERE id LIKE ?1")
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("find_candidate_ids_by_prefix prepare: {e}"))
+        })?;
+    let ids: Vec<String> = stmt
+        .query_map(params![pattern], |r| r.get(0))
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("find_candidate_ids_by_prefix query: {e}"))
+        })?
+        .flatten()
+        .collect();
+    Ok(ids)
+}
