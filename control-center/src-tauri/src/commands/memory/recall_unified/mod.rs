@@ -11,6 +11,7 @@
 // retired `recall_semantic` (legacy 384-d path, removed 2026-06-28).
 
 pub(crate) mod engine;
+pub(crate) mod pack;
 #[cfg(test)]
 mod tests;
 pub(crate) mod types_model;

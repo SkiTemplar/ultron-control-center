@@ -12,7 +12,7 @@
 // that hit the real brain.db.
 // -----------------------------------------------------------------------
 
-use crate::commands::memory::recall_unified::engine::assemble_pack;
+use crate::commands::memory::recall_unified::pack::assemble_pack;
 use crate::commands::memory::recall_unified::types_model::{FusedHit, PER_CALL_TOKEN_CAP};
 use crate::memory::{Scope, Status};
 

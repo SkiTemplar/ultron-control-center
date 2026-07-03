@@ -1,6 +1,6 @@
 // tests/temporal.rs — temporal resolver (valid_to) + TTL (expires_at) gates.
 
-use crate::commands::memory::recall_unified::engine::assemble_pack;
+use crate::commands::memory::recall_unified::pack::assemble_pack;
 use crate::commands::memory::recall_unified::types_model::{FusedHit, PER_CALL_TOKEN_CAP};
 use crate::memory::{Scope, Status};
 

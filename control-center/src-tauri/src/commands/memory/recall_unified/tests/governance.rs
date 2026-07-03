@@ -1,7 +1,7 @@
 // tests/governance.rs — assemble_pack governance invariants: ambient items,
 // codebase_fact exclusion, status/sensitivity/project gates, cross-project.
 
-use crate::commands::memory::recall_unified::engine::assemble_pack;
+use crate::commands::memory::recall_unified::pack::assemble_pack;
 use crate::commands::memory::recall_unified::types_model::{FusedHit, PER_CALL_TOKEN_CAP};
 use crate::memory::{Scope, Status};
 
@@ -369,7 +369,7 @@ fn assemble_pack_cross_project_relaxes_only_project_filter() {
 // cuarentena del pack con razon auditable. El item NO se toca en brain.db.
 #[test]
 fn injection_patterns_are_quarantined_from_the_pack() {
-    use crate::commands::memory::recall_unified::engine::assemble_pack;
+    use crate::commands::memory::recall_unified::pack::assemble_pack;
     use crate::commands::memory::recall_unified::types_model::{FusedHit, PER_CALL_TOKEN_CAP};
     use crate::memory::model::MemoryItem;
     use crate::memory::sqlite_store::{apply_schema, insert_item};
