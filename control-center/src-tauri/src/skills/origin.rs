@@ -305,12 +305,21 @@ pub fn list_skills_with_origin_inner(
 /// Disabling always writes the suffix convention going forward. That keeps the
 /// output consistent with what `Rename-Item` produces on Windows.
 pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, String> {
+    skill_toggle_at(&global_skills_dir()?, name, enabled)
+}
+
+/// Core del toggle con el root INYECTABLE — separado de `skill_toggle_inner`
+/// para poder testearlo hermético contra un tempdir (0 tests del backend de la
+/// Skills tab hasta 2026-07-03; la lógica y las convenciones no cambian).
+pub(crate) fn skill_toggle_at(
+    root: &std::path::Path,
+    name: String,
+    enabled: bool,
+) -> Result<SkillEntry, String> {
     // Path traversal guard: name must not contain path separators.
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err("invalid skill name: path separators not allowed".to_string());
     }
-
-    let root = global_skills_dir()?;
 
     // Candidate paths for each convention.
     let path_enabled = root.join(&name);
@@ -380,12 +389,21 @@ pub fn skills_bulk_toggle_inner(
     names: Vec<String>,
     disabled: bool,
 ) -> Result<BulkToggleResult, String> {
+    skills_bulk_toggle_at(&global_skills_dir()?, names, disabled)
+}
+
+/// Core del bulk con root inyectable (mismo motivo que `skill_toggle_at`).
+pub(crate) fn skills_bulk_toggle_at(
+    root: &std::path::Path,
+    names: Vec<String>,
+    disabled: bool,
+) -> Result<BulkToggleResult, String> {
     let enabled = !disabled;
     let mut outcomes: Vec<BulkToggleOutcome> = Vec::with_capacity(names.len());
     let mut succeeded = 0usize;
     let mut failed = 0usize;
     for name in &names {
-        match skill_toggle_inner(name.clone(), enabled) {
+        match skill_toggle_at(root, name.clone(), enabled) {
             Ok(_) => {
                 succeeded += 1;
                 outcomes.push(BulkToggleOutcome {
@@ -410,4 +428,93 @@ pub fn skills_bulk_toggle_inner(
         failed,
         outcomes,
     })
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    use super::*;
+
+    /// Crea `<root>/<dir_name>/SKILL.md` con frontmatter valido.
+    fn make_skill(root: &std::path::Path, dir_name: &str) {
+        let d = root.join(dir_name);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("SKILL.md"),
+            "---\nname: test-skill\ndescription: skill de prueba hermetica\n---\ncuerpo\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn disable_moves_to_suffix_convention() {
+        let tmp = tempfile::tempdir().unwrap();
+        make_skill(tmp.path(), "alpha");
+        let entry = skill_toggle_at(tmp.path(), "alpha".into(), false).unwrap();
+        assert!(!entry.enabled);
+        assert!(tmp.path().join("alpha.disabled").is_dir());
+        assert!(!tmp.path().join("alpha").exists());
+    }
+
+    #[test]
+    fn enable_restores_from_suffix_and_from_legacy() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Convencion sufijo.
+        make_skill(tmp.path(), "beta.disabled");
+        let e = skill_toggle_at(tmp.path(), "beta".into(), true).unwrap();
+        assert!(e.enabled);
+        assert!(tmp.path().join("beta").is_dir());
+        // Convencion legacy `_disabled/<name>`.
+        make_skill(&tmp.path().join("_disabled"), "gamma");
+        let e2 = skill_toggle_at(tmp.path(), "gamma".into(), true).unwrap();
+        assert!(e2.enabled);
+        assert!(tmp.path().join("gamma").is_dir());
+        assert!(!tmp.path().join("_disabled").join("gamma").exists());
+    }
+
+    #[test]
+    fn rejects_path_traversal_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        for evil in ["../evil", "a/b", r"a\b", ".."] {
+            let err = skill_toggle_at(tmp.path(), evil.to_string(), false).unwrap_err();
+            assert!(err.contains("path separators"), "{evil}: {err}");
+        }
+    }
+
+    #[test]
+    fn negative_disable_missing_and_enable_conflict() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Disable de un skill inexistente -> Err.
+        assert!(skill_toggle_at(tmp.path(), "nope".into(), false).is_err());
+        // Enable de un skill sin forma disabled -> Err.
+        assert!(skill_toggle_at(tmp.path(), "nope".into(), true).is_err());
+        // Enable cuando el path enabled YA existe -> Err (no pisa nada).
+        make_skill(tmp.path(), "delta");
+        make_skill(tmp.path(), "delta.disabled");
+        let err = skill_toggle_at(tmp.path(), "delta".into(), true).unwrap_err();
+        assert!(err.contains("already exists"), "{err}");
+        // Ambos siguen en disco (no se destruyo nada).
+        assert!(tmp.path().join("delta").is_dir());
+        assert!(tmp.path().join("delta.disabled").is_dir());
+    }
+
+    #[test]
+    fn bulk_toggle_collects_per_item_failures_without_aborting() {
+        let tmp = tempfile::tempdir().unwrap();
+        make_skill(tmp.path(), "ok1");
+        make_skill(tmp.path(), "ok2");
+        let r = skills_bulk_toggle_at(
+            tmp.path(),
+            vec!["ok1".into(), "missing".into(), "ok2".into()],
+            true, // disabled=true -> deshabilitar
+        )
+        .unwrap();
+        assert_eq!(r.requested, 3);
+        assert_eq!(r.succeeded, 2);
+        assert_eq!(r.failed, 1);
+        // El fallo esta identificado y NO aborto el resto.
+        let bad = r.outcomes.iter().find(|o| o.name == "missing").unwrap();
+        assert!(!bad.ok);
+        assert!(tmp.path().join("ok1.disabled").is_dir());
+        assert!(tmp.path().join("ok2.disabled").is_dir());
+    }
 }
