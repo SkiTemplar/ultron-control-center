@@ -145,7 +145,7 @@ fn run() -> Result<serde_json::Value, String> {
         "eval" => {
             // cat6.5 (mand.11): rechaza flags desconocidos para no fingir medir con
             // el eval sintetico (recall=1.0) ante un typo como `--gold` por `--golden`.
-            reject_unknown_flags(&args, &["--golden", "--project"])?;
+            reject_unknown_flags(&args, &["--golden", "--project", "--summary"])?;
             // `--golden <path>` (with a path argument) loads an EXTERNAL hand-labeled
             // JSON file (schema: `{ "labeled": [...] }`, cat19 FASE A oracle) and
             // returns a `LabeledGoldenReport` directly — the external oracle takes
@@ -158,7 +158,16 @@ fn run() -> Result<serde_json::Value, String> {
             // Default (no flag): the substring-based recall@8 report + security gate.
             if let Some(golden_path) = flag_value(&args, "--golden") {
                 // cat19 FASE A: external oracle path provided.
-                to_json(ul::memory::evals::run_labeled_golden(&golden_path, 8))
+                let mut v = to_json(ul::memory::evals::run_labeled_golden(&golden_path, 8))?;
+                // `--summary` (P2 token-eff): quita el desglose per-query (~300
+                // lineas de retrieved_ids) y deja solo el aggregate + conteos —
+                // lo que consumen el harness y una lectura humana del gate.
+                if has_flag(&args, "--summary") {
+                    if let serde_json::Value::Object(ref mut map) = v {
+                        map.remove("per_query");
+                    }
+                }
+                Ok(v)
             } else {
                 let base = ul::memory::evals::run(project.as_deref(), 8);
                 let mut v = to_json(base)?;
