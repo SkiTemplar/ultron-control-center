@@ -1,0 +1,5 @@
+# hooks/manifest.json lo genera hooks/regen-manifest.js SIEMPRE con LF y su
+# gate --check compara texto contra lo regenerado. Fijar LF en el working tree
+# evita que autocrlf lo reescriba a CRLF en Windows (card vrwxcf; el check
+# ademas normaliza line-endings como cinturon y tirantes).
+hooks/manifest.json text eol=lf

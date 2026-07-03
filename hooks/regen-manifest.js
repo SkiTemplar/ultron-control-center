@@ -120,8 +120,11 @@ function main() {
 
   if (CHECK_MODE) {
     const cur = fs.existsSync(MANIFEST) ? fs.readFileSync(MANIFEST, 'utf8') : '';
-    // Comparar ignorando generated_at (cambia cada dia sin drift real).
-    const norm = (s) => s.replace(/"generated_at": "[^"]*"/, '"generated_at": "X"');
+    // Comparar ignorando generated_at (cambia cada dia sin drift real) y
+    // line-endings: git en Windows (autocrlf) puede reescribir el manifest a
+    // CRLF mientras next siempre es LF — eso NO es drift (card vrwxcf).
+    const norm = (s) =>
+      s.replace(/\r\n/g, '\n').replace(/"generated_at": "[^"]*"/, '"generated_at": "X"');
     if (norm(cur) !== norm(next)) {
       console.error('DRIFT: hooks/manifest.json no coincide con settings.json + checksums reales. Ejecuta: node hooks/regen-manifest.js');
       process.exit(1);
