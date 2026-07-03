@@ -125,6 +125,30 @@ function fireDesktopNotification(title, body) {
   }
 }
 
+// Campana del terminal (BEL \x07) — el aviso "te toca" que Focus Assist NO
+// puede silenciar: lo renderiza el EMULADOR (Windows Terminal via bellStyle:
+// audible/flash), no el sistema de notificaciones del SO. El stdout del hook
+// va pipeado al harness (no al TTY), asi que se escribe directo en la consola
+// adjunta (CONOUT$); en headless (sin consola) falla en silencio, fail-safe.
+// Opt-out estilo Claude Code `terminalBell`: NOTIFY_RELAY_BELL=0.
+function ringTerminalBell() {
+  if (process.env.NOTIFY_RELAY_BELL === '0') return;
+  try {
+    if (process.stdout.isTTY) {
+      process.stdout.write('\x07');
+      return;
+    }
+    const fd = fs.openSync('\\\\.\\CONOUT$', 'w');
+    try {
+      fs.writeSync(fd, '\x07');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (_) {
+    // sin consola adjunta (cron/headless) -> no hay campana que tocar
+  }
+}
+
 function main() {
   if (process.env.CLAUDE_NO_HOOKS === '1' || process.env.NOTIFY_RELAY_DISABLED === '1') {
     return;
@@ -151,7 +175,9 @@ function main() {
     // scratch append failure is non-fatal
   }
 
-  // Non-invasive desktop toast + soft sound: "te toca contestar".
+  // Campana del terminal primero (inmediata, inmune a Focus Assist)…
+  ringTerminalBell();
+  // …y el toast no-invasivo + sonido suave: "te toca contestar".
   fireDesktopNotification(
     'ULTRON — te toca',
     String(message).replace(/\s+/g, ' ').slice(0, 180)
