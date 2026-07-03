@@ -149,11 +149,22 @@ jobs:
         if: steps.ort-dfbin.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          foreach ($d in @("build", ".fingerprint")) {
-            Get-ChildItem -Path "control-center\src-tauri\target\*\$d" -Filter "ort-sys-*" -Directory -ErrorAction SilentlyContinue |
-              Remove-Item -Recurse -Force
+          # OJO: Get-ChildItem con wildcard en -Path + -Filter devuelve VACIO
+          # (no-op silencioso, verificado en local 2026-07-03) — enumerar los
+          # dirs de perfil explicitamente y contar lo borrado.
+          $purged = 0
+          $target = "control-center\src-tauri\target"
+          foreach ($profileDir in (Get-ChildItem $target -Directory -ErrorAction SilentlyContinue)) {
+            foreach ($sub in @("build", ".fingerprint")) {
+              $p = Join-Path $profileDir.FullName $sub
+              if (Test-Path $p) {
+                $hits = Get-ChildItem $p -Directory -Filter "ort-sys-*"
+                $purged += @($hits).Count
+                $hits | Remove-Item -Recurse -Force
+              }
+            }
           }
-          Write-Host "ort-sys fingerprints purged (dfbin cache miss): build script re-runs and re-downloads."
+          Write-Host "ort-sys purge: $purged dir(s) eliminados (0 = target frio, tambien valido)."
 
       - name: cargo clippy (compiles + lints; -D warnings = gate duro)
         # --profile test makes clippy compile with the same rustc flags as
