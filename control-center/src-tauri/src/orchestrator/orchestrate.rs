@@ -11,11 +11,15 @@ use super::types_model::{
     TOKEN_BUDGET,
 };
 
-/// `dense_enabled` controls whether the semantic (E5) paths run. The
-/// UserPromptSubmit hot path passes `false`: agents/skills route by intent rules
-/// and recall is sparse-only (FTS5), keeping the whole call E5-free so it fits
-/// the <300ms hook budget. Quality callers can pass `true` for the full semantic
-/// catalog + hybrid recall (an E5 query embed costs ~1.1s on CPU even warm).
+/// `dense_enabled` controls whether the semantic (E5) paths run. Since the
+/// quality-first policy (2026-06-19) EVERY caller of the hot path passes `true`
+/// — both the CLI one-shot (`main.rs`) and the resident daemon (`serve.rs`) —
+/// so the UserPromptSubmit hook runs the FULL hybrid recall (dense E5 + sparse
+/// FTS5). Honest cost (kirkardo cat9, medido 2026-07-03): p50 ~130-180 ms e2e
+/// vía daemon con E5 residente (incluye el spawn de node); el one-shot del CLI
+/// paga la carga E5 in-proc (~1.4-3.3 s) y el primer hit con daemon frío
+/// ~2.7-11 s. NO es el diseño histórico "<300 ms sparse-only": `false` queda
+/// como modo degradación (E5/Qdrant caídos) o para trade-offs explícitos.
 pub fn orchestrate(
     prompt: &str,
     project_id: Option<&str>,

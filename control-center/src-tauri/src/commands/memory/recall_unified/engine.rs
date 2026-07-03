@@ -397,10 +397,11 @@ pub fn build_trace(
     dense_enabled: bool,
 ) -> Result<RecallTrace, String> {
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN. Empty if offline,
-    //     OR skipped entirely when dense_enabled=false (the sparse-first hot
-    //     path): embedding a query with E5-large on CPU costs ~1.1s, too slow
-    //     for the UserPromptSubmit hook, so orchestrate() runs sparse-only there
-    //     while manual recalls (Memory Browser) stay hybrid.
+    //     OR skipped when dense_enabled=false. OJO: desde la política
+    //     quality-first (2026-06-19) el hook UserPromptSubmit TAMBIÉN corre
+    //     híbrido (dense=true vía daemon/CLI); `false` queda como modo de
+    //     degradación (E5/Qdrant caídos) o para callers que sacrifiquen
+    //     calidad por latencia. El embed E5 del query cuesta ~0.3-1 s warm.
     //     Score-aware (B1): keep the cosine similarity to break RRF ties.
     // (cat1 ranking) knobs tuneables por env para el A/B (default = consts).
     let fanout_k = env_knob_usize("ULTRON_FANOUT_K", FANOUT_K);
@@ -418,8 +419,8 @@ pub fn build_trace(
         .iter()
         .map(|(id, s)| (id.as_str(), *s))
         .collect();
-    // (2) SPARSE — FTS5/bm25 over ACTIVE items. When dense is OFF (sparse-first
-    //     hot path) we widen the pool: the dense Qdrant project-filter that
+    // (2) SPARSE — FTS5/bm25 over ACTIVE items. When dense is OFF (modo
+    //     degradación) we widen the pool: the dense Qdrant project-filter that
     //     normally surfaces in-project items is gone, and under a project filter
     //     assemble_pack drops the global vault + off-project hits that dominate
     //     the BM25 top-30, leaving too few. A wider fanout lets in-project items
