@@ -122,6 +122,39 @@ jobs:
           cache-on-failure: true
           shared-key: cargo-test-profile
 
+      - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
+        # CI ROJO 2026-07-02 root-cause: ort-sys (via fastembed) descarga la lib
+        # estatica onnxruntime a %LOCALAPPDATA%\dfbin — fuera de target/ y de
+        # ~/.cargo, asi que NINGUN cache la preservaba — y su build script no
+        # emite rerun-if-changed sobre ese dir. rust-cache restauraba target/
+        # con el output del build script apuntando al path absoluto de OTRA VM
+        # -> en la VM fresca no existe -> rustc: "could not find native static
+        # library onnxruntime" en cuanto algo fuerza recompilar ort-sys. Cachear
+        # dfbin lo resucita en el MISMO path absoluto (el usuario runneradmin es
+        # fijo en windows-latest), y el -L restaurado vuelve a ser valido.
+        id: ort-dfbin
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\dfbin
+          key: ort-dfbin-${{ runner.os }}-${{ hashFiles('control-center/src-tauri/Cargo.lock') }}
+
+      - name: Self-heal ort-sys on dfbin cache miss
+        # Sin dfbin restaurado, el fingerprint "fresh" del build script de
+        # ort-sys es veneno permanente: la clave de rust-cache ya existe (las
+        # caches de GH son inmutables) y nunca se re-guarda saneada. Purgar
+        # build/ + .fingerprint/ de ort-sys fuerza el re-run del build script,
+        # que re-descarga onnxruntime a ESTA VM -> -L valido. Solo corre en
+        # miss (primera vez o Cargo.lock nuevo); en hit el paso anterior ya
+        # dejo vivo el path y no se recompila nada.
+        if: steps.ort-dfbin.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          foreach ($d in @("build", ".fingerprint")) {
+            Get-ChildItem -Path "control-center\src-tauri\target\*\$d" -Filter "ort-sys-*" -Directory -ErrorAction SilentlyContinue |
+              Remove-Item -Recurse -Force
+          }
+          Write-Host "ort-sys fingerprints purged (dfbin cache miss): build script re-runs and re-downloads."
+
       - name: cargo clippy (compiles + lints; -D warnings = gate duro)
         # --profile test makes clippy compile with the same rustc flags as
         # `cargo test` (the `test` profile, not `dev`).  Without this, clippy
