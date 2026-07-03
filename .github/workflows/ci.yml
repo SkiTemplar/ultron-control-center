@@ -135,11 +135,13 @@ jobs:
         id: ort-dfbin
         uses: actions/cache@v4
         with:
-          # OJO: forward slashes — con `~\` (backslash) actions/cache NO expande
-          # el home y el post-save muere con "Path Validation Error ... no cache
-          # is being saved" (visto en run 28653104441; el job siguio verde solo
-          # por el self-heal de abajo, que re-descarga en cada run).
-          path: ~/AppData/Local/dfbin
+          # Path REAL verificado contra el vendored dirs.rs de ort-sys y el disco
+          # local: cache_dir() = %LOCALAPPDATA%\ort.pyke.io (PYKE_ROOT) y dfbin
+          # cuelga DE AHI — cachear ~/AppData/Local/dfbin a secas nunca salvaba
+          # nada ("Path Validation Error" en runs 28653104441/28655076253; el
+          # verde venia del self-heal re-descargando). Forward slashes: con `~\`
+          # actions/cache tampoco expande el home.
+          path: ~/AppData/Local/ort.pyke.io/dfbin
           key: ort-dfbin-${{ runner.os }}-${{ hashFiles('control-center/src-tauri/Cargo.lock') }}
 
       - name: Self-heal ort-sys on dfbin cache miss
