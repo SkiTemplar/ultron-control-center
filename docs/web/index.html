@@ -1577,7 +1577,8 @@
         El <code class="t">evals</code> del doctor es un eval <b>interno</b> (queries sintéticas
         derivadas del propio índice): vigila regresiones del pipeline y hoy da recall@8 = 1.0. Aparte
         existe un <b>oráculo externo</b> de 29 queries reales etiquetadas a mano contra hechos
-        conocidos, que a 2026-07-03 mide <b>recall@8 = 0.68</b> y precision@3 = 0.38 — lejos del
+        conocidos, que a 2026-07-04 mide <b>recall@8 = 0.709</b> y precision@3 = 0.483 (con el
+        re-ranker cross-encoder ON en los paths de calidad) — todavía lejos del
         objetivo 0.95. Esa es la métrica que se persigue, y la que usa el harness de evaluación
         (<code class="t">kirkardo-eval</code>) para negarse a aprobar el sistema mientras no llegue
         (hoy: gate en rojo, y así se publica). Un sistema que solo publica su eval fácil se está

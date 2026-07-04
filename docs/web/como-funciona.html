@@ -128,14 +128,18 @@ RRF (k=60, fusión ponderable) + re-rank de calidad (confianza × recency) + tie
   <table>
     <tr><th>Juez</th><th>Qué mide</th><th>Estado 2026-07-02</th></tr>
     <tr><td class="mono">memory-bench</td><td>Benchmark adversarial externo: temporal, stale, multi-hop, contradicciones, secretos, cross-project, abstain (near-misses incluidos), + invariantes de inyección/secretos/gobernanza en cada query</td><td class="mono">9.94/10</td></tr>
-    <tr><td class="mono">eval-full</td><td>Golden set etiquetado a mano (ranking-quality, recall@8/nDCG/waste)</td><td class="mono">recall@8 0.712</td></tr>
-    <tr><td class="mono">eval --golden</td><td>Oráculo de labels independiente (29 queries, no circular)</td><td class="mono">recall@8 0.682</td></tr>
+    <tr><td class="mono">eval-full</td><td>Golden set etiquetado a mano (ranking-quality, recall@8/nDCG/waste)</td><td class="mono">recall@8 0.652</td></tr>
+    <tr><td class="mono">eval --golden</td><td>Oráculo de labels independiente (29 queries, no circular)</td><td class="mono">recall@8 0.709</td></tr>
   </table>
   <p>Y el sistema entero se audita con el harness <b>Kirkardo</b> (22 categorías, checks binarios
   reproducibles) y <code>doctor</code> (SQLite/Qdrant/reconcile/evals/binario fresco).</p>
   <h3>Lo que se probó y NO entró (esto también es el manual)</h3>
   <ul>
-    <li><b>Reranker cross-encoder</b> (BGE-v2-m3): −4.6pp de recall y 3× de latencia → <code>ULTRON_RERANK</code> queda OFF.</li>
+    <li><b>Reranker cross-encoder</b> (BGE-v2-m3): el A/B de 2026-07-02 (bench pre-higiene) dio negativo y quedó OFF;
+      re-medido el 2026-07-03/04 contra el oráculo golden ganó en todo (recall@8 0.682→0.709, p@3 0.379→0.483)
+      → <b>ON por defecto en los paths de calidad</b> (recall CLI/trace/evals; opt-out <code>ULTRON_RERANK=0</code>).
+      El hot path por-prompt lo mantiene OFF (~2-2.4 s/llamada vs p50 134 ms; opt-in <code>ULTRON_RERANK_HOT=1</code>).
+      Un "no" medido puede volverse "sí" cuando cambia el corpus — se re-mide, no se hereda.</li>
     <li><b>Fanout 50 / RRF k=20</b>: ganaba en un juez, perdía en los otros dos (sobreajuste cazado) → defaults 30/60.</li>
     <li><b>Pesar denso &gt; sparse</b>: expulsa del top-8 a los relevantes que solo llegan por match léxico → peso 1.0.</li>
     <li><b>Gate de diversidad del pack</b> (MMR-lite): los golden premian redundancia; queda opt-in hasta tener un juez de información-por-token.</li>
