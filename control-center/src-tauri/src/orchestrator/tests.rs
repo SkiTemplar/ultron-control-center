@@ -411,3 +411,50 @@ fn orchestrate_no_directive_for_trivial_prompt() {
     let ctx = orchestrate("hola", None, false);
     assert!(ctx.delegation_directive.is_none());
 }
+
+#[test]
+fn orchestrate_excludes_delegation_for_meta_introspective() {
+    // [bvaqws] Autoevaluar la sesion NO es delegable: el subagente no tiene el
+    // transcript. La lista de delegados queda vacia, la directiva None, y el
+    // porque queda declarado en warnings (mandamiento 11).
+    let ctx = orchestrate("autoevalúa la sesión de hoy y ponte nota", None, false);
+    assert!(
+        ctx.delegate_agents.is_empty(),
+        "meta/introspectivo -> 0 delegados, got {:?}",
+        ctx.delegate_agents
+            .iter()
+            .map(|a| &a.name)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        ctx.delegation_directive.is_none(),
+        "sin directiva de delegación"
+    );
+    assert!(
+        ctx.warnings
+            .iter()
+            .any(|w| w.contains("meta/introspectiva")),
+        "warning explicativo presente, got {:?}",
+        ctx.warnings
+    );
+}
+
+#[test]
+fn orchestrate_meta_filter_negative_cases() {
+    // Caso negativo (mandamiento 7): un prompt normal de codigo NO dispara el
+    // filtro meta — la delegacion sigue disponible por reglas/floor.
+    use super::rules::is_meta_introspective;
+    assert!(!is_meta_introspective(
+        "refactoriza el módulo de sesiones del router"
+    ));
+    assert!(!is_meta_introspective(
+        "¿cómo lo hiciste en el commit anterior?"
+    ));
+    assert!(!is_meta_introspective(
+        "evalúa el rendimiento del reranker en el golden set"
+    ));
+    // Positivos representativos de la clase.
+    assert!(is_meta_introspective("autoevalúa tu trabajo de hoy"));
+    assert!(is_meta_introspective("resume esta conversación"));
+    assert!(is_meta_introspective("rate your performance this session"));
+}

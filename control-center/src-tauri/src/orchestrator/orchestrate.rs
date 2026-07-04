@@ -66,8 +66,21 @@ pub fn orchestrate(
     // Floor-inject the intent's preferred specialists so the boost isn't
     // decorative when cross-lingual retrieval missed them (UI/testing 0/3 fix).
     let pooled = inject_preferred_floor(raw_hits, intent);
-    let delegate_agents: Vec<AgentChoice> = rebalance_delegates(pooled, intent, 5);
-    if delegate_agents.is_empty() {
+    // [bvaqws] Clase META/INTROSPECTIVA (autoevaluar la sesión, resumir esta
+    // conversación...): un subagente NO tiene el transcript, así que emitir
+    // delegate_to aquí es ordenar un imposible. Se vacía la lista y se explica
+    // el porqué (mandamiento 11: prohibido el no-op silencioso).
+    let meta_introspective = super::rules::is_meta_introspective(prompt);
+    let delegate_agents: Vec<AgentChoice> = if meta_introspective {
+        warnings.push(
+            "clase meta/introspectiva: delegación EXCLUIDA — un subagente no tiene el transcript de la sesión"
+                .to_string(),
+        );
+        Vec::new()
+    } else {
+        rebalance_delegates(pooled, intent, 5)
+    };
+    if delegate_agents.is_empty() && !meta_introspective {
         warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
     }
 
