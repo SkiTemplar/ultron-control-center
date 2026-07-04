@@ -134,7 +134,7 @@ pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMet
         // metric then scores 0 for it, which is the correct "recovered nothing".
         // Each positive is an independent recall; there is no per-session budget
         // to reset (every recall gets the full per-call cap, never starved).
-        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false) {
+        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false, true) {
             Ok(pack) => {
                 returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
                 pack.entries.into_iter().map(|e| e.canonical_id).collect()

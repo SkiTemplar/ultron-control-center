@@ -42,6 +42,7 @@ pub async fn recall_inspect(
             project_id.as_deref(),
             cross,
             true, // manual recall inspection: full hybrid (dense on)
+            true, // calidad: cross-encoder ON (el coste ~2s es aceptable aqui)
         )
     })
     .await

@@ -85,6 +85,7 @@ fn run() -> Result<serde_json::Value, String> {
                 project.as_deref(),
                 cross,
                 true,
+                true, // paridad con el eval: el trace diagnostica el path de calidad
             )?)
         }
         "recall" => {
@@ -98,6 +99,7 @@ fn run() -> Result<serde_json::Value, String> {
                 8,
                 project.as_deref(),
                 cross,
+                true, // recall manual explicito: calidad con cross-encoder
             )?)
         }
         "stats" => to_json(ul::memory::MemoryService::stats().map_err(|e| e.to_string())?),
@@ -299,7 +301,10 @@ fn run() -> Result<serde_json::Value, String> {
             // Guard prevents the ~1 GB BGERerankerV2M3 download for users who
             // have not opted in. FAIL-SAFE: errors are logged but never block
             // the session or change the `warmed` (E5) status.
-            let reranker_warmed = if ul::qdrant::reranker_enabled() {
+            // Solo se precalienta BGE si el HOT PATH lo va a usar (opt-in
+            // ULTRON_RERANK_HOT): tras el split, el hook no re-rankea, y calentar
+            // ~1 GB extra en cada SessionStart era una tormenta de CPU inutil.
+            let reranker_warmed = if ul::qdrant::rerank_hot_enabled() {
                 match ul::qdrant::warmup_reranker() {
                     Ok(()) => true,
                     Err(e) => {

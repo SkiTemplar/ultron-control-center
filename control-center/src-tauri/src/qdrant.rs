@@ -473,13 +473,32 @@ pub async fn qdrant_status() -> Result<String, String> {
 //   `rerank_pairs(query, docs)`        — cross-encoder score; feature-gated
 //   `warmup_reranker()`                — force model init; feature-gated
 
-/// Returns `true` when `ULTRON_RERANK` is set to `"1"` or `"true"`.
+/// Cross-encoder re-ranker: **ON por defecto** desde 2026-07-03; opt-out con
+/// `ULTRON_RERANK=0`/`false` (y `=1`/`true` sigue siendo un ON explícito).
+///
+/// Justificación MEDIDA contra el oráculo golden (29 queries, 2026-07-03):
+/// recall@8 0.682→0.709, p@3 0.379→0.483, nDCG 0.559→0.633 con N=24. El
+/// veredicto negativo del A/B de 2026-07-02 era contra el bench y el corpus
+/// pre-higiene; contra el golden actual el cross-encoder gana en todo.
 ///
 /// Not feature-gated — callers can check the flag regardless of whether the
 /// `qdrant` Cargo feature is enabled.
 pub fn reranker_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("ULTRON_RERANK").as_deref(),
+        Ok("0") | Ok("false")
+    )
+}
+
+/// Opt-in del cross-encoder en el HOT PATH del hook UserPromptSubmit
+/// (`ULTRON_RERANK_HOT=1`/`true`). Default OFF: el re-rank cuesta ~2-2.4 s por
+/// llamada en CPU y el prefetch por prompt vive en p50 ~134 ms — quien acepte
+/// pagar la latencia en cada prompt lo enciende explicitamente. Los paths de
+/// calidad (recall CLI/browser/trace/evals) NO consultan este flag: alli el
+/// re-rank va ON salvo apagado global (`ULTRON_RERANK=0`).
+pub fn rerank_hot_enabled() -> bool {
+    matches!(
+        std::env::var("ULTRON_RERANK_HOT").as_deref(),
         Ok("1") | Ok("true")
     )
 }

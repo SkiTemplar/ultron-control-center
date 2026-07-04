@@ -100,7 +100,16 @@ pub fn orchestrate(
     // limit=8: alineado con DEFAULT_LIMIT y el golden eval (k=8). 12 forzaba a
     // rellenar el pack con cola BM25 irrelevante (context_waste ~0.59); el
     // relevance-floor de assemble_pack + este techo dejan el pack few-and-good.
-    let memories = match build_trace(prompt, 8, project_id, cross_project, dense_enabled) {
+    // Hot path: cross-encoder OFF por defecto (2-2.4 s/llamada vs p50 134 ms;
+    // ver build_trace). Opt-in explicito con ULTRON_RERANK_HOT=1.
+    let memories = match build_trace(
+        prompt,
+        8,
+        project_id,
+        cross_project,
+        dense_enabled,
+        crate::qdrant::rerank_hot_enabled(),
+    ) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected

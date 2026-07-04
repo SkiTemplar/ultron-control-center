@@ -126,7 +126,8 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
     for label in &labeled_set.labeled {
         let relevant = label.relevant();
 
-        let (retrieved_ids, degraded_query) = match recall_pack(&label.query, k, None, false) {
+        let (retrieved_ids, degraded_query) = match recall_pack(&label.query, k, None, false, true)
+        {
             Ok(pack) => {
                 let ids: Vec<String> = pack.entries.into_iter().map(|e| e.canonical_id).collect();
                 (ids, false)

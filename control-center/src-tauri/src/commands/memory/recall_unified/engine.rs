@@ -34,12 +34,22 @@ use super::pack::{assemble_pack, informative_query_terms, trust_terms_enabled};
 /// PER-CALL TOKEN CAP: every recall receives the full `PER_CALL_TOKEN_CAP` —
 /// there is NO cumulative per-session budget, so the memory is never silenced
 /// mid-session (the old accumulator starved every query after the first few).
+///
+/// RERANK (cat1 2026-07-03, split MEDIDO): `rerank=true` re-ordena el top-N
+/// fusionado con el cross-encoder BGE-v2-m3 (recall@8 0.682→0.709, p@3
+/// 0.379→0.483 contra el oráculo golden) a un coste de ~2-2.4 s por llamada en
+/// CPU (24 pares, 568M params). Los callers de CALIDAD (recall CLI/browser,
+/// trace, evals) pasan `true`; el hot path del hook UserPromptSubmit pasa
+/// `false` (p50 134 ms — 19× menos; +2.7 pts de recall no pagan 2.5 s en CADA
+/// prompt) salvo opt-in `ULTRON_RERANK_HOT=1`. `ULTRON_RERANK=0` lo apaga
+/// GLOBALMENTE (restaura el baseline byte-a-byte, verificado e2e).
 pub fn build_trace(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
     dense_enabled: bool,
+    rerank: bool,
 ) -> Result<RecallTrace, String> {
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN. Empty if offline,
     //     OR skipped when dense_enabled=false. OJO: desde la política
@@ -198,8 +208,13 @@ pub fn build_trace(
     // ignored — the existing `fused` order is preserved and recall continues.
     // The recall MUST NOT fail because the re-ranker is unavailable.
     const RERANK_TOP_N: usize = 24;
-    if crate::qdrant::reranker_enabled() {
-        let top_n_len = RERANK_TOP_N.min(fused.len());
+    if rerank && crate::qdrant::reranker_enabled() {
+        // (cat1 2026-07-03) N tuneable por env para el A/B: el diagnostico del
+        // golden situo relevantes cortados hasta fused rank 56 — con N=24 el
+        // cross-encoder ni los ve (techo ~0.82); N mas hondo sube el techo a
+        // ~0.92 a cambio de mas pares por query.
+        let rerank_top_n = env_knob_usize("ULTRON_RERANK_TOP_N", RERANK_TOP_N);
+        let top_n_len = rerank_top_n.min(fused.len());
         // Collect (id, text) pairs for the cross-encoder. Items whose text
         // cannot be resolved (store miss or no summary/title) are omitted from
         // the pairs list; they will receive NEG_INFINITY in the re-sort and
@@ -215,6 +230,9 @@ pub fn build_trace(
                         // title, then to an empty string. Empty strings are
                         // scored poorly by the cross-encoder — an acceptable
                         // outcome for items without descriptive text.
+                        // (cat1 2026-07-03 MEDIDO: enriquecer con content
+                        // recortado EMPEORA — recall@8 0.709→0.657 — el content
+                        // diluye la senal del summary conciso. No "mejorar".)
                         let text = it.summary.or(it.title).unwrap_or_default();
                         (hit.canonical_id.clone(), text)
                     })
@@ -418,9 +436,10 @@ pub fn recall_pack(
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
+    rerank: bool,
 ) -> Result<RecallPack, String> {
     // Manual recall path (UI inspection) keeps full hybrid quality (dense on).
-    let t = build_trace(query, limit, project_id, cross_project, true)?;
+    let t = build_trace(query, limit, project_id, cross_project, true, rerank)?;
     Ok(RecallPack {
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),

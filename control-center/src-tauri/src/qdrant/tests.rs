@@ -62,58 +62,76 @@ fn qdrant_not_running_msg_contains_url() {
 // Cross-encoder re-ranker tests
 // ---------------------------------------------------------------------------
 //
-// Hermetic (no model, CI-safe): reranker_disabled_by_default,
-// reranker_enabled_when_var_is_1, rerank_pairs_empty_docs_fast_path,
-// fallback_preserves_order_on_err.
+// Hermetic (no model, CI-safe): reranker_env_matrix, rerank_hot_env_matrix,
+// rerank_pairs_empty_docs_fast_path, fallback_preserves_order_on_err.
 //
 // E2E (#[ignore]): e2e_rerank_pairs_smoke, e2e_warmup_reranker_smoke.
 
-/// Default: ULTRON_RERANK absent → reranker_enabled() must return false so
-/// the baseline recall pipeline is byte-for-byte unchanged.
+/// Matriz completa de ULTRON_RERANK en UN solo test SECUENCIAL: los tests de
+/// cargo corren en paralelo dentro del proceso y la env var es global — cuatro
+/// tests separados mutando la misma var se pisaban entre si (carrera real
+/// cazada 2026-07-04: fallos intermitentes en 2 de 4). Default 2026-07-03:
+/// ausente → ON (gano el A/B contra el oraculo golden); "0"/"false" = opt-out
+/// (caso negativo: restaura el pipeline clasico byte-a-byte).
 #[test]
-fn reranker_disabled_by_default() {
+fn reranker_env_matrix() {
     let prev = std::env::var("ULTRON_RERANK").ok();
+
     std::env::remove_var("ULTRON_RERANK");
-    let result = reranker_enabled();
-    if let Some(v) = prev {
-        std::env::set_var("ULTRON_RERANK", v);
-    }
     assert!(
-        !result,
-        "reranker_enabled() must be false when ULTRON_RERANK is unset"
+        reranker_enabled(),
+        "reranker_enabled() must be TRUE when ULTRON_RERANK is unset (default ON)"
     );
-}
+    for off in ["0", "false"] {
+        std::env::set_var("ULTRON_RERANK", off);
+        assert!(
+            !reranker_enabled(),
+            "reranker_enabled() must be false with ULTRON_RERANK={off}"
+        );
+    }
+    for on in ["1", "true"] {
+        std::env::set_var("ULTRON_RERANK", on);
+        assert!(
+            reranker_enabled(),
+            "reranker_enabled() must be true with ULTRON_RERANK={on}"
+        );
+    }
 
-/// ULTRON_RERANK=1 activates the re-ranker.
-#[test]
-fn reranker_enabled_when_var_is_1() {
-    let prev = std::env::var("ULTRON_RERANK").ok();
-    std::env::set_var("ULTRON_RERANK", "1");
-    let result = reranker_enabled();
     match prev {
         Some(v) => std::env::set_var("ULTRON_RERANK", v),
         None => std::env::remove_var("ULTRON_RERANK"),
     }
-    assert!(
-        result,
-        "reranker_enabled() must be true when ULTRON_RERANK=1"
-    );
 }
 
-/// ULTRON_RERANK=true also activates the re-ranker.
+/// Matriz de ULTRON_RERANK_HOT (opt-in del cross-encoder en el hot path),
+/// tambien secuencial en un solo test por la misma razon de la carrera.
+/// Default OFF: el hook por-prompt no paga los ~2 s del re-rank salvo opt-in.
 #[test]
-fn reranker_enabled_when_var_is_true() {
-    let prev = std::env::var("ULTRON_RERANK").ok();
-    std::env::set_var("ULTRON_RERANK", "true");
-    let result = reranker_enabled();
-    match prev {
-        Some(v) => std::env::set_var("ULTRON_RERANK", v),
-        None => std::env::remove_var("ULTRON_RERANK"),
-    }
+fn rerank_hot_env_matrix() {
+    let prev = std::env::var("ULTRON_RERANK_HOT").ok();
+
+    std::env::remove_var("ULTRON_RERANK_HOT");
     assert!(
-        result,
-        "reranker_enabled() must be true when ULTRON_RERANK=true"
+        !rerank_hot_enabled(),
+        "rerank_hot_enabled() must be FALSE when ULTRON_RERANK_HOT is unset (default OFF)"
     );
+    for on in ["1", "true"] {
+        std::env::set_var("ULTRON_RERANK_HOT", on);
+        assert!(
+            rerank_hot_enabled(),
+            "rerank_hot_enabled() must be true with ULTRON_RERANK_HOT={on}"
+        );
+    }
+    std::env::set_var("ULTRON_RERANK_HOT", "0");
+    assert!(
+        !rerank_hot_enabled(),
+        "rerank_hot_enabled() must be false with ULTRON_RERANK_HOT=0"
+    );
+
+    match prev {
+        Some(v) => std::env::set_var("ULTRON_RERANK_HOT", v),
+        None => std::env::remove_var("ULTRON_RERANK_HOT"),
+    }
 }
 
 /// Empty `docs` hits the fast-path guard and returns `Ok([])` without ever

@@ -217,7 +217,9 @@ fn score_query(
     // Each golden query is an INDEPENDENT recall. There is no longer a
     // cumulative per-session token budget to reset — every recall receives the
     // full per-call cap, so later queries in the same process are never starved.
-    let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id, false) {
+    // rerank=false: este es el smoke del doctor (fontaneria, no calidad) — con
+    // el cross-encoder el doctor pasa de ~10s a minutos y revienta timeouts.
+    let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id, false, false) {
         Ok(pack) => {
             let summaries: Vec<String> = pack
                 .entries
