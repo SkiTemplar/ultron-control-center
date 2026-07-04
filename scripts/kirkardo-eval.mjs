@@ -2565,6 +2565,32 @@ cat(16, "Context Engineering", [
       return { pass: median < LIMIT, detail: `mediana est_tokens (last${last.length})=${median} < ${LIMIT}` };
     },
   },
+  {
+    // [mmeyhg] Detector D24 (prompt-cache hit rate) CONSUMIDO aqui: la telemetria
+    // computa on-demand sobre transcripts (no necesita cron para acumular), pero
+    // sin un punto de consumo periodico era dato huerfano (mand.12). El harness
+    // es el pulso que SE MIRA: verdict pass exige hit_rate >= 0.6 en 14 dias.
+    id: "16.6",
+    desc: "Prompt-cache hit rate (detector D24 de cache_telemetry.py): verdict=pass en la ventana de 14 dias",
+    auto: true,
+    check() {
+      const script = join(ULTRON, "scripts", "cockpit", "cache_telemetry.py");
+      if (!fileExists(script)) return { pass: false, detail: "cache_telemetry.py no existe" };
+      const r = run(`python "${script}" budget`, { timeout: 60000 });
+      const out = (r.stdout || "") + (r.stderr || "");
+      let j = null;
+      try {
+        j = JSON.parse(out.slice(out.indexOf("{")));
+      } catch {
+        return { pass: false, detail: `no medible: output no-JSON (${out.trim().slice(0, 100)})` };
+      }
+      const verdict = j.verdict ?? "insufficient";
+      return {
+        pass: verdict === "pass",
+        detail: `verdict=${verdict} hit_rate=${j.hit_rate} turns=${j.turns_observed} window=${j.window_days}d`,
+      };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
