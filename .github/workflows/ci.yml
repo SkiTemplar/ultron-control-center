@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Disparo manual (cat12): re-medir la duracion del job Rust con cache
+  # caliente sin necesidad de un commit vacio (gh workflow run ci.yml).
+  workflow_dispatch:
   # v15.5.19paths-ignore on `docs/**` + `**/*.md` was a
   # loophole — markdown-only PRs bypassed the personal-info leakage gate
   #caught HIGH=1 in docs/CHANGELOG-POLICY.md after exactly
