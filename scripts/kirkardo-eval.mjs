@@ -262,21 +262,28 @@ cat(1, "Memoria Qdrant", [
       // Parsea JSON del doctor
       try {
         const j = JSON.parse(txt.trim());
+        // max_severity se respeta SIEMPRE: si el doctor reporta error, el check
+        // no puede pasar solo porque el subcheck reconcile este in_sync (el
+        // error puede invalidar la propia medicion de drift, p.ej. Qdrant caido).
+        const sev = j.max_severity ?? "desconocida";
+        const sevOk = sev !== "error";
         const reconcile = (j.checks ?? []).find((c) => c.name === "reconcile");
         if (reconcile) {
           const inSync = reconcile.data?.in_sync === true;
           const missing = reconcile.data?.missing ?? 0;
           const orphan = reconcile.data?.orphan ?? 0;
           return {
-            pass: inSync && missing === 0 && orphan === 0,
-            detail: `in_sync=${inSync}, missing=${missing}, orphan=${orphan}`,
+            pass: sevOk && inSync && missing === 0 && orphan === 0,
+            detail: `in_sync=${inSync}, missing=${missing}, orphan=${orphan}, max_severity=${sev}`,
           };
         }
         // Si no hay reconcile check, verifica max_severity
         const ok = j.max_severity === "ok";
         return { pass: ok, detail: `max_severity=${j.max_severity}` };
       } catch {}
-      const hasDrift = /in_sync.*true|drift.*0/i.test(txt);
+      // Fallback texto (JSON no parseable): un error explicito tambien bloquea aqui.
+      const sevError = /"max_severity"\s*:\s*"error"/i.test(txt);
+      const hasDrift = !sevError && /in_sync.*true|drift.*0/i.test(txt);
       return { pass: hasDrift, detail: txt.slice(0, 200) };
     },
   },
@@ -3128,23 +3135,32 @@ cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
       const out = (r.stdout || "") + (r.stderr || "");
       const idm = out.match(/"candidate_id"\s*:\s*"([0-9a-f-]+)"/i);
       if (!idm) return { pass: false, detail: `candidate no devolvio id: ${out.slice(0, 120)}` };
-      const q = sql20(`SELECT proposed_summary ps FROM memory_candidates WHERE id='${idm[1]}'`);
-      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
-      const ps = q.rows[0]?.ps ?? "";
-      const leaks = [
-        ps.includes(email) && "email",
-        ps.includes(phoneDigits) && "telefono",
-        /C:[\\/]Users[\\/]/i.test(ps) && "ruta",
-      ].filter(Boolean);
-      // KNOWN_RED: medido 2026-06-24 -> proposed_summary persiste TODO verbatim
-      // (la redaction solo cubre credenciales con prefijo, NO PII de usuario).
-      return {
-        pass: leaks.length === 0,
-        detail:
-          leaks.length === 0
-            ? "email/telefono/ruta redactados en el item persistido"
-            : `PII sin redactar en proposed_summary: ${leaks.join(", ")}`,
-      };
+      // ajzf75: reject garantizado del probe al salir (mismo patron que la
+      // restauracion de 21.1) -> el run completo deja 0 residuo en el inbox.
+      try {
+        const q = sql20(`SELECT proposed_summary ps FROM memory_candidates WHERE id='${idm[1]}'`);
+        if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+        const ps = q.rows[0]?.ps ?? "";
+        const leaks = [
+          ps.includes(email) && "email",
+          ps.includes(phoneDigits) && "telefono",
+          /C:[\\/]Users[\\/]/i.test(ps) && "ruta",
+        ].filter(Boolean);
+        // KNOWN_RED: medido 2026-06-24 -> proposed_summary persiste TODO verbatim
+        // (la redaction solo cubre credenciales con prefijo, NO PII de usuario).
+        return {
+          pass: leaks.length === 0,
+          detail:
+            leaks.length === 0
+              ? "email/telefono/ruta redactados en el item persistido"
+              : `PII sin redactar en proposed_summary: ${leaks.join(", ")}`,
+        };
+      } finally {
+        run(
+          `"${fwd(ULTRON_MEM)}" inbox reject --id ${idm[1]} --reason "kirkardo probe 20.4 (auto-limpieza)"`,
+          { timeout: 30000 },
+        );
+      }
     },
   },
   {
@@ -3171,26 +3187,34 @@ cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
       const out = (r.stdout || "") + (r.stderr || "");
       const idm = out.match(/"candidate_id"\s*:\s*"([0-9a-f-]+)"/i);
       if (!idm) return { pass: false, detail: `candidate no devolvio id: ${out.slice(0, 120)}` };
-      const q = sql20(
-        `SELECT proposed_file_path fp, proposed_signature sig FROM memory_candidates WHERE id='${idm[1]}'`,
-      );
-      if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
-      const gotFp = q.rows[0]?.fp ?? "";
-      const gotSig = q.rows[0]?.sig ?? "";
-      const leaks = [
-        /ghp_[A-Za-z0-9]/.test(gotFp) && "ghp_token",
-        /sk-[a-z0-9]{6,}/i.test(gotSig) && "sk_token",
-        /C:[\\/]Users[\\/]/i.test(gotFp) && "ruta",
-      ].filter(Boolean);
-      // KNOWN_RED: solo se mapean los campos; ninguna redaction sobre
-      // proposed_file_path/proposed_signature -> tokens persisten verbatim.
-      return {
-        pass: leaks.length === 0,
-        detail:
-          leaks.length === 0
-            ? "campos codegraph redactados"
-            : `secreto sin redactar en campos codegraph: ${leaks.join(", ")}`,
-      };
+      // ajzf75: reject garantizado del probe al salir -> 0 residuo en el inbox.
+      try {
+        const q = sql20(
+          `SELECT proposed_file_path fp, proposed_signature sig FROM memory_candidates WHERE id='${idm[1]}'`,
+        );
+        if (q.err) return { pass: false, detail: `no medible: ${q.err}` };
+        const gotFp = q.rows[0]?.fp ?? "";
+        const gotSig = q.rows[0]?.sig ?? "";
+        const leaks = [
+          /ghp_[A-Za-z0-9]/.test(gotFp) && "ghp_token",
+          /sk-[a-z0-9]{6,}/i.test(gotSig) && "sk_token",
+          /C:[\\/]Users[\\/]/i.test(gotFp) && "ruta",
+        ].filter(Boolean);
+        // KNOWN_RED: solo se mapean los campos; ninguna redaction sobre
+        // proposed_file_path/proposed_signature -> tokens persisten verbatim.
+        return {
+          pass: leaks.length === 0,
+          detail:
+            leaks.length === 0
+              ? "campos codegraph redactados"
+              : `secreto sin redactar en campos codegraph: ${leaks.join(", ")}`,
+        };
+      } finally {
+        run(
+          `"${fwd(ULTRON_MEM)}" inbox reject --id ${idm[1]} --reason "kirkardo probe 20.5 (auto-limpieza)"`,
+          { timeout: 30000 },
+        );
+      }
     },
   },
   {
