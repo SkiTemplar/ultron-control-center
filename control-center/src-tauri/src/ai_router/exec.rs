@@ -38,14 +38,31 @@ pub(crate) fn xorshift64_jitter_seed() -> u64 {
 }
 
 /// Jitter-enhanced backoff delays for retry attempts (0-indexed attempt number).
-/// Attempt 0 → ~500 ms, 1 → ~1000 ms, 2 → ~2000 ms, then capped at 4000 ms.
-/// Jitter is ±20 % of the base delay.
-pub(crate) fn retry_delay_ms(attempt: u32) -> u64 {
-    let base: u64 = match attempt {
-        0 => 500,
-        1 => 1000,
-        2 => 2000,
-        _ => 4000,
+///
+/// Dos escalas segun el fallo (cat3 2026-07-04, diagnostico metrics.json:
+/// fail_reasons = {rate_limit: 103} — el 100% de los fallos reales son 429):
+/// - `RateLimit`: 2s/5s/10s — los 429 de groq free-tier son ventanas RPM de
+///   ~60s; la escala corta (0.5/1/2s) quemaba los 3 retries DENTRO de la misma
+///   ventana y cada rafaga acababa en fallback real (18-20 por ventana rolling).
+///   El caso RPD (cuota diaria agotada) NO paga esta espera: attempt_assignment
+///   lo corta ANTES por el contador `daily`, sin llegar aqui.
+/// - resto transitorio (Overloaded/Timeout): 0.5/1/2s, capped 4s, como siempre.
+///
+/// Jitter ±20 % de la base en ambas escalas.
+pub(crate) fn retry_delay_ms(attempt: u32, reason: FailReason) -> u64 {
+    let base: u64 = if matches!(reason, FailReason::RateLimit) {
+        match attempt {
+            0 => 2_000,
+            1 => 5_000,
+            _ => 10_000,
+        }
+    } else {
+        match attempt {
+            0 => 500,
+            1 => 1000,
+            2 => 2000,
+            _ => 4000,
+        }
     };
     let rng_val = xorshift64_jitter_seed() % 1000;
     let jitter_ratio = (rng_val as f64 / 1000.0) * 0.4 - 0.2;
@@ -74,7 +91,7 @@ where
                 if !reason.is_transient() || attempt == max_retries {
                     break;
                 }
-                let delay = retry_delay_ms(attempt);
+                let delay = retry_delay_ms(attempt, reason);
                 std::thread::sleep(Duration::from_millis(delay));
             }
         }

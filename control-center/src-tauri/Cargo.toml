@@ -101,8 +101,9 @@ debug = 0
 # incremental = false: in CI (clean tree + restored cache) incremental gives no
 # benefit and only bloats the Swatinem cache / muddies the fingerprint.
 incremental = false
-# codegen-units = 16: the default 256 emits 256 objects the MSVC linker must
-# resolve; 16 cuts linker work while keeping rustc parallelism reasonable on
-# the ~4-core windows-latest runner. Do NOT drop to 1 (kills codegen
-# parallelism). If a hot run regresses, raise to 32 or remove this line.
-codegen-units = 16
+# codegen-units = 256 (default) desde 2026-07-04 (cat12): el 16 se eligio para
+# aliviar al linker CUANDO el PDB era el coste dominante; con debug=0 el link
+# va ligero y el cuello medido se movio al CODEGEN del crate local (591 tests,
+# cargo test=400s en el run 28702759130). 256 unidades = codegen paralelo
+# maximo en el runner. Si el link regresa a dominar, volver a 16 y medir.
+codegen-units = 256

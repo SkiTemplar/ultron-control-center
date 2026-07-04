@@ -285,8 +285,8 @@ fn attempt_assignment(
         Err((e, _reason)) => {
             if is_rate_limited && has_free_tier_cap {
                 Err(format!(
-                    "[{}/{}] 429 on free-tier provider — quota exhausted, \
-                     skipping without backoff",
+                    "[{}/{}] 429 persistente en free-tier tras retries con \
+                     backoff largo (2s/5s/10s, ventana RPM) — fallback",
                     assignment.provider_id, assignment.model
                 ))
             } else {

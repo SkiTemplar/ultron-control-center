@@ -23,10 +23,11 @@ fn xorshift64_jitter_seed_in_range() {
 
 #[test]
 fn retry_delay_ms_within_jitter_bounds() {
+    // Escala corta (Timeout/Overloaded/Error): la de siempre.
     let bases: &[(u32, u64)] = &[(0, 500), (1, 1000), (2, 2000), (3, 4000)];
     for &(attempt, base) in bases {
         for _ in 0..20 {
-            let delay = retry_delay_ms(attempt);
+            let delay = retry_delay_ms(attempt, crate::ai_router::types::FailReason::Timeout);
             let lo = ((base as f64) * 0.8) as u64;
             let hi = ((base as f64) * 1.2) as u64;
             assert!(
@@ -39,6 +40,34 @@ fn retry_delay_ms_within_jitter_bounds() {
             );
         }
     }
+}
+
+#[test]
+fn retry_delay_ms_rate_limit_uses_long_scale() {
+    // cat3 2026-07-04: los 429 RPM de groq viven en ventanas de ~60s — la
+    // escala RateLimit (2s/5s/10s) debe SALIR de la ventana, no quemarse en
+    // 3.5s dentro de ella.
+    use crate::ai_router::types::FailReason;
+    let bases: &[(u32, u64)] = &[(0, 2_000), (1, 5_000), (2, 10_000), (3, 10_000)];
+    for &(attempt, base) in bases {
+        for _ in 0..20 {
+            let delay = retry_delay_ms(attempt, FailReason::RateLimit);
+            let lo = ((base as f64) * 0.8) as u64;
+            let hi = ((base as f64) * 1.2) as u64;
+            assert!(
+                delay >= lo && delay <= hi,
+                "RateLimit delay {delay} out of ±20% bounds [{lo}, {hi}] for attempt {attempt}"
+            );
+        }
+    }
+    // Caso negativo: un Error NO transitorio jamas llega a dormir (with_retry
+    // corta antes), y si alguien pidiera el delay igualmente, seria la escala
+    // corta — la larga es EXCLUSIVA de RateLimit.
+    let d = retry_delay_ms(0, FailReason::Error);
+    assert!(
+        (400..=600).contains(&d),
+        "Error debe usar la escala corta (~500ms), got {d}"
+    );
 }
 
 #[test]
