@@ -391,14 +391,6 @@ fn validate_slug(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[allow(dead_code)]
-fn unix_ts() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 // ---------------------------------------------------------------------------
 // Origin-aware listing (Control Center 2.0 / P2)
 //

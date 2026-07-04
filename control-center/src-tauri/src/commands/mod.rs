@@ -5,7 +5,7 @@
 //   batches_sub/   — .bat/.ps1 runner, OpenGL scaffolder, project detach/reattach
 //   kanban_sub/    — Kanban board CRUD + archive
 //   library/       — GitHub search/install, curated catalog, plugins, skills
-//   memory/        — recall (per-project/global/hybrid), inbox, catalog, memory_graph (KG lógica conservada para Fase 3)
+//   memory/        — recall (per-project/global/hybrid), inbox, catalog
 //   misc_sub/      — Root helpers, alerts, MCPs, hotkeys, external editor, slash cmds
 //   notes_sub/     — Per-project notes, global notes, inbox, button prompts
 //   projects/      — Project CRUD, launcher, CLAUDE.md, agent roster
@@ -46,8 +46,6 @@ pub use kanban_sub::kanban;
 // re-exporting its inner `library` sub-module would shadow the name.
 pub use library::plugins_info;
 pub use library::skills;
-
-pub use memory::memory_graph;
 
 pub use misc_sub::alerts;
 pub use misc_sub::external_editor;

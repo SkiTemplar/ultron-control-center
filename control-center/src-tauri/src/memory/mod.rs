@@ -3,9 +3,8 @@
 // Introduces a unified abstraction over the active memory backends:
 //   - KgStore     : local kg.jsonl        (read + write)
 //
-// Plus a `HybridRecall` orchestrator that fans out a query across all
-// registered stores, merges results, deduplicates by id, and returns them
-// sorted by descending relevance score.
+// El orquestador `HybridRecall` se eliminó (2026-07-04): el path canónico de
+// recall es `recall_unified::recall_pack`.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -190,8 +189,8 @@ pub struct StoreHealth {
     pub latency_ms: Option<u64>,
 }
 
-/// Capability flags for a store — drives the UI and routing decisions in
-/// `HybridRecall`.
+/// Capability flags for a store — drives the UI and routing decisions of
+/// the recall callers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Capabilities {
     /// The store supports `add` (writes).
@@ -385,79 +384,6 @@ impl MemoryStore for KgStore {
 }
 
 // ---------------------------------------------------------------------------
-// HybridRecall orchestrator — feature-gated
-// ---------------------------------------------------------------------------
-
-/// Fan-out recall across multiple `MemoryStore` implementations.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// use control_center_lib::memory::{HybridRecall, KgStore, Query};
-///
-/// let recall = HybridRecall::new(vec![Box::new(KgStore::new())]);
-/// let hits = recall.search_all(Query::new("oauth refactor"));
-/// println!("found {} hits", hits.len());
-/// ```
-pub struct HybridRecall {
-    stores: Vec<Box<dyn MemoryStore>>,
-}
-
-impl HybridRecall {
-    /// Create a new `HybridRecall` with the given list of stores.
-    ///
-    /// Stores are queried in order; results are merged, deduplicated by `id`,
-    /// and sorted by descending `score`.
-    #[must_use]
-    pub fn new(stores: Vec<Box<dyn MemoryStore>>) -> Self {
-        Self { stores }
-    }
-
-    /// Add an additional store to the orchestrator.
-    pub fn push_store(&mut self, store: Box<dyn MemoryStore>) {
-        self.stores.push(store);
-    }
-
-    /// Fan out `query` across all registered stores, merge hits, deduplicate
-    /// by `id`, and return sorted by descending score.
-    ///
-    /// Errors from individual stores are silently swallowed; a store that is
-    /// offline will contribute zero hits rather than failing the entire call.
-    #[must_use]
-    pub fn search_all(&self, query: Query) -> Vec<MemoryHit> {
-        let mut seen_ids = std::collections::HashSet::new();
-        let mut merged: Vec<MemoryHit> = Vec::new();
-
-        for store in &self.stores {
-            match store.search(query.clone()) {
-                Ok(hits) => {
-                    for hit in hits {
-                        if seen_ids.insert(hit.id.clone()) {
-                            merged.push(hit);
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Log but do not propagate — degraded multi-store recall
-                    // is better than a hard failure.
-                    eprintln!("[HybridRecall] store error (skipped): {e}");
-                }
-            }
-        }
-
-        // Sort descending by score, then alphabetically by id for stability.
-        merged.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.id.cmp(&b.id))
-        });
-
-        merged
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -645,72 +571,5 @@ mod tests {
         assert_eq!(q.text, "oauth session");
         assert!(q.namespace.is_none());
         assert!(q.limit.is_none());
-    }
-
-    // ------------------------------------------------------------------
-    // HybridRecall tests
-    // ------------------------------------------------------------------
-
-    mod hybrid {
-        use super::*;
-
-        #[test]
-        fn search_all_merges_and_deduplicates_hits() {
-            // Two stores that both return the same id — only one copy should
-            // appear in the output.
-            let hits_a = vec![
-                make_hit("shared-id", 0.8, StoreKind::Mock),
-                make_hit("only-a", 0.7, StoreKind::Mock),
-            ];
-            let hits_b = vec![
-                make_hit("shared-id", 0.6, StoreKind::Mock),
-                make_hit("only-b", 0.5, StoreKind::Mock),
-            ];
-            let recall = HybridRecall::new(vec![
-                Box::new(MockMemoryStore::readable(StoreKind::Mock, hits_a)),
-                Box::new(MockMemoryStore::readable(StoreKind::Mock, hits_b)),
-            ]);
-            let merged = recall.search_all(Query::new("test"));
-            // shared-id appears once, only-a and only-b each appear once → 3
-            assert_eq!(merged.len(), 3, "dedup should leave 3 unique hits");
-            assert_eq!(merged[0].id, "shared-id", "highest score first");
-        }
-
-        #[test]
-        fn search_all_sorts_descending_by_score() {
-            let hits = vec![
-                make_hit("low", 0.3, StoreKind::Mock),
-                make_hit("high", 0.9, StoreKind::Mock),
-                make_hit("mid", 0.6, StoreKind::Mock),
-            ];
-            let recall = HybridRecall::new(vec![Box::new(MockMemoryStore::readable(
-                StoreKind::Mock,
-                hits,
-            ))]);
-            let merged = recall.search_all(Query::new("test"));
-            assert_eq!(merged[0].id, "high");
-            assert_eq!(merged[1].id, "mid");
-            assert_eq!(merged[2].id, "low");
-        }
-
-        #[test]
-        fn search_all_swallows_errors_from_offline_stores() {
-            let good_hits = vec![make_hit("good", 0.8, StoreKind::Mock)];
-            let recall = HybridRecall::new(vec![
-                Box::new(MockMemoryStore::unhealthy(StoreKind::Mock)),
-                Box::new(MockMemoryStore::readable(StoreKind::Mock, good_hits)),
-            ]);
-            let merged = recall.search_all(Query::new("test"));
-            // Offline store contributes 0 hits but does not fail the call.
-            assert_eq!(merged.len(), 1);
-            assert_eq!(merged[0].id, "good");
-        }
-
-        #[test]
-        fn empty_stores_list_returns_empty_vec() {
-            let recall = HybridRecall::new(vec![]);
-            let merged = recall.search_all(Query::new("anything"));
-            assert!(merged.is_empty());
-        }
     }
 }

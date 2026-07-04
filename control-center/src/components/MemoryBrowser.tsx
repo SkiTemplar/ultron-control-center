@@ -72,6 +72,9 @@ const TYPE_OPTIONS = [
   "user_profile",
 ] as const;
 
+// "archived" retirado 2026-07-04: 0 filas en brain.db y 0 productores en el
+// write-path — era un filtro a un conjunto siempre-vacio (mand.12). La
+// variante Status::Archived se retiro del enum Rust en el mismo commit.
 const STATUS_OPTIONS = [
   "active",
   "pending",
@@ -79,7 +82,6 @@ const STATUS_OPTIONS = [
   "deprecated",
   "quarantined",
   "rejected",
-  "archived",
 ] as const;
 
 const PAGE_SIZE = 50;

@@ -93,46 +93,6 @@ export const PROVIDER_CATALOG: Provider[] = [
   },
 ];
 
-/**
- * @deprecated No longer used by the UI. ZoneEditor and AIRouterIndex now
- * derive model lists from the `models` field of each Provider returned by
- * `ai_router_list_providers`. Kept here only as a static fallback reference;
- * do NOT import this in new code.
- */
-export const PROVIDER_MODELS: Record<
-  string,
-  { id: string; label: string; task_class: ProviderClass }[]
-> = {
-  anthropic: [
-    { id: "claude-opus-4-7", label: "Opus 4.7 · best quality", task_class: "heavy" },
-    { id: "claude-sonnet-4-6", label: "Sonnet 4.6 · balanced", task_class: "medium" },
-    { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 · fast", task_class: "trivial" },
-  ],
-  codex: [
-    { id: "gpt-5.5", label: "GPT-5.5", task_class: "heavy" },
-    { id: "gpt-5.5-thinking", label: "GPT-5.5 Thinking", task_class: "heavy" },
-    { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", task_class: "light" },
-  ],
-  gemini: [
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", task_class: "heavy" },
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", task_class: "light" },
-    { id: "gemini-2.5-flash-lite", label: "Flash Lite", task_class: "trivial" },
-  ],
-  groq: [
-    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", task_class: "light" },
-    { id: "llama-3.3-8b-instant", label: "Llama 3.3 8B", task_class: "trivial" },
-  ],
-  ollama: [
-    { id: "qwen2.5-coder:7b", label: "Qwen2.5-Coder 7B", task_class: "light" },
-    { id: "qwen2.5-coder:32b", label: "Qwen2.5-Coder 32B", task_class: "medium" },
-    { id: "deepseek-coder-v2:16b", label: "DeepSeek-Coder V2 16B", task_class: "medium" },
-  ],
-  cerebras: [
-    { id: "llama-4-scout-17b-16e", label: "Llama 4 Scout 17B", task_class: "trivial" },
-    { id: "llama-3.3-70b", label: "Llama 3.3 70B", task_class: "light" },
-  ],
-};
-
 // ---------------------------------------------------------------------------
 // Zone assignment
 // ---------------------------------------------------------------------------

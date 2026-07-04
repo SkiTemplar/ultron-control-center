@@ -90,6 +90,8 @@ str_enum! {
 
 str_enum! {
     /// Lifecycle state. Only `Active` is injected into prompts by default.
+    /// (`Archived` se retiro 2026-07-04: 0 filas en brain.db, 0 productores;
+    /// el parse estricto rechaza "archived" y eso es correcto — no existe.)
     Status {
         Pending => "pending",
         Active => "active",
@@ -97,7 +99,6 @@ str_enum! {
         Stale => "stale",
         Deprecated => "deprecated",
         Quarantined => "quarantined",
-        Archived => "archived",
     }
 }
 

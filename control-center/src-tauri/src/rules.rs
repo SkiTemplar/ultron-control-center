@@ -68,23 +68,6 @@ pub fn list_inner() -> Result<Vec<RuleFile>, String> {
     Ok(out)
 }
 
-// Retained: the rules_read Tauri command was removed in cat10 (2026-06-19).
-#[allow(dead_code)]
-pub fn read_inner(path: String) -> Result<String, String> {
-    // v2.6 bug fix: on Windows `canonicalize` returns a UNC path
-    // (`\\?\C:\...`) while `rules_root()` does not — so `starts_with`
-    // rejected every read with "path outside rules root". Canonicalize
-    // both sides so the comparison is consistent.
-    let root = rules_root()?;
-    let canonical_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
-    let canonical =
-        std::fs::canonicalize(&path).map_err(|e| format!("canonicalize {path}: {e}"))?;
-    if !canonical.starts_with(&canonical_root) {
-        return Err(format!("path {} outside rules root", canonical.display()));
-    }
-    std::fs::read_to_string(&canonical).map_err(|e| format!("read {path}: {e}"))
-}
-
 /// Write a rule by relative path (e.g. `common/my-rule.md` or `my-rule.md`).
 /// Path is normalised + sandboxed inside `~/.claude/rules/`. Creates parent
 /// directories as needed. Returns the absolute on-disk path.

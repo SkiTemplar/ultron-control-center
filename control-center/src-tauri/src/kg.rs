@@ -232,89 +232,6 @@ pub fn delete_entity_inner(name: String) -> Result<KgGraph, String> {
     Ok(graph)
 }
 
-// kept for Fase 3 codegraph
-#[allow(dead_code)]
-pub fn add_observations_inner(name: String, observations: Vec<String>) -> Result<KgGraph, String> {
-    let _guard = kg_write_lock()
-        .lock()
-        .map_err(|e| format!("kg lock poisoned: {e}"))?;
-    let mut graph = read_graph_inner()?;
-    let Some(ent) = graph.entities.iter_mut().find(|e| e.name == name) else {
-        return Err(format!("entity '{name}' not found"));
-    };
-    for obs in observations {
-        let obs = obs.trim().to_string();
-        if obs.is_empty() {
-            continue;
-        }
-        if !ent.observations.iter().any(|o| o == &obs) {
-            ent.observations.push(obs);
-        }
-    }
-    write_graph(&graph)?;
-    Ok(graph)
-}
-
-// kept for Fase 3 codegraph
-#[allow(dead_code)]
-pub fn create_relations_inner(relations: Vec<KgRelation>) -> Result<KgGraph, String> {
-    let _guard = kg_write_lock()
-        .lock()
-        .map_err(|e| format!("kg lock poisoned: {e}"))?;
-    let mut graph = read_graph_inner()?;
-    let entity_names: std::collections::HashSet<String> =
-        graph.entities.iter().map(|e| e.name.clone()).collect();
-    for rel in relations {
-        let from = rel.from.trim().to_string();
-        let to = rel.to.trim().to_string();
-        let relation_type = if rel.relation_type.trim().is_empty() {
-            "relates_to".to_string()
-        } else {
-            rel.relation_type.trim().to_string()
-        };
-        if from.is_empty() || to.is_empty() {
-            continue;
-        }
-        if !entity_names.contains(&from) || !entity_names.contains(&to) {
-            return Err(format!(
-                "both endpoints must exist as entities (from='{from}', to='{to}')"
-            ));
-        }
-        // Dedupe on (from, to, type).
-        let already = graph
-            .relations
-            .iter()
-            .any(|r| r.from == from && r.to == to && r.relation_type == relation_type);
-        if !already {
-            graph.relations.push(KgRelation {
-                from,
-                to,
-                relation_type,
-            });
-        }
-    }
-    write_graph(&graph)?;
-    Ok(graph)
-}
-
-// kept for Fase 3 codegraph
-#[allow(dead_code)]
-pub fn delete_relation_inner(
-    from: String,
-    to: String,
-    relation_type: String,
-) -> Result<KgGraph, String> {
-    let _guard = kg_write_lock()
-        .lock()
-        .map_err(|e| format!("kg lock poisoned: {e}"))?;
-    let mut graph = read_graph_inner()?;
-    graph
-        .relations
-        .retain(|r| !(r.from == from && r.to == to && r.relation_type == relation_type));
-    write_graph(&graph)?;
-    Ok(graph)
-}
-
 /// Case-insensitive substring search across entity name, type and
 /// observations. Mirrors what the MCP server's `search_nodes` does.
 pub fn search_nodes_inner(query: String) -> Result<KgGraph, String> {
@@ -486,39 +403,5 @@ mod tests {
         .expect("create");
         assert_eq!(g.entities.len(), 1);
         assert_eq!(g.entities[0].name, "real");
-    }
-
-    #[test]
-    fn delete_entity_cascades_relations() {
-        let _lock = TEST_ENV_LOCK.lock().unwrap();
-        let (_dir, path) = fresh_temp_path();
-        let _g = EnvGuard::set(&path);
-
-        create_entities_inner(vec![
-            KgEntity {
-                name: "a".into(),
-                entity_type: "x".into(),
-                observations: vec![],
-            },
-            KgEntity {
-                name: "b".into(),
-                entity_type: "x".into(),
-                observations: vec![],
-            },
-        ])
-        .unwrap();
-        create_relations_inner(vec![KgRelation {
-            from: "a".into(),
-            to: "b".into(),
-            relation_type: "links".into(),
-        }])
-        .unwrap();
-
-        let g = delete_entity_inner("a".into()).unwrap();
-        assert_eq!(g.entities.len(), 1);
-        assert!(
-            g.relations.is_empty(),
-            "relations referencing a should drop"
-        );
     }
 }

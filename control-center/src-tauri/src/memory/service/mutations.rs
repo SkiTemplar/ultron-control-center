@@ -144,7 +144,7 @@ impl MemoryService {
         // Ledger vivo (cat21.4): registrar la deprecación en deprecation_entries.
         // INSERT OR IGNORE con id "dep:{item_id}" => idempotente por diseño.
         // Solo se ejecuta cuando el status destino es Deprecated (las demás
-        // transiciones — Rejected, Stale, Archived… — no registran en el ledger).
+        // transiciones — Rejected, Stale… — no registran en el ledger).
         // Deadline = updated_at + 90 días ISO UTC (siempre futuro; brain.db < 6 sem).
         if matches!(status, Status::Deprecated) {
             let ts = store::millis_to_iso_utc(item.updated_at);

@@ -328,9 +328,8 @@ pub fn run() {
             commands::notes::notes_save_global,
             commands::notes::notes_delete_global,
             // -- local Knowledge Graph editor (Control Center-owned, v2.6 fb-047) --
-            // kg commands des-registrados (Fase 3 pendiente): lógica conservada en commands/memory/memory_graph.rs y src/kg.rs
-            // -- memory graph (unified search + tree snapshot) --
-            // memory_graph commands des-registrados (Fase 3 pendiente): lógica conservada en commands/memory/memory_graph.rs
+            // kg commands des-registrados: lógica viva en src/kg.rs (create/delete entity, search).
+            // memory_graph (unified search + tree snapshot) borrado entero 2026-07-04 (0 callers).
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::list_claude_sessions,
