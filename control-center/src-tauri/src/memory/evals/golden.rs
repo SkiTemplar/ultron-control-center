@@ -84,8 +84,18 @@ impl GoldenMetricsReport {
 ///
 /// FAIL-SAFE end-to-end: a missing/invalid file, or any per-query `recall_pack`
 /// failure, degrades (empty ranking / `degraded = true`) instead of panicking.
+///
+/// `rerank`: los comandos de CALIDAD (`eval-full`, `eval --golden`) pasan
+/// `true`; el check `evals` del doctor pasa `false` — con el cross-encoder el
+/// doctor pasaba de ~10s a ~62s (medido 2026-07-04) y reventaba los timeouts
+/// de todos los checks del harness que lo consultan (cat1.2/1.3/5.2 en rojo
+/// falso). El doctor es fontanería, no medidor de calidad.
 #[must_use]
-pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMetricsReport {
+pub fn run_golden_metrics(
+    project_override: Option<&str>,
+    k: usize,
+    rerank: bool,
+) -> GoldenMetricsReport {
     let Some(path) = golden_set_path() else {
         return GoldenMetricsReport::degraded(k, "no HOME dir; cannot locate golden_set.json");
     };
@@ -134,7 +144,7 @@ pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMet
         // metric then scores 0 for it, which is the correct "recovered nothing".
         // Each positive is an independent recall; there is no per-session budget
         // to reset (every recall gets the full per-call cap, never starved).
-        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false, true) {
+        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false, rerank) {
             Ok(pack) => {
                 returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
                 pack.entries.into_iter().map(|e| e.canonical_id).collect()

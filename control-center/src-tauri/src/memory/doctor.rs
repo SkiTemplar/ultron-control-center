@@ -301,7 +301,10 @@ fn evals_verdict(
 
 fn check_evals() -> DoctorCheck {
     let smoke = super::evals::run(None, 8);
-    let golden = super::evals::run_golden_metrics(None, 8);
+    // rerank=false: el doctor es fontanería (¿el pipeline recupera?), no el
+    // medidor de calidad — con cross-encoder tardaba ~62s y reventaba los
+    // timeouts de los checks del harness (cat1.2/1.3/5.2 rojos falsos).
+    let golden = super::evals::run_golden_metrics(None, 8, false);
     evals_verdict(
         golden.aggregate.recall_at_k as f32,
         golden.degraded,

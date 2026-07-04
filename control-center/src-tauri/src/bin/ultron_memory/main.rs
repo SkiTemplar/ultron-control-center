@@ -174,7 +174,7 @@ fn run() -> Result<serde_json::Value, String> {
                 let base = ul::memory::evals::run(project.as_deref(), 8);
                 let mut v = to_json(base)?;
                 if has_flag(&args, "--golden") {
-                    let gm = ul::memory::evals::run_golden_metrics(project.as_deref(), 8);
+                    let gm = ul::memory::evals::run_golden_metrics(project.as_deref(), 8, true);
                     if let serde_json::Value::Object(ref mut map) = v {
                         map.insert("golden_metrics".to_string(), to_json(gm)?);
                     }
@@ -186,7 +186,7 @@ fn run() -> Result<serde_json::Value, String> {
         // golden set (precision@k/recall@k/MRR/nDCG/context-waste + security gate).
         // FAIL-SAFE: degrades to an all-zero `degraded` report if the golden set
         // is missing or Qdrant/E5 is offline.
-        "eval-full" => to_json(ul::memory::evals::run_golden_metrics(project.as_deref(), 8)),
+        "eval-full" => to_json(ul::memory::evals::run_golden_metrics(project.as_deref(), 8, true)),
         // Eval 1.3b: accuracy del juez 3-way classify_contradiction sobre un golden
         // etiquetado a mano. GATE de auto_supersede: pass = todos decididos +
         // accuracy >= 0.85 + false_state_updates == 0. Corre contra el router real.
