@@ -3,11 +3,19 @@
 // Background: the Tauri-native auto-updater plugin is wired but inactive
 // (no Ed25519 signing infra yet — see tauri.conf.json `plugins.updater`).
 // This module sidesteps the chicken-and-egg by hitting the public GitHub
-// releases API directly, comparing the latest tag to the bundled
-// `CARGO_PKG_VERSION`, and surfacing a banner on the frontend. The user
+// releases API directly and surfacing a banner on the frontend. The user
 // confirms an update from the banner; rebuild runs through
 // `run_app_lifecycle("update")` which is the same path Settings → App
 // lifecycle uses today, so we don't add a second install surface.
+//
+// VERSION SCHEMES (2026-07-06): the release TAG uses the monorepo line
+// (v15.x, pyproject SSOT) while the app itself is versioned on its own
+// decoupled 2.x line (CC_TARGETS). Comparing CARGO_PKG_VERSION against the
+// tag is comparing apples to oranges — the first published release
+// (v15.6.0, app 2.7.1) made the banner scream "15.6.0 is out, you have
+// 2.7.1" at an app NEWER than the release. We now extract the app version
+// from the installer ASSET name (`ULTRON.Control.Center_<ver>_x64-setup.exe`)
+// and compare same-scheme.
 //
 // What this is NOT:
 //   - It does not download or install binaries. The actual upgrade goes
@@ -30,8 +38,10 @@ pub struct UpdateInfo {
     pub has_update: bool,
     /// Bundled Cargo `version` of the running app (no leading `v`).
     pub current_version: String,
-    /// Release tag from GitHub (no leading `v`). `None` when the request
-    /// fails — keep the banner silent on transient network errors.
+    /// Control Center version of the latest release, extracted from the
+    /// installer asset name (same 2.x scheme as `current_version`; NOT the
+    /// monorepo release tag). `None` when the request fails or the release
+    /// has no parseable installer — keep the banner silent either way.
     pub latest_version: Option<String>,
     /// HTML URL of the release (or repo releases page on fallback).
     pub release_url: String,
@@ -52,10 +62,6 @@ fn api_url() -> String {
         "https://api.github.com/repos/{}/{}/releases/latest",
         REPO_OWNER, REPO_NAME
     )
-}
-
-fn strip_v(s: &str) -> &str {
-    s.strip_prefix('v').unwrap_or(s)
 }
 
 /// Tiny semver comparator. Only handles MAJOR.MINOR.PATCH; ignores any
@@ -84,6 +90,42 @@ struct GitHubRelease {
     draft: bool,
     #[serde(default)]
     prerelease: bool,
+    #[serde(default)]
+    assets: Vec<GitHubAsset>,
+}
+
+#[derive(Deserialize)]
+struct GitHubAsset {
+    name: String,
+}
+
+/// Extract the Control Center version from the Windows installer asset name
+/// (`ULTRON.Control.Center_2.7.1_x64-setup.exe` / `..._x64_en-US.msi`).
+/// GitHub replaces spaces with dots in asset names; the version is always the
+/// `_`-delimited segment right after the product name.
+fn cc_version_from_assets(assets: &[GitHubAsset]) -> Option<String> {
+    for asset in assets {
+        if !(asset.name.ends_with("-setup.exe") || asset.name.ends_with(".msi")) {
+            continue;
+        }
+        for seg in asset.name.split('_') {
+            let looks_semver = {
+                let mut dots = 0;
+                seg.chars().all(|c| {
+                    if c == '.' {
+                        dots += 1;
+                        true
+                    } else {
+                        c.is_ascii_digit()
+                    }
+                }) && dots == 2
+            };
+            if looks_semver && !seg.is_empty() {
+                return Some(seg.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Fire the actual HTTP request. Returns the parsed release on success;
@@ -123,9 +165,22 @@ pub fn check_for_updates_inner() -> UpdateInfo {
             if rel.draft || rel.prerelease {
                 return info;
             }
-            let latest = strip_v(&rel.tag_name).to_string();
-            info.has_update = semver_gt(&current, &latest);
-            info.latest_version = Some(latest);
+            // Same-scheme comparison: app 2.x vs the installer asset's 2.x.
+            // The tag (monorepo 15.x) is NOT comparable to the app version.
+            match cc_version_from_assets(&rel.assets) {
+                Some(latest_cc) => {
+                    info.has_update = semver_gt(&current, &latest_cc);
+                    info.latest_version = Some(latest_cc);
+                }
+                None => {
+                    // No parseable installer asset: stay silent rather than
+                    // lie. Surface why in `error` (tooltip, never a banner).
+                    info.error = Some(format!(
+                        "release {} has no parseable Control Center installer asset",
+                        rel.tag_name
+                    ));
+                }
+            }
             if let Some(url) = rel.html_url {
                 info.release_url = url;
             }
@@ -157,16 +212,45 @@ mod tests {
     }
 
     #[test]
-    fn semver_gt_handles_prefix_and_suffix() {
-        // strip_v is applied at the call site; the comparator itself
-        // must still tolerate prerelease suffixes.
+    fn semver_gt_handles_suffix() {
         assert!(semver_gt("15.4.0", "15.4.1-rc1"));
         assert!(!semver_gt("15.4.1", "15.4.1-rc1"));
     }
 
+    fn asset(name: &str) -> GitHubAsset {
+        GitHubAsset { name: name.into() }
+    }
+
     #[test]
-    fn strip_v_works() {
-        assert_eq!(strip_v("v15.4.1"), "15.4.1");
-        assert_eq!(strip_v("15.4.1"), "15.4.1");
+    fn cc_version_extracted_from_real_v15_6_0_assets() {
+        // Exact asset names published in release v15.6.0 (2026-07-06).
+        let assets = vec![
+            asset("ultron-memory-windows-x64.exe"),
+            asset("ultron-system-v15.6.0.zip"),
+            asset("ULTRON.Control.Center_2.7.1_x64-setup.exe"),
+            asset("ULTRON.Control.Center_2.7.1_x64_en-US.msi"),
+        ];
+        assert_eq!(cc_version_from_assets(&assets).as_deref(), Some("2.7.1"));
+    }
+
+    #[test]
+    fn no_installer_asset_means_none_not_a_lie() {
+        // Caso negativo: release sin instalador parseable -> None (el
+        // checker se queda callado en vez de inventarse un update).
+        let assets = vec![
+            asset("ultron-system-v15.6.0.zip"),
+            asset("ultron-memory-linux-x64"),
+        ];
+        assert_eq!(cc_version_from_assets(&assets), None);
+        assert_eq!(cc_version_from_assets(&[]), None);
+    }
+
+    #[test]
+    fn same_cc_version_is_not_an_update() {
+        // El bug real del 2026-07-06: app 2.7.1 vs tag v15.6.0 gritaba
+        // update. Mismo esquema: 2.7.1 vs 2.7.1 -> silencio.
+        assert!(!semver_gt("2.7.1", "2.7.1"));
+        // Y un bump real del CC si dispara:
+        assert!(semver_gt("2.7.1", "2.7.2"));
     }
 }
