@@ -1,5 +1,6 @@
 # Changelog
 
+<!-- v15.6.0 -->
 ## v15.6.0 — 2026-07-06 — Primer release publico
 
 El repositorio pasa a **publico** (auditoria previa del historial completo:
