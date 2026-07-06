@@ -1218,6 +1218,34 @@ function Install-CommunitySkills {
 # ----------------------------------------------------------------------
 # Step 9: brain_index init
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Step 9b: ultron-memory sidecar (semantic recall daemon)
+#
+# The hooks and the Control Center look for ~/.ultron/bin/ultron-memory.exe.
+# The prebuilt binary is gitignored, so a fresh clone does NOT ship it.
+# Delegated to scripts/install-memory-sidecar.ps1 (download prebuilt release
+# asset with SHA-256 check, else cargo build). Non-fatal on failure: hooks
+# are fail-safe and recall degrades to sparse-only (FTS5) until it exists.
+# ----------------------------------------------------------------------
+function Install-MemorySidecar {
+    Write-Step "9b. memory sidecar (ultron-memory.exe)"
+    $script = Join-Path $Script:RepoRoot "scripts\install-memory-sidecar.ps1"
+    if (-not (Test-Path -LiteralPath $script)) {
+        Write-Skip "install-memory-sidecar.ps1 not in repo (older release?)"
+        return
+    }
+    try {
+        & $script -RepoRoot $Script:RepoRoot 2>&1 | ForEach-Object { Write-Info $_ }
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "ultron-memory sidecar deployed (semantic recall enabled)"
+        } else {
+            Write-Warn2 "sidecar not installed - recall degrades to sparse-only. Re-run scripts\install-memory-sidecar.ps1 later."
+        }
+    } catch {
+        Write-Warn2 ("sidecar step failed: " + $_.Exception.Message)
+    }
+}
+
 function Initialize-BrainIndex {
     Write-Step "9. brain_index init"
     $script = Join-Path $Script:RepoRoot "scripts\cockpit\brain_index.py"
@@ -1721,6 +1749,7 @@ try {
     Set-FeatureFlags
     Remove-OptOutFeatureFiles
     Initialize-BrainIndex
+    Install-MemorySidecar
     Install-GitHooks
     Build-ControlCenter
     Invoke-Doctor

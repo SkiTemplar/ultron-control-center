@@ -765,6 +765,29 @@ init_brain_index() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 7c: ultron-memory sidecar (semantic recall daemon)
+#
+# Hooks and the Control Center look for ~/.ultron/bin/ultron-memory. The
+# prebuilt binary is gitignored, so a fresh clone does NOT ship it. Delegated
+# to scripts/install-memory-sidecar.sh (download prebuilt release asset with
+# SHA-256 check, else cargo build). Non-fatal: hooks are fail-safe and recall
+# degrades to sparse-only (FTS5) until the sidecar exists.
+# ---------------------------------------------------------------------------
+install_memory_sidecar() {
+    step "7c. memory sidecar (ultron-memory)"
+    local script="${REPO_ROOT}/scripts/install-memory-sidecar.sh"
+    if [[ ! -f "$script" ]]; then
+        warn "install-memory-sidecar.sh not in repo (older release?) — skip"
+        return 0
+    fi
+    if bash "$script" --repo-root "$REPO_ROOT"; then
+        ok "ultron-memory sidecar deployed (semantic recall enabled)"
+    else
+        warn "sidecar not installed — recall degrades to sparse-only. Re-run scripts/install-memory-sidecar.sh later."
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Step 10: template seeds (CLAUDE.md global, SYSTEM-MAP, MEMORY, cockpit seeds)
 # ---------------------------------------------------------------------------
 seed_templates() {
@@ -1222,6 +1245,7 @@ install_qdrant
 install_tauri_deps
 make_dirs
 init_brain_index
+install_memory_sidecar
 seed_templates
 merge_hooks
 install_skills
