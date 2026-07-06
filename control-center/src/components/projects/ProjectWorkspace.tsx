@@ -20,14 +20,19 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Bot, Folder, Play, ExternalLink, GitBranch, Share2 } from "./icons";
+import { Bot, Folder, Play, ExternalLink, GitBranch, Share2, Terminal } from "./icons";
 import ProjectBoard from "./ProjectBoard";
 import { RepoModal } from "./RepoModal";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
 import { getPrompt } from "../../lib/button-prompts";
-import type { GitStatus } from "./RepoPanelWidget";
+// GitStatus vivia en RepoPanelWidget (huerfano, retirado); unico consumidor real.
+export type GitStatus = {
+  state: GitRepoState | null;
+  busy: boolean;
+  error: string | null;
+};
 
 // ---------------------------------------------------------------------------
 // Inline icons not yet in icons.tsx
@@ -76,7 +81,13 @@ function CodeIcon({ size = 14 }: { size?: number }) {
 
 type Props = { projectId: string };
 
-type ProjectMeta = { id: string; name: string; path: string };
+type ProjectMeta = {
+  id: string;
+  name: string;
+  path: string;
+  /** fb-016: shell preferida del wizard (powershell | powershell-admin | cmd). */
+  default_shell?: string | null;
+};
 
 type GitRepoState = {
   is_repo: boolean;
@@ -210,7 +221,13 @@ export default function ProjectWorkspace({ projectId }: Props) {
         const found = list.find((p) => p.id === projectId);
         if (!cancelled) {
           if (found && found.path) {
-            setMeta({ id: found.id, name: found.name ?? found.id, path: found.path });
+            setMeta({
+              id: found.id,
+              name: found.name ?? found.id,
+              path: found.path,
+              default_shell:
+                (found as { default_shell?: string | null }).default_shell ?? null,
+            });
             setProjectInfo(found as unknown as ProjectInfo);
             // git_repo_state: NO tragar el error (antes .catch(()=>null) dejaba el
             // panel mudo — solo "Crear repo" sin pista). Exponerlo en git.error para
@@ -291,6 +308,19 @@ export default function ProjectWorkspace({ projectId }: Props) {
       await openPath(meta.path);
     } catch {
       /* silencioso */
+    }
+  };
+
+  const handleTerminal = async () => {
+    if (!meta) return;
+    try {
+      await invoke("open_project_terminal", {
+        path: meta.path,
+        shell: meta.default_shell ?? null,
+      });
+    } catch (e) {
+      // Mandamiento 11: si no puede abrir, que se VEA por que.
+      setError(`No se pudo abrir la terminal: ${String(e)}`);
     }
   };
 
@@ -514,15 +544,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
         className="shrink-0 border-b px-5 py-4"
         style={{ borderColor: "var(--color-border)" }}
       >
-        {/* Section label */}
+        {/* Dos grupos ESTABLES (antes: un solo flex-wrap donde CodeGraph/Repo
+            caian a filas distintas segun el ancho de ventana). Fila 1 =
+            lanzar cosas; fila 2 = codigo (CodeGraph + Repo siempre juntos). */}
         <p
           className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Acciones rapidas
+          Lanzar
         </p>
-
-        {/* Todos los botones como cards iguales */}
         <div className="flex flex-wrap gap-3">
           <PrimaryCard
             icon={<Bot size={16} />}
@@ -552,6 +582,41 @@ export default function ProjectWorkspace({ projectId }: Props) {
             title="Abrir carpeta del proyecto"
           />
           <PrimaryCard
+            icon={<Terminal size={16} />}
+            label="Terminal"
+            sub={
+              meta?.default_shell === "cmd"
+                ? "cmd.exe aqui"
+                : meta?.default_shell === "powershell-admin"
+                  ? "PowerShell (admin) aqui"
+                  : "PowerShell aqui"
+            }
+            tint="var(--color-text-secondary)"
+            onClick={() => void handleTerminal()}
+            disabled={!meta}
+            title="Abrir una consola en la raiz del proyecto"
+          />
+          {executables.map((exe, i) => (
+            <PrimaryCard
+              key={i}
+              icon={<Play size={16} />}
+              label={exe.name || "Launch"}
+              sub={exe.path.split(/[/\\]/).pop() ?? exe.path}
+              tint="var(--color-success, #3fb950)"
+              onClick={() => void handleExe(exe.path)}
+              title={exe.path}
+            />
+          ))}
+        </div>
+
+        <p
+          className="mb-3 mt-4 text-[10px] font-semibold uppercase tracking-[0.08em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Codigo
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <PrimaryCard
             icon={<Share2 size={16} />}
             label="CodeGraph"
             sub={codeGraphSub}
@@ -569,17 +634,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
             disabled={!meta || git.busy}
             title={repoTitle}
           />
-          {executables.map((exe, i) => (
-            <PrimaryCard
-              key={i}
-              icon={<Play size={16} />}
-              label={exe.name || "Launch"}
-              sub={exe.path.split(/[/\\]/).pop() ?? exe.path}
-              tint="var(--color-success, #3fb950)"
-              onClick={() => void handleExe(exe.path)}
-              title={exe.path}
-            />
-          ))}
         </div>
       </div>
 

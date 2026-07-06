@@ -436,6 +436,7 @@ pub fn run() {
             commands::projects::git_log_full,
             commands::projects::codegraph_is_indexed,
             commands::projects::codegraph_summary,
+            commands::projects::open_project_terminal,
             commands::projects::codegraph_init_project,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
