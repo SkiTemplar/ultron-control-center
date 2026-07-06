@@ -4,6 +4,18 @@ version = "2.7.1"
 description = "ULTRON Control Center - desktop control panel for the ULTRON system"
 authors = ["USER SURNAME"]
 edition = "2021"
+# The crate ships several binaries (app + ultron-memory sidecar + embed
+# helper). Without default-run, tauri-cli picks an arbitrary bin as "the
+# app" and the bundler then fails with os error 2 looking for the wrong
+# exe (broke the v15.6.0 release run on BOTH platforms; local builds never
+# noticed because targets:["app"] skips bundling on Windows/Linux).
+default-run = "control-center"
+
+# The desktop app binary (implicit src/main.rs made explicit so the bin set
+# is self-documenting next to default-run above).
+[[bin]]
+name = "control-center"
+path = "src/main.rs"
 
 [lib]
 name = "control_center_lib"
