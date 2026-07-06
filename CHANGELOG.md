@@ -1,5 +1,35 @@
 # Changelog
 
+## v15.6.0 — 2026-07-06 — Primer release publico
+
+El repositorio pasa a **publico** (auditoria previa del historial completo:
+0 secretos, 0 PII sensible — gitleaks + barridos dirigidos verificados
+hallazgo a hallazgo) y se estrena el pipeline de release automatizado.
+
+### Added
+- **Pipeline de release activo** (`release.yml`, antes `.disabled`): un tag
+  `v*.*.*` publica NSIS `setup.exe` + MSI (Windows), `.deb` + `.AppImage`
+  (Linux), el ZIP del sistema y el sidecar `ultron-memory` por plataforma
+  (todo con SHA-256). Gate `finalize-release`: 10 assets verificados antes
+  de publicar el draft; funciona sin secrets (auto-updater OFF deliberado).
+- **Paso de instalacion del sidecar de memoria** (`install.ps1` 9b /
+  `install.sh` 7c + `scripts/install-memory-sidecar.ps1/.sh`): presente ->
+  skip · asset del release (SHA-256 verificado) -> deploy · fallback
+  `cargo build`. Antes, una instalacion limpia quedaba sin recall semantico
+  en silencio (el binario esta gitignored y ningun paso lo construia).
+
+### Changed
+- El ZIP del sistema ahora incluye `skills/` y `hooks/` (antes el bootstrap
+  instalaba un sistema sin skills ni hooks).
+- README: quickstart canonico = `install.ps1` / `install.sh` (sistema
+  completo); build manual de la app como ruta secundaria.
+- `docs/RELEASE-PROCESS.md`: la signing key del updater es OPCIONAL (solo
+  para re-activar auto-updates); tabla de assets actualizada.
+
+### Fixed
+- `*.sh` forzados a LF via `.gitattributes` — el ZIP se construye en
+  `windows-latest` (autocrlf) y los shebangs llegaban como `bash\r` a Linux.
+
 ## 2026-06 — Endurecimiento Kirkardo (iteraciones R5-R11 + sprint F0-F3)
 
 Un mes de trabajo guiado por la auditoria Kirkardo (14 categorias con criterios

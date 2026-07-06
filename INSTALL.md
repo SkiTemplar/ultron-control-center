@@ -110,7 +110,7 @@ Control Center.
 **Pin to a specific release** (reproducible installs):
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.20/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.6.0/bootstrap.ps1 | iex
 ```
 
 ### Linux x86_64 (Debian / Ubuntu / Fedora / Arch)

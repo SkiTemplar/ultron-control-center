@@ -64,11 +64,11 @@ Both one-liners resolve the latest release, download
 For reproducible installs pinned to a release tag, swap `main` for the tag:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.20/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.6.0/bootstrap.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.20/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.6.0/bootstrap.sh | bash
 ```
 
 ## What the installer does
