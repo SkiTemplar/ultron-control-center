@@ -3,3 +3,9 @@
 # evita que autocrlf lo reescriba a CRLF en Windows (card vrwxcf; el check
 # ademas normaliza line-endings como cinturon y tirantes).
 hooks/manifest.json text eol=lf
+
+# Los .sh DEBEN ir con LF en cualquier checkout: el ZIP del release se
+# construye en el runner windows-latest (core.autocrlf=true de fabrica);
+# sin esta regla los shebangs llegan como "bash\r" al usuario Linux que
+# extrae el ZIP via bootstrap.sh y todo script revienta al primer exec.
+*.sh text eol=lf
