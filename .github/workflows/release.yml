@@ -8,9 +8,15 @@ name: release
 #         plus `latest.json`, the manifest consumed by the Tauri auto-updater.
 #
 # Runs on the GitHub-hosted `windows-latest` AND `ubuntu-22.04` runners.
-# Linux produces .AppImage + .deb via tauri-action (targets: "all" already in
-# tauri.conf.json). macOS is still intentionally absent — add it by extending
-# the matrix below when the cross-platform build is verified.
+# tauri.conf.json keeps bundle.targets = ["app"] so local dev builds stay
+# fast; THIS workflow overrides per-platform via `--bundles` (see matrix
+# args): Windows -> nsis,msi · Linux -> deb,appimage. macOS is still
+# intentionally absent — add it by extending the matrix below when the
+# cross-platform build is verified.
+#
+# The auto-updater is deliberately OFF (tauri.conf.json plugins.updater
+# active:false, placeholder pubkey) so no latest.json is produced or
+# required — see docs/RELEASE-PROCESS.md before re-enabling.
 # -----------------------------------------------------------------------------
 
 on:
@@ -28,13 +34,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows x64 — produces the NSIS setup.exe + MSI.
+          # Windows x64 — produces the NSIS setup.exe + MSI. `--bundles`
+          # overrides tauri.conf.json's targets:["app"] (kept minimal for
+          # fast local dev builds).
           - platform: windows-latest
-            args: ""
-          # Linux x64 — produces .AppImage + .deb (tauri.conf.json bundle
-          # targets: "all"). macOS still pending verified universal build.
+            args: "--bundles nsis,msi"
+          # Linux x64 — produces .deb + .AppImage. macOS still pending
+          # verified universal build.
           - platform: ubuntu-22.04
-            args: ""
+            args: "--bundles deb,appimage"
 
     runs-on: ${{ matrix.platform }}
 
@@ -120,7 +128,9 @@ jobs:
             "pyproject.toml",
             "uv.lock",
             "scripts",
+            "skills",
             "skills-catalog",
+            "hooks",
             "agents",
             "config",
             "docs",
@@ -244,10 +254,48 @@ jobs:
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
-      # Gated to windows-latest for the same reason as the build step above:
-      # one ZIP per release. Don't unset this guard without also removing the
-      # build step's guard, otherwise two runners will race on the same asset.
-      - name: Attach ultron-system ZIP to release
+      # ─────────────────────────────────────────────────────────────────────────
+      # ultron-memory sidecar. `tauri build` compiles every bin target of the
+      # crate (the `qdrant` feature is a default), so target/release already
+      # holds it. Publishing it lets install.ps1/install.sh deploy the
+      # prebuilt sidecar (scripts/install-memory-sidecar.*) instead of
+      # forcing a full Rust compile on the user's machine.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Stage ultron-memory sidecar asset (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $src = "control-center/src-tauri/target/release/ultron-memory.exe"
+          if (-not (Test-Path $src)) {
+            Write-Host "::error::ultron-memory.exe missing after tauri build — did the qdrant default feature get disabled?"
+            exit 1
+          }
+          $out = Join-Path $env:RUNNER_TEMP "ultron-memory-windows-x64.exe"
+          Copy-Item $src $out -Force
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $out).Hash.ToLower()
+          "$sha  ultron-memory-windows-x64.exe" | Out-File -Encoding ascii "$out.sha256"
+          echo "SIDECAR_BIN=$out" >> $env:GITHUB_ENV
+          echo "SIDECAR_SHA=$out.sha256" >> $env:GITHUB_ENV
+
+      - name: Stage ultron-memory sidecar asset (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          src="control-center/src-tauri/target/release/ultron-memory"
+          if [ ! -f "$src" ]; then
+            echo "::error::ultron-memory missing after tauri build — did the qdrant default feature get disabled?"
+            exit 1
+          fi
+          out="$RUNNER_TEMP/ultron-memory-linux-x64"
+          cp "$src" "$out"
+          (cd "$RUNNER_TEMP" && sha256sum ultron-memory-linux-x64 > ultron-memory-linux-x64.sha256)
+          echo "SIDECAR_BIN=$out" >> "$GITHUB_ENV"
+          echo "SIDECAR_SHA=$out.sha256" >> "$GITHUB_ENV"
+
+      # Gated per-platform: Windows uploads the system ZIP + its sidecar,
+      # Linux uploads only its sidecar. Don't unset the ZIP guard without
+      # also removing the build step's guard, otherwise two runners will
+      # race on the same asset.
+      - name: Attach system ZIP + sidecar to release (Windows)
         if: matrix.platform == 'windows-latest'
         uses: softprops/action-gh-release@v2
         with:
@@ -259,6 +307,20 @@ jobs:
           files: |
             ${{ env.ULTRON_SYSTEM_ZIP }}
             ${{ env.ULTRON_SYSTEM_SHA }}
+            ${{ env.SIDECAR_BIN }}
+            ${{ env.SIDECAR_SHA }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach sidecar to release (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: |
+            ${{ env.SIDECAR_BIN }}
+            ${{ env.SIDECAR_SHA }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -294,17 +356,23 @@ jobs:
               missing=1
             fi
           }
-          require '\.exe$'                         'Windows NSIS setup.exe'
+          require 'setup\.exe$'                    'Windows NSIS setup.exe'
           require '\.msi$'                         'Windows MSI installer'
           require '\.deb$'                         'Linux .deb package'
           require '\.AppImage$'                    'Linux .AppImage'
-          require '^latest\.json$'                 'auto-updater manifest latest.json'
+          # NOTE: no latest.json require — the auto-updater is deliberately
+          # OFF (placeholder pubkey). Re-add it here when the updater is
+          # re-enabled per docs/RELEASE-PROCESS.md.
           require 'ultron-system-.*\.zip$'         'cross-platform system ZIP'
           require 'ultron-system-.*\.zip\.sha256$' 'system ZIP SHA-256'
+          require '^ultron-memory-windows-x64\.exe$'         'memory sidecar (Windows)'
+          require '^ultron-memory-windows-x64\.exe\.sha256$' 'memory sidecar SHA-256 (Windows)'
+          require '^ultron-memory-linux-x64$'                'memory sidecar (Linux)'
+          require '^ultron-memory-linux-x64\.sha256$'        'memory sidecar SHA-256 (Linux)'
 
           if [ "$missing" -ne 0 ]; then
             echo "::error::Release $tag left as DRAFT — not all assets are live. Fix the build and re-run."
             exit 1
           fi
           gh release edit "$tag" --repo "$repo" --draft=false
-          echo "Release $tag published — all 7 expected assets verified live."
+          echo "Release $tag published — all 10 expected assets verified live."
