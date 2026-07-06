@@ -14,10 +14,10 @@ ULTRON has three install paths; pick one.
 2. **Bootstrap one-liner** — `iwr | iex` (Windows) / `curl | bash` (Linux).
    Downloads a prebuilt binary from a GitHub Release.
    > [!NOTE]
-   > **Requires a published GitHub Release.** None is published yet, so the
-   > bootstrap will fail to resolve "latest release" — use path 1 until a
-   > release exists. The release pipeline is tracked in
-   > [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+   > **Requires a published GitHub Release.** The pipeline
+   > (`.github/workflows/release.yml`, triggered by a `v*.*.*` tag) is
+   > active; if the Releases page is still empty on your fork/clone, use
+   > path 1. Details: [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 3. **Per-step manual** — see [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 
 ---
@@ -90,9 +90,11 @@ To uninstall:
 ## 2. Bootstrap one-liner
 
 > [!NOTE]
-> This path downloads a prebuilt binary from a GitHub Release. **No release
-> is published yet** — until one is, the one-liner below fails at "fetching
-> latest release". Use path 1 (clone) in the meantime.
+> This path downloads prebuilt artifacts from the latest GitHub Release.
+> If the Releases page is empty (fresh fork, or no `v*.*.*` tag pushed yet),
+> the one-liner fails at "fetching latest release" — use path 1 (clone)
+> instead. Releases are cut by pushing a version tag; see
+> [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 
 ### Windows 11 (PowerShell, no Git required)
 

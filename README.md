@@ -19,10 +19,12 @@ Claude Code. Vive bajo `~/.ultron/` y reune tres piezas: **memoria gobernada**,
 **AI Router** y un **orquestador de skills/agentes**. No reemplaza a Claude
 Code: lo envuelve con estado persistente, inspeccionable y versionable.
 
-> Repositorio **publico** (MIT), de un solo mantenedor. No es un producto
-> comercial ni un SaaS. Esta documentacion describe el sistema tal y como esta
-> en el disco; no contiene secretos ni datos personales (la informacion personal
-> vive solo en ficheros locales fuera de control de versiones).
+> Repositorio MIT de un solo mantenedor, pensado para publicarse (hoy la
+> visibilidad la decide el mantenedor: si puedes leer esto en GitHub, ya es
+> publico). No es un producto comercial ni un SaaS. Esta documentacion
+> describe el sistema tal y como esta en el disco; no contiene secretos ni
+> datos personales (la informacion personal vive solo en ficheros locales
+> fuera de control de versiones).
 
 - **Version**: 2.7.1 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
 - **Plataforma**: Windows 11 (objetivo principal); Linux x86_64 compila pero el
@@ -33,12 +35,26 @@ Code: lo envuelve con estado persistente, inspeccionable y versionable.
 
 ## Quickstart
 
+**Sistema completo** (app + skills + hooks + memoria semantica) — el camino
+recomendado; es idempotente y pregunta antes de tocar nada:
+
+```powershell
+git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+cd $env:USERPROFILE\.ultron
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # Linux: ./install.sh
+```
+
+**Solo la app de escritorio** (sin skills/hooks/sidecar de memoria):
+
 ```bash
 git clone https://github.com/SkiTemplar/ultron.git ~/.ultron && cd ~/.ultron/control-center
 cp ../.env.example ../.env   # opcional: claves de proveedores LLM (todas vacias por defecto)
 npm install
 npm run build:app            # = kill-app + tauri build -> ejecutable de escritorio
 ```
+
+Guia completa (bootstrap one-liner desde release, flags, troubleshooting):
+[`INSTALL.md`](INSTALL.md).
 
 Qdrant es opcional (el recall degrada a sparse-only sin el); ver la seccion
 Qdrant de [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).

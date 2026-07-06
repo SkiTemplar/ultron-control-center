@@ -22,10 +22,15 @@ is the single trigger.
 
 ---
 
-## 0. One-time setup (per repository)
+## 0. One-time setup (per repository) — OPTIONAL, only for the auto-updater
 
-Performed once by the repository owner. Skip if your fork already has the
-signing key wired up.
+> [!NOTE]
+> **Releases work WITHOUT this section.** The auto-updater is deliberately
+> OFF (`plugins.updater.active: false`, placeholder pubkey) and
+> `release.yml` neither signs nor requires `latest.json`. Pushing a
+> `v*.*.*` tag publishes installers + system ZIP + memory sidecar with no
+> secrets configured. Do this section only when you decide to re-enable
+> in-app auto-updates.
 
 ### 0.1 Generate the Tauri updater signing keypair
 
@@ -80,8 +85,10 @@ In the GitHub web UI:
 3. New repository secret. Name: `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Value:
    the passphrase chosen in step 0.1. Save.
 
-These secrets are consumed by `.github/workflows/release.yml` (currently shipped
-as `release.yml.disabled`). They are never echoed in logs and are not exposed to forks.
+These secrets are consumed by `.github/workflows/release.yml`. They are never
+echoed in logs and are not exposed to forks. While they are absent the
+workflow still runs — it simply skips updater signing and produces no
+`latest.json` (and the finalize gate does not require one).
 
 ---
 
@@ -163,10 +170,18 @@ few seconds of the tag push. A successful run:
   and build essentials before invoking `tauri-action`).
 - Installs Node 22 and the stable Rust toolchain on every runner.
 - Runs `npm ci` inside `control-center/`.
-- Invokes `tauri-action`, which runs `npm run tauri build`, signs the
-  installer with `TAURI_SIGNING_PRIVATE_KEY`, generates `latest.json`, and
-  creates the GitHub Release. On Linux, `targets: "all"` produces both
-  `.deb` and `.AppImage`.
+- Invokes `tauri-action`, which runs the Tauri build with per-platform
+  `--bundles` overrides (Windows `nsis,msi`, Linux `deb,appimage` — the
+  repo's `tauri.conf.json` keeps `targets: ["app"]` for fast local dev
+  builds) and creates the GitHub Release as a draft. If the optional
+  `TAURI_SIGNING_PRIVATE_KEY` secret is present it also signs the updater
+  artifacts and generates `latest.json`; without it, no updater manifest is
+  produced (the auto-updater is OFF by default).
+- Stages and uploads the `ultron-memory` sidecar binary per platform
+  (`ultron-memory-windows-x64.exe` / `ultron-memory-linux-x64`, each with a
+  `.sha256`), consumed by `scripts/install-memory-sidecar.ps1/.sh`.
+- A `finalize-release` job verifies all 10 expected assets are attached and
+  only then flips the draft to published.
 
 Typical runtime on a free-tier runner: 12 to 25 minutes per matrix leg
 for a cold cache, 6 to 10 minutes with `swatinem/rust-cache` warm.
@@ -175,15 +190,19 @@ for a cold cache, 6 to 10 minutes with `swatinem/rust-cache` warm.
 
 When the workflow goes green:
 
-1. Open the GitHub Releases page. Confirm the release exists with both the
-   installer (`.exe` and / or `.msi`) and `latest.json` attached.
+1. Open the GitHub Releases page. Confirm the release exists with the
+   installers (`setup.exe`, `.msi`, `.deb`, `.AppImage`), the system ZIP
+   (+`.sha256`) and the two sidecar binaries (+`.sha256`) attached —
+   `finalize-release` enforces exactly this list. `latest.json` appears
+   only if updater signing is configured.
 2. Download the installer on a clean Windows 11 VM and install it. Confirm
    Windows SmartScreen warns (expected with a self-signed build) and that
    "Run anyway" produces a working install.
 3. Launch the app, open Settings -> About, and confirm the displayed
    version matches the tag.
-4. From an older installed version, confirm the auto-updater prompts on
-   next launch and successfully installs the new build.
+4. (Only if the auto-updater has been re-enabled per section 0) From an
+   older installed version, confirm the updater prompts on next launch and
+   successfully installs the new build.
 
 ### 1.7 Announce
 
@@ -247,18 +266,20 @@ hand off to their respective per-OS installer (`install.ps1` /
 `install.sh`).
 
 Required release assets (built and uploaded by
-`.github/workflows/release.yml` — note: currently shipped as `release.yml.disabled`;
-releases are cut manually via `scripts/cut-release.ps1`):
+`.github/workflows/release.yml`; `finalize-release` refuses to publish the
+draft unless all of them are present):
 
 | Asset | Built by | Notes |
 |---|---|---|
-| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `uninstall.ps1`, `uninstall.sh`, `README.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `pyproject.toml`, `uv.lock`, `scripts/`, `skills-catalog/`, `agents/`, `config/`, `docs/`, `cockpit/`, `templates/`, `git-hooks/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. Authoritative list lives in `release.yml § Build ultron-system ZIP`. |
+| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `uninstall.ps1`, `uninstall.sh`, `README.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `pyproject.toml`, `uv.lock`, `scripts/`, `skills/`, `skills-catalog/` (if present), `hooks/`, `agents/`, `config/`, `docs/`, `cockpit/`, `templates/`, `git-hooks/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. Authoritative list lives in `release.yml § Build ultron-system ZIP`. |
 | `ultron-system-<tag>.zip.sha256` | same step | SHA-256 of the ZIP for both bootstrappers to verify. |
 | `ULTRON Control Center_<ver>_x64-setup.exe` | `tauri-action` on `windows-latest` | NSIS installer, Windows. |
 | `ULTRON Control Center_<ver>_x64_en-US.msi` | `tauri-action` on `windows-latest` | MSI installer, Windows (optional but built by default). |
 | `ultron-control-center_<ver>_amd64.deb` | `tauri-action` on `ubuntu-22.04` | Debian / Ubuntu package, Linux. |
 | `ULTRON Control Center_<ver>_amd64.AppImage` | `tauri-action` on `ubuntu-22.04` | AppImage, works on any glibc-based distro. |
-| `latest.json` | `tauri-action` | Auto-updater manifest. Lists both Windows and Linux signatures so the in-app updater can pick the right asset per platform. |
+| `ultron-memory-windows-x64.exe` (+`.sha256`) | `Stage ultron-memory sidecar` step, `windows-latest` | Prebuilt memory sidecar; `scripts/install-memory-sidecar.ps1` downloads it so users skip the Rust compile. |
+| `ultron-memory-linux-x64` (+`.sha256`) | `Stage ultron-memory sidecar` step, `ubuntu-22.04` | Same, for Linux (`scripts/install-memory-sidecar.sh`). |
+| `latest.json` | `tauri-action` | OPTIONAL — only produced when updater signing secrets are configured (auto-updater currently OFF). Not required by the finalize gate. |
 
 If the system ZIP or the platform-specific binary is missing from a
 release, the corresponding bootstrap exits with code 3. Always verify
