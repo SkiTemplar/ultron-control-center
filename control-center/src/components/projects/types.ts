@@ -5,7 +5,6 @@ import type { ProjectInfo, SessionProvider } from "../../types";
 
 export type CardStats = {
   pending: number | null;
-  sessions: number | null;
 };
 
 export type SortBy = "recent" | "alpha" | "type";

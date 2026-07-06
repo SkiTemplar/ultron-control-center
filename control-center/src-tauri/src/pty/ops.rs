@@ -1,4 +1,4 @@
-// pty/ops.rs — Session lifecycle operations: spawn, write, resize, kill, replay, capture, list.
+// pty/ops.rs — Session lifecycle operations: spawn, write, kill, capture, list.
 
 use base64::Engine;
 use portable_pty::{native_pty_system, PtySize};
@@ -104,11 +104,13 @@ pub fn spawn_inner<R: Runtime>(
         reg.insert(id.clone(), session);
     }
 
-    // Reader thread: pump stdout/stderr chunks to the frontend.
+    // Reader thread: capture stdout/stderr chunks into the session buffer.
     //
-    // Every chunk is also appended to the session's output_buffer so that
-    // `pty_replay` can hand back the early output if the frontend listener
-    // subscribed after the chunk was emitted (see PtySession docs above).
+    // Every chunk is appended to the session's output_buffer, which is the
+    // source `capture_output_inner` polls (delegate flow). With the embedded
+    // terminal retired nothing flips `subscribed` anymore, so the live
+    // `pty:data:<id>` emit below never fires (kept for the buffer/emit
+    // handoff structure documented in PtySession).
     let app_for_reader = app.clone();
     let id_for_reader = id.clone();
     thread::spawn(move || {
@@ -119,11 +121,11 @@ pub fn spawn_inner<R: Runtime>(
                 Ok(0) => break,
                 Ok(n) => {
                     let slice = &buf[..n];
-                    // Capture for replay (ring-buffer trim if oversized) and
-                    // check whether the frontend has subscribed yet. If not,
-                    // we capture but do NOT emit — the bytes will be handed
-                    // back via pty_replay when the listener registers. This
-                    // is the canonical fix for the listen-after-emit race.
+                    // Capture into the ring buffer (trim if oversized) and
+                    // check the `subscribed` flag. While false — always,
+                    // since the embedded terminal was retired — we capture
+                    // but do NOT emit; consumers poll the buffer via
+                    // capture_output_inner instead.
                     let subscribed_now = {
                         match registry().lock() {
                             Ok(mut reg) => {
@@ -221,22 +223,6 @@ pub fn write_inner(session_id: String, data_b64: String) -> Result<(), String> {
     Ok(())
 }
 
-pub fn resize_inner(session_id: String, rows: u16, cols: u16) -> Result<(), String> {
-    let reg = registry().lock().map_err(|e| e.to_string())?;
-    let s = reg
-        .get(&session_id)
-        .ok_or_else(|| format!("session {session_id} not found"))?;
-    s.master
-        .resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| format!("resize: {e}"))?;
-    Ok(())
-}
-
 pub fn kill_inner(session_id: String) -> Result<(), String> {
     let mut reg = registry().lock().map_err(|e| e.to_string())?;
     let s = reg
@@ -245,30 +231,6 @@ pub fn kill_inner(session_id: String) -> Result<(), String> {
     let _ = s.child.kill();
     s.status = PtyStatus::Killed;
     Ok(())
-}
-
-/// Return the buffered output captured by the reader thread, base64-encoded,
-/// AND flip the `subscribed` flag so the reader starts emitting live events.
-///
-/// Called by the frontend `EmbeddedTerminal` immediately after its
-/// `pty:data:<id>` listener registers. The transition from "buffered" to
-/// "live" happens under the registry mutex so no chunk can be lost or
-/// duplicated: the reader thread either captures a chunk before this call
-/// (in which case it's in the returned buffer and not emitted) or after this
-/// call (in which case it's not in the buffer but is emitted as a live event).
-///
-/// Returns an empty string if the session is unknown (already exited and
-/// pruned, etc.) so the caller can no-op without surfacing a misleading error.
-pub fn replay_inner(session_id: String) -> Result<String, String> {
-    let mut reg = registry().lock().map_err(|e| e.to_string())?;
-    let s = match reg.get_mut(&session_id) {
-        Some(s) => s,
-        None => return Ok(String::new()),
-    };
-    let engine = base64::engine::general_purpose::STANDARD;
-    let encoded = engine.encode(&s.output_buffer);
-    s.subscribed = true;
-    Ok(encoded)
 }
 
 /// Return raw output bytes from `since_offset` to the current end of the
@@ -322,12 +284,4 @@ pub fn list_inner(project_id: String) -> Result<Vec<PtySessionSummary>, String> 
         .map(|s| s.summary())
         .collect();
     Ok(out)
-}
-
-/// Summary of a single session by id (no project filter). Used by the embedded
-/// terminal to show the active-CLI badge (card-vis-cli-model-indicator). Returns
-/// None when the id is unknown.
-pub fn list_one_inner(session_id: &str) -> Option<PtySessionSummary> {
-    let reg = registry().lock().ok()?;
-    reg.get(session_id).map(|s| s.summary())
 }

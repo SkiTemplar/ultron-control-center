@@ -12,8 +12,8 @@
 // subieron de la grid dedicada (seccion 3 vieja) a esta barra como botones
 // compactos, liberando esa franja de alto fijo para el Kanban. El detalle
 // full de Git (cambios/commit/historial/pull/push) sigue vivo en RepoModal.
-// RepoPanelWidget.tsx queda sin montar en ningun sitio (huerfano intencional,
-// no borrado — ver commit de esta sesion).
+// (RepoPanelWidget.tsx, el panel viejo que quedo huerfano, se borro en la
+// limpieza de codigo muerto 2026-07.)
 //
 // Design: no emojis, SVG icons from ./icons, semantic color tokens.
 
@@ -27,7 +27,7 @@ import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
 import { getPrompt } from "../../lib/button-prompts";
-// GitStatus vivia en RepoPanelWidget (huerfano, retirado); unico consumidor real.
+// GitStatus vivia en RepoPanelWidget (borrado 2026-07); este era su unico consumidor real.
 export type GitStatus = {
   state: GitRepoState | null;
   busy: boolean;

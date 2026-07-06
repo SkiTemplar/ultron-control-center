@@ -1,25 +1,4 @@
 // ---------------------------------------------------------------------------
-// Control Center 2.0 (P3): embedded PTY (portable-pty + xterm.js).
-// ---------------------------------------------------------------------------
-
-export type PtyStatus =
-  | { kind: "running" }
-  | { kind: "exited"; value: number }
-  | { kind: "killed" };
-
-export type PtySessionSummary = {
-  id: string;
-  project_id: string;
-  card_id: string | null;
-  provider: string;
-  started_at: string;
-  status: PtyStatus;
-};
-
-export type PtyDataEvent = { data: string };
-export type PtyExitEvent = { exit_code: number };
-
-// ---------------------------------------------------------------------------
 // Qdrant semantic recall (v2.9.5 — KIRKARDO Round 7 #2)
 // Mirrors `qdrant::QdrantHit` on the Rust side.
 // payload keys: text, kind, importance, project, date, sha_head, session_id

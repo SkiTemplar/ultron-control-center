@@ -49,7 +49,7 @@ type Item = {
    *              Agents, Memory, Sessions, Projects, Plans, Personal,
    *              Settings.
    *   more     — Changelog (drawer-style, only opened on releases),
-   *              News (off by default in features.example), Gaming
+   *              News (toggle retirado de features.json), Gaming
    *              (gated), Stats/SelfImprove (≤1.2% of invocations).
    *   hidden   — Logs (available=false, lives inside System now).
    *

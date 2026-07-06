@@ -32,33 +32,24 @@ pub struct PtySession {
     pub provider: String,
     pub started_at: String,
     pub status: PtyStatus,
+    /// Master handle. Nunca se lee tras el spawn (el resize del terminal
+    /// embebido se retiró), pero es RAII load-bearing: si se dropea, el PTY
+    /// se cierra y el proceso hijo pierde su terminal. NO quitar.
+    #[allow(dead_code)]
     pub master: Box<dyn MasterPty + Send>,
     pub writer: Box<dyn Write + Send>,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
     /// Ring buffer of raw output bytes captured by the reader thread.
     ///
-    /// P0 bug fix (2026-05-24): the previous build emitted `pty:data:<id>`
-    /// events immediately as the PTY produced output, but the frontend
-    /// `EmbeddedTerminal` registers its `listen()` *after* the React mount
-    /// has finished and the Tauri IPC handshake completes (tens to hundreds
-    /// of ms). The first burst of output from Claude/Codex — the TUI
-    /// splash, banner and entire initial paint — was emitted into a void:
-    /// the listener wasn't subscribed yet, so the chunks were lost forever.
-    /// TUIs don't periodically repaint, so the terminal stayed blank.
-    ///
-    /// Fix: capture every byte the reader produces into this buffer and
-    /// HOLD live emission until the frontend calls `pty_replay`. The replay
-    /// call returns the buffered bytes and flips `subscribed=true`, after
-    /// which the reader thread starts emitting `pty:data:<id>` events in
-    /// real time. This way there is exactly one path bytes can reach the
-    /// frontend — first as replay, then as live events — with no duplication
-    /// and no loss. Capped at 256 KiB to bound memory; older bytes are
-    /// dropped from the front when full.
+    /// The reader thread appends every chunk here; `capture_output_inner`
+    /// (delegate polling) reads windows of it by offset. Capped at 256 KiB
+    /// to bound memory; older bytes are dropped from the front when full.
     pub output_buffer: Vec<u8>,
-    /// Has the frontend subscribed via `pty_replay`? While false, the
-    /// reader thread captures bytes into `output_buffer` but does NOT
-    /// emit `pty:data:<id>` events. Once true, the reader switches to
-    /// live emission for every subsequent chunk.
+    /// Live-emission flag. While false the reader thread captures bytes
+    /// into `output_buffer` but does NOT emit `pty:data:<id>` events.
+    /// The embedded terminal (whose `pty_replay` command flipped this to
+    /// true) was retired 2026-07, so today this stays false and consumers
+    /// poll the buffer instead.
     pub subscribed: bool,
 }
 

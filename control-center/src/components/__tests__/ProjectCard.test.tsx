@@ -30,7 +30,7 @@ function renderCard(overrides: Partial<ProjectInfo> = {}) {
   return render(
     <ProjectCard
       p={{ ...BASE_PROJECT, ...overrides }}
-      stats={{ pending: 3, sessions: 1 }}
+      stats={{ pending: 3 }}
       onOpenWorkspace={noop}
       onOpenFolder={noop}
       onOpenIde={noop}
@@ -65,10 +65,11 @@ describe("ProjectCard", () => {
     expect(container.textContent).not.toContain("react");
   });
 
-  it("renders pending and live session stats", () => {
+  it("renders the pending kanban stat (live-terminals chip removed with the PTY retirement)", () => {
     renderCard();
     expect(screen.getByText("3")).toBeTruthy();
-    expect(screen.getByText("1")).toBeTruthy();
+    // The "N live" terminals chip is gone — no stray count cell.
+    expect(screen.queryByText("live")).toBeNull();
   });
 
   it("calls onOpenWorkspace when card is clicked", () => {
@@ -125,7 +126,7 @@ describe("ProjectCard", () => {
         onDelete={noop}
       />,
     );
-    // Both stats cells show "—" when stats is null
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    // The pending stat cell shows "—" when stats is null
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -2,16 +2,10 @@
 
 use base64::Engine;
 
-use super::ops::{capture_output_inner, list_one_inner, should_notify_session_error};
+use super::ops::{capture_output_inner, should_notify_session_error};
 use super::registry::registry;
 use super::spawn::build_command;
 use super::types::{PtySession, PtyStatus};
-
-// card-vis-cli-model-indicator
-#[test]
-fn list_one_inner_unknown_id_is_none() {
-    assert!(list_one_inner("does-not-exist-xyz").is_none());
-}
 
 // card-vis-notif-session-error
 #[test]

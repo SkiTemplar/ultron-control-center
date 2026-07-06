@@ -164,20 +164,6 @@ export function ProjectCard({
             </span>{" "}
             pending
           </span>
-          <span title="Active terminals running for this project right now">
-            <span
-              className="tabular-nums"
-              style={{
-                color:
-                  stats && stats.sessions && stats.sessions > 0
-                    ? "var(--color-success)"
-                    : "var(--color-text-secondary)",
-              }}
-            >
-              {stats?.sessions ?? "—"}
-            </span>{" "}
-            live
-          </span>
         </div>
         {p.last_active && (
           <span className="tabular-nums" style={{ color: "var(--color-text-faint)" }}>

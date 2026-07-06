@@ -21,7 +21,6 @@ import type {
   ProjectShell,
   SessionProvider,
   KanbanBoard,
-  PtySessionSummary,
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
 import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
@@ -157,15 +156,11 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     const next: Record<string, CardStats> = {};
     await Promise.all(
       list.map(async (p) => {
-        const entry: CardStats = { pending: null, sessions: null };
+        const entry: CardStats = { pending: null };
         try {
           const b = (await invoke("kanban_load", { projectId: p.id })) as KanbanBoard;
           const doneColIds = new Set(b.columns.filter((c) => /done|complete/i.test(c.name)).map((c) => c.id));
           entry.pending = b.cards.filter((c) => !doneColIds.has(c.column_id)).length;
-        } catch { /* leave null */ }
-        try {
-          const s = (await invoke("pty_list", { projectId: p.id })) as PtySessionSummary[];
-          entry.sessions = s.filter((x) => x.status.kind === "running").length;
         } catch { /* leave null */ }
         next[p.id] = entry;
       }),

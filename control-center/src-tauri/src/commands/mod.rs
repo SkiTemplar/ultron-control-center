@@ -9,7 +9,7 @@
 //   misc_sub/      — Root helpers, alerts, MCPs, hotkeys, external editor, slash cmds
 //   notes_sub/     — Per-project notes, global notes, inbox, button prompts
 //   projects/      — Project CRUD, launcher, CLAUDE.md, agent roster
-//   sessions_sub/  — Claude session spawn, PTY, tabs, terminal layout, timeline
+//   sessions_sub/  — Claude session spawn, tabs, terminal layout, timeline
 //   system_ops/    — Scheduled tasks, apps, diagnostics, event log, settings, lifecycle
 //   workflows/     — Hooks, plans, rules, maintenance,
 //                    workflow_runs (YAML composability + SQLite history, KIRKARDO 23 P2)
@@ -63,9 +63,7 @@ pub use projects::agents;
 // `projects` sub-dir module already exposed via `pub mod projects` above.
 
 pub use sessions_sub::live_session;
-pub use sessions_sub::pty;
 pub use sessions_sub::session_manager;
-pub use sessions_sub::session_summary;
 pub use sessions_sub::sessions;
 pub use sessions_sub::tabs;
 

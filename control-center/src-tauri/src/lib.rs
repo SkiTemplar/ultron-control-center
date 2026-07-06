@@ -57,6 +57,9 @@ mod project_context;
 mod project_hotkeys;
 mod projects;
 mod proxy;
+// pty: runtime PTY interno (RunBatch kanban, delegate, tray, lifecycle). El
+// terminal embebido y sus comandos Tauri (pty_spawn/pty_kill/pty_list) se
+// retiraron 2026-07; NO borrar este modulo — sigue teniendo consumidores Rust.
 mod pty;
 pub mod qdrant;
 mod rules;
@@ -308,8 +311,6 @@ pub fn run() {
             commands::live_session::live_session_feed,
             // -- Gestor multi-sesion: lee ~/.claude/projects/*.jsonl (estado/modelo/context%) --
             commands::session_manager::list_active_sessions,
-            // -- Resumen REAL de sesión vía AI Router (lazy, cacheado por session_id+hash) --
-            commands::session_summary::summarize_session_activity,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
@@ -399,10 +400,6 @@ pub fn run() {
             // v2.9.5 — SHA-aware bulk update check + AI changelog summary
             commands::plugins_info::plugin_check_updates_bulk,
             commands::plugins_info::plugin_changelog_summary,
-            // -- pty (embedded terminal, P3) --
-            commands::pty::pty_spawn,
-            commands::pty::pty_kill,
-            commands::pty::pty_list,
             // -- library (P5 — GitHub search + install + per-project pin) --
             // v2.1: curated catalog feed. v2.2: live preview refresh.
             commands::library::library_search_github,
