@@ -66,10 +66,27 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot  = Split-Path -Parent $ScriptDir
 
-$PackageJson  = Join-Path $RepoRoot 'control-center\package.json'
-$CargoToml    = Join-Path $RepoRoot 'control-center\src-tauri\Cargo.toml'
-$TauriConf    = Join-Path $RepoRoot 'control-center\src-tauri\tauri.conf.json'
-$Changelog    = Join-Path $RepoRoot 'CHANGELOG.md'
+# Monorepo SSOT + its mirrors (the version-drift CI gate checks all of them
+# against pyproject via scripts/cockpit/version_propagate.py --check).
+# NOTE (2026-07-06): the Control Center manifests (package.json / Cargo.toml /
+# tauri.conf.json) carry their OWN 2.x version line, decoupled from the
+# monorepo SSOT since the 2026-05 re-versioning. This script must NOT touch
+# them — bumping them to the monorepo version broke the old behaviour.
+$PyprojectToml = Join-Path $RepoRoot 'pyproject.toml'
+$InstallPs1    = Join-Path $RepoRoot 'install.ps1'
+$InstallWizard = Join-Path $RepoRoot 'scripts\cockpit\install-wizard.ps1'
+$InstallSh     = Join-Path $RepoRoot 'install.sh'
+$UvLock        = Join-Path $RepoRoot 'uv.lock'
+$Changelog     = Join-Path $RepoRoot 'CHANGELOG.md'
+
+# Markdown files scanned by version_propagate.py for stale version pins
+# (badges, bootstrap one-liner URLs, release links). Historical mentions of
+# OLDER versions are fine; pins equal to the OUTGOING SSOT version must move.
+$MdTargets = @(
+    'README.md', 'README.es.md', 'SYSTEM-MAP.md', 'INSTALL.md',
+    'docs\INSTALL.md', 'docs\QUICKSTART.md', 'docs\memory-layers.md',
+    'docs\skills-manifest-schema.md'
+) | ForEach-Object { Join-Path $RepoRoot $_ }
 
 # ----------------------------------------------------------------------
 # Helpers
@@ -157,48 +174,111 @@ try {
     }
 
     # --------------------------------------------------------------
-    # 3. Bump the three version files coherently
+    # 3. Bump the monorepo SSOT + every mirror the CI drift gate checks
+    #    (rewritten 2026-07-06: the old version bumped the three Control
+    #    Center manifests — which have their own decoupled 2.x line — and
+    #    never touched pyproject, so the release commit itself tripped
+    #    the version-drift gate on the v15.6.0 cut.)
     # --------------------------------------------------------------
-    Write-Step 'Updating version files'
+    Write-Step 'Updating version files (SSOT + mirrors)'
 
-    # package.json: "version": "X.Y.Z"
-    Invoke-Action -Description "package.json -> $bareVersion" -Action {
-        $content = Get-Content -Raw -LiteralPath $PackageJson
+    # Read the OUTGOING version first: markdown pins are replaced by value.
+    $ssotRaw = Get-Content -Raw -LiteralPath $PyprojectToml
+    $ssotMatch = [regex]::Match($ssotRaw, '(?m)^version\s*=\s*"(?<ver>\d+\.\d+\.\d+)"')
+    if (-not $ssotMatch.Success) { throw "Cannot find [project].version in pyproject.toml" }
+    $oldVersion = $ssotMatch.Groups['ver'].Value
+    Write-Ok "outgoing SSOT version: $oldVersion"
+
+    # pyproject.toml (SSOT): ^version = "X.Y.Z"
+    Invoke-Action -Description "pyproject.toml -> $bareVersion" -Action {
         $updated = [regex]::Replace(
-            $content,
-            '("version"\s*:\s*")[^"]+(")',
+            $ssotRaw,
+            '(?m)^(version\s*=\s*")[^"]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $PackageJson -Value $updated -NoNewline -Encoding utf8
+        Set-Content -LiteralPath $PyprojectToml -Value $updated -NoNewline -Encoding utf8
     }
-    Write-Ok 'package.json'
+    Write-Ok 'pyproject.toml (SSOT)'
 
-    # Cargo.toml: only the [package] version line. The first occurrence
-    # of `version = "..."` after `name = "control-center"` is the one
-    # we want — replacing all would also touch dep versions.
-    Invoke-Action -Description "Cargo.toml -> $bareVersion" -Action {
-        $content = Get-Content -Raw -LiteralPath $CargoToml
-        $pattern = '(?ms)(name\s*=\s*"control-center"\s*\nversion\s*=\s*")[^"]+(")'
+    # Mirrors are patched BY PATTERN (not old->new value) so a mirror that
+    # already drifted behind still snaps to the new version.
+    # install.ps1: $Script:VersionFallback = "vX.Y.Z"
+    Invoke-Action -Description "install.ps1 VersionFallback -> v$bareVersion" -Action {
+        $content = Get-Content -Raw -LiteralPath $InstallPs1
         $updated = [regex]::Replace(
             $content,
-            $pattern,
+            '(\$Script:VersionFallback\s*=\s*"v)[0-9]+\.[0-9]+\.[0-9]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $CargoToml -Value $updated -NoNewline -Encoding utf8
+        Set-Content -LiteralPath $InstallPs1 -Value $updated -NoNewline -Encoding utf8
     }
-    Write-Ok 'Cargo.toml'
+    Write-Ok 'install.ps1'
 
-    # tauri.conf.json: top-level "version".
-    Invoke-Action -Description "tauri.conf.json -> $bareVersion" -Action {
-        $content = Get-Content -Raw -LiteralPath $TauriConf
+    # scripts/cockpit/install-wizard.ps1: [string]$Version = "vX.Y.Z"
+    Invoke-Action -Description "install-wizard.ps1 Version -> v$bareVersion" -Action {
+        $content = Get-Content -Raw -LiteralPath $InstallWizard
         $updated = [regex]::Replace(
             $content,
-            '("version"\s*:\s*")[^"]+(")',
+            '(\[string\]\$Version\s*=\s*"v)[0-9]+\.[0-9]+\.[0-9]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $TauriConf -Value $updated -NoNewline -Encoding utf8
+        Set-Content -LiteralPath $InstallWizard -Value $updated -NoNewline -Encoding utf8
     }
-    Write-Ok 'tauri.conf.json'
+    Write-Ok 'install-wizard.ps1'
+
+    # install.sh: readonly ULTRON_VERSION="vX.Y.Z"
+    Invoke-Action -Description "install.sh ULTRON_VERSION -> v$bareVersion" -Action {
+        $content = Get-Content -Raw -LiteralPath $InstallSh
+        $updated = [regex]::Replace(
+            $content,
+            '(readonly\s+ULTRON_VERSION="v)[0-9]+\.[0-9]+\.[0-9]+(")',
+            { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
+            1)
+        Set-Content -LiteralPath $InstallSh -Value $updated -NoNewline -Encoding utf8
+    }
+    Write-Ok 'install.sh'
+
+    # Markdown pins (bootstrap URLs, badges, release links): replace the
+    # OUTGOING version by value. Historical mentions of older versions stay
+    # untouched by design; the propagate --check gate below catches leftovers.
+    Invoke-Action -Description "markdown pins v$oldVersion -> v$bareVersion" -Action {
+        foreach ($md in $MdTargets) {
+            if (-not (Test-Path -LiteralPath $md)) { continue }
+            $content = Get-Content -Raw -LiteralPath $md
+            if ($content -match [regex]::Escape("v$oldVersion")) {
+                $updated = $content -replace [regex]::Escape("v$oldVersion"), "v$bareVersion"
+                Set-Content -LiteralPath $md -Value $updated -NoNewline -Encoding utf8
+                Write-Ok ("markdown: " + (Split-Path -Leaf $md))
+            }
+        }
+    }
+
+    # uv.lock records the ultron package version; regenerate so the lock
+    # does not drift from pyproject.
+    Invoke-Action -Description 'uv lock (refresh ultron version in lockfile)' -Action {
+        if (Get-Command uv -ErrorAction SilentlyContinue) {
+            & uv lock 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warn 'uv lock returned non-zero; check uv.lock manually.' }
+        } else {
+            Write-Warn 'uv not on PATH - uv.lock not refreshed. Run "uv lock" manually before pushing.'
+        }
+    }
+    Write-Ok 'uv.lock'
+
+    # --------------------------------------------------------------
+    # 3b. Drift gate — the SAME check CI runs. If any mirror or markdown
+    #     pin is stale, abort BEFORE committing anything.
+    # --------------------------------------------------------------
+    Write-Step 'Drift gate (version_propagate.py --check)'
+    if ($DryRun) {
+        Write-Host '    [dry-run] uv run python scripts/cockpit/version_propagate.py --check' -ForegroundColor DarkGray
+    } else {
+        & uv run python (Join-Path $RepoRoot 'scripts\cockpit\version_propagate.py') --check
+        if ($LASTEXITCODE -ne 0) {
+            throw 'version_propagate --check FAILED after the bump. Fix the reported drift, then re-run. Nothing was committed.'
+        }
+        Write-Ok 'all mirrors match the new SSOT'
+    }
 
     # CHANGELOG warning.
     if (Test-Path $Changelog) {
@@ -215,8 +295,10 @@ try {
     # --------------------------------------------------------------
     Write-Step 'Creating release commit and tag'
 
-    Invoke-Action -Description 'git add (3 version files)' -Action {
-        git add $PackageJson $CargoToml $TauriConf
+    Invoke-Action -Description 'git add (SSOT + mirrors + markdown pins)' -Action {
+        git add $PyprojectToml $InstallPs1 $InstallWizard $InstallSh
+        if (Test-Path $UvLock) { git add $UvLock }
+        foreach ($md in $MdTargets) { if (Test-Path -LiteralPath $md) { git add $md } }
         if (Test-Path $Changelog) { git add $Changelog }
     }
 
@@ -255,21 +337,26 @@ try {
     } else {
         Write-Host @"
     1. Open the Actions tab on GitHub to watch the release workflow.
-       The 'release' job will produce a Windows installer and latest.json.
+       Both matrix legs must go green; finalize-release refuses to
+       publish the draft unless all 10 expected assets are attached.
+       Verify the REAL conclusion with:
+         gh run view <run-id> --json conclusion
+       (gh run watch --exit-status has returned 0 on failed runs.)
 
-    2. When the workflow finishes (~10-20 min on free tier), verify the
-       release on the GitHub Releases page:
-         - installer (.exe / .msi) attached
-         - latest.json attached and signed
-         - release notes look right
+    2. When the release is published, verify the assets list on the
+       GitHub Releases page: NSIS setup.exe, .msi, .deb, .AppImage,
+       ultron-system ZIP (+.sha256) and the two ultron-memory sidecars
+       (+.sha256). latest.json only appears if updater signing is
+       configured (auto-updater is OFF by default).
 
-    3. Smoke-test the installer on a clean Windows 11 VM. Confirm the
+    3. Smoke-test anonymous download (the path bootstrap + installer use):
+         curl -sL https://github.com/SkiTemplar/ultron/releases/latest/download/ultron-memory-windows-x64.exe.sha256
+
+    4. Smoke-test the installer on a clean Windows 11 VM. Confirm the
        SmartScreen warning is the only friction and the install completes.
 
-    4. From an older install, confirm the auto-updater detects $tagName
-       on next launch and installs cleanly.
-
-    5. Announce. The auto-updater handles existing installs from now on.
+    5. Announce. (Auto-updater is disabled; existing installs update by
+       re-running the installer or bootstrap.)
 "@
     }
 }
