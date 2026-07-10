@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-07-03",
+  "generated_at": "2026-07-10",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -195,6 +195,21 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "UserPromptSubmit: dispatcher v3 = v2 determinista + fallback semantico. En prompts de baja confianza (<0.80) consulta el daemon E5 (skill_query sobre ultron_skills_lazy, incl. .disabled, ~42ms warm) y anade un hint de skills por similitud. Reactivado 2026-06-26 al migrar del subproceso embed_skills.py (~10s) al daemon E5 residente. Fail-safe: sin daemon, degrada al determinista v2 sin coste."
+    },
+    {
+      "id": "socratic-gate",
+      "event": "UserPromptSubmit",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/socratic-gate.js",
+      "script": "~/.ultron/hooks/scripts/socratic-gate.js",
+      "timeout_s": 5,
+      "checksum_sha256": "9506d6f7c26b5933fdc2ab29629cf97b0c31c7e5e20df700e2eff2e1b455114b",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Gate socratico (decidido 2026-07-08): inyecta en cada UserPromptSubmit el protocolo de decisiones (la IA codea, el usuario decide arquitectura/resolucion con eleccion razonada). Version completa 1a vez por sesion, corta despues; escalada si detecta ack de bajo esfuerzo (ok/dale/lo que veas). No escribe memoria, nunca bloquea."
     },
     {
       "id": "save-user-prompt",
