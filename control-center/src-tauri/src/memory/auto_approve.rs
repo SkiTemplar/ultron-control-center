@@ -227,11 +227,85 @@ pub fn candidate_is_clean(candidate: &MemoryCandidate) -> bool {
     let has_duplicate = !candidate.duplicate_candidates.is_empty();
     // 1.7 fail-closed: una verificación incompleta (juez timeout / dedup Err) NO
     // puede auto-aprobarse — el candidato espera adjudicación humana en el inbox.
-    let has_unverified = candidate
+    let has_unverified = candidate_is_unverified(candidate);
+    !is_secret && !has_contradiction && !has_duplicate && !has_unverified
+}
+
+/// True cuando el candidato lleva algún marcador de verificación incompleta
+/// (`UNVERIFIED_TAGS`). Extraído de `candidate_is_clean` para que el drain
+/// full-auto pueda re-verificar exactamente estos.
+#[must_use]
+pub fn candidate_is_unverified(candidate: &MemoryCandidate) -> bool {
+    candidate
         .proposed_tags
         .iter()
-        .any(|t| UNVERIFIED_TAGS.iter().any(|u| t.eq_ignore_ascii_case(u)));
-    !is_secret && !has_contradiction && !has_duplicate && !has_unverified
+        .any(|t| UNVERIFIED_TAGS.iter().any(|u| t.eq_ignore_ascii_case(u)))
+}
+
+/// Por qué el drain full-auto rechaza un candidato (razón auditable en la
+/// tabla de candidatos; nada se borra).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectKind {
+    /// PII/credencial detectada en el write-path: NUNCA a active, ni en auto.
+    Secret,
+    /// Near-dup de un item ACTIVE: el existente se conserva, el nuevo sobra.
+    Duplicate,
+    /// Contradice un ACTIVE y el auto-supersede de captura no lo resolvió como
+    /// state-update claro: en full-auto gana el ACTIVE (conservador).
+    Contradiction,
+    /// Banda C: `confidence < REJECT_THRESHOLD` (ruido).
+    Noise,
+}
+
+/// Disposición FULL-AUTO de un candidato (`inbox drain --auto`).
+///
+/// (2026-07-13, decisión del usuario: "que no tenga yo que aceptar ni negar
+/// nada".) Difiere de las 3 bandas clásicas en dos puntos: la banda B se
+/// APRUEBA (no queda pending) y los no-clean se RESUELVEN en vez de esperar
+/// ojo humano — secret y ruido se rechazan, duplicados y contradicciones se
+/// rechazan conservando el ACTIVE existente. Lo ÚNICO que puede quedar
+/// pending es una verificación que sigue sin poder correr tras re-intentarla
+/// (infra caída): el fail-closed del write-path NO se relaja ni en modo auto,
+/// porque aprobar sin verdicto es exactamente el bug 1.7 que se cerró.
+///
+/// Precedencia: Secret > Duplicate > Contradiction > Unverified > bandas.
+/// Duplicado/contradicción van ANTES que unverified: si el hallazgo ya existe,
+/// la verificación que falta solo podría añadir MÁS motivos para no aprobar.
+///
+/// Pure (no I/O) — unit-testeada sin DB.
+#[must_use]
+pub fn auto_disposition(candidate: &MemoryCandidate) -> AutoDisposition {
+    if candidate
+        .risk_level
+        .eq_ignore_ascii_case(SECRET_RISK_MARKER)
+    {
+        return AutoDisposition::Reject(RejectKind::Secret);
+    }
+    if !candidate.duplicate_candidates.is_empty() {
+        return AutoDisposition::Reject(RejectKind::Duplicate);
+    }
+    if !candidate.contradiction_candidates.is_empty() {
+        return AutoDisposition::Reject(RejectKind::Contradiction);
+    }
+    if candidate_is_unverified(candidate) {
+        return AutoDisposition::KeepUnverified;
+    }
+    if candidate.confidence < REJECT_THRESHOLD {
+        return AutoDisposition::Reject(RejectKind::Noise);
+    }
+    AutoDisposition::Approve
+}
+
+/// Resultado de `auto_disposition` (ver ahí la política completa).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoDisposition {
+    /// Promover a active (bandas A y B: en full-auto la B no espera).
+    Approve,
+    /// Rechazar con motivo auditable.
+    Reject(RejectKind),
+    /// Verificación incompleta que no se pudo re-correr: queda pending
+    /// (fail-closed intacto incluso en modo auto).
+    KeepUnverified,
 }
 
 #[cfg(test)]
@@ -285,6 +359,74 @@ mod tests {
         let mut c2 = clean_candidate();
         c2.proposed_tags.push("UNJUDGED".to_string());
         assert!(!candidate_is_clean(&c2));
+    }
+
+    // --- drain --auto (2026-07-13): política full-auto ----------------------
+
+    #[test]
+    fn auto_disposition_secret_rejects_even_if_unverified() {
+        // Secret manda sobre todo: aunque además esté unjudged, PII nunca a
+        // active — y tampoco se queda eternamente pending en modo auto.
+        let mut c = clean_candidate();
+        c.risk_level = SECRET_RISK_MARKER.to_string();
+        c.proposed_tags.push("unjudged".to_string());
+        assert_eq!(
+            auto_disposition(&c),
+            AutoDisposition::Reject(RejectKind::Secret)
+        );
+    }
+
+    #[test]
+    fn auto_disposition_duplicate_rejects_even_if_unjudged() {
+        // El hallazgo de duplicado ya existe: la verificación que falta solo
+        // podría añadir MÁS motivos para no aprobar. Se rechaza, no se espera.
+        let mut c = clean_candidate();
+        c.duplicate_candidates.push("existing-id".to_string());
+        c.proposed_tags.push("unjudged".to_string());
+        assert_eq!(
+            auto_disposition(&c),
+            AutoDisposition::Reject(RejectKind::Duplicate)
+        );
+    }
+
+    #[test]
+    fn auto_disposition_contradiction_rejects_keeping_active() {
+        let mut c = clean_candidate();
+        c.confidence = 0.9;
+        c.contradiction_candidates.push("active-id".to_string());
+        assert_eq!(
+            auto_disposition(&c),
+            AutoDisposition::Reject(RejectKind::Contradiction)
+        );
+    }
+
+    #[test]
+    fn auto_disposition_unverified_clean_keeps_pending() {
+        // Fail-closed intacto en modo auto: sin verdicto (y sin hallazgos ya
+        // conocidos) NO se aprueba — queda pending hasta que el juez corra.
+        let mut c = clean_candidate();
+        c.confidence = 0.9;
+        c.proposed_tags.push("unjudged".to_string());
+        assert_eq!(auto_disposition(&c), AutoDisposition::KeepUnverified);
+    }
+
+    #[test]
+    fn auto_disposition_band_b_approves_in_full_auto() {
+        // Diferencia clave vs las 3 bandas: la banda B (media confianza) se
+        // aprueba — el objetivo del modo es inbox 0 sin adjudicación humana.
+        let mut c = clean_candidate();
+        c.confidence = 0.60; // >= REJECT_THRESHOLD, < threshold típico (0.72)
+        assert_eq!(auto_disposition(&c), AutoDisposition::Approve);
+    }
+
+    #[test]
+    fn auto_disposition_noise_still_rejects() {
+        let mut c = clean_candidate();
+        c.confidence = REJECT_THRESHOLD - 0.01;
+        assert_eq!(
+            auto_disposition(&c),
+            AutoDisposition::Reject(RejectKind::Noise)
+        );
     }
 
     #[test]

@@ -519,6 +519,160 @@ impl MemoryService {
         Ok(c)
     }
 
+    /// (2026-07-13, `inbox drain --auto`) Re-corre las verificaciones que
+    /// quedaron incompletas en el hot path de captura (`unjudged` /
+    /// `dedup-unverified`). Causa estructural: la captura corre en un one-shot
+    /// del CLI con E5 frío (1.4-3.3 s) y el juez agota su budget de 4.5 s, así
+    /// que el inbox se re-acumulaba aunque el auto-approve estuviera ON. El
+    /// drain es headless: aquí NO hay presupuesto interactivo — juez y dedup
+    /// corren síncronos y el coste E5 se paga UNA vez por lote de drain.
+    ///
+    /// Espeja la semántica de captura: dedup near-dup (Jaccard >= NEAR_DUP) →
+    /// Merge; juez con hallazgos → supersede_disposition (state-update 1:1
+    /// claro auto-supersede si el flag está ON) o Quarantine; sin hallazgos →
+    /// tag fuera. Fail-closed: si la infra sigue caída, el tag se queda y el
+    /// candidato sigue pending. Persiste los cambios (INSERT OR REPLACE) y
+    /// devuelve el candidato actualizado; si auto-supersedió, vuelve con
+    /// status Approved.
+    pub fn reverify_candidate(candidate: &MemoryCandidate) -> Result<MemoryCandidate, MemoryError> {
+        let conn = store::open_conn()?;
+        let mut cand = candidate.clone();
+        let mut changed = false;
+        let drop_tag = |tags: &mut Vec<String>, marker: &str| {
+            tags.retain(|t| !t.eq_ignore_ascii_case(marker));
+        };
+
+        // --- dedup re-run (tag `dedup-unverified`) --------------------------
+        if cand
+            .proposed_tags
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case("dedup-unverified"))
+        {
+            let summary = cand.proposed_summary.clone().unwrap_or_default();
+            if summary.trim().is_empty() {
+                // Sin texto no hay nada que dedupear: verificado-vacío legítimo.
+                drop_tag(&mut cand.proposed_tags, "dedup-unverified");
+                changed = true;
+            } else if let Ok(similar) = store::search_items(&conn, &summary, Status::Active, 3) {
+                let dups: Vec<String> = similar
+                    .into_iter()
+                    .filter(|i| {
+                        let hay = format!(
+                            "{} {}",
+                            i.title.as_deref().unwrap_or(""),
+                            i.summary.as_deref().unwrap_or("")
+                        );
+                        jaccard_overlap(&summary, &hay) >= NEAR_DUP_JACCARD
+                    })
+                    .map(|i| i.id)
+                    .collect();
+                if !dups.is_empty() {
+                    cand.duplicate_candidates = dups;
+                    cand.recommended_action = CandidateAction::Merge;
+                }
+                drop_tag(&mut cand.proposed_tags, "dedup-unverified");
+                changed = true;
+            }
+            // Err de FTS5/SQLite: el tag se queda (fail-closed, igual que captura).
+        }
+
+        // --- juez de contradicción re-run (tag `unjudged`) ------------------
+        let mut supersede_target: Option<String> = None;
+        if cand
+            .proposed_tags
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case("unjudged"))
+        {
+            let check_text = cand
+                .proposed_summary
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| {
+                    cand.proposed_content
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                })
+                .map(str::to_string);
+            match check_text {
+                None => {
+                    // Sin proposición no hay contradicción posible (limpio legítimo).
+                    drop_tag(&mut cand.proposed_tags, "unjudged");
+                    changed = true;
+                }
+                Some(text) => {
+                    let project = cand.proposed_project_id.clone().or_else(|| {
+                        cand.proposed_tags
+                            .iter()
+                            .find_map(|t| t.strip_prefix("project:").map(str::to_string))
+                    });
+                    match super::super::contradiction::check(&conn, &text, project.as_deref()) {
+                        Some(findings) => {
+                            if !findings.is_empty() {
+                                for f in &findings {
+                                    if !cand.contradiction_candidates.contains(&f.conflicting_id) {
+                                        cand.contradiction_candidates
+                                            .push(f.conflicting_id.clone());
+                                    }
+                                }
+                                match super::super::contradiction::supersede_disposition(
+                                    &findings,
+                                    super::super::auto_approve::auto_supersede_enabled(),
+                                ) {
+                                    super::super::contradiction::Disposition::Supersede(old_id) => {
+                                        supersede_target = Some(old_id)
+                                    }
+                                    _ => {
+                                        // Secret tiene precedencia; no degradar su quarantine.
+                                        if !cand.risk_level.eq_ignore_ascii_case(SECRET_RISK_MARKER)
+                                        {
+                                            cand.recommended_action = CandidateAction::Quarantine;
+                                        }
+                                    }
+                                }
+                            }
+                            drop_tag(&mut cand.proposed_tags, "unjudged");
+                            changed = true;
+                        }
+                        None => { /* infra caída: tag se queda (fail-closed) */ }
+                    }
+                }
+            }
+        }
+
+        if changed {
+            store::insert_candidate(&conn, &cand)?; // INSERT OR REPLACE = update
+            let ev = MemoryEvent::new(EventType::Edited, None, Actor::System)
+                .with_reason(format!("candidate {} reverified (drain --auto)", cand.id))
+                .with_after(serde_json::to_string(&cand).unwrap_or_default());
+            let _ = store::insert_event(&conn, &ev);
+        }
+
+        // Auto-supersede (mismo orden fail-safe que captura: supersede PRIMERO,
+        // solo si tiene éxito el candidato pasa a Approved).
+        if let Some(old_id) = supersede_target {
+            let new_item = cand.to_item(Status::Active, Source::AssistantInferred);
+            drop(conn); // supersede abre su propia conexión.
+            match Self::supersede(&old_id, new_item, Actor::System) {
+                Ok(_) => {
+                    if let Ok(c2) = store::open_conn() {
+                        let _ =
+                            store::set_candidate_status(&c2, &cand.id, CandidateStatus::Approved);
+                        cand.status = CandidateStatus::Approved;
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[service::reverify_candidate] auto-supersede de {old_id} falló ({e}); \
+                         candidato {} queda Pending",
+                        cand.id
+                    );
+                }
+            }
+        }
+
+        Ok(cand)
+    }
+
     /// List candidates awaiting a human (or policy) decision.
     pub fn list_pending_candidates(limit: usize) -> Result<Vec<MemoryCandidate>, MemoryError> {
         let conn = store::open_conn()?;

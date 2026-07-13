@@ -30,7 +30,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync, spawn, spawnSync } = require('child_process');
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
@@ -598,6 +598,30 @@ async function main() {
         code: cap.status,
         out: (cap.stdout || '').slice(0, 200),
       });
+      // (2026-07-13) Inbox 100% autonomo (decision del usuario): drena el stock
+      // justo despues de capturar, detached fire-and-forget — la re-verificacion
+      // (juez de contradiccion + dedup, con E5 en proceso) tarda segundos por
+      // lote y NO debe bloquear el Stop. La politica vive en el binario
+      // (`inbox drain --auto`): re-verifica los unjudged, aprueba bandas A/B,
+      // rechaza secret/duplicado/conflicto/ruido con razon auditable. Sin esto
+      // los candidatos `unjudged` (E5 frio agotaba el budget 4.5s del juez en
+      // el one-shot de captura) se acumulaban pending para siempre.
+      try {
+        const drain = spawn(memBin, ['inbox', 'drain', '--auto'], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        drain.unref();
+        safeLog({ level: 'info', msg: 'inbox_drain_auto_spawned', sessionId });
+      } catch (e2) {
+        safeLog({
+          level: 'warn',
+          msg: 'inbox_drain_auto_failed',
+          sessionId,
+          error: String(e2 && e2.message),
+        });
+      }
     }
   } catch (e) {
     safeLog({

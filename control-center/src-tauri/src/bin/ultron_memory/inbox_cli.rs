@@ -47,20 +47,123 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                 "failed": failed,
             }))
         }
-        // Drena el stock pendiente aplicando LA MISMA politica de 3 bandas que el
-        // write-path usa con auto-approve ON (un solo criterio, no dos):
+        // Drena el stock pendiente. Dos modos:
+        //
+        // CLASICO (sin flag): LA MISMA politica de 3 bandas que el write-path
+        // usa con auto-approve ON (un solo criterio, no dos):
         //   - no-clean (secreto/contradiccion/duplicado/unverified) -> QUEDA pending
         //     (adjudicacion en sesion; la salvaguarda no se relaja en bulk).
         //   - banda A (clean + confidence >= threshold) -> approve (Actor::System).
         //   - banda C (confidence < 0.55) -> reject (ruido).
         //   - banda B -> queda pending.
-        // `--dry-run` solo cuenta. Feedback del usuario 2026-07-02: inbox autonomo.
+        //
+        // FULL-AUTO (`--auto`, decision del usuario 2026-07-13: "que no tenga yo
+        // que aceptar ni negar nada"): cero adjudicacion humana.
+        //   1. Los unverified se RE-VERIFICAN aqui (reverify_candidate: el juez
+        //      y el dedup corren sin presupuesto interactivo; la causa del stock
+        //      era el E5 frio del one-shot de captura agotando el budget 4.5s).
+        //      Un state-update 1:1 claro auto-supersede en la re-verificacion.
+        //   2. auto_disposition decide TODO lo demas: secret/PII -> reject
+        //      (nunca a active), duplicado/contradiccion -> reject conservando
+        //      el ACTIVE, banda C -> reject (ruido), bandas A y B -> approve.
+        //      Solo queda pending lo que siga sin poder verificarse (infra
+        //      caida): el fail-closed del write-path no se relaja ni en auto.
+        //
+        // `--dry-run` solo cuenta (en --auto tambien evita la re-verificacion,
+        // porque esta persiste hallazgos). Feedback 2026-07-02: inbox autonomo.
         "drain" => {
             let dry = args.iter().any(|a| a == "--dry-run");
+            let auto = args.iter().any(|a| a == "--auto");
             let threshold = auto_approve::auto_approve_threshold();
             let pending =
                 MemoryService::list_pending_candidates(usize::MAX).map_err(|e| e.to_string())?;
             let total = pending.len();
+
+            if auto {
+                let (mut approved, mut superseded, mut kept_unverified, mut failed) =
+                    (0u32, 0u32, 0u32, 0u32);
+                let (mut rej_secret, mut rej_dup, mut rej_conflict, mut rej_noise) =
+                    (0u32, 0u32, 0u32, 0u32);
+                for cand in pending {
+                    // Re-verificacion primero (persiste; en dry-run se salta y
+                    // el candidato se clasifica con lo que ya se sabe de el).
+                    let cand = if !dry && auto_approve::candidate_is_unverified(&cand) {
+                        MemoryService::reverify_candidate(&cand).unwrap_or(cand)
+                    } else {
+                        cand
+                    };
+                    if cand.status == ul::memory::CandidateStatus::Approved {
+                        superseded += 1; // auto-supersede ejecutado en reverify
+                        continue;
+                    }
+                    use auto_approve::{AutoDisposition, RejectKind};
+                    match auto_approve::auto_disposition(&cand) {
+                        AutoDisposition::Approve => {
+                            if dry {
+                                approved += 1;
+                            } else {
+                                match MemoryService::approve_candidate(&cand.id, Actor::System) {
+                                    Ok(_) => approved += 1,
+                                    Err(_) => failed += 1,
+                                }
+                            }
+                        }
+                        AutoDisposition::KeepUnverified => kept_unverified += 1,
+                        AutoDisposition::Reject(kind) => {
+                            let (counter, reason): (&mut u32, String) = match kind {
+                                RejectKind::Secret => (
+                                    &mut rej_secret,
+                                    "drain --auto: secret/PII — nunca a active".into(),
+                                ),
+                                RejectKind::Duplicate => (
+                                    &mut rej_dup,
+                                    format!(
+                                        "drain --auto: near-dup de {} (el ACTIVE se conserva)",
+                                        cand.duplicate_candidates.join(", ")
+                                    ),
+                                ),
+                                RejectKind::Contradiction => (
+                                    &mut rej_conflict,
+                                    format!(
+                                        "drain --auto: contradice {} — gana el ACTIVE",
+                                        cand.contradiction_candidates.join(", ")
+                                    ),
+                                ),
+                                RejectKind::Noise => (
+                                    &mut rej_noise,
+                                    "drain --auto: banda C (ruido, confidence < 0.55)".into(),
+                                ),
+                            };
+                            if dry {
+                                *counter += 1;
+                            } else {
+                                match MemoryService::reject_candidate(
+                                    &cand.id,
+                                    Actor::System,
+                                    Some(reason),
+                                ) {
+                                    Ok(()) => *counter += 1,
+                                    Err(_) => failed += 1,
+                                }
+                            }
+                        }
+                    }
+                }
+                return Ok(serde_json::json!({
+                    "mode": "auto",
+                    "dry_run": dry,
+                    "total": total,
+                    "approved": approved,
+                    "superseded": superseded,
+                    "rejected_secret": rej_secret,
+                    "rejected_duplicate": rej_dup,
+                    "rejected_contradiction": rej_conflict,
+                    "rejected_noise": rej_noise,
+                    "kept_unverified": kept_unverified,
+                    "failed": failed,
+                }));
+            }
+
             let (mut approved, mut rejected, mut kept_b, mut kept_unclean, mut failed) =
                 (0u32, 0u32, 0u32, 0u32, 0u32);
             for cand in pending {
@@ -142,7 +245,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
             Ok(serde_json::json!({ "auto_approve": saved.auto_approve }))
         }
         "" => Err(
-            "usage: ultron-memory inbox <list|drain [--dry-run]|approve --id <id>|reject --id <id> [--reason R]|approve-clean|approve-all|auto-approve <on|off>>"
+            "usage: ultron-memory inbox <list|drain [--dry-run] [--auto]|approve --id <id>|reject --id <id> [--reason R]|approve-clean|approve-all|auto-approve <on|off>>"
                 .to_string(),
         ),
         other => Err(format!("unknown inbox subcommand '{other}'")),
