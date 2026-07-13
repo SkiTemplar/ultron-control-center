@@ -122,6 +122,15 @@ fn run() -> Result<serde_json::Value, String> {
             };
             ul::memory::backfill::run(&opts)
         }
+        // Curación puntual: mueve TODOS los items de un project_id a otro slug
+        // canónico (ids legado que el normalize no puede plegar). Dry-run salvo --apply.
+        "reassign-project" => {
+            let from = flag_value(&args, "--from")
+                .ok_or_else(|| "reassign-project requiere --from <project_id>".to_string())?;
+            let to = flag_value(&args, "--to")
+                .ok_or_else(|| "reassign-project requiere --to <slug-canonico>".to_string())?;
+            ul::memory::backfill::reassign_project(&from, &to, has_flag(&args, "--apply"))
+        }
         "reindex" => {
             let (indexed, errors) =
                 ul::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;

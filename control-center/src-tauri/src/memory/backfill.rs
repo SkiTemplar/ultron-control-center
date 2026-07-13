@@ -194,6 +194,39 @@ fn set_item_project(
     Ok(())
 }
 
+/// Reasigna TODOS los items de un `project_id` a otro. Curación puntual de ids
+/// legado que el normalize no puede plegar por slug ('Entorno-Oryntic' ->
+/// 'oryntics-entorno'). El destino debe ser un slug canónico del cockpit
+/// (no se permite inventar proyectos). Dry-run salvo `apply`.
+pub fn reassign_project(from: &str, to: &str, apply: bool) -> Result<serde_json::Value, String> {
+    let canon = canonical_slugs();
+    if !canon.contains(to) {
+        return Err(format!(
+            "'{to}' no es un slug canónico de cockpit/projects — destino rechazado"
+        ));
+    }
+    let conn = store::open_conn().map_err(|e| e.to_string())?;
+    let ids: Vec<String> = {
+        let mut s = conn
+            .prepare("SELECT id FROM memory_items WHERE project_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let collected: Vec<String> = s
+            .query_map([from], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
+        collected
+    };
+    if apply {
+        for id in &ids {
+            set_item_project(&conn, id, to, "reassign")?;
+        }
+    }
+    Ok(serde_json::json!({
+        "apply": apply, "from": from, "to": to, "reassigned": ids.len(),
+    }))
+}
+
 /// Ejecuta el backfill completo. Devuelve el informe JSON (contadores + muestras).
 pub fn run(opts: &BackfillOpts) -> Result<serde_json::Value, String> {
     let conn = store::open_conn().map_err(|e| e.to_string())?;
