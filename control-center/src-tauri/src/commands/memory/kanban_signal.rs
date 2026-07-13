@@ -76,9 +76,9 @@ fn ordered_col_ids(columns: &[Value], role: &str) -> Vec<String> {
         .collect()
 }
 
-/// Titles of every card in the given columns, ordered by column then by the
-/// card's `order`. Empty when no card has a title.
-fn ordered_card_titles(cards: &[Value], col_ids: &[String]) -> Vec<String> {
+/// Card refs in the given columns, ordered by column then by the card's
+/// `order`. Base of `ordered_card_titles` and of the age-aware next-action.
+fn ordered_cards<'a>(cards: &'a [Value], col_ids: &[String]) -> Vec<&'a Value> {
     let mut out = Vec::new();
     for cid in col_ids {
         let mut in_col: Vec<&Value> = cards
@@ -90,30 +90,71 @@ fn ordered_card_titles(cards: &[Value], col_ids: &[String]) -> Vec<String> {
                 .and_then(|o| o.as_i64())
                 .unwrap_or(i64::MAX)
         });
-        for card in in_col {
-            if let Some(t) = card.get("title").and_then(|t| t.as_str()) {
-                out.push(t.to_string());
-            }
-        }
+        out.extend(in_col);
     }
     out
 }
 
+/// Titles of every card in the given columns, ordered by column then by the
+/// card's `order`. Empty when no card has a title.
+fn ordered_card_titles(cards: &[Value], col_ids: &[String]) -> Vec<String> {
+    ordered_cards(cards, col_ids)
+        .into_iter()
+        .filter_map(|card| card.get("title").and_then(|t| t.as_str()).map(String::from))
+        .collect()
+}
+
+/// (2026-07-13) Edad visible del next_action. El resume ordena "FIATE de este
+/// resume" pero la card puede llevar días sin tocarse mientras la memoria de
+/// archivo/commits ya van por delante (Fase 4 cerrada el 07-11 con la card aún
+/// en In Progress). A partir de este umbral la anotamos para que el modelo
+/// trate el dato con la desconfianza que merece en vez de ejecutarlo a ciegas.
+const STALE_ANNOTATION_AFTER_DAYS: i64 = 2;
+
+/// `updated_at` de una card (ISO-8601 / RFC-3339) en epoch millis.
+fn card_updated_at_ms(card: &Value) -> Option<i64> {
+    let raw = card.get("updated_at")?.as_str()?;
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
+}
+
+/// Anota el título con la edad de la card cuando supera el umbral. Sin
+/// `updated_at` parseable no se anota (no inventar frescura NI vejez).
+fn annotate_stale(title: &str, updated_ms: Option<i64>, now_ms: i64) -> String {
+    let Some(updated) = updated_ms else {
+        return title.to_string();
+    };
+    let age_days = (now_ms.saturating_sub(updated)) / (24 * 60 * 60 * 1000);
+    if age_days >= STALE_ANNOTATION_AFTER_DAYS {
+        format!("{title} (kanban: sin tocar hace {age_days} días — verifica que siga vigente)")
+    } else {
+        title.to_string()
+    }
+}
+
 /// Pick the live next-action title from an already-parsed kanban document.
 /// Order: first In-Progress (role == "doing") card by column order, else the
-/// top Backlog (role == "todo") card. Returns the card title.
+/// top Backlog (role == "todo") card. Returns the card title, anotado con su
+/// edad cuando la card lleva >= STALE_ANNOTATION_AFTER_DAYS sin tocarse.
 ///
-/// Pure over the parsed JSON so it is testable from a fixture without IO.
-pub fn next_action_from_kanban(doc: &Value) -> Option<String> {
+/// Pure over the parsed JSON so it is testable from a fixture without IO
+/// (`now_ms` inyectado).
+pub fn next_action_from_kanban(doc: &Value, now_ms: i64) -> Option<String> {
     let columns = doc.get("columns")?.as_array()?;
     let cards = doc.get("cards")?.as_array()?;
-    ordered_card_titles(cards, &ordered_col_ids(columns, "doing"))
+    ordered_cards(cards, &ordered_col_ids(columns, "doing"))
         .into_iter()
         .next()
         .or_else(|| {
-            ordered_card_titles(cards, &ordered_col_ids(columns, "todo"))
+            ordered_cards(cards, &ordered_col_ids(columns, "todo"))
                 .into_iter()
                 .next()
+        })
+        .and_then(|card| {
+            card.get("title")
+                .and_then(|t| t.as_str())
+                .map(|title| annotate_stale(title, card_updated_at_ms(card), now_ms))
         })
 }
 
@@ -150,7 +191,7 @@ pub fn kanban_next_action(root: &Path, project: &str) -> Option<String> {
         .join("kanban.json");
     let raw = std::fs::read_to_string(&path).ok()?;
     let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    next_action_from_kanban(&doc)
+    next_action_from_kanban(&doc, crate::memory::model::now_millis())
 }
 
 /// Read the project's kanban and return its LIVE open-task titles (capped).
@@ -188,6 +229,9 @@ mod tests {
         })
     }
 
+    // now fijo para tests: 2026-07-13T00:00:00Z en epoch millis.
+    const NOW_MS: i64 = 1_783_900_800_000;
+
     #[test]
     fn next_action_prefers_in_progress_card() {
         let doc = kanban(serde_json::json!([
@@ -196,7 +240,7 @@ mod tests {
             {"id": "z1", "column_id": "c-done", "title": "old done card", "order": 0}
         ]));
         assert_eq!(
-            next_action_from_kanban(&doc).as_deref(),
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
             Some("Fix session resume"),
             "In-Progress card must win over Backlog and Done"
         );
@@ -209,7 +253,7 @@ mod tests {
             {"id": "b1", "column_id": "c-back", "title": "First backlog", "order": 0}
         ]));
         assert_eq!(
-            next_action_from_kanban(&doc).as_deref(),
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
             Some("First backlog"),
             "lowest-order Backlog card when no In-Progress exists"
         );
@@ -220,7 +264,59 @@ mod tests {
         let doc = kanban(serde_json::json!([
             {"id": "z1", "column_id": "c-done", "title": "done", "order": 0}
         ]));
-        assert_eq!(next_action_from_kanban(&doc), None);
+        assert_eq!(next_action_from_kanban(&doc, NOW_MS), None);
+    }
+
+    // (2026-07-13) Edad visible: una card que lleva >= 2 dias sin tocarse se
+    // anota — el fallo real fue una card "Fase 4" 3 dias stale ejecutada como
+    // orden por el startup_policy del resume.
+    #[test]
+    fn next_action_annotates_stale_card_with_age() {
+        // updated_at 3 dias antes de NOW_MS.
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "Fase 4 — tests", "order": 0,
+             "updated_at": "2026-07-10T00:00:00.000Z"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("Fase 4 — tests (kanban: sin tocar hace 3 días — verifica que siga vigente)"),
+            "card stale debe llevar su edad visible"
+        );
+    }
+
+    #[test]
+    fn next_action_fresh_card_is_not_annotated() {
+        // updated_at 6 horas antes de NOW_MS -> sin anotacion.
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "En curso hoy", "order": 0,
+             "updated_at": "2026-07-12T18:00:00.000Z"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("En curso hoy"),
+            "card fresca no se anota"
+        );
+    }
+
+    // Caso negativo: sin updated_at (o invalido) NO se inventa ni frescura ni
+    // vejez — el titulo va limpio.
+    #[test]
+    fn next_action_without_updated_at_is_not_annotated() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "Sin fecha", "order": 0},
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("Sin fecha")
+        );
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "Fecha rota", "order": 0,
+             "updated_at": "no-es-una-fecha"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("Fecha rota")
+        );
     }
 
     // Caso negativo (Kirkardo 7): una task "completada/pasado" NUNCA es elegible.
