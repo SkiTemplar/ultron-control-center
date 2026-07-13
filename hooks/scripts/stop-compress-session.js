@@ -342,8 +342,29 @@ function projectName(cwd) {
 // Decision auto-capture (Control Center "Decisions" panel)
 // ---------------------------------------------------------------------------
 // Resolve the authoritative project_id used by the Control Center by matching
-// cwd against the registered project paths in cockpit/projects.json. Falls back
-// to the cwd basename with a leading dot stripped (".ultron" -> "ultron").
+// cwd against the registered project paths in cockpit/projects.json.
+//
+// Fallback (endurecido 2026-07-13): antes devolvia el basename A PELO del cwd,
+// y eso fabricaba project_ids basura en brain.db — el nombre de usuario (el home dir como
+// proyecto, 53 items), 'src' (11), 'Tortunabo'/'Procedural Terrain' (variantes
+// de casing que el filtro de recall trataba como proyectos distintos). Ahora:
+// basename slugificado, y los basenames que NO son un proyecto (home del
+// usuario, dirs genericos de codigo/build) devuelven null -> la captura queda
+// AMBIENTE (sin --project), que es lo que significa "no se de que proyecto es".
+
+const JUNK_BASENAMES = new Set([
+  'src', 'dist', 'build', 'out', 'bin', 'lib', 'node_modules', 'scripts',
+  'temp', 'tmp', 'downloads', 'desktop', 'documents', 'unknown', 'system32',
+]);
+
+function slugifyProjectId(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .join('-')
+    .replace(/_/g, '-');
+}
 
 function resolveProjectId(cwd) {
   try {
@@ -366,7 +387,15 @@ function resolveProjectId(cwd) {
   } catch (_) {
     // fall through to basename fallback
   }
-  return path.basename(cwd || process.cwd() || 'unknown').replace(/^\./, '');
+  const target = cwd || process.cwd() || '';
+  try {
+    if (path.resolve(target) === path.resolve(os.homedir())) return null; // home no es un proyecto
+  } catch (_) {
+    /* si resolve falla, sigue el slug */
+  }
+  const slug = slugifyProjectId(path.basename(target).replace(/^\./, ''));
+  if (!slug || JUNK_BASENAMES.has(slug)) return null;
+  return slug;
 }
 
 // [erradicado 2026-07-01 · cat20.3] appendPendingDecisions escribia
@@ -560,12 +589,17 @@ async function main() {
 
   const projectId = resolveProjectId(cwd);
 
-  // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
-  writeCompact(projectId, sessionId, cwd, turns, facts, date);
+  // projectId=null (cwd sin proyecto: home, dir generico) -> nada de escribir
+  // en cockpit/projects/<null>/ ni de estampar un proyecto inventado; la
+  // captura de abajo va SIN --project (candidato ambiente, down-rankeado).
+  if (projectId) {
+    // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
+    writeCompact(projectId, sessionId, cwd, turns, facts, date);
 
-  // Captura automatica de contexto de proyecto (kind=context) -> context.md, que
-  // el SessionStart del mismo proyecto reinyecta. Best-effort.
-  appendProjectContext(projectId, facts);
+    // Captura automatica de contexto de proyecto (kind=context) -> context.md, que
+    // el SessionStart del mismo proyecto reinyecta. Best-effort.
+    appendProjectContext(projectId, facts);
+  }
 
   // OLA write-path (2026-06-04): propose GOVERNED memory candidates via the
   // `ultron-memory capture` sidecar. The sidecar re-runs extraction through the
@@ -583,7 +617,9 @@ async function main() {
         .slice(-8000);
       // Provenance episódica: --session estampa source_session_id en cada
       // candidate que la captura proponga (verificable via `provenance --id`).
-      const captureArgs = ['capture', '--project', projectId];
+      // Sin projectId (cwd sin proyecto) se captura SIN --project: ambiente.
+      const captureArgs = ['capture'];
+      if (projectId) captureArgs.push('--project', projectId);
       if (sessionId) captureArgs.push('--session', String(sessionId));
       const cap = spawnSync(memBin, captureArgs, {
         input: transcriptText,

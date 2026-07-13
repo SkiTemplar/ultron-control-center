@@ -3948,8 +3948,34 @@ async function evaluate() {
   return output;
 }
 
+// (2026-07-13) Barrido de residuo __kirkardo_test__ en la DB de PRODUCCION.
+// Los e2e de approve/supersede promueven probes a ITEMS activos via el binario
+// real; el "reject garantizado" del candidato no borra el item ya promovido —
+// asi se acumularon 33 items de test en brain.db (purga 2026-07-13). Barre al
+// ARRANCAR (residuo de runs anteriores o crasheados) y al SALIR (exit y error).
+// Best-effort: un fallo del barrido nunca rompe la eval.
+function sweepKirkardoTestItems(label) {
+  try {
+    const q = sql20(`SELECT id FROM memory_items WHERE project_id='__kirkardo_test__'`);
+    if (q.err || q.nodata || !q.rows || !q.rows.length) return;
+    let n = 0;
+    for (const row of q.rows) {
+      const r = run(
+        `"${fwd(ULTRON_MEM)}" forget --id ${row.id} --reason "kirkardo-eval sweep (${label}): probe residual de test"`,
+        { timeout: 15000 },
+      );
+      if (r.status === 0) n++;
+    }
+    if (n) console.log(`[sweep] ${n} item(s) __kirkardo_test__ purgados de brain.db (${label})`);
+  } catch {
+    /* best-effort */
+  }
+}
+
+sweepKirkardoTestItems("start");
 evaluate()
   .then((out) => {
+    sweepKirkardoTestItems("exit");
     // --gate: exit !=0 si alguna categoria esta por debajo del umbral (gate CI estricto).
     // Sin el flag mantiene exit 0 (compatibilidad) pero imprime VERDICT: FAIL.
     // gate basado en los laggards de las cats que REALMENTE corrieron: un scoped que
@@ -3958,6 +3984,7 @@ evaluate()
     if (FLAG_GATE && out.laggards.length > 0) process.exit(2);
   })
   .catch((e) => {
+    sweepKirkardoTestItems("exit-error");
     console.error("Error en kirkardo-eval:", e);
     process.exit(1);
   });

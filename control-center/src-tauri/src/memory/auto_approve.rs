@@ -275,6 +275,17 @@ pub enum RejectKind {
 /// Pure (no I/O) — unit-testeada sin DB.
 #[must_use]
 pub fn auto_disposition(candidate: &MemoryCandidate) -> AutoDisposition {
+    // (2026-07-13) Probes del harness Kirkardo: material de test que usa el
+    // write-path REAL. Jamás a active por la vía auto — así se colaron 33
+    // items de test a brain.db (banda A con confidence 0.9 los promovía).
+    let is_test_probe = candidate.proposed_project_id.as_deref() == Some("__kirkardo_test__")
+        || candidate
+            .proposed_tags
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case("project:__kirkardo_test__"));
+    if is_test_probe {
+        return AutoDisposition::Reject(RejectKind::Noise);
+    }
     if candidate
         .risk_level
         .eq_ignore_ascii_case(SECRET_RISK_MARKER)
@@ -362,6 +373,27 @@ mod tests {
     }
 
     // --- drain --auto (2026-07-13): política full-auto ----------------------
+
+    #[test]
+    fn auto_disposition_test_probe_never_approves() {
+        // Un probe del harness con confidence alta (banda A) se rechaza SIEMPRE
+        // por la vía auto — es material de test, no memoria.
+        let mut c = clean_candidate();
+        c.confidence = 0.9;
+        c.proposed_project_id = Some("__kirkardo_test__".to_string());
+        assert_eq!(
+            auto_disposition(&c),
+            AutoDisposition::Reject(RejectKind::Noise)
+        );
+        let mut c2 = clean_candidate();
+        c2.confidence = 0.9;
+        c2.proposed_tags
+            .push("project:__kirkardo_test__".to_string());
+        assert_eq!(
+            auto_disposition(&c2),
+            AutoDisposition::Reject(RejectKind::Noise)
+        );
+    }
 
     #[test]
     fn auto_disposition_secret_rejects_even_if_unverified() {
