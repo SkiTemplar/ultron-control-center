@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-07-10",
+  "generated_at": "2026-07-13",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -48,7 +48,7 @@
       "command": "node ~/.ultron/hooks/scripts/kanban-update-reminder.js",
       "script": "~/.ultron/hooks/scripts/kanban-update-reminder.js",
       "timeout_s": 5,
-      "checksum_sha256": "cc470c852f2fe5bff1211b74c2a0f64bc12018603533e0762b9da87977f13765",
+      "checksum_sha256": "bc8107e12a7d0839f99199f79e71633ccc35b1212c7bfea500cf8a09898be9bf",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

@@ -240,6 +240,79 @@ A(r3.status === 0, "caso3: hook exit 0 (nunca bloquea)", `status=${r3.status} st
 A(rawBefore3 === rawAfter3, "caso3: sin tarea-hecha -> kanban.json BYTE-IDENTICO (no-op real)", "diff detectado");
 A(r3.stdout === "", "caso3: sin tarea-hecha -> ningun output (ni cierre ni recordatorio)", `stdout="${r3.stdout}"`);
 
+// --- Caso 4: cierre por FASE compartida + marcador de cierre en el commit --
+// (2026-07-13) Caso real Tortunabo: la card "Fase 4 — ..." no matcheaba por
+// keys/substring/Jaccard con "docs: Fase 4.2 hecha - Fase 4 completa" y
+// quedaba viva -> resume stale. La regla de fase debe cerrarla.
+resetFixture();
+const board4 = baseBoard();
+board4.cards.push({
+  id: "card-fase-4",
+  column_id: "col-doing",
+  title: "Fase 4 — Hardening + tests del modulo",
+  description: "",
+  agent: null,
+  prompt_template: null,
+  cwd: null,
+  tags: [],
+  order: 0,
+  created_at: "2026-01-01T00:00:00.000Z",
+  updated_at: "2026-01-01T00:00:00.000Z",
+  runs: [],
+});
+writeBoard(board4);
+const repoDir4 = join(FIXTURE_ROOT, "repo-fase-completa");
+gitInitWithCommit(repoDir4, "docs: Fase 4.2 hecha - Fase 4 completa; queda solo el gate de playtest");
+const t4 = makeTranscript(
+  FIXTURE_ROOT,
+  "t4",
+  "actualiza el plan: la fase 4 esta terminada",
+  "Listo, completado. La fase quedo hecha.",
+);
+const r4 = fireHook({ transcriptPath: t4, cwd: repoDir4, sessionId: "selftest-fase" });
+const boardAfter4 = readBoard();
+A(r4.status === 0, "caso4: hook exit 0", `status=${r4.status} stderr=${r4.stderr}`);
+A(
+  doneTitles(boardAfter4).some((t) => t.startsWith("Fase 4 —")),
+  "caso4: card 'Fase 4' cerrada por fase compartida + marcador de cierre",
+  `done=${JSON.stringify(doneTitles(boardAfter4))} stdout=${r4.stdout}`,
+);
+
+// --- Caso 5 (NEGATIVO): commit de fase SIN marcador de cierre NO cierra ----
+resetFixture();
+const board5 = baseBoard();
+board5.cards.push({
+  id: "card-fase-4b",
+  column_id: "col-doing",
+  title: "Fase 4 — Hardening + tests del modulo",
+  description: "",
+  agent: null,
+  prompt_template: null,
+  cwd: null,
+  tags: [],
+  order: 0,
+  created_at: "2026-01-01T00:00:00.000Z",
+  updated_at: "2026-01-01T00:00:00.000Z",
+  runs: [],
+});
+writeBoard(board5);
+const repoDir5 = join(FIXTURE_ROOT, "repo-fase-intermedia");
+gitInitWithCommit(repoDir5, "test(chunks): Fase 4 avanza con decisiones puras y pools");
+const t5 = makeTranscript(
+  FIXTURE_ROOT,
+  "t5",
+  "avanza con la fase 4",
+  "Listo, completado el paso de hoy.",
+);
+const r5 = fireHook({ transcriptPath: t5, cwd: repoDir5, sessionId: "selftest-fase-neg" });
+const boardAfter5 = readBoard();
+A(r5.status === 0, "caso5: hook exit 0", `status=${r5.status} stderr=${r5.stderr}`);
+A(
+  boardAfter5.cards.find((c) => c.id === "card-fase-4b").column_id === "col-doing",
+  "caso5: commit intermedio de fase (sin marcador de cierre) NO cierra la card",
+  `card=${JSON.stringify(boardAfter5.cards.find((c) => c.id === "card-fase-4b"))}`,
+);
+
 // ---------------------------------------------------------------------------
 rmSync(FIXTURE_ROOT, { recursive: true, force: true });
 

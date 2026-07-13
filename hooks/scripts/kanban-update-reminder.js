@@ -376,6 +376,27 @@ function sharesKey(a, b) {
   return false;
 }
 
+// (2026-07-13) Claves de FASE ("Fase 4", "fase 4.2", "phase 3"). A diferencia
+// de los cat-codes, una fase acumula commits INTERMEDIOS durante dias, asi que
+// compartir la clave NO basta para cerrar: el asunto debe ademas DECLARAR el
+// cierre (CLOSURE_MARKER_RE). Caso real que motivo esto (sesion Tortunabo
+// 2026-07-13): la card "Fase 4 — Hardening + tests (...)" quedo viva tras el
+// commit "docs: Fase 4.2 hecha - Fase 4 completa" porque ni keys ni substring
+// ni Jaccard matcheaban -> el resume sirvio un next_action stale 2 dias.
+// Especificidad como en cat-codes: fase4.2 != fase4 (cerrar "Fase 4.3" no
+// cierra la card "Fase 4").
+function extractPhaseKeys(text) {
+  const keys = new Set();
+  const s = String(text || '').toLowerCase();
+  for (const m of s.matchAll(/\b(?:fase|phase)\s*(\d+(?:\.\d+)?)\b/g)) keys.add('fase' + m[1]);
+  return keys;
+}
+
+// Marcadores de cierre en el ASUNTO del commit, con \b para no matchear dentro
+// de otra palabra ("autocompletado" NO es "completado").
+const CLOSURE_MARKER_RE =
+  /\b(completa(?:da|do)?|cerra(?:da|do)|hecha|hecho|finaliza(?:da|do)|termina(?:da|do)|done|closed)\b/i;
+
 // Carga kanban.json de `project`. Devuelve null si no existe / no parsea
 // (nunca lanza — mismo contrato defensivo que el resto del hook).
 function loadKanbanDoc(project) {
@@ -423,10 +444,20 @@ function closeCompletedCards(project, root) {
     const cardKeys = extractKeys(
       card.title + ' ' + (Array.isArray(card.tags) ? card.tags.join(' ') : ''),
     );
+    const cardPhases = extractPhaseKeys(
+      card.title + ' ' + (Array.isArray(card.tags) ? card.tags.join(' ') : ''),
+    );
     const hit = subjects.some((s) => {
       // 1) ALTA PRECISION: cat-code / issue-ref compartido (commit "(cat21.4)"
       //    cierra la card cat21.4). La senal mas fuerte: trabajo etiquetado.
       if (cardKeys.size && sharesKey(extractKeys(s), cardKeys)) return true;
+      // 1.5) FASE compartida + commit que DECLARA cierre ("Fase 4 completa").
+      //      Un commit intermedio de la fase (sin marcador) NO cierra nada.
+      if (
+        cardPhases.size
+        && sharesKey(extractPhaseKeys(s), cardPhases)
+        && CLOSURE_MARKER_RE.test(s)
+      ) return true;
       const cleaned = cleanSubject(s);
       // 2) substring: el titulo pelado aparece literal en el asunto limpio.
       if (bareLc.length >= 12 && cleaned.toLowerCase().includes(bareLc)) return true;
