@@ -145,6 +145,7 @@ pub enum StoreKind {
 // Auto-approve policy: persisted `auto_approve` setting + the "clean candidate"
 // security safeguard (never auto-approves secrets / contradictions).
 pub mod auto_approve;
+pub mod backfill;
 pub mod capture;
 pub mod catalog;
 pub mod doctor;

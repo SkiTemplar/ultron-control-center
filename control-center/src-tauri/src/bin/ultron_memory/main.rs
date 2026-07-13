@@ -103,6 +103,25 @@ fn run() -> Result<serde_json::Value, String> {
             )?)
         }
         "stats" => to_json(ul::memory::MemoryService::stats().map_err(|e| e.to_string())?),
+        // (2026-07-13) Backfill de project_id del corpus AMBIENTE (NULL):
+        // normalize (variantes -> slug canonico) + provenance (session_id del
+        // cockpit) + dense vote (vector almacenado en Qdrant, k-NN etiquetado).
+        // Dry-run por defecto; --apply escribe (SQLite + evento + payload).
+        "backfill-projects" => {
+            let opts = ul::memory::backfill::BackfillOpts {
+                apply: has_flag(&args, "--apply"),
+                min_score: flag_value(&args, "--min-score")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(ul::memory::backfill::DEFAULT_MIN_SCORE),
+                min_share: flag_value(&args, "--min-share")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(ul::memory::backfill::DEFAULT_MIN_SHARE),
+                knn: flag_value(&args, "--knn")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(ul::memory::backfill::DEFAULT_KNN),
+            };
+            ul::memory::backfill::run(&opts)
+        }
         "reindex" => {
             let (indexed, errors) =
                 ul::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;

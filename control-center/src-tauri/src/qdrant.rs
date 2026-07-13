@@ -261,6 +261,80 @@ pub fn upsert_e5(
     Ok(())
 }
 
+/// Fetch a point's STORED vector by id (`None` si el punto no existe). El
+/// backfill de project_id vota con el vector ya embebido: re-embedar ~3.4k
+/// items a ~1 s/query E5 costaría una hora; el vector ya vive en el índice.
+pub fn get_point_vector(collection: &str, id: &str) -> Result<Option<Vec<f32>>, String> {
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let id_value: serde_json::Value = if let Ok(n) = id.parse::<u64>() {
+        serde_json::Value::Number(n.into())
+    } else {
+        serde_json::Value::String(id.to_string())
+    };
+    let url = format!("{base}/collections/{collection}/points");
+    let body = serde_json::json!({ "ids": [id_value], "with_vector": true, "with_payload": false });
+    let resp = client.post(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant get point: {e}")
+        }
+    })?;
+    if resp.status().as_u16() == 404 {
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("qdrant get point {status}: {text}"));
+    }
+    #[derive(Deserialize)]
+    struct RetrieveResponse {
+        result: Vec<RawPoint>,
+    }
+    #[derive(Deserialize)]
+    struct RawPoint {
+        #[serde(default)]
+        vector: Option<Vec<f32>>,
+    }
+    let parsed: RetrieveResponse = resp
+        .json()
+        .map_err(|e| format!("qdrant parse retrieve: {e}"))?;
+    Ok(parsed.result.into_iter().next().and_then(|p| p.vector))
+}
+
+/// Overwrite payload KEYS on an existing point (merge semantics del endpoint
+/// `points/payload` de Qdrant: solo pisa las claves enviadas, no toca el
+/// vector ni el resto del payload). Missing collection/point no es error.
+pub fn set_payload(collection: &str, id: &str, payload: serde_json::Value) -> Result<(), String> {
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let id_value: serde_json::Value = if let Ok(n) = id.parse::<u64>() {
+        serde_json::Value::Number(n.into())
+    } else {
+        serde_json::Value::String(id.to_string())
+    };
+    let url = format!("{base}/collections/{collection}/points/payload");
+    let body = serde_json::json!({ "points": [id_value], "payload": payload });
+    let resp = client.post(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant set payload: {e}")
+        }
+    })?;
+    if resp.status().as_u16() == 404 {
+        return Ok(());
+    }
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("qdrant set payload {status}: {text}"));
+    }
+    Ok(())
+}
+
 /// Delete a point by id from a collection (best-effort retire-from-index, used
 /// by "do not use again" / deprecate). A missing collection/point is not an error.
 pub fn delete_point(collection: &str, id: &str) -> Result<(), String> {
