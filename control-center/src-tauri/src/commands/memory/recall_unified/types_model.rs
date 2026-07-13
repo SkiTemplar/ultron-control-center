@@ -20,6 +20,15 @@ pub(super) const FANOUT_K: usize = 30;
 /// eval: must not drop recall@8 (baseline 0.868) while cutting context_waste.
 pub(super) const SPARSE_TAIL_CUTOFF: usize = 15;
 
+/// Down-rank de items AMBIENTE (project_id=NULL) bajo filtro de proyecto
+/// (2026-07-13). La regla ambiente (pack.rs) mantiene el corpus NULL VISIBLE en
+/// todos los proyectos, pero 3567/~4400 items son legado sin estampar y muchos
+/// pertenecen de facto a UN proyecto: sin contrapeso llenan el pack de sesiones
+/// ajenas (terreno procedural en Tortunabo). Multiplicador del rrf_score, NO un
+/// filtro: con memorias locales compitiendo, las del proyecto ganan; sin señal
+/// local, el corpus NULL sigue emergiendo. Tuneable via ULTRON_AMBIENT_PENALTY.
+pub(super) const AMBIENT_PENALTY: f32 = 0.5;
+
 /// Maximum token budget for the assembled pack **per recall call** — an
 /// anti-bloat ceiling for a SINGLE injection. This is NOT a cumulative
 /// per-session budget: every recall receives the full cap, so the memory is

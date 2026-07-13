@@ -6,5 +6,6 @@ mod budget;
 mod e2e;
 mod fusion;
 mod governance;
+mod ranking;
 mod redaction_floor;
 mod temporal;

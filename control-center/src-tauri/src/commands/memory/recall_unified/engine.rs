@@ -11,11 +11,11 @@ use std::collections::HashMap;
 
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{Actor, EventType, MemoryEvent, MemoryService};
+use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope};
 
 use super::types_model::{
-    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, FANOUT_K, PER_CALL_TOKEN_CAP,
-    RRF_K,
+    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, AMBIENT_PENALTY, FANOUT_K,
+    PER_CALL_TOKEN_CAP, RRF_K,
 };
 use crate::commands::memory::recall_unified::rrf_fuse_weighted;
 
@@ -158,12 +158,15 @@ pub fn build_trace(
     {
         let now_ms = crate::memory::model::now_millis();
         const SEVEN_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+        // (2026-07-13) Down-rank AMBIENTE: ver ambient_rank_factor + AMBIENT_PENALTY.
+        let ambient_penalty = env_knob_f32("ULTRON_AMBIENT_PENALTY", AMBIENT_PENALTY);
         for hit in &mut fused {
-            let (confidence, updated_at) = store::get_item(&conn, &hit.canonical_id)
-                .ok()
-                .flatten()
-                .map(|it| (it.confidence, it.updated_at))
-                .unwrap_or((0.5, 0)); // unknown → treat as vault-level confidence
+            let (confidence, updated_at, item_project, item_scope) =
+                store::get_item(&conn, &hit.canonical_id)
+                    .ok()
+                    .flatten()
+                    .map(|it| (it.confidence, it.updated_at, it.project_id, it.scope))
+                    .unwrap_or((0.5, 0, None, Scope::Global)); // unknown → vault-level, sin castigo doble
             let quality_factor: f32 = if confidence >= 0.6 {
                 1.0 + 0.6 * confidence
             } else {
@@ -175,7 +178,14 @@ pub fn build_trace(
             } else {
                 1.0_f32
             };
-            hit.rrf_score *= quality_factor * recency_factor;
+            let ambient_factor = ambient_rank_factor(
+                project_id,
+                cross_project,
+                item_project.as_deref(),
+                item_scope,
+                ambient_penalty,
+            );
+            hit.rrf_score *= quality_factor * recency_factor * ambient_factor;
         }
         // Re-sort after quality adjustment (preserves dense_score as final tie-break).
         fused.sort_by(|a, b| {
@@ -405,6 +415,31 @@ fn env_knob_f32(name: &str, default: f32) -> f32 {
         .ok()
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(default)
+}
+
+/// (2026-07-13) Factor de ranking para items AMBIENTE (project_id=NULL) bajo un
+/// filtro de proyecto activo. Complementa la regla ambiente del pack (que los
+/// mantiene VISIBLES): aquí solo se hunden en el orden para que las memorias del
+/// proyecto activo ganen cuando compiten. Devuelve `penalty` únicamente cuando:
+/// hay proyecto en la query, NO es cross_project (cerebro entero pedido
+/// explícitamente), el item no tiene proyecto y su scope no es Global (las
+/// memorias Global son deliberadamente universales). En cualquier otro caso 1.0.
+pub(crate) fn ambient_rank_factor(
+    query_project: Option<&str>,
+    cross_project: bool,
+    item_project: Option<&str>,
+    item_scope: Scope,
+    penalty: f32,
+) -> f32 {
+    if query_project.is_some()
+        && !cross_project
+        && item_project.is_none()
+        && item_scope != Scope::Global
+    {
+        penalty
+    } else {
+        1.0
+    }
 }
 
 /// Lee `ULTRON_RECALL_FLOOR`: ausente -> default; "off"/"0" -> gate desactivado;
