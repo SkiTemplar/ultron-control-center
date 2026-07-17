@@ -48,7 +48,11 @@ const REGISTRY_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'skill
 let _logHookError = function () {};
 try {
   const _hookObs = require('../../hooks/scripts/lib/hook-obs');
-  _hookObs.observe('routing-dispatcher.v2');
+  // HOOKS-05 (auditoria 2026-07-16): solo atribuir timing cuando v2 corre como
+  // hook standalone. Importado como libreria por v3, la observacion la registra
+  // v3 con su propio id — antes TODO el timing salia como "routing-dispatcher.v2"
+  // aunque el hook registrado en settings.json es v3.
+  if (require.main === module) _hookObs.observe('routing-dispatcher.v2');
   _logHookError = _hookObs.logHookError;
 } catch { /* observability is optional; never break the hot path */ }
 
@@ -1486,8 +1490,18 @@ function resolvePluginSkillMd(nsPrefix, baseName) {
     }
     for (const v of versions) {
       if (!v.isDirectory()) continue;
-      const p = path.join(pluginDir, v.name, 'skills', baseName, 'SKILL.md');
-      if (fs.existsSync(p)) found.push({ version: v.name, path: p });
+      // RT-05 (auditoria 2026-07-16): no todos los plugins usan skills/<name>/
+      // SKILL.md — commit-commands, feature-dev, pr-review-toolkit y code-review
+      // guardan su contenido en commands/<name>.md o agents/<name>.md. Probar
+      // los tres layouts reales en orden de especificidad.
+      const layouts = [
+        path.join(pluginDir, v.name, 'skills', baseName, 'SKILL.md'),
+        path.join(pluginDir, v.name, 'commands', baseName + '.md'),
+        path.join(pluginDir, v.name, 'agents', baseName + '.md'),
+      ];
+      for (const p of layouts) {
+        if (fs.existsSync(p)) { found.push({ version: v.name, path: p }); break; }
+      }
     }
   }
   if (found.length === 0) return null;
@@ -1531,15 +1545,9 @@ function resolveSkillMdPath(skillId) {
     //    del plugin en vez de la guía pedida (cat4.1).
     const pluginPath = resolvePluginSkillMd(nsPrefix, baseName);
     if (pluginPath) return pluginPath;
-    // 4-5. Namespace-level catch-all (último recurso).
-    const nsFallbacks = [
-      path.join(SKILLS_DIR, nsPrefix, 'SKILL.md'),
-      path.join(SKILLS_DIR, nsPrefix + '.disabled', 'SKILL.md'),
-    ];
-    for (const candidate of nsFallbacks) {
-      if (fs.existsSync(candidate)) return candidate;
-    }
-    // Fall back to the sub-skill path even if unconfirmed (will fail gracefully).
+    // RT-05 (auditoria 2026-07-16): catch-all de namespace ELIMINADO — para un
+    // sub-skill fantasma inyectaba el manifiesto generico del plugin (contenido
+    // EQUIVOCADO). Mejor no inyectar nada: el path no confirmado falla graceful.
     return local[0];
   }
 

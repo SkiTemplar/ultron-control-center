@@ -491,6 +491,12 @@ def check_codex_mcp_server_registered() -> list[str]:
     except json.JSONDecodeError as e:
         return [f"settings-snapshot.json invalid JSON: {e}"]
 
+    # ULT-13 (auditoria 2026-07-16): expected_mcp_codex=null declara que Codex
+    # corre via plugin/CLI sin MCP server registrado — el check se salta en vez
+    # de exigir un MCP que ya no existe en settings.json.
+    if not expected:
+        return []
+
     if not settings_path.exists():
         return [f"settings.json not found at {settings_path} (snapshot exists, but live settings missing)"]
 

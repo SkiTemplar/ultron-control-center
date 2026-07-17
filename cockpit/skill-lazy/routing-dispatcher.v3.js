@@ -86,6 +86,14 @@ const v2 = require('./routing-dispatcher.v2.js');
 // Re-export everything from v2 so unit-tests that import v3 still pass.
 Object.assign(module.exports, v2);
 
+// HOOKS-05: v3 registra su PROPIA observacion de timing (v2 ya no observa al
+// ser importado como libreria — solo cuando corre standalone).
+try {
+  if (require.main === module) {
+    require('../../hooks/scripts/lib/hook-obs').observe('routing-dispatcher.v3');
+  }
+} catch { /* observability is optional; never break the hot path */ }
+
 // ---------------------------------------------------------------------------
 // Semantic fallback constants
 // ---------------------------------------------------------------------------
@@ -204,7 +212,9 @@ function buildSemanticHint(results) {
       (desc ? ' — ' + desc : '')
     );
   });
-  lines.push('(Activate with /use <skill-name> or mention its name explicitly.)');
+  // RT-06 (auditoria 2026-07-16): '/use <skill>' no existe en Claude Code.
+  // Instruccion honesta: Skill tool para activas, Read del SKILL.md para .disabled.
+  lines.push('(If one fits: invoke it with the Skill tool if it is active; if it is .disabled on disk, Read ~/.claude/skills/<name>.disabled/SKILL.md instead.)');
   return lines.join('\n');
 }
 
@@ -357,8 +367,12 @@ async function mainV3() {
       try {
         // v2.fetchLazySkillContent uses its own internal LAZY_READ_TIMEOUT_MS
         // (5 000 ms).  Wrap with Promise.race so it cannot exceed our budget.
+        // HOOKS-01: guardar el handle y limpiarlo tras el race — sin esto el
+        // timer mantiene vivo el event loop hasta agotar lazyBudget (~4.5s)
+        // en CADA prompt de alta confianza aunque el trabajo acabe en ~150ms.
+        let lazyTimerHandle = null;
         const lazyRaceTimeout = new Promise(function (resolve) {
-          setTimeout(function () { resolve(new Map()); }, lazyBudget);
+          lazyTimerHandle = setTimeout(function () { resolve(new Map()); }, lazyBudget);
         });
         // BUGFIX (Kirkardo R7): pass the normalized prompt as the second arg.
         // v2.fetchLazySkillContent(candidates, promptNorm) needs promptNorm to
@@ -370,6 +384,7 @@ async function mainV3() {
           v2.fetchLazySkillContent(ranked, promptNorm),
           lazyRaceTimeout,
         ]);
+        if (lazyTimerHandle) clearTimeout(lazyTimerHandle);
         if (injected.size > 0) {
           lazyBlock = v2.buildInjectionBlock(injected);
           safeLogV3({
@@ -453,9 +468,16 @@ function emitContextV3(text) {
       additionalContext: text || '',
     },
   };
+  // HOOKS-01: exit explicito tras vaciar stdout — timers internos de
+  // fetchLazySkillContent / querySemanticSkills no deben mantener el proceso
+  // vivo hasta su deadline. El callback de write garantiza el flush del
+  // payload (puede ser grande con inyeccion lazy); el listener de observe()
+  // sigue disparando en process.exit.
   try {
-    process.stdout.write(JSON.stringify(payload));
-  } catch (_) {}
+    process.stdout.write(JSON.stringify(payload), function () { process.exit(0); });
+  } catch (_) {
+    process.exit(0);
+  }
 }
 
 // ---------------------------------------------------------------------------

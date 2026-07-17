@@ -25,7 +25,7 @@
       "matcher": "*",
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
-      "timeout_s": 30,
+      "timeout_s": 60,
       "checksum_sha256": "0ee96a4c56a4c94de8cca2588fc817d866a5a57a0ed7b2ae4b850ac64aef998b",
       "version": "1.1.0",
       "env_allowlist": [
@@ -188,7 +188,7 @@
       "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "timeout_s": 5,
-      "checksum_sha256": "441e60002f009dc5fd5858bb4bf8e1eca08b06b7e2dde0722cecfa39e2506d16",
+      "checksum_sha256": "bf038c2d49b4768dd664d45fbf098c37320538c87146190276e8758b830ca816",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
