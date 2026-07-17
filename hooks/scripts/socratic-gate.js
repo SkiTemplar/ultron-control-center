@@ -38,6 +38,12 @@ const DELEGATION_PHRASES = [
   'lo que prefieras', 'cualquiera vale', 'la que sea',
 ];
 
+// Eleccion de opcion SIN porque ("la 1", "opcion b", "la primera"): CLAUDE.md
+// exige eleccion razonada — elegir sin dar ni una razon cuenta como bajo esfuerzo.
+// El regex debe cubrir el prompt ENTERO normalizado (sin razon adjunta).
+const OPTION_PICK_RE =
+  /^(?:(?:la|el|lo)\s+)?(?:opcion\s+)?(?:\d{1,2}|[abcd]|primer[ao]?|segund[ao]|tercer[ao]|cuart[ao]|ultim[ao])$/;
+
 // Normaliza: minusculas, sin diacriticos (NFD + filtro de combining marks
 // U+0300..U+036F por code-point, sin literales unicode fragiles en el regex),
 // sin puntuacion, espacios colapsados.
@@ -55,16 +61,36 @@ function normalize(text) {
     .trim();
 }
 
-// True si el prompt es un ack de bajo esfuerzo o una delegacion de decision.
+// True si el prompt es un ack de bajo esfuerzo, una delegacion de decision,
+// o una eleccion de opcion sin porque.
 function isLowEffort(prompt) {
   const norm = normalize(prompt);
   if (!norm) return false;
-  for (const phrase of DELEGATION_PHRASES) {
-    if (norm.includes(phrase)) return true;
+  if (OPTION_PICK_RE.test(norm)) return true;
+  // Delegacion solo en respuestas cortas: incrustada en un prompt tecnico
+  // largo ("...aunque me da igual el naming...") no es delegar la decision.
+  if (norm.length <= 60) {
+    for (const phrase of DELEGATION_PHRASES) {
+      if (norm.includes(phrase)) return true;
+    }
   }
   if (norm.length > 30) return false;
   const tokens = norm.split(' ');
   return tokens.every((t) => ACK_WORDS.has(t));
+}
+
+// Limpieza de markers de sesiones pasadas (>48h) — evita acumulacion en %TEMP%.
+function sweepOldMarkers(tmpdir) {
+  try {
+    const cutoff = Date.now() - 48 * 3600 * 1000;
+    for (const name of fs.readdirSync(tmpdir)) {
+      if (!name.startsWith('ultron-socratic-')) continue;
+      const p = path.join(tmpdir, name);
+      try {
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      } catch (_) { /* marker bloqueado o ajeno — ignorar */ }
+    }
+  } catch (_) { /* la limpieza nunca rompe el hook */ }
 }
 
 const FULL_MSG =
@@ -118,6 +144,7 @@ function handle(raw) {
       if (!fs.existsSync(marker)) {
         firstTime = true;
         fs.writeFileSync(marker, '');
+        sweepOldMarkers(os.tmpdir());
       }
     } catch (_) {
       // sin marcador fiable => mandar la version corta (mejor poco que doble)

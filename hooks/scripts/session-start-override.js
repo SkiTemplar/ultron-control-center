@@ -179,7 +179,7 @@ function buildAdditionalContext(match, cwd) {
 
   return [
     'HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS.',
-    '[user-override:project-fallback] Injected by ~/.claude/scripts/session-start-override.js',
+    '[user-override:project-fallback] Injected by ~/.ultron/hooks/scripts/session-start-override.js',
     'The ECC plugin SessionStart hook could not find an exact-worktree match,',
     'but a recent session for the SAME PROJECT was located at a different worktree.',
     `Current worktree:  ${cwd}`,

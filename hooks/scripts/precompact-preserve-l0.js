@@ -26,7 +26,10 @@ observe('precompact-preserve-l0');
 const HOME = os.homedir();
 const TMP_DIR = path.join(HOME, '.ultron', '.tmp');
 const CONTEXT_MD = path.join(TMP_DIR, 'context.md');
-const MAX_TURNS = 30;
+// Lineas JSONL del tail a escanear — NO turnos: en sesiones con mucho trafico
+// de tools, 30 lineas cubren 2-3 turnos reales y la captura sale vacia
+// (turns_scanned: 0 el 2026-07-13). 400 lineas ~ los ultimos 15-30 turnos.
+const MAX_TURNS = 400;
 const MAX_FACTS = 12;
 
 function readStdin() {
@@ -115,7 +118,18 @@ function main() {
     stdin = {};
   }
 
-  const transcriptPath = stdin.transcript_path || stdin.transcriptPath || '';
+  let transcriptPath = stdin.transcript_path || stdin.transcriptPath || '';
+  // Fallback (MEM-05, auditoria 2026-07-16): el payload de PreCompact puede
+  // llegar sin transcript_path (captura del 2026-07-13: turns_scanned: 0).
+  // Derivarlo de session_id + cwd con el slug estandar de ~/.claude/projects
+  // (todo char fuera de [A-Za-z0-9-] se vuelve '-'). Si el guess no existe,
+  // parseTurns devuelve [] igual que antes — cero riesgo.
+  if (!transcriptPath && (stdin.session_id || stdin.sessionId)) {
+    const sid = String(stdin.session_id || stdin.sessionId).replace(/[^A-Za-z0-9-]/g, '');
+    const slug = String(stdin.cwd || process.cwd()).replace(/[^A-Za-z0-9-]/g, '-');
+    const guess = path.join(HOME, '.claude', 'projects', slug, `${sid}.jsonl`);
+    try { if (fs.existsSync(guess)) transcriptPath = guess; } catch (_) {}
+  }
   const cwd = stdin.cwd || process.cwd();
   const trigger = stdin.trigger || stdin.compact_trigger || 'auto';
 

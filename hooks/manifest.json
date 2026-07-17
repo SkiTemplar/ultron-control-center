@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-17",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -156,7 +156,7 @@
       "command": "node ~/.ultron/hooks/scripts/session-start-override.js",
       "script": "~/.ultron/hooks/scripts/session-start-override.js",
       "timeout_s": 5,
-      "checksum_sha256": "9834331e802801a289729b6f5f2c60cbbdc54956101e5b9fc1d149d06f45d19a",
+      "checksum_sha256": "3e08760666ae06165ff870b0c6fc04f511e389e0fc7c9a54245963e54fe34ba2",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -203,7 +203,7 @@
       "command": "node ~/.ultron/hooks/scripts/socratic-gate.js",
       "script": "~/.ultron/hooks/scripts/socratic-gate.js",
       "timeout_s": 5,
-      "checksum_sha256": "9506d6f7c26b5933fdc2ab29629cf97b0c31c7e5e20df700e2eff2e1b455114b",
+      "checksum_sha256": "2ac109574fb433b08669523c3daa0dfa31bd1f4e6b3652182a90a81300f03128",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -280,7 +280,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "74b164ae8b3d9ba9adfa2563db0b66197739bf8419691aeb45c334c094f33275",
+      "checksum_sha256": "be1f40b2ddf79abdf2abd4abb568bf703961d11290351d0348a6d96f003c71e0",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -299,7 +299,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "74b164ae8b3d9ba9adfa2563db0b66197739bf8419691aeb45c334c094f33275",
+      "checksum_sha256": "be1f40b2ddf79abdf2abd4abb568bf703961d11290351d0348a6d96f003c71e0",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -337,7 +337,7 @@
       "command": "node ~/.ultron/hooks/scripts/precompact-preserve-l0.js",
       "script": "~/.ultron/hooks/scripts/precompact-preserve-l0.js",
       "timeout_s": 15,
-      "checksum_sha256": "29316406d3d07bac7a791e709dc06efaa978f90a6e9c0acaed5bff0f89428308",
+      "checksum_sha256": "3d7a490480a798c2f8309125c31725da5f0f98a9f7b867d84e51e42d82d4b66d",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",

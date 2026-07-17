@@ -49,6 +49,33 @@ const SHELL_TOOLS_RE = /^(bash|powershell)$/i;
 // Un candidato hecho SOLO de esto no aporta nada a una sesion futura.
 const GENERIC_ONLY_RE = /^tool (reported is_error|status=error|success=false|exit code -?\d+)$/;
 
+// GATE ANTI-CONTAMINACION (MEM-03, auditoria 2026-07-16): una sesion de
+// auditoria/exploracion dispara decenas de comandos-sonda que fallan a
+// PROPOSITO (ls de rutas dudosas, grep sin match, probes de subcomandos).
+// Memorizarlos contamina el inbox con ruido.
+//   (a) comandos de sondeo puro -> nunca candidato;
+//   (b) cap de candidatos por sesion -> acota el ruido de sesiones anomalas.
+const PROBE_CMD_RE =
+  /^\s*(?:ls|dir|stat|test|cmp|which|command\s+-v|type|Test-Path|Get-Item|Get-ChildItem)\b/i;
+const MAX_CANDIDATES_PER_SESSION = 3;
+
+// true si se alcanza el cap de esta sesion (best-effort via contador en tmp;
+// cualquier fallo de IO => sin cap, mejor capturar de mas que romper el hook).
+function sessionCapReached(sessionId) {
+  if (!sessionId) return false;
+  try {
+    const safe = String(sessionId).replace(/[^A-Za-z0-9_-]/g, '');
+    const p = path.join(os.tmpdir(), `ultron-ptf-count-${safe}`);
+    let count = 0;
+    try { count = parseInt(fs.readFileSync(p, 'utf8'), 10) || 0; } catch (_) {}
+    if (count >= MAX_CANDIDATES_PER_SESSION) return true;
+    fs.writeFileSync(p, String(count + 1));
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
 function readStdin() {
   try {
     return fs.readFileSync(0, 'utf8');
@@ -147,6 +174,13 @@ function buildCandidate(stdin) {
 
   const toolName = stdin.tool_name || stdin.toolName || 'unknown_tool';
   const input = inputGist(stdin.tool_input || stdin.toolInput);
+
+  // Sondas de exploracion (ls/test/cmp/which/Test-Path...) que fallan son
+  // parte normal de investigar — no son un error que merezca memoria.
+  if (SHELL_TOOLS_RE.test(String(toolName)) && PROBE_CMD_RE.test(input)) return null;
+
+  // Cap por sesion: acota la auto-contaminacion en sesiones de auditoria.
+  if (sessionCapReached(stdin.session_id || stdin.sessionId)) return null;
   const clipped = errText.replace(/\s+/g, ' ').slice(0, MAX_ERROR_CHARS);
 
   return {

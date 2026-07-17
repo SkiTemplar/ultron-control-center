@@ -25,9 +25,12 @@ $listening = (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction S
 
 if ($listening -eq 0) {
     # Canonical path overridable via ULTRON_QDRANT_EXE / ULTRON_QDRANT_DIR
-    # (same contract as lib.rs spawn_qdrant_exe). Portable default: qdrant-native.
-    if ($env:ULTRON_QDRANT_EXE) { $exe = $env:ULTRON_QDRANT_EXE } else { $exe = "$env:USERPROFILE\.ultron\qdrant-native\qdrant.exe" }
-    if ($env:ULTRON_QDRANT_DIR) { $wd  = $env:ULTRON_QDRANT_DIR } else { $wd  = "$env:USERPROFILE\.ultron\qdrant-native" }
+    # (same contract as lib.rs spawn_qdrant_exe). Fallback chain: instalacion
+    # real en D:\Ultron\qdrant, luego el default portable qdrant-native.
+    if ($env:ULTRON_QDRANT_EXE) { $exe = $env:ULTRON_QDRANT_EXE }
+    elseif (Test-Path "D:\Ultron\qdrant\qdrant.exe") { $exe = "D:\Ultron\qdrant\qdrant.exe" }
+    else { $exe = "$env:USERPROFILE\.ultron\qdrant-native\qdrant.exe" }
+    if ($env:ULTRON_QDRANT_DIR) { $wd = $env:ULTRON_QDRANT_DIR } else { $wd = Split-Path -Parent $exe }
     if (Test-Path $exe) {
         Start-Process -FilePath $exe -WorkingDirectory $wd -WindowStyle Hidden
         # Espera breve a que abra el puerto (max ~6s) para no devolver antes de tiempo.
