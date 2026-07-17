@@ -11,9 +11,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { runCli, projectIdFromCwd, findBinary } = require('./lib/ultron-memory-cli');
+const { runCli, projectIdFromCwd, findBinary, spawnDetached } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
 observe('memory-session-resume');
+
+// HOOKS-04 (auditoria 2026-07-16): calentar el daemon de memoria DESDE
+// SessionStart. Medido en orchestrate.jsonl: con daemon vivo p50=562ms, sin el
+// p50=4145ms — y el 35% de los prompts caian sin daemon porque solo se
+// arrancaba tras el primer MISS. spawnDetached es idempotente (sale al momento
+// si ya hay uno vivo) y no bloquea el resume.
+try { spawnDetached(['serve']); } catch { /* fail-safe: el resume sigue */ }
 
 function emit(additionalContext) {
   const ctx = additionalContext || '';
