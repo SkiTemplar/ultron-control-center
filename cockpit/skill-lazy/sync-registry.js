@@ -36,12 +36,19 @@
  *     (phantom skills/agents). FORCE_KEEP_ACTIVE ids are never pruned.
  *
  * Usage:
- *   node sync-registry.js [--dry-run] [--detect-only]
+ *   node sync-registry.js [--dry-run] [--detect-only] [--no-md] [--md-only]
  *
  * Options:
  *   --dry-run      Print the would-be registry to stdout instead of writing to disk.
  *   --detect-only  Print a JSON list of newly-detected assets to stdout, then exit.
  *                  Does NOT modify the registry file.
+ *   --no-md        Skip regenerating references/skill-registry.md.
+ *   --md-only      Regenerate references/skill-registry.md from the current
+ *                  registry file without rebuilding the registry itself.
+ *
+ * Side effect (RT-07, 2026-07-18): after writing skills-registry.json this
+ * script also regenerates ~/.claude/skills/ultron/references/skill-registry.md
+ * (the human-facing registry). That file is GENERATED — never edit it by hand.
  */
 
 'use strict';
@@ -58,8 +65,14 @@ const AGENTS_DIR = path.join(HOME, '.claude', 'agents');
 const ULTRON_SKILLS_DIR = path.join(HOME, '.ultron', 'skills');
 const PLUGINS_CACHE = path.join(HOME, '.claude', 'plugins', 'cache');
 
+const REGISTRY_MD_PATH = path.join(
+  HOME, '.claude', 'skills', 'ultron', 'references', 'skill-registry.md'
+);
+
 const DRY_RUN = process.argv.includes('--dry-run');
 const DETECT_ONLY = process.argv.includes('--detect-only');
+const NO_MD = process.argv.includes('--no-md');
+const MD_ONLY = process.argv.includes('--md-only');
 
 // ---------------------------------------------------------------------------
 // Skills that should always be keep_active (loaded at every SessionStart).
@@ -291,9 +304,7 @@ function scanFilesystemAssets(existingRegistry) {
 //   <plugin-cache>/*/*/*/commands/<base>.md   (command-style plugin)
 //   <plugin-cache>/*/*/*/agents/<base>.md     (agent-style plugin)
 // ---------------------------------------------------------------------------
-function entryExistsOnDisk(entry) {
-  const id = entry.id;
-
+function diskCandidates(id) {
   const candidates = [
     path.join(SKILLS_DIR, id, 'SKILL.md'),
     path.join(SKILLS_DIR, id + '.disabled', 'SKILL.md'),
@@ -323,7 +334,19 @@ function entryExistsOnDisk(entry) {
     } catch (_) {}
   }
 
-  return candidates.some(c => fs.existsSync(c));
+  return candidates;
+}
+
+function entryExistsOnDisk(entry) {
+  return diskCandidates(entry.id).some(c => fs.existsSync(c));
+}
+
+// First candidate that physically exists, or null for a phantom.
+function resolveAssetFile(id) {
+  for (const c of diskCandidates(id)) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,9 +452,151 @@ function buildRegistry() {
 }
 
 // ---------------------------------------------------------------------------
+// Human-facing registry (references/skill-registry.md) — RT-07.
+// Rendered from the merged registry + LIVE disk state so the md can never
+// drift from reality: status and descriptions are re-read from disk on every
+// sync, never hand-maintained.
+// ---------------------------------------------------------------------------
+
+// Extract `description:` from a SKILL.md / agent .md YAML frontmatter.
+// Handles single-line, quoted, and folded (`>`, `>-`, `|`) multi-line values.
+function readDescription(file) {
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (_) {
+    return '';
+  }
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return '';
+  const lines = m[1].split(/\r?\n/);
+  let value = null;
+  for (let i = 0; i < lines.length; i++) {
+    const dm = lines[i].match(/^description:\s*(.*)$/);
+    if (!dm) continue;
+    value = dm[1].trim();
+    // Folded/empty scalar: gather the indented continuation lines.
+    if (value === '' || value === '>' || value === '>-' || value === '|' || value === '|-') {
+      const parts = [];
+      for (let j = i + 1; j < lines.length && /^\s+\S/.test(lines[j]); j++) {
+        parts.push(lines[j].trim());
+      }
+      value = parts.join(' ');
+    }
+    break;
+  }
+  if (!value) return '';
+  value = value.replace(/^["']|["']$/g, '').replace(/\s+/g, ' ').trim();
+  return value;
+}
+
+function mdCell(text, max) {
+  let t = String(text || '').replace(/\|/g, '\\|');
+  if (t.length > max) t = t.slice(0, max - 1).trimEnd() + '…';
+  return t || '—';
+}
+
+// Live disk status for an id — the registry's fs_disabled flag is only a
+// detection-time snapshot, so status is always re-derived from disk.
+function liveStatus(id, file) {
+  if (!file) return 'fantasma';
+  if (file.includes('.disabled')) return '.disabled (lazy)';
+  if (id.includes(':')) return 'plugin';
+  if (file.startsWith(AGENTS_DIR)) return 'agente';
+  return 'activa';
+}
+
+function renderRegistryMd(entries) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = entries.map(e => {
+    const file = resolveAssetFile(e.id);
+    return { e, file, status: liveStatus(e.id, file) };
+  });
+
+  const isAgent = r => r.status === 'agente' || r.e.type === 'agent';
+  const agents = rows.filter(isAgent);
+  const skills = rows.filter(r => !isAgent(r));
+
+  const core = skills.filter(r => r.e.keep_active);
+  const plugins = skills.filter(r => !r.e.keep_active && r.e.id.includes(':'));
+  const lazy = skills.filter(r => !r.e.keep_active && !r.e.id.includes(':'));
+
+  const table = (list, withStatus) => {
+    const out = [];
+    out.push(withStatus
+      ? '| Skill | Estado | ~tokens | Cuándo activar (frontmatter real) |'
+      : '| Skill | ~tokens | Cuándo activar (frontmatter real) |');
+    out.push(withStatus ? '|---|---|---|---|' : '|---|---|---|');
+    for (const r of list) {
+      const desc = mdCell(r.file ? readDescription(r.file) : '', 220);
+      const tok = r.e.token_estimate ? `~${r.e.token_estimate}` : '?';
+      out.push(withStatus
+        ? `| \`${r.e.id}\` | ${r.status} | ${tok} | ${desc} |`
+        : `| \`${r.e.id}\` | ${tok} | ${desc} |`);
+    }
+    return out.join('\n');
+  };
+
+  return [
+    '# SKILL REGISTRY — generado desde skills-registry.json',
+    '',
+    '> ⚠️ **ARCHIVO GENERADO — no editar a mano** (RT-07, auditoría 2026-07-16).',
+    '> Regenerar: `node ~/.ultron/cockpit/skill-lazy/sync-registry.js` (corre solo',
+    '> tras cada install de la librería del Control Center; `--md-only` para solo este md).',
+    `> Generado: ${today} · registry: ${entries.length} entradas — núcleo ${core.length} · pool lazy ${lazy.length} · plugins ${plugins.length} · agentes ${agents.length}`,
+    '',
+    '## Núcleo activo (`keep_active` — cargadas cada SessionStart)',
+    '',
+    'La columna Estado es el disco REAL al generar: un `keep_active` marcado',
+    '`.disabled` significa que el registry lo quiere activo pero en disco no lo está.',
+    '',
+    table(core, true),
+    '',
+    '## Pool lazy (inyección on-demand del dispatcher, confianza ≥0.80)',
+    '',
+    table(lazy, true),
+    '',
+    '## Plugins (`namespace:skill`)',
+    '',
+    table(plugins, false),
+    '',
+    '## Agentes',
+    '',
+    `${agents.length} agentes registrados (viven en \`~/.claude/agents/\`). La tabla curada`,
+    'de cuándo usar cada uno está en `~/.claude/rules/common/agents.md` — no se duplica aquí.',
+    '',
+    '## Fuentes de verdad',
+    '',
+    '- Dispatcher/routing: `~/.ultron/cockpit/skill-lazy/skills-registry.json` (lo escribe este script).',
+    '- UI: pestaña Skills del ULTRON Control Center.',
+    '- Disco: `ls ~/.claude/skills/` (+ `~/.ultron/skills/`, `~/.claude/plugins/cache/`).',
+    '',
+  ].join('\n');
+}
+
+function emitRegistryMd(entries) {
+  fs.writeFileSync(REGISTRY_MD_PATH, renderRegistryMd(entries), 'utf8');
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 function main() {
+  // --md-only: re-render the human-facing md from the registry as-is.
+  if (MD_ONLY) {
+    const entries = [...loadExistingRegistry().values()];
+    entries.sort(function (a, b) {
+      if (a.keep_active && !b.keep_active) return -1;
+      if (!a.keep_active && b.keep_active) return 1;
+      return a.id.localeCompare(b.id);
+    });
+    emitRegistryMd(entries);
+    process.stdout.write(
+      JSON.stringify({ ok: true, md_only: true, total: entries.length, md: REGISTRY_MD_PATH }) + '\n'
+    );
+    return;
+  }
+
   // --detect-only: just print what would be discovered, no writes
   if (DETECT_ONLY) {
     const existing = loadExistingRegistry();
@@ -466,8 +631,20 @@ function main() {
   }
 
   fs.writeFileSync(REGISTRY_PATH, json, 'utf8');
+
+  // RT-07: keep the human-facing registry in lockstep with the JSON one.
+  // A failure here must never break the registry write (post_install.rs
+  // treats a non-zero exit as sync failure).
+  let mdOk = false;
+  if (!NO_MD) {
+    try {
+      emitRegistryMd(entries);
+      mdOk = true;
+    } catch (_) {}
+  }
+
   process.stdout.write(
-    JSON.stringify({ ok: true, total, added, updated, detected, pruned, path: REGISTRY_PATH }) + '\n'
+    JSON.stringify({ ok: true, total, added, updated, detected, pruned, md: mdOk, path: REGISTRY_PATH }) + '\n'
   );
 }
 
