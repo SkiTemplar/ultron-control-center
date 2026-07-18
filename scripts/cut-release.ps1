@@ -183,7 +183,11 @@ try {
     Write-Step 'Updating version files (SSOT + mirrors)'
 
     # Read the OUTGOING version first: markdown pins are replaced by value.
-    $ssotRaw = Get-Content -Raw -LiteralPath $PyprojectToml
+    # [IO.File] on every read/write below: PS 5.1 Get-Content without -Encoding
+    # reads BOM-less UTF-8 as ANSI (mojibake), and Set-Content -Encoding utf8
+    # writes a BOM (which would break the install.sh shebang). ReadAllText /
+    # WriteAllText are UTF-8 no-BOM both ways (v15.7.0 cut, 2026-07-18).
+    $ssotRaw = [IO.File]::ReadAllText($PyprojectToml)
     $ssotMatch = [regex]::Match($ssotRaw, '(?m)^version\s*=\s*"(?<ver>\d+\.\d+\.\d+)"')
     if (-not $ssotMatch.Success) { throw "Cannot find [project].version in pyproject.toml" }
     $oldVersion = $ssotMatch.Groups['ver'].Value
@@ -196,7 +200,7 @@ try {
             '(?m)^(version\s*=\s*")[^"]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $PyprojectToml -Value $updated -NoNewline -Encoding utf8
+        [IO.File]::WriteAllText($PyprojectToml, $updated)
     }
     Write-Ok 'pyproject.toml (SSOT)'
 
@@ -204,37 +208,37 @@ try {
     # already drifted behind still snaps to the new version.
     # install.ps1: $Script:VersionFallback = "vX.Y.Z"
     Invoke-Action -Description "install.ps1 VersionFallback -> v$bareVersion" -Action {
-        $content = Get-Content -Raw -LiteralPath $InstallPs1
+        $content = [IO.File]::ReadAllText($InstallPs1)
         $updated = [regex]::Replace(
             $content,
             '(\$Script:VersionFallback\s*=\s*"v)[0-9]+\.[0-9]+\.[0-9]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $InstallPs1 -Value $updated -NoNewline -Encoding utf8
+        [IO.File]::WriteAllText($InstallPs1, $updated)
     }
     Write-Ok 'install.ps1'
 
     # scripts/cockpit/install-wizard.ps1: [string]$Version = "vX.Y.Z"
     Invoke-Action -Description "install-wizard.ps1 Version -> v$bareVersion" -Action {
-        $content = Get-Content -Raw -LiteralPath $InstallWizard
+        $content = [IO.File]::ReadAllText($InstallWizard)
         $updated = [regex]::Replace(
             $content,
             '(\[string\]\$Version\s*=\s*"v)[0-9]+\.[0-9]+\.[0-9]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $InstallWizard -Value $updated -NoNewline -Encoding utf8
+        [IO.File]::WriteAllText($InstallWizard, $updated)
     }
     Write-Ok 'install-wizard.ps1'
 
     # install.sh: readonly ULTRON_VERSION="vX.Y.Z"
     Invoke-Action -Description "install.sh ULTRON_VERSION -> v$bareVersion" -Action {
-        $content = Get-Content -Raw -LiteralPath $InstallSh
+        $content = [IO.File]::ReadAllText($InstallSh)
         $updated = [regex]::Replace(
             $content,
             '(readonly\s+ULTRON_VERSION="v)[0-9]+\.[0-9]+\.[0-9]+(")',
             { param($m) "$($m.Groups[1].Value)$bareVersion$($m.Groups[2].Value)" },
             1)
-        Set-Content -LiteralPath $InstallSh -Value $updated -NoNewline -Encoding utf8
+        [IO.File]::WriteAllText($InstallSh, $updated)
     }
     Write-Ok 'install.sh'
 
@@ -244,10 +248,10 @@ try {
     Invoke-Action -Description "markdown pins v$oldVersion -> v$bareVersion" -Action {
         foreach ($md in $MdTargets) {
             if (-not (Test-Path -LiteralPath $md)) { continue }
-            $content = Get-Content -Raw -LiteralPath $md
+            $content = [IO.File]::ReadAllText($md)
             if ($content -match [regex]::Escape("v$oldVersion")) {
                 $updated = $content -replace [regex]::Escape("v$oldVersion"), "v$bareVersion"
-                Set-Content -LiteralPath $md -Value $updated -NoNewline -Encoding utf8
+                [IO.File]::WriteAllText($md, $updated)
                 Write-Ok ("markdown: " + (Split-Path -Leaf $md))
             }
         }
@@ -257,7 +261,10 @@ try {
     # does not drift from pyproject.
     Invoke-Action -Description 'uv lock (refresh ultron version in lockfile)' -Action {
         if (Get-Command uv -ErrorAction SilentlyContinue) {
-            & uv lock 2>&1 | Out-Null
+            # cmd owns the redirect: in PS 5.1, `2>&1` on a native exe wraps
+            # stderr lines in ErrorRecords and killed the v15.7.0 cut when uv
+            # printed "Resolved N packages" to stderr.
+            cmd /c "uv lock >nul 2>&1"
             if ($LASTEXITCODE -ne 0) { Write-Warn 'uv lock returned non-zero; check uv.lock manually.' }
         } else {
             Write-Warn 'uv not on PATH - uv.lock not refreshed. Run "uv lock" manually before pushing.'
