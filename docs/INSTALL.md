@@ -38,7 +38,7 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 
 > [!NOTE]
 > This path downloads prebuilt binaries from the latest GitHub Release
-> (first published: v15.6.0, 2026-07-06 — system zip, memory binaries, and
+> (first published: v15.7.0, 2026-07-06 — system zip, memory binaries, and
 > Control Center installers for Windows and Linux). It installs the release
 > snapshot, which may lag `main`; use the clone path above if you need the
 > newest commits. The pipeline that produces releases is described in
@@ -65,11 +65,11 @@ Both one-liners resolve the latest release, download
 For reproducible installs pinned to a release tag, swap `main` for the tag:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.6.0/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.7.0/bootstrap.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.6.0/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.7.0/bootstrap.sh | bash
 ```
 
 ## What the installer does

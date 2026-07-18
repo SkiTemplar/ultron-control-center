@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   ULTRON one-shot bootstrap installer (root entrypoint, Windows / PowerShell).
 
@@ -109,7 +109,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------------------------------------------------
 # Constants and state
 # ----------------------------------------------------------------------
-$Script:VersionFallback = "v15.6.0"
+$Script:VersionFallback = "v15.7.0"
 $Script:RepoRoot        = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $Script:Warnings        = New-Object System.Collections.Generic.List[string]
 $Script:Errors          = New-Object System.Collections.Generic.List[string]
