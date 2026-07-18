@@ -1,5 +1,48 @@
 # Changelog
 
+<!-- v15.7.0 -->
+## v15.7.0 — 2026-07-18 — Auditoría cerrada + memoria por proyectos
+
+Cierre al 100% de la auditoría ultracode 2026-07-16 (29 hallazgos + re-verificación
+de los auto-refutados, todo medido en runtime) y el bloque de memoria por proyectos.
+
+### Added
+- **Hook `socratic-gate.js`** (UserPromptSubmit): inyección del protocolo
+  socrático con escalada determinista ante acks de bajo esfuerzo, guard de
+  delegación y detección de "opción sin porqué".
+- **Memoria por proyectos**: `backfill-projects` (etiqueta el corpus ambiente),
+  `reassign-project` (curación puntual), tarea semanal programada de backfill
+  (label propagation) y down-rank de items ambiente bajo filtro de proyecto.
+- **Inbox `drain --auto` full-autónomo** con re-verificación del juez fuera del
+  hot path; gate anti-sondas + cap 3/sesión en posttoolfail-capture.
+- **`sync-registry.js` emite `references/skill-registry.md` generado** (RT-07):
+  el registro humano de skills se regenera de disco en cada sync — estado y
+  descripciones del frontmatter real; flags `--md-only` / `--no-md`.
+- Kanban: cierre de cards por token de fase + marcador de cierre; resume con
+  edad visible cuando la card está stale. Card Terminal en Projects.
+
+### Changed
+- Warm-up del daemon de memoria en SessionStart + cap del fallback con pack
+  cacheado (HOOKS-04): E2E 514ms con daemon; MISS capado (2.4s vs 4.1s antes).
+- Limpieza de superficie muerta UI/backend: −629 líneas (auditoría por zonas).
+- `.gitignore`: `cockpit/projects-archive/` (datos personales, misma regla que
+  `cockpit/projects/`).
+
+### Fixed
+- **Dispatcher v3 zombie**: 4.5s de proceso colgado por prompt (timer sin
+  clear) → 122ms medidos; telemetría ahora atribuye a v3, no a v2.
+- Resolución de plugin skills (`commands/`/`agents/` además de `skills/`);
+  catch-all de namespace eliminado (inyectaba manifiesto genérico para
+  fantasmas); hint semántico ya no sugiere el inexistente `/use skill`.
+- `stop-compress` 20-24s vs timeout 30s → subido a 60s (async, sin coste UX).
+- `update-checker` comparaba versiones de esquemas distintos ("15.6.0 is out,
+  you have 2.7.1" en una app más nueva que el release).
+- `cut-release.ps1` alineado con el esquema SSOT real (estaba roto para este
+  mismo release).
+- 3 fuentes de `project_ids` basura cerradas + residuo de test purgado.
+- `docs/INSTALL.md`: la nota "no release published yet" era stale (v15.6.0
+  existe desde 2026-07-06); el one-liner de bootstrap funciona.
+
 <!-- v15.6.0 -->
 ## v15.6.0 — 2026-07-06 — Primer release publico
 
