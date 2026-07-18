@@ -37,13 +37,14 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 ## Bootstrap one-liner (when a Release is published)
 
 > [!NOTE]
-> This path downloads a prebuilt binary from a GitHub Release. **No release
-> is published yet**, so these one-liners currently fail at "resolve the
-> latest release". Use the clone path above until a release exists; the
-> pipeline that produces releases is described in
+> This path downloads prebuilt binaries from the latest GitHub Release
+> (first published: v15.6.0, 2026-07-06 — system zip, memory binaries, and
+> Control Center installers for Windows and Linux). It installs the release
+> snapshot, which may lag `main`; use the clone path above if you need the
+> newest commits. The pipeline that produces releases is described in
 > [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md).
 
-Once a release exists, you can skip the clone. Pick the line for your OS:
+This skips the clone entirely. Pick the line for your OS:
 
 ```powershell
 # Windows (PowerShell)
