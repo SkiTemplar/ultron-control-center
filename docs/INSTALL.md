@@ -38,8 +38,8 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 
 > [!NOTE]
 > This path downloads prebuilt binaries from the latest GitHub Release
-> (first published: v15.7.0, 2026-07-06 — system zip, memory binaries, and
-> Control Center installers for Windows and Linux). It installs the release
+> (system zip, memory binaries, and Control Center installers for Windows
+> and Linux; first release published 2026-07-06). It installs the release
 > snapshot, which may lag `main`; use the clone path above if you need the
 > newest commits. The pipeline that produces releases is described in
 > [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md).
