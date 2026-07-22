@@ -34,6 +34,10 @@ use serde_json::{json, Value};
 
 /// Exit after this long without a single request (orphan guard).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// Un claim de lockfile mas joven que esto pertenece a un ganador que AUN esta
+/// calentando E5 (medido: warmup cold 1.8-4.8s): los perdedores salen sin
+/// pingear. Mas viejo sin daemon que responda = claim huerfano (crash) y se retira.
+const CLAIM_FRESH: Duration = Duration::from_secs(60);
 /// Per-connection read timeout so a half-open socket can't pin a worker thread.
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
 /// Cap a request line so a bogus client can't OOM the daemon.
@@ -125,12 +129,13 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
             if prompt.trim().is_empty() {
                 return (json!({ "error": "empty prompt" }), false);
             }
-            // UserPromptSubmit hot path. dense=TRUE: full hybrid recall + semantic
-            // agent/skill match (QUALITY-FIRST policy, 2026-06-19). The E5 embed
-            // costs ~1.1s warm; the dense_enabled=false sparse-first path stays
-            // wired for a future fast-embedder (BGE-small ~50ms) optimization that
-            // gets the <300ms budget WITHOUT degrading recall.
-            let ctx = crate::orchestrator::orchestrate(prompt, req.project.as_deref(), true);
+            // UserPromptSubmit hot path: dense por politica (sparse-first vs
+            // hibrido E5 ~1.1s warm) — ver hotpath_dense_enabled().
+            let ctx = crate::orchestrator::orchestrate(
+                prompt,
+                req.project.as_deref(),
+                hotpath_dense_enabled(),
+            );
             match serde_json::to_value(&ctx) {
                 Ok(v) => (v, false),
                 Err(e) => (json!({ "error": format!("serialize: {e}") }), false),
@@ -138,6 +143,27 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
         }
         other => (json!({ "error": format!("unknown cmd '{other}'") }), false),
     }
+}
+
+/// Politica dense del request 'orchestrate' del daemon (fast-path, check 9.5).
+/// dense=true = hibrido completo (E5 query embed ~1.1s warm por request);
+/// dense=false = sparse-first (FTS5 + re-ranker, p50 ~134ms) — el presupuesto
+/// <300ms del hook solo es alcanzable por este camino. Overrides en runtime:
+/// ULTRON_HOTPATH_SPARSE=1 fuerza sparse, ULTRON_HOTPATH_DENSE=1 fuerza dense.
+fn hotpath_dense_enabled() -> bool {
+    if std::env::var("ULTRON_HOTPATH_DENSE").as_deref() == Ok("1") {
+        return true;
+    }
+    if std::env::var("ULTRON_HOTPATH_SPARSE").as_deref() == Ok("1") {
+        return false;
+    }
+    // Default DENSE, validado contra el oraculo golden (2026-07-22, 29 queries,
+    // ambos paths sin rerank como el hook real): sparse-first p@3=0.092 /
+    // recall@8=0.164 vs dense p@3=0.414 / recall@8=0.687. La degradacion
+    // (-0.32 p@3) multiplica x6 el umbral aceptable (0.05): sparse-first puro
+    // es inviable en este corpus; el <300ms del check 9.5 requiere un
+    // fast-embedder real (BGE-small), no este atajo.
+    true
 }
 
 /// Best-effort: does a daemon described by `daemon` (parsed lockfile) answer ping?
@@ -175,8 +201,76 @@ fn read_lockfile() -> Option<(u16, String)> {
     Some((port, token))
 }
 
-fn remove_lockfile() {
-    let _ = std::fs::remove_file(lockfile_path());
+/// Claim ATOMICO del lockfile via `create_new` — exactamente UN `serve` gana
+/// ANTES de pagar el warmup E5 (~1.5GB, segundos). Antes la carrera se detectaba
+/// DESPUES del warmup: dos SessionStart paralelos calentaban E5 a la vez y el
+/// perdedor quedaba residente hasta IDLE_TIMEOUT (audit 2026-07-22).
+///
+/// El body del claim NO lleva `port`: los clientes (que exigen port+token) caen
+/// al fallback one-shot mientras el ganador calienta, y otros `serve` ven el
+/// claim y salen. Si el archivo ya existe:
+///   - edad < CLAIM_FRESH -> el ganador aun calienta (sin listener util): salir
+///     SIN pingear.
+///   - edad >= CLAIM_FRESH -> ping; vivo = already_running; muerto = claim
+///     huerfano (crash en warmup): se retira y se reintenta UNA vez.
+fn claim_lockfile(own_token: &str) -> Result<bool, String> {
+    let lock = lockfile_path();
+    if let Some(parent) = lock.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create run dir: {e}"))?;
+    }
+    for attempt in 0..2 {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock)
+        {
+            Ok(mut f) => {
+                let body = json!({
+                    "pid": std::process::id(),
+                    "token": own_token,
+                    "started_at": now_ms(),
+                    "schema": "orchestrate-daemon.v1",
+                    "warming": true,
+                });
+                f.write_all(serde_json::to_string(&body).unwrap_or_default().as_bytes())
+                    .map_err(|e| format!("write lockfile claim: {e}"))?;
+                return Ok(true);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let age = std::fs::metadata(&lock)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| SystemTime::now().duration_since(t).ok())
+                    // mtime ilegible (p.ej. borrado en este hueco): tratar como
+                    // viejo para caer al ping + retiro del huerfano.
+                    .unwrap_or(Duration::MAX);
+                if age < CLAIM_FRESH {
+                    return Ok(false);
+                }
+                if let Some((port, token)) = read_lockfile() {
+                    if ping_existing(port, &token) {
+                        return Ok(false);
+                    }
+                }
+                if attempt == 0 {
+                    let _ = std::fs::remove_file(&lock);
+                }
+            }
+            Err(e) => return Err(format!("claim lockfile: {e}")),
+        }
+    }
+    Ok(false)
+}
+
+/// Borra el lockfile SOLO si su token es el nuestro. Un daemon que perdió la
+/// carrera de arranque (o su watchdog tardío) no puede tumbar el descubrimiento
+/// del daemon vivo borrando un lockfile ajeno (audit 2026-07-20, cat1).
+fn remove_lockfile_if_owned(own_token: &str) {
+    if let Some((_, token)) = read_lockfile() {
+        if token == own_token {
+            let _ = std::fs::remove_file(lockfile_path());
+        }
+    }
 }
 
 /// `serve-ping` subcommand: report whether a live daemon is reachable.
@@ -201,15 +295,30 @@ pub fn run_daemon() -> Result<Value, String> {
         }
     }
 
-    // Bind loopback + dynamic port (the OS picks a free one).
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .map_err(|e| format!("bind 127.0.0.1:0: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("local_addr: {e}"))?
-        .port();
     let token = gen_token();
     let started = Instant::now();
+
+    // Claim atomico ANTES del warmup: un solo proceso paga E5; los perdedores
+    // salen aqui sin calentar nada (ver claim_lockfile).
+    if !claim_lockfile(&token)? {
+        return Ok(json!({ "already_running": true, "claimed_by_peer": true }));
+    }
+
+    // Bind loopback + dynamic port (the OS picks a free one).
+    let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, 0)) {
+        Ok(l) => l,
+        Err(e) => {
+            remove_lockfile_if_owned(&token);
+            return Err(format!("bind 127.0.0.1:0: {e}"));
+        }
+    };
+    let port = match listener.local_addr() {
+        Ok(a) => a.port(),
+        Err(e) => {
+            remove_lockfile_if_owned(&token);
+            return Err(format!("local_addr: {e}"));
+        }
+    };
 
     // Warm E5 ONCE up front so the very first orchestrate request is already hot.
     let _ = crate::qdrant::embed_e5("warmup", true);
@@ -225,11 +334,11 @@ pub fn run_daemon() -> Result<Value, String> {
         _ => {}
     }
 
-    // Publish discovery lockfile (token never leaves ~/.ultron/run, gitignored).
+    // Publish the FULL lockfile (claim + port). El claim atomico garantiza que
+    // somos el unico dueño, asi que el overwrite plano es seguro; el re-check
+    // post-warmup anterior (audit 2026-07-20, cat1) queda obsoleto porque la
+    // carrera se decide ahora ANTES del warmup.
     let lock = lockfile_path();
-    if let Some(parent) = lock.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("create run dir: {e}"))?;
-    }
     let body = json!({
         "port": port,
         "pid": std::process::id(),
@@ -237,8 +346,10 @@ pub fn run_daemon() -> Result<Value, String> {
         "started_at": now_ms(),
         "schema": "orchestrate-daemon.v1",
     });
-    std::fs::write(&lock, serde_json::to_string(&body).unwrap_or_default())
-        .map_err(|e| format!("write lockfile: {e}"))?;
+    if let Err(e) = std::fs::write(&lock, serde_json::to_string(&body).unwrap_or_default()) {
+        remove_lockfile_if_owned(&token);
+        return Err(format!("write lockfile: {e}"));
+    }
     eprintln!(
         "ultron-memory serve: listening on 127.0.0.1:{port} (pid {})",
         std::process::id()
@@ -248,10 +359,11 @@ pub fn run_daemon() -> Result<Value, String> {
     let last_activity = Arc::new(AtomicI64::new(now_ms()));
     {
         let last = Arc::clone(&last_activity);
+        let token_wd = token.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(60));
             if now_ms() - last.load(Ordering::Relaxed) > IDLE_TIMEOUT.as_millis() as i64 {
-                remove_lockfile();
+                remove_lockfile_if_owned(&token_wd);
                 std::process::exit(0);
             }
         });
@@ -274,7 +386,7 @@ pub fn run_daemon() -> Result<Value, String> {
         });
     }
     // `incoming()` only ends on a listener error; treat as clean shutdown.
-    remove_lockfile();
+    remove_lockfile_if_owned(&token);
     Ok(json!({ "stopped": true }))
 }
 
@@ -321,7 +433,7 @@ fn handle_conn(
     let _ = writeln!(writer, "{resp}");
     let _ = writer.flush();
     if shutdown {
-        remove_lockfile();
+        remove_lockfile_if_owned(token);
         std::process::exit(0);
     }
 }

@@ -98,6 +98,9 @@ finance = []
 
 [target."cfg(windows)".dependencies]
 wmi = "0.13"
+# SetPriorityClass(BELOW_NORMAL) para los subcomandos batch de ultron-memory
+# (ya presente transitivamente en Cargo.lock; no añade descarga nueva).
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 # ---------------------------------------------------------------------------
 # CI-tuned test profile (applies to `cargo test` and `cargo clippy --profile

@@ -59,10 +59,46 @@ fn main() {
     }
 }
 
+/// Subcomandos batch (evals/reindex/backfills): minutos de CPU multi-core que,
+/// a prioridad normal, multiplican x3-20 la latencia del hot path del hook y
+/// revientan su DAEMON_TIMEOUT_MS. JAMAS incluir serve ni los subcomandos del
+/// hook (orchestrate/recall/resume/warmup/capture).
+const BATCH_CMDS: &[&str] = &[
+    "eval",
+    "eval-full",
+    "eval-contradiction",
+    "backfill-projects",
+    "reindex",
+    "reindex-skills-lazy",
+    "catalog",
+    "dep-backfill",
+];
+
+/// Baja la prioridad del PROPIO proceso a BELOW_NORMAL (best-effort, solo
+/// Windows). No-op si la llamada falla: la prioridad nunca bloquea el batch.
+#[cfg(windows)]
+fn lower_own_priority() {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS,
+    };
+    // SAFETY: GetCurrentProcess devuelve un pseudo-handle siempre valido del
+    // proceso actual; SetPriorityClass no toca memoria de Rust.
+    unsafe {
+        SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+    }
+}
+
+#[cfg(not(windows))]
+fn lower_own_priority() {}
+
 fn run() -> Result<serde_json::Value, String> {
     let args: Vec<String> = std::env::args().collect();
     let cmd = args.get(1).map(String::as_str).unwrap_or("");
     let project = flag_value(&args, "--project");
+
+    if BATCH_CMDS.contains(&cmd) {
+        lower_own_priority();
+    }
 
     match cmd {
         "resume" => to_json(ul::commands::memory::session_resume::session_resume_inner(project)?),

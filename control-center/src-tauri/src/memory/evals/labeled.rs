@@ -1,6 +1,6 @@
 // evals/labeled.rs — evaluacion labeled-golden externa (troceado de evals.rs, 2026-07-02).
 
-use crate::commands::memory::recall_unified::recall_pack;
+use crate::commands::memory::recall_unified::build_trace;
 use crate::memory::eval_metrics::{EvalMetrics, LabeledSet};
 
 // ===========================================================================
@@ -81,11 +81,12 @@ impl LabeledGoldenReport {
 /// Run the EXTERNAL hand-labeled golden set through the live recall pipeline.
 ///
 /// Loads `path` (must be an absolute path to a `golden_labels_draft.json`-style
-/// file with schema `{ "labeled": [...] }`), runs `recall_pack(query, k, None,
-/// false)` for each query, and returns the aggregate ranking-quality report.
+/// file with schema `{ "labeled": [...] }`), runs `build_trace` (quality path
+/// dense+rerank by default; ULTRON_EVAL_DENSE/ULTRON_EVAL_RERANK override) for
+/// each query, and returns the aggregate ranking-quality report.
 ///
 /// FAIL-SAFE: a missing/invalid file degrades to `LabeledGoldenReport::degraded`.
-/// Individual `recall_pack` failures degrade ONLY that query to an empty ranking.
+/// Individual `build_trace` failures degrade ONLY that query to an empty ranking.
 #[must_use]
 pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
     let text = match std::fs::read_to_string(path) {
@@ -114,6 +115,17 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
         return LabeledGoldenReport::degraded(path, k, "labeled set has no entries");
     }
 
+    // Path bajo medida: por DEFECTO el de calidad (dense+rerank), identico al
+    // historico. ULTRON_EVAL_DENSE=0 / ULTRON_EVAL_RERANK=0 permiten medir el
+    // pack del hot path del hook (sparse-first, sin cross-encoder) con el MISMO
+    // oraculo — validacion del fast-path (frente B, 2026-07-22).
+    let eval_dense = std::env::var("ULTRON_EVAL_DENSE")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    let eval_rerank = std::env::var("ULTRON_EVAL_RERANK")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+
     let total = labeled_set.labeled.len();
     let mut per_query: Vec<LabeledQueryResult> = Vec::with_capacity(total);
     // Only queries with n_relevant > 0 enter the aggregate means (an empty oracle
@@ -126,20 +138,22 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
     for label in &labeled_set.labeled {
         let relevant = label.relevant();
 
-        let (retrieved_ids, degraded_query) = match recall_pack(&label.query, k, None, false, true)
-        {
-            Ok(pack) => {
-                let ids: Vec<String> = pack.entries.into_iter().map(|e| e.canonical_id).collect();
-                (ids, false)
-            }
-            Err(e) => {
-                eprintln!(
-                    "[evals/labeled] recall_pack failed for '{}': {e}",
-                    label.query
-                );
-                (Vec::new(), true)
-            }
-        };
+        // build_trace directo (recall_pack fija dense=true): .injected son las
+        // mismas entries que el pack, con dense/rerank gobernados por los knobs.
+        let (retrieved_ids, degraded_query) =
+            match build_trace(&label.query, k, None, false, eval_dense, eval_rerank) {
+                Ok(t) => {
+                    let ids: Vec<String> = t.injected.into_iter().map(|e| e.canonical_id).collect();
+                    (ids, false)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[evals/labeled] build_trace failed for '{}': {e}",
+                        label.query
+                    );
+                    (Vec::new(), true)
+                }
+            };
 
         let metrics = EvalMetrics::for_query(&retrieved_ids, &relevant, k);
         // precision@3 is a fixed additional cutoff, independent of k.
