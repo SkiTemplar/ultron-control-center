@@ -64,13 +64,21 @@ jobs:
         # The scanner exits 1 if ANY HIGH finding exists.
         run: python scripts/cockpit/audit_personal_data.py
 
-  cargo:
-    name: Rust (cargo check + clippy)
+  # cat12.5 split: el job Rust unico encadenaba clippy (~242s) y test (~201s)
+  # EN SERIE (~443s de wall caliente), fuera del criterio <300s del check 12.5
+  # (que mide updatedAt-createdAt del ultimo run success). Partido en dos jobs
+  # paralelos el wall queda en max(job) ~190-260s. No re-fusionar. Cada job
+  # lleva su PROPIO cache Swatinem (shared-key distinto: sus target/ divergen —
+  # clippy solo emite .rmeta del crate local, test paga codegen+link del
+  # harness) y AMBOS llevan el cache ort-dfbin porque fastembed/ort compila en
+  # los dos. Cuota: los dos caches cargo suman ~4GB sobre los 10GB del repo
+  # (publish-tauri usa ~1.5GB) — aceptado en la decision.
+  cargo-clippy:
+    name: Rust (cargo clippy)
     runs-on: windows-latest
-    # 30 (was 25): the FIRST run after the [profile.test] change below is cold
-    # (new fingerprint invalidates the cached target/), and cold runs already
-    # graze ~25 min. The extra headroom avoids a false timeout on that single
-    # transition run; hot runs land ~7 min so this is slack, not the norm.
+    # 30: un run frio (shared-key recien estrenado o fingerprint invalidado)
+    # roza ~25 min compilando fastembed/ort/tauri desde cero; en caliente el
+    # job queda ~4 min. Holgura, no la norma.
     timeout-minutes: 30
     # CARGO_INCREMENTAL=0: in CI (clean tree + restored cache) incremental mode
     # buys nothing and pollutes the fingerprint while bloating the Swatinem
@@ -78,11 +86,11 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
     steps:
-      # cat12.5: measured on run #28092264557 (last success, 373s wall-clock,
-      # job=366s) the two biggest single line items inside THIS job were:
-      # (a) tar-extracting the ~2.3 GB Swatinem cache = 96s, and (b) cargo's
-      # "Updating crates.io index" network round-trip = 68s, done twice
-      # (once per cargo invocation) for zero reason on an exact cache hit.
+      # cat12.5: measured on run #28092264557 (last success of the PRE-SPLIT
+      # single Rust job, 373s wall-clock, job=366s) the two biggest single line
+      # items were: (a) tar-extracting the ~2.3 GB Swatinem cache = 96s, and
+      # (b) cargo's "Updating crates.io index" network round-trip = 68s, done
+      # twice (once per cargo invocation) for zero reason on an exact cache hit.
       # Windows Defender's real-time scanner re-inspects every file the tar
       # extraction and the compiler/linker write under this workspace and
       # under CARGO_HOME -- excluding both paths is the standard, widely
@@ -119,11 +127,18 @@ jobs:
         # run #28608208137: exact hit + offline broke with "no matching
         # package named `base64` found" -- rust-cache PRUNES the registry on
         # save, so a restored cache is NOT self-sufficient for --offline.
+        # save-if !cancelled(): un run CANCELADO (cancel-in-progress en rafagas
+        # de release) guardaba un target/ PARCIAL bajo la primary key nueva del
+        # Cargo.lock; como los caches de GH son inmutables y rust-cache no
+        # re-guarda tras "full match", ese veneno era permanente (run #29653454511
+        # guardo 169MB parciales -> el success posterior recompilo 676 crates,
+        # 511s). cache-on-failure sigue cubriendo fallos reales de clippy/test.
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: control-center/src-tauri
           cache-on-failure: true
-          shared-key: cargo-test-profile
+          save-if: ${{ !cancelled() }}
+          shared-key: cargo-clippy-profile
 
       - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
         # CI ROJO 2026-07-02 root-cause: ort-sys (via fastembed) descarga la lib
@@ -135,6 +150,9 @@ jobs:
         # library onnxruntime" en cuanto algo fuerza recompilar ort-sys. Cachear
         # dfbin lo resucita en el MISMO path absoluto (el usuario runneradmin es
         # fijo en windows-latest), y el -L restaurado vuelve a ser valido.
+        # Key COMPARTIDA con cargo-test a proposito (mismo contenido, ahorra
+        # cuota); en un miss ambos jobs intentan guardar y el segundo recibe un
+        # warning inocuo de "cache already exists", no es fallo.
         id: ort-dfbin
         uses: actions/cache@v4
         with:
@@ -176,37 +194,113 @@ jobs:
           Write-Host "ort-sys purge: $purged dir(s) eliminados (0 = target frio, tambien valido)."
 
       - name: cargo clippy (compiles + lints; -D warnings = gate duro)
-        # --profile test makes clippy compile with the same rustc flags as
-        # `cargo test` (the `test` profile, not `dev`).  Without this, clippy
-        # uses profile `dev` and `cargo test` recompiles fastembed/ort from
-        # scratch under profile `test` — that's the ~10 min recompilation
-        # even though Swatinem cached `target/`.  Aligning both steps to the
-        # same profile means the second step finds every artefact hot and only
-        # spends the ~9 s actually running tests.
+        # --profile test: herencia del job pre-split, donde alineaba los rustc
+        # flags de clippy con los de `cargo test` para compartir target/. Con
+        # los jobs separados se CONSERVA a proposito: el [profile.test] tuning
+        # de Cargo.toml (debug=0 -> sin PDB, codegen-units=16) compila mas
+        # barato que `dev`, y cambiar el profile invalidaria el universo de
+        # artefactos ya cacheado/medido.
         # --lib --bins mirrors what `cargo test` tests so clippy's scope is
         # identical — avoids compiling integration-test stubs that cargo test
         # doesn't use (those live under tests/ and require a live Qdrant).
         working-directory: control-center/src-tauri
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
+  cargo-test:
+    name: Rust (cargo test)
+    runs-on: windows-latest
+    # 30: mismo razonamiento que cargo-clippy — frio ~25 min, caliente ~4 min.
+    timeout-minutes: 30
+    # CARGO_INCREMENTAL=0: mismo razonamiento que en cargo-clippy.
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      # Misma exclusion que en cargo-clippy (medicion cat12.5 alli): el tar del
+      # cache Swatinem y el codegen+link del harness de tests son I/O puro que
+      # Defender re-escanea. try/catch: este step no puede poner el gate rojo.
+      - name: Exclude workspace + CARGO_HOME from Windows Defender real-time scan
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction Stop
+            Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo" -ErrorAction Stop
+            Write-Host "Defender exclusions added for workspace + CARGO_HOME."
+          } catch {
+            Write-Host "Defender exclusion skipped (unsupported on this runner): $($_.Exception.Message)"
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Sin components: clippy — este job solo compila y ejecuta los tests.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build artifacts
+        # shared-key cargo-test-profile ES la key del job Rust pre-split: el
+        # primer run post-split restaura ese cache caliente tal cual (el de
+        # cargo-clippy si arranca frio, una sola vez).
+        # cache-on-failure + save-if !cancelled() son OBLIGATORIOS aqui igual
+        # que en cargo-clippy — historia completa (veneno del run cancelado
+        # #29653454511; y NO cablear cache-hit -> CARGO_NET_OFFLINE, roto en
+        # run #28608208137) en el step homologo de cargo-clippy.
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: control-center/src-tauri
+          cache-on-failure: true
+          save-if: ${{ !cancelled() }}
+          shared-key: cargo-test-profile
+
+      - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
+        # Necesario tambien aqui: fastembed/ort compila en ambos jobs Rust.
+        # Historia completa (CI ROJO 2026-07-02, path PYKE_ROOT verificado,
+        # key compartida entre jobs) en el step homologo de cargo-clippy.
+        id: ort-dfbin
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/ort.pyke.io/dfbin
+          key: ort-dfbin-${{ runner.os }}-${{ hashFiles('control-center/src-tauri/Cargo.lock') }}
+
+      - name: Self-heal ort-sys on dfbin cache miss
+        # Mismo self-heal que en cargo-clippy (razonamiento completo alli):
+        # sin dfbin, purgar build/ + .fingerprint/ de ort-sys fuerza el re-run
+        # del build script que re-descarga onnxruntime a ESTA VM.
+        if: steps.ort-dfbin.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          # OJO: Get-ChildItem con wildcard en -Path + -Filter devuelve VACIO
+          # (no-op silencioso, verificado en local 2026-07-03) — enumerar los
+          # dirs de perfil explicitamente y contar lo borrado.
+          $purged = 0
+          $target = "control-center\src-tauri\target"
+          foreach ($profileDir in (Get-ChildItem $target -Directory -ErrorAction SilentlyContinue)) {
+            foreach ($sub in @("build", ".fingerprint")) {
+              $p = Join-Path $profileDir.FullName $sub
+              if (Test-Path $p) {
+                $hits = Get-ChildItem $p -Directory -Filter "ort-sys-*"
+                $purged += @($hits).Count
+                $hits | Remove-Item -Recurse -Force
+              }
+            }
+          }
+          Write-Host "ort-sys purge: $purged dir(s) eliminados (0 = target frio, tambien valido)."
+
       - name: cargo test (unit, lib only)
-        # clippy --profile test above already compiled the DEPS (fastembed/ort/
-        # tauri) hot, but clippy only *checks* the local crate (emits .rmeta) —
-        # it does NOT codegen+link the test-harness binary. So this step still
-        # pays the codegen+link of the local crate (~237 s hot for the 509
-        # tests, not the ~9 s an earlier comment wrongly claimed). The
-        # [profile.test] tuning in Cargo.toml (debug=0 → no PDB, codegen-units
-        # =16) shaves that link cost. --profile test is the cargo-test default;
-        # stated explicitly so it visibly shares the profile (and its tuning)
-        # with the clippy step.
+        # El coste real de este job es el codegen+link del binario del
+        # test-harness del crate local (~237 s hot para los 509 tests): el
+        # cache restaura las DEPS (fastembed/ort/tauri) calientes, pero ese
+        # link siempre se paga. El [profile.test] tuning de Cargo.toml
+        # (debug=0 -> sin PDB, codegen-units=16) lo recorta. --profile test es
+        # el default de cargo test; explicito para que se vea que comparte
+        # profile (y tuning) con el job cargo-clippy.
         #
         # cat12: dropped `--bins` here. The ultron-memory bin
         # carries NO `#[test]` (verified: it runs 0 tests), so `--bins` only
         # added an extra heavy LINK step (links fastembed/ort/tauri) for
-        # zero coverage. clippy above still compiles+lints `--lib --bins`, so the
-        # bin is still gated for compilation — only its redundant test-link
-        # is gone. Trims the Rust job toward the <300 s target without losing any
-        # assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
+        # zero coverage. The cargo-clippy job still compiles+lints `--lib --bins`,
+        # so the bin is still gated for compilation — only its redundant
+        # test-link is gone. Trims the Rust wall toward the <300 s target without
+        # losing any assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
         working-directory: control-center/src-tauri
         run: cargo test --lib --profile test
 
