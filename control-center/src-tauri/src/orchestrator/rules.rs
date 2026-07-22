@@ -19,7 +19,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "pentest",
             "secreto",
             "secret",
-            "auth ",
+            "auth",
             "cve",
         ],
     },
@@ -57,7 +57,8 @@ pub(super) const RULES: &[IntentRule] = &[
             "niagara",
             "blueprint",
             "videojuego",
-            " juego",
+            "juego",
+            "juegos",
             "netcode",
         ],
     },
@@ -69,8 +70,7 @@ pub(super) const RULES: &[IntentRule] = &[
         patterns: &[
             "interfaz",
             "interface",
-            "ui ",
-            " ui",
+            "ui",
             "ux",
             "diseña",
             "diseño de",
@@ -141,7 +141,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "documenta",
             "documentar",
             "documentation",
-            " docs",
+            "docs",
             "readme",
             "changelog",
             "guia",
@@ -213,7 +213,7 @@ pub(super) const RULES: &[IntentRule] = &[
         workflow_id: "feature",
         patterns: &[
             "swiftui",
-            "swift ",
+            "swift",
             "ios app",
             "iphone",
             "observation framework",
@@ -231,7 +231,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "next.js",
             "nextjs",
             "app router",
-            "react ",
+            "react",
             "react.",
             "core web vitals",
             "bundle size",
@@ -273,7 +273,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "peft",
             "ml pipeline",
             "ml model",
-            " ml ",
+            "ml",
             "mlops",
             "modelo de ml",
             "fraud detection",
@@ -333,7 +333,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "time-series",
             "time series",
             "sql optimization",
-            " sql ",
+            "sql",
         ],
     },
     IntentRule {
@@ -349,7 +349,7 @@ pub(super) const RULES: &[IntentRule] = &[
     IntentRule {
         intent: "rust",
         workflow_id: "feature",
-        patterns: &["borrow checker", "rust", "cargo ", "lifetime"],
+        patterns: &["borrow checker", "rust", "cargo", "lifetime"],
     },
     IntentRule {
         intent: "python",
@@ -401,7 +401,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "prompt caching",
             "multi-agent",
             "rag pipeline",
-            " llm ",
+            "llm",
             "speculative decoding",
             "kv cache",
             "llama 3",
@@ -486,7 +486,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "enterprise deal",
             "saas company",
             "revenue model",
-            " arr",
+            "arr",
             "sales playbook",
             "pitch deck",
             "investor pitch",
@@ -508,7 +508,9 @@ pub(super) const RULES: &[IntentRule] = &[
             "character arc",
             "arco de personaje",
             "novela",
-            "novel ",
+            // "novel" desnudo hijackearia el adjetivo ingles ('a novel
+            // approach'); la frase completa es la unica señal fiable en en.
+            "write a novel",
             "escribir un libro",
             "guion",
             "worldbuilding",
@@ -527,7 +529,7 @@ pub(super) const RULES: &[IntentRule] = &[
             "agrega",
             "desarrolla",
             "nueva funcion",
-            "build a ",
+            "build a",
             "crea un",
             "crea una",
         ],
@@ -648,6 +650,35 @@ pub(super) fn preferred_skills(intent: &str) -> &'static [&'static str] {
     }
 }
 
+/// Substring match anclado a límites de palabra: el byte anterior y el
+/// posterior al match no pueden ser ASCII alfanuméricos. Sin esto, un
+/// `contains()` plano hijackeaba intents: "trust"/"frustrado"→rust,
+/// "latest"/"fastest"→test, "array"→business (audit 2026-07-20, cat3).
+/// El límite se comprueba FUERA del patrón completo: un espacio de borde en
+/// el patrón ("cargo ", " ml ") desplaza el chequeo al carácter que sigue al
+/// espacio (casi siempre letra) y mata el patrón. Por eso la tabla RULES no
+/// debe llevar espacios de borde — matches_word ya pone el límite. Símbolos
+/// que forman parte del token buscado ("c#", ".net core") sí funcionan.
+fn matches_word(haystack: &str, pat: &str) -> bool {
+    if pat.is_empty() {
+        return false;
+    }
+    let bytes = haystack.as_bytes();
+    let mut from = 0;
+    while let Some(idx) = haystack[from..].find(pat) {
+        let start = from + idx;
+        let end = start + pat.len();
+        let before_ok = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+        let after_ok = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+        // Avanzar el largo del primer char del patrón (seguro en UTF-8).
+        from = start + pat.chars().next().map(char::len_utf8).unwrap_or(1);
+    }
+    false
+}
+
 /// Classify a prompt into `(intent, workflow_id)`. Two-pass: domain-specific
 /// intents first (a tech name beats a generic action verb), then action/general.
 /// Default = general/quick.
@@ -655,13 +686,15 @@ pub fn classify_intent(prompt: &str) -> (&'static str, &'static str) {
     let p = prompt.to_lowercase();
     // Pass 1 — domain-specific intents win over action verbs.
     for r in RULES {
-        if DOMAIN_INTENTS.contains(&r.intent) && r.patterns.iter().any(|pat| p.contains(pat)) {
+        if DOMAIN_INTENTS.contains(&r.intent) && r.patterns.iter().any(|pat| matches_word(&p, pat))
+        {
             return (r.intent, r.workflow_id);
         }
     }
     // Pass 2 — action / general intents (security, bug_fix, ui_design, ...).
     for r in RULES {
-        if !DOMAIN_INTENTS.contains(&r.intent) && r.patterns.iter().any(|pat| p.contains(pat)) {
+        if !DOMAIN_INTENTS.contains(&r.intent) && r.patterns.iter().any(|pat| matches_word(&p, pat))
+        {
             return (r.intent, r.workflow_id);
         }
     }
@@ -751,4 +784,110 @@ const META_INTROSPECTIVE_PHRASES: &[&str] = &[
 pub fn is_meta_introspective(prompt: &str) -> bool {
     let p = prompt.to_lowercase();
     META_INTROSPECTIVE_PHRASES.iter().any(|pat| p.contains(pat))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_intent, matches_word};
+
+    #[test]
+    fn matches_word_anchors_both_boundaries() {
+        // Los bordes del prompt cuentan como límite de palabra.
+        assert!(matches_word("ml pipeline", "ml"));
+        assert!(matches_word("es ml", "ml"));
+        assert!(matches_word("ui/ux", "ui"));
+        // Vecino multi-byte UTF-8 ('ñ') no rompe el chequeo de límite.
+        assert!(matches_word("añade auth ya", "auth"));
+        // Sub-palabra nunca matchea.
+        assert!(!matches_word("html", "ml"));
+        assert!(!matches_word("build", "ui"));
+        assert!(!matches_word("me encargo del deploy", "cargo"));
+        assert!(!matches_word("frustrado", "rust"));
+        assert!(!matches_word("latest", "test"));
+        assert!(!matches_word("array", "arr"));
+    }
+
+    /// Los 12 patrones que traían el límite como espacio embebido (muertos
+    /// con matches_word) rutean de nuevo tras normalizar la tabla RULES.
+    #[test]
+    fn normalized_patterns_route_to_their_zone() {
+        assert_eq!(
+            classify_intent("cargo build falla en ci"),
+            ("rust", "feature")
+        );
+        assert_eq!(
+            classify_intent("optimiza el sql lento"),
+            ("database", "quick")
+        );
+        assert_eq!(
+            classify_intent("añade auth middleware"),
+            ("security", "security")
+        );
+        assert_eq!(
+            classify_intent("entrena el ml con estos datos"),
+            ("ml", "feature")
+        );
+        assert_eq!(
+            classify_intent("mejora la ui de la pagina"),
+            ("ui_design", "feature")
+        );
+        assert_eq!(
+            classify_intent("actualiza los docs del proyecto"),
+            ("docs", "quick")
+        );
+        assert_eq!(
+            classify_intent("migra la app a react"),
+            ("nextjs", "feature")
+        );
+        assert_eq!(classify_intent("escribe esto en swift"), ("ios", "feature"));
+        assert_eq!(
+            classify_intent("integra un llm en el backend"),
+            ("llm", "feature")
+        );
+        assert_eq!(
+            classify_intent("proyecta el arr del proximo año"),
+            ("business", "quick")
+        );
+        assert_eq!(
+            classify_intent("crea un juego de plataformas"),
+            ("game", "game")
+        );
+        assert_eq!(
+            classify_intent("mecanicas para juegos multijugador"),
+            ("game", "game")
+        );
+    }
+
+    /// Anti-hijack (audit 2026-07-20, cat3): sub-palabras no disparan intents.
+    #[test]
+    fn word_boundary_kills_known_hijacks() {
+        // "frustrado" contiene "rust" pero NO es rust.
+        assert_eq!(
+            classify_intent("estoy frustrado con este error").0,
+            "bug_fix"
+        );
+        // "latest" contiene "test" pero NO es testing.
+        assert_eq!(
+            classify_intent("usa la latest version disponible").0,
+            "general"
+        );
+        // "array" ya no alimenta "arr" (hijack array→business).
+        assert_eq!(
+            classify_intent("convierte el array en un objeto").0,
+            "general"
+        );
+        // "oauth2" no dispara "auth".
+        assert_eq!(
+            classify_intent("configura oauth2 con el proveedor").0,
+            "general"
+        );
+    }
+
+    #[test]
+    fn prompt_edges_count_as_word_boundary() {
+        // Patrón al inicio del prompt.
+        assert_eq!(classify_intent("ml en produccion, revisalo").0, "ml");
+        // Patrón al final del prompt.
+        assert_eq!(classify_intent("explícame qué es un llm").0, "llm");
+    }
 }
