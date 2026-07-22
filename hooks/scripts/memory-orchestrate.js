@@ -17,6 +17,11 @@ observe('memory-orchestrate');
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
 // spawn fallback keeps the wider colchon for cold-hit E5 (see runCli call below).
 const DAEMON_TIMEOUT_MS = 3000;
+// Check 1.5 (2026-07-22): con pack cacheado FRESCO del proyecto, el peor caso
+// del hook queda ~1200 (daemon) + 800 (one-shot cap) + overhead < 3000ms POR
+// CONSTRUCCION. Sin cache fresco se mantiene el colchon completo de 3000ms
+// porque no hay red de seguridad si el daemon tarda.
+const DAEMON_TIMEOUT_CACHED_MS = 1200;
 
 // HOOKS-04 (auditoria 2026-07-16, decidido por el usuario 2026-07-17): cap del
 // fallback one-shot + pack cacheado. Medido: daemon HIT p50=562ms, MISS
@@ -214,11 +219,16 @@ async function main() {
   }
   const project = projectIdFromCwd(cwd);
 
+  // Cache leida ANTES del daemon: con pack fresco (<30 min) el presupuesto del
+  // daemon baja a DAEMON_TIMEOUT_CACHED_MS — el fallback cacheado garantiza
+  // respuesta util aunque el daemon este contendido.
+  const cached = readOrchCache(project);
+
   // FAST PATH: ask the resident daemon (E5 warm) over TCP loopback. Drops the
   // hot path from ~3.5s (cold model load every spawn) to sub-second.
   let ctx = await daemonRequest(
     { cmd: 'orchestrate', prompt, project: project || undefined },
-    DAEMON_TIMEOUT_MS
+    cached ? DAEMON_TIMEOUT_CACHED_MS : DAEMON_TIMEOUT_MS
   );
   if (ctx && ctx.error) ctx = null; // daemon answered but failed -> fall back
   const usedDaemon = ctx !== null;
@@ -229,7 +239,6 @@ async function main() {
     // (idempotent — exits at once if a live one already answers), and serve THIS
     // turn from a capped one-shot, with the cached pack as safety net (HOOKS-04).
     spawnDetached(['serve']);
-    const cached = readOrchCache(project);
     const args = ['orchestrate', prompt];
     if (project) args.push('--project', project);
     ctx = runCli(args, { timeoutMs: cached ? ONE_SHOT_CAP_CACHED_MS : ONE_SHOT_CAP_UNCACHED_MS });

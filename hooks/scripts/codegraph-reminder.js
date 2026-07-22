@@ -17,7 +17,10 @@
  *    (cargo/npm/node/python/git/tsc...) ni en Read de no-codigo (.md/.json).
  *  - Solo si hay un indice codegraph aplicable (un .codegraph/codegraph.db
  *    hacia arriba, o el archivo vive bajo ~/.ultron, que tiene indice global).
- *  - UNA sola vez por sesion (marcador en temp por session_id).
+ *  - Nudge en la 1a exploracion de la sesion y RE-nudge tras cada 10
+ *    exploraciones seguidas sin ninguna llamada codegraph intermedia (contador
+ *    persistente en temp por session_id; uso de mcp__codegraph__* detectado en
+ *    el transcript resetea el contador).
  *  - NUNCA bloquea el Read: solo inyecta additionalContext. Cualquier error
  *    => exit 0 silencioso (un hook nunca debe romper una lectura).
  */
@@ -84,6 +87,36 @@ function getStdin() {
   });
 }
 
+// Nudges: 1a exploracion de la sesion y, despues, cada multiplo de 10
+// exploraciones sin uso de codegraph intermedio (el uso resetea el contador).
+const RENUDGE_EVERY = 10;
+
+// Offset (bytes) del ULTIMO tool_use mcp__codegraph__* en el transcript, o 0.
+// Busca el patron compacto '"name":"mcp__codegraph__' sobre el TAIL (256KB):
+// los tool_use del transcript son JSON compacto sin espacios, y las menciones
+// de esas tools dentro de texto (p.ej. este propio nudge) quedan con comillas
+// escapadas \" -> no matchean. Fail-safe: cualquier error => 0 (sin reset).
+const CG_USE_PATTERN = Buffer.from('"name":"mcp__codegraph__');
+function lastCodegraphUseOffset(transcriptPath) {
+  try {
+    if (!transcriptPath) return 0;
+    const size = fs.statSync(transcriptPath).size;
+    if (!size) return 0;
+    const start = Math.max(0, size - 256 * 1024);
+    const buf = Buffer.alloc(size - start);
+    const fd = fs.openSync(transcriptPath, 'r');
+    try {
+      fs.readSync(fd, buf, 0, buf.length, start);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const idx = buf.lastIndexOf(CG_USE_PATTERN);
+    return idx < 0 ? 0 : start + idx;
+  } catch (_) {
+    return 0;
+  }
+}
+
 function findCodegraphDb(startDir) {
   // Sube hasta 8 niveles buscando .codegraph/codegraph.db
   let dir = startDir;
@@ -138,14 +171,37 @@ function handle(raw) {
   const underUltron = /[\\/]\.ultron([\\/]|$)/i.test(target) || /[\\/]\.ultron([\\/]|$)/i.test(cwd);
   if (!underUltron && !findCodegraphDb(anchorDir || cwd)) return;
 
-  // Una vez por sesion
+  // Contador persistente por sesion (mismo fichero temp que el viejo marker
+  // booleano): explores = exploraciones desde el ultimo uso de codegraph;
+  // cgOffset = offset del ultimo tool_use codegraph visto; nudged = ya se
+  // emitio el nudge inicial de la sesion.
   const marker = path.join(os.tmpdir(), `ultron-cg-reminder-${String(sessionId).replace(/[^A-Za-z0-9_-]/g, '')}`);
+  let state = { explores: 0, cgOffset: 0, nudged: false };
   try {
-    if (fs.existsSync(marker)) return;
-    fs.writeFileSync(marker, '');
+    const st = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    if (st && typeof st.explores === 'number') {
+      state = { explores: st.explores, cgOffset: st.cgOffset || 0, nudged: !!st.nudged };
+    }
   } catch (_) {
-    // si no podemos marcar, seguimos: mejor recordar de mas que romper
+    // primer disparo de la sesion (o marker legacy vacio): estado fresco
   }
+
+  const cgUse = lastCodegraphUseOffset(input.transcript_path);
+  if (cgUse > state.cgOffset) {
+    // Hubo llamada(s) codegraph desde el ultimo disparo: contador a cero.
+    state.cgOffset = cgUse;
+    state.explores = 0;
+  }
+  state.explores += 1;
+  const shouldNudge =
+    !state.nudged || (state.explores > 0 && state.explores % RENUDGE_EVERY === 0);
+  if (shouldNudge) state.nudged = true;
+  try {
+    fs.writeFileSync(marker, JSON.stringify(state));
+  } catch (_) {
+    // si no podemos persistir, seguimos: mejor recordar de mas que romper
+  }
+  if (!shouldNudge) return;
 
   const msg =
     '[ULTRON / CodeGraph] Hay un indice CodeGraph para este proyecto ' +
@@ -155,7 +211,9 @@ function handle(raw) {
     'codegraph_search (ubicacion) y codegraph_explore (codigo + rutas en 1 ' +
     'llamada): resuelven "donde esta X" sin barrer el FS y ahorran cientos de ' +
     'tokens. Exploracion directa solo para confirmar un detalle puntual, o para ' +
-    'datos de runtime/JSON que el indice no cubre (p.ej. cockpit/projects/*/kanban.json).';
+    'datos de runtime/JSON que el indice no cubre (p.ej. cockpit/projects/*/kanban.json). ' +
+    'Las tools mcp__codegraph__* son deferred: si no estan cargadas, cargalas primero con ' +
+    'ToolSearch "select:mcp__codegraph__codegraph_explore,mcp__codegraph__codegraph_search".';
 
   const out = {
     hookSpecificOutput: {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-07-17",
+  "generated_at": "2026-07-22",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -120,6 +120,21 @@
       "description": "SessionStart: auto-launch de Qdrant nativo si :6333 no responde (PowerShell, sincrono). Infra, no memoria."
     },
     {
+      "id": "ensure-codegraph",
+      "event": "SessionStart",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/ensure-codegraph.js",
+      "script": "~/.ultron/hooks/scripts/ensure-codegraph.js",
+      "timeout_s": 10,
+      "checksum_sha256": "0093e57fe4fbc02f96e09966e2ce1373cbb55c6e454ac5667cab3ecf930a5aab",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "SessionStart: mantiene SIEMPRE vivo el daemon/watcher de CodeGraph. PID vivo en .codegraph/daemon.pid -> salida inmediata; muerto/ausente -> spawn detached del shim npm con CODEGRAPH_DAEMON_INTERNAL=1 (el daemon arbitra el lock O_EXCL, sin duplicados) e IDLE_TIMEOUT_MS=0 (nunca idle-exit), log en .codegraph/daemon.log. Infra, no memoria; fail-safe: nunca bloquea el arranque."
+    },
+    {
       "id": "memory-warmup",
       "event": "SessionStart",
       "matcher": "*",
@@ -233,7 +248,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 12,
-      "checksum_sha256": "1a4c5a2dc3b02bb54ecdcb307ca9aac8e6628d7403de65ac0bcb32257aa4bfbf",
+      "checksum_sha256": "205afad1dcfbfdb159b075eb2bab52ef2e6a8365ec3ab01e2c53c33d5ea1cca6",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -265,13 +280,13 @@
       "command": "node ~/.ultron/hooks/scripts/codegraph-reminder.js",
       "script": "~/.ultron/hooks/scripts/codegraph-reminder.js",
       "timeout_s": 5,
-      "checksum_sha256": "bfe6463e329d04816db5324ba21e439d37483020bbc0aab1f4561a738e08229e",
-      "version": "1.0.0",
+      "checksum_sha256": "15c58a34d2a72cc13d5e758ab7ffc7791b83b17b2e5880db19dd8c4b2f927f27",
+      "version": "1.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse(Read|Grep): una vez por sesion recuerda usar codegraph_explore en vez de leer archivos enteros (token-control)."
+      "description": "PreToolUse(Read|Grep|Glob|Bash): recuerda usar codegraph_explore/search en vez de explorar a ciegas (token-control). Nudge en la 1a exploracion y re-nudge tras cada 10 exploraciones sin llamada codegraph intermedia (contador en temp por session_id; uso de mcp__codegraph__* en el transcript lo resetea). Incluye instruccion de carga deferred via ToolSearch."
     },
     {
       "id": "posttoolfail-capture",
