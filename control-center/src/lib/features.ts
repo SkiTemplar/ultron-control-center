@@ -6,8 +6,7 @@
 //
 // Cache strategy: we keep a module-level state + a Set of subscribers so
 // multiple components can mount `useFeatures()` without each triggering an
-// extra Tauri invoke and so a `saveFeatures()` followed by `refresh()`
-// propagates to every consumer at once.
+// extra Tauri invoke, and a `refresh()` propagates to every consumer at once.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -110,16 +109,10 @@ export function useFeatures(): {
   return { features, loading, refresh };
 }
 
-/**
- * Persist the toggle map and update the in-memory cache so subscribers
- * react immediately (no need to wait for a refresh round-trip).
- */
-export async function saveFeatures(next: Features): Promise<void> {
-  await invoke("save_features", { features: next });
-  cached = { ...ALL_ENABLED, ...next };
-  loaded = true;
-  notify(false);
-}
+// saveFeatures()/save_features eliminados 2026-07-20 (audit cat8): la sección
+// Settings→Features nunca se construyó y eran dead code inalcanzable. Los
+// toggles se gobiernan editando ~/.ultron/cockpit/features.json a mano (el
+// installer lo escribe; refresh() lo relee).
 
 /** Keys that map 1:1 to a sidebar item. Used by Sidebar.tsx for filtering. */
 export const FEATURE_KEYS: ReadonlyArray<keyof Features> = [

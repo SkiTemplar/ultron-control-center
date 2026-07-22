@@ -401,9 +401,10 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
           );
         })()}
 
-        {/* v15.4 — the standalone "Features" modal was deduplicated. The
-            same toggles live in Settings → Features (richer UI with
-            descriptions per toggle). */}
+        {/* v15.4 — the standalone "Features" modal was deduplicated. Los
+            toggles se gobiernan editando ~/.ultron/cockpit/features.json
+            (la sección Settings→Features nunca se construyó; dead code
+            eliminado 2026-07-20, audit cat8). */}
       </nav>
 
       {/* v2.6 (card-v26-fb-015): Settings + Notifications anchored at the
@@ -445,6 +446,6 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
   );
 }
 
-// v15.4: FeaturesModal removed — the same toggles now live in
-// Settings → Features (richer UI with per-feature descriptions).
+// v15.4: FeaturesModal removed. Los toggles viven en features.json (editable
+// a mano); la sección Settings→Features nunca llegó a construirse.
 // FEATURE_LABELS lived here for the deleted modal; gone with it.

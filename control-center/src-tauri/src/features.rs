@@ -99,29 +99,11 @@ pub fn read_features_inner() -> Features {
     serde_json::from_str::<Features>(&text).unwrap_or_default()
 }
 
-pub fn save_features_inner(features: Features) -> Result<(), String> {
-    // Serde already enforces the bool-only invariant: deserialization of a
-    // non-bool value into `bool` fails before this function ever runs.
-    let path = features_path().ok_or_else(|| "no HOME".to_string())?;
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
-        }
-    }
-    let serialized =
-        serde_json::to_string_pretty(&features).map_err(|e| format!("serialize: {}", e))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
-    Ok(())
-}
+// save_features/save_features_inner eliminados 2026-07-20 (audit cat8): la
+// sección Settings→Features nunca se construyó y el comando era inalcanzable.
+// Este módulo ahora es solo-lectura; features.json lo escribe el installer.
 
 #[tauri::command]
 pub fn read_features() -> Features {
     read_features_inner()
-}
-
-#[tauri::command]
-pub fn save_features(features: Features) -> Result<(), String> {
-    save_features_inner(features)
 }
