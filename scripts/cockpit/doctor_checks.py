@@ -423,12 +423,14 @@ def _walk_hook_commands(node: Any, out: list[str]) -> None:
 
 
 def _extract_script_path(command: str) -> str | None:
-    """Extract the .py / .ps1 path from a hooks command string."""
+    """Extract the script path (.py/.ps1/.js/.mjs/.cjs) from a hooks command string."""
     tokens = command.split()
     for tok in reversed(tokens):
         cleaned = tok.strip().strip('"').strip("'")
         low = cleaned.lower()
-        if low.endswith(".py") or low.endswith(".ps1"):
+        # .js/.mjs/.cjs incluidos: la flota de hooks migró a node y este filtro
+        # los ignoraba (audit 2026-07-20, cat9).
+        if low.endswith((".py", ".ps1", ".js", ".mjs", ".cjs")):
             return cleaned
     return None
 

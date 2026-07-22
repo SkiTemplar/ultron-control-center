@@ -10,7 +10,7 @@
 #   ultron doctor                  - full doctor diagnostics
 #   ultron memory <status|sync>    - vault sync
 #   ultron brain query <q>         - FTS5 search
-#   ultron mcp <list|install|...>  - MCP server management
+#   ultron mcp health              - MCP health probe (installer retirado en wave3)
 #   ultron schedule <install|status|uninstall>
 #   ultron skills <manifest|...>   - skill registry
 #   ultron security <scan|...>     - security audit
@@ -72,7 +72,7 @@ function Show-Help {
     Write-Host "                           Browse registry"
     Write-Host "  scan [--verbose|--dry-run]"
     Write-Host "                           Re-scan filesystem for projects"
-    Write-Host '  mcp [action] ...         MCP installer: list|catalog|install|uninstall|validate|wrap|unwrap'
+    Write-Host '  mcp health               MCP health probe (installer retirado en wave3)'
     Write-Host '  notes [id] [save|list|export]'
     Write-Host "                           Per-project persistent notes (warm-start context)"
     Write-Host "  schedule <action>        Task Scheduler: install|status|uninstall"
@@ -117,7 +117,6 @@ function Show-Help {
     Write-Host "  skills manifest rebuild  Rebuild manifest from disk (detect Gemini/Codex installs)"
     Write-Host "  skills manifest sync-prompt  Clipboard prompt -> Claude identifies untracked skills"
     Write-Host "  skills discover <cmd>    Buscar/cachear/instalar skills de GitHub" -ForegroundColor Cyan
-    Write-Host "  mcp scaffold <idea>      Sonnet MCP server scaffold"
     Write-Host "  self-improve scan        L1 AutoUpdater: rank audit candidates"
     Write-Host "  self-improve audit <s> [--quick]"
     Write-Host "                           L1: trigger repo-evaluator (Sonnet quick / Opus full)"
@@ -639,21 +638,20 @@ switch ($Command.ToLower()) {
     }
 
     "mcp" {
-        # ultron mcp <action> [args]  -> mcp_installer.py or mcp_creator.py or mcp_health_check.py
+        # ultron mcp <action>  -> solo 'health' sigue vivo (mcp_health_check.py).
+        # installer/creator/broker (mcp_installer.py, mcp_creator.py, mcp_broker.py)
+        # se cuarentenaron en wave3 (ba98993); el dispatch quedo colgando y todo
+        # subcomando salvo health moria con ModuleNotFound (audit 2026-07-20, cat11).
         if (-not $Rest -or $Rest.Count -eq 0) {
             Write-Host "Usage:" -ForegroundColor Yellow
-            Write-Host "  ultron mcp <list|catalog|install|uninstall|validate> [args]"
-            Write-Host "  ultron mcp wrap <id>     Route MCP through zero-trust broker"
-            Write-Host "  ultron mcp unwrap <id>   Restore direct connection"
-            Write-Host "  ultron mcp scaffold <idea...> [--lang python|ts] [--apply]   (Sonnet, dry-run)"
             Write-Host "  ultron mcp health        Probe all MCPs and pretty-print status"
+            Write-Host ""
+            Write-Host "  (install/list/catalog/uninstall/validate/wrap/unwrap/scaffold fueron" -ForegroundColor Gray
+            Write-Host "   retirados en wave3 -- gestiona MCPs con 'claude mcp' o el Control Center)" -ForegroundColor Gray
             exit 1
         }
         $action = ([string]$Rest[0]).ToLower()
-        if ($action -eq "scaffold") {
-            $remaining = @(if ($Rest.Count -gt 1) { $Rest[1..($Rest.Count-1)] } else { @() })
-            Invoke-Py "mcp_creator.py" (@("scaffold") + $remaining)
-        } elseif ($action -eq "health") {
+        if ($action -eq "health") {
             # S5 Sub-pilar A: live probe of all MCPs in settings.json. Pretty-prints
             # the JSON output from mcp_health_check.py --json. Useful for "is the
             # gemini MCP up?" without sifting through alerts.
@@ -701,7 +699,9 @@ switch ($Command.ToLower()) {
                 Write-Host $rawJoined
             }
         } else {
-            Invoke-Py "mcp_installer.py" $Rest
+            Write-Host ("ultron mcp {0}: retirado en wave3 (mcp_installer.py cuarentenado)." -f $action) -ForegroundColor Yellow
+            Write-Host "Gestiona MCPs con 'claude mcp' o desde el Control Center. Solo queda: ultron mcp health" -ForegroundColor Gray
+            exit 1
         }
     }
 

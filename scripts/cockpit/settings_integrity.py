@@ -146,7 +146,10 @@ def _walk_hook_paths(hooks: Any) -> list[str]:
                 for tok in reversed(cmd.split()):
                     cleaned = tok.strip().strip('"').strip("'")
                     low = cleaned.lower()
-                    if low.endswith(".py") or low.endswith(".ps1"):
+                    # .js/.mjs/.cjs incluidos: la flota de hooks migró a node y
+                    # este filtro los ignoraba — el detector de drift era ciego
+                    # a 22 de 24 hooks (audit 2026-07-20, cat9).
+                    if low.endswith((".py", ".ps1", ".js", ".mjs", ".cjs")):
                         token = cleaned
                         break
                 if token:

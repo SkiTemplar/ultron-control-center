@@ -42,78 +42,26 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 PEER_SCRIPTS = SCRIPTS_DIR.parent
 
 EXPECTED_SCRIPTS = [
+    # Podada 2026-07-20 contra disco (audit ultracode cat5/cat11): la lista
+    # acumulaba 63 scripts cuarentenados en wave3 (ba98993) y reportaba
+    # como missing cosas retiradas a proposito. Solo scripts vivos.
     # Core ops
     "cockpit_base.py", "scan_projects.py", "launch_project.py",
-    "retention.py", "should_run.py", "brain_config.py", "ultron_paths.py",
-    # News
-    "news_alerts.py", "github_trending.py",
-    # Standup + calendar
-    "ai_standup.py", "calendar_match.py",
+    "brain_config.py", "ultron_paths.py",
     # MCP
-    "mcp_installer.py", "mcp_health_check.py", "mcp_allowlist.py",
-    "mcp_broker.py", "mcp_creator.py",
+    "mcp_health_check.py",
     # Quick tools / launchers / health
-    "quick_ask.py", "apps_launcher.py", "persona_audit.py",
-    "project_editor.py", "project_notes.py", "auto_updater.py",
-    "health.py", "validate_skills.py",
-    # Memory + skills SSOT
-    "memory_bridge.py", "memory_sync.py",
-    "skill_manifest.py", "skill_manifest_to_routing.py",
-    "skill_manifest_validate.py", "skill_creator.py",
-    "skill_discover.py", "skill_finder.py", "skill_graph.py",
-    "skill_summarizer.py", "skill_sync.py", "registry_sync.py",
-    "agent_manifest.py", 
-    # Sprint 3-4 cockpit (audit pipeline + TUI + sessions)
-    "audit_index.py", "audit_to_pending.py", "pending_actions.py",
-    "apply_proposals.py", "route_quality.py",
-    "route_quality_aggregator.py", "context_primer.py",
-    "context_packet_builder.py", 
-    "session_highlights.py", "session_compactor.py",
-    "session_replay.py",
-    # tui.py removed in v15.4 (Control Center replaces it).
-    # v14 GENESIS routing
-    "intent_dispatcher.py", "routing_decide.py", "dispatcher_audit.py",
-    "decay_queue.py",
-    # v14 GENESIS doctor v2 + brain
-    "doctor.py", "brain_index.py", "generate_L0.py",
-    "frontmatter_backfill.py", "token_budget.py",
-    # v14.4 TOKEN HUNTER (Phase 0 + 1 + 2 + 3)
-    "token_baseline.py",
-    "skill_lazy_loader.py",
-    "cache_telemetry.py",
-    "memory_dedupe.py",
-    # v14.5 META-PROMPTER (Phase 1 + 3 + 4)
-    "prompt_improver.py",
-    "prompt_registry.py",
-    "prompt_eval.py",
-    # v14.6 PERFECT MEMORY (Phase 1 + 2 + 3)
-    "embed_vault.py",
-    "hybrid_retriever.py",
-    # v14.8 ULTRA POLISH (Phase 1 — auto-recall hook lives in hooks/, not here)
-    # v14.8 P2: snapshot + validator
-    "system_snapshot.py",
-    "validate_full_system.py",
-    # v14.8 P3: skills catalog → Qdrant
-    "embed_skills.py",
-    # v14.8: web auto-publisher
-    "web_publisher.py",
-    # v14.8 P5: cross-encoder re-ranking
-    "cross_encoder.py",
-    # v14 GENESIS security (Sprint 5-C)
-    "hook_input_validator.py", "path_traversal_guard.py",
-    "secrets_manager.py", "secrets_scanner.py",
-    "settings_integrity.py", "silent_exec.py",
+    "apps_launcher.py", "project_editor.py", "project_notes.py",
+    "health.py",
+    # Skills SSOT + routing
+    "skill_manifest.py", "registry_sync.py", "agent_manifest.py",
+    "route_quality_aggregator.py", "embed_skills.py",
     "skill_provenance.py", "skill_sync_security.py",
-    "audit_silent_exec.py",
-    # v14 GENESIS alerts + bus
-    "alerts.py", "changelog_registry.py",
-    # v14.1 GENESIS deadwood
-    "deadwood_scanner.py",
-    # Misc / one-off / background
-    "setup_github_token.py",
-    "on_wake.py", "job_supervisor.py", "background_tasks.py",
-    "vault_migrator.py", "usage_report.py", "research.py",
-    "research_premium.py", "game_detector.py",
+    # Diagnostico + telemetria
+    "context_primer.py", "doctor.py", "brain_index.py",
+    "token_budget.py", "token_baseline.py", "cache_telemetry.py",
+    "secrets_scanner.py", "settings_integrity.py", "silent_exec.py",
+    "alerts.py", "deadwood_scanner.py", "background_tasks.py",
 ]
 EXPECTED_CONFIGS = ["projects.json", "apps.json", "schedule-config.json",
                     "ide-mappings.json", "mcp-catalog.json"]
