@@ -127,7 +127,7 @@ jobs:
         # run #28608208137: exact hit + offline broke with "no matching
         # package named `base64` found" -- rust-cache PRUNES the registry on
         # save, so a restored cache is NOT self-sufficient for --offline.
-        # save-if !cancelled(): un run CANCELADO (cancel-in-progress en rafagas
+        # save-if job.status!=cancelled: un run CANCELADO (cancel-in-progress en rafagas
         # de release) guardaba un target/ PARCIAL bajo la primary key nueva del
         # Cargo.lock; como los caches de GH son inmutables y rust-cache no
         # re-guarda tras "full match", ese veneno era permanente (run #29653454511
@@ -137,7 +137,7 @@ jobs:
         with:
           workspaces: control-center/src-tauri
           cache-on-failure: true
-          save-if: ${{ !cancelled() }}
+          save-if: ${{ job.status != 'cancelled' }}
           shared-key: cargo-clippy-profile
 
       - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
@@ -240,7 +240,7 @@ jobs:
         # shared-key cargo-test-profile ES la key del job Rust pre-split: el
         # primer run post-split restaura ese cache caliente tal cual (el de
         # cargo-clippy si arranca frio, una sola vez).
-        # cache-on-failure + save-if !cancelled() son OBLIGATORIOS aqui igual
+        # cache-on-failure + save-if job.status!=cancelled son OBLIGATORIOS aqui igual
         # que en cargo-clippy — historia completa (veneno del run cancelado
         # #29653454511; y NO cablear cache-hit -> CARGO_NET_OFFLINE, roto en
         # run #28608208137) en el step homologo de cargo-clippy.
@@ -248,7 +248,7 @@ jobs:
         with:
           workspaces: control-center/src-tauri
           cache-on-failure: true
-          save-if: ${{ !cancelled() }}
+          save-if: ${{ job.status != 'cancelled' }}
           shared-key: cargo-test-profile
 
       - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
