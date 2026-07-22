@@ -23,6 +23,7 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
+const { deriveNoteTitle } = require('./lib/note-title');
 observe('subagent-harvest');
 
 const HOME = os.homedir();
@@ -161,7 +162,11 @@ function main() {
   const candidate = {
     type: 'agent_note',
     scope: 'agent',
-    title: `Subagente ${agent} — resultado`,
+    // Titulo derivado del contenido real (sprint recall 2026-07-22): el titulo
+    // generico "Subagente X — resultado" hacia indistinguibles 1181 notas en el
+    // top-k. deriveNoteTitle redacta secretos y cae al titulo viejo si no hay
+    // contenido usable; el write-path Rust vuelve a redactar proposed_title.
+    title: deriveNoteTitle({ agent, label, resultText }),
     summary: resultText.replace(/\s+/g, ' ').slice(0, 220),
     content: resultText.slice(0, 2000),
     confidence: 0.6,

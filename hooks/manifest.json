@@ -385,7 +385,7 @@
       "command": "node ~/.ultron/hooks/scripts/subagent-harvest.js",
       "script": "~/.ultron/hooks/scripts/subagent-harvest.js",
       "timeout_s": 20,
-      "checksum_sha256": "fb186d5d47ca43606961dd2198aa15a50fe59eb208d5f0ddc118830deb7e3f3e",
+      "checksum_sha256": "12eccd7d9dd0b53810bd848e0c6b0c667662fe55e815267a85b10a7a68a1d3c8",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
