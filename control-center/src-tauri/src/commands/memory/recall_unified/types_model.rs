@@ -6,8 +6,13 @@ use serde::Serialize;
 pub(super) const RRF_K: f32 = 60.0;
 /// Final entries returned per call.
 pub(super) const DEFAULT_LIMIT: usize = 8;
-/// Top-K pulled from each source before fusion.
+/// Top-K pulled from each source before fusion (hot path — hook UserPromptSubmit).
 pub(super) const FANOUT_K: usize = 30;
+/// Fanout del path de CALIDAD (rerank=true: recall CLI/browser, trace, evals).
+/// El diagnostico 2026-07-22 situo relevantes del golden fuera del top-30 de
+/// cada fuente; 60 los mete en la fusion sin tocar la latencia del hook (el
+/// hot path pasa rerank=false y conserva FANOUT_K).
+pub(super) const FANOUT_K_QUALITY: usize = 60;
 
 /// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A fused hit with NO
 /// dense (semantic) backing whose sparse (BM25) rank is at or beyond this cutoff

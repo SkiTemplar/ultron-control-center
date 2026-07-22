@@ -138,6 +138,56 @@ pub(crate) fn informative_query_terms(query: &str) -> Vec<String> {
     out
 }
 
+/// ASCII-fold de diacriticos del español (tildes, diéresis, ñ) en minúsculas.
+/// Solo cubre el rango que produce `informative_query_terms` (ya lowercased).
+pub(crate) fn ascii_fold(term: &str) -> String {
+    term.chars()
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ñ' => 'n',
+            _ => c,
+        })
+        .collect()
+}
+
+/// Variantes de diacriticos de un termino para el probe FTS del trust gate: el
+/// fallback LIKE del sparse compara BYTES, asi que 'simbolos' (query) no matchea
+/// un corpus que escribe 'símbolos' — df=0 y abstencion en FALSO (gs-0017).
+/// Devuelve la forma folded (si difiere del literal) mas cada sustitucion de UNA
+/// vocal acentuada / ñ sobre la forma folded (la ortografia española lleva como
+/// mucho una tilde por palabra). El gate solo declara un termino desconocido si
+/// el literal Y todas las variantes dan df=0.
+pub(crate) fn diacritic_probe_variants(term: &str) -> Vec<String> {
+    let folded = ascii_fold(term);
+    let mut out: Vec<String> = Vec::new();
+    if folded != term {
+        out.push(folded.clone());
+    }
+    let base: Vec<char> = folded.chars().collect();
+    for (i, c) in base.iter().enumerate() {
+        let accented = match c {
+            'a' => 'á',
+            'e' => 'é',
+            'i' => 'í',
+            'o' => 'ó',
+            'u' => 'ú',
+            'n' => 'ñ',
+            _ => continue,
+        };
+        let mut v: String = base[..i].iter().collect();
+        v.push(accented);
+        v.extend(base[i + 1..].iter());
+        if v != term && !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
+}
+
 /// `ULTRON_TRUST_TERMS=off/0` desactiva el gate de cobertura (es un gate de
 /// honestidad de contexto, no de seguridad — el de inyección no tiene knob).
 pub(crate) fn trust_terms_enabled() -> bool {
@@ -411,5 +461,30 @@ mod trust_gate_tests {
             t2.contains(&"skills".to_string()) && t2.contains(&"nucleo".to_string()),
             "{t2:?}"
         );
+    }
+
+    // (2026-07-22) Falso abstain por tildes (gs-0017): la query dice 'simbolos'
+    // y el corpus 'símbolos' — el probe debe cubrir ambas direcciones.
+    #[test]
+    fn diacritic_variants_bridge_simbolos_both_directions() {
+        assert_eq!(ascii_fold("símbolos"), "simbolos");
+        assert_eq!(ascii_fold("español"), "espanol");
+        assert_eq!(ascii_fold("qdrant"), "qdrant");
+
+        // Query sin tilde -> variantes incluyen la forma acentuada del corpus.
+        let v = diacritic_probe_variants("simbolos");
+        assert!(v.contains(&"símbolos".to_string()), "{v:?}");
+        assert!(!v.contains(&"simbolos".to_string()), "literal fuera: {v:?}");
+
+        // Query CON tilde -> variantes incluyen la forma folded (corpus ASCII).
+        let v2 = diacritic_probe_variants("símbolos");
+        assert!(v2.contains(&"simbolos".to_string()), "{v2:?}");
+
+        // ñ cubierta en ambas direcciones.
+        assert!(diacritic_probe_variants("espanol").contains(&"español".to_string()));
+        assert!(diacritic_probe_variants("español").contains(&"espanol".to_string()));
+
+        // Termino sin sustituibles -> sin variantes (el gate decide solo con el literal).
+        assert!(diacritic_probe_variants("xyz").is_empty());
     }
 }

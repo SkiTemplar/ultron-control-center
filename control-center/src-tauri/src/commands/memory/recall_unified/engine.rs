@@ -15,11 +15,13 @@ use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope};
 
 use super::types_model::{
     DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, AMBIENT_PENALTY, FANOUT_K,
-    PER_CALL_TOKEN_CAP, RRF_K,
+    FANOUT_K_QUALITY, PER_CALL_TOKEN_CAP, RRF_K,
 };
 use crate::commands::memory::recall_unified::rrf_fuse_weighted;
 
-use super::pack::{assemble_pack, informative_query_terms, trust_terms_enabled};
+use super::pack::{
+    assemble_pack, diacritic_probe_variants, informative_query_terms, trust_terms_enabled,
+};
 
 /// Core hybrid recall + full trace (Retrieval Inspector). Synchronous; both the
 /// compact `recall` and the verbose `recall_inspect` derive from this so there is
@@ -59,7 +61,12 @@ pub fn build_trace(
     //     calidad por latencia. El embed E5 del query cuesta ~0.3-1 s warm.
     //     Score-aware (B1): keep the cosine similarity to break RRF ties.
     // (cat1 ranking) knobs tuneables por env para el A/B (default = consts).
-    let fanout_k = env_knob_usize("ULTRON_FANOUT_K", FANOUT_K);
+    // Fanout partido por intencion del caller (2026-07-22): `rerank` distingue
+    // el path de CALIDAD (evals/CLI/trace, tolera segundos) del hot path del
+    // hook (rerank=false, p50 134 ms) — el fanout hondo solo se paga donde el
+    // coste no importa. ULTRON_FANOUT_K sigue mandando sobre AMBOS si esta set.
+    let fanout_default = if rerank { FANOUT_K_QUALITY } else { FANOUT_K };
+    let fanout_k = env_knob_usize("ULTRON_FANOUT_K", fanout_default);
     let rrf_k = env_knob_f32("ULTRON_RRF_K", RRF_K);
     let dense_scored = if dense_enabled {
         // Dense (Qdrant) project filter: drop it in cross-project mode so the
@@ -217,12 +224,13 @@ pub fn build_trace(
     // Fallback: any error from rerank_pairs is printed to stderr and silently
     // ignored — the existing `fused` order is preserved and recall continues.
     // The recall MUST NOT fail because the re-ranker is unavailable.
-    const RERANK_TOP_N: usize = 24;
+    const RERANK_TOP_N: usize = 48;
     if rerank && crate::qdrant::reranker_enabled() {
-        // (cat1 2026-07-03) N tuneable por env para el A/B: el diagnostico del
-        // golden situo relevantes cortados hasta fused rank 56 — con N=24 el
-        // cross-encoder ni los ve (techo ~0.82); N mas hondo sube el techo a
-        // ~0.92 a cambio de mas pares por query.
+        // (cat1 2026-07-03, subido 2026-07-22) N tuneable por env para el A/B:
+        // el diagnostico del golden situo relevantes cortados hasta fused rank
+        // 56 — con N=24 el cross-encoder ni los veia (techo ~0.82); N=48 sube
+        // el techo a ~0.92 a cambio del doble de pares por query (solo paths
+        // de calidad — el hook pasa rerank=false y no entra aqui).
         let rerank_top_n = env_knob_usize("ULTRON_RERANK_TOP_N", RERANK_TOP_N);
         let top_n_len = rerank_top_n.min(fused.len());
         // Collect (id, text) pairs for the cross-encoder. Items whose text
@@ -318,10 +326,21 @@ pub fn build_trace(
     // el floor plano no puede pararlo). Fail-open si el FTS falla (gate de
     // honestidad, no de seguridad). ULTRON_TRUST_TERMS=off lo desactiva.
     if !injected.is_empty() && trust_terms_enabled() {
-        let unknown = informative_query_terms(query).into_iter().find(|t| {
-            MemoryService::search_active(t, 1)
+        // (2026-07-22) Diacriticos: el fallback LIKE del sparse (build sin FTS5)
+        // compara bytes — 'simbolos' NO matchea un corpus con 'símbolos' y el
+        // gate abstenia en falso (gs-0017, unico recall=0 del golden). Antes de
+        // declarar un termino desconocido se prueban tambien sus variantes de
+        // tilde/ñ; solo df=0 en TODAS confirma que el corpus no sabe de eso.
+        let term_is_unknown = |term: &str| {
+            MemoryService::search_active(term, 1)
                 .map(|v| v.is_empty())
-                .unwrap_or(false)
+                .unwrap_or(false) // fail-open: error FTS != termino desconocido
+        };
+        let unknown = informative_query_terms(query).into_iter().find(|t| {
+            term_is_unknown(t)
+                && diacritic_probe_variants(t)
+                    .iter()
+                    .all(|v| term_is_unknown(v))
         });
         if let Some(term) = unknown {
             for e in injected.drain(..) {

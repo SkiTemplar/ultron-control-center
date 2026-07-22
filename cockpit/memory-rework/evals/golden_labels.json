@@ -56,10 +56,9 @@
       "expect_ids": [
         "6d7576c8-710b-4723-abe4-7a2622dfa100",
         "fad824ea-8fef-49a4-99a4-df103d5ac193",
-        "16d1e4b4-36e2-481e-85d9-5819ed25423b",
-        "793cb64e-ac50-4dea-be2f-bb68993f524e"
+        "4d310137-3231-42d2-bd4b-20e779a3f267"
       ],
-      "n_relevant": 4
+      "n_relevant": 3
     },
     {
       "id": "gs-0006",
@@ -97,7 +96,7 @@
         "c689a453-5c26-4089-b316-afa13ef9a0fe",
         "1513b859-a1fd-4290-b428-baeca49a5892",
         "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46",
-        "6b541336-52f0-4b97-96b1-4f860700bdbb"
+        "e6829b95-76c2-4324-af7b-78db4f7da869"
       ],
       "n_relevant": 6
     },
@@ -301,5 +300,6 @@
       "n_relevant": 3
     }
   ],
-  "_hygiene_2026_07_02": "Higiene 2026-07-02: 7 expect_ids victimas del sweep de duplicados exactos remapeados a su gemelo ACTIVO (mismo content_hash via ledger de events -> mismo juicio de relevancia); 5 expect_ids retirados por ser era-claims deprecados adrede en la curacion de eras (esperarlos castigaria al recall por hacer lo correcto). n_relevant recalculado. Queries retiradas por quedar vacias: ['gs-0010']."
+  "_hygiene_2026_07_02": "Higiene 2026-07-02: 7 expect_ids victimas del sweep de duplicados exactos remapeados a su gemelo ACTIVO (mismo content_hash via ledger de events -> mismo juicio de relevancia); 5 expect_ids retirados por ser era-claims deprecados adrede en la curacion de eras (esperarlos castigaria al recall por hacer lo correcto). n_relevant recalculado. Queries retiradas por quedar vacias: ['gs-0010'].",
+  "_hygiene_2026_07_22": "Higiene 2026-07-22: 3 expect_ids apuntaban a items status=deprecated (todos antiguos importados, sin gemelo por content_hash ni cadena supersedes -> irrecuperables porque el recall filtra no-Active). gs-0005: 793cb64e ('construir hybrid retriever FTS5+Qdrant+RRF', todo materializado) remapeado a 4d310137 (hecho Activo que describe la arquitectura hibrida FTS5+E5+RRF construida); 16d1e4b4 ('prototipar query FTS5 para ZTMSI') RETIRADO — sin sucesor Activo del mismo tema (el unico Activo de ZTMSI trata del threshold, no de FTS5), n_relevant 4->3. gs-0009: 6b541336 ('simular hooks SessionStart/Stop') remapeado a e6829b95 (hecho Activo sobre hooks SessionStart/Stop en runtime Windows), n_relevant se mantiene 6."
 }
