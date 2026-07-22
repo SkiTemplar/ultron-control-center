@@ -21,5 +21,6 @@ pub mod tabs;
 
 pub use live_session::*;
 pub use session_manager::*;
+pub use session_summary::summarize_session_activity;
 pub use sessions::*;
 pub use tabs::*;

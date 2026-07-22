@@ -307,6 +307,10 @@ pub fn run() {
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
             orchestrator::orchestrate_prompt,
+            // -- Resumen REAL de sesión vía AI Router (lazy, cacheado por session_id+hash) --
+            // Restaurado 2026-07-20: d811828 lo borró como "0 consumidores" pero
+            // SessionCard.tsx lo invoca (audit ultracode cat10/cat14).
+            commands::session_summary::summarize_session_activity,
             // -- Live Session Monitor: actividad en vivo (routing + orquestacion + agentes) --
             commands::live_session::live_session_feed,
             // -- Gestor multi-sesion: lee ~/.claude/projects/*.jsonl (estado/modelo/context%) --
@@ -462,7 +466,6 @@ pub fn run() {
             // -- commands defined directly in their domain modules --
             in_app_shortcuts::get_in_app_shortcuts,
             features::read_features,
-            features::save_features,
             // -- AI Router (zone -> provider routing, providers catalog, --
             // -- health checks, metrics, end-to-end zone test) --
             ai_router::ai_router_list_zones,

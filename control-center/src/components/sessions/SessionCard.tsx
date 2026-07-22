@@ -5,12 +5,13 @@
 //   - Modelo + branch
 //   - Barra de context% (verde < 70, ámbar 70-90, rojo > 90)
 //   - Contadores de tokens (context / cache / output)
-//   - last_activity_summary y last_prompt recortado
+//   - last_activity_summary recortado + resumen AI bajo demanda (botón)
+//   - last_prompt recortado
 //   - "hace X min" desde age_seconds
 //   - Botón "Abrir en Projects" (solo si matched_project_id != null)
 //   - Badge "subagente" cuando is_subagent = true
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionInfo, SessionOrchestration } from "./sessionTypes";
 import { KIND_TINT } from "./orchShared";
@@ -207,35 +208,34 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
     is_subagent,
   } = session;
 
-  // ── Resumen real (lazy, cacheado) ────────────────────────────────────────
-  // Muestra last_activity_summary (truncado crudo) como placeholder inmediato.
-  // Invoca summarize_session_activity UNA VEZ por session_id y reemplaza cuando
-  // resuelve. Si rechaza, mantiene el placeholder sin ruido en UI.
+  // ── Resumen AI (bajo demanda, cacheado) ──────────────────────────────────
+  // Por defecto la card muestra last_activity_summary (truncado local).
+  // summarize_session_activity SOLO se invoca al pulsar el botón (privacidad +
+  // coste: nada de resúmenes AI automáticos al montar). El backend cachea por
+  // session_id+hash; el Map de módulo cubre unmount/remount de la card.
+  // Si el invoke falla se mantiene el truncado local y el error va al title.
   const [realSummary, setRealSummary] = useState<string | null>(
     () => realSummaryCache.get(session_id) ?? null,
   );
   const [summaryFetching, setSummaryFetching] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Acierto de caché — no re-invocar (cubre el caso de remount)
-    if (realSummaryCache.has(session_id)) {
-      setRealSummary(realSummaryCache.get(session_id) ?? null);
-      return;
-    }
-
+  const handleSummarize = () => {
+    if (summaryFetching || realSummary !== null) return;
     setSummaryFetching(true);
+    setSummaryError(null);
     invoke<string>("summarize_session_activity", { sessionId: session_id })
       .then((summary) => {
         realSummaryCache.set(session_id, summary);
         setRealSummary(summary);
       })
       .catch((e: unknown) => {
-        console.debug("[SessionCard] summarize_session_activity rejected:", e);
+        setSummaryError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         setSummaryFetching(false);
       });
-  }, [session_id]);
+  };
   // ─────────────────────────────────────────────────────────────────────────
 
   const canOpenProject = matched_project_id !== null;
@@ -335,23 +335,49 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
         <TokenStat label="out" value={fmtTokens(output_tokens)} />
       </div>
 
-      {/* ── Fila 5: resumen real (AI) / placeholder crudo ── */}
+      {/* ── Fila 5: resumen — truncado local por defecto, AI solo tras click ── */}
       {(realSummary !== null || last_activity_summary !== null) && (
-        <p
-          className="text-[11px] leading-snug"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          {realSummary === null && summaryFetching && (
-            <span
-              className="mr-1 text-[9.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-              aria-hidden
+        <div className="flex items-start gap-1.5">
+          <p
+            className="min-w-0 flex-1 text-[11px] leading-snug"
+            style={{ color: "var(--color-text-secondary)" }}
+            title={
+              summaryError !== null
+                ? `Resumen AI no disponible: ${summaryError}`
+                : undefined
+            }
+          >
+            {truncate(realSummary ?? last_activity_summary ?? "", 120)}
+          </p>
+          {realSummary === null && (
+            <button
+              type="button"
+              onClick={handleSummarize}
+              disabled={summaryFetching}
+              aria-label="Resumir actividad con AI"
+              title={
+                summaryError !== null
+                  ? `Resumen AI falló: ${summaryError} — click para reintentar`
+                  : "Resumir actividad con AI"
+              }
+              className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors disabled:cursor-wait disabled:opacity-60"
+              style={{
+                background: "var(--color-surface-3)",
+                color:
+                  summaryError !== null
+                    ? "var(--color-warn, #d2991f)"
+                    : "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
             >
-              ···
-            </span>
+              {summaryFetching
+                ? "···"
+                : summaryError !== null
+                  ? "reintentar AI"
+                  : "resumir AI"}
+            </button>
           )}
-          {truncate(realSummary ?? last_activity_summary ?? "", 120)}
-        </p>
+        </div>
       )}
 
       {/* ── Fila 6: último prompt recortado ── */}
