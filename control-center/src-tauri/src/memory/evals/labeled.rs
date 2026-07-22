@@ -136,7 +136,10 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
     let mut queries_with_zero_recall = 0usize;
 
     for label in &labeled_set.labeled {
-        let relevant = label.relevant();
+        // Grupos de equivalencia (higiene multi-id 2026-07-22): un gemelo no
+        // listado del expect vale el slot de su grupo; sin expect_groups el
+        // comportamiento es identico al historico (grupos de 1).
+        let groups = label.groups();
 
         // build_trace directo (recall_pack fija dense=true): .injected son las
         // mismas entries que el pack, con dense/rerank gobernados por los knobs.
@@ -155,9 +158,11 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
                 }
             };
 
-        let metrics = EvalMetrics::for_query(&retrieved_ids, &relevant, k);
+        let (synth, relevant) =
+            crate::memory::eval_metrics::collapse_to_groups(&retrieved_ids, &groups);
+        let metrics = EvalMetrics::for_query(&synth, &relevant, k);
         // precision@3 is a fixed additional cutoff, independent of k.
-        let p3 = crate::memory::eval_metrics::precision_at_k(&retrieved_ids, &relevant, 3);
+        let p3 = crate::memory::eval_metrics::precision_at_k(&synth, &relevant, 3);
 
         if metrics.recall_at_k == 0.0 {
             queries_with_zero_recall += 1;

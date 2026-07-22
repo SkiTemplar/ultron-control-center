@@ -11,7 +11,23 @@
         "79b32eab-3620-4198-80c1-2af665533280",
         "5b09821e-59b5-45e3-b358-100a20e0e8ee"
       ],
-      "n_relevant": 5
+      "n_relevant": 5,
+      "expect_groups": [
+        [
+          "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
+          "e082a74c-f60d-4fb4-88c9-6657dcc36027"
+        ],
+        [
+          "b66e5c98-792d-4f24-864c-2bfb2a1149b5",
+          "5b09821e-59b5-45e3-b358-100a20e0e8ee"
+        ],
+        [
+          "b15c9828-19d3-44db-8db6-0a6464822dec"
+        ],
+        [
+          "79b32eab-3620-4198-80c1-2af665533280"
+        ]
+      ]
     },
     {
       "id": "gs-0002",
@@ -23,7 +39,29 @@
         "1571e6c9-2af1-439d-9381-ad8342f10353",
         "3ef59fce-9f35-44bc-908a-f26505355bc9"
       ],
-      "n_relevant": 5
+      "n_relevant": 5,
+      "expect_groups": [
+        [
+          "3ef59fce-9f35-44bc-908a-f26505355bc9",
+          "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d",
+          "e32801bb-60fb-4bdf-9fff-21eda410f88e"
+        ],
+        [
+          "1571e6c9-2af1-439d-9381-ad8342f10353",
+          "71866ddb-86e9-47ec-8fff-5ba2cf74c23f"
+        ],
+        [
+          "4a8141e0-c886-480f-85c7-a37da48b1475",
+          "85147f1f-d6ef-47d5-b0b0-314d516198a7"
+        ],
+        [
+          "3a54a9af-d27a-4638-a07a-3a1213aac77f",
+          "4939df77-1bc8-4c0a-9639-0cd71c9a1c45"
+        ],
+        [
+          "d1ac035e-ae28-4465-b2f2-60494b82190a"
+        ]
+      ]
     },
     {
       "id": "gs-0003",
@@ -37,7 +75,26 @@
         "dd4f30f9-ac09-47c7-871b-51f8e5b27dae",
         "566587e8-aa64-4811-a298-baa3714771fc"
       ],
-      "n_relevant": 7
+      "n_relevant": 7,
+      "expect_groups": [
+        [
+          "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+          "7edf71d6-73c6-415c-8765-61a8b765b30c",
+          "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0"
+        ],
+        [
+          "43f9ffc4-3477-4319-9ab7-e774e2f69ad4",
+          "dd4f30f9-ac09-47c7-871b-51f8e5b27dae",
+          "836c5649-3f1b-41b5-a32f-f385b821a7b3",
+          "37d2d995-48ac-4723-8c27-66c015977b31"
+        ],
+        [
+          "c10ae7ec-a7b4-4b93-afdf-2e7a18c2970e"
+        ],
+        [
+          "566587e8-aa64-4811-a298-baa3714771fc"
+        ]
+      ]
     },
     {
       "id": "gs-0004",
@@ -48,7 +105,23 @@
         "6d7576c8-710b-4723-abe4-7a2622dfa100",
         "bc505759-7db8-493d-80fc-e71a018e75b3"
       ],
-      "n_relevant": 4
+      "n_relevant": 4,
+      "expect_groups": [
+        [
+          "6d7576c8-710b-4723-abe4-7a2622dfa100",
+          "4d310137-3231-42d2-bd4b-20e779a3f267"
+        ],
+        [
+          "3e7ebecc-9f6c-45be-88bf-c548d191caea",
+          "619b9c9c-ed0c-46fa-8117-80373fe2e7cf"
+        ],
+        [
+          "f6469c8d-0b16-4649-ac51-10596c9582bc"
+        ],
+        [
+          "bc505759-7db8-493d-80fc-e71a018e75b3"
+        ]
+      ]
     },
     {
       "id": "gs-0005",
@@ -68,7 +141,14 @@
         "7edf71d6-73c6-415c-8765-61a8b765b30c",
         "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0"
       ],
-      "n_relevant": 3
+      "n_relevant": 3,
+      "expect_groups": [
+        [
+          "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+          "7edf71d6-73c6-415c-8765-61a8b765b30c",
+          "a2f26e44-f48d-44bb-bbea-ba74caa4fdd0"
+        ]
+      ]
     },
     {
       "id": "gs-0007",
@@ -98,7 +178,28 @@
         "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46",
         "e6829b95-76c2-4324-af7b-78db4f7da869"
       ],
-      "n_relevant": 6
+      "n_relevant": 6,
+      "expect_groups": [
+        [
+          "2bcb78d4-10b1-43aa-961a-cb3ff77e46be",
+          "e7490383-a70b-473f-a790-b1ec2be99a20"
+        ],
+        [
+          "f2a6f696-6958-4c22-93da-10e25523dd05"
+        ],
+        [
+          "c689a453-5c26-4089-b316-afa13ef9a0fe"
+        ],
+        [
+          "1513b859-a1fd-4290-b428-baeca49a5892"
+        ],
+        [
+          "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46"
+        ],
+        [
+          "e6829b95-76c2-4324-af7b-78db4f7da869"
+        ]
+      ]
     },
     {
       "id": "gs-0011",
@@ -108,7 +209,17 @@
         "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
         "105bf1c3-f55c-4587-9e8f-e9d59fbf2191"
       ],
-      "n_relevant": 3
+      "n_relevant": 3,
+      "expect_groups": [
+        [
+          "4939df77-1bc8-4c0a-9639-0cd71c9a1c45",
+          "e082a74c-f60d-4fb4-88c9-6657dcc36027"
+        ],
+        [
+          "105bf1c3-f55c-4587-9e8f-e9d59fbf2191",
+          "7edf71d6-73c6-415c-8765-61a8b765b30c"
+        ]
+      ]
     },
     {
       "id": "gs-0012",
@@ -135,7 +246,16 @@
         "7caad075-0d41-428d-8e0d-8e7b939770a1",
         "f07d1200-4278-4c6c-8f68-099d915a53af"
       ],
-      "n_relevant": 2
+      "n_relevant": 2,
+      "expect_groups": [
+        [
+          "7caad075-0d41-428d-8e0d-8e7b939770a1",
+          "eb2091fa-1a46-4999-9aad-8c8cc86c8570"
+        ],
+        [
+          "f07d1200-4278-4c6c-8f68-099d915a53af"
+        ]
+      ]
     },
     {
       "id": "gs-0015",
@@ -154,7 +274,19 @@
         "489018af-b7a1-42ec-afea-185a05cf3c4e",
         "34d88511-e2e0-485f-bbb9-e90ff5d6a512"
       ],
-      "n_relevant": 4
+      "n_relevant": 4,
+      "expect_groups": [
+        [
+          "6246e6ae-39dd-4317-96c8-36dd21c6a6c4",
+          "489018af-b7a1-42ec-afea-185a05cf3c4e"
+        ],
+        [
+          "1972a91e-d80b-4758-9e22-a64aaa3dd337"
+        ],
+        [
+          "34d88511-e2e0-485f-bbb9-e90ff5d6a512"
+        ]
+      ]
     },
     {
       "id": "gs-0017",
@@ -164,7 +296,26 @@
         "a462b5d4-048d-4cce-b164-34767b0c4a3f",
         "d4fd828b-ed14-4ac4-b9b9-3ae801bb6f8d"
       ],
-      "n_relevant": 3
+      "n_relevant": 3,
+      "expect_groups": [
+        [
+          "a462b5d4-048d-4cce-b164-34767b0c4a3f",
+          "2689ab96-0258-43c0-bb9f-f137ad3bbc25",
+          "d4d36b66-252b-4e9f-837a-6f6776551600",
+          "aacf7d4d-7832-4ef1-81c6-82b23598d59c",
+          "f8c98c63-13b1-447c-9f69-8624416e489f",
+          "25fc3082-d87f-4189-9d6f-d1264dbb8392",
+          "d4ccaa8b-a0fa-4aaa-9b22-bd6ffe9b8670"
+        ],
+        [
+          "d4fd828b-ed14-4ac4-b9b9-3ae801bb6f8d",
+          "6c17761e-f0ba-46a2-bfc1-32943e718e1f"
+        ],
+        [
+          "a4fd4b83-ae35-4edf-ab44-56136becf3ff",
+          "04e01bf1-6f79-4d08-99c3-3cb13a437f05"
+        ]
+      ]
     },
     {
       "id": "gs-0018",
@@ -176,7 +327,26 @@
         "71866ddb-86e9-47ec-8fff-5ba2cf74c23f",
         "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
       ],
-      "n_relevant": 5
+      "n_relevant": 5,
+      "expect_groups": [
+        [
+          "71866ddb-86e9-47ec-8fff-5ba2cf74c23f",
+          "1571e6c9-2af1-439d-9381-ad8342f10353"
+        ],
+        [
+          "fc5b7fc9-d864-41e8-ad33-a834ba461b98",
+          "2d0be2da-9501-4507-8eda-988f74722e94"
+        ],
+        [
+          "02c967ab-425b-4a2a-b772-ab25708f4819"
+        ],
+        [
+          "3ef59fce-9f35-44bc-908a-f26505355bc9"
+        ],
+        [
+          "3b859aeb-5ad4-4c6c-bd35-51e9347fb35d"
+        ]
+      ]
     },
     {
       "id": "gs-0019",
@@ -214,7 +384,16 @@
         "31735d87-6244-458d-b969-c089167a851f",
         "3bc0395f-96e5-444d-ab25-9c664e5ae031"
       ],
-      "n_relevant": 2
+      "n_relevant": 2,
+      "expect_groups": [
+        [
+          "31735d87-6244-458d-b969-c089167a851f",
+          "54f4286a-4a24-40b3-9fef-bda095b2f97a"
+        ],
+        [
+          "3bc0395f-96e5-444d-ab25-9c664e5ae031"
+        ]
+      ]
     },
     {
       "id": "gs-0023",
@@ -226,7 +405,22 @@
         "836c5649-3f1b-41b5-a32f-f385b821a7b3",
         "dd4f30f9-ac09-47c7-871b-51f8e5b27dae"
       ],
-      "n_relevant": 5
+      "n_relevant": 5,
+      "expect_groups": [
+        [
+          "43f9ffc4-3477-4319-9ab7-e774e2f69ad4",
+          "dd4f30f9-ac09-47c7-871b-51f8e5b27dae"
+        ],
+        [
+          "37d2d995-48ac-4723-8c27-66c015977b31"
+        ],
+        [
+          "13b8a0ef-d3e1-40ce-a1fa-9492ddb4214d"
+        ],
+        [
+          "836c5649-3f1b-41b5-a32f-f385b821a7b3"
+        ]
+      ]
     },
     {
       "id": "gs-0024",
@@ -266,7 +460,22 @@
         "521244fc-8b28-44d0-9200-2205ec965bf4",
         "84a560ad-21f4-4a7e-ab99-8fcd8c5caa80"
       ],
-      "n_relevant": 4
+      "n_relevant": 4,
+      "expect_groups": [
+        [
+          "79d74641-ea1d-4d82-bcb2-b5d8f89694dc",
+          "2812d16a-b959-446e-a341-4e6a58d1f5d9",
+          "521244fc-8b28-44d0-9200-2205ec965bf4",
+          "61a048e8-4e47-484c-b7af-5d136b646193",
+          "fe952dfe-a223-4eb2-ba77-e978d5e2a10c",
+          "bf7608a1-72b7-4840-8946-0aa9b8c99d55",
+          "5ce1b2b2-d303-4f6c-91a9-4da3b9bd2aaa",
+          "dca80695-f506-4047-99bc-5da49fec2d84"
+        ],
+        [
+          "84a560ad-21f4-4a7e-ab99-8fcd8c5caa80"
+        ]
+      ]
     },
     {
       "id": "gs-0028",
@@ -276,7 +485,20 @@
         "0faefb1f-b3ca-4e90-a015-19985b62201d",
         "6829fd8d-197a-45ab-88b4-1ccedb16b3fe"
       ],
-      "n_relevant": 3
+      "n_relevant": 3,
+      "expect_groups": [
+        [
+          "0faefb1f-b3ca-4e90-a015-19985b62201d",
+          "78f1b231-4ad2-4af4-a164-23cac045aaff",
+          "13091f86-8cfc-4982-8189-f855222f4b44"
+        ],
+        [
+          "619b9c9c-ed0c-46fa-8117-80373fe2e7cf"
+        ],
+        [
+          "6829fd8d-197a-45ab-88b4-1ccedb16b3fe"
+        ]
+      ]
     },
     {
       "id": "gs-0029",
@@ -287,7 +509,23 @@
         "1835bc07-b307-4f4d-af5e-2c72e28e15b0",
         "8e4083d2-0198-457c-b986-dcd6dce0dbf5"
       ],
-      "n_relevant": 4
+      "n_relevant": 4,
+      "expect_groups": [
+        [
+          "1835bc07-b307-4f4d-af5e-2c72e28e15b0",
+          "8e4083d2-0198-457c-b986-dcd6dce0dbf5",
+          "e35c76c3-7449-4227-8120-3a9100e34140",
+          "9e8155d2-cf2e-4037-9be7-6dc37e960395",
+          "c86baff1-f6f9-4877-b5be-6657d7380d62",
+          "c1a145dc-9ff4-4a5d-ba6e-69d16fce9a27"
+        ],
+        [
+          "58189956-7142-4171-9a0a-ce76e1022c3f"
+        ],
+        [
+          "0a8544e2-e6bf-4042-add0-e0fcca8f25e0"
+        ]
+      ]
     },
     {
       "id": "gs-0030",
@@ -297,9 +535,26 @@
         "96be930b-3a01-437a-a3f4-70e46f2fafba",
         "5938e0eb-58de-4bec-8a77-0a31bd6a7b79"
       ],
-      "n_relevant": 3
+      "n_relevant": 3,
+      "expect_groups": [
+        [
+          "96be930b-3a01-437a-a3f4-70e46f2fafba",
+          "552204ad-e52a-4c2b-b783-4e26e4ee769e"
+        ],
+        [
+          "5938e0eb-58de-4bec-8a77-0a31bd6a7b79",
+          "445d6ae4-e24a-4e03-afdd-be6f557edc8b"
+        ],
+        [
+          "da03ab9a-df96-44f4-97d9-73b966f0f27b"
+        ]
+      ]
     }
   ],
   "_hygiene_2026_07_02": "Higiene 2026-07-02: 7 expect_ids victimas del sweep de duplicados exactos remapeados a su gemelo ACTIVO (mismo content_hash via ledger de events -> mismo juicio de relevancia); 5 expect_ids retirados por ser era-claims deprecados adrede en la curacion de eras (esperarlos castigaria al recall por hacer lo correcto). n_relevant recalculado. Queries retiradas por quedar vacias: ['gs-0010'].",
-  "_hygiene_2026_07_22": "Higiene 2026-07-22: 3 expect_ids apuntaban a items status=deprecated (todos antiguos importados, sin gemelo por content_hash ni cadena supersedes -> irrecuperables porque el recall filtra no-Active). gs-0005: 793cb64e ('construir hybrid retriever FTS5+Qdrant+RRF', todo materializado) remapeado a 4d310137 (hecho Activo que describe la arquitectura hibrida FTS5+E5+RRF construida); 16d1e4b4 ('prototipar query FTS5 para ZTMSI') RETIRADO — sin sucesor Activo del mismo tema (el unico Activo de ZTMSI trata del threshold, no de FTS5), n_relevant 4->3. gs-0009: 6b541336 ('simular hooks SessionStart/Stop') remapeado a e6829b95 (hecho Activo sobre hooks SessionStart/Stop en runtime Windows), n_relevant se mantiene 6."
+  "_hygiene_2026_07_22": "Higiene 2026-07-22: 3 expect_ids apuntaban a items status=deprecated (todos antiguos importados, sin gemelo por content_hash ni cadena supersedes -> irrecuperables porque el recall filtra no-Active). gs-0005: 793cb64e ('construir hybrid retriever FTS5+Qdrant+RRF', todo materializado) remapeado a 4d310137 (hecho Activo que describe la arquitectura hibrida FTS5+E5+RRF construida); 16d1e4b4 ('prototipar query FTS5 para ZTMSI') RETIRADO — sin sucesor Activo del mismo tema (el unico Activo de ZTMSI trata del threshold, no de FTS5), n_relevant 4->3. gs-0009: 6b541336 ('simular hooks SessionStart/Stop') remapeado a e6829b95 (hecho Activo sobre hooks SessionStart/Stop en runtime Windows), n_relevant se mantiene 6.",
+  "_hygiene_2026_07_22_multiid": {
+    "motivo": "Grupos de equivalencia (escenario B de propuesta-labels-multiid.md): gemelos verificados en brain.db + fusiones de expects que son el mismo claim. Dudosos NO aplicados (gs-0013, gs-0025, bf095de7 en gs-0001): pendientes de decision humana.",
+    "queries_con_grupos": 17
+  }
 }

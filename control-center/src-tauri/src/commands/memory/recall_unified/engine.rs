@@ -109,8 +109,12 @@ pub fn build_trace(
 
     // (3) RRF fusion + dedup by canonical_id; cosine similarity carried for tie-break.
     // (cat1 ranking) Fusión PONDERADA: dense (E5) puede pesar sobre sparse (BM25,
-    // ruidoso con stopwords). ULTRON_DENSE_W default 1.0 = comportamiento clásico.
-    let dense_w = env_knob_f32("ULTRON_DENSE_W", 1.0);
+    // ruidoso con stopwords). Default 0.8: ganador del sweep de 20 configs
+    // (2026-07-22, oraculo golden 29 queries): 0.749 vs 0.704-0.721 con 1.0;
+    // 0.7 y 0.6 empeoran (0.708/0.631) — el sparse acierta claims literales que
+    // el dense entierra (gs-0007), pero quitarle mas peso al dense pierde recall
+    // semantico neto.
+    let dense_w = env_knob_f32("ULTRON_DENSE_W", 0.8);
     let mut fused: Vec<FusedHit> = rrf_fuse_weighted(
         &[(dense_ids.clone(), dense_w), (sparse_ids.clone(), 1.0)],
         rrf_k,

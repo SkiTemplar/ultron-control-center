@@ -281,11 +281,19 @@ pub struct LabeledQuery {
     #[serde(default)]
     pub expect_ids: Vec<String>,
     /// Total relevant documents (matches `expect_ids.len()` for well-formed labels).
+    /// With `expect_groups` present this is informational only — the effective
+    /// denominator is `groups().len()`.
     #[serde(default)]
     pub n_relevant: usize,
     /// Human annotation note; informational only.
     #[serde(default)]
     pub nota: String,
+    /// Equivalence groups: any id inside a group scores that group's ONE slot
+    /// (twin memories with the same claim must not punish the retriever for
+    /// returning the unlisted twin — higiene multi-id 2026-07-22). When empty,
+    /// falls back to `expect_ids` as singleton groups (exact legacy behaviour).
+    #[serde(default)]
+    pub expect_groups: Vec<Vec<String>>,
 }
 
 impl LabeledQuery {
@@ -294,6 +302,57 @@ impl LabeledQuery {
     pub fn relevant(&self) -> HashSet<String> {
         self.expect_ids.iter().cloned().collect()
     }
+
+    /// Equivalence groups for scoring. PURE.
+    /// `expect_groups` wins when present; otherwise each `expect_id` is its own
+    /// singleton group (bit-for-bit compatible with the flat scoring).
+    #[must_use]
+    pub fn groups(&self) -> Vec<HashSet<String>> {
+        if self.expect_groups.is_empty() {
+            self.expect_ids
+                .iter()
+                .map(|id| HashSet::from([id.clone()]))
+                .collect()
+        } else {
+            self.expect_groups
+                .iter()
+                .map(|g| g.iter().cloned().collect())
+                .collect()
+        }
+    }
+}
+
+/// Collapse a ranking to group space so the existing metric functions can be
+/// reused untouched. PURE.
+///
+/// - First appearance of any member of group `i` becomes the synthetic token
+///   `g<i>` (relevant).
+/// - Later appearances of the SAME group keep their original id (still noise:
+///   a duplicated twin in the pack is context waste, not a double hit).
+/// - Ids in no group pass through unchanged (noise).
+///
+/// Returns `(synthetic_ranking, synthetic_relevant)` where the relevant set is
+/// `{"g0".."gN-1"}` — the effective denominator is the number of groups.
+#[must_use]
+pub fn collapse_to_groups(
+    retrieved: &[String],
+    groups: &[HashSet<String>],
+) -> (Vec<String>, HashSet<String>) {
+    let mut seen = vec![false; groups.len()];
+    let synthetic = retrieved
+        .iter()
+        .map(|id| match groups.iter().position(|g| g.contains(id)) {
+            Some(i) if !seen[i] => {
+                seen[i] = true;
+                format!("g{i}")
+            }
+            _ => id.clone(),
+        })
+        .collect();
+    (
+        synthetic,
+        (0..groups.len()).map(|i| format!("g{i}")).collect(),
+    )
 }
 
 /// The deserialized `golden_labels_draft.json`. PURE data; deserialize-only.
@@ -607,5 +666,46 @@ mod tests {
         // 1 relevant of 8 slots -> precision 1/8, waste 7/8.
         assert!(approx(m.precision_at_k, 1.0 / 8.0));
         assert!(approx(m.context_waste, 7.0 / 8.0));
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn collapse_singleton_groups_is_identity_scoring() {
+        // Retrocompat: con grupos de 1, las metricas salen identicas al flat.
+        let groups: Vec<HashSet<String>> = ["a", "b"]
+            .iter()
+            .map(|s| HashSet::from([(*s).to_string()]))
+            .collect();
+        let retrieved = ids(&["a", "x", "b"]);
+        let (synth, relevant) = collapse_to_groups(&retrieved, &groups);
+        let m_flat =
+            EvalMetrics::for_query(&retrieved, &HashSet::from(["a".into(), "b".into()]), 3);
+        let m_grp = EvalMetrics::for_query(&synth, &relevant, 3);
+        assert!(approx(m_flat.recall_at_k, m_grp.recall_at_k));
+        assert!(approx(m_flat.precision_at_k, m_grp.precision_at_k));
+        assert!(approx(m_flat.ndcg_at_k, m_grp.ndcg_at_k));
+    }
+
+    #[test]
+    fn collapse_unlisted_twin_scores_the_group_slot() {
+        // El gemelo "twin" (no el id canonico) llega en rank 0: vale el slot.
+        let groups = vec![HashSet::from(["canon".to_string(), "twin".to_string()])];
+        let (synth, relevant) = collapse_to_groups(&ids(&["twin", "x"]), &groups);
+        let m = EvalMetrics::for_query(&synth, &relevant, 2);
+        assert!(approx(m.recall_at_k, 1.0));
+    }
+
+    #[test]
+    fn collapse_second_twin_of_same_group_stays_noise() {
+        // Dos miembros del MISMO grupo en el pack: el segundo es waste, no doble hit.
+        let groups = vec![HashSet::from(["canon".to_string(), "twin".to_string()])];
+        let (synth, relevant) = collapse_to_groups(&ids(&["canon", "twin"]), &groups);
+        let m = EvalMetrics::for_query(&synth, &relevant, 2);
+        assert!(approx(m.recall_at_k, 1.0));
+        // precision@2 = 1/2: el gemelo duplicado sigue contando como ruido.
+        assert!(approx(m.precision_at_k, 0.5));
     }
 }
