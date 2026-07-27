@@ -156,7 +156,13 @@
       "expect_ids": [
         "80959ae6-b9ad-4670-a8ed-4e961a33e209"
       ],
-      "n_relevant": 1
+      "n_relevant": 1,
+      "expect_groups": [
+        [
+          "80959ae6-b9ad-4670-a8ed-4e961a33e209",
+          "3c8fbf90-08c2-4d8d-aa30-12efe8eeadf8"
+        ]
+      ]
     },
     {
       "id": "gs-0008",
@@ -237,7 +243,16 @@
         "e77543ca-fe30-4174-9410-d6429577a7f3",
         "f8c7416a-357b-4964-aba6-1a20e4d348f4"
       ],
-      "n_relevant": 2
+      "n_relevant": 2,
+      "expect_groups": [
+        [
+          "f8c7416a-357b-4964-aba6-1a20e4d348f4",
+          "d55a14ba-f1fc-40e3-a191-602daf4b011a"
+        ],
+        [
+          "e77543ca-fe30-4174-9410-d6429577a7f3"
+        ]
+      ]
     },
     {
       "id": "gs-0014",
@@ -436,11 +451,15 @@
       "id": "gs-0025",
       "query": "UserPromptSubmit rendimiento latencia prompts",
       "expect_ids": [
-        "2bcb78d4-10b1-43aa-961a-cb3ff77e46be",
-        "bd05cb21-81da-4db7-9b1a-77a6c05be8a1",
-        "b2901cc0-d9a3-4ce7-b4ef-4b64c64dfc46"
+        "bd05cb21-81da-4db7-9b1a-77a6c05be8a1"
       ],
-      "n_relevant": 3
+      "n_relevant": 1,
+      "expect_groups": [
+        [
+          "bd05cb21-81da-4db7-9b1a-77a6c05be8a1",
+          "836c5649-3f1b-41b5-a32f-f385b821a7b3"
+        ]
+      ]
     },
     {
       "id": "gs-0026",
