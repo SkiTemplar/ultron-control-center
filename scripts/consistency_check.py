@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-ULTRON CONSISTENCY CHECK · v4.0 (Sprint 3 F14 — wired to Stop hook)
+ULTRON CONSISTENCY CHECK · v4.1 (recalibrado auditoría 2026-07-27)
 
 Verifica coherencia interna del sistema. Sprint 3 F14: renamed from
-consistency-check.py → consistency_check.py (Python convention), KNOWN_PERSONAS
-derived from personas_ssot, --quiet mode for hook invocation that writes
-findings to pending_actions queue.
+consistency-check.py → consistency_check.py (Python convention), --quiet mode
+for hook invocation that writes findings to pending_actions queue.
 
 v15.5.21: dropped the Dual Mode v1 checks (the deprecated PowerShell duet
 helper, duet JSON schemas, Pester suites, live duet runner) — that
 subsystem was deleted in v15.0.1 when Dual/Triple Mode migrated to the
 official Codex plugin. The Codex MCP registration check (section 11)
 covers the v2 wiring.
+
+v4.1 (2026-07-27): el checker llevaba 20 falsos positivos por validar un
+sistema que ya no existe. Recalibrado contra la realidad: personas L1 se
+extraen del quick-reference de SKILL.md (personas_ssot no existe — el
+import fallaba en silencio y usaba un fallback de 7 nombres de la era
+pre-consolidación); knowledge vive en ~/.ultron-vault/10_KNOWLEDGE/;
+5 scripts cockpit retirados; check de versión en CLAUDE.md retirado
+(CLAUDE.md lleva la versión de la app, no de la skill).
 
 Uso:
     python scripts/consistency_check.py             # static checks
@@ -28,7 +35,8 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 ULTRON_DIR = Path(__file__).parent.parent
-KNOWLEDGE_DIR = Path.home() / ".ultron" / "knowledge"
+# v4.1: el knowledge layer vive en el vault (~/.ultron/knowledge/ fue retirado).
+KNOWLEDGE_DIR = Path.home() / ".ultron-vault" / "10_KNOWLEDGE"
 
 
 def _resolve_skill_dir() -> Path:
@@ -52,21 +60,18 @@ def _resolve_skill_dir() -> Path:
 SKILL_DIR = _resolve_skill_dir()
 SKILL_INSTALLED = (SKILL_DIR / "SKILL.md").exists()
 
-# v4.0 (Sprint 3 F14): personas derived from personas_ssot — NOT hardcoded.
+# v4.1: la SSOT de personas L1 es el propio quick-reference de SKILL.md
+# (tabla `| señal | **persona** |` del FAST PATH). personas_ssot no existe en
+# disco — el import fallaba en silencio y el fallback listaba 7 nombres de la
+# era pre-consolidación, generando 13 falsos positivos.
+PERSONA_ROW_RE = re.compile(r"^\|[^|]+\|\s*\*\*([\w-]+)\*\*\s*\|", re.MULTILINE)
+
+
 def _load_known_personas():
-    try:
-        sys.path.insert(0, str(Path(__file__).parent / "cockpit"))
-        from personas_ssot import _canonical_names
-        names = set(_canonical_names())
-        if names:
-            return names
-    except Exception:
-        pass
-    # Bootstrap fallback
-    return {
-        "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist",
-        "research-explainer", "windows-admin", "repo-evaluator",
-    }
+    skill_md_path = SKILL_DIR / "SKILL.md"
+    if not skill_md_path.exists():
+        return set()
+    return set(PERSONA_ROW_RE.findall(skill_md_path.read_text(encoding="utf-8")))
 
 KNOWN_PERSONAS = _load_known_personas()
 EXPECTED_PERSONA_COUNT = len(KNOWN_PERSONAS)
@@ -106,7 +111,9 @@ def check_mode_headers() -> list[str]:
 
 
 def check_persona_count() -> list[str]:
-    """Count de personas debe ser consistente entre frontmatter, Layer 1 y JERARQUÍA."""
+    """v4.1: el quick-reference del FAST PATH declara 'cubre las N personas L1';
+    N debe coincidir con las filas de la tabla, y cada persona debe existir en
+    disco como skill (~/.claude/skills/<name>/ o <name>.disabled/)."""
     issues = []
     skill_md_path = SKILL_DIR / "SKILL.md"
     if not skill_md_path.exists():
@@ -114,29 +121,30 @@ def check_persona_count() -> list[str]:
         return []
     skill_md = skill_md_path.read_text(encoding="utf-8")
 
-    fm_m = re.search(r"enruta a (\d+) personas", skill_md)
-    fm_count = int(fm_m.group(1)) if fm_m else None
+    decl_m = re.search(r"cubre las (\d+) personas L1", skill_md)
+    decl_count = int(decl_m.group(1)) if decl_m else None
 
-    l1_start = skill_md.find("### Layer 1 — Personas")
-    l1_end = skill_md.find("### Confidence reporting")
-    l1_section = skill_md[l1_start:l1_end] if l1_start != -1 and l1_end != -1 else ""
-    l1_rows = re.findall(r"^\|\s*[^|]+\|\s*\*\*[\w-]+\*\*\s*\|", l1_section, re.MULTILINE)
-    l1_count = len(l1_rows)
+    print(f"  Declarado 'cubre las N personas L1': {decl_count if decl_count else '(no encontrado)'}")
+    print(f"  Filas persona en quick-reference:    {EXPECTED_PERSONA_COUNT}")
 
-    j_m = re.search(r"(\d+) especialistas", skill_md)
-    j_count = int(j_m.group(1)) if j_m else None
+    if not KNOWN_PERSONAS:
+        return ["No pude extraer personas del quick-reference de SKILL.md (tabla `| señal | **persona** |`)"]
+    if decl_count is None:
+        issues.append("SKILL.md no declara 'cubre las N personas L1' en el quick-reference")
+    elif decl_count != EXPECTED_PERSONA_COUNT:
+        issues.append(
+            f"SKILL.md declara {decl_count} personas L1 pero el quick-reference tiene {EXPECTED_PERSONA_COUNT} filas"
+        )
 
-    print(f"  Frontmatter 'enruta a N personas': {fm_count if fm_count else '(no encontrado)'}")
-    print(f"  Filas en Layer 1 tabla:            {l1_count}")
-    print(f"  JERARQUÍA 'N especialistas':       {j_count if j_count else '(no encontrado)'}")
-    print(f"  EXPECTED_PERSONA_COUNT en script:  {EXPECTED_PERSONA_COUNT}")
-
-    if l1_count != EXPECTED_PERSONA_COUNT:
-        issues.append(f"Layer 1 tiene {l1_count} filas pero expected es {EXPECTED_PERSONA_COUNT}")
-    if fm_count and fm_count != l1_count:
-        issues.append(f"Frontmatter dice {fm_count} pero Layer 1 tiene {l1_count} filas")
-    if j_count and j_count != l1_count:
-        issues.append(f"JERARQUÍA dice {j_count} pero Layer 1 tiene {l1_count} filas")
+    skills_root = Path.home() / ".claude" / "skills"
+    missing_on_disk = [
+        p for p in sorted(KNOWN_PERSONAS)
+        if not (skills_root / p).is_dir() and not (skills_root / f"{p}.disabled").is_dir()
+    ]
+    for p in missing_on_disk:
+        issues.append(f"Persona L1 '{p}' del quick-reference NO existe en disco ({skills_root}\\{p}[.disabled])")
+    if not missing_on_disk:
+        print(f"  ✅ Las {EXPECTED_PERSONA_COUNT} personas L1 existen en disco (activas o .disabled)")
 
     return issues
 
@@ -182,7 +190,12 @@ def check_version_policy() -> list[str]:
 
 
 def check_claude_md_version() -> list[str]:
-    """CLAUDE.md debe declarar la misma major version que SKILL.md."""
+    """v4.1: RETIRADO. ~/.ultron/CLAUDE.md lleva la versión de la APP
+    (package.json/Cargo.toml, p.ej. v2.7.1), no la de la skill — comparar
+    ambas era un falso positivo permanente. La sincronía de versión de la
+    skill ya la cubren los checks 1 (mode files) y 3 (version-policy)."""
+    print("  ⚠️  check retirado en v4.1 — CLAUDE.md versiona la app, no la skill")
+    return []
     issues = []
     # CLAUDE.md puede vivir en el repo (~/.ultron/) o en el árbol de Claude
     # (~/.claude/). SKILL.md vive en el árbol de skills.
@@ -297,14 +310,16 @@ def check_no_learn_in_fast_path() -> list[str]:
         return []
     skill_md = skill_md_path.read_text(encoding="utf-8")
 
-    l1_start = skill_md.find("### Layer 1 — Personas")
-    l1_end = skill_md.find("### Confidence reporting")
-    l1_section = skill_md[l1_start:l1_end] if l1_start != -1 else ""
+    # v4.1: las señales de dominio viven en el quick-reference del FAST PATH.
+    fp_start = skill_md.find("## ⚡ FAST PATH")
+    fp_end = skill_md.find("## ", fp_start + 5) if fp_start != -1 else -1
+    fp_section = skill_md[fp_start:fp_end] if fp_start != -1 and fp_end != -1 else ""
 
-    if "`/learn`" in l1_section or "· `/learn`" in l1_section:
-        issues.append("/learn aparece como señal de dominio en Layer 1 — es overlay de modo, no señal de persona")
+    learn_rows = [r for r in fp_section.splitlines() if r.startswith("|") and "`/learn`" in r]
+    if learn_rows:
+        issues.append("/learn aparece como señal de dominio en el FAST PATH — es overlay de modo, no señal de persona")
     else:
-        print("  ✅ /learn no contamina Layer 1 señales de dominio")
+        print("  ✅ /learn no contamina las señales de dominio del FAST PATH")
 
     return issues
 
@@ -424,13 +439,11 @@ def check_cockpit_artifacts() -> list[str]:
         "scripts/cockpit/scan_projects.py":    "auto-discovery scanner (4.B)",
         "scripts/cockpit/install-scheduler.ps1": "Windows Task Scheduler installer (4 tasks)",
         "scripts/cockpit/launch_project.py":   "IDE launcher (4.E)",
-        "scripts/cockpit/retention.py":        "log rotation/cleanup (4.D)",
         "scripts/cockpit/ultron.ps1":          "CENTRALITA - single entry point",
-        "scripts/cockpit/calendar_match.py":   "Calendar deadline matching (4.J)",
-        "scripts/cockpit/ai_standup.py":       "AI standup daily (4.M)",
-        "scripts/cockpit/memory_sync.py":      "Memory L2 vault sync utility (v12)",
-        "scripts/cockpit/research.py":         "Gemini-driven research (v10.1)",
         # tui.py removed in v15.4 (Control Center replaces it).
+        # v4.1: retention.py, calendar_match.py, ai_standup.py, memory_sync.py
+        # y research.py retirados de la lista — no existen en disco (features
+        # eliminadas o nunca embarcadas; verificado auditoría 2026-07-27).
     }
     for rel, desc in required.items():
         p = ULTRON_DIR / rel
@@ -551,7 +564,7 @@ def main():
         sys.stdout = io.StringIO()
 
     print(f"\n{'='*60}")
-    print("ULTRON CONSISTENCY CHECK · v4.0")
+    print("ULTRON CONSISTENCY CHECK · v4.1")
     print(f"{'='*60}")
 
     all_issues: list[str] = []
@@ -565,7 +578,7 @@ def main():
     section("3. VERSION-POLICY SYNC")
     all_issues.extend(check_version_policy())
 
-    section("4. CLAUDE.md VERSIÓN ALINEADA")
+    section("4. CLAUDE.md VERSIÓN ALINEADA (retirado v4.1)")
     all_issues.extend(check_claude_md_version())
 
     section("5. ROUTING MATRIX vs SKILL.md PERSONAS")
@@ -577,7 +590,7 @@ def main():
     section("7. /learn NO EN LAYER 1 SEÑALES")
     all_issues.extend(check_no_learn_in_fast_path())
 
-    section("8. KNOWLEDGE LAYER (~/.ultron/knowledge/)")
+    section("8. KNOWLEDGE LAYER (~/.ultron-vault/10_KNOWLEDGE/)")
     all_issues.extend(check_knowledge_layer())
 
     section("9. NO REFERENCES LEGACY")
