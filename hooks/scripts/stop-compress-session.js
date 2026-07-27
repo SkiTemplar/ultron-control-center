@@ -41,6 +41,9 @@ const crypto = require('crypto');
 // ---------------------------------------------------------------------------
 const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
+const { findBinary } = require('./lib/ultron-memory-cli');
+// PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
+const { readJsonlTail } = require('./lib/jsonl-tail');
 observe('stop-compress-session');
 
 // ---------------------------------------------------------------------------
@@ -111,10 +114,7 @@ function readStdinSync() {
  * Returns an array of { role, text } objects.
  */
 function parseTurns(jsonlPath) {
-  let raw;
-  try { raw = fs.readFileSync(jsonlPath, 'utf8'); } catch (_) { return []; }
-
-  const lines = raw.split(/\r?\n/).filter(l => l.trim());
+  const lines = readJsonlTail(jsonlPath).filter(l => l.trim());
   const tail = lines.slice(-MAX_TURNS);
   const turns = [];
 
@@ -609,8 +609,10 @@ async function main() {
   // failure never breaks the Stop hook. NOTE: extraction currently runs twice
   // (here via the router + extractFactsWithAI above) — unify in a follow-up.
   try {
-    const memBin = path.join(os.homedir(), '.ultron', 'bin', 'ultron-memory.exe');
-    if (fs.existsSync(memBin)) {
+    // HOOKS-JS-07: resolucion compartida del sidecar (env var + candidatos
+    // release/debug) en vez del path hardcodeado a ~/.ultron/bin.
+    const memBin = findBinary();
+    if (memBin) {
       const transcriptText = turns
         .map((t) => (typeof t === 'string' ? t : `${t.role || ''}: ${t.text || t.content || ''}`))
         .join('\n')

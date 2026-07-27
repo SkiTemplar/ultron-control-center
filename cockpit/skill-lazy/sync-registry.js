@@ -496,6 +496,28 @@ function mdCell(text, max) {
   return t || '—';
 }
 
+// SKILL-14: estado real de los plugins — `enabledPlugins` de
+// ~/.claude/settings.json mapea "<plugin>@<marketplace>" -> bool. Un plugin
+// cuenta como OFF solo si TODAS sus entradas estan a false (superpowers existe
+// en dos marketplaces con estados distintos). Fail-safe: sin settings legible,
+// ningun plugin se marca OFF.
+function loadDisabledPlugins() {
+  try {
+    const raw = fs.readFileSync(path.join(HOME, '.claude', 'settings.json'), 'utf8');
+    const enabledPlugins = (JSON.parse(raw) || {}).enabledPlugins || {};
+    const byName = new Map(); // nombre -> enabled (OR sobre marketplaces)
+    for (const [key, enabled] of Object.entries(enabledPlugins)) {
+      const name = key.split('@')[0];
+      byName.set(name, byName.get(name) === true || enabled === true);
+    }
+    const off = new Set();
+    for (const [name, enabled] of byName) if (!enabled) off.add(name);
+    return off;
+  } catch (_) {
+    return new Set();
+  }
+}
+
 // Live disk status for an id — the registry's fs_disabled flag is only a
 // detection-time snapshot, so status is always re-derived from disk.
 function liveStatus(id, file) {
@@ -508,9 +530,13 @@ function liveStatus(id, file) {
 
 function renderRegistryMd(entries) {
   const today = new Date().toISOString().slice(0, 10);
+  const disabledPlugins = loadDisabledPlugins();
   const rows = entries.map(e => {
     const file = resolveAssetFile(e.id);
-    return { e, file, status: liveStatus(e.id, file) };
+    // SKILL-14: entrada de un plugin deshabilitado en settings.json -> sufijo
+    // '(plugin OFF)' en la tabla (el asset existe en cache pero no esta activo).
+    const pluginOff = e.id.includes(':') && disabledPlugins.has(e.id.split(':')[0]);
+    return { e, file, status: liveStatus(e.id, file), pluginOff };
   });
 
   const isAgent = r => r.status === 'agente' || r.e.type === 'agent';
@@ -530,9 +556,10 @@ function renderRegistryMd(entries) {
     for (const r of list) {
       const desc = mdCell(r.file ? readDescription(r.file) : '', 220);
       const tok = r.e.token_estimate ? `~${r.e.token_estimate}` : '?';
+      const idCell = `\`${r.e.id}\`${r.pluginOff ? ' (plugin OFF)' : ''}`;
       out.push(withStatus
-        ? `| \`${r.e.id}\` | ${r.status} | ${tok} | ${desc} |`
-        : `| \`${r.e.id}\` | ${tok} | ${desc} |`);
+        ? `| ${idCell} | ${r.status} | ${tok} | ${desc} |`
+        : `| ${idCell} | ${tok} | ${desc} |`);
     }
     return out.join('\n');
   };

@@ -21,9 +21,12 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
+// HOOKS-JS-07: resolucion compartida del sidecar (antes copia local duplicada).
+const { findBinary } = require('./lib/ultron-memory-cli');
+// PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
+const { readJsonlTail } = require('./lib/jsonl-tail');
 observe('session-end-summary');
 
-const HOME = os.homedir();
 const MAX_TURNS = 40;
 const MAX_SUMMARY_CHARS = 600;
 const SIDECAR_TIMEOUT_MS = 12000; // candidate path can take ~2s+ (contradiction judge)
@@ -34,27 +37,6 @@ function readStdin() {
   } catch (_) {
     return '';
   }
-}
-
-// Locate the ultron-memory sidecar (single memory writer). Mirrors
-// lib/ultron-memory-cli.js resolution order. Returns null if not found.
-function findBinary() {
-  const exe = process.platform === 'win32' ? 'ultron-memory.exe' : 'ultron-memory';
-  if (process.env.ULTRON_MEMORY_BIN) {
-    try {
-      if (fs.existsSync(process.env.ULTRON_MEMORY_BIN)) return process.env.ULTRON_MEMORY_BIN;
-    } catch (_) {}
-  }
-  const candidates = [
-    path.join(HOME, '.ultron', 'bin', exe),
-    path.join(HOME, '.ultron', 'control-center', 'src-tauri', 'target', 'release', exe),
-  ];
-  for (const c of candidates) {
-    try {
-      if (fs.existsSync(c)) return c;
-    } catch (_) {}
-  }
-  return null;
 }
 
 function projectIdFromCwd(cwd) {
@@ -68,13 +50,7 @@ function projectIdFromCwd(cwd) {
 
 // Extract last MAX_TURNS user/assistant text turns from a JSONL transcript.
 function parseTurns(jsonlPath) {
-  let raw;
-  try {
-    raw = fs.readFileSync(jsonlPath, 'utf8');
-  } catch (_) {
-    return [];
-  }
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+  const lines = readJsonlTail(jsonlPath).filter((l) => l.trim());
   const tail = lines.slice(-MAX_TURNS);
   const turns = [];
   for (const line of tail) {

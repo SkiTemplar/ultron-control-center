@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-07-22",
+  "generated_at": "2026-07-27",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -26,7 +26,7 @@
       "command": "node ~/.ultron/hooks/scripts/stop-compress-session.js",
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 60,
-      "checksum_sha256": "0ee96a4c56a4c94de8cca2588fc817d866a5a57a0ed7b2ae4b850ac64aef998b",
+      "checksum_sha256": "6bf46b7cd7349392a25bae15810cb2f36a9c81ae17252b63bdc8696facc085ab",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -63,7 +63,7 @@
       "command": "node ~/.ultron/hooks/scripts/batch-capture.js",
       "script": "~/.ultron/hooks/scripts/batch-capture.js",
       "timeout_s": 10,
-      "checksum_sha256": "175bbd30c2f6f843a55a4d2a5710b6a447c0540f32c08f25fe60dda6a389e9be",
+      "checksum_sha256": "4e6add1bf462e7159155c373f3a24ff232baf7404d3a082863f8e50d4d9c7eff",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -81,7 +81,7 @@
       "command": "node ~/.ultron/hooks/scripts/qdrant-mirror-sync.js",
       "script": "~/.ultron/hooks/scripts/qdrant-mirror-sync.js",
       "timeout_s": 30,
-      "checksum_sha256": "36fbd95d3559623a6e553a7190e53df149d4024d701f838960d92a684dc83076",
+      "checksum_sha256": "83a21c2bc850325058d65824bcd1e2858cb267a6cc1d6c2c2dc80c08f5e98645",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -203,7 +203,7 @@
       "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "timeout_s": 5,
-      "checksum_sha256": "bf038c2d49b4768dd664d45fbf098c37320538c87146190276e8758b830ca816",
+      "checksum_sha256": "5cd3af0cd6e74c2ccc9b693798247ab992a9d3a528c3a984e1da1f1bef167e2e",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -233,7 +233,7 @@
       "command": "node ~/.ultron/hooks/scripts/save-user-prompt.js",
       "script": "~/.ultron/hooks/scripts/save-user-prompt.js",
       "timeout_s": 5,
-      "checksum_sha256": "b9b27f229706052c4e266dcdd37e28809179e825e4fa71c6d47d4a0e5b77f1c7",
+      "checksum_sha256": "ff3c9c71c3fd822c269e9645336c9cd93caf33ad89705a39bf3faa291a83f5d5",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -248,7 +248,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 12,
-      "checksum_sha256": "205afad1dcfbfdb159b075eb2bab52ef2e6a8365ec3ab01e2c53c33d5ea1cca6",
+      "checksum_sha256": "3517a46e2b4edacc8793b3b50ec03cb270813b68a1bd66bb635c2bf3b5f64a64",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -280,7 +280,7 @@
       "command": "node ~/.ultron/hooks/scripts/codegraph-reminder.js",
       "script": "~/.ultron/hooks/scripts/codegraph-reminder.js",
       "timeout_s": 5,
-      "checksum_sha256": "15c58a34d2a72cc13d5e758ab7ffc7791b83b17b2e5880db19dd8c4b2f927f27",
+      "checksum_sha256": "4b934e09e61d04eb07bff355b1134c4961a1b83c288022edef4d2254dc4ca91e",
       "version": "1.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -295,7 +295,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "be1f40b2ddf79abdf2abd4abb568bf703961d11290351d0348a6d96f003c71e0",
+      "checksum_sha256": "052b552df9f8648355e79ee01c2c7b6269a6731646ca1e56cd39ff14faed4679",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -314,7 +314,7 @@
       "command": "node ~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
-      "checksum_sha256": "be1f40b2ddf79abdf2abd4abb568bf703961d11290351d0348a6d96f003c71e0",
+      "checksum_sha256": "052b552df9f8648355e79ee01c2c7b6269a6731646ca1e56cd39ff14faed4679",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -333,7 +333,7 @@
       "command": "node ~/.ultron/hooks/scripts/session-end-summary.js",
       "script": "~/.ultron/hooks/scripts/session-end-summary.js",
       "timeout_s": 20,
-      "checksum_sha256": "a065b3e8fd44d97534063bc5f9d218b5410004e4e47103b292962845306aac76",
+      "checksum_sha256": "e6c7c47e478f286746bde44cf9993aac52f4fb349fbe1a3f2d2b12dde3372373",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -352,7 +352,7 @@
       "command": "node ~/.ultron/hooks/scripts/precompact-preserve-l0.js",
       "script": "~/.ultron/hooks/scripts/precompact-preserve-l0.js",
       "timeout_s": 15,
-      "checksum_sha256": "3d7a490480a798c2f8309125c31725da5f0f98a9f7b867d84e51e42d82d4b66d",
+      "checksum_sha256": "176562e9c61759eed033724c6a8e48e7fbfce7d32e4f4fdffa3472df330208a0",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",

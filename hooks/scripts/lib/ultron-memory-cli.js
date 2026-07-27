@@ -120,7 +120,13 @@ function runCli(args, opts) {
       windowsHide: true,
       maxBuffer: 4 * 1024 * 1024,
     });
-    logMs({ cmd: args[0], ms: Date.now() - started, ok: res && res.status === 0 });
+    const rec = { cmd: args[0], ms: Date.now() - started, ok: !!(res && res.status === 0) };
+    // HOOKS-JS-01: el binario Rust escribe la causa del fallo SOLO a stderr;
+    // sin esto un status!=0 quedaba logueado como ok:false a secas (indiagnosticable).
+    if (res && res.status !== 0 && res.stderr) {
+      rec.stderr = String(res.stderr).replace(/\s*\r?\n\s*/g, ' ').trim().slice(0, 300);
+    }
+    logMs(rec);
     if (!res || res.status !== 0 || !res.stdout) return null;
     return JSON.parse(res.stdout.trim());
   } catch {

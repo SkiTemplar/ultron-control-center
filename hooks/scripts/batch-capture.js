@@ -39,6 +39,8 @@ const os = require('os');
 const crypto = require('crypto');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
+// PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
+const { readJsonlTail } = require('./lib/jsonl-tail');
 observe('batch-capture');
 
 const HOME = os.homedir();
@@ -189,10 +191,7 @@ const SHELL_TOOLS = new Set(['bash', 'powershell']);
  * for every shell tool_use whose result was an error/denial.
  */
 function scanTranscript(jsonlPath) {
-  let raw;
-  try { raw = fs.readFileSync(jsonlPath, 'utf8'); } catch (_) { return []; }
-
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+  const lines = readJsonlTail(jsonlPath).filter((l) => l.trim());
   const tail = lines.slice(-MAX_TURNS);
 
   // First pass: map tool_use_id -> { tool, command } for shell tools.
@@ -336,6 +335,27 @@ function appendPendingQueue(captures) {
 }
 
 // ---------------------------------------------------------------------------
+// PERF-05: barrido best-effort de queued-*.ps1 consumidos — sin esto batches/
+// acumula scripts para siempre. Solo .ps1 con mtime > 30 dias; NO toca
+// queue-pending.jsonl (el dedupe lo necesita). Nunca rompe el hook.
+// ---------------------------------------------------------------------------
+
+const SCRIPT_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
+
+function sweepOldScripts() {
+  try {
+    const cutoff = Date.now() - SCRIPT_MAX_AGE_MS;
+    for (const name of fs.readdirSync(BATCHES_DIR)) {
+      if (!/^queued-[0-9a-f]{12}\.ps1$/i.test(name)) continue;
+      const p = path.join(BATCHES_DIR, name);
+      try {
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      } catch (_) { /* archivo bloqueado o en uso — ignorar */ }
+    }
+  } catch (_) { /* la limpieza nunca rompe el hook */ }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -365,6 +385,9 @@ function main() {
   safeLog({ level: 'info', msg: 'scanned', captured: captures.length, sessionId });
 
   appendPendingQueue(captures);
+
+  // PERF-05: al final de una ejecucion exitosa, purga scripts antiguos.
+  sweepOldScripts();
 }
 
 try {

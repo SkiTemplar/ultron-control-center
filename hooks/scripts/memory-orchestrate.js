@@ -52,7 +52,12 @@ function readOrchCache(project) {
 
 function writeOrchCache(project, ctx) {
   try {
-    fs.writeFileSync(orchCachePath(project), JSON.stringify({ ts: Date.now(), ctx }));
+    // MEM-AUD-07: write-then-rename (atomico en el mismo volumen) — un lector
+    // concurrente nunca ve el JSON a medio escribir.
+    const p = orchCachePath(project);
+    const tmp = p + '.tmp.' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify({ ts: Date.now(), ctx }));
+    fs.renameSync(tmp, p);
   } catch {
     /* cache best-effort — nunca bloquea el prompt */
   }

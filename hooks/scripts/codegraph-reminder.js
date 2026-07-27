@@ -91,6 +91,21 @@ function getStdin() {
 // exploraciones sin uso de codegraph intermedio (el uso resetea el contador).
 const RENUDGE_EVERY = 10;
 
+// Limpieza de markers de sesiones pasadas (>48h) — evita acumulacion en %TEMP%
+// (HOOKS-JS-08; mismo patron que socratic-gate.js, adaptado al prefijo local).
+function sweepOldMarkers(tmpdir) {
+  try {
+    const cutoff = Date.now() - 48 * 3600 * 1000;
+    for (const name of fs.readdirSync(tmpdir)) {
+      if (!name.startsWith('ultron-cg-reminder-')) continue;
+      const p = path.join(tmpdir, name);
+      try {
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      } catch (_) { /* marker bloqueado o ajeno — ignorar */ }
+    }
+  } catch (_) { /* la limpieza nunca rompe el hook */ }
+}
+
 // Offset (bytes) del ULTIMO tool_use mcp__codegraph__* en el transcript, o 0.
 // Busca el patron compacto '"name":"mcp__codegraph__' sobre el TAIL (256KB):
 // los tool_use del transcript son JSON compacto sin espacios, y las menciones
@@ -183,7 +198,10 @@ function handle(raw) {
       state = { explores: st.explores, cgOffset: st.cgOffset || 0, nudged: !!st.nudged };
     }
   } catch (_) {
-    // primer disparo de la sesion (o marker legacy vacio): estado fresco
+    // primer disparo de la sesion (o marker legacy vacio): estado fresco.
+    // Aprovecha para barrer markers de sesiones pasadas (>48h) — una vez por
+    // sesion, fuera del camino caliente de re-nudges.
+    sweepOldMarkers(os.tmpdir());
   }
 
   const cgUse = lastCodegraphUseOffset(input.transcript_path);

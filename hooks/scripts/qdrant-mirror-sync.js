@@ -68,7 +68,10 @@ async function scrollPage(offset) {
   const body = { limit: PAGE, with_payload: true, with_vector: true, filter: { must: [{ key: 'status', match: { value: 'active' } }] } };
   if (offset) body.offset = offset;
   const r = await req('POST', `/collections/${SRC}/points/scroll`, body);
-  if (!r || r.status !== 200 || !r.json || !r.json.result) return { points: [], next: null };
+  // MEM-AUD-01: un fallo HTTP/red NO es fin-de-datos — se marca error:true para
+  // que main() NO ejecute pruneStale con un activeIds incompleto (ya borro el
+  // espejo entero 2 veces: pruned=3489 y 3590).
+  if (!r || r.status !== 200 || !r.json || !r.json.result) return { points: [], next: null, error: true };
   return { points: r.json.result.points || [], next: r.json.result.next_page_offset || null };
 }
 
@@ -123,11 +126,12 @@ async function main() {
   const started = Date.now();
   const ok = await ensureMirror();
   if (!ok) { log({ msg: 'ensure_failed' }); process.exitCode = 0; return; }
-  let offset = null, total = 0, synced = 0, skipped = 0;
+  let offset = null, total = 0, synced = 0, skipped = 0, scrollFailed = false;
   // Collect the set of IDs that are currently active in the source collection.
   const activeIds = new Set();
   for (let i = 0; i < 10000; i++) {
-    const { points, next } = await scrollPage(offset);
+    const { points, next, error } = await scrollPage(offset);
+    if (error) { scrollFailed = true; break; }
     if (!points.length) break;
     total += points.length;
     const mirror = points.map(toMirrorPoint).filter(Boolean);
@@ -140,8 +144,15 @@ async function main() {
   // PRUNE: remove mirror points whose source item is no longer active.
   // Without this, deprecated/rejected items remain in ultron_mcp_mirror
   // forever and can resurface in MCP recall — a correctness bug.
-  const pruned = await pruneStale(activeIds);
-  log({ msg: 'sync_done', total, synced, skipped, pruned, ms: Date.now() - started });
+  // MEM-AUD-01: con scroll fallido (o 0 puntos leidos) activeIds esta
+  // incompleto — podar con el borraria el espejo entero. Se salta.
+  let pruned = 0;
+  if (scrollFailed || total === 0) {
+    log({ msg: 'prune_skipped_source_error', scrollFailed, total });
+  } else {
+    pruned = await pruneStale(activeIds);
+  }
+  log({ msg: 'sync_done', total, synced, skipped, pruned, scrollFailed, ms: Date.now() - started });
   process.exitCode = 0;
 }
 

@@ -228,17 +228,12 @@ function buildSemanticHint(results) {
  */
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'routing-dispatcher.jsonl');
 
+// PERF-04: JSONL acotado (rota a 1 MiB) via helper compartido — mismo appender
+// que usa v2 (routing-dispatcher.v2.js). Nunca lanza.
+const { appendJsonl } = require('../../hooks/scripts/lib/jsonl-log');
+
 function safeLogV3(entry) {
-  try {
-    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    fs.appendFileSync(
-      LOG_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
-      'utf8'
-    );
-  } catch (_) {
-    // never throw
-  }
+  appendJsonl(LOG_PATH, entry);
 }
 
 // ---------------------------------------------------------------------------

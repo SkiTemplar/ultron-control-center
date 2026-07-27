@@ -21,6 +21,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
+// PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
+const { readJsonlTail } = require('./lib/jsonl-tail');
 observe('precompact-preserve-l0');
 
 const HOME = os.homedir();
@@ -41,13 +43,7 @@ function readStdin() {
 }
 
 function parseTurns(jsonlPath) {
-  let raw;
-  try {
-    raw = fs.readFileSync(jsonlPath, 'utf8');
-  } catch (_) {
-    return [];
-  }
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+  const lines = readJsonlTail(jsonlPath).filter((l) => l.trim());
   const tail = lines.slice(-MAX_TURNS);
   const turns = [];
   for (const line of tail) {

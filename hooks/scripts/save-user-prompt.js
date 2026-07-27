@@ -38,7 +38,7 @@ const KEYWORDS = [
   'importante', 'critico', 'critical', 'crítico',
   'siempre', 'nunca', 'never', 'always',
   'no quiero', 'no me gusta', 'no me sirve',
-  'preferencia', 'preferencia', 'preferences',
+  'preferencia', 'preferencias', 'preferences',
   'feedback', 'siempre que', 'cuando trabajes',
 ];
 
@@ -144,7 +144,9 @@ function main() {
   }
 
   const tags = detectKeywords(prompt);
-  const cwd = process.cwd();
+  // HOOKS-JS-10: el payload del hook trae el cwd real de la sesion; el del
+  // proceso hook puede no coincidir.
+  const cwd = stdinPayload.cwd || process.cwd();
 
   try {
     const file = appendEntry(prompt, tags, cwd);
