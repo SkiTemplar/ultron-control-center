@@ -1,4 +1,4 @@
-# ULTRON v14.7 BACKUP-WATCH — weekly robocopy backup (mirror, overwrite)
+# ULTRON v14.8 BACKUP-WATCH — weekly robocopy backup (mirror, overwrite)
 #
 # Backs up the user's data sources to $env:BACKUP_ROOT\<src>\ (NO dated subdir).
 # Each run overwrites the previous mirror via robocopy /MIR — single up-to-date
@@ -13,8 +13,9 @@
 #   weekly-backup.ps1 -Source .ultron      # restrict to a single source
 #   weekly-backup.ps1 -Status              # print last-run summary, exit
 #
-# -KeepWeeks is accepted but ignored (kept for backward compat). Mirror mode
-# does not retain history.
+# -KeepWeeks (default 4) controls how many dated brain.db snapshots are kept
+# under <BackupRoot>\brain-snapshots\. The robocopy mirror itself keeps no
+# history.
 #
 # Exit codes:
 #   0 success / nothing to do
@@ -214,7 +215,7 @@ $DateStr   = Get-Date -Format "yyyy-MM-dd"
 $LogFile   = Join-Path $LogDir "backup-$DateStr.log"
 
 $exclusions = Read-Exclusions -Path $ExclusionsFile
-Write-Log "v14.7 BACKUP-WATCH start (DryRun=$DryRun, mode=mirror-overwrite)"
+Write-Log "v14.8 BACKUP-WATCH start (DryRun=$DryRun, mode=mirror-overwrite)"
 Write-Log "exclusions: $($exclusions.Dirs.Count) dirs · $($exclusions.Files.Count) files"
 Write-Log "destination root: $BackupRoot (one folder per source, mirrored)"
 
@@ -255,6 +256,47 @@ foreach ($src in $sourcesToRun) {
     }
 }
 
+# ── brain.db consistent snapshot (v14.8, MEM-AUD backup 2026-07-27) ──────────
+# robocopy copies brain.db while the memory daemon may be writing, so the
+# mirror copy can be internally inconsistent. VACUUM INTO produces a
+# transactionally consistent snapshot even with concurrent writers. Snapshots
+# are dated and pruned to the newest $KeepWeeks generations.
+
+$BrainDb     = Join-Path $env:USERPROFILE ".ultron\brain.db"
+$SnapshotDir = Join-Path $BackupRoot "brain-snapshots"
+$snapshotOk  = $null
+if (-not $DryRun -and -not $Source -and (Test-Path $BrainDb)) {
+    if (-not (Test-Path $SnapshotDir)) { New-Item -ItemType Directory -Path $SnapshotDir -Force | Out-Null }
+    $SnapshotPath = Join-Path $SnapshotDir "brain-$DateStr.db"
+    # VACUUM INTO refuses to overwrite: drop a same-day previous/partial file.
+    if (Test-Path $SnapshotPath) { Remove-Item -Path $SnapshotPath -Force }
+    $pyCode = "import sqlite3; con = sqlite3.connect(r'$BrainDb'); con.execute('VACUUM INTO ?', (r'$SnapshotPath',)); con.close()"
+    try {
+        $pyOut = & uv run --no-project python -c $pyCode 2>&1
+        $pyExit = $LASTEXITCODE
+    } catch {
+        $pyOut = $_.Exception.Message
+        $pyExit = -1
+    }
+    $snapshotOk = ($pyExit -eq 0) -and (Test-Path $SnapshotPath) -and ((Get-Item $SnapshotPath).Length -gt 1MB)
+    if ($snapshotOk) {
+        $snapMb = [math]::Round((Get-Item $SnapshotPath).Length / 1MB, 1)
+        Write-Log "OK: brain.db snapshot (VACUUM INTO) -> $SnapshotPath ($snapMb MB)"
+        # Retention: keep the newest $KeepWeeks dated snapshots.
+        Get-ChildItem -Path $SnapshotDir -Filter "brain-*.db" -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -Skip $KeepWeeks | ForEach-Object {
+                Write-Log "CLEANUP: pruning old brain snapshot $($_.Name)"
+                Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+    } else {
+        $anyFailed = $true
+        $errTxt = ("$pyOut" -replace '\s+', ' ')
+        if ($errTxt.Length -gt 300) { $errTxt = $errTxt.Substring(0, 300) }
+        Write-Log "FAIL: brain.db snapshot exit=$pyExit $errTxt" "ERROR"
+        if (Test-Path $SnapshotPath) { Remove-Item -Path $SnapshotPath -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 # ── Retention prune ───────────────────────────────────────────────────────────
 
 if (-not $Source) {
@@ -274,6 +316,7 @@ $statusPayload = @{
     log             = $LogFile
     backup_root     = $BackupRoot
     keep_weeks      = $KeepWeeks
+    brain_snapshot  = $snapshotOk
 }
 foreach ($k in $results.Keys) {
     $statusPayload.results[$k] = @{
@@ -286,6 +329,6 @@ $statusDir = Split-Path $StatusFile -Parent
 if (-not (Test-Path $statusDir)) { New-Item -ItemType Directory -Path $statusDir -Force | Out-Null }
 $statusPayload | ConvertTo-Json -Depth 4 | Set-Content -Path $StatusFile -Encoding UTF8
 
-Write-Log "v14.7 BACKUP-WATCH end · failed=$anyFailed"
+Write-Log "v14.8 BACKUP-WATCH end · failed=$anyFailed"
 
 if ($anyFailed) { exit 1 } else { exit 0 }
