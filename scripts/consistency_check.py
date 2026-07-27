@@ -473,6 +473,63 @@ def check_cockpit_artifacts() -> list[str]:
     return issues
 
 
+# ── Pending-actions DLQ ───────────────────────────────────────────────────────
+# v4.1: upsert directo en cockpit/pending_actions.json. El módulo
+# cockpit/pending_actions.py que invocaba v4.0 nunca existió — la escalada
+# del Stop hook fallaba en silencio dentro del try/except.
+
+PENDING_ACTIONS_JSON = ULTRON_DIR / "cockpit" / "pending_actions.json"
+DRIFT_ID = "CONSISTENCY-DRIFT"
+
+
+def _load_pending_actions() -> dict:
+    import json
+    if PENDING_ACTIONS_JSON.exists():
+        return json.loads(PENDING_ACTIONS_JSON.read_text(encoding="utf-8"))
+    return {"version": 1, "actions": []}
+
+
+def _save_pending_actions(data: dict):
+    import json
+    from datetime import datetime
+    data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    PENDING_ACTIONS_JSON.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def upsert_consistency_drift(all_issues: list[str]):
+    """Escala el drift a la cola (una sola entrada, actualizada in-place)."""
+    from datetime import datetime
+    data = _load_pending_actions()
+    entry = next((a for a in data.get("actions", []) if a.get("id") == DRIFT_ID), None)
+    if entry is None:
+        entry = {
+            "id": DRIFT_ID, "severity": "high", "blocking": False, "deadline": None,
+            "source_audit": "stop-hook:consistency_check",
+            "created_at": datetime.now().isoformat(timespec="seconds"), "notes": [],
+        }
+        data.setdefault("actions", []).append(entry)
+    summary = "; ".join(all_issues[:3]) + (" ..." if len(all_issues) > 3 else "")
+    entry["title"] = f"consistency_check: {len(all_issues)} drift"
+    entry["description"] = summary[:500]
+    entry["status"] = "open"
+    entry.pop("resolved_at", None)
+    _save_pending_actions(data)
+
+
+def resolve_consistency_drift():
+    """Con el sistema verde, cierra la entrada de drift si quedó abierta."""
+    from datetime import datetime
+    data = _load_pending_actions()
+    entry = next((a for a in data.get("actions", []) if a.get("id") == DRIFT_ID), None)
+    if entry is None or entry.get("status") == "resolved":
+        return
+    entry["status"] = "resolved"
+    entry["resolved_at"] = datetime.now().isoformat(timespec="seconds")
+    _save_pending_actions(data)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def section(title: str):
@@ -618,29 +675,16 @@ def main():
             captured = sys.stdout.getvalue()
             sys.stdout = _real_stdout
             sys.stderr.write(captured)
-            # Write to pending_actions DLQ
-            try:
-                from cockpit.pending_actions import add_pending_action  # type: ignore
-            except ImportError:
-                add_pending_action = None
-            if add_pending_action is None:
-                # try loading via subprocess invocation as fallback
-                try:
-                    import subprocess as _sp
-                    pa_script = Path(__file__).parent / "cockpit" / "pending_actions.py"
-                    summary = "; ".join(all_issues[:3]) + (" ..." if len(all_issues) > 3 else "")
-                    _sp.run([
-                        sys.executable, str(pa_script), "add",
-                        "--id", "CONSISTENCY-DRIFT",
-                        "--severity", "high",
-                        "--title", f"consistency_check: {len(all_issues)} drift",
-                        "--source", "stop-hook:consistency_check",
-                        "--description", summary[:500],
-                    ], capture_output=True, text=True, timeout=5)
-                except Exception:
-                    pass  # never crash hook
+        try:
+            upsert_consistency_drift(all_issues)
+        except Exception:
+            pass  # never crash hook
         sys.exit(1)
     else:
+        try:
+            resolve_consistency_drift()
+        except Exception:
+            pass  # never crash hook
         if args.quiet:
             sys.stdout = _real_stdout  # silent on success
         else:
