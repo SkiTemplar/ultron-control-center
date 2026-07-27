@@ -45,6 +45,8 @@ pub async fn open_in_vscode(folder_path: String, file_path: String) -> Result<()
     if folder.is_empty() && file.is_empty() {
         return Err("nothing to open".to_string());
     }
+    super::reject_cmd_metachars(folder)?;
+    super::reject_cmd_metachars(file)?;
 
     // Validate inputs early — failing here gives a clearer error than the
     // generic `code exited with status 1` we'd hit otherwise.

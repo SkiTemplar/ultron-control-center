@@ -11,13 +11,21 @@ pub async fn list_hooks() -> Result<hooks_admin::HooksList, String> {
 /// Results are cached in ~/.ultron/cockpit/hooks-names.json.
 #[tauri::command]
 pub async fn analyze_hook_name(id: String) -> Result<hooks_admin::HookNameResult, String> {
-    hooks_admin::analyze_hook_name_inner(id)
+    // *_inner may call ai_router::route(), which is fully blocking
+    // (reqwest::blocking + thread::sleep backoff + CLI timeouts up to 90s):
+    // run on a blocking thread so the async runtime isn't frozen.
+    tauri::async_runtime::spawn_blocking(move || hooks_admin::analyze_hook_name_inner(id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Assign names to all hooks that don't have a cached name yet.
 #[tauri::command]
 pub async fn bulk_analyze_hook_names() -> Result<Vec<hooks_admin::HookNameResult>, String> {
-    hooks_admin::bulk_analyze_hook_names_inner()
+    // Same as analyze_hook_name: route() is blocking, keep it off the runtime.
+    tauri::async_runtime::spawn_blocking(|| hooks_admin::bulk_analyze_hook_names_inner())
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Return the current hooks-names.json cache as a flat object.

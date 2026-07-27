@@ -23,6 +23,23 @@ pub use mcps::*;
 pub use misc::*;
 pub use slash_commands::*;
 
+/// Rejects a target containing cmd.exe metacharacters. The vscode launchers
+/// wrap with `cmd.exe /C code <path>` on Windows, and `std::process::Command`
+/// only quotes args containing spaces — a path like `skills&calc.md` would be
+/// re-parsed by cmd.exe and the tail executed (same bug class as
+/// `ai_router::exec::sanitize_for_cmd`, KIRKARDO R11.1 CVE). Unlike prompts,
+/// paths can't be escaped — a neutered path no longer points at the file —
+/// so we reject instead of sanitizing.
+pub(super) fn reject_cmd_metachars(target: &str) -> Result<(), String> {
+    const CMD_METACHARS: [char; 8] = ['&', '|', '<', '>', '^', '%', '!', '"'];
+    if let Some(bad) = target.chars().find(|c| CMD_METACHARS.contains(c)) {
+        return Err(format!(
+            "path contains forbidden shell metacharacter {bad:?}: {target}"
+        ));
+    }
+    Ok(())
+}
+
 /// Reads the last `limit` non-empty lines of a JSONL file, parsed as `T`,
 /// in newest-first order. Malformed lines are silently skipped.
 /// Used by `alerts.rs` (and potentially other misc_sub commands) via

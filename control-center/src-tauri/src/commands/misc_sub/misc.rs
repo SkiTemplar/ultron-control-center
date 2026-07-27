@@ -60,7 +60,14 @@ pub async fn compute_activity_timeline(
 pub async fn compute_cost(
     window_hours: Option<u32>,
 ) -> Result<cost_watchdog::CostSnapshot, String> {
-    cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
+    // compute_cost_inner may call ai_router::route() (fully blocking:
+    // reqwest::blocking + CLI timeouts) when the cost crosses the alert
+    // threshold: run on a blocking thread so the async runtime isn't frozen.
+    tauri::async_runtime::spawn_blocking(move || {
+        cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Open a folder in Visual Studio Code. The frontend Library uses this
@@ -78,6 +85,7 @@ pub async fn open_folder_in_vscode(target: String) -> Result<(), String> {
     // VS Code handles both shapes — the frontend Library picks the right
     // one (skill folder so siblings are visible, vs. a standalone agent or
     // rule .md when no folder exists).
+    super::reject_cmd_metachars(&target)?;
     let path = std::path::Path::new(&target);
     if !path.exists() {
         return Err(format!("path not found: {target}"));
