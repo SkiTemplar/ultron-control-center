@@ -139,11 +139,12 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 - Devuelve un *context pack* compacto de resumenes bajo presupuesto de tokens
   (`TOKEN_BUDGET = 1500`), con trazas de *por que esta memoria* (rangos por
   fuente, scores, descartes) para el Retrieval Inspector.
-- Existe ademas un `recall_hybrid` mas antiguo (union de scores constantes,
-  multi-store) que sigue registrado pero esta **deprecado** frente al `recall`
-  unificado con RRF. Las patas multi-store **ECC**, **KG** y **Mem0** estan
-  **retiradas** (Mem0 esta muerto por politica; no reintroducir): hoy las unicas
-  fuentes vivas son Qdrant (denso) + SQLite/FTS5 (sparse).
+- El antiguo `recall_hybrid` (union de scores constantes, multi-store) fue
+  **eliminado el 2026-06-28** sin callers vivos: el unico camino de recall es
+  el comando unificado `recall` con RRF. Las patas multi-store **ECC**, **KG**
+  y **Mem0** estan **retiradas** (Mem0 esta muerto por politica; no
+  reintroducir): hoy las unicas fuentes vivas son Qdrant (denso) +
+  SQLite/FTS5 (sparse).
 
 ### Captura automatica via Stop hook
 

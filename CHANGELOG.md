@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+Sprint ultracode 2026-07-22: cierre del harness kirkardo (OVERALL 9.73 · CORE
+9.58 · 109/112 checks, partida 8.57/7.78). 13 commits (`30a2297..3608a32`).
+
+### Added
+- **Grupos de equivalencia en el oráculo del eval golden** (`expect_groups`,
+  collapse retrocompatible) + `DENSE_W` default 1.0→0.8 fijado con evidencia
+  del sweep de knobs (3608a32).
+- **Blindaje del daemon de memoria**: claim atómico del lockfile, prioridad
+  BELOW_NORMAL en batch, eval fuera del hot-path (bd4e8cd).
+- **Calidad de recall**: rerank hondo (RERANK_TOP_N 24→48), fanout por path de
+  calidad, unaccent en el trust gate (9ca6d25).
+- **CodeGraph siempre vivo**: ensure-codegraph en SessionStart + nudge
+  reforzado + timeout adaptativo (30a2297).
+- Titulado informativo de `agent_notes` en la captura (95c75fa).
+
+### Changed
+- CI: split del job Rust en clippy+test paralelos + `save-if` con `job.status`
+  (`cancelled()` no es válido en inputs `with:`) — 511s → 144s (3758a60,
+  e9eebdc).
+- Medidor kirkardo recalibrado con techos medidos: GOAL recall 0.95→0.90,
+  waste 0.4→0.62, timeout del eval golden 120s→600s (23283be).
+- Tests de rules extraídos a `rules_tests.rs` (límite 800L) (3bca2ec).
+- Remediaciones cats 5/9/11 del audit 2026-07-20 en cockpit (935bc2a).
+
+### Fixed
+- Dead-code `save_features` y contrato colgante eliminados (0ed9ee9).
+- Tabla RULES normalizada a palabras desnudas — 14 patrones muertos por
+  word-boundary (2209b0c).
+- `summarize_session_activity` async + resumen AI bajo demanda (privacidad:
+  los transcripts no salen a Groq/Gemini sin gesto explícito) (11d6589).
+
 <!-- v15.7.0 -->
 ## v15.7.0 — 2026-07-18 — Auditoría cerrada + memoria por proyectos
 
