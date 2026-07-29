@@ -106,6 +106,21 @@ try {
 const SEMANTIC_FALLBACK_THRESHOLD = 0.80;
 
 /**
+ * Score minimo para que una skill semantica se LLEGUE A SUGERIR. Distinto de
+ * SEMANTIC_FALLBACK_THRESHOLD, que decide si se lanza la consulta: este decide
+ * si el resultado merece salir por pantalla. Sin el, el hook emitia los top-N
+ * de Qdrant sin filtrar y cualquier prompt arrastraba personas irrelevantes.
+ * Ver la nota de calibracion en buildSemanticHint.
+ */
+const SEMANTIC_RELEVANCE_FLOOR = 0.82;
+
+/**
+ * Cuantas sugerencias como maximo. Si de verdad solo una skill viene a cuento,
+ * ensenar cinco es ruido por diseno aunque todas pasaran el floor.
+ */
+const SEMANTIC_MAX_SUGGESTIONS = 2;
+
+/**
  * Maximum prompt characters fed to the normalizer before lazy injection.
  * Mirrors v2's MAX_PROMPT_CHARS (which is not exported). Kept in sync so the
  * normalized prompt handed to v2.fetchLazySkillContent matches what v2.main()
@@ -199,11 +214,22 @@ async function querySemanticSkills(promptText, topN, timeoutMs) {
 function buildSemanticHint(results) {
   if (!results || results.length === 0) return '';
 
+  // RELEVANCE FLOOR (medido 2026-07-29, 5 prompts contra el catalogo real):
+  // los ACIERTOS puntuan 0.827-0.837 (tio-gilito en finanzas, mike-tyson en UI)
+  // y el RUIDO techa en 0.810-0.817 (consolidate-memory en un bug de futbol,
+  // jordan-belfort en una pregunta trivial). Sin filtro se emitian los 5
+  // primeros de Qdrant tal cual, asi que CUALQUIER prompt sugeria personas al
+  // azar con score de ruido. El corte va entre ambas bandas.
+  const relevant = results
+    .filter((r) => typeof r.score === 'number' && r.score >= SEMANTIC_RELEVANCE_FLOOR)
+    .slice(0, SEMANTIC_MAX_SUGGESTIONS);
+  if (relevant.length === 0) return '';
+
   const lines = [
     '',
-    '[semantic-fallback: top-' + results.length + ' by similarity]',
+    '[semantic-fallback: top-' + relevant.length + ' by similarity]',
   ];
-  results.forEach(function (r, i) {
+  relevant.forEach(function (r, i) {
     const desc = (r.description || '').slice(0, 120).replace(/\n/g, ' ');
     const score = typeof r.score === 'number' ? r.score.toFixed(3) : '?';
     const rerank = typeof r.rerank_score === 'number' ? ' rerank=' + r.rerank_score.toFixed(3) : '';

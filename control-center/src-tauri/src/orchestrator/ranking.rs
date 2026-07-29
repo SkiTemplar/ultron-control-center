@@ -126,7 +126,14 @@ pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
         "business" => &["backend-developer"],
         "writing" => &["documentation-engineer"],
         "learning" => &["llm-architect", "code-reviewer"],
-        _ => &["code-reviewer", "qa-expert"],
+        // El cajon de sastre NO impone especialistas. Antes devolvia
+        // ["code-reviewer", "qa-expert"], y como inject_preferred_floor los mete
+        // al suelo (PREFERRED_FLOOR) y rebalance_delegates les suma
+        // SPECIALIST_BOOST, salian a 0.80 + 0.20 = 1.00 CLAVADO en cualquier
+        // prompt sin intent: una receta de cocina proponia code-reviewer con
+        // confianza maxima. Si el router no sabe de que va, que no invente:
+        // los agentes salen solo de la similitud real, o no salen.
+        _ => &[],
     }
 }
 
