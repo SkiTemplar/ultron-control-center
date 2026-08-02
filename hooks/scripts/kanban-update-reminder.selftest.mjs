@@ -313,6 +313,99 @@ A(
   `card=${JSON.stringify(boardAfter5.cards.find((c) => c.id === "card-fase-4b"))}`,
 );
 
+// --- Caso 6 (cat-code 2026-08-02): COBERTURA multi-commit --------------------
+// Reproduce el caso real legacy-fc: "Deuda: trocear career.ts y events.ts" se
+// resolvio en DOS commits, cada uno tocando solo un archivo -> ninguno cruza
+// el Jaccard 0.5 de (1)-(3) por si solo, asi que ANTES del fix la card queda
+// huerfana en Backlog para siempre (bug real que motivo este caso). El camino
+// de cobertura (4) debe cerrarla comparando contra la UNION de ambos commits.
+resetFixture();
+const board6 = baseBoard();
+board6.cards = [
+  {
+    id: 'card-deuda',
+    column_id: 'col-todo',
+    title: 'Deuda: trocear career.ts y events.ts',
+    description: '',
+    agent: null,
+    prompt_template: null,
+    cwd: null,
+    tags: [],
+    order: 0,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    runs: [],
+  },
+];
+writeBoard(board6);
+const repoDir6 = join(FIXTURE_ROOT, 'repo-deuda-troceo');
+mkdirSync(repoDir6, { recursive: true });
+{
+  const git = (args) => execFileSync('git', args, { cwd: repoDir6, encoding: 'utf8' });
+  git(['init', '-q']);
+  git(['config', 'user.email', 'selftest@ultron.local']);
+  git(['config', 'user.name', 'kirkardo-selftest']);
+  git(['commit', '--allow-empty', '-q', '-m', 'refactor: trocea career.ts por fases del juego']);
+  git(['commit', '--allow-empty', '-q', '-m', 'refactor: trocea events.ts en src/data/base/ por temas']);
+}
+const t6 = makeTranscript(
+  FIXTURE_ROOT,
+  't6',
+  'refactoriza career.ts y events.ts en archivos mas pequenos',
+  'Listo, completado. El troceo quedo hecho.',
+);
+const r6 = fireHook({ transcriptPath: t6, cwd: repoDir6, sessionId: 'selftest-coverage' });
+const boardAfter6 = readBoard();
+A(r6.status === 0, 'caso6: hook exit 0', `status=${r6.status} stderr=${r6.stderr}`);
+A(
+  boardAfter6.cards.find((c) => c.id === 'card-deuda').column_id === 'col-done',
+  'caso6: card "Deuda: trocear career.ts y events.ts" cerrada por COBERTURA multi-commit (ningun commit solo cruzaba Jaccard 0.5)',
+  `card=${JSON.stringify(boardAfter6.cards.find((c) => c.id === 'card-deuda'))} stdout=${r6.stdout}`,
+);
+
+// --- Caso 7 (NEGATIVO / guardrail): sin solape real, la cobertura NO cierra --
+// Card real "Revisar generosidad del Salon de la Fama en modo Estrella" +
+// asunto REAL de caaae06 (rebalanceo de trade-offs, nada que ver con el HoF).
+// El camino de cobertura NO debe inventarse un cierre por azar de vocabulario.
+resetFixture();
+const board7 = baseBoard();
+board7.cards = [
+  {
+    id: 'card-hof',
+    column_id: 'col-todo',
+    title: 'Revisar generosidad del Salón de la Fama en modo Estrella',
+    description: '',
+    agent: null,
+    prompt_template: null,
+    cwd: null,
+    tags: [],
+    order: 0,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    runs: [],
+  },
+];
+writeBoard(board7);
+const repoDir7 = join(FIXTURE_ROOT, 'repo-hof-guardrail');
+gitInitWithCommit(
+  repoDir7,
+  'fix: remata la auditoría del 2026-08-01 y rebalancea los trade-offs de las escenas',
+);
+const t7 = makeTranscript(
+  FIXTURE_ROOT,
+  't7',
+  'corrige la auditoria de escenas y rebalancea los trade-offs',
+  'Listo, completado. Quedo hecho.',
+);
+const r7 = fireHook({ transcriptPath: t7, cwd: repoDir7, sessionId: 'selftest-guardrail' });
+const boardAfter7 = readBoard();
+A(r7.status === 0, 'caso7: hook exit 0', `status=${r7.status} stderr=${r7.stderr}`);
+A(
+  boardAfter7.cards.find((c) => c.id === 'card-hof').column_id === 'col-todo',
+  'caso7 (guardrail): card HoF NO se cierra por azar de vocabulario contra un commit real no relacionado',
+  `card=${JSON.stringify(boardAfter7.cards.find((c) => c.id === 'card-hof'))} stdout=${r7.stdout}`,
+);
+
 // ---------------------------------------------------------------------------
 rmSync(FIXTURE_ROOT, { recursive: true, force: true });
 

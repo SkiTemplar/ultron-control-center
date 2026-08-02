@@ -376,6 +376,54 @@ function sharesKey(a, b) {
   return false;
 }
 
+// Stopwords ES/EN para el camino de COBERTURA multi-commit (ver
+// multiCommitCoverageMatch). Solo particulas gramaticales sin señal
+// (articulos, preposiciones cortas, pronombres) — nunca palabras de dominio.
+const STOPWORDS = new Set([
+  'el', 'la', 'los', 'las', 'de', 'del', 'y', 'en', 'a', 'al', 'un', 'una',
+  'con', 'por', 'para', 'que', 'se', 'su', 'sus', 'lo', 'le', 'via',
+  'the', 'an', 'of', 'to', 'and', 'for', 'on', 'with', 'is', 'are',
+]);
+
+function significantTokenSet(text) {
+  return new Set(tokenize(text).filter((t) => t.length > 1 && !STOPWORDS.has(t)));
+}
+
+// Umbral de COBERTURA (containment) para el camino multi-commit (cat-code
+// 2026-08-02): que fraccion de los tokens SIGNIFICATIVOS del titulo de la
+// card aparece en la UNION de tokens de TODOS los commits recientes, en vez
+// de exigir que UN commit solo cruce el Jaccard 0.5 de arriba. 0.6 (no 0.5)
+// porque containment no divide por el tamaño de la union (que crece con cada
+// commit añadido) y por tanto satura mas facil por azar que Jaccard -> se
+// compensa con un umbral mas alto. Piso absoluto de 3 tokens MATCHEADOS
+// (ademas del ratio) para que titulos cortos no cierren por 1-2 coincidencias
+// sueltas, y piso de 3 tokens significativos en el propio titulo para que
+// este camino ni se intente en cards de titulo trivial. Calibrado contra:
+// (a) el caso real que lo motivo — "Deuda: trocear career.ts y events.ts" no
+// cerraba nunca porque career.ts y events.ts se trocearon en DOS commits
+// separados, ninguno cruzando el 0.5 de Jaccard por si solo — y (b) un
+// dry-run de solo-lectura contra los kanban.json de TODOS los proyectos de
+// cockpit/projects/ con el git log real de cada repo, para descartar falsos
+// positivos antes de fijar el umbral (ver informe del debugger agent,
+// 2026-08-02).
+const MULTI_COMMIT_COVERAGE_THRESHOLD = 0.6;
+const MULTI_COMMIT_MIN_CARD_TOKENS = 3;
+const MULTI_COMMIT_MIN_MATCHED = 3;
+
+function multiCommitCoverageMatch(cardTitle, subjects) {
+  const cardTokens = significantTokenSet(cardTitle);
+  if (cardTokens.size < MULTI_COMMIT_MIN_CARD_TOKENS) return false;
+  const unionTokens = new Set();
+  for (const s of subjects) {
+    for (const t of significantTokenSet(cleanSubject(s))) unionTokens.add(t);
+  }
+  if (!unionTokens.size) return false;
+  let matched = 0;
+  for (const t of cardTokens) if (unionTokens.has(t)) matched++;
+  if (matched < MULTI_COMMIT_MIN_MATCHED) return false;
+  return matched / cardTokens.size >= MULTI_COMMIT_COVERAGE_THRESHOLD;
+}
+
 // (2026-07-13) Claves de FASE ("Fase 4", "fase 4.2", "phase 3"). A diferencia
 // de los cat-codes, una fase acumula commits INTERMEDIOS durante dias, asi que
 // compartir la clave NO basta para cerrar: el asunto debe ademas DECLARAR el
@@ -463,7 +511,13 @@ function closeCompletedCards(project, root) {
       if (bareLc.length >= 12 && cleaned.toLowerCase().includes(bareLc)) return true;
       // 3) fuzzy: Jaccard sobre el asunto SIN prefijo conventional-commit.
       return jaccardTokens(bare, cleaned) >= CLOSE_THRESHOLD;
-    });
+    })
+      // 4) COBERTURA MULTI-COMMIT (aditivo): el trabajo de una card puede
+      //    repartirse en VARIOS commits que cubren cada uno solo una parte del
+      //    titulo (ninguno cruza el Jaccard 0.5 de (3) por si solo) -> ver
+      //    multiCommitCoverageMatch. No sustituye a (1)-(3), solo se evalua
+      //    si ninguno de esos matcheo.
+      || multiCommitCoverageMatch(bare, subjects);
     if (!hit) return card;
     closed.push(String(card.title || ''));
     return { ...card, column_id: doneCol.id };
