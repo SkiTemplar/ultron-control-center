@@ -155,17 +155,25 @@ local scratch files.
 
 | Hook | Event | What it does |
 |---|---|---|
+| `ensure-qdrant.js` | SessionStart | Auto-launch native Qdrant if `:6333` does not answer. Infra, not memory. |
+| `ensure-codegraph.js` | SessionStart | Keep the CodeGraph daemon/watcher alive (PID checked, relaunch if dead). |
+| `memory-warmup.js` | SessionStart | Detached sidecar spawn to warm the ONNX E5 page cache (~1.3 GB). Non-blocking. |
 | `memory-session-resume.js` | SessionStart | Inject a bounded resume (active workflows, open tasks, decisions, pinned, next action) read from the SoT via `ultron-memory resume`. Read-only. |
 | `load-cross-project-memory.js` | SessionStart | Inject the summarised `MEMORY.md` index of recent projects as context. Read-only. |
 | `session-start-override.js` | SessionStart | Fallback previous-session summary by project name when the ECC worktree match fails. Read-only. |
-| `workday-session-linker.js` | SessionStart | Auto-link the session to the in-progress Workday (Tauri CLI if online, queue file if offline). |
-| `routing-dispatcher.js` | UserPromptSubmit | Suggest a skill/persona by prompt intent (deterministic scoring, no LLM). Emits context only. |
+| `routing-dispatcher.v3.js` | UserPromptSubmit | Suggest/inject a skill/persona by prompt intent: v2 deterministic scoring + semantic fallback below 0.80 confidence. |
+| `socratic-gate.js` | UserPromptSubmit | Inject the Socratic decision protocol (AI writes all code, the user decides non-trivial calls) on every prompt. |
 | `memory-orchestrate.js` | UserPromptSubmit | Route the prompt through `ultron-memory orchestrate` (intent → workflow → agents → relevant memories) as context. Read-only. |
 | `save-user-prompt.js` | UserPromptSubmit | Archive each non-trivial prompt to the daily markdown inbox (candidate for `consolidate-memory`). Does not write the SoT. |
-| `posttoolfail-capture.js` | PostToolUse | On a failed tool result, propose an `error_resolution` candidate via the sidecar. Success path exits fast without writing. |
+| `deny-secrets.py` | PreToolUse | BLOCKS tool calls (Read/Edit/Write/NotebookEdit/Bash) that touch secrets. The only blocking hook. |
+| `codegraph-reminder.js` | PreToolUse | Remind to use `codegraph_explore`/`search` instead of blind exploration (Read/Grep/Glob/Bash). |
+| `posttoolfail-capture.js` | PostToolUse + PostToolUseFailure | On a failed tool result, propose an `error_resolution` candidate via the sidecar. Success path exits fast without writing. |
 | `stop-compress-session.js` | Stop | Compress the session into facts and propose them as governed candidates via `ultron-memory capture` (redaction + human-approved inbox). |
-| `kanban-update-reminder.js` | Stop | If a task looks completed, emit a reminder to update the active project's kanban. Read-only. |
+| `kanban-update-reminder.js` | Stop | If a task looks completed, emit a reminder to update the active project's kanban (sync since 2026-08-09 so the reminder actually reaches the model). |
 | `batch-capture.js` | Stop | Capture REJECTED / FAILED / `ai_cannot_execute` commands to the Run Batch queue. Operational queue, not semantic memory. |
+| `qdrant-mirror-sync.js` | Stop | Sync the derived read-only `ultron_mcp_mirror` collection in Qdrant (the only hook with direct Qdrant writes). |
+| `route_quality_aggregator.py` | Stop | Aggregate the day's routing-quality telemetry into cockpit files. No memory writes. |
+| `subagent-lifecycle.js` | SubagentStart + SubagentStop | Record each subagent's lifecycle (start/stop events) to scratch. |
 | `subagent-harvest.js` | SubagentStop | Record a subagent's result to scratch; if non-trivial, propose an `agent_note` candidate via the sidecar. |
 | `precompact-preserve-l0.js` | PreCompact | Before compaction, preserve key L0 facts to the scratch file `~/.ultron/.tmp/context.md`. Not governed memory. |
 | `session-end-summary.js` | SessionEnd | On session close, propose a brief rule-based `session_summary` candidate via the sidecar (governed inbox, never auto-promotes). |
@@ -175,8 +183,9 @@ Every hook is fail-safe: on error, missing transcript or missing sidecar it
 exits 0 without aborting the event. If one misbehaves, remove its entry from
 `~/.claude/settings.json` and the system keeps working.
 
-> **De-registered (kept in `scripts/` only as historical reference, NOT live):**
+> **De-registered (historical reference only, NOT live — files removed 2026-08-09):**
 > `mem0-sync.js` (wrote to Mem0 cloud — outside the SoT), `quota-capture.js`
 > (Quota feature removed), `session-recall-inject.js` (superseded by
-> `memory-session-resume.js`). `workday-auto-update.js` is a Windows scheduled
-> task, not a Claude Code hook. See the `deregistered` block in `manifest.json`.
+> `memory-session-resume.js`), `workday-session-linker.js` (never fired, deleted
+> 2026-06-21), `workday-auto-update.js` (was a Windows scheduled task, not a
+> Claude Code hook). See the `deregistered` block in `manifest.json`.

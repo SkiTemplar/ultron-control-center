@@ -9,7 +9,7 @@ Two distinct layers coexist inside it:
 
 | Layer | Root | Version | Technology |
 |-------|------|---------|------------|
-| Python Cockpit | `scripts/cockpit/` | 15.5.20 | Python 3.12, uv |
+| Python Cockpit | `scripts/cockpit/` | 15.7.0 | Python 3.12, uv |
 | Control Center | `control-center/` | 2.7.1 | Tauri 2, React 19, Rust |
 
 ### Why two version numbers?
@@ -33,7 +33,7 @@ synchronisation).
 ```
 ~/.ultron/
 ├── .git/                        single git root
-├── pyproject.toml               Python cockpit v15.5.20
+├── pyproject.toml               Python cockpit v15.7.0
 ├── scripts/
 │   └── cockpit/                 all Python operational scripts
 │       ├── doctor.py            entrypoint (delegates to doctor_core)

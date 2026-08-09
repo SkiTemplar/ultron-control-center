@@ -268,7 +268,12 @@ async function main() {
     }
   }
   if (!ctx) {
-    emit('');
+    // Aviso visible al modelo (mismo patron que el resume degradado): sin esto el
+    // fallo era 100% silencioso y el usuario no podia saber que la memoria no aporto.
+    emit(
+      '[memoria degradada] orchestrate sin respuesta (daemon/Qdrant caido o timeout) — ' +
+        'este prompt va SIN recall de memoria. Si se repite, revisar: bin/ultron-memory.exe doctor'
+    );
     return;
   }
   if (!staleFromCache) {
