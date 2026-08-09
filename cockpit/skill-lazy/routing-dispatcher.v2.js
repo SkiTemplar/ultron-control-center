@@ -370,10 +370,7 @@ const PLUGINS = [
   { id: 'generate-image',                    triggers: ['generate image', 'genera una imagen'],              strong: ['stable diffusion', 'image generation'],                                   context: ['imagen', 'image'] },
   // Additional catalog skills
   { id: 'superpowers:brainstorming',         triggers: ['brainstorming', 'lluvia de ideas'],                 strong: ['ideation session', 'creative exploration'],                               context: ['ideas', 'brainstorm'] },
-  { id: 'superpowers:context-window-manager', triggers: ['context window manager', 'gestiona el contexto'], strong: ['context compression', 'context budget'],                                  context: ['contexto', 'tokens'] },
   { id: 'senior-engineer',                   triggers: ['senior engineer', 'senior mode'],                  strong: ['engineering decision', 'senior review', 'tech lead'],                     context: ['ingenieria', 'decision tecnica'] },
-  { id: 'superpowers:code-review',           triggers: ['superpowers code review'],                         strong: ['automated code quality gate', 'superpowers review'],                      context: ['review automatico'] },
-  { id: 'superpowers:research',              triggers: ['research mode', '/research'],                       strong: ['literature search', 'technical research', 'state of the art research'], context: ['investigar', 'buscar informacion'] },
   // Language/stack pattern skills
   { id: 'postgres-patterns',                 triggers: ['postgres patterns'],                                strong: ['schema design postgres', 'indexing strategy', 'row level security'],       context: ['supabase'] },
   { id: 'redis-patterns',                    triggers: ['redis patterns', 'redis'],                          strong: ['distributed lock', 'rate limiting', 'pub/sub', 'cache invalidation'],     context: ['caching', 'cache'] },
