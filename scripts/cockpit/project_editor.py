@@ -54,8 +54,8 @@ PROJECT_SCHEMA = {
 
 # Model can be overridden via ULTRON_EDIT_MODEL env var (set by TUI choice).
 # Defaults to Sonnet (good for state mutation). Haiku for cheap simple edits.
-EDIT_MODEL = os.environ.get("ULTRON_EDIT_MODEL", "claude-sonnet-4-6")
-ADD_MODEL = os.environ.get("ULTRON_EDIT_MODEL", "claude-sonnet-4-6")
+EDIT_MODEL = os.environ.get("ULTRON_EDIT_MODEL", "claude-sonnet-5")
+ADD_MODEL = os.environ.get("ULTRON_EDIT_MODEL", "claude-sonnet-5")
 EDIT_TIMEOUT = 90
 
 

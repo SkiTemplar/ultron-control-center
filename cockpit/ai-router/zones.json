@@ -22,7 +22,7 @@
     "category": "code",
     "primary": {
       "provider_id": "claude",
-      "model": "claude-sonnet-4-6",
+      "model": "claude-sonnet-5",
       "max_tokens": 4096
     },
     "fallbacks": [
@@ -49,7 +49,7 @@
     "category": "code",
     "primary": {
       "provider_id": "claude",
-      "model": "claude-sonnet-4-6",
+      "model": "claude-sonnet-5",
       "max_tokens": 2048
     },
     "fallbacks": [

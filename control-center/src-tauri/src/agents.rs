@@ -7,7 +7,7 @@
 //   name: ultron-arch
 //   description: ...
 //   tools: Read, Glob, Grep
-//   model: claude-sonnet-4-6
+//   model: claude-sonnet-5
 //   ---
 //
 //   <body — system prompt / role description>

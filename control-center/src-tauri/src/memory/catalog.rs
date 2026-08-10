@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn parses_agent_frontmatter() {
-        let md = "---\nname: code-reviewer\ndescription: \"Review code quality and security.\"\ntools: Read, Grep\nmodel: claude-opus-4-7\n---\n\nbody here";
+        let md = "---\nname: code-reviewer\ndescription: \"Review code quality and security.\"\ntools: Read, Grep\nmodel: claude-opus-5\n---\n\nbody here";
         let (name, desc) = parse_frontmatter(md).expect("frontmatter");
         assert_eq!(name, "code-reviewer");
         assert_eq!(desc, "Review code quality and security.");

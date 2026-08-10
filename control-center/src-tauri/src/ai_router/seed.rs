@@ -22,8 +22,14 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "ANTHROPIC_API_KEY".into(),
             base_url: "https://api.anthropic.com".into(),
-            default_model: "claude-sonnet-4-6".into(),
-            models: vec!["claude-sonnet-4-6".into(), "claude-opus-4-8".into()],
+            // (2026-08-11) Familia Claude 5: sonnet-5 default equilibrado;
+            // opus-5 y fable-5 (tier Mythos, por encima de Opus) disponibles.
+            default_model: "claude-sonnet-5".into(),
+            models: vec![
+                "claude-sonnet-5".into(),
+                "claude-opus-5".into(),
+                "claude-fable-5".into(),
+            ],
             cli_command: None,
         },
         Provider {
@@ -217,7 +223,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // of use) stays as the first fallback, then the previous chain.
             primary: ZoneAssignment {
                 provider_id: "claude".into(),
-                model: "claude-sonnet-4-6".into(),
+                model: "claude-sonnet-5".into(),
                 max_tokens: 4096,
             },
             fallbacks: vec![
@@ -250,7 +256,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // en seed_providers por si se restauran.
             primary: ZoneAssignment {
                 provider_id: "claude".into(),
-                model: "claude-sonnet-4-6".into(),
+                model: "claude-sonnet-5".into(),
                 max_tokens: 2048,
             },
             fallbacks: vec![

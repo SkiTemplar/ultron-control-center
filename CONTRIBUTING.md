@@ -94,7 +94,7 @@ Avoid Grep-ing blind for a script. `SYSTEM-MAP.md` at the repo root is the pinne
 | An agent | `~/.claude/agents/<name>.md` (one file, same frontmatter rules) | Add an entry to `cockpit/agent-catalog.json` if you want it discoverable through the catalog |
 | A button prompt | `control-center/src-tauri/src/button_prompts.rs` (the canonical catalog) | Consumers fetch via `getPrompt(key, vars)` from `src/lib/button-prompts.ts` |
 
-Skill and agent frontmatter uses **full Claude model IDs** (`claude-sonnet-4-6`, `claude-opus-4-7`) — never short aliases. The PI001-PI013 prompt-injection scanner in `scripts/cockpit/skill_sync_security.py` runs against both directories with the same rules.
+Skill and agent frontmatter uses **full Claude model IDs** (`claude-sonnet-5`, `claude-opus-5`) — never short aliases. The PI001-PI013 prompt-injection scanner in `scripts/cockpit/skill_sync_security.py` runs against both directories with the same rules.
 
 ---
 

@@ -49,7 +49,7 @@ pub struct SessionInfo {
     pub matched_project_id: Option<String>,
     /// Rama git en el momento del último evento.
     pub git_branch: Option<String>,
-    /// Modelo usado en el último turno assistant (ej. "claude-opus-4-8").
+    /// Modelo usado en el último turno assistant (ej. "claude-opus-5").
     pub model: Option<String>,
     /// Contexto de ENTRADA del último turno assistant: input + cache_read + cache_creation
     /// (sin output, que no ocupa ventana de entrada).
@@ -328,7 +328,7 @@ mod tests {
             "gitBranch": "main",
             "sessionId": "test-session-001",
             "message": {
-                "model": "claude-opus-4-8",
+                "model": "claude-opus-5",
                 "stop_reason": stop_reason,
                 "usage": {
                     "input_tokens": 1500,
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(info.context_limit, 200_000);
         assert_eq!(info.cache_read_tokens, 45_000);
         assert_eq!(info.output_tokens, 320);
-        assert_eq!(info.model.as_deref(), Some("claude-opus-4-8"));
+        assert_eq!(info.model.as_deref(), Some("claude-opus-5"));
         assert_eq!(info.session_id, "test-session-001");
         assert!(!info.is_subagent);
 
@@ -561,7 +561,7 @@ mod tests {
                 "timestamp": ts,
                 "cwd": "C:/Users/dev/projects/my-app",
                 "message": {
-                    "model": "claude-opus-4-8",
+                    "model": "claude-opus-5",
                     "stop_reason": "end_turn",
                     "usage": {
                         "input_tokens": 2,

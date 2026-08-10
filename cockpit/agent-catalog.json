@@ -36,7 +36,7 @@
         "a11y",
         "wcag"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -49,7 +49,7 @@
         "orchestration",
         "agents"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -63,7 +63,7 @@
         "llm",
         "rag"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -77,7 +77,7 @@
         "rest",
         "graphql"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -90,7 +90,7 @@
         "architecture",
         "review"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": true
     },
     {
@@ -103,7 +103,7 @@
         "backend",
         "api"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -116,7 +116,7 @@
         "cli",
         "tooling"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -132,7 +132,7 @@
         "azure",
         "gcp"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -146,7 +146,7 @@
         "code-quality",
         "security"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -160,7 +160,7 @@
         "refactor",
         "code-quality"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": true
     },
     {
@@ -173,7 +173,7 @@
         "context",
         "memory"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -187,7 +187,7 @@
         "systems",
         "performance"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -200,7 +200,7 @@
         "csharp",
         "dotnet"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -213,7 +213,7 @@
         "data",
         "etl"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -226,7 +226,7 @@
         "database",
         "dba"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -239,7 +239,7 @@
         "debug",
         "diagnostics"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -252,7 +252,7 @@
         "deployment",
         "release"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -265,7 +265,7 @@
         "devops",
         "ci-cd"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -278,7 +278,7 @@
         "docker",
         "containers"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -291,7 +291,7 @@
         "docs",
         "writing"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -304,7 +304,7 @@
         "electron",
         "desktop"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -317,7 +317,7 @@
         "debug",
         "observability"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -330,7 +330,7 @@
         "frontend",
         "ui"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -342,7 +342,7 @@
       "tags": [
         "fullstack"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -355,7 +355,7 @@
         "git",
         "workflow"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -369,7 +369,7 @@
         "backend",
         "concurrency"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -382,7 +382,7 @@
         "incident",
         "sre"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -396,7 +396,7 @@
         "jvm",
         "backend"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -409,7 +409,7 @@
         "javascript",
         "node"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -422,7 +422,7 @@
         "synthesis",
         "research"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -435,7 +435,7 @@
         "kotlin",
         "android"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -449,7 +449,7 @@
         "k8s",
         "infra"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -462,7 +462,7 @@
         "legacy",
         "migration"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -476,7 +476,7 @@
         "llm",
         "architecture"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -489,7 +489,7 @@
         "mcp",
         "integration"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": true
     },
     {
@@ -502,7 +502,7 @@
         "microservices",
         "architecture"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -515,7 +515,7 @@
         "ml",
         "mlops"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -529,7 +529,7 @@
         "ios",
         "android"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -542,7 +542,7 @@
         "orchestration",
         "agents"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": true
     },
     {
@@ -556,7 +556,7 @@
         "react",
         "frontend"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -569,7 +569,7 @@
         "security",
         "pentest"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -582,7 +582,7 @@
         "performance",
         "profiling"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -595,7 +595,7 @@
         "postgres",
         "database"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -609,7 +609,7 @@
         "windows",
         "ad"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -623,7 +623,7 @@
         "windows",
         "automation"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -636,7 +636,7 @@
         "ai",
         "prompting"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -650,7 +650,7 @@
         "backend",
         "async"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -663,7 +663,7 @@
         "qa",
         "testing"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -676,7 +676,7 @@
         "react",
         "frontend"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -689,7 +689,7 @@
         "refactor",
         "code-quality"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -702,7 +702,7 @@
         "rust",
         "systems"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": true
     },
     {
@@ -716,7 +716,7 @@
         "audit",
         "owasp"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": true
     },
     {
@@ -729,7 +729,7 @@
         "sql",
         "database"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -742,7 +742,7 @@
         "sre",
         "reliability"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     },
     {
@@ -756,7 +756,7 @@
         "ios",
         "macos"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -769,7 +769,7 @@
         "terraform",
         "iac"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -782,7 +782,7 @@
         "testing",
         "automation"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -796,7 +796,7 @@
         "node",
         "frontend"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -808,7 +808,7 @@
       "tags": [
         "arch"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -832,7 +832,7 @@
       "tags": [
         "context"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -844,7 +844,7 @@
       "tags": [
         "docs"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -856,7 +856,7 @@
       "tags": [
         "metadata"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -868,7 +868,7 @@
       "tags": [
         "perf"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -880,7 +880,7 @@
       "tags": [
         "refactor"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -892,7 +892,7 @@
       "tags": [
         "security"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -904,7 +904,7 @@
       "tags": [
         "test"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": true
     },
     {
@@ -917,7 +917,7 @@
         "vue",
         "frontend"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -930,7 +930,7 @@
         "realtime",
         "websocket"
       ],
-      "model_hint": "claude-sonnet-4-6",
+      "model_hint": "claude-sonnet-5",
       "installed": false
     },
     {
@@ -943,7 +943,7 @@
         "orchestration",
         "workflow"
       ],
-      "model_hint": "claude-opus-4-7",
+      "model_hint": "claude-opus-5",
       "installed": false
     }
   ]

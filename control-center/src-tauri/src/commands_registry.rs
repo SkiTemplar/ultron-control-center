@@ -261,9 +261,9 @@ mod tests {
 
     #[test]
     fn pulls_argument_hint_and_model() {
-        let body = "---\nargument-hint: '<path>'\nmodel: claude-opus-4\n---\n\nbody";
+        let body = "---\nargument-hint: '<path>'\nmodel: claude-opus-5\n---\n\nbody";
         let (_, hint, model) = parse_metadata(body);
         assert_eq!(hint.as_deref(), Some("<path>"));
-        assert_eq!(model.as_deref(), Some("claude-opus-4"));
+        assert_eq!(model.as_deref(), Some("claude-opus-5"));
     }
 }

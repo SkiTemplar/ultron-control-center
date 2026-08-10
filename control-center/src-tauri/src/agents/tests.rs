@@ -5,14 +5,14 @@ fn parses_frontmatter_returns_description_and_model() {
     let md = "---\n\
               name: foo\n\
               description: A test agent for the suite\n\
-              model: claude-sonnet-4-6\n\
+              model: claude-sonnet-5\n\
               tools: Read, Glob, Grep\n\
               ---\n\
               \n\
               body text\n";
     let (desc, model, tools) = parse_frontmatter(md);
     assert_eq!(desc.as_deref(), Some("A test agent for the suite"));
-    assert_eq!(model.as_deref(), Some("claude-sonnet-4-6"));
+    assert_eq!(model.as_deref(), Some("claude-sonnet-5"));
     assert_eq!(
         tools,
         vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()]

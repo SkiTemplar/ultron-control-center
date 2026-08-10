@@ -28,7 +28,7 @@ pub(crate) const CONTEXT_LIMIT_EXTENDED: u64 = 1_000_000;
 /// Infiere la ventana de contexto de la sesión a partir del contexto observado.
 ///
 /// El transcript de Claude Code NO registra de forma estructurada si la sesión
-/// usa la ventana extendida de 1M: el campo `model` es `"claude-opus-4-8"` sin
+/// usa la ventana extendida de 1M: el campo `model` es `"claude-opus-5"` sin
 /// el sufijo `[1m]` (verificado en runtime sobre los `.jsonl` reales). Pero un
 /// contexto que supera los 200 000 tokens sólo es físicamente posible en la
 /// ventana de 1M — así que el propio uso ES la señal fiable.
