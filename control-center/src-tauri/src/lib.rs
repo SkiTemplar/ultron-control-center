@@ -267,6 +267,16 @@ pub fn run() {
             commands::projects::update_project,
             commands::projects::delete_project,
             commands::projects::set_default_provider,
+            // -- editor CLAUDE.md por proyecto (wiring 2026-08-11, audit #39;
+            //    modal en ProjectWorkspace, fila Codigo). Del mismo bloque
+            //    quedan SIN registrar a proposito: project_context_load (su
+            //    payload agrega el KG retirado en jul-02 — actualizar payload
+            //    antes de cablear un panel que mostraria datos muertos) y
+            //    launch_project_executable/reorder_launcher_items (esperan la
+            //    pasada por la UI del launcher). --
+            commands::projects::project_claude_md_load,
+            commands::projects::project_claude_md_save,
+            commands::projects::project_create_claude_md,
             commands::projects::add_launcher_item,
             commands::projects::remove_launcher_item,
             commands::projects::launch_item,

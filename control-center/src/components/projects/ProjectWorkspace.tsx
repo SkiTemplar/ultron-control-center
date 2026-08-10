@@ -20,7 +20,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Bot, Folder, Play, ExternalLink, GitBranch, Share2, Terminal } from "./icons";
+import { Bot, Folder, Play, ExternalLink, GitBranch, Share2, Terminal, BookOpen } from "./icons";
+import { ClaudeMdModal } from "./ClaudeMdModal";
 import ProjectBoard from "./ProjectBoard";
 import { RepoModal } from "./RepoModal";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
@@ -198,6 +199,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
   const [repoModalOpen, setRepoModalOpen] = useState(false);
+  const [claudeMdOpen, setClaudeMdOpen] = useState(false);
   const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
   // cat2.5 (2026-06-10): resumen REAL del grafo leido del codegraph.db por la
   // app (codegraph_summary) — antes solo se comprobaba que el fichero existia.
@@ -634,6 +636,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
             disabled={!meta || git.busy}
             title={repoTitle}
           />
+          <PrimaryCard
+            icon={<BookOpen size={16} />}
+            label="CLAUDE.md"
+            sub="Instrucciones del proyecto"
+            tint="var(--color-text-secondary)"
+            onClick={() => setClaudeMdOpen(true)}
+            disabled={!meta}
+            title="Editar el CLAUDE.md que Claude Code carga en cada sesion de este proyecto"
+          />
         </div>
       </div>
 
@@ -663,6 +674,14 @@ export default function ProjectWorkspace({ projectId }: Props) {
           path={meta.path}
           onClose={() => setRepoModalOpen(false)}
           onChanged={() => void refreshGit(meta.path)}
+        />
+      )}
+
+      {claudeMdOpen && meta && (
+        <ClaudeMdModal
+          projectPath={meta.path}
+          projectName={projectInfo?.name ?? projectId}
+          onClose={() => setClaudeMdOpen(false)}
         />
       )}
     </div>
