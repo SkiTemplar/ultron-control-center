@@ -315,7 +315,9 @@ fn golden_set_path() -> Option<std::path::PathBuf> {
 }
 
 /// El set etiquetado a mano vive en el MISMO directorio que el generado.
-fn golden_labels_path() -> Option<std::path::PathBuf> {
+/// pub(crate): el doctor lo consume desde 2026-08-10 (decisión: el veredicto
+/// de salud lo da el oráculo etiquetado, no el set generado stale).
+pub(crate) fn golden_labels_path() -> Option<std::path::PathBuf> {
     golden_set_path().map(|p| p.with_file_name("golden_labels.json"))
 }
 

@@ -89,6 +89,26 @@ impl LabeledGoldenReport {
 /// Individual `build_trace` failures degrade ONLY that query to an empty ranking.
 #[must_use]
 pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
+    // Knobs por env (histórico): ULTRON_EVAL_DENSE=0 / ULTRON_EVAL_RERANK=0
+    // permiten medir el pack del hot path con el MISMO oráculo.
+    let eval_dense = std::env::var("ULTRON_EVAL_DENSE")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    let eval_rerank = std::env::var("ULTRON_EVAL_RERANK")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    run_labeled_golden_with(path, k, eval_dense, eval_rerank)
+}
+
+/// Variante con knobs EXPLÍCITOS (2026-08-10): el doctor mide el oráculo sin
+/// rerank y no debe depender de (ni mutar) el env del proceso para hacerlo.
+#[must_use]
+pub fn run_labeled_golden_with(
+    path: &str,
+    k: usize,
+    eval_dense: bool,
+    eval_rerank: bool,
+) -> LabeledGoldenReport {
     // Pre-check infra (2026-08-10): con Qdrant caído este runner mediría el
     // modo sparse degradado y reportaría el 0.151 del audit 08-09 como si
     // fuera regresión real. Infra caída = degraded con causa, no score.
@@ -124,17 +144,6 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
     if labeled_set.labeled.is_empty() {
         return LabeledGoldenReport::degraded(path, k, "labeled set has no entries");
     }
-
-    // Path bajo medida: por DEFECTO el de calidad (dense+rerank), identico al
-    // historico. ULTRON_EVAL_DENSE=0 / ULTRON_EVAL_RERANK=0 permiten medir el
-    // pack del hot path del hook (sparse-first, sin cross-encoder) con el MISMO
-    // oraculo — validacion del fast-path (frente B, 2026-07-22).
-    let eval_dense = std::env::var("ULTRON_EVAL_DENSE")
-        .map(|v| v != "0")
-        .unwrap_or(true);
-    let eval_rerank = std::env::var("ULTRON_EVAL_RERANK")
-        .map(|v| v != "0")
-        .unwrap_or(true);
 
     let total = labeled_set.labeled.len();
     let mut per_query: Vec<LabeledQueryResult> = Vec::with_capacity(total);
