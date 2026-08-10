@@ -23,7 +23,7 @@ pub async fn analyze_hook_name(id: String) -> Result<hooks_admin::HookNameResult
 #[tauri::command]
 pub async fn bulk_analyze_hook_names() -> Result<Vec<hooks_admin::HookNameResult>, String> {
     // Same as analyze_hook_name: route() is blocking, keep it off the runtime.
-    tauri::async_runtime::spawn_blocking(|| hooks_admin::bulk_analyze_hook_names_inner())
+    tauri::async_runtime::spawn_blocking(hooks_admin::bulk_analyze_hook_names_inner)
         .await
         .map_err(|e| e.to_string())?
 }

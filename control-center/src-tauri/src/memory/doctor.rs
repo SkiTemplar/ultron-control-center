@@ -264,6 +264,7 @@ fn check_reconcile() -> DoctorCheck {
 fn evals_verdict(
     golden_recall: f32,
     golden_degraded: bool,
+    golden_note: &str,
     smoke_recall: f32,
     secret_leaks: usize,
     stale_leaks: usize,
@@ -271,6 +272,7 @@ fn evals_verdict(
     let data = serde_json::json!({
         "recall_at_8_golden": golden_recall,
         "golden_degraded": golden_degraded,
+        "golden_note": golden_note,
         "recall_at_8_smoke": smoke_recall,
         "secret_leak": secret_leaks,
         "stale_leak": stale_leaks,
@@ -283,9 +285,11 @@ fn evals_verdict(
         );
     }
     if golden_degraded {
+        // (2026-08-10) la CAUSA viaja en el detail: "infra_down: Qdrant..." vs
+        // "set ausente" dejan de ser indistinguibles (audit 08-09 punto 3).
         return DoctorCheck::warn(
             "evals",
-            format!("golden no disponible (set ausente o Qdrant caído) · smoke={smoke_recall:.3}"),
+            format!("golden no disponible · {golden_note} · smoke={smoke_recall:.3}"),
             data,
         );
     }
@@ -308,6 +312,7 @@ fn check_evals() -> DoctorCheck {
     evals_verdict(
         golden.aggregate.recall_at_k as f32,
         golden.degraded,
+        &golden.note,
         smoke.recall_at_k,
         smoke.secret_leak_count,
         smoke.stale_leak_count,
@@ -485,6 +490,9 @@ mod qdrant_probe {
     pub fn run() -> Vec<DoctorCheck> {
         let client = match reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
+            // Fail-fast: con Qdrant caído el probe no puede colgar el doctor
+            // 5s por colección (audit 08-09: doctor de 2min con Qdrant down).
+            .connect_timeout(std::time::Duration::from_secs(1))
             .build()
         {
             Ok(c) => c,
@@ -661,30 +669,54 @@ mod evals_verdict_tests {
     #[test]
     fn verdict_bands_on_golden_not_smoke() {
         // golden sano -> ok, y el detail NOMBRA ambos medidores.
-        let c = evals_verdict(0.712, false, 1.0, 0, 0);
+        let c = evals_verdict(0.712, false, "", 1.0, 0, 0);
         assert_eq!(c.severity, Severity::Ok);
         assert!(c.detail.contains("golden"), "detail={}", c.detail);
         assert!(c.detail.contains("smoke"), "detail={}", c.detail);
 
         // golden degradado en regresion -> warn/error aunque el smoke de 1.0.
-        let c = evals_verdict(0.60, false, 1.0, 0, 0);
+        let c = evals_verdict(0.60, false, "", 1.0, 0, 0);
         assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
-        let c = evals_verdict(0.40, false, 1.0, 0, 0);
+        let c = evals_verdict(0.40, false, "", 1.0, 0, 0);
         assert_eq!(c.severity, Severity::Error, "detail={}", c.detail);
 
         // leaks mandan SIEMPRE (gate de seguridad del smoke).
-        let c = evals_verdict(0.712, false, 1.0, 1, 0);
+        let c = evals_verdict(0.712, false, "", 1.0, 1, 0);
         assert_eq!(c.severity, Severity::Error);
         assert!(c.detail.contains("LEAK"));
 
         // golden no disponible (Qdrant caido / set ausente) -> warn declarado,
         // NO un 0.0 tratado como colapso ni un ok fingido.
-        let c = evals_verdict(0.0, true, 1.0, 0, 0);
+        let c = evals_verdict(0.0, true, "set ausente", 1.0, 0, 0);
         assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
         assert!(
             c.detail.contains("golden no disponible"),
             "detail={}",
             c.detail
         );
+    }
+
+    #[test]
+    fn verdict_degraded_carries_infra_cause_in_detail() {
+        // (2026-08-10, audit 08-09 punto 3) infra caida NO puede ser
+        // indistinguible de "set ausente": la causa viaja en el detail.
+        let c = evals_verdict(
+            0.0,
+            true,
+            "infra_down: Qdrant no responde /healthz — golden omitido (no es regresión de calidad)",
+            1.0,
+            0,
+            0,
+        );
+        assert_eq!(c.severity, Severity::Warn, "infra caida = Warn, no Error");
+        assert!(c.detail.contains("infra_down"), "detail={}", c.detail);
+        // Y el data JSON expone la nota para consumidores maquina (UI Health).
+        let note = c
+            .data
+            .as_ref()
+            .and_then(|d| d.get("golden_note"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(note.contains("infra_down"), "data.golden_note={note}");
     }
 }

@@ -96,6 +96,17 @@ pub fn run_golden_metrics(
     k: usize,
     rerank: bool,
 ) -> GoldenMetricsReport {
+    // Pre-check infra (2026-08-10): con Qdrant caído el golden mediría el modo
+    // degradado sparse-only y el consumidor (doctor/eval) lo confundiría con
+    // una regresión real de calidad (audit 08-09: recall 0.823→0.151 "sin
+    // motivo" + doctor de 2min pagando timeouts por query). Infra caída se
+    // declara como degraded CON CAUSA, nunca como score.
+    if !crate::qdrant::qdrant_healthy_cached() {
+        return GoldenMetricsReport::degraded(
+            k,
+            "infra_down: Qdrant no responde /healthz — golden omitido (no es regresión de calidad)",
+        );
+    }
     let Some(path) = golden_set_path() else {
         return GoldenMetricsReport::degraded(k, "no HOME dir; cannot locate golden_set.json");
     };

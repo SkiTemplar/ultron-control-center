@@ -87,7 +87,10 @@ pub fn build_trace(
     //     assemble_pack drops the global vault + off-project hits that dominate
     //     the BM25 top-30, leaving too few. A wider fanout lets in-project items
     //     reach the gate. Quality callers keep the tight FANOUT_K (dense covers them).
-    let sparse_fanout = if dense_enabled {
+    //     (2026-08-10) dense ON pero VACÍO (Qdrant caído / colección ausente /
+    //     E5 sin modelo) es la MISMA degradación: sin ensanche, el modo sparse
+    //     "existente" nunca se activaba con dense_enabled=true (audit 08-09).
+    let sparse_fanout = if dense_enabled && !dense_scored.is_empty() {
         fanout_k
     } else {
         fanout_k * 12

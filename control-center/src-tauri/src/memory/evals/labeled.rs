@@ -89,6 +89,16 @@ impl LabeledGoldenReport {
 /// Individual `build_trace` failures degrade ONLY that query to an empty ranking.
 #[must_use]
 pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
+    // Pre-check infra (2026-08-10): con Qdrant caído este runner mediría el
+    // modo sparse degradado y reportaría el 0.151 del audit 08-09 como si
+    // fuera regresión real. Infra caída = degraded con causa, no score.
+    if !crate::qdrant::qdrant_healthy_cached() {
+        return LabeledGoldenReport::degraded(
+            path,
+            k,
+            "infra_down: Qdrant no responde /healthz — eval omitido (no es regresión de calidad)",
+        );
+    }
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {

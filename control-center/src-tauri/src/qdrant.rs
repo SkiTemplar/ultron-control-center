@@ -86,6 +86,11 @@ fn http_client() -> Result<&'static reqwest::blocking::Client, String> {
     HTTP_CLIENT.get_or_try_init(|| {
         reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(10))
+            // Fail-fast (2026-08-10): con Qdrant caído/colgado el connect no
+            // puede consumir los 10s del timeout total — 1s y a sparse. El
+            // timeout total alto se mantiene para transferencias legítimas
+            // (scroll de 100k puntos).
+            .connect_timeout(Duration::from_secs(1))
             // Keep idle connections to Qdrant alive between calls within a
             // session so repeated recalls reuse the same socket.
             .pool_idle_timeout(Duration::from_secs(90))
@@ -498,6 +503,46 @@ pub fn scroll(collection: &str, limit: u32) -> Result<Vec<QdrantPoint>, String> 
 // ---------------------------------------------------------------------------
 // Health / status (used by diagnostics panel)
 // ---------------------------------------------------------------------------
+
+/// `/healthz` con caché de proceso y TTL asimétrico — el gate fail-fast de los
+/// paths densos. Audit 2026-08-09: con Qdrant caído cada prompt pagaba embed E5
+/// más timeout HTTP para inyectar contexto VACÍO; el modo sparse existía pero
+/// nada lo activaba. Sano se re-verifica cada 30s; caído cada 5s para detectar
+/// rápido el relaunch del watchdog. Coste acotado: un probe corto por ventana.
+pub fn qdrant_healthy_cached() -> bool {
+    const TTL_OK: Duration = Duration::from_secs(30);
+    const TTL_DOWN: Duration = Duration::from_secs(5);
+    static CACHE: OnceCell<std::sync::Mutex<Option<(std::time::Instant, bool)>>> = OnceCell::new();
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = match cache.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if let Some((at, healthy)) = *guard {
+        let ttl = if healthy { TTL_OK } else { TTL_DOWN };
+        if at.elapsed() < ttl {
+            return healthy;
+        }
+    }
+    let healthy = probe_healthz();
+    *guard = Some((std::time::Instant::now(), healthy));
+    healthy
+}
+
+/// Probe crudo (sin caché) de `/healthz`. Timeout por-request corto: el gate no
+/// puede costar más que lo que ahorra.
+fn probe_healthz() -> bool {
+    let base = qdrant_base_url();
+    let Ok(client) = http_client() else {
+        return false;
+    };
+    client
+        .get(format!("{base}/healthz"))
+        .timeout(Duration::from_millis(1500))
+        .send()
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
 
 /// Returns `Ok(version_string)` when Qdrant is reachable, `Err(hint)` otherwise.
 pub fn qdrant_ping() -> Result<String, String> {

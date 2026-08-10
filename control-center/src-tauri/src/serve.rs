@@ -42,6 +42,11 @@ const CLAIM_FRESH: Duration = Duration::from_secs(60);
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
 /// Cap a request line so a bogus client can't OOM the daemon.
 const MAX_REQUEST_BYTES: u64 = 256 * 1024;
+/// Espera máxima por el lock global de orchestrate (audit 2026-08-09): un
+/// request colgado (p.ej. Qdrant zombi) encolaba a TODOS los hooks detrás del
+/// Mutex sin límite — cada prompt pagaba ~9.2s para recibir contexto vacío.
+/// Pasado este plazo el daemon responde "busy" y el hook degrada en local.
+const ORCH_LOCK_WAIT: Duration = Duration::from_millis(2500);
 
 /// One request line from a hook client.
 #[derive(Debug, Deserialize)]
@@ -390,6 +395,24 @@ pub fn run_daemon() -> Result<Value, String> {
     Ok(json!({ "stopped": true }))
 }
 
+/// `Mutex::lock` con deadline (std no trae `try_lock_for`): reintenta cada 50ms
+/// hasta `max_wait`. Poisoned se recupera igual que hacía el `lock()` directo.
+fn try_lock_bounded(lock: &Mutex<()>, max_wait: Duration) -> Option<std::sync::MutexGuard<'_, ()>> {
+    let deadline = Instant::now() + max_wait;
+    loop {
+        match lock.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(p)) => return Some(p.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if Instant::now() >= deadline {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+}
+
 fn handle_conn(
     stream: TcpStream,
     token: &str,
@@ -422,10 +445,22 @@ fn handle_conn(
     last_activity.store(now_ms(), Ordering::Relaxed);
 
     // Serialize the heavy E5 paths (orchestrate + skill_query both embed via the
-    // process-global E5 OnceCell); ping/shutdown stay lock-free.
+    // process-global E5 OnceCell); ping/shutdown stay lock-free. Espera ACOTADA
+    // (ORCH_LOCK_WAIT): si el lock no llega, "busy" — nunca cola infinita.
     let (resp, shutdown) = if req.cmd == "orchestrate" || req.cmd == "skill_query" {
-        let _guard = orch_lock.lock().unwrap_or_else(|p| p.into_inner());
-        handle_request(&req, token, started)
+        match try_lock_bounded(orch_lock, ORCH_LOCK_WAIT) {
+            Some(_guard) => handle_request(&req, token, started),
+            None => (
+                json!({
+                    "error": "busy",
+                    "detail": format!(
+                        "orchestrate lock no liberado en {}ms — daemon ocupado; el hook degrada",
+                        ORCH_LOCK_WAIT.as_millis()
+                    ),
+                }),
+                false,
+            ),
+        }
     } else {
         handle_request(&req, token, started)
     };

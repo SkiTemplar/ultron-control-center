@@ -41,6 +41,11 @@ fn item_payload(item: &MemoryItem) -> HashMap<String, serde_json::Value> {
 /// Embed (E5 `passage:`) + upsert a single item into `ultron_memory`.
 /// Errors if E5 is unavailable (zero vector) so the caller can count it.
 pub fn index_item(item: &MemoryItem) -> Result<(), String> {
+    // Gate healthz (2026-08-10): con Qdrant caído no se paga el embed E5 (~1s)
+    // por un upsert que va a fallar igual; el caller ya cuenta el error.
+    if !crate::qdrant::qdrant_healthy_cached() {
+        return Err("qdrant unhealthy (healthz gate) — item not indexed".to_string());
+    }
     let vector = crate::qdrant::embed_e5(&item.searchable_text(), false)?;
     if vector.iter().all(|&x| x == 0.0) {
         return Err("E5 embedding unavailable (zero vector) — item not indexed".to_string());
@@ -157,6 +162,12 @@ pub fn search_dense(query: &str, k: u32, project_id: Option<&str>) -> Vec<String
 /// the fusion can use the REAL similarity (not just rank order) — B1. Empty when
 /// E5/Qdrant is unavailable, so the caller degrades to sparse-only.
 pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec<(String, f32)> {
+    // Fail-fast (2026-08-10): Qdrant caído → vacío SIN pagar el embed E5 ni el
+    // connect; el caller degrada a sparse (audit 2026-08-09: ~9.2s/prompt para
+    // inyectar contexto vacío).
+    if !crate::qdrant::qdrant_healthy_cached() {
+        return Vec::new();
+    }
     let vector = match crate::qdrant::embed_e5(query, true) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
@@ -211,6 +222,11 @@ pub fn search_dense_checked(query: &str, k: u32, project_id: Option<&str>) -> Op
     // hay proposición que puedan contradecir.
     const JUDGE_NEIGHBOUR_FLOOR: f32 = 0.83;
 
+    // Gate healthz: infra caída → None (NO verificable, fail-closed) sin pagar
+    // el embed. Mismo contrato que el Err de Qdrant más abajo.
+    if !crate::qdrant::qdrant_healthy_cached() {
+        return None;
+    }
     let vector = crate::qdrant::embed_e5(query, true).ok()?;
     if vector.iter().all(|&x| x == 0.0) {
         return None; // E5 stub / unavailable -> NO verificable
