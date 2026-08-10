@@ -37,20 +37,10 @@ pub async fn list_skills_legacy() -> Result<Vec<skills::SkillInfo>, String> {
     skills::list_skills_inner()
 }
 
-#[tauri::command]
-pub async fn read_skill_md(name: String) -> Result<String, String> {
-    skills::read_skill_md_inner(&name)
-}
-
-#[tauri::command]
-pub async fn create_skill(
-    name: String,
-    description: String,
-    body: String,
-    layer: String,
-) -> Result<skills::SkillCreateResult, String> {
-    skills::create_skill_inner(name, description, body, layer)
-}
+// (2026-08-11, decisión del usuario — audit 08-09 #38) read_skill_md /
+// create_skill / delete_skill RETIRADOS: residuo del flujo de creación manual,
+// jamás registrados ni consumidos. La creación real pasa por
+// library::skill_create (flujo asistido por IA, sí registrado).
 
 #[tauri::command]
 pub async fn update_skill_md(
@@ -58,9 +48,4 @@ pub async fn update_skill_md(
     content: String,
 ) -> Result<skills::SkillUpdateResult, String> {
     skills::update_skill_md_inner(name, content)
-}
-
-#[tauri::command]
-pub async fn delete_skill(name: String, soft: bool) -> Result<skills::SkillDeleteResult, String> {
-    skills::delete_skill_inner(name, soft)
 }

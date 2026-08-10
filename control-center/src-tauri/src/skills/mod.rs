@@ -33,13 +33,10 @@ pub(crate) mod types;
 // Re-exports — preserve the flat public API that crate::skills callers expect.
 // ---------------------------------------------------------------------------
 
-pub use crud::{create_skill_inner, delete_skill_inner, update_skill_md_inner};
+pub use crud::update_skill_md_inner;
 pub use origin::{list_skills_with_origin_inner, skill_toggle_inner, skills_bulk_toggle_inner};
-pub use registry::{list_skills_inner, read_skill_md_inner};
-pub use types::{
-    BulkToggleResult, SkillCreateResult, SkillDeleteResult, SkillEntry, SkillInfo,
-    SkillUpdateResult,
-};
+pub use registry::list_skills_inner;
+pub use types::{BulkToggleResult, SkillEntry, SkillInfo, SkillUpdateResult};
 // SkillOrigin dejó de re-exportarse plano (2026-07-04): su último consumidor externo
 // de producción (commands/memory/memory_graph.rs) se borró; los tests usan types::.
 #[cfg(test)]

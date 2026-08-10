@@ -1,26 +1,15 @@
-// Per-project notes commands (load + save).
+// Global notes commands (v2.6, card-v26-fb-005) — cross-project markdown notes.
 //
-// Thin async wrappers around `crate::notes::{load_inner, save_inner}`.
-// The body is plain markdown — the frontend renderer at
-// `src/lib/markdown.tsx` controls the presentation.
+// Thin async wrappers around `crate::notes::*_global_inner`. The body is plain
+// markdown — the frontend renderer at `src/lib/markdown.tsx` controls the
+// presentation.
+//
+// (2026-08-11, decisión del usuario — audit 08-09 #37) El subsistema de notas
+// POR-PROYECTO (7 comandos: project_notes_* / project_note_* /
+// notes_send_to_project) se RETIRÓ: nunca se registró en generate_handler! ni
+// tuvo consumidor en la UI — las notas globales lo reemplazaron.
 
 use crate::notes;
-
-#[tauri::command]
-pub async fn project_notes_load(project_id: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || notes::load_inner(&project_id))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn project_notes_save(project_id: String, body: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || notes::save_inner(&project_id, &body))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-// v2.6 (card-v26-fb-005): global notes — cross-project markdown notes.
 
 #[tauri::command]
 pub async fn notes_list_global() -> Result<Vec<notes::NoteEntry>, String> {
@@ -48,53 +37,4 @@ pub async fn notes_delete_global(slug: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || notes::delete_global_inner(&slug))
         .await
         .map_err(|e| e.to_string())?
-}
-
-// v2.6 (card-v26-fb-046): per-project notebook — multiple notes per project.
-
-#[tauri::command]
-pub async fn project_notes_list(project_id: String) -> Result<Vec<notes::NoteEntry>, String> {
-    tauri::async_runtime::spawn_blocking(move || notes::list_project_notes_inner(&project_id))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn project_note_load(project_id: String, slug: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || notes::load_project_note_inner(&project_id, &slug))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn project_note_save(
-    project_id: String,
-    slug: String,
-    body: String,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        notes::save_project_note_inner(&project_id, &slug, &body)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn project_note_delete(project_id: String, slug: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        notes::delete_project_note_inner(&project_id, &slug)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-// v2.6 (card-v26-fb-045): send a global note to a project notebook.
-// Returns the final slug used inside the project (uniqued on conflict).
-#[tauri::command]
-pub async fn notes_send_to_project(slug: String, project_id: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        notes::send_global_to_project_inner(&slug, &project_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }

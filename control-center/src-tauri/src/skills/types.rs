@@ -73,16 +73,9 @@ pub(crate) struct RegistrySkill {
 }
 
 // ---------------------------------------------------------------------------
-// CRUD result types
+// CRUD result types (SkillCreateResult/SkillDeleteResult retirados 2026-08-11
+// con sus comandos huérfanos — audit 08-09 #38)
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub struct SkillCreateResult {
-    pub success: bool,
-    pub name: String,
-    pub path: String,
-    pub layer: String,
-}
 
 #[derive(Debug, Serialize)]
 pub struct SkillUpdateResult {
@@ -90,15 +83,6 @@ pub struct SkillUpdateResult {
     pub name: String,
     pub path: String,
     pub backup_path: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SkillDeleteResult {
-    pub success: bool,
-    pub name: String,
-    pub from_path: String,
-    pub to_path: String,
-    pub soft: bool,
 }
 
 // ---------------------------------------------------------------------------
