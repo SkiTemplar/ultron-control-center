@@ -23,10 +23,15 @@ const TMP_DIR = path.dirname(L0_SCRATCH);
 fs.mkdirSync(TMP_DIR, { recursive: true });
 
 // Guarda el contenido original del context.md para restaurarlo al final.
+// (2026-08-10) TAMBIEN el mtime: restaurar solo el contenido dejaba el scratch
+// viejo con mtime fresco -> el gate de 24h lo daba por vivo durante un dia
+// (caso real: scratch de legacy-fc del 08-02 reinyectado tras correr este test).
 let originalContent = null;
 let originalExists = false;
+let originalMtime = null;
 try {
   originalContent = fs.readFileSync(L0_SCRATCH, 'utf8');
+  originalMtime = fs.statSync(L0_SCRATCH).mtime;
   originalExists = true;
 } catch { /* no existia */ }
 
@@ -34,6 +39,7 @@ function restore() {
   try {
     if (originalExists) {
       fs.writeFileSync(L0_SCRATCH, originalContent, 'utf8');
+      if (originalMtime) fs.utimesSync(L0_SCRATCH, originalMtime, originalMtime);
     } else {
       try { fs.unlinkSync(L0_SCRATCH); } catch { /* ya no existe */ }
     }
@@ -137,6 +143,44 @@ run('contenido > L0_MAX_CHARS debe quedar clippeado con [...]', () => {
     !result.includes('x'.repeat(L0_MAX_CHARS + 1)),
     'El contenido original no debe aparecer sin clipear'
   );
+});
+
+// ---- GATE CROSS-PROJECT (2026-08-10) --------------------------------------
+run('scratch de OTRO proyecto no se inyecta en la sesion actual', () => {
+  const contenido = [
+    '# ULTRON L0 CONTEXT (pre-compact) · 2026-08-02 00:09',
+    '> Preservado por precompact-preserve-l0.js (scratch, no es memoria gobernada).',
+    '> trigger: auto · project: legacy-fc · turns_scanned: 3',
+    '',
+    '## Hechos clave preservados',
+    '- dato de otro proyecto',
+  ].join('\n');
+  fs.writeFileSync(L0_SCRATCH, contenido, 'utf8');
+  const now = new Date();
+  fs.utimesSync(L0_SCRATCH, now, now);
+  const result = readL0Scratch('ultron');
+  assert.strictEqual(result, '', `scratch de legacy-fc no debe entrar en ultron: ${JSON.stringify(result.slice(0, 80))}`);
+});
+
+run('NEGATIVO: scratch del MISMO proyecto SI se inyecta', () => {
+  const contenido = [
+    '# ULTRON L0 CONTEXT (pre-compact)',
+    '> trigger: auto · project: ultron · turns_scanned: 3',
+    '- plan activo bloque 3',
+  ].join('\n');
+  fs.writeFileSync(L0_SCRATCH, contenido, 'utf8');
+  const now = new Date();
+  fs.utimesSync(L0_SCRATCH, now, now);
+  const result = readL0Scratch('ultron');
+  assert.ok(result.includes('plan activo bloque 3'), `mismo proyecto debe inyectarse: ${JSON.stringify(result.slice(0, 80))}`);
+});
+
+run('scratch sin header de proyecto se inyecta (compat)', () => {
+  fs.writeFileSync(L0_SCRATCH, 'scratch legacy sin header', 'utf8');
+  const now = new Date();
+  fs.utimesSync(L0_SCRATCH, now, now);
+  const result = readL0Scratch('ultron');
+  assert.ok(result.includes('scratch legacy sin header'), 'sin header no hay gate');
 });
 
 // Restaura el archivo original.

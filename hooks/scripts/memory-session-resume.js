@@ -46,12 +46,21 @@ const L0_SCRATCH = path.join(os.homedir(), '.ultron', '.tmp', 'context.md');
 const L0_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const L0_MAX_CHARS = 2000;
 
-function readL0Scratch() {
+function readL0Scratch(currentProject) {
   try {
     const st = fs.statSync(L0_SCRATCH);
     if (Date.now() - st.mtimeMs > L0_MAX_AGE_MS) return ''; // stale -> ignora
     const raw = fs.readFileSync(L0_SCRATCH, 'utf8').trim();
     if (!raw) return '';
+    // (2026-08-10) Gate CROSS-PROJECT: el scratch declara su proyecto en el
+    // header ("project: legacy-fc"); inyectarlo en una sesion de OTRO proyecto
+    // es contaminacion (caso real: scratch de legacy-fc del 08-02 apareciendo
+    // en ultron). Sin header o sin proyecto actual: se inyecta (compat).
+    if (currentProject) {
+      const m = raw.match(/^>?\s*trigger:.*?project:\s*(\S+)/m) || raw.match(/\bproject:\s*(\S+)\s*·/);
+      const scratchProject = m && m[1] ? m[1].trim() : '';
+      if (scratchProject && scratchProject !== currentProject) return '';
+    }
     const clipped = raw.length > L0_MAX_CHARS ? raw.slice(0, L0_MAX_CHARS) + '\n[...]' : raw;
     return '\n<l0-scratch source="precompact" trust="system">\n' + clipped + '\n</l0-scratch>';
   } catch {
@@ -84,30 +93,100 @@ function readProjectContext(projectId) {
 const CONTEXT_MAX_LINES = 6;
 const JACCARD_DUP = 0.5;
 
+// (2026-08-10, audit 08-09) Dedupe MULTILINGUE: el corpus mezcla ES/EN y los
+// gemelos cruzados sobrevivian al Jaccard puro ("ULTRON es un sistema personal"
+// + "ULTRON is a personal AI OS" + "ULTRON es un proyecto de AI" = 3 lineas).
+// Canon minimo ES->EN de los tokens que de verdad aparecen en context.md; no es
+// un traductor, es un normalizador de vocabulario para comparar conjuntos.
+const ES_EN_CANON = {
+  es: 'is', son: 'are', un: 'a', una: 'a', el: 'the', la: 'the', los: 'the', las: 'the',
+  de: 'of', del: 'of', y: 'and', con: 'with', para: 'for', en: 'in',
+  sistema: 'system', proyecto: 'project', ia: 'ai', memoria: 'memory',
+  pruebas: 'tests', codigo: 'code',
+};
+// Palabras funcion (ya canonizadas a EN) que no aportan contenido al dedupe.
+const CTX_STOPWORDS = new Set(['is', 'are', 'a', 'the', 'of', 'and', 'with', 'for', 'in', 'at']);
+
 function normCtx(s) {
   return String(s)
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // sin tildes: "ejecución" == "ejecucion"
     .replace(/[`*#_~]/g, '')
     .replace(/[/,]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+// Tokens de CONTENIDO canonizados (ES->EN, sin stopwords) para comparar lineas.
+function contentTokens(s) {
+  return new Set(
+    normCtx(s)
+      .split(' ')
+      .filter(Boolean)
+      .map((t) => ES_EN_CANON[t] || t)
+      .filter((t) => !CTX_STOPWORDS.has(t))
+  );
+}
+
 function jaccardCtx(a, b) {
-  const A = new Set(normCtx(a).split(' ').filter(Boolean));
-  const B = new Set(normCtx(b).split(' ').filter(Boolean));
+  const A = contentTokens(a);
+  const B = contentTokens(b);
   if (!A.size || !B.size) return 0;
   let inter = 0;
   for (const x of A) if (B.has(x)) inter++;
+  // Lineas cortas (<=5 tokens de contenido): coeficiente de solapamiento
+  // (inter/min) — con conjuntos pequenos el Jaccard castiga una sola palabra
+  // distinta y los gemelos ES/EN no colapsaban jamas.
+  const minSize = Math.min(A.size, B.size);
+  if (minSize <= 5) return inter / minSize;
   return inter / (A.size + B.size - inter);
 }
 
-// Lineas unicas (sin near-duplicados) de project_context, capadas a maxLines.
+// (2026-08-10) Gate de claims numericos: context.md acumula metricas viejas sin
+// fecha ("ULTRON is a project at 9.73/10 score" — superseded desde 06-25) y el
+// resume las inyectaba como verdad. Las cifras de calidad VIVAS ya viajan en
+// harnessNote (con gate de frescura 48h); una metrica memorizada sin fecha es
+// peor que ninguna -> fuera de la inyeccion.
+const STALE_METRIC_RES = [
+  /\b\d+(?:[.,]\d+)?\s*\/\s*10\b/, // "9.73/10", "8 / 10"
+  /\brecall@?\d*\s*[=:]?\s*[01][.,]\d+/i, // "recall@8=0.823"
+  /\bnota\s+(?:de\s+)?\d+(?:[.,]\d+)?\b/i, // "nota 9.31"
+  /\bscore\b.*\b\d/i, // "... score 9.73" / "at X score"
+];
+
+function isStaleMetricLine(line) {
+  return STALE_METRIC_RES.some((re) => re.test(String(line)));
+}
+
+// (2026-08-10) Decision TRIVIAL = higiene generica de herramientas o dominio
+// ajeno al proyecto; no merece un slot de los 5 del resume. Patrones acotados a
+// lo observado en el corpus (audit 08-09) — el filtro de raiz vive en la captura.
+const TRIVIAL_DECISION_RES = [
+  // Higiene generica de tooling presentada como "decision".
+  /\bcargo\s+(fmt|test|clippy)\b/i,
+  /\bclippy\b/i,
+  /\.gitignore\b/i,
+  /\bgit\b[^.]*\bcontrol de versiones\b/i,
+  /\bpruebas?\s+automatizadas?\b[^.]*\b(calidad|estabilidad)\b/i,
+  // Dominio ajeno: precios/planes de otros proyectos (plan Tienda).
+  /\d+\s*(?:€|eur(?:os)?\b)/i,
+  /\bplan\s+["']?tienda\b/i,
+];
+
+function isTrivialDecision(summary) {
+  const s = String(summary || '').trim();
+  if (!s) return true; // sin texto no hay decision que mostrar
+  return TRIVIAL_DECISION_RES.some((re) => re.test(s));
+}
+
+// Lineas unicas (sin near-duplicados ni metricas memorizadas), capadas a maxLines.
 function dedupeContextLines(text, maxLines = CONTEXT_MAX_LINES) {
   const lines = text
     .split('\n')
     .map((l) => l.replace(/^\s*-\s*/, '').trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((l) => !isStaleMetricLine(l));
   const kept = [];
   for (const line of lines) {
     if (kept.some((k) => normCtx(k) === normCtx(line) || jaccardCtx(k, line) > JACCARD_DUP)) continue;
@@ -199,9 +278,18 @@ function render(r, projectContext, opts = {}) {
     out.push('open_tasks:');
     for (const t of r.open_tasks.slice(0, 8)) out.push(`  - ${t.summary || ''}`);
   }
+  // (2026-08-10) Filtro de decisiones TRIVIALES en el punto de inyeccion: la
+  // captura automatica cuela higiene generica de herramientas ("se utiliza
+  // cargo fmt para...", "usar git para control de versiones") y dominio ajeno
+  // (precios "40 EUR/mes" del plan Tienda) como si fueran decisiones del
+  // proyecto. El fix de raiz va en la captura (card en kanban); esta es la
+  // defensa del resume — misma politica que el dedupe de context.
   if (Array.isArray(r.decisions) && r.decisions.length) {
-    out.push('recent_decisions:');
-    for (const d of r.decisions.slice(0, 5)) out.push(`  - ${d.summary || ''}`);
+    const meaningful = r.decisions.filter((d) => !isTrivialDecision(d.summary || ''));
+    if (meaningful.length) {
+      out.push('recent_decisions:');
+      for (const d of meaningful.slice(0, 5)) out.push(`  - ${d.summary || ''}`);
+    }
   }
   if (Array.isArray(r.pinned) && r.pinned.length) {
     out.push('pinned_memories:');
@@ -254,7 +342,7 @@ function main() {
   }
   // cat17.2: inyecta tambien el scratch L0 preservado en la ultima compactacion
   // (aunque no haya resume del sidecar).
-  const l0 = readL0Scratch();
+  const l0 = readL0Scratch(project);
   // Contexto del proyecto actual (independiente del sidecar: se inyecta aunque
   // el resume Rust falle).
   const projectContext = readProjectContext(project);
@@ -278,5 +366,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectContext, render, dedupeContextLines, readHarnessNote, readHead, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
+  module.exports = { readL0Scratch, readProjectContext, render, dedupeContextLines, readHarnessNote, readHead, isStaleMetricLine, isTrivialDecision, jaccardCtx, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
 }

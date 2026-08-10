@@ -87,64 +87,16 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Last commit subject from `<root>` with a hard 1500 ms timeout. Best
-/// effort — `None` on error, timeout, or empty output. Never blocks the
-/// session start: if git is stuck (index.lock, network FS…) the child is
-/// killed and we fall through to the next `derive_next_action` fallback.
-///
-/// Pattern: spawn git in a thread and join with timeout so the resume call
-/// site is never blocked longer than TIMEOUT regardless of FS/lock state.
-fn last_commit_subject(root: &std::path::Path) -> Option<String> {
-    use std::time::Duration;
-
-    const TIMEOUT: Duration = Duration::from_millis(1500);
-
-    // Clone the path so it can be moved into the thread (PathBuf is owned).
-    let root_buf = root.to_path_buf();
-    let handle = std::thread::spawn(move || {
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(&root_buf)
-            .args(["log", "-n", "1", "--format=%s"])
-            .output()
-            .ok()
-            .and_then(|out| {
-                if !out.status.success() {
-                    return None;
-                }
-                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if s.is_empty() {
-                    None
-                } else {
-                    Some(s)
-                }
-            })
-    });
-
-    // join_timeout is not stable; poll try_join via a channel pattern instead.
-    // We give the thread at most TIMEOUT to finish; if it exceeds that we
-    // abandon it (the thread may still run in background but the resume
-    // proceeds immediately — acceptable for a fire-and-forget subprocess).
-    let start = std::time::Instant::now();
-    const POLL: std::time::Duration = std::time::Duration::from_millis(50);
-    loop {
-        if handle.is_finished() {
-            return handle.join().ok().flatten();
-        }
-        if start.elapsed() >= TIMEOUT {
-            // Let the orphaned thread clean up on its own; we move on.
-            return None;
-        }
-        std::thread::sleep(POLL);
-    }
-}
-
 /// Derive a LIVE next-action instead of `open_tasks.first()` (which rotted —
 /// memory has no done/stale state). Priority:
 ///   1. Kanban In-Progress card (else Backlog top) of the current project.
-///   2. Last commit subject ("último que pasó").
-///   3. First memory Task that is recent AND not phrased as already-done.
-///   4. A running workflow.
+///   2. First memory Task that is recent AND not phrased as already-done.
+///   3. A running workflow.
+///
+/// (2026-08-10, audit 08-09) El fallback "último commit: …" se RETIRÓ: el eco
+/// del git log no es una acción (el head ya viaja en su propia línea del
+/// resume) y enmascaraba el caso honesto "sin tarea fijada" — el render JS
+/// tiene un mensaje explícito para `None`.
 fn derive_next_action(
     project: Option<&str>,
     tasks: &[MemoryItem],
@@ -155,11 +107,6 @@ fn derive_next_action(
     if let (Some(root), Some(proj)) = (root.as_deref(), project) {
         if let Some(card) = kanban_signal::kanban_next_action(root, proj) {
             return Some(card);
-        }
-    }
-    if let Some(root) = root.as_deref() {
-        if let Some(commit) = last_commit_subject(root) {
-            return Some(format!("último commit: {commit}"));
         }
     }
 

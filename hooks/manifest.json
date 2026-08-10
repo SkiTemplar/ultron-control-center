@@ -186,7 +186,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
-      "checksum_sha256": "dfd956890f28281be822e0150eb370de495815ba8faed1a9f26f3434f463eee6",
+      "checksum_sha256": "94bc84929251f5ccffb6ffb5b5af7bcccf74c8e27bee1c62fd2f49b312f0b7b6",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
