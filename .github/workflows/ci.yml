@@ -381,6 +381,35 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/ultron-route-fixtures"
           ULTRON_ROUTING_FIXTURES="${RUNNER_TEMP}/ultron-route-fixtures" node cockpit/skill-lazy/_accuracy_at3.js
 
+  hook-selftests:
+    name: Hook & script selftests (hermetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # (2026-08-10, higiene bloque 7) Estos selftests existían pero JAMÁS
+    # corrían en CI — una regresión en los hooks de memoria/captura pasaba en
+    # silencio. Solo los HERMÉTICOS (verificado con HOME falso en limpio):
+    # kirkardo-eval.selftest.mjs queda FUERA a propósito — su run scoped
+    # necesita el ~/.ultron real (brain.db, logs) y en un runner limpio falla
+    # por entorno, no por regresión.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Script selftests (memoria / captura / lifecycle)
+        run: |
+          node scripts/memory-bench.selftest.mjs
+          node scripts/posttoolfail-capture.selftest.mjs
+          node scripts/subagent-harvest.selftest.mjs
+          node scripts/subagent-lifecycle.selftest.mjs
+          node hooks/scripts/kanban-update-reminder.selftest.mjs
+      - name: Hook selftests (resume - frescura + calidad)
+        run: |
+          node hooks/scripts/tests/test-freshness-gate.js
+          node hooks/scripts/tests/test-resume-quality.js
+
   # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
   # removed during the 2026-06-04 cleanup. The 15.x Python test suite that
   # lived in `tests/` has been archived to `_legacy_archive/tests-python-15x/`
