@@ -205,13 +205,21 @@ pub fn list_runs_inner(
     let conn = open_conn()?;
     let cap = limit.clamp(1, 500);
 
-    // Build the WHERE clause dynamically to avoid shipping dead predicates.
-    let mut conditions: Vec<&str> = Vec::new();
-    if workflow_id.is_some() {
-        conditions.push("workflow_id = ?1");
+    // Build the WHERE clause AND the param list together (2026-08-11, wiring
+    // audit #32): la versión anterior bindeaba SIEMPRE 2 parámetros contra un
+    // WHERE dinámico — con 0 o 1 filtros rusqlite devolvía "invalid parameter
+    // count" y el caller (session_resume cross-project) se lo tragaba con
+    // unwrap_or_default. Código jamás ejercitado = bug latente clásico.
+    use rusqlite::types::ToSql;
+    let mut conditions: Vec<String> = Vec::new();
+    let mut param_values: Vec<Box<dyn ToSql>> = Vec::new();
+    if let Some(ref wf) = workflow_id {
+        param_values.push(Box::new(wf.clone()));
+        conditions.push(format!("workflow_id = ?{}", param_values.len()));
     }
-    if project_id.is_some() {
-        conditions.push("project_id = ?2");
+    if let Some(ref pid) = project_id {
+        param_values.push(Box::new(pid.clone()));
+        conditions.push(format!("project_id = ?{}", param_values.len()));
     }
     let where_clause = if conditions.is_empty() {
         String::new()
@@ -232,14 +240,9 @@ pub fn list_runs_inner(
         .prepare(&sql)
         .map_err(|e| format!("prepare list: {e}"))?;
 
+    let refs: Vec<&dyn ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
     let rows = stmt
-        .query_map(
-            params![
-                workflow_id.as_deref().unwrap_or(""),
-                project_id.as_deref().unwrap_or(""),
-            ],
-            row_to_run,
-        )
+        .query_map(refs.as_slice(), row_to_run)
         .map_err(|e| format!("query workflow_runs: {e}"))?;
 
     let mut out = Vec::new();

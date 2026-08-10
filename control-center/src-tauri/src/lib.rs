@@ -505,7 +505,17 @@ pub fn run() {
             proxy::proxy_health,
             proxy::proxy_state_enabled,
             proxy::proxy_set_enabled,
-            // -- workflow YAML composability + SQLite run history (KIRKARDO 23 P2) --
+            // -- workflow YAML composability + SQLite run history (KIRKARDO 23
+            //    P2; wiring 2026-08-11, audit #32: los 6 llevaban desde jun-26
+            //    sin registrar y la tabla se creaba vacía en cada boot. El
+            //    escritor real es delegate.rs; el historial vive en el
+            //    LiveSessionMonitor) --
+            commands::workflows::workflow_record_run,
+            commands::workflows::workflow_update_run,
+            commands::workflows::workflow_get_runs,
+            commands::workflows::workflow_load_user_defined,
+            commands::workflows::workflow_set_state,
+            commands::workflows::workflow_get_state,
         ])
         .setup(|app| {
             // v2.13 -> v2.14 data migration (meta.json + features.json ensure).

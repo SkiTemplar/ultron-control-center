@@ -189,6 +189,19 @@ pub async fn delegate_task_inner(
         }),
     );
 
+    // Historial de ejecuciones (wiring 2026-08-11, audit #32): la delegación
+    // sincrona es el EJECUTOR real de workflows hoy — cada delegación abre un
+    // run en workflow-runs.db (la tabla se creaba en cada boot y quedaba vacía
+    // porque nada escribia). Best-effort: el historial jamás bloquea delegar.
+    let run_id = crate::workflow_runs::record_run_inner(
+        format!("delegate:{agent_trim}"),
+        Some(project_id.clone()),
+        None,
+        1,
+    )
+    .map_err(|e| eprintln!("[delegate] record_run failed: {e}"))
+    .ok();
+
     // -----------------------------------------------------------------------
     // Spawn the PTY session directly via pty::spawn_inner so we get a
     // session_id we can poll. sessions::spawn_session_inner goes through
@@ -293,6 +306,30 @@ pub async fn delegate_task_inner(
             "duration_ms": duration_ms,
         }),
     );
+
+    // Cierra el run del historial (best-effort, mismo contrato que el open).
+    if let Some(rid) = run_id {
+        let _ = crate::workflow_runs::update_run_inner(
+            rid,
+            crate::workflow_runs::RunUpdate {
+                status: Some(if completed_normally {
+                    crate::workflow_runs::RunStatus::Success
+                } else {
+                    crate::workflow_runs::RunStatus::Failed
+                }),
+                steps_completed: Some(u32::from(completed_normally)),
+                steps_total: None,
+                output_summary: Some(truncate(&output, 500)),
+                error: if completed_normally {
+                    None
+                } else {
+                    Some(format!("timeout after {timeout_secs}s"))
+                },
+                ended_at: Some(chrono::Utc::now()),
+            },
+        )
+        .map_err(|e| eprintln!("[delegate] update_run failed: {e}"));
+    }
 
     // Delegation log (append-only JSONL).
     let id_nonce = SystemTime::now()
