@@ -1,22 +1,26 @@
 // Control Center — Memory tab shell (FRENTE 5, MEMORY KERNEL).
 //
-// Wraps the two memory surfaces under one tab with sub-tabs:
-//   - Inbox   : <MemoryInbox/>   — candidates awaiting validation + health.
-//   - Browser : <MemoryBrowser/> — curate already-governed memories.
+// Wraps the memory surfaces under one tab with sub-tabs:
+//   - Inbox     : <MemoryInbox/>     — candidates awaiting validation + health.
+//   - Browser   : <MemoryBrowser/>   — curate already-governed memories.
+//   - Inspector : <MemoryInspector/> — recall trace: why each memory was
+//                 injected/discarded (wiring 2026-08-10, audit 08-09 #34).
 //
 // The Sidebar still routes to a single `memory` tab; this component owns the
-// inner Inbox|Browser switch. Black, minimal, hard-edge — colours from
+// inner sub-tab switch. Black, minimal, hard-edge — colours from
 // var(--color-*), no emojis (matches the rest of the Control Center).
 
 import { useState } from "react";
 import { MemoryInbox } from "./MemoryInbox";
 import { MemoryBrowser } from "./MemoryBrowser";
+import { MemoryInspector } from "./MemoryInspector";
 
-type SubTab = "inbox" | "browser";
+type SubTab = "inbox" | "browser" | "inspector";
 
 const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: "inbox", label: "Inbox" },
   { id: "browser", label: "Browser" },
+  { id: "inspector", label: "Inspector" },
 ];
 
 export function MemoryTab() {
@@ -51,7 +55,7 @@ export function MemoryTab() {
 
       {/* Active surface */}
       <div className="min-h-0 flex-1">
-        {sub === "inbox" ? <MemoryInbox /> : <MemoryBrowser />}
+        {sub === "inbox" ? <MemoryInbox /> : sub === "browser" ? <MemoryBrowser /> : <MemoryInspector />}
       </div>
     </div>
   );

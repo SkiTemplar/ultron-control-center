@@ -303,6 +303,12 @@ pub fn run() {
             commands::memory::memory_item_pin,
             commands::memory::memory_item_unpin,
             commands::memory::memory_stats,
+            // Retrieval Inspector (wiring 2026-08-10, audit 08-09 #34): traza
+            // completa del recall (dense/sparse/fused + injected/discarded con
+            // razon) + rebuild manual del indice denso. Construidos en jun-26,
+            // registrados HOY — el panel vive en Memory -> Inspector.
+            commands::memory::recall_inspect,
+            commands::memory::memory_reindex,
             // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
