@@ -84,6 +84,23 @@ pub struct StaleSweepResult {
     pub failed: Vec<(String, String)>,
 }
 
+/// Result of [`MemoryService::sweep_low_confidence`] (audit 2026-08-09): the
+/// confidence-noise sweep. `matched` = ACTIVE bajo el umbral; los `protected_*`
+/// NO se tocan (golden positives / pinned / user-validated) y se reportan para
+/// que el operador vea el alcance real (mand. 13).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConfidenceSweepResult {
+    pub below: f32,
+    pub examined: usize,
+    pub matched: usize,
+    pub deprecated: usize,
+    pub protected_golden: usize,
+    pub protected_pinned: usize,
+    pub protected_validated: usize,
+    pub dry_run: bool,
+    pub failed: Vec<(String, String)>,
+}
+
 /// Raise sensitivity to [`Sensitivity::Secret`] when the write-path detected a
 /// credential. Monotonic: it never lowers an already-higher classification (H2 /
 /// OLA A — see CONTRACTS-2026-06-04.md write-path security + recall Secret-gate).

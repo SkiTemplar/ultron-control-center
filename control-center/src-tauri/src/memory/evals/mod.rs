@@ -314,6 +314,133 @@ fn golden_set_path() -> Option<std::path::PathBuf> {
     })
 }
 
+/// El set etiquetado a mano vive en el MISMO directorio que el generado.
+fn golden_labels_path() -> Option<std::path::PathBuf> {
+    golden_set_path().map(|p| p.with_file_name("golden_labels.json"))
+}
+
+/// (2026-08-10) Unión de `expect_ids` de AMBOS golden sets (generado +
+/// etiquetado): items PROTEGIDOS frente a sweeps de higiene — deprecar un
+/// golden positive rompe el oráculo (audit 08-09: parte del gap 0.662→0.823
+/// eran positives huérfanos del dedupe). Walk genérico por clave: sobrevive a
+/// las diferencias de schema entre ambos ficheros. Fail-safe: fichero ausente
+/// o ilegible aporta el conjunto vacío (el sweep protege lo que puede ver).
+pub fn golden_protected_ids() -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for path in [golden_set_path(), golden_labels_path()]
+        .into_iter()
+        .flatten()
+    {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        collect_expect_ids(&v, &mut out);
+    }
+    out
+}
+
+/// Recorre el JSON acumulando todo string dentro de arrays bajo `expect_ids`.
+fn collect_expect_ids(v: &serde_json::Value, out: &mut std::collections::HashSet<String>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            for (k, val) in m {
+                if k == "expect_ids" {
+                    if let Some(arr) = val.as_array() {
+                        for id in arr {
+                            if let Some(s) = id.as_str() {
+                                out.insert(s.to_string());
+                            }
+                        }
+                    }
+                }
+                collect_expect_ids(val, out);
+            }
+        }
+        serde_json::Value::Array(a) => {
+            for x in a {
+                collect_expect_ids(x, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// (2026-08-10, patrón b1ea0e5) Informe READ-ONLY de víctimas de higiene en los
+/// golden sets: `expect_ids` que ya NO están ACTIVE en brain.db. Para cada
+/// víctima intenta resolver su gemelo activo por `content_hash` — directo del
+/// item si la fila sigue existiendo (deprecated/stale), o recuperado del
+/// `before_json` del ledger de events si el dedupe la borró (forget). NO muta
+/// ni brain.db ni los JSON: emite el plan; el remap lo aplica una sesión con
+/// el informe delante (remap mecánico, no relabel de opinión).
+pub fn golden_remap_report() -> serde_json::Value {
+    use super::model::{MemoryItem, Status};
+    use super::sqlite_store as store;
+
+    let ids = golden_protected_ids();
+    let conn = match store::open_conn() {
+        Ok(c) => c,
+        Err(e) => return serde_json::json!({ "error": format!("brain.db no disponible: {e}") }),
+    };
+
+    let mut active = 0usize;
+    let mut victims: Vec<serde_json::Value> = Vec::new();
+    let mut sorted: Vec<&String> = ids.iter().collect();
+    sorted.sort();
+
+    for id in sorted {
+        let (state, source_item): (String, Option<MemoryItem>) = match store::get_item(&conn, id) {
+            Ok(Some(item)) if matches!(item.status, Status::Active) => {
+                active += 1;
+                continue;
+            }
+            Ok(Some(item)) => (item.status.as_str().to_string(), Some(item)),
+            Ok(None) => {
+                // Fila borrada (forget del dedupe): recupera el item del ledger.
+                let recovered = store::list_events_for(&conn, id, 10).ok().and_then(|evs| {
+                    evs.into_iter().find_map(|ev| {
+                        ev.before_json
+                            .as_deref()
+                            .and_then(|b| serde_json::from_str::<MemoryItem>(b).ok())
+                    })
+                });
+                ("missing".to_string(), recovered)
+            }
+            Err(e) => (format!("error: {e}"), None),
+        };
+
+        // Gemelo: ACTIVE con el mismo content_hash en la misma frontera
+        // scope/proyecto (la del hash-dedupe, CONTRACTS §4).
+        let twin = source_item.as_ref().and_then(|it| {
+            it.content_hash.as_deref().and_then(|h| {
+                store::find_active_by_content_hash(&conn, h, it.scope, it.project_id.as_deref())
+                    .ok()
+                    .flatten()
+                    .map(|t| t.id)
+            })
+        });
+
+        let action = if twin.is_some() { "remap" } else { "remove" };
+        victims.push(serde_json::json!({
+            "expect_id": id,
+            "state": state,
+            "twin_active": twin,
+            "action": action,
+        }));
+    }
+
+    serde_json::json!({
+        "total_expect_ids": ids.len(),
+        "active": active,
+        "victims_count": victims.len(),
+        "victims": victims,
+        "note": "READ-ONLY (patrón b1ea0e5): remap = sustituir expect_id por twin_active; \
+                 remove = retirar el id y recalcular n_relevant",
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Submodulos (cat7.3: evals.rs superaba las 800 lineas -> troceado 2026-07-02)
 // ---------------------------------------------------------------------------

@@ -71,6 +71,23 @@ pub(super) fn jaccard_overlap(a: &str, b: &str) -> f32 {
 /// comparten palabras sueltas no.
 pub(super) const NEAR_DUP_JACCARD: f32 = 0.5;
 
+/// PURE (gate anti-dup del approve, 2026-08-10): primer item de `similar` cuyo
+/// title+summary confirma near-dup por Jaccard contra `gate_text`. Separada de
+/// `approve_candidate` para poder testear el gate sin brain.db.
+pub(super) fn find_near_dup_active(
+    gate_text: &str,
+    similar: &[super::super::model::MemoryItem],
+) -> Option<String> {
+    similar.iter().find_map(|i| {
+        let hay = format!(
+            "{} {}",
+            i.title.as_deref().unwrap_or(""),
+            i.summary.as_deref().unwrap_or("")
+        );
+        (jaccard_overlap(gate_text, &hay) >= NEAR_DUP_JACCARD).then(|| i.id.clone())
+    })
+}
+
 /// (a) 2026-07-02 — dedupe EXACTO BLOQUEANTE del write-path. Devuelve el id del
 /// item ACTIVO o candidato PENDING que ya cubre EXACTAMENTE este contenido
 /// (mismo content_hash + mismo scope + mismo project_id), o None. La frontera
@@ -687,6 +704,30 @@ impl MemoryService {
         let cand = store::get_candidate(&conn, id)?
             .ok_or_else(|| MemoryError::NotFound(format!("candidate {id}")))?;
 
+        // GATE ANTI-DUP (2026-08-10; audit 08-09: 105 filas duplicadas entraron
+        // por approve/approve-all — el near-dup de captura puede no haber
+        // corrido o haber fallado). Última línea de defensa: re-chequea contra
+        // ACTIVE en el MOMENTO del approve. Con near-dup confirmado el candidato
+        // se RECHAZA conservando el ACTIVE existente y el caller recibe
+        // `Duplicate(id_existente)` (mismo contrato que el dedupe exacto del
+        // write-path). Err de FTS5 = fail-open: infra caída no bloquea approve.
+        let gate_text = cand.proposed_summary.clone().unwrap_or_default();
+        if !gate_text.trim().is_empty() {
+            if let Ok(similar) = store::search_items(&conn, &gate_text, Status::Active, 3) {
+                if let Some(existing_id) = find_near_dup_active(&gate_text, &similar) {
+                    store::set_candidate_status(&conn, id, CandidateStatus::Rejected)?;
+                    let mut ev =
+                        MemoryEvent::new(EventType::Rejected, Some(existing_id.clone()), actor)
+                            .with_reason(format!(
+                                "candidate {id} rejected: near-dup de {existing_id} (anti-dup gate en approve)"
+                            ));
+                    ev.after_json = Some(format!("{{\"candidate_id\":\"{id}\"}}"));
+                    let _ = store::insert_event(&conn, &ev);
+                    return Err(MemoryError::Duplicate(existing_id));
+                }
+            }
+        }
+
         let mut item = cand.to_item(Status::Active, Source::AssistantInferred);
         // H2: carry the write-path secret marker to the item so the recall
         // Secret-gate (recall_unified) excludes it. Monotonic — never downgrades.
@@ -720,6 +761,64 @@ impl MemoryService {
         ev.after_json = Some(format!("{{\"candidate_id\":\"{id}\"}}"));
         let _ = store::insert_event(&conn, &ev);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod approve_gate_tests {
+    use super::super::super::model::{MemoryItem, MemoryType, Scope, Source, Status};
+    use super::find_near_dup_active;
+
+    fn active_item(title: &str, summary: &str) -> MemoryItem {
+        let mut it = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::AssistantInferred,
+            Status::Active,
+        );
+        it.title = Some(title.to_string());
+        it.summary = Some(summary.to_string());
+        it
+    }
+
+    #[test]
+    fn gate_confirms_reformulated_fact_as_duplicate() {
+        // El caso del audit 08-09: el mismo hecho reformulado entraba por
+        // approve-all y creaba una fila duplicada (105 en el corpus).
+        let existing = active_item(
+            "Qdrant nativo",
+            "el sistema usa qdrant nativo para el recall denso con e5 large",
+        );
+        let want = existing.id.clone();
+        let got = find_near_dup_active(
+            "sistema usa qdrant nativo para recall denso (e5 large)",
+            &[existing],
+        );
+        assert_eq!(
+            got,
+            Some(want),
+            "near-dup reformulado debe bloquear approve"
+        );
+    }
+
+    #[test]
+    fn gate_lets_distinct_facts_through() {
+        // Caso negativo: compartir palabras sueltas NO bloquea el approve
+        // (el bug FTS de 2026-07-02 marcaba dup por vocabulario común).
+        let existing = active_item(
+            "Reranker",
+            "el cross-encoder BGE reordena el top fusionado del recall",
+        );
+        let got = find_near_dup_active(
+            "la pestaña Finance se compila con la feature flag en el build local",
+            &[existing],
+        );
+        assert_eq!(got, None, "hechos distintos no deben bloquearse");
+    }
+
+    #[test]
+    fn gate_ignores_empty_candidate_list() {
+        assert_eq!(find_near_dup_active("cualquier texto", &[]), None);
     }
 }
 

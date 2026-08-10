@@ -30,6 +30,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                 MemoryService::list_pending_candidates(usize::MAX).map_err(|e| e.to_string())?;
             let mut approved = 0u32;
             let mut skipped = 0u32;
+            let mut rejected_dup = 0u32;
             let mut failed = 0u32;
             for cand in pending {
                 if clean_only && !auto_approve::candidate_is_clean(&cand) {
@@ -38,12 +39,16 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                 }
                 match MemoryService::approve_candidate(&cand.id, Actor::User) {
                     Ok(_) => approved += 1,
+                    // Gate anti-dup (2026-08-10): el candidato quedó rechazado
+                    // conservando el ACTIVE — no es un fallo, es governance.
+                    Err(ul::memory::MemoryError::Duplicate(_)) => rejected_dup += 1,
                     Err(_) => failed += 1,
                 }
             }
             Ok(serde_json::json!({
                 "approved": approved,
                 "skipped_flagged": skipped,
+                "rejected_duplicate": rejected_dup,
                 "failed": failed,
             }))
         }
@@ -104,6 +109,8 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                             } else {
                                 match MemoryService::approve_candidate(&cand.id, Actor::System) {
                                     Ok(_) => approved += 1,
+                                    // Gate anti-dup en approve: cuenta como dup, no fallo.
+                                    Err(ul::memory::MemoryError::Duplicate(_)) => rej_dup += 1,
                                     Err(_) => failed += 1,
                                 }
                             }
@@ -166,6 +173,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
 
             let (mut approved, mut rejected, mut kept_b, mut kept_unclean, mut failed) =
                 (0u32, 0u32, 0u32, 0u32, 0u32);
+            let mut rejected_dup = 0u32;
             for cand in pending {
                 if !auto_approve::candidate_is_clean(&cand) {
                     kept_unclean += 1;
@@ -178,6 +186,8 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                         } else {
                             match MemoryService::approve_candidate(&cand.id, Actor::System) {
                                 Ok(_) => approved += 1,
+                                // Gate anti-dup en approve (2026-08-10).
+                                Err(ul::memory::MemoryError::Duplicate(_)) => rejected_dup += 1,
                                 Err(_) => failed += 1,
                             }
                         }
@@ -205,6 +215,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                 "total": total,
                 "approved": approved,
                 "rejected": rejected,
+                "rejected_duplicate": rejected_dup,
                 "kept_band_b": kept_b,
                 "kept_unclean": kept_unclean,
                 "failed": failed,

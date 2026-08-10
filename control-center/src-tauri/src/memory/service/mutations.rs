@@ -13,7 +13,7 @@ use super::super::MemoryError;
 use super::super::{redaction, sqlite_store as store};
 use super::{
     raised_sensitivity, redact_tags, sync_index, BackfillDeprecationsResult, BulkDeprecateResult,
-    MemoryService, MemoryStats, StaleSweepResult,
+    ConfidenceSweepResult, MemoryService, MemoryStats, StaleSweepResult,
 };
 
 impl MemoryService {
@@ -245,6 +245,62 @@ impl MemoryService {
             project: proj_owned,
             failed,
         })
+    }
+
+    /// Sweep por confianza (audit 2026-08-09): deprecar ACTIVE con
+    /// `confidence < below` — el 24.9% del corpus (991/3976) vivía bajo el
+    /// umbral de ruido 0.55 lastrando el recall. PROTEGIDOS (se cuentan, no se
+    /// tocan): golden positives (`protected_ids` — deprecarlos rompe el
+    /// oráculo), pinned y user-validated. Reversible (Deprecated, no forget);
+    /// cada transición pasa por `set_status` (FTS5 + Qdrant + ledger en sync).
+    pub fn sweep_low_confidence(
+        below: f32,
+        protected_ids: &std::collections::HashSet<String>,
+        dry_run: bool,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<ConfidenceSweepResult, MemoryError> {
+        let items = Self::list_by_status(Status::Active, 100_000)?;
+        let examined = items.len();
+        let reason = reason
+            .unwrap_or_else(|| format!("sweep: confidence < {below} (ruido, audit 2026-08-09)"));
+        let mut res = ConfidenceSweepResult {
+            below,
+            examined,
+            matched: 0,
+            deprecated: 0,
+            protected_golden: 0,
+            protected_pinned: 0,
+            protected_validated: 0,
+            dry_run,
+            failed: Vec::new(),
+        };
+        for it in items {
+            if it.confidence >= below {
+                continue;
+            }
+            res.matched += 1;
+            if protected_ids.contains(&it.id) {
+                res.protected_golden += 1;
+                continue;
+            }
+            if it.pinned {
+                res.protected_pinned += 1;
+                continue;
+            }
+            if it.validated_by_user {
+                res.protected_validated += 1;
+                continue;
+            }
+            if dry_run {
+                continue;
+            }
+            match Self::set_status(&it.id, Status::Deprecated, actor, Some(reason.clone())) {
+                Ok(_) => res.deprecated += 1,
+                Err(e) => res.failed.push((it.id, e.to_string())),
+            }
+        }
+        Ok(res)
     }
 
     /// Sweep ACTIVE items not MODIFIED in `older_than_days` and transition them to

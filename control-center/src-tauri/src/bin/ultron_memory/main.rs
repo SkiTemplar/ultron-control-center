@@ -72,6 +72,7 @@ const BATCH_CMDS: &[&str] = &[
     "reindex-skills-lazy",
     "catalog",
     "dep-backfill",
+    "sweep",
 ];
 
 /// Baja la prioridad del PROPIO proceso a BELOW_NORMAL (best-effort, solo
@@ -516,6 +517,33 @@ fn run() -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?;
             to_json(res)
         }
+        // Sweep por confianza (audit 2026-08-09): deprecar ACTIVE con confidence
+        // < --below (default 0.55, el umbral de ruido de banda C) EXCLUYENDO
+        // golden positives (el oráculo no se canibaliza), pinned y user-validated.
+        // Reversible (deprecate, no forget). --dry-run solo cuenta.
+        //   ultron-memory sweep [--below 0.55] [--dry-run] [--reason R]
+        "sweep" => {
+            let below: f32 = flag_value(&args, "--below")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.55);
+            let dry = has_flag(&args, "--dry-run");
+            let reason = flag_value(&args, "--reason");
+            let protected = ul::memory::evals::golden_protected_ids();
+            let res = ul::memory::MemoryService::sweep_low_confidence(
+                below,
+                &protected,
+                dry,
+                ul::memory::Actor::System,
+                reason,
+            )
+            .map_err(|e| e.to_string())?;
+            to_json(res)
+        }
+        // Informe READ-ONLY de víctimas de higiene en los golden sets (patrón
+        // b1ea0e5): expect_ids no-ACTIVE con su gemelo activo por content_hash.
+        // No muta nada — el remap de los JSON lo aplica quien lee el informe.
+        //   ultron-memory golden-remap
+        "golden-remap" => Ok(ul::memory::evals::golden_remap_report()),
         // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
         // orchestration drops from ~3.5s (cold model load every spawn) to sub-second.
         // `run_daemon` blocks forever serving requests, OR returns immediately with
