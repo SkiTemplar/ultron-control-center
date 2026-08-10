@@ -66,18 +66,26 @@ if (Test-Healthz) {
 # Canonical location is overridable via ULTRON_QDRANT_DIR / ULTRON_QDRANT_EXE
 # (same contract as lib.rs spawn_qdrant_exe). Portable default stays at
 # ~/.ultron/qdrant-native so a fresh install works with zero config.
-if ($env:ULTRON_QDRANT_DIR) { $nativeDir = $env:ULTRON_QDRANT_DIR } else { $nativeDir = "$env:USERPROFILE\.ultron\qdrant-native" }
+if ($env:ULTRON_QDRANT_DIR) { $nativeDir = $env:ULTRON_QDRANT_DIR }
+elseif (Test-Path 'D:\Ultron\qdrant\qdrant.exe') { $nativeDir = 'D:\Ultron\qdrant' }
+else { $nativeDir = "$env:USERPROFILE\.ultron\qdrant-native" }
 if ($env:ULTRON_QDRANT_EXE) { $nativeExe = $env:ULTRON_QDRANT_EXE } else { $nativeExe = Join-Path $nativeDir 'qdrant.exe' }
 # Prefer an existing config.yaml in the canonical dir; fall back to the
 # portable layout (config\production.yaml) used by the installer.
 if (Test-Path (Join-Path $nativeDir 'config.yaml')) { $nativeCfg = 'config.yaml' } else { $nativeCfg = 'config\production.yaml' }
 
 if (Test-Path $nativeExe) {
-    # Kill any lingering qdrant.exe that may be in a bad state.
-    $stale = Get-Process -Name 'qdrant' -ErrorAction SilentlyContinue
-    if ($stale) {
-        $stale | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+    # REGLA DURA (2026-08-10): NUNCA Stop-Process sobre qdrant (lock RocksDB =
+    # riesgo de corrupcion; ver memoria qdrant-hidden-launch-and-no-forcekill).
+    # El bloque anterior mataba "lingering" qdrant.exe cuando healthz aun no
+    # respondia - eso ejecuta el kill justo durante el warm-up del proceso
+    # legitimo. Si hay proceso vivo pero unhealthy: reportar y salir; la
+    # recuperacion es manual (Stop-ScheduledTask + 12s + 1 launch).
+    $alive = Get-Process -Name 'qdrant' -ErrorAction SilentlyContinue
+    if ($alive) {
+        $alivePid = ($alive | Select-Object -First 1).Id
+        Write-State -Status 'unhealthy' -Message "qdrant.exe vivo (PID $alivePid) pero healthz sin 200. NO se mata (lock RocksDB); recuperacion manual." -ElapsedSec 0
+        exit 3
     }
 
     $logFile = Join-Path $tmpDir 'qdrant-native.log'

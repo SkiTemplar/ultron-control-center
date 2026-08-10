@@ -20,7 +20,18 @@ const { observe, logHookError } = require('./lib/hook-obs');
 observe('ensure-qdrant');
 
 const HEALTHZ = { host: 'localhost', port: 6333, path: '/healthz', timeout: 700 };
-const LAUNCHER = path.join(os.homedir(), '.ultron', 'scripts', 'ensure-qdrant.ps1');
+// (2026-08-10) El relanzamiento delega en el WATCHDOG, no en el launcher a
+// secas: mismo relaunch (via ensure-qdrant.ps1) pero con verificacion
+// post-launch real + evento en logs/qdrant-watchdog.jsonl. El spawn directo
+// del launcher era fire-and-forget CIEGO: nada comprobaba si el relaunch
+// funciono (audit 2026-08-09, causa raiz de las caidas silenciosas).
+const WATCHDOG = path.join(
+  os.homedir(),
+  '.ultron',
+  'scripts',
+  'qdrant',
+  'qdrant-watchdog.ps1'
+);
 
 function healthz() {
   return new Promise((resolve) => {
@@ -42,20 +53,19 @@ async function main() {
     return;
   }
 
-  // Caido: disparar el arranque del .ps1 DETACHED y RETORNAR YA (fire-and-forget).
-  // Antes el hook esperaba hasta 3s (MAX_WAIT_MS) a que Qdrant sanara -> cold-start
-  // de ~957ms que bloqueaba CADA SessionStart con Qdrant caido (cat9.3 FAIL). No hay
-  // que esperar aqui: memory-session-resume lee SQLite (no Qdrant), el daemon E5 no
-  // necesita Qdrant para arrancar, y el recall denso (UserPromptSubmit) cae a sparse
-  // mientras Qdrant termina de levantar en background.
+  // Caido: disparar el WATCHDOG detached y RETORNAR YA — el hook no espera
+  // (memory-session-resume lee SQLite, el daemon E5 no necesita Qdrant, y el
+  // recall denso cae a sparse via el gate healthz mientras Qdrant levanta).
+  // El watchdog relanza via ensure-qdrant.ps1, VERIFICA healthz post-launch
+  // (~30s de margen) y deja el veredicto en logs/qdrant-watchdog.jsonl.
   const child = spawn(
     'powershell',
-    ['-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', LAUNCHER],
+    ['-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', WATCHDOG],
     { detached: true, stdio: 'ignore', windowsHide: true }
   );
   child.unref();
   console.log(
-    'ensure-qdrant: Qdrant caido -- relanzamiento disparado en background (no se bloquea el arranque)'
+    'ensure-qdrant: Qdrant caido -- watchdog disparado en background (relaunch + verificacion en logs/qdrant-watchdog.jsonl)'
   );
 }
 
