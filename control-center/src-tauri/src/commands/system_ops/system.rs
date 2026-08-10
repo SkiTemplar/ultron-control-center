@@ -16,10 +16,8 @@ pub async fn run_scheduled_task(
     system::run_task_inner(&app, name).await
 }
 
-#[tauri::command]
-pub async fn system_info(app: tauri::AppHandle) -> Result<system::SystemInfo, String> {
-    system::system_info_inner(&app).await
-}
+// (2026-08-11, wiring audit 08-09 #35) system_info RETIRADO: subset estricto
+// de rich_system_info (mismos campos, menos señal) — el panel consume el rico.
 
 #[tauri::command]
 pub async fn task_detail(

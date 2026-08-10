@@ -2,7 +2,7 @@
 
 import type { InstalledApp } from "../../../types";
 
-export type SystemSubTab = "diagnostics" | "apps";
+export type SystemSubTab = "diagnostics" | "apps" | "tasks";
 
 export type AppCategory =
   | "Development"
@@ -35,6 +35,8 @@ export const CONTEXT_HINTS: Record<SystemSubTab, string> = {
     'Abre Apps cuando una instalación quedó abandonada, un programa ralentiza el sistema, o quieres saber qué hay instalado antes de liberar espacio.',
   diagnostics:
     'Abre Diagnostics cuando Claude Code no arranca, la terminal no abre, aparecen errores de permisos, o quieres ejecutar fixes del Event Log con un clic.',
+  tasks:
+    'Abre Tasks para ver las tareas programadas de ULTRON (watchdog Qdrant, backups, diagnóstico diario): último resultado, próxima ejecución, ejecutar ahora, editar el trigger o eliminarlas.',
 };
 
 // localStorage key for the manual / AI override map.

@@ -3,6 +3,7 @@ import { Diagnostics } from "./system/Diagnostics";
 import { type SystemSubTab } from "./system/system-tab/types";
 import { SystemHeader } from "./system/system-tab/SystemHeader";
 import { AppsPanel } from "./system/system-tab/AppsPanel";
+import { TasksPanel } from "./system/system-tab/TasksPanel";
 
 // v2.7 cleanup (internal audit 2026-05-24):
 //   - Bloatware sub-tab DROPPED: most catalog entries weren't present on his
@@ -25,6 +26,7 @@ export function System() {
       <div className="px-10">
         {subTab === "apps" && <AppsPanel />}
         {subTab === "diagnostics" && <Diagnostics />}
+        {subTab === "tasks" && <TasksPanel />}
       </div>
     </div>
   );

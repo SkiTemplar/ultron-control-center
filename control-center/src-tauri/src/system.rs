@@ -25,17 +25,8 @@ pub struct ScheduledTaskInfo {
     pub catch_up: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SystemInfo {
-    pub hostname: String,
-    pub user: String,
-    pub os_name: String,
-    pub os_version: String,
-    pub uptime_seconds: i64,
-    pub disk_c_total_gb: f64,
-    pub disk_c_free_gb: f64,
-    pub disk_c_pct_used: f64,
-}
+// (2026-08-11) struct SystemInfo retirada con su comando huérfano: subset
+// estricto de RichSystemInfo.
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskTrigger {
@@ -270,18 +261,6 @@ pub async fn run_task_inner(app: &tauri::AppHandle, name: String) -> Result<RunT
         name,
         stderr: stderr.trim().to_string(),
     })
-}
-
-pub async fn system_info_inner(app: &tauri::AppHandle) -> Result<SystemInfo, String> {
-    let (stdout, stderr, code, ok) = run_ps(app, &["-Action", "info"]).await?;
-    if !ok {
-        return Err(format!(
-            "system_tasks.ps1 info failed (exit {:?}): {}",
-            code, stderr
-        ));
-    }
-    serde_json::from_str::<SystemInfo>(stdout.trim())
-        .map_err(|e| format!("parse system info: {}", e))
 }
 
 pub async fn task_detail_inner(app: &tauri::AppHandle, name: String) -> Result<TaskDetail, String> {

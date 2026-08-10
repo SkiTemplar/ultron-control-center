@@ -363,7 +363,15 @@ pub fn run() {
             commands::settings::get_env_keys_status,
             // -- GitHub token (persiste en ~/.ultron/.env via dotenvy) --
             commands::settings::set_github_token,
-            // -- system / scheduled tasks --
+            // -- system / scheduled tasks (wiring 2026-08-11, audit 08-09 #35:
+            //    construidos may-26, registrados HOY; panel System -> Tasks;
+            //    gate "solo ULTRON-*" vive en los inners) --
+            commands::system::list_scheduled_tasks,
+            commands::system::run_scheduled_task,
+            commands::system::task_detail,
+            commands::system::rich_system_info,
+            commands::system::edit_scheduled_task,
+            commands::system::delete_scheduled_task,
             // -- installed apps --
             commands::apps::list_installed_apps,
             commands::apps::open_app_folder,

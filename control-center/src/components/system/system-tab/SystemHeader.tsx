@@ -10,6 +10,7 @@ export function SystemHeader({
   const TABS: { id: SystemSubTab; label: string }[] = [
     { id: "diagnostics", label: "Diagnostics & Fixes" },
     { id: "apps", label: "Apps" },
+    { id: "tasks", label: "Tasks" },
   ];
   return (
     <header className="mb-5 flex flex-wrap items-baseline justify-between gap-4 px-10 pt-8">
