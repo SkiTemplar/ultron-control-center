@@ -11,6 +11,7 @@ import { MCPs } from "./components/MCPs";
 import { Library, type LibrarySubTab } from "./components/Library";
 import { Notes } from "./components/Notes";
 import { Learn } from "./components/Learn";
+import { Lab } from "./components/Lab";
 import { SessionsZone } from "./components/sessions/SessionsZone";
 import { Usage } from "./components/Usage";
 import { AIRouterPage } from "./components/AIRouter";
@@ -558,6 +559,7 @@ function AppInner() {
         <TabErrorBoundary tab="notes">
           {tab === "notes" && <Notes />}
           {tab === "learn" && <Learn />}
+          {tab === "lab" && <Lab />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="sessions">
           {tab === "sessions" && (

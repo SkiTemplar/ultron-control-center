@@ -6,167 +6,650 @@
       "ejemplo_en": "This delves into the intricate landscape of...",
       "ejemplo_es": "En TFG traducidos/asistidos aparece como calco: 'profundizar/ahondar en el intrincado panorama de...', 'desempeña un papel crucial/pivotal en...'",
       "senal_deteccion": "Ratios medidos: 'delve' +6.697% de frecuencia 2020→2024 en PubMed (0.21→14.38 por millón de palabras); 'underscores' x9.1; 'intricate' x6.1.",
-      "correccion": "Sustituir por verbos concretos según el contexto real ('explorar', 'analizar', 'examinar' solo si aportan matiz distinto); no usarlos como muletilla en cada párrafo."
+      "correccion": "Sustituir por verbos concretos según el contexto real ('explorar', 'analizar', 'examinar' solo si aportan matiz distinto); no usarlos como muletilla en cada párrafo.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bdelves?\\b",
+          "nota": "cubre 'delve' (oleada 2023-med.2024 en descripcion) y 'delves' (ejemplo_en)"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bunderscores?\\b",
+          "nota": "cubre 'underscore' (oleada en descripcion) y 'underscores' (x9.1 en senal_deteccion)"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "boast",
+          "nota": "oleada 2023-med.2024 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "crucial",
+          "nota": "oleada 2023-med.2024 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "intricate",
+          "nota": "oleada 2023-med.2024 citada en descripcion; x6.1 en senal_deteccion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "pivotal",
+          "nota": "oleada 2023-med.2024 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "tapestry",
+          "nota": "oleada 2023-med.2024 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "testament",
+          "nota": "oleada 2023-med.2024 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "vibrant",
+          "nota": "oleada 2023-med.2024 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "align with",
+          "nota": "oleada med.2024-2025 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "enhance",
+          "nota": "oleada med.2024-2025 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "fostering",
+          "nota": "oleada med.2024-2025 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "highlighting",
+          "nota": "oleada med.2024-2025 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "showcasing",
+          "nota": "oleada med.2024-2025 citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "intrincado",
+          "nota": "calco al espanol citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "ahondar en",
+          "nota": "calco al espanol citado en ejemplo_es"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)desempeña un papel (crucial|pivotal)",
+          "nota": "frase calco citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Vocabulario IA sobreusado en español",
       "descripcion": "Palabras con ratio de sobrerrepresentación extremo en texto generado por IA en español, según análisis de corpus de Natzir Turrado (360M tokens, dato vía fuente secundaria no verificada contra paper primario) y catálogos editoriales (Genbeta, Infobae).",
       "ejemplo_es": "'Es crucial destacar los desafíos que exploraremos en este análisis...'",
       "senal_deteccion": "'crucial' reportado hasta ~6.413x más frecuente en texto IA que en equivalente humano; 'desafíos'/'exploraremos' ~2.000x (cifras de prensa tecnológica, no de paper académico revisado).",
-      "correccion": "Usar el término solo cuando aporte precisión real; sustituir por formulación directa sin adjetivo de énfasis ('esto plantea un problema concreto: ...')."
+      "correccion": "Usar el término solo cuando aporte precisión real; sustituir por formulación directa sin adjetivo de énfasis ('esto plantea un problema concreto: ...').",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "crucial",
+          "nota": "ratio ~6.413x citado en senal_deteccion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "desafíos",
+          "nota": "ratio ~2.000x citado en senal_deteccion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "exploraremos",
+          "nota": "ratio ~2.000x citado en senal_deteccion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "es crucial destacar",
+          "nota": "frase del ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Énfasis indebido en significado/legado",
       "descripcion": "Frases que inflan la importancia de algo sin argumento concreto que lo sostenga (categoría central de WP:AISIGNS).",
       "ejemplo_en": "stands as a testament to, marks a pivotal moment, leaves an indelible mark",
       "ejemplo_es": "'Esto supone un hito fundamental que deja una huella imborrable en el campo de estudio'",
-      "correccion": "Explicar el porqué concreto de la relevancia (dato, consecuencia medible) en vez de declararla como axioma."
+      "correccion": "Explicar el porqué concreto de la relevancia (dato, consecuencia medible) en vez de declararla como axioma.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "stands as a testament to",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "marks a pivotal moment",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "leaves an indelible mark",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "hito fundamental",
+          "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "huella imborrable",
+          "nota": "frase citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Análisis superficial en gerundio",
       "descripcion": "Cierre de frase en gerundio que añade una opinión no atribuida ni argumentada, típico de la salida de LLM.",
       "ejemplo_en": "...creating a lively community, highlighting their significance",
       "ejemplo_es": "'...destacando así la importancia del fenómeno', 'subrayando su relevancia para el sector'",
-      "correccion": "O se argumenta la conclusión con datos concretos, o se elimina la coletilla en gerundio."
+      "correccion": "O se argumenta la conclusión con datos concretos, o se elimina la coletilla en gerundio.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i),\\s*(destacando|subrayando)\\b",
+          "nota": "coletilla en gerundio tras coma, gerundios citados en ejemplo_es"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i),\\s*(highlighting|creating)\\b",
+          "nota": "coletilla en gerundio tras coma, gerundios citados en ejemplo_en"
+        }
+      ]
     },
     {
       "nombre": "Lenguaje promocional/publicitario",
       "descripcion": "Adjetivación de guía turística o marketing aplicada a un objeto de análisis académico.",
       "ejemplo_en": "boasts a vibrant, groundbreaking approach nestled within...",
       "ejemplo_es": "'cuenta con un enfoque vibrante e innovador, enclavado en un ecosistema dinámico'",
-      "correccion": "Describir con términos técnicos y datos verificables, no con adjetivos de valor."
+      "correccion": "Describir con términos técnicos y datos verificables, no con adjetivos de valor.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "boasts",
+          "nota": "verbo citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "groundbreaking",
+          "nota": "adjetivo citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "nestled within",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "vibrante",
+          "nota": "adjetivo citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "enclavado",
+          "nota": "adjetivo citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "ecosistema dinámico",
+          "nota": "frase citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Atribuciones vagas sin fuente",
       "descripcion": "Se invoca una autoridad genérica sin nombrarla, para dar apariencia de respaldo externo.",
       "ejemplo_en": "Industry reports suggest..., Observers have cited...",
       "ejemplo_es": "'Diversos informes del sector señalan...', 'Algunos expertos argumentan que...'",
-      "correccion": "Citar la fuente real (autor, año, DOI) o eliminar la afirmación si no hay fuente que la respalde."
+      "correccion": "Citar la fuente real (autor, año, DOI) o eliminar la afirmación si no hay fuente que la respalde.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "industry reports suggest",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "observers have cited",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "diversos informes del sector",
+          "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "algunos expertos argumentan",
+          "nota": "frase citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Fórmula de cierre rígida",
       "descripcion": "Estructura de conclusión mecánica: elogio + lista de retos + apartado de 'perspectivas futuras' especulativas y vagas.",
       "ejemplo_en": "Despite its achievements, X faces several challenges. Future Outlook: ...",
       "ejemplo_es": "'A pesar de sus logros, X enfrenta varios desafíos. De cara al futuro, será clave...'",
-      "correccion": "Cerrar con la conclusión específica que se deriva de los resultados propios del TFG, no con una plantilla aplicable a cualquier tema."
+      "correccion": "Cerrar con la conclusión específica que se deriva de los resultados propios del TFG, no con una plantilla aplicable a cualquier tema.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "despite its achievements",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "faces several challenges",
+          "nota": "frase citada en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "future outlook",
+          "nota": "encabezado citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "a pesar de sus logros",
+          "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "enfrenta varios desafíos",
+          "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "de cara al futuro",
+          "nota": "frase citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Evitación de la cópula simple ('es/son')",
       "descripcion": "Sustitución sistemática del verbo 'ser' por verbos más rebuscados para sonar elaborado ('avoidance of basic copulatives', WP:AISIGNS).",
       "ejemplo_en": "serves as, stands as, functions as, represents",
       "ejemplo_es": "'se erige como', 'funciona como', 'constituye' usados en vez de 'es' sin necesidad real",
-      "correccion": "Usar 'es/son' cuando es la formulación natural; reservar el verbo alternativo para cuando aporte matiz real de función o rol."
+      "correccion": "Usar 'es/son' cuando es la formulación natural; reservar el verbo alternativo para cuando aporte matiz real de función o rol.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "serves as",
+          "nota": "sustituto de copula citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "stands as",
+          "nota": "sustituto de copula citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "functions as",
+          "nota": "sustituto de copula citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "represents",
+          "nota": "sustituto de copula citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "se erige como",
+          "nota": "sustituto de copula citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "funciona como",
+          "nota": "sustituto de copula citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "constituye",
+          "nota": "sustituto de copula citado en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Paralelismo negativo 'no solo X, sino también Y'",
       "descripcion": "Contraste que aparenta corregir una idea errónea que nadie había planteado.",
       "ejemplo_en": "not only a technical solution, but also a methodological contribution",
       "ejemplo_es": "'no solo constituye una mejora técnica, sino también una aportación metodológica'",
-      "correccion": "Afirmar directamente lo que se quiere decir: 'es una aportación metodológica, además de una mejora técnica'."
+      "correccion": "Afirmar directamente lo que se quiere decir: 'es una aportación metodológica, además de una mejora técnica'.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bno s[oó]lo\\b[^.\\n]{0,80}\\bsino también\\b",
+          "nota": "estructura citada en el nombre y en ejemplo_es"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bnot only\\b[^.\\n]{0,80}\\bbut also\\b",
+          "nota": "estructura citada en ejemplo_en"
+        }
+      ]
     },
     {
       "nombre": "Paralelismo negativo total 'no es X, sino Y'",
       "descripcion": "Negación completa de una característica antes de afirmar la real, sin que el lector esperara la negada.",
       "ejemplo_en": "not a mirror but a portal",
       "ejemplo_es": "'no es un simple resumen, sino un análisis crítico', usado sin que hiciera falta descartar primero la opción negada",
-      "correccion": "Afirmar directamente ('es un análisis crítico basado en...') salvo que el contraste responda a una confusión real y documentada en el texto."
+      "correccion": "Afirmar directamente ('es un análisis crítico basado en...') salvo que el contraste responda a una confusión real y documentada en el texto.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bno es\\b[^.\\n]{0,60}\\bsino\\b",
+          "nota": "estructura 'no es X, sino Y' citada en el nombre y en ejemplo_es"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bnot a\\b[^.\\n]{0,60}\\bbut a\\b",
+          "nota": "estructura del ejemplo_en 'not a mirror but a portal'"
+        }
+      ]
     },
     {
       "nombre": "'X en lugar de Y' (variante invertida)",
       "descripcion": "Variante del paralelismo negativo frecuente en salidas de Grok; se traduce al español de forma igual de mecánica.",
       "ejemplo_en": "prioritizing empirical consolidation rather than ideological purity",
       "ejemplo_es": "'priorizando la consolidación empírica en lugar de la pureza ideológica'",
-      "correccion": "Afirmar la posición propia sin necesidad de descartar la contraria en cada frase."
+      "correccion": "Afirmar la posición propia sin necesidad de descartar la contraria en cada frase.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b\\p{L}{3,}(ando|iendo)\\b[^.\\n]{0,60}\\ben lugar de\\b",
+          "nota": "gerundio + 'en lugar de' como en ejemplo_es 'priorizando ... en lugar de'"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b\\p{L}+ing\\b[^.\\n]{0,60}\\brather than\\b",
+          "nota": "gerundio + 'rather than' como en ejemplo_en 'prioritizing ... rather than'"
+        }
+      ]
     },
     {
       "nombre": "Regla de tres (tricolon) obsesiva",
       "descripcion": "Tríadas de adjetivos o frases cortas aplicadas mecánicamente para simular exhaustividad, incluso cuando el contenido no encaja en tres.",
       "ejemplo_en": "clear, concise, and actionable",
       "ejemplo_es": "'claro, conciso y eficaz' repetido como estructura fija en cada enumeración del TFG",
-      "correccion": "Listar tantos elementos como el contenido exija (dos, cuatro, siete), no forzar siempre tres."
+      "correccion": "Listar tantos elementos como el contenido exija (dos, cuatro, siete), no forzar siempre tres.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b\\p{L}+,\\s+\\p{L}+,?\\s+(y|and)\\s+\\p{L}+",
+          "nota": "triada 'A, B y C' / 'A, B, and C' citada en ejemplo_en y ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Variación léxica forzada (elegant variation)",
       "descripcion": "Sustituir el mismo referente por sinónimos artificiales en vez de repetirlo, por el penalizador de repetición de los LLM.",
       "ejemplo_es": "Llamar al mismo concepto sucesivamente 'el sistema', 'la plataforma', 'la herramienta', 'el software' en el mismo párrafo sin razón",
-      "correccion": "Repetir el mismo término cuando es lo natural y no genera ambigüedad; el español académico tolera bien la repetición precisa de un término técnico."
+      "correccion": "Repetir el mismo término cuando es lo natural y no genera ambigüedad; el español académico tolera bien la repetición precisa de un término técnico.",
+      "senales_ejecutables": []
     },
     {
       "nombre": "Artefactos de markup sin adaptar al formato destino",
       "descripcion": "Restos de sintaxis Markdown u otros artefactos de copiar-pegar directo desde el chatbot, sin adaptar al procesador de texto o LaTeX del TFG. WP:AISIGNS cataloga además huellas forenses casi inequívocas por herramienta (ChatGPT: 'oaicite'/'contentReference'; Gemini: '[cite: 1]'; Grok: 'grok_card').",
       "ejemplo_en": "**bold** sin convertir, [link](url) sin convertir",
       "ejemplo_es": "Asteriscos dobles sueltos en el documento final, numeración de listas rota, corchetes de cita tipo '[cite: 1]' pegados por accidente",
-      "correccion": "Revisar el documento final buscando literalmente estos artefactos y limpiarlos; nunca copiar-pegar la salida cruda del chatbot al documento."
+      "correccion": "Revisar el documento final buscando literalmente estos artefactos y limpiarlos; nunca copiar-pegar la salida cruda del chatbot al documento.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "oaicite",
+          "nota": "huella forense de ChatGPT citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "contentreference",
+          "nota": "huella forense de ChatGPT citada en descripcion"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "grok_card",
+          "nota": "huella forense de Grok citada en descripcion"
+        },
+        {
+          "tipo": "regex",
+          "valor": "\\[cite:\\s*\\d+\\]",
+          "nota": "corchetes de cita de Gemini '[cite: 1]' citados en descripcion y ejemplo_es"
+        },
+        {
+          "tipo": "regex",
+          "valor": "\\*\\*[^*\\n]+\\*\\*",
+          "nota": "negritas Markdown sin convertir ('**bold**') citadas en ejemplo_en"
+        },
+        {
+          "tipo": "regex",
+          "valor": "\\[[^\\]\\n]+\\]\\([^)\\n]+\\)",
+          "nota": "enlaces Markdown sin convertir ('[link](url)') citados en ejemplo_en"
+        }
+      ]
     },
     {
       "nombre": "Encabezados genéricos repetidos en Title Case",
       "descripcion": "Títulos de sección intercambiables entre cualquier tema, con mayúscula inicial en cada palabra (convención inglesa).",
       "ejemplo_en": "Challenges and Future Prospects, Sustainable Development and Environmental Law",
       "ejemplo_es": "'Retos y Perspectivas de Futuro', 'Marco Teórico y Estado del Arte' aplicados como plantilla intercambiable, sin adaptar al contenido específico del capítulo",
-      "correccion": "Titular cada sección según lo que de verdad contiene, en minúscula salvo inicio de frase o nombre propio (norma española)."
+      "correccion": "Titular cada sección según lo que de verdad contiene, en minúscula salvo inicio de frase o nombre propio (norma española).",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "challenges and future prospects",
+          "nota": "encabezado citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "sustainable development and environmental law",
+          "nota": "encabezado citado en ejemplo_en"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "retos y perspectivas de futuro",
+          "nota": "encabezado citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "marco teórico y estado del arte",
+          "nota": "encabezado citado en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Guion largo (em dash) sobreusado",
       "descripcion": "Uso desproporcionado del guion largo '—' donde el español usaría coma, paréntesis o dos puntos; señal tan notoria que OpenAI añadió control de usuario para suprimirla.",
       "ejemplo_es": "'El resultado —que era el esperado— confirma la hipótesis —planteada en el capítulo 2— del estudio'",
-      "correccion": "Usar coma, paréntesis o punto y seguido según el registro académico español; reservar el guion largo para incisos puntuales, no como muletilla de puntuación en cada frase."
+      "correccion": "Usar coma, paréntesis o punto y seguido según el registro académico español; reservar el guion largo para incisos puntuales, no como muletilla de puntuación en cada frase.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "—",
+          "nota": "cada guion largo cuenta como ocurrencia; la densidad global la aporta el informe (descripcion: uso desproporcionado de '—')"
+        }
+      ]
     },
     {
       "nombre": "Falsos rangos sin detalle real",
       "descripcion": "'Desde X hasta Y' usado para aparentar exhaustividad sin desarrollar ninguno de los elementos intermedios.",
       "ejemplo_en": "ranging from basic implementations to advanced techniques",
       "ejemplo_es": "'abarca desde implementaciones básicas hasta técnicas avanzadas', sin especificar ninguna de las dos",
-      "correccion": "Nombrar explícitamente los elementos del rango o eliminar la generalización vacía."
+      "correccion": "Nombrar explícitamente los elementos del rango o eliminar la generalización vacía.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bdesde\\b[^.,;\\n]{3,60}\\bhasta\\b",
+          "nota": "estructura 'desde X hasta Y' citada en descripcion y ejemplo_es"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\branging from\\b[^.\\n]{0,60}\\bto\\b",
+          "nota": "estructura del ejemplo_en 'ranging from ... to ...'"
+        }
+      ]
     },
     {
       "nombre": "Inserciones editoriales / contrastes forzados",
       "descripcion": "El texto opina sobre qué es relevante sin que se le haya pedido, o fuerza un contraste artificial para dar sensación de matiz.",
       "ejemplo_en": "It's important to note that..., It's not just about X, it's about Y",
       "ejemplo_es": "'Es importante tener en cuenta que...', 'Cabe destacar que...', 'Vale la pena señalar que...'",
-      "correccion": "Eliminar la coletilla y exponer directamente el hecho: si es importante, se nota en cómo se usa la información, no en anunciarlo."
+      "correccion": "Eliminar la coletilla y exponer directamente el hecho: si es importante, se nota en cómo se usa la información, no en anunciarlo.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)it['’]s important to note",
+          "nota": "frase citada en ejemplo_en (apostrofo recto o tipografico)"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)it['’]s not just about",
+          "nota": "frase citada en ejemplo_en (apostrofo recto o tipografico)"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "es importante tener en cuenta",
+          "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "cabe destacar que",
+          "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "vale la pena señalar que",
+          "nota": "frase citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Throat-clearing openers (aperturas genéricas)",
       "descripcion": "Frases de apertura de párrafo o sección que no aportan información, solo preceden a la idea real.",
       "ejemplo_en": "In today's fast-paced world...",
       "ejemplo_es": "'En el mundo actual...', 'En la sociedad actual, cada vez más...'",
-      "correccion": "Empezar directamente con la idea o el dato, sin preámbulo genérico."
+      "correccion": "Empezar directamente con la idea o el dato, sin preámbulo genérico.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)in today['’]s fast-paced world",
+          "nota": "apertura citada en ejemplo_en (apostrofo recto o tipografico)"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en el mundo actual",
+          "nota": "apertura citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en la sociedad actual",
+          "nota": "apertura citada en ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Gerundio calcado del inglés (español)",
       "descripcion": "Uso del gerundio con valor de simultaneidad que no existe en español, calco de estructuras -ing inglesas.",
       "ejemplo_es": "'Analizando los datos, se concluye que...' en vez de 'Al analizar los datos, se concluye que...' o 'Tras analizar los datos...'",
-      "correccion": "Sustituir por 'al + infinitivo', 'tras + infinitivo' o una subordinada causal/temporal explícita."
+      "correccion": "Sustituir por 'al + infinitivo', 'tras + infinitivo' o una subordinada causal/temporal explícita.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?m)(^|\\.\\s+)\\p{Lu}\\p{L}{2,}(ando|iendo)\\b[^,.\\n]{0,60},",
+          "nota": "gerundio encabezando la frase seguido de coma, del ejemplo_es 'Analizando los datos, se concluye...'"
+        }
+      ]
     },
     {
       "nombre": "Mayúsculas tipo inglés en títulos (español)",
       "descripcion": "Aplicar mayúscula a cada palabra principal del título, siguiendo la convención inglesa de Title Case, en vez de la norma ortográfica española.",
       "ejemplo_es": "'Análisis Comparativo De Los Modelos De Detección' en vez de 'Análisis comparativo de los modelos de detección'",
-      "correccion": "Solo mayúscula inicial de la frase y nombres propios, según la ortografía española."
+      "correccion": "Solo mayúscula inicial de la frase y nombres propios, según la ortografía española.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "\\p{Lu}\\p{L}+\\s+(De|Del|La|Las|Los|El|Y)\\s+\\p{Lu}\\p{L}+",
+          "nota": "palabra funcional capitalizada entre palabras en mayuscula, del ejemplo_es 'Análisis Comparativo De Los Modelos De Detección'"
+        }
+      ]
     },
     {
       "nombre": "'Español neutro' sin diatopismos",
       "descripcion": "El texto evita marcas regionales y usa vocabulario panhispánico 'neutro' en vez del propio del español de España, por el sesgo del corpus de entrenamiento del modelo.",
       "ejemplo_es": "'computadora' en vez de 'ordenador'; ausencia de giros o expresiones propias del español de España que un estudiante usaría de forma natural",
-      "correccion": "Usar el léxico propio de la variedad de español del autor (ordenador, móvil, coger, etc.) sin 'corregirlo' hacia lo neutro."
+      "correccion": "Usar el léxico propio de la variedad de español del autor (ordenador, móvil, coger, etc.) sin 'corregirlo' hacia lo neutro.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "computadora",
+          "nota": "unico termino 'neutro' citado explicitamente en ejemplo_es (frente a 'ordenador')"
+        }
+      ]
     },
     {
       "nombre": "Hedging uniforme y excesivo",
       "descripcion": "Matizar todas las frases por igual con 'podría', 'parece', 'en cierta medida', en vez de reservar la matización a donde hay incertidumbre real.",
       "ejemplo_es": "'Esto podría sugerir, en cierta medida, que el modelo parece funcionar razonablemente bien'",
-      "correccion": "Afirmar sin matiz los hechos verificados ('el modelo obtiene un F1 de 0.94') y reservar el hedge para la interpretación incierta, solo cuando de verdad hay incertidumbre."
+      "correccion": "Afirmar sin matiz los hechos verificados ('el modelo obtiene un F1 de 0.94') y reservar el hedge para la interpretación incierta, solo cuando de verdad hay incertidumbre.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "podría",
+          "nota": "hedge citado en descripcion y ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "parece",
+          "nota": "hedge citado en descripcion y ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en cierta medida",
+          "nota": "hedge citado en descripcion y ejemplo_es"
+        }
+      ]
     },
     {
       "nombre": "Monotonía de longitud de frase (baja burstiness)",
       "descripcion": "Oraciones de longitud y estructura casi idéntica a lo largo de todo el texto, ritmo predecible al leer en voz alta. Correlato sintáctico medible del texto IA (burstiness humana 0.6-1.2 vs. 0.2-0.4 en GPT, como orden de magnitud orientativo, no prueba aislada).",
       "ejemplo_es": "Un párrafo entero de frases de 18-22 palabras, todas con estructura sujeto-verbo-complemento sin variación",
-      "correccion": "Alternar deliberadamente frases cortas de impacto con frases largas de desarrollo; leer el párrafo en voz alta para detectar la monotonía."
+      "correccion": "Alternar deliberadamente frases cortas de impacto con frases largas de desarrollo; leer el párrafo en voz alta para detectar la monotonía.",
+      "senales_ejecutables": []
     },
     {
       "nombre": "Razonamiento excesivamente equilibrado y relleno sin contenido",
       "descripcion": "Presentar 'por un lado / por otro lado' en cada argumento aunque el contexto no lo requiera, y párrafos de pulido superficial que no aportan información nueva (filler / 'surface polish with nothing underneath').",
       "ejemplo_es": "'Por un lado, esta técnica presenta ventajas; por otro lado, también tiene limitaciones' repetido como estructura fija en cada apartado, incluso cuando el propio TFG ya se ha posicionado",
-      "correccion": "Comprometerse con la conclusión que los datos del TFG respaldan; eliminar todo párrafo que se pueda resumir en una frase sin pérdida real de información."
+      "correccion": "Comprometerse con la conclusión que los datos del TFG respaldan; eliminar todo párrafo que se pueda resumir en una frase sin pérdida real de información.",
+      "senales_ejecutables": [
+        {
+          "tipo": "lexico",
+          "valor": "por un lado",
+          "nota": "estructura citada en descripcion y ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "por otro lado",
+          "nota": "estructura citada en descripcion y ejemplo_es"
+        }
+      ]
     }
   ],
   "deteccion": [

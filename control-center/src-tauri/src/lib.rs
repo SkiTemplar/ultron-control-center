@@ -72,6 +72,7 @@ mod system;
 mod tabs;
 #[cfg(test)]
 mod test_support;
+mod tfg_lab; // Lab TFG — deteccion determinista de patrones de texto IA (docs/research)
 mod toast_emit;
 mod tray;
 mod update_checker;
@@ -221,6 +222,11 @@ pub fn run() {
             // (list_logs/tail_log/compute_cost/...) sigue sin registrar a
             // proposito hasta tener consumidor en la UI.
             commands::misc::compute_activity_timeline,
+            // -- Lab TFG (wiring 2026-08-12): deteccion determinista de patrones
+            //    de texto IA sobre el catalogo docs/research/patrones-texto-ia.json.
+            //    Consume la pestana Lab (Detector + Catalogo). --
+            tfg_lab::tfg_catalog_load,
+            tfg_lab::tfg_detect,
             // -- external editor (v2.6 Library redesign) --
             commands::external_editor::open_in_vscode,
             commands::external_editor::read_text_file,

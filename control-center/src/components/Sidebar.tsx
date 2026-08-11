@@ -22,6 +22,7 @@ export type Tab =
   | "ai-router"
   | "system"
   | "learn"
+  | "lab"
   | "settings";
 
 type Item = {
@@ -90,6 +91,9 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // ~/.ultron/cockpit/notes/.
       { id: "notes", label: "Notes", available: true },
       { id: "learn", label: "Learn", available: true },
+      // Lab TFG (2026-08-12): deteccion de patrones de texto IA sobre el
+      // catalogo de investigacion del usuario (docs/research). Determinista.
+      { id: "lab", label: "Lab", available: true },
     ],
   },
   {
