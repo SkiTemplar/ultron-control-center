@@ -92,15 +92,43 @@ pub fn capture_session(
         Scope::Session
     };
     let mut created = Vec::new();
+    let mut discards: Vec<Discard> = Vec::new();
     for f in facts.into_iter().take(MAX_FACTS) {
-        let c = fact_to_candidate(f, scope, router_used, session_id);
+        // Filtro de trivialidad (decidido 2026-08-11): el eco de estado
+        // (git/kanban ya lo registran) y los facts de baja importancia se
+        // descartan EN ORIGEN en vez de llenar el inbox. Todo descarte queda
+        // en capture-discards.jsonl para auditar falsos negativos.
+        let importance = derive_importance(&f, router_used);
+        if let Some(reason) = discard_reason(&f, importance) {
+            discards.push(Discard {
+                title: f.title,
+                reason,
+                importance,
+            });
+            continue;
+        }
+        let c = fact_to_candidate(f, scope, project, router_used, session_id);
         // create_candidate applies redaction + dedupe (content_hash / FTS).
         if let Ok(id) = MemoryService::create_candidate(&c) {
             created.push(id);
         }
     }
+    log_discards(&discards);
 
-    let note = format!("{} candidate(s) proposed", created.len());
+    let note = if discards.is_empty() {
+        format!("{} candidate(s) proposed", created.len())
+    } else {
+        format!(
+            "{} candidate(s) proposed, {} discarded ({})",
+            created.len(),
+            discards.len(),
+            discards
+                .iter()
+                .map(|d| d.reason.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     CaptureReport {
         created,
         router_used,
@@ -109,13 +137,128 @@ pub fn capture_session(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Trivialidad (decidido 2026-08-11): umbral + patrones de eco
+// ---------------------------------------------------------------------------
+
+/// Floor de importancia bajo el cual un fact no merece inbox. Calibrado sobre
+/// `derive_importance`: un session-summary heuristico ronda 0.31-0.43 (muere),
+/// una decision del router 0.78+ (vive), y una "decision" a la que el propio
+/// LLM dio salience bajisima (~0.1) cae a ~0.44 (muere — el modelo mismo dijo
+/// que no importa).
+const MIN_IMPORTANCE: f32 = 0.45;
+
+/// Patrones que delatan ECO DE ESTADO: cosas que git/kanban/CI ya registran y
+/// que no son conocimiento reutilizable. Regex morfologico y no frases exactas
+/// porque el LLM extractor PARAFRASEA (verificado e2e 2026-08-11: "se ha
+/// implementado" del transcript salio como "ha sido implementada con exito").
+/// Formas impersonales de PROGRESO, no de decision — el auxiliar + participio
+/// exige raices de accion ("implementad", "cread"...); "se ha decidido X" NO
+/// matchea a proposito.
+static ECHO_RULES: once_cell::sync::Lazy<Vec<(&'static str, regex::Regex)>> =
+    once_cell::sync::Lazy::new(|| {
+        [
+            (
+                "aux_participio",
+                r"(?i)\b(?:se\s+han?|han?\s+sido|fue(?:ron)?)\s+(?:implementad|completad|cread|actualizad|realizad|corregid|a[nñ]adid|desarrollad|construid|lograd)",
+            ),
+            ("se_logro", r"(?i)\bse\s+logr[oó]\b"),
+            (
+                "commit_eco",
+                r"(?i)\bcommits?\s+(?:exitoso|realizado|pushead)|\bpushead[oa]s?\s+a\b|commit\s+con\s+el\s+identificador",
+            ),
+            // Gap `.{0,N}` sin excluir el punto a proposito: los numeros de
+            // version ("0.9", "2.7.1") viven entre "tests" y "verdes" y un
+            // `[^.]` los cortaria (fallo cazado por el propio test). El coste
+            // de cruzar una frase en un fact corto es un descarte logueado.
+            (
+                "tests_verdes",
+                r"(?i)\btests?\b.{0,60}\b(?:verdes?|en\s+verde|pasan)\b",
+            ),
+            ("build_ci_verde", r"(?i)\b(?:build|ci)\b.{0,30}\bverde\b"),
+            (
+                "sesion_resultado",
+                r"(?i)la\s+sesi[oó]n\s+(?:ha\s+)?(?:resultado|terminado)",
+            ),
+        ]
+        .into_iter()
+        .map(|(name, pat)| {
+            (
+                name,
+                regex::Regex::new(pat).expect("patron echo invalido (bug de compilacion)"),
+            )
+        })
+        .collect()
+    });
+
+struct Discard {
+    title: String,
+    reason: String,
+    importance: f32,
+}
+
+/// Reason to drop this fact before the inbox, or `None` if it earns a slot.
+/// Pure -> unit-tested.
+fn discard_reason(f: &Fact, importance: f32) -> Option<String> {
+    let hay = format!("{} {}", f.title, f.body);
+    if let Some((name, _)) = ECHO_RULES.iter().find(|(_, re)| re.is_match(&hay)) {
+        return Some(format!("echo:{name}"));
+    }
+    if importance < MIN_IMPORTANCE {
+        return Some(format!("low_importance:{importance:.2}"));
+    }
+    None
+}
+
+/// Best-effort audit trail of discarded facts (jsonl append). A logging failure
+/// never breaks capture.
+fn log_discards(discards: &[Discard]) {
+    if discards.is_empty() {
+        return;
+    }
+    let Some(home) = dirs::home_dir() else { return };
+    let dir = home.join(".ultron").join(".tmp");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("capture-discards.jsonl"))
+    else {
+        return;
+    };
+    use std::io::Write;
+    for d in discards {
+        let line = serde_json::json!({
+            "ts_epoch": epoch,
+            "title": d.title,
+            "reason": d.reason,
+            "importance": d.importance,
+        });
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 /// Build the governed candidate for one extracted fact. Pure (no I/O) so the
 /// provenance stamping is unit-testable without a DB: importance/confidence are
 /// derived (fixes the 55%/50%-for-everything bug) and `source_session_id` carries
 /// the episodic origin the `provenance` subcommand later resolves to a transcript.
+///
+/// Atribucion (fix 2026-08-11, decidido por el usuario): el project se estampa en el
+/// candidato — ANTES solo decidia el scope y `proposed_project_id` quedaba None,
+/// asi que TODA captura se promovia con scope=project y project_id=null y el
+/// recall la colaba en cualquier proyecto. Se estampa doble: campo directo +
+/// tag `project:<id>` (la tabla de candidatos no tiene columna project; el tag
+/// es lo unico que sobrevive el round-trip SQLite — ver `to_item`).
 fn fact_to_candidate(
     f: Fact,
     scope: Scope,
+    project: Option<&str>,
     router_used: bool,
     session_id: Option<&str>,
 ) -> MemoryCandidate {
@@ -125,6 +268,11 @@ fn fact_to_candidate(
     c.proposed_title = Some(f.title);
     c.proposed_summary = Some(f.body.clone());
     c.proposed_content = Some(f.body);
+    let project = project.map(str::trim).filter(|p| !p.is_empty());
+    c.proposed_project_id = project.map(String::from);
+    if let Some(p) = project {
+        c.proposed_tags.push(format!("project:{p}"));
+    }
     c.source_session_id = session_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -520,9 +668,113 @@ mod tests {
             body: "se decidio estampar provenance episodica en la captura".into(),
             llm_score: None,
         };
-        let c = fact_to_candidate(f, Scope::Project, true, Some("1a333f26-abcd-4e5f"));
+        let c = fact_to_candidate(
+            f,
+            Scope::Project,
+            Some("ultron"),
+            true,
+            Some("1a333f26-abcd-4e5f"),
+        );
         assert_eq!(c.source_session_id.as_deref(), Some("1a333f26-abcd-4e5f"));
         assert!(c.proposed_summary.is_some());
+    }
+
+    #[test]
+    fn fact_to_candidate_stamps_project_field_and_tag() {
+        // Atribucion (fix 2026-08-11): scope=Project DEBE llevar el proyecto en
+        // el campo Y en el tag `project:<id>` (unico superviviente del
+        // round-trip SQLite del inbox — ver to_item). Antes ambos quedaban
+        // vacios y el item promovido salia con project_id=null.
+        let f = Fact {
+            kind: MemoryType::Decision,
+            title: "t".into(),
+            body: "se decidio prohibir capturas de proyecto sin project_id".into(),
+            llm_score: None,
+        };
+        let c = fact_to_candidate(f, Scope::Project, Some("ultron"), true, None);
+        assert_eq!(c.proposed_project_id.as_deref(), Some("ultron"));
+        assert!(
+            c.proposed_tags.iter().any(|t| t == "project:ultron"),
+            "el tag project:<id> debe sobrevivir el round-trip; tags: {:?}",
+            c.proposed_tags
+        );
+        // Caso negativo: sin proyecto (o en blanco) NO se inventa atribucion.
+        let f2 = Fact {
+            kind: MemoryType::Fact,
+            title: "t".into(),
+            body: "hecho sin proyecto conocido".into(),
+            llm_score: None,
+        };
+        let c2 = fact_to_candidate(f2, Scope::Session, Some("  "), false, None);
+        assert_eq!(c2.proposed_project_id, None);
+        assert!(!c2.proposed_tags.iter().any(|t| t.starts_with("project:")));
+    }
+
+    #[test]
+    fn discard_reason_drops_echo_and_low_importance_keeps_decisions() {
+        // Caso eco: progreso que git/kanban ya registran -> fuera, aunque el
+        // kind sea decision e importance alta.
+        let echo = Fact {
+            kind: MemoryType::Decision,
+            title: "Estructura v0.6".into(),
+            body: "Se ha implementado la estructura de codigo para la version 0.6".into(),
+            llm_score: Some(0.8),
+        };
+        let imp_echo = derive_importance(&echo, true);
+        assert!(
+            discard_reason(&echo, imp_echo).is_some_and(|r| r.starts_with("echo:")),
+            "el eco de estado debe descartarse"
+        );
+
+        // Casos REALES que esquivaron la v1 por frases exactas (e2e 2026-08-11):
+        // el LLM parafrasea a pasiva/estado — el regex morfologico los caza.
+        let paraphrased = Fact {
+            kind: MemoryType::Fact,
+            title: "Estructura de código".into(),
+            body: "La estructura de código para la versión 0.9 ha sido implementada con éxito"
+                .into(),
+            llm_score: Some(0.7),
+        };
+        let imp_p = derive_importance(&paraphrased, true);
+        assert!(
+            discard_reason(&paraphrased, imp_p).is_some_and(|r| r == "echo:aux_participio"),
+            "la pasiva parafraseada debe descartarse"
+        );
+        let ci_state = Fact {
+            kind: MemoryType::Fact,
+            title: "Estado de testing".into(),
+            body:
+                "Los tests para la versión 0.9 están verdes, indicando éxito en la implementación"
+                    .into(),
+            llm_score: Some(0.7),
+        };
+        let imp_c = derive_importance(&ci_state, true);
+        assert!(
+            discard_reason(&ci_state, imp_c).is_some_and(|r| r == "echo:tests_verdes"),
+            "el estado de CI parafraseado debe descartarse"
+        );
+
+        // Caso legitimo: una decision real con verbo de accion NO es eco
+        // ("se ha decidido" no esta en la lista a proposito).
+        let real = Fact {
+            kind: MemoryType::Decision,
+            title: "Umbral capture".into(),
+            body: "Se ha decidido implementar el filtro de trivialidad con umbral 0.45".into(),
+            llm_score: Some(0.9),
+        };
+        let imp_real = derive_importance(&real, true);
+        assert_eq!(discard_reason(&real, imp_real), None);
+
+        // Caso baja importancia: el summary heuristico (cola de transcript)
+        // cae bajo el floor y se descarta con la razon low_importance.
+        let noise = heuristic_facts("relleno de sesion sin nada duradero que rescatar aqui");
+        let f = &noise[0];
+        let imp = derive_importance(f, false);
+        assert!(imp < MIN_IMPORTANCE, "sanidad de calibracion: {imp}");
+        assert!(
+            discard_reason(f, imp).is_some_and(|r| r.starts_with("low_importance:")),
+            "bajo el floor debe descartarse"
+        );
     }
 
     #[test]
@@ -538,6 +790,7 @@ mod tests {
                     llm_score: None,
                 },
                 Scope::Session,
+                None,
                 false,
                 sid,
             )
