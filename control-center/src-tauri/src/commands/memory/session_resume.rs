@@ -222,13 +222,10 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     })
 }
 
-/// Bounded session resume. `project_id = None` = cross-project.
-#[tauri::command]
-pub async fn session_resume(project_id: Option<String>) -> Result<SessionResume, String> {
-    tauri::async_runtime::spawn_blocking(move || session_resume_inner(project_id))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
-}
+// Higiene 2026-08-11 (audit 08-09 #44): el wrapper #[tauri::command]
+// `session_resume` se borro — nunca estuvo registrado. El resume real sale
+// por el sidecar (`ultron-memory.exe resume` -> session_resume_inner) via el
+// hook SessionStart, no por invoke desde la UI.
 
 #[cfg(test)]
 mod tests {

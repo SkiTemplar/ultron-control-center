@@ -1,83 +1,17 @@
-// plugins_info/cache.rs — legacy single-plugin probe, full enumeration, and
-// uninstall. Also holds the shared filesystem helpers used by the other
-// sub-modules.
+// plugins_info/cache.rs — full plugin enumeration and uninstall. Also holds
+// the shared filesystem helpers used by the other sub-modules.
+// Higiene 2026-08-11 (audit 08-09 #45): read_plugin_info_inner (probe legacy
+// de un solo plugin, hardcodeado a ecc/ecc) borrado — superseded por
+// list_all_plugins_inner.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use super::types::{PluginEntry, PluginInfo};
+use super::types::PluginEntry;
 
 // ---------------------------------------------------------------------------
 // Public inner functions
 // ---------------------------------------------------------------------------
-
-pub fn read_plugin_info_inner() -> Result<PluginInfo, String> {
-    let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-    let base = home
-        .join(".claude")
-        .join("plugins")
-        .join("cache")
-        .join("ecc")
-        .join("ecc");
-    if !base.exists() {
-        return Ok(PluginInfo {
-            installed: false,
-            version: None,
-            root: None,
-            last_update_iso: None,
-            skills_count: 0,
-            agents_count: 0,
-            hooks_count: 0,
-            mcp_servers_count: 0,
-        });
-    }
-    let mut versions: Vec<(PathBuf, SystemTime)> = std::fs::read_dir(&base)
-        .map_err(|e| format!("read base: {e}"))?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| {
-            let p = e.path();
-            let m = e.metadata().ok()?.modified().ok()?;
-            Some((p, m))
-        })
-        .collect();
-    versions.sort_by_key(|b| std::cmp::Reverse(b.1));
-    let Some((root, mtime)) = versions.into_iter().next() else {
-        return Ok(PluginInfo {
-            installed: false,
-            version: None,
-            root: Some(base.display().to_string()),
-            last_update_iso: None,
-            skills_count: 0,
-            agents_count: 0,
-            hooks_count: 0,
-            mcp_servers_count: 0,
-        });
-    };
-
-    let version = root
-        .file_name()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_string());
-
-    let skills_count = count_subdirs_with(&root.join("skills"), "SKILL.md");
-    let agents_count = count_files_matching(&root.join("agents"), "md");
-    let hooks_count = count_files_matching(&root.join("hooks"), "json");
-    let mcp_servers_count = count_mcp_servers(&root);
-
-    let last_update_iso = mtime_to_iso(mtime);
-
-    Ok(PluginInfo {
-        installed: true,
-        version,
-        root: Some(root.display().to_string()),
-        last_update_iso,
-        skills_count,
-        agents_count,
-        hooks_count,
-        mcp_servers_count,
-    })
-}
 
 /// Enumerate every plugin installed in `~/.claude/plugins/cache/`.
 ///

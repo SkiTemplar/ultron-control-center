@@ -1,9 +1,9 @@
-// plugins_info/update_check.rs — v2.6 fb-022 plugin update check via `gh repo view`.
+// plugins_info/update_check.rs â€” marketplace registry helpers compartidos con
+// bulk_update (v2.9.5). Higiene 2026-08-11 (audit 08-09 #45): el scan v2.6
+// por `gh repo view` (check_plugin_updates_inner + GhRepoView + gh_for_update)
+// se borro entero â€” superseded por plugin_check_updates_bulk_inner (SHA-aware).
 
 use serde::Deserialize;
-
-use super::cache::list_all_plugins_inner;
-use super::types::PluginUpdateStatus;
 
 // ---------------------------------------------------------------------------
 // Private types
@@ -18,41 +18,23 @@ pub(super) struct MarketplaceRegistryEntry {
     /// Some legacy entries used `repository` instead.
     #[serde(default)]
     pub(super) repository: Option<String>,
-    /// A few marketplaces expose just a URL — we accept it as a fallback.
+    /// A few marketplaces expose just a URL â€” we accept it as a fallback.
     #[serde(default)]
     pub(super) url: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GhRepoView {
-    #[serde(rename = "pushedAt")]
-    pushed_at: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-pub(super) fn gh_for_update(args: &[&str]) -> std::process::Command {
-    let mut cmd = std::process::Command::new("gh");
-    cmd.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW — keeps subprocess invisible (matches library.rs).
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
-}
-
 /// Reads `~/.claude/plugins/marketplaces.json` (or any sibling file the
-/// user has) and builds a `marketplace-slug → owner/repo` map.
+/// user has) and builds a `marketplace-slug â†’ owner/repo` map.
 ///
 /// The marketplace file is a JSON object whose top-level keys are
-/// marketplace slugs (`ecc`, `superpowers-marketplace`, …) and whose values
-/// carry a `repo` field. We are intentionally permissive — Claude Code's
+/// marketplace slugs (`ecc`, `superpowers-marketplace`, â€¦) and whose values
+/// carry a `repo` field. We are intentionally permissive â€” Claude Code's
 /// real format has drifted between versions and the rest of the file
-/// (auth, sources, …) is none of our business.
+/// (auth, sources, â€¦) is none of our business.
 pub(super) fn load_marketplace_repo_map() -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
     let Some(home) = dirs::home_dir() else {
@@ -116,100 +98,4 @@ pub(super) fn extract_owner_repo_from_url(url: String) -> Option<String> {
         return None;
     }
     Some(format!("{owner}/{repo}"))
-}
-
-// ---------------------------------------------------------------------------
-// Public inner function
-// ---------------------------------------------------------------------------
-
-/// For every installed plugin, ask `gh` for the marketplace repo's
-/// `pushedAt`. Compare against the local cache mtime and flag updates.
-///
-/// We swallow per-row failures so one broken plugin can't kill the whole
-/// scan — the offending row just gets `update_available = false` and an
-/// `error` string.
-pub fn check_plugin_updates_inner() -> Result<Vec<PluginUpdateStatus>, String> {
-    let plugins = list_all_plugins_inner()?;
-    let market_map = load_marketplace_repo_map();
-    let mut out: Vec<PluginUpdateStatus> = Vec::with_capacity(plugins.len());
-
-    for p in plugins {
-        let local_iso = p.last_update_iso.clone();
-        let market_key = p.marketplace.to_lowercase();
-        let Some(repo_slug) = market_map.get(&market_key).cloned() else {
-            out.push(PluginUpdateStatus {
-                name: p.name,
-                marketplace: p.marketplace,
-                coordinate: p.coordinate,
-                local_iso,
-                remote_pushed_iso: None,
-                update_available: false,
-                error: Some("marketplace repo not registered locally".into()),
-            });
-            continue;
-        };
-
-        let output = gh_for_update(&["repo", "view", &repo_slug, "--json", "pushedAt"]).output();
-
-        match output {
-            Ok(o) if o.status.success() => {
-                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
-                let parsed: Result<GhRepoView, _> = serde_json::from_str(&stdout);
-                match parsed {
-                    Ok(v) => {
-                        let remote_iso = v.pushed_at.clone();
-                        let update_available = match (&remote_iso, &local_iso) {
-                            (Some(r), Some(l)) => r.as_str() > l.as_str(),
-                            _ => false,
-                        };
-                        out.push(PluginUpdateStatus {
-                            name: p.name,
-                            marketplace: p.marketplace,
-                            coordinate: p.coordinate,
-                            local_iso,
-                            remote_pushed_iso: remote_iso,
-                            update_available,
-                            error: None,
-                        });
-                    }
-                    Err(e) => out.push(PluginUpdateStatus {
-                        name: p.name,
-                        marketplace: p.marketplace,
-                        coordinate: p.coordinate,
-                        local_iso,
-                        remote_pushed_iso: None,
-                        update_available: false,
-                        error: Some(format!("parse gh json: {e}")),
-                    }),
-                }
-            }
-            Ok(o) => {
-                let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                out.push(PluginUpdateStatus {
-                    name: p.name,
-                    marketplace: p.marketplace,
-                    coordinate: p.coordinate,
-                    local_iso,
-                    remote_pushed_iso: None,
-                    update_available: false,
-                    error: Some(if stderr.is_empty() {
-                        format!("gh exited {}", o.status)
-                    } else {
-                        stderr
-                    }),
-                });
-            }
-            Err(e) => out.push(PluginUpdateStatus {
-                name: p.name,
-                marketplace: p.marketplace,
-                coordinate: p.coordinate,
-                local_iso,
-                remote_pushed_iso: None,
-                update_available: false,
-                error: Some(format!("spawn gh: {e}")),
-            }),
-        }
-    }
-
-    Ok(out)
 }

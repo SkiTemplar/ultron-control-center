@@ -324,7 +324,9 @@ pub fn run() {
             // registrados HOY — el panel vive en Memory -> Inspector.
             commands::memory::recall_inspect,
             commands::memory::memory_reindex,
-            // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
+            // -- MEMORY KERNEL: Session Resume — SIN comando Tauri a proposito
+            //    (audit 08-09 #44): el resume sale por el sidecar
+            //    `ultron-memory.exe resume` via hook SessionStart, no por invoke. --
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             // Wiring 2026-08-11 (audit 08-09 #40): reindex manual + buscador
             // semantico en Library -> Routing. Antes solo el warm-up de setup()

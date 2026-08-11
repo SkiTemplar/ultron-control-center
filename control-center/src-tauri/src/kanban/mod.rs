@@ -15,7 +15,7 @@ pub(crate) mod types_model;
 pub use archive::{archive_done, list_archives, load_archive};
 pub use board_io::{
     add_column, append_run, card_by_id, column_by_name, create_card, delete_card, delete_column,
-    load, migrate_all_projects, move_card, rename_column, reorder_columns, save, update_card,
+    load, migrate_all_projects, move_card, rename_column, reorder_columns, update_card,
 };
 pub use types_model::{
     Card, CardPartial, CardPatch, CardRun, Column, ColumnRole, KanbanArchive, KanbanArchiveSummary,

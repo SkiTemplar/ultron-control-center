@@ -1,18 +1,9 @@
 // plugins_info/types.rs — public data types shared across sub-modules.
+// Higiene 2026-08-11 (audit 08-09 #45): PluginInfo y PluginUpdateStatus
+// borrados junto a sus comandos v2.6 — superseded por PluginEntry +
+// PluginBulkUpdate.
 
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginInfo {
-    pub installed: bool,
-    pub version: Option<String>,
-    pub root: Option<String>,
-    pub last_update_iso: Option<String>,
-    pub skills_count: usize,
-    pub agents_count: usize,
-    pub hooks_count: usize,
-    pub mcp_servers_count: usize,
-}
 
 /// Single row for the Plugins panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,29 +31,8 @@ pub struct PluginEntry {
     pub mcp_servers_count: usize,
 }
 
-/// Result of a single plugin update probe. The UI uses
-/// `update_available` to draw a badge and `remote_pushed_iso` to display
-/// the upstream "last updated" stamp next to it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginUpdateStatus {
-    pub name: String,
-    pub marketplace: String,
-    pub coordinate: String,
-    /// Local cache mtime (ISO 8601) — same value as `PluginEntry.last_update_iso`.
-    pub local_iso: Option<String>,
-    /// Remote `pushed_at` reported by `gh repo view --json pushedAt`.
-    pub remote_pushed_iso: Option<String>,
-    /// True when the marketplace repo was pushed after the local cache.
-    pub update_available: bool,
-    /// Optional error string (gh failed, marketplace not resolvable, etc.).
-    /// When set, `update_available` is false and the row is treated as
-    /// "unknown" by the UI.
-    pub error: Option<String>,
-}
-
-/// Rich per-plugin update record returned by the new bulk check command.
-/// Supersedes `PluginUpdateStatus` for new UI code; old command is kept for
-/// backwards compatibility with any caller that already depends on it.
+/// Rich per-plugin update record returned by the bulk check command
+/// (`plugin_check_updates_bulk`, v2.9.5 SHA-aware).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginBulkUpdate {
     /// `<name>@<marketplace>` coordinate.

@@ -1,5 +1,5 @@
 use crate::kanban::{
-    self, append_run, card_by_id, column_by_name, create_card, delete_card, load, move_card, save,
+    self, append_run, card_by_id, column_by_name, create_card, delete_card, load, move_card,
     update_card, Card, CardPartial, CardPatch, CardRun, Column, ColumnRole, KanbanBoard, RunStatus,
 };
 use crate::pty::spawn_inner;
@@ -12,12 +12,9 @@ pub async fn kanban_load(project_id: String) -> Result<KanbanBoard, String> {
         .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn kanban_save(board: KanbanBoard) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || save(&board))
-        .await
-        .map_err(|e| e.to_string())?
-}
+// Higiene 2026-08-11 (audit 08-09 #42): kanban_save borrado — superseded por
+// los comandos granulares (create/update/move/delete_card); un save de board
+// entero desde la UI podia pisar cambios concurrentes.
 
 #[tauri::command]
 pub async fn kanban_create_card(
@@ -178,12 +175,9 @@ fn now_iso() -> String {
     format!("epoch:{}", secs)
 }
 
-#[tauri::command]
-pub async fn kanban_migrate_existing(project_ids: Vec<String>) -> Result<u32, String> {
-    tauri::async_runtime::spawn_blocking(move || kanban::migrate_all_projects(&project_ids))
-        .await
-        .map_err(|e| e.to_string())?
-}
+// Higiene 2026-08-11 (audit 08-09 #42): kanban_migrate_existing borrado — la
+// migracion real corre via crate::kanban::migrate_all_projects directo en
+// setup() (lib.rs), nunca via invoke.
 
 // ---------------------------------------------------------------------------
 // v2.6.2 — archive commands (named groups for archived Done cards).
