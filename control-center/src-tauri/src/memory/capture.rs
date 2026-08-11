@@ -86,14 +86,16 @@ pub fn capture_session(
             Err(_) => (heuristic_facts(trimmed), false, "heuristic"),
         };
 
-    let scope = if project.is_some() {
-        Scope::Project
-    } else {
-        Scope::Session
-    };
     let mut created = Vec::new();
     let mut discards: Vec<Discard> = Vec::new();
     for f in facts.into_iter().take(MAX_FACTS) {
+        let scope = scope_for_fact(f.kind, project.is_some());
+        // Lo Global no lleva proyecto: es del usuario, no de un repo.
+        let fact_project = if scope == Scope::Global {
+            None
+        } else {
+            project
+        };
         // Filtro de trivialidad (decidido 2026-08-11): el eco de estado
         // (git/kanban ya lo registran) y los facts de baja importancia se
         // descartan EN ORIGEN en vez de llenar el inbox. Todo descarte queda
@@ -107,7 +109,7 @@ pub fn capture_session(
             });
             continue;
         }
-        let c = fact_to_candidate(f, scope, project, router_used, session_id);
+        let c = fact_to_candidate(f, scope, fact_project, router_used, session_id);
         // create_candidate applies redaction + dedupe (content_hash / FTS).
         if let Ok(id) = MemoryService::create_candidate(&c) {
             created.push(id);
@@ -134,6 +136,20 @@ pub fn capture_session(
         router_used,
         strategy: strategy.into(),
         note,
+    }
+}
+
+/// Scope POR FACT (decidido 2026-08-12): preferencias y perfil del usuario son
+/// SUYOS, no del proyecto — van a Global para que viajen a todos los proyectos
+/// (Global nunca se penaliza en recall) y no haya que repetirselas al sistema
+/// en cada repo. El resto queda atado a su proyecto (o Session sin proyecto).
+/// Antes TODO iba por-proyecto y brain.db acabo con solo 3 items globales
+/// activos. Pure -> unit-tested.
+fn scope_for_fact(kind: MemoryType, has_project: bool) -> Scope {
+    match kind {
+        MemoryType::Preference | MemoryType::UserProfile => Scope::Global,
+        _ if has_project => Scope::Project,
+        _ => Scope::Session,
     }
 }
 
@@ -708,6 +724,45 @@ mod tests {
         let c2 = fact_to_candidate(f2, Scope::Session, Some("  "), false, None);
         assert_eq!(c2.proposed_project_id, None);
         assert!(!c2.proposed_tags.iter().any(|t| t.starts_with("project:")));
+    }
+
+    #[test]
+    fn scope_for_fact_routes_user_owned_kinds_to_global() {
+        // Positivos: lo que es del USUARIO viaja (Global), con o sin proyecto.
+        assert_eq!(scope_for_fact(MemoryType::Preference, true), Scope::Global);
+        assert_eq!(scope_for_fact(MemoryType::UserProfile, true), Scope::Global);
+        assert_eq!(scope_for_fact(MemoryType::Preference, false), Scope::Global);
+        // Negativos: lo del proyecto se queda en el proyecto (o Session).
+        assert_eq!(scope_for_fact(MemoryType::Decision, true), Scope::Project);
+        assert_eq!(scope_for_fact(MemoryType::Constraint, true), Scope::Project);
+        assert_eq!(scope_for_fact(MemoryType::Fact, false), Scope::Session);
+    }
+
+    #[test]
+    fn preference_and_profile_scope_global_without_project() {
+        // (decidido 2026-08-12) Las preferencias/perfil del usuario viajan a
+        // todos los proyectos: scope Global y SIN project (ni campo ni tag).
+        // Caso negativo: una decision del mismo capture sigue atada al proyecto.
+        let pref = Fact {
+            kind: MemoryType::Preference,
+            title: "t".into(),
+            body: "el usuario prefiere respuestas concisas sin preambulos".into(),
+            llm_score: None,
+        };
+        let c = fact_to_candidate(pref, Scope::Global, None, true, None);
+        assert_eq!(c.proposed_scope, Scope::Global);
+        assert_eq!(c.proposed_project_id, None);
+        assert!(!c.proposed_tags.iter().any(|t| t.starts_with("project:")));
+
+        let dec = Fact {
+            kind: MemoryType::Decision,
+            title: "t".into(),
+            body: "se decidio usar sqlite con wal en el modulo x".into(),
+            llm_score: None,
+        };
+        let c2 = fact_to_candidate(dec, Scope::Project, Some("ultron"), true, None);
+        assert_eq!(c2.proposed_scope, Scope::Project);
+        assert_eq!(c2.proposed_project_id.as_deref(), Some("ultron"));
     }
 
     #[test]
