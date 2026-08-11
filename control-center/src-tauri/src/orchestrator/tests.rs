@@ -458,3 +458,63 @@ fn orchestrate_meta_filter_negative_cases() {
     assert!(is_meta_introspective("resume esta conversación"));
     assert!(is_meta_introspective("rate your performance this session"));
 }
+
+#[test]
+fn rebalance_abstains_when_top_score_is_noise() {
+    // (2026-08-12) Floor de abstencion: hits reales medidos con prompts
+    // conversacionales ("push y seguimos" -> unity-engineer 0.78). Sin ningun
+    // hit por encima del floor, la lista se vacia: vacia > enganosa.
+    let hits = vec![
+        catalog::CatalogHit {
+            entity: "agent".into(),
+            name: "unity-engineer".into(),
+            description: "unity gameplay".into(),
+            score: 0.78,
+            kind: String::new(),
+        },
+        catalog::CatalogHit {
+            entity: "agent".into(),
+            name: "nextjs-developer".into(),
+            description: "nextjs apps".into(),
+            score: 0.77,
+            kind: String::new(),
+        },
+    ];
+    let ranked = rebalance_delegates(hits, "general", 5);
+    assert!(
+        ranked.is_empty(),
+        "ruido bajo el floor debe abstenerse, got {:?}",
+        ranked.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn rebalance_keeps_strong_hits_and_boosted_preferred() {
+    // Caso negativo del floor: un match real (0.99) pasa, y un preferred
+    // inyectado al suelo (0.80 + boost 0.20 = 1.00) tambien — la abstencion
+    // solo dispara cuando NADIE supera el floor.
+    let strong = vec![catalog::CatalogHit {
+        entity: "agent".into(),
+        name: "react-specialist".into(),
+        description: "react performance".into(),
+        score: 0.99,
+        kind: String::new(),
+    }];
+    let ranked = rebalance_delegates(strong, "general", 5);
+    assert_eq!(ranked.len(), 1, "match real por encima del floor sobrevive");
+
+    let preferred_low = vec![catalog::CatalogHit {
+        entity: "agent".into(),
+        name: "debugger".into(),
+        description: "systematic debugging".into(),
+        score: 0.80,
+        kind: String::new(),
+    }];
+    let ranked = rebalance_delegates(preferred_low, "bug_fix", 5);
+    assert_eq!(
+        ranked.len(),
+        1,
+        "preferred con boost (1.00) supera el floor y sobrevive"
+    );
+    assert_eq!(ranked[0].name, "debugger");
+}

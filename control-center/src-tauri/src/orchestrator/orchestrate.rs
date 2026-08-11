@@ -63,6 +63,7 @@ pub fn orchestrate(
     } else {
         Vec::new()
     };
+    let raw_hits_empty = raw_hits.is_empty();
     // Floor-inject the intent's preferred specialists so the boost isn't
     // decorative when cross-lingual retrieval missed them (UI/testing 0/3 fix).
     let pooled = inject_preferred_floor(raw_hits, intent);
@@ -81,7 +82,17 @@ pub fn orchestrate(
         rebalance_delegates(pooled, intent, 5)
     };
     if delegate_agents.is_empty() && !meta_introspective {
-        warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
+        if raw_hits_empty {
+            warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
+        } else {
+            // Abstencion (2026-08-12): habia hits pero ninguno supero el floor
+            // — senal semantica debil (prompt conversacional / sin dominio).
+            // Mejor sin sugerencia que un especialista al azar a 0.78.
+            warnings.push(
+                "delegacion abstenida: senal semantica debil (ningun agente supera el floor)"
+                    .to_string(),
+            );
+        }
     }
 
     // SKILLS now compete in routing (previously the agent-only filter left the

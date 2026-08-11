@@ -53,6 +53,26 @@ pub(super) const SPECIALIST_BOOST: f32 = 0.20;
 /// but below specialists that were genuinely retrieved with a real high score.
 pub(super) const PREFERRED_FLOOR: f32 = 0.80;
 
+/// (2026-08-12) Abstencion de delegacion: si NI SIQUIERA el top delegate
+/// (post-boost) supera este floor, la lista entera se vacia — la senal
+/// semantica es ruido y sugerir "unity-engineer 0.78" para "push y seguimos"
+/// es peor que callar (doctrina de abstencion del recall aplicada a
+/// delegates). Medido: prompts conversacionales sin senal rinden top
+/// 0.75-0.80; matches reales 0.98+; preferred inyectados 1.00
+/// (PREFERRED_FLOOR + SPECIALIST_BOOST). El gris ~0.79 con intent=general es
+/// indistinguible del absurdo al mismo score (backend-developer 0.789 vs
+/// swift-expert 0.785) — se abstiene tambien, a proposito.
+/// Override: env ULTRON_DELEGATE_FLOOR (numero; "0" = desactivado).
+const DELEGATE_ABSTAIN_FLOOR: f32 = 0.85;
+
+/// Lee el floor de abstencion de delegates (env override, fail-safe al default).
+fn delegate_abstain_floor() -> f32 {
+    match std::env::var("ULTRON_DELEGATE_FLOOR") {
+        Ok(v) => v.trim().parse().unwrap_or(DELEGATE_ABSTAIN_FLOOR),
+        Err(_) => DELEGATE_ABSTAIN_FLOOR,
+    }
+}
+
 /// Specialist agent names the detected `intent` should prioritise. These are
 /// REAL agents in `~/.claude/agents` (verified). The boost lifts them above the
 /// meta agents when the prompt clearly belongs to their domain.
@@ -154,7 +174,7 @@ pub(super) fn rebalance_delegates(
     keep: usize,
 ) -> Vec<AgentChoice> {
     let preferred = preferred_specialists(intent);
-    let mut scored: Vec<AgentChoice> = hits
+    let mut scored: Vec<(AgentChoice, bool)> = hits
         .into_iter()
         .map(|h| {
             let is_preferred = preferred.iter().any(|p| *p == h.name);
@@ -174,20 +194,34 @@ pub(super) fn rebalance_delegates(
             if is_preferred {
                 score += SPECIALIST_BOOST;
             }
-            AgentChoice {
-                name: h.name,
-                description: h.description,
-                score,
-            }
+            (
+                AgentChoice {
+                    name: h.name,
+                    description: h.description,
+                    score,
+                },
+                is_preferred,
+            )
         })
         .collect();
     scored.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
+        b.0.score
+            .partial_cmp(&a.0.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     scored.truncate(keep);
-    scored
+    // Abstencion (2026-08-12): si el top NO es un preferred del intent (aval
+    // determinista) y su score no supera el floor, toda la lista es ruido E5
+    // — vacia mejor que enganosa. Ver DELEGATE_ABSTAIN_FLOOR.
+    let floor = delegate_abstain_floor();
+    if floor > 0.0
+        && scored
+            .first()
+            .is_none_or(|(top, is_pref)| !is_pref && top.score < floor)
+    {
+        return Vec::new();
+    }
+    scored.into_iter().map(|(a, _)| a).collect()
 }
 
 /// Embedding noise floor — multilingual E5 scores for irrelevant catalog entries
