@@ -11,9 +11,10 @@ import { Agents } from "./Agents";
 import { Rules } from "./Rules";
 import { Catalog } from "./library/Catalog";
 import { Commands } from "./library/Commands";
+import { RoutingCatalog } from "./library/RoutingCatalog";
 import { PluginsSection } from "./Settings/PluginsSection";
 import { Hooks } from "./Hooks";
-import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder } from "./library/icons";
+import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder, Search } from "./library/icons";
 
 export type LibrarySubTab =
   | "skills"
@@ -22,7 +23,8 @@ export type LibrarySubTab =
   | "plugins"
   | "hooks"
   | "catalog"
-  | "commands";
+  | "commands"
+  | "routing";
 
 type SubTabSpec = {
   id: LibrarySubTab;
@@ -76,6 +78,14 @@ const SUB_TABS: SubTabSpec[] = [
     label: "Commands",
     Icon: Terminal,
     hint: "Every /slash command exposed by your installed plugins.",
+  },
+  {
+    // Wiring 2026-08-11 (audit 08-09 #40): inspector del catálogo de routing
+    // semántico — prueba de "¿a quién rutearía este prompt?" + reindex manual.
+    id: "routing",
+    label: "Routing",
+    Icon: Search,
+    hint: "Test which agent/skill a prompt routes to + reindex the semantic catalog.",
   },
   {
     id: "catalog",
@@ -171,6 +181,7 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         {sub === "rules" && <Rules />}
         {sub === "catalog" && <Catalog />}
         {sub === "commands" && <Commands />}
+        {sub === "routing" && <RoutingCatalog />}
         {sub === "plugins" && (
           <div className="h-full overflow-auto px-6 py-4">
             <PluginsSection />

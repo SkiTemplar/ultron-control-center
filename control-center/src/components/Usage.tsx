@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ActivityTab } from "./usage/ActivityTab";
 import type {
   DailyPoint,
   ModelStat,
@@ -686,6 +687,9 @@ export function Usage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usageBusy, setUsageBusy] = useState(false);
+  // Wiring 2026-08-11 (audit 08-09 #43): pestaña Activity con el timeline de
+  // actividad de todo el sistema (compute_activity_timeline).
+  const [tab, setTab] = useState<"overview" | "activity">("overview");
 
   async function load() {
     setLoading(true);
@@ -747,22 +751,52 @@ export function Usage() {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Claude Code consumption · source: ~/.claude/stats-cache.json
+            {tab === "overview"
+              ? "Claude Code consumption · source: ~/.claude/stats-cache.json"
+              : "System activity timeline · plans, doctor, routing, alerts, kanban"}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+          <nav className="flex gap-1" role="tablist" aria-label="Usage sections">
+            {(
+              [
+                ["overview", "Overview"],
+                ["activity", "Activity"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className="rounded px-3 py-1.5 text-[12px] transition-colors"
+                style={{
+                  background: tab === id ? "var(--color-surface-3)" : "transparent",
+                  color: tab === id ? "var(--color-text)" : "var(--color-text-secondary)",
+                  border: `1px solid ${
+                    tab === id ? "var(--color-border-strong)" : "transparent"
+                  }`,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {tab === "overview" && (
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -779,11 +813,14 @@ export function Usage() {
         </div>
       )}
 
-      <OverviewTab
-        data={data}
-        onOpenUsage={openClaudeUsage}
-        usageBusy={usageBusy}
-      />
+      {tab === "overview" && (
+        <OverviewTab
+          data={data}
+          onOpenUsage={openClaudeUsage}
+          usageBusy={usageBusy}
+        />
+      )}
+      {tab === "activity" && <ActivityTab />}
     </div>
   );
 }

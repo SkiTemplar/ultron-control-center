@@ -216,6 +216,11 @@ pub fn run() {
             commands::misc::home_dir_str,
             commands::misc::instruction_path,
             commands::misc::claude_usage,
+            // Wiring 2026-08-11 (audit 08-09 #43): heatmap dia x fuente +
+            // eventos recientes en Usage -> Activity. El resto de misc.rs
+            // (list_logs/tail_log/compute_cost/...) sigue sin registrar a
+            // proposito hasta tener consumidor en la UI.
+            commands::misc::compute_activity_timeline,
             // -- external editor (v2.6 Library redesign) --
             commands::external_editor::open_in_vscode,
             commands::external_editor::read_text_file,
@@ -321,6 +326,13 @@ pub fn run() {
             commands::memory::memory_reindex,
             // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
+            // Wiring 2026-08-11 (audit 08-09 #40): reindex manual + buscador
+            // semantico en Library -> Routing. Antes solo el warm-up de setup()
+            // tocaba el catalogo y un fallo quedaba invisible ("catalog warm
+            // skipped"); ahora hay boton de reindex y prueba de routing manual.
+            commands::memory::catalog_reindex,
+            commands::memory::catalog_reindex_skills,
+            commands::memory::catalog_search,
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
             orchestrator::orchestrate_prompt,
             // -- Resumen REAL de sesión vía AI Router (lazy, cacheado por session_id+hash) --
