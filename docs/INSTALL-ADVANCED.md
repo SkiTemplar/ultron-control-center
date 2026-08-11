@@ -250,7 +250,7 @@ Hook list ULTRON registers:
 | ---------------- | ----------------------------- | ------------------------------------- |
 | SessionStart     | (all)                         | `hooks/scripts/ensure-qdrant.js`, `memory-warmup.js`, `load-cross-project-memory.js`, `session-start-override.js`, `memory-session-resume.js` |
 | UserPromptSubmit | (all)                         | `cockpit/skill-lazy/routing-dispatcher.v2.js` + `hooks/scripts/save-user-prompt.js` + `memory-orchestrate.js` |
-| PreToolUse       | `Read\|Edit\|Write\|NotebookEdit\|Bash` | `scripts/hooks/deny-secrets.py` |
+| PreToolUse       | `Read\|Edit\|Write\|NotebookEdit\|Bash` | `hooks/scripts/deny-secrets.js` |
 | PreToolUse       | `Read\|Grep`                  | `hooks/scripts/codegraph-reminder.js` |
 | PostToolUse      | (all)                         | `hooks/scripts/posttoolfail-capture.js` |
 | PreCompact       | (all)                         | `hooks/scripts/precompact-preserve-l0.js` |

@@ -165,7 +165,7 @@ local scratch files.
 | `socratic-gate.js` | UserPromptSubmit | Inject the Socratic decision protocol (AI writes all code, the user decides non-trivial calls) on every prompt. |
 | `memory-orchestrate.js` | UserPromptSubmit | Route the prompt through `ultron-memory orchestrate` (intent → workflow → agents → relevant memories) as context. Read-only. |
 | `save-user-prompt.js` | UserPromptSubmit | Archive each non-trivial prompt to the daily markdown inbox (candidate for `consolidate-memory`). Does not write the SoT. |
-| `deny-secrets.py` | PreToolUse | BLOCKS tool calls (Read/Edit/Write/NotebookEdit/Bash) that touch secrets. The only blocking hook. |
+| `deny-secrets.js` | PreToolUse | BLOCKS tool calls (Read/Edit/Write/NotebookEdit/Bash) that touch secrets. The only blocking hook. Node since 2026-08-11 (was Python via `uv run`). |
 | `codegraph-reminder.js` | PreToolUse | Remind to use `codegraph_explore`/`search` instead of blind exploration (Read/Grep/Glob/Bash). |
 | `posttoolfail-capture.js` | PostToolUse + PostToolUseFailure | On a failed tool result, propose an `error_resolution` candidate via the sidecar. Success path exits fast without writing. |
 | `stop-compress-session.js` | Stop | Compress the session into facts and propose them as governed candidates via `ultron-memory capture` (redaction + human-approved inbox). |

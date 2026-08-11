@@ -405,6 +405,7 @@ jobs:
           node scripts/subagent-harvest.selftest.mjs
           node scripts/subagent-lifecycle.selftest.mjs
           node hooks/scripts/kanban-update-reminder.selftest.mjs
+          node hooks/scripts/deny-secrets.selftest.mjs
       - name: Hook selftests (resume - frescura + calidad)
         run: |
           node hooks/scripts/tests/test-freshness-gate.js

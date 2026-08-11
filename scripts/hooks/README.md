@@ -44,7 +44,7 @@ All paths are relative to `~/.ultron/` unless noted.
 
 | Script | Matcher | Purpose |
 |---|---|---|
-| `scripts/hooks/deny-secrets.py` | `Read\|Edit\|Write\|NotebookEdit\|Bash` | Blocks reads/writes that would touch secrets (`.env`, credentials). Exit 2 = hard refusal. |
+| `hooks/scripts/deny-secrets.js` | `Read\|Edit\|Write\|NotebookEdit\|Bash` | Blocks reads/writes that would touch secrets (`.env`, credentials) via `permissionDecision: deny`. Node since 2026-08-11. |
 | `hooks/scripts/codegraph-reminder.js` | `Read\|Grep` | Reminds to consult the CodeGraph index before reading code files. |
 
 ### PostToolUse / SubagentStop / PreCompact
@@ -67,8 +67,10 @@ All paths are relative to `~/.ultron/` unless noted.
 | `hooks/scripts/session-end-summary.js` | SessionEnd | Writes a short end-of-session summary. |
 | `hooks/scripts/notify-relay.js` | Notification | Relays Claude Code notifications to the desktop. |
 
-The two surviving Python hooks (`deny-secrets.py`, `route_quality_aggregator.py`)
-run via `uv run python`; everything else runs via `node`.
+The one surviving Python hook (`route_quality_aggregator.py`) runs via
+`uv run python`; everything else runs via `node` (deny-secrets was ported to
+Node on 2026-08-11 to drop the ~200ms `uv` startup from the per-tool-call
+hot path).
 
 ---
 
@@ -113,7 +115,7 @@ only references scripts that exist).
 
 ```bash
 echo '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"test.txt"}}' \
-  | uv run python ~/.ultron/scripts/hooks/deny-secrets.py
+  | node ~/.ultron/hooks/scripts/deny-secrets.js
 ```
 
 ---

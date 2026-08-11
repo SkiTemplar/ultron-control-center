@@ -27,7 +27,7 @@ TEMPLATE = REPO_ROOT / "templates" / "settings-hooks.json"
 
 # Matches an in-repo script path inside an expanded hook command, e.g.
 #   node {USERPROFILE}/.ultron/hooks/scripts/ensure-qdrant.js
-#   uv run python {USERPROFILE}/.ultron/scripts/hooks/deny-secrets.py
+#   uv run python {USERPROFILE}/.ultron/scripts/cockpit/route_quality_aggregator.py
 _SCRIPT_RE = re.compile(r"\{USERPROFILE\}/\.ultron/([^\s\"]+\.(?:js|py|ps1))")
 
 
