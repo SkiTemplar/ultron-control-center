@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('socratic-gate');
 
 // Acks de una palabra que NO constituyen una eleccion razonada.
@@ -132,6 +133,9 @@ function handle(raw) {
   }
 
   const prompt = input.prompt || '';
+  // Turno de SISTEMA (notificacion de tarea background): no es un prompt
+  // humano — sin protocolo socratico ni escalada (salida limpia, sin output).
+  if (isSystemTurnPrompt(prompt)) return;
   const sessionId = String(input.session_id || 'nosession').replace(/[^A-Za-z0-9_-]/g, '');
 
   let msg;

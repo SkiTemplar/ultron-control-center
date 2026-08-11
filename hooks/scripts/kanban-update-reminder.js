@@ -140,6 +140,7 @@ const COMPLETION_MARKERS = [
 
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('kanban-update-reminder');
 
 function safeLog(entry) {
@@ -183,6 +184,10 @@ function extractContentString(content) {
 
 function looksSynthetic(text) {
   if (!text) return true;
+  // Turnos de SISTEMA (notificaciones de tareas background) tampoco son
+  // mensajes humanos: sin este filtro, el XML crudo de una notificacion
+  // acababa como titulo de una card auto-registrada en el kanban.
+  if (isSystemTurnPrompt(text)) return true;
   return (
     text.startsWith('<system-reminder>') ||
     text.startsWith('<command-name>') ||

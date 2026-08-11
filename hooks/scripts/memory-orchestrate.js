@@ -12,6 +12,7 @@ const os = require('os');
 const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary } = require('./lib/ultron-memory-cli');
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
@@ -219,6 +220,12 @@ async function main() {
     /* no stdin / bad json */
   }
   if (!prompt.trim()) {
+    emit('');
+    return;
+  }
+  // Turno de SISTEMA (notificacion de tarea background): no orquestar — rutear
+  // su XML como si fuera un prompt humano inyecta skills/memorias sin sentido.
+  if (isSystemTurnPrompt(prompt)) {
     emit('');
     return;
   }

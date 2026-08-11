@@ -75,6 +75,7 @@ const os = require('os');
 // Cliente TCP compartido del daemon E5 residente (lockfile + loopback, fail-safe).
 // Reusa el transporte de memory-orchestrate en vez de re-spawnear Python por prompt.
 const { daemonRequest } = require('../../hooks/scripts/lib/ultron-memory-cli.js');
+const { isSystemTurnPrompt } = require('../../hooks/scripts/lib/system-turn.js');
 
 const HOME = os.homedir();
 
@@ -317,6 +318,13 @@ async function mainV3() {
 
   const prompt = String(payload.prompt || payload.user_prompt || '').trim();
   if (!prompt) {
+    emitContextV3('');
+    return;
+  }
+
+  // Turno de SISTEMA (notificacion de tarea background): no rutear — ni
+  // ranking determinista ni fallback semantico sobre XML del harness.
+  if (isSystemTurnPrompt(prompt)) {
     emitContextV3('');
     return;
   }

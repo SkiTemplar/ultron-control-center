@@ -44,6 +44,7 @@ const KEYWORDS = [
 
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('save-user-prompt');
 
 function safeLog(entry) {
@@ -134,6 +135,13 @@ function main() {
   }
   if (prompt.length < MIN_PROMPT_CHARS) {
     safeLog({ level: 'debug', msg: 'short_prompt_skipped', len: prompt.length });
+    return emitPayload();
+  }
+
+  // Turno de SISTEMA (notificacion de tarea background): no va al inbox — es
+  // ruido XML del harness, no conocimiento del usuario.
+  if (isSystemTurnPrompt(prompt)) {
+    safeLog({ level: 'debug', msg: 'system_turn_skipped' });
     return emitPayload();
   }
 

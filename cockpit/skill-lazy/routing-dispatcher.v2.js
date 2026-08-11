@@ -501,6 +501,7 @@ const AGENTS = [
 // ---------------------------------------------------------------------------
 
 const { appendJsonl } = require('../../hooks/scripts/lib/jsonl-log');
+const { isSystemTurnPrompt } = require('../../hooks/scripts/lib/system-turn');
 
 function safeLog(entry) {
   // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
@@ -1800,6 +1801,12 @@ async function main() {
 
   const prompt = String(payload.prompt || payload.user_prompt || '').trim();
   if (!prompt) {
+    return emitContext('');
+  }
+
+  // Turno de SISTEMA (notificacion de tarea background): no rutear — su XML
+  // matchea triggers al azar e inyectaria skills sin sentido.
+  if (isSystemTurnPrompt(prompt)) {
     return emitContext('');
   }
 
