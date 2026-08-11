@@ -29,7 +29,6 @@ pub(crate) mod types;
 // Re-export the public surface so callers using `crate::batches_queue::Foo`
 // continue to resolve without change.
 pub use persistence::{clear_queue_inner, dismiss_inner, list_inner, record_inner, requeue_inner};
-pub use sanitize::enqueue_command_inner;
 pub use types::{BatchQueueEntry, BatchQueueReason};
 
 // ---------------------------------------------------------------------------
@@ -45,8 +44,6 @@ mod tests {
     use super::persistence::{
         clip_error, dedup_key, new_queue_id, upsert, write_atomic, MAX_ERROR_LEN,
     };
-    use super::sanitize::safe_script_name;
-    use super::sanitize::sanitize_ps1_ascii;
     use super::types::{BatchKind, BatchQueueEntry, BatchQueueReason};
 
     fn no_existing() -> HashSet<String> {
@@ -88,45 +85,8 @@ mod tests {
         assert!(a.starts_with("bq-"));
     }
 
-    #[test]
-    fn sanitize_ps1_strips_non_ascii_keeps_newlines() {
-        let dirty = "Write-Host \"hola \u{2014} se\u{00f1}or\"\r\nGet-Date\t# caf\u{00e9}";
-        let clean = sanitize_ps1_ascii(dirty);
-        // Newlines / tabs preserved.
-        assert!(clean.contains("\r\n"));
-        assert!(clean.contains('\t'));
-        // Every byte is ASCII now.
-        assert!(
-            clean.is_ascii(),
-            "sanitized script must be pure ASCII: {clean:?}"
-        );
-        // The em-dash and ñ / é became spaces, not removed length.
-        assert!(!clean.contains('\u{2014}'));
-        assert!(!clean.contains('\u{00f1}'));
-    }
-
-    #[test]
-    fn safe_script_name_forces_ps1_and_strips_separators() {
-        assert_eq!(safe_script_name("foo"), "foo.ps1");
-        assert_eq!(safe_script_name("foo.ps1"), "foo.ps1");
-        // Spaces and other disallowed chars become underscores; .ps1 appended.
-        assert_eq!(safe_script_name("my script"), "my_script.ps1");
-    }
-
-    #[test]
-    fn safe_script_name_rejects_path_traversal_chars() {
-        let n = safe_script_name("../../etc/passwd");
-        assert!(!n.contains('/'));
-        assert!(!n.contains('\\'));
-        assert!(!n.contains(".."));
-        assert!(n.ends_with(".ps1"));
-    }
-
-    #[test]
-    fn safe_script_name_empty_becomes_default() {
-        assert_eq!(safe_script_name("   "), "queued-command.ps1");
-        assert_eq!(safe_script_name("..."), "queued-command.ps1");
-    }
+    // Higiene 2026-08-12 (audit 08-09 #41): los tests de sanitize_ps1_ascii y
+    // safe_script_name se borraron junto a sus funciones.
 
     #[test]
     fn upsert_inserts_then_bumps_attempts() {

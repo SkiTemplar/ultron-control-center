@@ -1,8 +1,13 @@
-// Global hotkey runtime commands (main toggle + pause/resume).
+// Global hotkey runtime commands (main toggle get/set).
 //
 // Parsing helpers (`parse_hotkey`, `load_hotkey_spec`, `save_hotkey_spec`,
 // `code_from_name`, `hotkey_config_path`) live in `crate::hotkeys` so both
 // `lib.rs` setup() and these commands share one source of truth.
+//
+// Higiene 2026-08-12 (audit 08-09 #46, decidido por el usuario): los wrappers
+// pause_global_hotkeys / resume_global_hotkeys se borraron — nunca registrados
+// ni consumidos (el caso de uso "modal de captura de hotkey" no llego a
+// cablearse). Git los conserva si algun dia hacen falta.
 
 use crate::hotkeys;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -10,22 +15,6 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 #[tauri::command]
 pub async fn get_global_hotkey() -> Result<String, String> {
     Ok(hotkeys::load_hotkey_spec())
-}
-
-#[tauri::command]
-pub async fn pause_global_hotkeys(app: tauri::AppHandle) -> Result<(), String> {
-    hotkeys::pause_global_hotkeys_inner(&app)
-}
-
-#[tauri::command]
-pub async fn resume_global_hotkeys(app: tauri::AppHandle) -> Result<(), String> {
-    // Re-register inbox shortcut + restore the current main toggle binding.
-    hotkeys::resume_global_hotkeys_inner(&app)?;
-    let spec = hotkeys::load_hotkey_spec();
-    if let Ok(sc) = hotkeys::parse_hotkey(&spec) {
-        let _ = app.global_shortcut().register(sc);
-    }
-    Ok(())
 }
 
 #[tauri::command]

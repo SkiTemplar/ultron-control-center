@@ -62,7 +62,7 @@
 
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
 // ---------------------------------------------------------------------------
 // Main toggle hotkey: parsing + persistence
@@ -207,29 +207,11 @@ pub fn save_hotkey_spec(spec: &str) -> Result<(), String> {
     std::fs::write(&p, spec).map_err(|e| e.to_string())
 }
 
-/// Ctrl+Alt+I (or Cmd+Alt+I on macOS — CommandOrControl is what the user
-/// asked for; on Windows that resolves to Control).
-pub fn inbox_shortcut() -> Shortcut {
-    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyI)
-}
-
-/// Registers Ctrl+Alt+I with the global-shortcut plugin. The actual
-/// "emit open-inbox" wiring lives in lib.rs's existing
-/// with_handler closure (see LIB_RS_WIRING above) — we only register
-/// the binding here.
-///
-/// Safe to call multiple times: if already registered we return Ok(()).
-pub fn register_inbox_shortcut(app: &AppHandle) -> Result<(), String> {
-    let handle = app.global_shortcut();
-    let sc = inbox_shortcut();
-    // is_registered returns bool; if true we're done.
-    if handle.is_registered(sc) {
-        return Ok(());
-    }
-    handle
-        .register(sc)
-        .map_err(|e| format!("register Ctrl+Alt+I: {}", e))
-}
+// Higiene 2026-08-12 (audit 08-09 #46, decidido por el usuario): fuera la
+// cadena inbox_shortcut / register_inbox_shortcut / pause_global_hotkeys_inner
+// / resume_global_hotkeys_inner — el atajo de inbox quick-capture (Ctrl+Alt+I)
+// nunca llego a registrarse en runtime (las llamadas de setup() quedaron
+// comentadas) y pause/resume solo existia para servirlo. Git lo conserva.
 
 /// Convenience helper that lib.rs's handler can call directly to emit
 /// the open-inbox event. Not used yet (lib.rs inlines the same logic)
@@ -240,27 +222,4 @@ pub fn emit_open_inbox(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.emit("open-inbox", ());
     }
-}
-
-/// Temporarily unregister ALL global shortcuts so the Settings hotkey
-/// editor can capture combos that would otherwise be swallowed by the
-/// OS-level listener (e.g. user wants to test Ctrl+Alt+U — the same combo
-/// that toggles the window — without the window closing on every keypress).
-/// The frontend calls `pause_global_hotkeys` on entering capture mode and
-/// `resume_global_hotkeys` on commit/cancel.
-pub fn pause_global_hotkeys_inner(app: &AppHandle) -> Result<(), String> {
-    app.global_shortcut()
-        .unregister_all()
-        .map_err(|e| format!("unregister_all: {}", e))
-}
-
-/// Re-register the inbox shortcut after a `pause`. The main toggle hotkey
-/// is re-registered separately by `lib.rs::register_global_hotkey` which
-/// the frontend invokes after editing via `set_global_hotkey`.
-pub fn resume_global_hotkeys_inner(app: &AppHandle) -> Result<(), String> {
-    // Re-register the inbox combo. The main toggle combo is re-registered
-    // by whichever component edited it (or stays unregistered if the user
-    // just visited the editor without changing).
-    register_inbox_shortcut(app)?;
-    Ok(())
 }

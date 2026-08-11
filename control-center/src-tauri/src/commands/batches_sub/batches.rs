@@ -58,14 +58,9 @@ pub async fn delete_batch_single(name: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn cleanup_old_batches(older_than_days: u32) -> Result<BatchCleanupReport, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        batches::cleanup_old_batches_inner(older_than_days)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
+// Higiene 2026-08-12 (audit 08-09 #41, decidido por el usuario):
+// cleanup_old_batches borrado — superseded por clear_all_batches (registrado)
+// y sin consumidor desde entonces.
 
 /// Delete ALL batch scripts (user-initiated "Clear all", with confirmation in
 /// the UI). card-bug-runbatch-clear.
@@ -110,20 +105,6 @@ pub async fn batches_dismiss_queue(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Write an ASCII-pure `.ps1` (PS 5.1 safe — no non-ASCII) into
-/// `~/.ultron/batches/` AND append a queue entry pointing at it. This is how the
-/// AI / UI "leaves a command in Run Batch" when it cannot run it directly.
-/// `reason` is parsed leniently ("rejected" | "ai_cannot_execute" | anything →
-/// "failed").
-#[tauri::command]
-pub async fn batches_enqueue_command(
-    name: String,
-    content: String,
-    reason: String,
-) -> Result<BatchQueueEntry, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        batches_queue::enqueue_command_inner(&name, &content, &reason)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
+// Higiene 2026-08-12 (audit 08-09 #41, decidido por el usuario):
+// batches_enqueue_command borrado — la via de encolar comandos ad-hoc nunca
+// se expuso en la UI; la captura real llega por el Stop hook (pending file).

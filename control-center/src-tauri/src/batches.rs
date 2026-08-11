@@ -132,7 +132,7 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
 
     let path_str = cand.to_string_lossy().to_string();
 
-    // On spawn failure the command never even started — leave it in the queue
+    // On spawn failure the command never even started â€” leave it in the queue
     // (reason="failed") so it is never silently dropped, then surface the error.
     let output = match output {
         Ok(o) => o,
@@ -154,7 +154,7 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    // Non-zero exit → record (reason="failed") so the user sees it in the Cola
+    // Non-zero exit â†’ record (reason="failed") so the user sees it in the Cola
     // and can requeue / fix. A successful run leaves the queue untouched.
     if !success {
         let last_error = if stderr.trim().is_empty() {
@@ -193,7 +193,7 @@ pub struct BatchCleanupReport {
     pub kept: usize,
 }
 
-/// Delete a single batch script by name (not full path — prevents path traversal).
+/// Delete a single batch script by name (not full path â€” prevents path traversal).
 /// Validates the resolved path is inside `~/.ultron/batches/` before removing.
 pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
     // Reject names that look like path traversal before we even touch the FS.
@@ -218,7 +218,7 @@ pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
 }
 
 /// Delete ALL batch scripts (allowed extensions) regardless of age AND purge
-/// every entry from queue.jsonl — backs the "Clear all" button. Non-batch
+/// every entry from queue.jsonl â€” backs the "Clear all" button. Non-batch
 /// files are left untouched and counted in `kept`. Separate path from
 /// `cleanup_old_batches_inner`, whose `older_than_days = 0` deliberately
 /// deletes NOTHING (the `cutoff_secs > 0` guard), so "clear all" cannot be
@@ -241,7 +241,7 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
         if !path.is_file() {
             continue;
         }
-        // Skip the queue files — those are managed by clear_queue_inner below.
+        // Skip the queue files â€” those are managed by clear_queue_inner below.
         let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if fname == "queue.jsonl"
             || fname == "queue-pending.jsonl"
@@ -269,61 +269,5 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
     Ok(BatchCleanupReport { deleted, kept })
 }
 
-/// Delete batch scripts older than `older_than_days` (mtime). Returns the
-/// list of file names removed plus how many remain. Lets the user keep the
-/// batches folder from growing without bound (the user: "Run Batch con
-/// eliminacion de .bats para que no se queden ilimitados").
-///
-/// # `older_than_days = 0` is an intentional NO-OP
-///
-/// When `older_than_days` is `0` the computed `cutoff_secs` is also `0`, and the
-/// guard `age >= cutoff_secs && cutoff_secs > 0` is always `false`, so nothing is
-/// deleted. This is deliberate: zero means "no age limit configured", not "delete
-/// everything". Use [`clear_all_batches_inner`] when you need to wipe all scripts
-/// regardless of age.
-pub fn cleanup_old_batches_inner(older_than_days: u32) -> Result<BatchCleanupReport, String> {
-    let dir = batches_dir()?;
-    if !dir.exists() {
-        return Ok(BatchCleanupReport {
-            deleted: Vec::new(),
-            kept: 0,
-        });
-    }
-    let now = std::time::SystemTime::now();
-    let cutoff_secs = (older_than_days as u64).saturating_mul(86_400);
-    let mut deleted: Vec<String> = Vec::new();
-    let mut kept: usize = 0;
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|e| e.to_string())?
-        .flatten()
-    {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if !is_allowed_ext(&path) {
-            kept += 1;
-            continue;
-        }
-        let mtime = entry.metadata().and_then(|m| m.modified()).ok();
-        let age = mtime
-            .and_then(|t| now.duration_since(t).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        if age >= cutoff_secs && cutoff_secs > 0 {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-            if std::fs::remove_file(&path).is_ok() {
-                deleted.push(name);
-            } else {
-                kept += 1;
-            }
-        } else {
-            kept += 1;
-        }
-    }
-    Ok(BatchCleanupReport { deleted, kept })
-}
+// Higiene 2026-08-12 (audit 08-09 numero 41): cleanup_old_batches_inner borrada
+// junto a su comando — superseded por clear_all_batches_inner.
