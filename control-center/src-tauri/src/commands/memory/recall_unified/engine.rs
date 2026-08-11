@@ -173,14 +173,28 @@ pub fn build_trace(
         let now_ms = crate::memory::model::now_millis();
         const SEVEN_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
         // (2026-07-13) Down-rank AMBIENTE: ver ambient_rank_factor + AMBIENT_PENALTY.
+        // (2026-08-11, decidido por el usuario; activado tras backfill-projects
+        // --apply: 782→639 huerfanos) scope=Project SIN project_id es atribucion
+        // ilegal (bug del write-path corregido en capture): bajo filtro de
+        // proyecto se EXCLUYE del pack — se colaba como comodin en cualquier
+        // proyecto. En cross-project (cerebro entero) sigue visible; el ambiente
+        // Session/Agent mantiene solo el down-rank del 07-13.
         let ambient_penalty = env_knob_f32("ULTRON_AMBIENT_PENALTY", AMBIENT_PENALTY);
-        for hit in &mut fused {
+        fused.retain_mut(|hit| {
             let (confidence, updated_at, item_project, item_scope) =
                 store::get_item(&conn, &hit.canonical_id)
                     .ok()
                     .flatten()
                     .map(|it| (it.confidence, it.updated_at, it.project_id, it.scope))
                     .unwrap_or((0.5, 0, None, Scope::Global)); // unknown → vault-level, sin castigo doble
+            if is_orphan_project_item(
+                project_id,
+                cross_project,
+                item_project.as_deref(),
+                item_scope,
+            ) {
+                return false;
+            }
             let quality_factor: f32 = if confidence >= 0.6 {
                 1.0 + 0.6 * confidence
             } else {
@@ -200,7 +214,8 @@ pub fn build_trace(
                 ambient_penalty,
             );
             hit.rrf_score *= quality_factor * recency_factor * ambient_factor;
-        }
+            true
+        });
         // Re-sort after quality adjustment (preserves dense_score as final tie-break).
         fused.sort_by(|a, b| {
             b.rrf_score
@@ -450,6 +465,26 @@ fn env_knob_f32(name: &str, default: f32) -> f32 {
 /// hay proyecto en la query, NO es cross_project (cerebro entero pedido
 /// explícitamente), el item no tiene proyecto y su scope no es Global (las
 /// memorias Global son deliberadamente universales). En cualquier otro caso 1.0.
+/// (2026-08-11, decidido por el usuario — atribucion fase 2) Un item con
+/// scope=Project pero SIN project_id es una atribucion ILEGAL (la fabricaba un
+/// bug del write-path: capture decidia el scope con el project pero nunca lo
+/// estampaba). Bajo un filtro de proyecto activo se EXCLUYE del pack — no hay
+/// forma de saber de quien es y se colaba como comodin en cualquier proyecto.
+/// Activado tras `backfill-projects --apply` (residuo: 639 items ambiente que
+/// ni provenance ni dense-vote pudieron atribuir). Con cross_project (cerebro
+/// entero pedido explicitamente) sigue visible. Pure -> unit-tested.
+pub(crate) fn is_orphan_project_item(
+    query_project: Option<&str>,
+    cross_project: bool,
+    item_project: Option<&str>,
+    item_scope: Scope,
+) -> bool {
+    query_project.is_some()
+        && !cross_project
+        && item_project.is_none()
+        && item_scope == Scope::Project
+}
+
 pub(crate) fn ambient_rank_factor(
     query_project: Option<&str>,
     cross_project: bool,

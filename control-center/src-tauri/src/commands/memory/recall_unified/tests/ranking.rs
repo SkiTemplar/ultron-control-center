@@ -9,7 +9,9 @@
 // Tortunabo. El down-rank NO los filtra (la regla ambiente sigue en pie): solo
 // los hunde por debajo de las memorias del proyecto activo cuando compiten.
 
-use crate::commands::memory::recall_unified::engine::ambient_rank_factor;
+use crate::commands::memory::recall_unified::engine::{
+    ambient_rank_factor, is_orphan_project_item,
+};
 use crate::memory::Scope;
 
 const PENALTY: f32 = 0.5;
@@ -57,4 +59,55 @@ fn cross_project_mode_disables_the_penalty() {
     // ranking vuelve al comportamiento clásico (solo relevancia + calidad).
     let f = ambient_rank_factor(Some("tortunabo"), true, None, Scope::Project, PENALTY);
     assert_eq!(f, 1.0, "cross_project desactiva la penalización");
+}
+
+// ---------------------------------------------------------------------------
+// (2026-08-11) Exclusión de huérfanos scope=Project sin project_id — decidido
+// por el usuario, activada tras backfill-projects --apply. A diferencia del
+// down-rank ambiente (arriba), esto los saca del pack bajo filtro de proyecto.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn orphan_project_item_is_excluded_under_project_filter() {
+    assert!(
+        is_orphan_project_item(Some("ultron"), false, None, Scope::Project),
+        "scope=Project sin project_id bajo filtro de proyecto se excluye"
+    );
+}
+
+#[test]
+fn orphan_exclusion_does_not_apply_cross_project() {
+    // Caso negativo: el cerebro entero pedido explícitamente los sigue viendo.
+    assert!(!is_orphan_project_item(
+        Some("ultron"),
+        true,
+        None,
+        Scope::Project
+    ));
+}
+
+#[test]
+fn orphan_exclusion_does_not_apply_to_session_ambient() {
+    // Caso negativo: el ambiente Session/Agent con NULL mantiene SOLO el
+    // down-rank del 07-13 — no se excluye.
+    assert!(!is_orphan_project_item(
+        Some("ultron"),
+        false,
+        None,
+        Scope::Session
+    ));
+}
+
+#[test]
+fn orphan_exclusion_requires_a_project_filter_and_spares_attributed_items() {
+    // Casos negativos: sin filtro de proyecto no hay exclusión; un item con
+    // proyecto propio (aunque sea otro) tampoco pasa por este gate — su
+    // visibilidad la gobierna la regla de proyecto normal del pack.
+    assert!(!is_orphan_project_item(None, false, None, Scope::Project));
+    assert!(!is_orphan_project_item(
+        Some("ultron"),
+        false,
+        Some("tortunabo"),
+        Scope::Project
+    ));
 }
