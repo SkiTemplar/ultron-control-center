@@ -320,7 +320,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "TODO: describir (hook nuevo detectado por regen-manifest)"
+      "description": "Detector de texto-IA en el flujo de escritura (card pp97cd): tras un Write/Edit de prosa (.md .tex .txt .rst) ejecuta el matcher del catalogo patrones-texto-ia.json (misma fuente que el Lab) y, si el texto nuevo tiene señales, avisa al modelo con patron+señal+correccion via additionalContext. SINCRONO a proposito (un async descarta el stdout). Solo avisa, nunca bloquea; excluye memoria del asistente, docs research y scratchpad."
     },
     {
       "id": "posttoolfail-capture",
