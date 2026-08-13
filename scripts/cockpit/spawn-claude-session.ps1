@@ -313,12 +313,14 @@ $projName = ""
 if ($cwd -and $cwd.Trim().Length -gt 0) {
     try { $projName = (Split-Path -Leaf $cwd.Trim()) -replace '^\.+', '' } catch {}
 }
-# El home NO es un proyecto: sin nombre no hay corchetes ni scheme propio.
-if ($projName -and $env:USERPROFILE -and ($cwd.Trim().TrimEnd('\') -ieq $env:USERPROFILE.TrimEnd('\'))) {
-    $projName = ""
-}
+# El home NO es un proyecto: sin corchetes ni hash, pero SI identidad fija
+# (2026-08-13: el usuario usa el home como launchpad para crear proyectos).
+$isHome = $projName -and $env:USERPROFILE -and ($cwd.Trim().TrimEnd('\') -ieq $env:USERPROFILE.TrimEnd('\'))
+if ($isHome) { $projName = "" }
 $colorScheme = ""
-if ($projName) {
+if ($isHome) {
+    $colorScheme = "Campbell"
+} elseif ($projName) {
     $h = 0
     foreach ($ch in $projName.ToCharArray()) { $h = (($h * 31) + [int]$ch) -band 0x7FFFFFFF }
     $colorScheme = $schemePalette[$h % $schemePalette.Count]
