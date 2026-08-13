@@ -106,11 +106,13 @@ function usageColor(p) {
   return color256(250);
 }
 
-/** Mini-barra de 5 celdas: llenas en el color del umbral, vacías en gris. */
+/** Mini-barra: llenas en el color del umbral, vacías en gris. 10 celdas
+ *  (una por cada 10%) — el usuario pidió más resolución que las 5 iniciales. */
+const BAR_CELLS = 10;
 function bar(p) {
-  const filled = Math.max(0, Math.min(5, Math.round(p / 20)));
+  const filled = Math.max(0, Math.min(BAR_CELLS, Math.round((p / 100) * BAR_CELLS)));
   return (
-    usageColor(p) + '▰'.repeat(filled) + color256(238) + '▱'.repeat(5 - filled) + RESET
+    usageColor(p) + '▰'.repeat(filled) + color256(238) + '▱'.repeat(BAR_CELLS - filled) + RESET
   );
 }
 
