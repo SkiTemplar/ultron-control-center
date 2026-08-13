@@ -343,6 +343,12 @@ pub fn run() {
             commands::memory::catalog_search,
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
             orchestrator::orchestrate_prompt,
+            // -- PERSONALITIES v1 (2026-08-13): tonos editables + playground de deteccion --
+            // Library -> Tones sobre ~/.ultron/personality.json; la deteccion vive
+            // DENTRO de orchestrate() (hot path del sidecar, cero hooks nuevos).
+            orchestrator::personalities_load,
+            orchestrator::personalities_save,
+            orchestrator::personalities_detect,
             // -- Resumen REAL de sesión vía AI Router (lazy, cacheado por session_id+hash) --
             // Restaurado 2026-07-20: d811828 lo borró como "0 consumidores" pero
             // SessionCard.tsx lo invoca (audit ultracode cat10/cat14).

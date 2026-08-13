@@ -15,6 +15,7 @@
 
 pub(crate) mod delegation;
 pub(crate) mod orchestrate;
+pub(crate) mod personality;
 pub(crate) mod ranking;
 pub(crate) mod rules;
 #[cfg(test)]
@@ -40,4 +41,31 @@ pub async fn orchestrate_prompt(
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
+// Personalities v1 (2026-08-13) — Library → Tones + playground de detección.
+// ---------------------------------------------------------------------------
+
+/// Carga `~/.ultron/personality.json` (lo siembra si no existe).
+#[tauri::command]
+pub fn personalities_load() -> Result<personality::PersonalityFile, String> {
+    let (file, warning) = personality::load_or_seed();
+    if let Some(w) = warning {
+        return Err(w);
+    }
+    Ok(file)
+}
+
+/// Guarda el archivo completo tras validar invariantes (ids únicos, default real).
+#[tauri::command]
+pub fn personalities_save(file: personality::PersonalityFile) -> Result<(), String> {
+    personality::save(&file)
+}
+
+/// Playground: qué tono detectaría este prompt y POR QUÉ (scores por tono).
+#[tauri::command]
+pub fn personalities_detect(prompt: String) -> Result<personality::ToneDetection, String> {
+    let (file, _) = personality::load_or_seed();
+    Ok(personality::detect(&prompt, &file))
 }

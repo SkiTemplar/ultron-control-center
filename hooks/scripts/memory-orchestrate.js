@@ -85,6 +85,17 @@ function emit(additionalContext) {
 
 function render(ctx) {
   const out = [`<orchestration-context route="${ctx.route || ''}" trust="system">`];
+  // Personalities v1 (2026-08-13): tono detectado por el sidecar (señales del
+  // chat o petición explícita). Se emite ANTES que el resto: es una orden de
+  // registro para TODA la respuesta, no una sugerencia de routing.
+  if (ctx.tone && ctx.tone.id) {
+    const t = ctx.tone;
+    out.push(`tone_detected: ${t.name} [${t.id}] — ${t.reason || ''}`);
+    out.push(
+      `tone_directive: responde TODO este turno en este tono (idioma: ${t.lang || 'es'}; ` +
+        `insultos: ${t.profanity || 'none'}). Guía: ${t.style_guide || ''}`
+    );
+  }
   if (ctx.workflow) out.push(`workflow: ${ctx.workflow.id} — ${ctx.workflow.label}`);
   // cat13.4 (2026-06-19): cuando el routing propone un GRUPO (workflow multi-paso),
   // cada paso/agente lleva su PROPIO encuadre derivado del sub-intent de su rol —
@@ -189,6 +200,8 @@ function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
       .map((m) => ({ scope: m.scope || '', summary: String(m.summary || '').slice(0, 160) })),
     cross_project: !!ctx.cross_project,
     warnings: Array.isArray(ctx.warnings) ? ctx.warnings : [],
+    // Personalities v1: tono detectado (Live Monitor + telemetría de acierto).
+    tone: ctx.tone ? { id: ctx.tone.id, explicit: !!ctx.tone.explicit } : null,
     // 2026-06-23: traza de delegación automática para medir la tasa efectiva
     // (directivas emitidas vs delegaciones realmente ejecutadas por el agente).
     directive_emitted: !!ctx.delegation_directive,

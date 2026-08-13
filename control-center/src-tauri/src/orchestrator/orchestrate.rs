@@ -29,6 +29,14 @@ pub fn orchestrate(
     let known = catalog::known_agent_names();
     let mut warnings: Vec<String> = Vec::new();
 
+    // Personalities v1 (2026-08-13): detección determinista del TONO del chat
+    // (señales léxicas / petición explícita) — <1ms, sin red ni E5. Un
+    // personality.json corrupto degrada a seeds con warning (mandamiento 11).
+    let (tone, tone_warning) = super::personality::detect_for_prompt(prompt);
+    if let Some(w) = tone_warning {
+        warnings.push(w);
+    }
+
     // Selected workflow (built-in), with ghost step-agents sanitized.
     let workflow = list_workflows_inner()
         .into_iter()
@@ -212,5 +220,6 @@ pub fn orchestrate(
         prompt_plan,
         step_plans,
         delegation_directive,
+        tone,
     }
 }

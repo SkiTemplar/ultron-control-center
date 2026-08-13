@@ -87,6 +87,10 @@ pub struct OrchestrationContext {
     /// `delegation::decide_delegation`). El hook la renderiza como una ORDEN; el
     /// agente la ejecuta con la herramienta Agent. `None` = comportamiento actual.
     pub delegation_directive: Option<DelegationDirective>,
+    /// Personalities v1 (2026-08-13): tono detectado en el prompt (señales
+    /// léxicas o petición explícita, ver `personality::detect`). `None` = tono
+    /// default del sistema — no se inyecta nada.
+    pub tone: Option<super::personality::ToneChoice>,
 }
 
 /// Encuadre optimizado POR PASO del grupo (cat13.4). `optimize_prompt`/

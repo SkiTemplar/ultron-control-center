@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-08-11",
+  "generated_at": "2026-08-13",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -248,7 +248,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 12,
-      "checksum_sha256": "18a29f6e652892161b2a6050b0fb1e18f4a4ea6ebb07fdb6625cb6631dd2fb41",
+      "checksum_sha256": "061e53d868dc615f743aed67eb6ba21b20dffee8f5c393efc8590d0ac817a0df",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

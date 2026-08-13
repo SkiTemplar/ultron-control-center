@@ -12,6 +12,7 @@ import { Rules } from "./Rules";
 import { Catalog } from "./library/Catalog";
 import { Commands } from "./library/Commands";
 import { RoutingCatalog } from "./library/RoutingCatalog";
+import { Tones } from "./library/Tones";
 import { PluginsSection } from "./Settings/PluginsSection";
 import { Hooks } from "./Hooks";
 import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder, Search } from "./library/icons";
@@ -24,7 +25,8 @@ export type LibrarySubTab =
   | "hooks"
   | "catalog"
   | "commands"
-  | "routing";
+  | "routing"
+  | "tones";
 
 type SubTabSpec = {
   id: LibrarySubTab;
@@ -86,6 +88,14 @@ const SUB_TABS: SubTabSpec[] = [
     label: "Routing",
     Icon: Search,
     hint: "Test which agent/skill a prompt routes to + reindex the semantic catalog.",
+  },
+  {
+    // Personalities v1 (2026-08-13): tonos del chat visibles/editables +
+    // playground de detección (misma detección que corre en el orchestrate).
+    id: "tones",
+    label: "Tones",
+    Icon: Sparkle,
+    hint: "Chat tones (personalities): edit detection signals + test which tone a prompt activates.",
   },
   {
     id: "catalog",
@@ -182,6 +192,7 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         {sub === "catalog" && <Catalog />}
         {sub === "commands" && <Commands />}
         {sub === "routing" && <RoutingCatalog />}
+        {sub === "tones" && <Tones />}
         {sub === "plugins" && (
           <div className="h-full overflow-auto px-6 py-4">
             <PluginsSection />

@@ -67,6 +67,12 @@ qdrant-native/config/development
 qdrant-native/config/production.yaml
 qdrant_storage/
 
+# === Personalities v1 (2026-08-13): tonos personales del usuario ===
+# Config personal editable (Library -> Tones); puede contener registro informal
+# fuerte que NO debe entrar al repo publico. Seeds publicables viven en
+# orchestrator/personality.rs y siembran el archivo al primer arranque.
+personality.json
+
 # === Personal data (NEVER commit) ===
 # Anclado a top-level + vault — NO bloquear código UI con nombre `personal/`
 # (ej. control-center/src/components/personal/ es código TypeScript de la app)
