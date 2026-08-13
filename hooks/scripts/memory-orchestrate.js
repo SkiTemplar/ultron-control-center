@@ -91,9 +91,15 @@ function render(ctx) {
   if (ctx.tone && ctx.tone.id) {
     const t = ctx.tone;
     out.push(`tone_detected: ${t.name} [${t.id}] — ${t.reason || ''}`);
+    // Feedback del usuario 2026-08-13: "a good chunk of personality, not a
+    // couple of words here and there" — la directiva exige compromiso TOTAL,
+    // no salpicar slang sobre una respuesta de oficina.
     out.push(
-      `tone_directive: responde TODO este turno en este tono (idioma: ${t.lang || 'es'}; ` +
-        `insultos: ${t.profanity || 'none'}). Guía: ${t.style_guide || ''}`
+      `tone_directive: LA PERSONALIDAD ES LA VOZ DE TODA LA RESPUESTA — cada frase, ` +
+        `la gramatica, el ritmo y la actitud salen en este registro; PROHIBIDO espolvorear ` +
+        `dos palabras de slang sobre una respuesta neutra. Los datos tecnicos se mantienen ` +
+        `EXACTOS (cambia la voz, nunca el contenido). Idioma: ${t.lang || 'es'}; ` +
+        `insultos: ${t.profanity || 'none'}. Guía: ${t.style_guide || ''}`
     );
   }
   if (ctx.workflow) out.push(`workflow: ${ctx.workflow.id} — ${ctx.workflow.label}`);
