@@ -590,6 +590,19 @@ function autoLogCompletedTask(project, extracted, payload) {
   const cards = Array.isArray(doc.cards) ? doc.cards : [];
   if (cards.some((c) => c.id === autoId)) return null; // ya registrada (idempotente)
 
+  // Tombstones (2026-08-13): si esta card auto se BORRO a proposito
+  // (kanban.mjs rm deja lapida), no resucitarla en cada Stop de la misma
+  // conversacion — el borrado del usuario es una decision, no un hueco.
+  try {
+    const tombPath =
+      process.env.KANBAN_REMINDER_TOMBSTONES_OVERRIDE ||
+      path.join(HOME, '.ultron', '.tmp', 'kanban-auto-tombstones.json');
+    const tombs = JSON.parse(fs.readFileSync(tombPath, 'utf8'));
+    if (Array.isArray(tombs) && tombs.includes(autoId)) return null;
+  } catch (_) {
+    /* sin lapidas: seguir normal */
+  }
+
   const titleKeys = extractKeys(bareTitle);
   const isDuplicate = cards.some((c) => {
     const existingTitle = String(c.title || '');

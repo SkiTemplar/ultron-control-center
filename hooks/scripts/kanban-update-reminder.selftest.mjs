@@ -471,6 +471,50 @@ A(
   `stdout="${r9.stdout}"`,
 );
 
+// --- Caso 10 (bug 2026-08-13): las cards auto BORRADAS no resucitan ---------
+// El auto-log usa id estable por sesion+texto y su idempotencia miraba solo
+// si la card EXISTE: borrarla la hacia resucitar en cada Stop (visto 3 veces
+// en vivo). Con lapida (kanban.mjs rm la registra), el hook la respeta.
+resetFixture();
+writeBoard(baseBoard());
+const t10 = makeTranscript(
+  FIXTURE_ROOT,
+  "t10",
+  "implementa el modulo de exportacion de informes",
+  "Listo, completado. La tarea quedo hecha.",
+);
+const r10a = fireHook({ transcriptPath: t10, cwd: nonGitDir, sessionId: "selftest-tombstone" });
+const board10 = readBoard();
+const autoCard = board10.cards.find((c) => c.id.startsWith("auto-"));
+A(!!autoCard, "caso10a: primer Stop crea la card auto", `stdout=${r10a.stdout.slice(0, 120)}`);
+// Simular el rm con lapida: quitar la card + registrar el id como tumba.
+board10.cards = board10.cards.filter((c) => c.id !== autoCard.id);
+writeBoard(board10);
+const tombPath = join(FIXTURE_ROOT, "tombstones.json");
+writeFileSync(tombPath, JSON.stringify([autoCard.id]), "utf8");
+const r10b = spawnSync("node", [HOOK], {
+  input: JSON.stringify({
+    transcript_path: t10.replace(/\\/g, "/"),
+    cwd: nonGitDir.replace(/\\/g, "/"),
+    hook_event_name: "Stop",
+    session_id: "selftest-tombstone",
+  }),
+  encoding: "utf8",
+  timeout: 15000,
+  env: {
+    ...process.env,
+    KANBAN_REMINDER_BASE_OVERRIDE: KANBAN_BASE,
+    KANBAN_REMINDER_SESSION_STATE_OVERRIDE: SESSION_STATE,
+    KANBAN_REMINDER_TOMBSTONES_OVERRIDE: tombPath,
+  },
+});
+const board10b = readBoard();
+A(
+  !board10b.cards.some((c) => c.id === autoCard.id),
+  "caso10b: con lapida, el segundo Stop NO resucita la card borrada",
+  `stdout=${(r10b.stdout || "").slice(0, 160)}`,
+);
+
 // ---------------------------------------------------------------------------
 rmSync(FIXTURE_ROOT, { recursive: true, force: true });
 
