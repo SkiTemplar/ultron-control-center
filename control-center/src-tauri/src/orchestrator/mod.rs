@@ -69,3 +69,93 @@ pub fn personalities_detect(prompt: String) -> Result<personality::ToneDetection
     let (file, _) = personality::load_or_seed();
     Ok(personality::detect(&prompt, &file))
 }
+
+// ---------------------------------------------------------------------------
+// Custom words (2026-08-13, petición del usuario): sección en Library → Tones
+// para editar sin tocar JSON a mano (a) los status por tono de la statusline
+// (cockpit/tone-status.json) y (b) los verbos del spinner de Claude Code
+// (clave spinnerVerbs de ~/.claude/settings.json).
+// ---------------------------------------------------------------------------
+
+fn tone_status_path() -> Result<std::path::PathBuf, String> {
+    Ok(crate::ultron_root()?
+        .join("cockpit")
+        .join("tone-status.json"))
+}
+
+/// Mapa tono -> palabra o lista de palabras (la statusline rota las listas).
+#[tauri::command]
+pub fn tone_status_load() -> Result<serde_json::Value, String> {
+    let raw = std::fs::read_to_string(tone_status_path()?).map_err(|e| e.to_string())?;
+    serde_json::from_str(&raw).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn tone_status_save(map: serde_json::Value) -> Result<(), String> {
+    let obj = map.as_object().ok_or("tone-status debe ser un objeto")?;
+    for (k, v) in obj {
+        let valid = v.is_string()
+            || v.as_array()
+                .is_some_and(|a| !a.is_empty() && a.iter().all(|x| x.is_string()));
+        if !valid && !k.starts_with('_') {
+            return Err(format!("'{k}' debe ser string o lista de strings no vacía"));
+        }
+    }
+    let json = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
+    std::fs::write(tone_status_path()?, json + "\n").map_err(|e| e.to_string())
+}
+
+fn claude_settings_path() -> Result<std::path::PathBuf, String> {
+    dirs::home_dir()
+        .map(|h| h.join(".claude").join("settings.json"))
+        .ok_or_else(|| "No HOME dir".to_string())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpinnerVerbsConfig {
+    pub mode: String,
+    pub verbs: Vec<String>,
+}
+
+/// Lee spinnerVerbs de ~/.claude/settings.json (defaults si no existe).
+#[tauri::command]
+pub fn spinner_verbs_load() -> Result<SpinnerVerbsConfig, String> {
+    let raw = std::fs::read_to_string(claude_settings_path()?).map_err(|e| e.to_string())?;
+    let doc: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    match doc.get("spinnerVerbs") {
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| e.to_string()),
+        None => Ok(SpinnerVerbsConfig {
+            mode: "replace".into(),
+            verbs: Vec::new(),
+        }),
+    }
+}
+
+/// Escribe SOLO la clave spinnerVerbs preservando el resto del settings.json
+/// (round-trip serde_json::Value). El schema real del binario exige objeto
+/// {mode, verbs} — un formato inválido hace que Claude Code SALTE el settings
+/// ENTERO (visto en vivo 2026-08-13), así que se valida antes de escribir.
+#[tauri::command]
+pub fn spinner_verbs_save(cfg: SpinnerVerbsConfig) -> Result<(), String> {
+    if cfg.mode != "append" && cfg.mode != "replace" {
+        return Err("mode debe ser 'append' o 'replace'".into());
+    }
+    if cfg.mode == "replace" && cfg.verbs.is_empty() {
+        return Err("con mode 'replace' hace falta al menos un verbo".into());
+    }
+    if cfg.verbs.iter().any(|v| v.trim().is_empty()) {
+        return Err("verbo vacío en la lista".into());
+    }
+    let path = claude_settings_path()?;
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut doc: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let obj = doc
+        .as_object_mut()
+        .ok_or("settings.json no es un objeto JSON")?;
+    obj.insert(
+        "spinnerVerbs".into(),
+        serde_json::to_value(&cfg).map_err(|e| e.to_string())?,
+    );
+    let json = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json + "\n").map_err(|e| e.to_string())
+}

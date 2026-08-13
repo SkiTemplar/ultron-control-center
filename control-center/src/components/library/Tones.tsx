@@ -54,6 +54,13 @@ type ToneDetection = {
 
 const PROFANITY_LEVELS = ["none", "mild", "full"];
 
+type SpinnerVerbsConfig = {
+  mode: string;
+  verbs: string[];
+};
+
+type ToneStatusMap = Record<string, string | string[]>;
+
 function listToText(list: string[]): string {
   return list.join(", ");
 }
@@ -77,6 +84,11 @@ export function Tones() {
   const [detecting, setDetecting] = useState(false);
   const [detection, setDetection] = useState<ToneDetection | null>(null);
 
+  // Custom words (2026-08-13): spinner global + status por tono.
+  const [spinner, setSpinner] = useState<SpinnerVerbsConfig | null>(null);
+  const [toneStatus, setToneStatus] = useState<ToneStatusMap>({});
+  const [savingWords, setSavingWords] = useState(false);
+
   async function load() {
     setError(null);
     try {
@@ -85,11 +97,44 @@ export function Tones() {
     } catch (e) {
       setError(String(e));
     }
+    try {
+      setSpinner((await invoke("spinner_verbs_load")) as SpinnerVerbsConfig);
+    } catch {
+      // sin settings legible: sección de spinner oculta, el resto funciona
+    }
+    try {
+      setToneStatus((await invoke("tone_status_load")) as ToneStatusMap);
+    } catch {
+      // sin tone-status.json: campos de status vacíos
+    }
   }
 
   useEffect(() => {
     void load();
   }, []);
+
+  function statusWordsFor(id: string): string {
+    const v = toneStatus[id];
+    if (Array.isArray(v)) return v.join(", ");
+    return typeof v === "string" ? v : "";
+  }
+
+  async function saveWords() {
+    setSavingWords(true);
+    setError(null);
+    setInfo(null);
+    try {
+      if (spinner) await invoke("spinner_verbs_save", { cfg: spinner });
+      await invoke("tone_status_save", { map: toneStatus });
+      setInfo(
+        "Palabras guardadas. Los status rotan ya; el spinner carga en la próxima sesión de Claude Code."
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSavingWords(false);
+    }
+  }
 
   async function saveAll(next: PersonalityFile) {
     setSaving(true);
@@ -264,6 +309,66 @@ export function Tones() {
         </div>
       )}
 
+      {/* Custom words: spinner global de Claude Code (2026-08-13) */}
+      {spinner && (
+        <div
+          className="mb-4 rounded p-3"
+          style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[12.5px] font-medium">Spinner de Claude Code</div>
+              <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                Verbos que salen mientras Claude trabaja ("Cookin…"). Sin espacios y de
+                largo parecido para evitar glitches del redraw. Cargan al abrir sesión nueva.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={spinner.mode}
+                onChange={(e) => setSpinner({ ...spinner, mode: e.target.value })}
+                className="rounded px-2 py-1 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border)",
+                }}
+                title="replace = solo tus verbos · append = los tuyos además de los de serie"
+              >
+                <option value="replace">replace</option>
+                <option value="append">append</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => void saveWords()}
+                disabled={savingWords}
+                className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+                style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
+              >
+                {savingWords ? "Guardando…" : "Guardar palabras"}
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={spinner.verbs.join(", ")}
+            onChange={(e) =>
+              setSpinner({
+                ...spinner,
+                verbs: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+              })
+            }
+            rows={2}
+            className="mt-2 w-full rounded px-2 py-1 text-[11.5px]"
+            style={{
+              background: "var(--color-surface-1)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+            }}
+            placeholder="Maquinando, Cookin, Currelando, …"
+          />
+        </div>
+      )}
+
       {/* Header lista + default */}
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[12.5px] font-medium">
@@ -421,6 +526,28 @@ export function Tones() {
                       />
                     </label>
                   </div>
+                  <label className="block text-[11.5px]">
+                    <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
+                      Status de la statusline (separados por coma — rotan cada 20s)
+                    </div>
+                    <input
+                      type="text"
+                      value={statusWordsFor(t.id)}
+                      onChange={(e) =>
+                        setToneStatus({
+                          ...toneStatus,
+                          [t.id]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                        })
+                      }
+                      className="w-full rounded px-2 py-1 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                      placeholder="Cookin, Grindin, Slidin, …"
+                    />
+                  </label>
                   <label className="block text-[11.5px]">
                     <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
                       Nivel de insultos

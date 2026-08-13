@@ -349,6 +349,11 @@ pub fn run() {
             orchestrator::personalities_load,
             orchestrator::personalities_save,
             orchestrator::personalities_detect,
+            // -- CUSTOM WORDS (2026-08-13): status por tono + spinner de Claude Code --
+            orchestrator::tone_status_load,
+            orchestrator::tone_status_save,
+            orchestrator::spinner_verbs_load,
+            orchestrator::spinner_verbs_save,
             // -- Resumen REAL de sesión vía AI Router (lazy, cacheado por session_id+hash) --
             // Restaurado 2026-07-20: d811828 lo borró como "0 consumidores" pero
             // SessionCard.tsx lo invoca (audit ultracode cat10/cat14).
