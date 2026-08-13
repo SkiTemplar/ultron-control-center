@@ -98,8 +98,11 @@ function render(ctx) {
       `tone_directive: LA PERSONALIDAD ES LA VOZ DE TODA LA RESPUESTA — cada frase, ` +
         `la gramatica, el ritmo y la actitud salen en este registro; PROHIBIDO espolvorear ` +
         `dos palabras de slang sobre una respuesta neutra. Los datos tecnicos se mantienen ` +
-        `EXACTOS (cambia la voz, nunca el contenido). Idioma: ${t.lang || 'es'}; ` +
-        `insultos: ${t.profanity || 'none'}. Guía: ${t.style_guide || ''}`
+        `EXACTOS (cambia la voz, nunca el contenido). TEST FINAL antes de responder: si tu ` +
+        `borrador podria salir de un asistente corporativo neutro, REESCRIBELO entero en el ` +
+        `registro — el usuario ELIGIO esta voz y entregarla descafeinada es fallarle. ` +
+        `Iguala el nivel del EJEMPLO DE VOZ de la guía, nunca por debajo. ` +
+        `Idioma: ${t.lang || 'es'}; insultos: ${t.profanity || 'none'}. Guía: ${t.style_guide || ''}`
     );
   }
   if (ctx.workflow) out.push(`workflow: ${ctx.workflow.id} — ${ctx.workflow.label}`);
