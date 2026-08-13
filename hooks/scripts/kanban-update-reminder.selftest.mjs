@@ -406,6 +406,71 @@ A(
   `card=${JSON.stringify(boardAfter7.cards.find((c) => c.id === 'card-hof'))} stdout=${r7.stdout}`,
 );
 
+// --- Caso 8 (NEGATIVO, bug 2026-08-13): 'lista' sustantivo NO es marcador ----
+// Bucle real de 5 recordatorios: el asistente cerraba turnos con "espero tu
+// lista de personalidades" y el token 'lista' matcheaba el marker de
+// finalizacion. Un assistant que solo ESPERA algo no ha completado nada.
+resetFixture();
+writeBoard(baseBoard());
+const rawBefore8 = readFileSync(KANBAN_PATH, "utf8");
+const t8 = makeTranscript(
+  FIXTURE_ROOT,
+  "t8",
+  "implementa el sistema de personalidades del chat",
+  "Quedo a la espera de tu lista de personalidades para arrancar.",
+);
+const r8 = fireHook({ transcriptPath: t8, cwd: nonGitDir, sessionId: "selftest-lista-noun" });
+const rawAfter8 = readFileSync(KANBAN_PATH, "utf8");
+A(r8.status === 0, "caso8: hook exit 0", `status=${r8.status} stderr=${r8.stderr}`);
+A(
+  rawBefore8 === rawAfter8 && r8.stdout === "",
+  "caso8 (bug 2026-08-13): 'lista' (sustantivo) NO cuenta como finalizacion -> ni card ni recordatorio",
+  `stdout="${r8.stdout}"`,
+);
+
+// --- Caso 9 (NEGATIVO, bug 2026-08-13): tool_results NO son mensajes humanos --
+// El unico texto con verbo de accion ('add', del help de un CLI) viaja en un
+// tool_result; el mensaje humano real es conversacional. Antes del fix, ese
+// 'add' mantenia actionable=true y cada Stop re-emitia el recordatorio.
+resetFixture();
+writeBoard(baseBoard());
+const rawBefore9 = readFileSync(KANBAN_PATH, "utf8");
+const t9 = join(FIXTURE_ROOT, "t9.jsonl");
+writeFileSync(
+  t9,
+  [
+    JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "gracias, seguimos con esto manana" },
+    }),
+    JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            content: "kanban.mjs - CRUD\n  node scripts/kanban.mjs add <proyecto> \"titulo\"\n  node scripts/kanban.mjs mv <proyecto> <id>",
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "Listo, completado." }] },
+    }),
+  ].join("\n"),
+  "utf8",
+);
+const r9 = fireHook({ transcriptPath: t9, cwd: nonGitDir, sessionId: "selftest-toolresult" });
+const rawAfter9 = readFileSync(KANBAN_PATH, "utf8");
+A(r9.status === 0, "caso9: hook exit 0", `status=${r9.status} stderr=${r9.stderr}`);
+A(
+  rawBefore9 === rawAfter9 && r9.stdout === "",
+  "caso9 (bug 2026-08-13): verbo de accion SOLO en un tool_result -> no actionable, kanban intacto",
+  `stdout="${r9.stdout}"`,
+);
+
 // ---------------------------------------------------------------------------
 rmSync(FIXTURE_ROOT, { recursive: true, force: true });
 

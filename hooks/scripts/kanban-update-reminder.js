@@ -129,11 +129,14 @@ const ACTION_VERBS = [
 ];
 
 // Marcadores de finalización que el asistente típicamente usa al cerrar.
+// OJO: 'lista'/'listas' NO pueden ser markers — colisionan con el sustantivo
+// ("espero tu lista de X") y causaron un bucle de 5 recordatorios seguidos
+// (bug 2026-08-13). Solo los masculinos, que no tienen homógrafo común.
 const COMPLETION_MARKERS = [
   'completado', 'completada', 'completadas', 'completados',
   'aplicado', 'aplicada', 'aplicados', 'aplicadas',
   'hecho', 'hecha', 'hechos', 'hechas',
-  'listo', 'lista', 'listos', 'listas',
+  'listo', 'listos',
   'terminado', 'terminada',
   'done', 'completed', 'finished', 'applied', 'finalized', 'shipped',
 ];
@@ -228,6 +231,14 @@ function parseTranscript(transcriptPath) {
     if (!role) continue;
 
     if (role === 'user' && message.content) {
+      // Las entradas user que transportan tool_results NO son mensajes humanos
+      // (la cabecera de este archivo ya lo prometía, pero el código no lo
+      // cumplía): un help de CLI con 'add'/'mv' en un tool_result mantenía
+      // actionable=true para siempre (bug 2026-08-13, bucle de recordatorios).
+      const carriesToolResult =
+        Array.isArray(message.content)
+        && message.content.some((p) => p && p.type === 'tool_result');
+      if (carriesToolResult) continue;
       const text = extractContentString(message.content).trim();
       if (!looksSynthetic(text)) {
         userMessages.push(clamp(text, MAX_MESSAGE_CHARS));
