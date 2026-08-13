@@ -1,0 +1,12 @@
+{
+  "_comment": "Status por personalidad para la statusline (card vy7sve, aprobado 2026-08-13). Editable a mano; la statusline lo lee en cada refresh. Clave = id del tono en personality.json.",
+  "ultron": "Procesando",
+  "hood": "Cookin",
+  "british-formal": "Deliberating",
+  "cowboy": "Wranglin",
+  "gitano": "Currelando",
+  "andaluz": "Apañando",
+  "cani": "Petándolo",
+  "cunado": "Sentenciándolo",
+  "pura-cepa": "ARREGLANDO ESPAÑA"
+}

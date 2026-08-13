@@ -17,7 +17,26 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-const ORCH_LOG = path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
+// Overrides SOLO para test (nunca en producción): permiten probar la lectura
+// del tono sin depender del log real de la sesión viva.
+const ORCH_LOG =
+  process.env.ULTRON_STATUSLINE_ORCH_LOG ||
+  path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
+const TONE_STATUS_PATH =
+  process.env.ULTRON_STATUSLINE_TONE_STATUS ||
+  path.join(os.homedir(), '.ultron', 'cockpit', 'tone-status.json');
+
+/** Status por personalidad (tone-status.json, editable por el usuario). */
+function toneStatusVerb(toneId) {
+  if (!toneId) return '';
+  try {
+    const map = JSON.parse(fs.readFileSync(TONE_STATUS_PATH, 'utf8'));
+    const v = map[toneId];
+    return typeof v === 'string' ? v : '';
+  } catch {
+    return '';
+  }
+}
 
 // Paleta ANSI-256 con contraste alto sobre fondo oscuro (nada de blanco plano).
 const PALETTE = [45, 208, 118, 199, 214, 81, 141, 220, 203, 84, 39, 172];
@@ -94,7 +113,11 @@ function main() {
   const parts = [`${pcol}${BOLD}⚡ ${project.toUpperCase()}${RESET}`];
   if (branch) parts.push(`${color256(245)} ${branch}${RESET}`);
   if (model) parts.push(`${DIM}${model}${RESET}`);
-  if (tone) parts.push(`${color256(213)}🎭 ${tone}${RESET}`);
+  if (tone) {
+    const verb = toneStatusVerb(tone);
+    const label = verb ? `${tone} · ${verb}` : tone;
+    parts.push(`${color256(213)}🎭 ${label}${RESET}`);
+  }
 
   process.stdout.write(parts.join(`${DIM} · ${RESET}`));
 }
