@@ -308,6 +308,21 @@
       "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado, nunca auto-promueve. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
     },
     {
+      "id": "ai-text-warn",
+      "event": "PostToolUse",
+      "matcher": "Write|Edit",
+      "command": "node ~/.ultron/hooks/scripts/ai-text-warn.js",
+      "script": "~/.ultron/hooks/scripts/ai-text-warn.js",
+      "timeout_s": 10,
+      "checksum_sha256": "73dd240e4cf22ad82c5579e8c8e9d5c1bcf1d50a987639c4e84ec4d03b8169bb",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "TODO: describir (hook nuevo detectado por regen-manifest)"
+    },
+    {
       "id": "posttoolfail-capture",
       "event": "PostToolUseFailure",
       "matcher": "*",
