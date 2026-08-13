@@ -106,9 +106,33 @@ function usageColor(p) {
   return color256(250);
 }
 
-/** Métrica con etiqueta apagada y valor que solo grita cuando toca. */
+/** Mini-barra de 5 celdas: llenas en el color del umbral, vacías en gris. */
+function bar(p) {
+  const filled = Math.max(0, Math.min(5, Math.round(p / 20)));
+  return (
+    usageColor(p) + '▰'.repeat(filled) + color256(238) + '▱'.repeat(5 - filled) + RESET
+  );
+}
+
+/** Métrica con etiqueta apagada, mini-barra y valor. */
 function metric(label, p) {
-  return `${color256(240)}${label} ${usageColor(p)}${p}%${RESET}`;
+  return `${color256(240)}${label} ${bar(p)} ${usageColor(p)}${p}%${RESET}`;
+}
+
+/** Etiquetas cortas por ventana de rate limit. Claves desconocidas se
+ *  renderizan igualmente (mayúsculas recortadas): si el binario añade p.ej.
+ *  seven_day_opus al payload (existe en sus strings pero NO en los docs del
+ *  statusline), aparece solo — sin esperar a otra release nuestra. */
+const RATE_LABELS = {
+  five_hour: '5H',
+  seven_day: 'WK',
+  seven_day_opus: 'FBL',
+  seven_day_sonnet: 'SNT',
+};
+
+function rateLabel(key) {
+  if (RATE_LABELS[key]) return RATE_LABELS[key];
+  return String(key).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'LIM';
 }
 
 function main() {
@@ -140,13 +164,25 @@ function main() {
   const ctxPct = pct(inp.context_window && inp.context_window.used_percentage);
   if (ctxPct !== null) parts.push(metric('CTX', ctxPct));
 
-  // Límites de suscripción (rate_limits.five_hour / seven_day; solo presentes
-  // tras la primera respuesta de la API en cuentas de suscripción).
+  // Límites de suscripción (rate_limits.*; presentes tras la primera
+  // respuesta de la API). Se renderiza TODA clave con used_percentage, no
+  // solo las documentadas — a la caza del límite semanal por-modelo.
   const rl = inp.rate_limits || {};
-  const fh = rl.five_hour ? pct(rl.five_hour.used_percentage) : null;
-  if (fh !== null) parts.push(metric('5H', fh));
-  const sd = rl.seven_day ? pct(rl.seven_day.used_percentage) : null;
-  if (sd !== null) parts.push(metric('WK', sd));
+  for (const key of Object.keys(rl)) {
+    const p = rl[key] ? pct(rl[key].used_percentage) : null;
+    if (p !== null) parts.push(metric(rateLabel(key), p));
+  }
+
+  // Snapshot best-effort del último payload real (receipts para verificar
+  // qué claves llegan de verdad en sesiones vivas). Nunca rompe la barra.
+  try {
+    fs.writeFileSync(
+      path.join(os.homedir(), '.ultron', '.tmp', 'statusline-last-payload.json'),
+      JSON.stringify(inp),
+    );
+  } catch {
+    /* best-effort */
+  }
 
   // Badges de sesión: effort si viene, FAST solo cuando está activo.
   const effort = inp.effort && (inp.effort.level || inp.effort);
