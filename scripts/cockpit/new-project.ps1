@@ -13,13 +13,22 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true, Position = 0)][string]$Name,
+    [Parameter(Position = 0)][string]$Name = "",
     [Parameter(Position = 1)][string]$Idea = "",
     [string]$Root = "",
     [switch]$NoSpawn
 )
 
 $ErrorActionPreference = "Stop"
+
+# Sin Mandatory a proposito: con Mandatory y sin argumento, PowerShell abre su
+# prompt interactivo "Proporcione valores para los parametros" (visto por el
+# usuario, confuso). Mejor uso claro y salir.
+if (-not $Name -or $Name.Trim().Length -eq 0) {
+    Write-Output "Uso: ultron-new <nombre> [""idea""] [-Root <ruta>] [-NoSpawn]"
+    Write-Output "Crea el proyecto en CARRERA\PROYECTOS_PERSONALES, siembra git+README+CLAUDE.md y abre un tab claude con color."
+    exit 1
+}
 
 # --- Raiz por defecto (decision del usuario 2026-08-13) ---------------------
 if (-not $Root -or $Root.Trim().Length -eq 0) {

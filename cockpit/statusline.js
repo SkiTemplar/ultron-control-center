@@ -26,13 +26,18 @@ const TONE_STATUS_PATH =
   process.env.ULTRON_STATUSLINE_TONE_STATUS ||
   path.join(os.homedir(), '.ultron', 'cockpit', 'tone-status.json');
 
-/** Status por personalidad (tone-status.json, editable por el usuario). */
+/** Status por personalidad (tone-status.json, editable por el usuario).
+ *  Acepta string o ARRAY: con array rota una palabra cada 20s. */
 function toneStatusVerb(toneId) {
   if (!toneId) return '';
   try {
     const map = JSON.parse(fs.readFileSync(TONE_STATUS_PATH, 'utf8'));
     const v = map[toneId];
-    return typeof v === 'string' ? v : '';
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v) && v.length) {
+      return String(v[Math.floor(Date.now() / 20000) % v.length]);
+    }
+    return '';
   } catch {
     return '';
   }
