@@ -218,7 +218,7 @@
       "command": "node ~/.ultron/hooks/scripts/socratic-gate.js",
       "script": "~/.ultron/hooks/scripts/socratic-gate.js",
       "timeout_s": 5,
-      "checksum_sha256": "9283f8f23071a499fde4a7395498f5b6efc2a9a8bd6fcf5c7d8cb1e6e508e54c",
+      "checksum_sha256": "0265becfa5b8604c2b8833622c761de4ab2c6d10892e0646327c6db073f1c18c",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

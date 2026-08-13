@@ -679,6 +679,56 @@ fn matches_word(haystack: &str, pat: &str) -> bool {
     false
 }
 
+/// Clase CONVERSACIONAL (recorte de tokens, decidido por el usuario
+/// 2026-08-13): prompt corto SIN vocabulario técnico — charla, acks largos,
+/// preguntas meta. Para estos turnos el orchestrate NO emite la ceremonia
+/// (workflow, step_plans, constraints, prompt_frame): medido, ~200-300 tok de
+/// ruido por turno de charla que se quedaban en el historial para siempre.
+/// El tono, el recall y los warnings SÍ siguen (son la parte útil en charla).
+pub fn is_conversational(prompt: &str) -> bool {
+    let norm = prompt.to_lowercase();
+    if norm.split_whitespace().count() > 25 {
+        return false;
+    }
+    const TECH_SIGNALS: [&str; 34] = [
+        "build",
+        "test",
+        "bug",
+        "error",
+        "fix",
+        "arregla",
+        "implementa",
+        "implement",
+        "codigo",
+        "code",
+        "archivo",
+        "file",
+        "commit",
+        "push",
+        "deploy",
+        "refactor",
+        "funcion",
+        "function",
+        "script",
+        "hook",
+        "config",
+        "instala",
+        "install",
+        "crea",
+        "create",
+        "borra",
+        "delete",
+        "revisa",
+        "review",
+        "api",
+        "sql",
+        "compila",
+        "debug",
+        "rebuild",
+    ];
+    !TECH_SIGNALS.iter().any(|t| matches_word(&norm, t))
+}
+
 /// Classify a prompt into `(intent, workflow_id)`. Two-pass: domain-specific
 /// intents first (a tech name beats a generic action verb), then action/general.
 /// Default = general/quick.

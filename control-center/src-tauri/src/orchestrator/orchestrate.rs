@@ -152,15 +152,34 @@ pub fn orchestrate(
         }
     };
 
-    let constraints = vec![
-        "Minimizar tokens: usar el context pack, no memoria cruda".to_string(),
-        "Solo el Memory Agent escribe memoria persistente".to_string(),
-        "DELEGAR a los agentes reales existentes; no reinventar capacidades".to_string(),
-    ];
+    // Clase CONVERSACIONAL (2026-08-13): charla corta sin señal técnica → se
+    // recorta la ceremonia (workflow, step_plans, constraints, encuadre). El
+    // tono, recall y warnings siguen — son lo único útil en esos turnos.
+    let conversational = super::rules::is_conversational(prompt);
+    let workflow = if conversational { None } else { workflow };
+
+    let constraints = if conversational {
+        Vec::new()
+    } else {
+        vec![
+            "Minimizar tokens: usar el context pack, no memoria cruda".to_string(),
+            "Solo el Memory Agent escribe memoria persistente".to_string(),
+            "DELEGAR a los agentes reales existentes; no reinventar capacidades".to_string(),
+        ]
+    };
 
     // cat13.2: optimize_prompt is the canonical optimizer (alias of
     // build_prompt_plan) — the routing optimizes the prompt before building the plan.
-    let prompt_plan = super::ranking::optimize_prompt(prompt, intent);
+    let prompt_plan = if conversational {
+        super::types_model::PromptPlan {
+            improved_prompt: prompt.to_string(),
+            suggested_mode: "low".to_string(),
+            clarifying_questions: Vec::new(),
+            success_criteria: Vec::new(),
+        }
+    } else {
+        super::ranking::optimize_prompt(prompt, intent)
+    };
 
     // cat13.4: when the routing proposes a multi-step GROUP (workflow), optimize
     // each step's prompt by the role sub-intent of the agent that runs it. Empty

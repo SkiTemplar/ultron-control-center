@@ -62,6 +62,26 @@ function normalize(text) {
     .trim();
 }
 
+// Recorte de tokens (decidido por el usuario 2026-08-13): el recordatorio
+// SHORT solo se inyecta cuando el prompt PARECE llevar una decision abierta
+// (pregunta o vocabulario decisional). En charla y ordenes directas, silencio
+// — la ESCALADA por ack debil se mantiene SIEMPRE (es el corazon del gate) y
+// el FULL de primer prompt de sesion tambien (1 vez, barato).
+const DECISION_HINTS = [
+  'decid', 'opcion', 'opciones', 'elegir', 'elige', 'arquitectura', 'diseno',
+  'disena', 'enfoque', 'alternativa', 'trade', 'prefieres', 'mejor forma',
+  'como lo hacemos', 'como hacemos', 'que hacemos', 'deberia', 'deberiamos',
+  'plan', 'propuesta', 'should', 'which', 'approach', 'options', 'possible',
+  'posible', 'what if', 'y si',
+];
+
+function looksDecisional(prompt) {
+  const raw = String(prompt || '');
+  if (raw.includes('?')) return true;
+  const norm = normalize(raw);
+  return DECISION_HINTS.some((h) => norm.includes(h));
+}
+
 // True si el prompt es un ack de bajo esfuerzo, una delegacion de decision,
 // o una eleccion de opcion sin porque.
 function isLowEffort(prompt) {
@@ -153,7 +173,13 @@ function handle(raw) {
     } catch (_) {
       // sin marcador fiable => mandar la version corta (mejor poco que doble)
     }
-    msg = firstTime ? FULL_MSG : SHORT_MSG;
+    if (firstTime) {
+      msg = FULL_MSG;
+    } else if (looksDecisional(prompt)) {
+      msg = SHORT_MSG;
+    } else {
+      return; // turno sin decision a la vista: cero tokens (recorte 2026-08-13)
+    }
   }
 
   return JSON.stringify({

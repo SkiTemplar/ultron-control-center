@@ -413,6 +413,47 @@ fn orchestrate_no_directive_for_trivial_prompt() {
 }
 
 #[test]
+fn conversational_prompt_drops_ceremony() {
+    // Recorte 2026-08-13: charla corta sin señal técnica -> sin workflow, sin
+    // step_plans, sin constraints, sin encuadre (~200-300 tok/turno ahorrados).
+    let ctx = orchestrate("gracias tio, luego seguimos con lo otro", None, false);
+    assert!(ctx.workflow.is_none(), "charla -> sin workflow");
+    assert!(ctx.step_plans.is_empty(), "charla -> sin step_plans");
+    assert!(ctx.constraints.is_empty(), "charla -> sin constraints");
+    assert!(
+        !ctx.prompt_plan.improved_prompt.contains("[encuadre"),
+        "charla -> sin prompt_frame"
+    );
+}
+
+#[test]
+fn technical_prompt_keeps_ceremony() {
+    // Caso negativo del recorte: un prompt técnico conserva constraints y
+    // encuadre (el workflow depende del intent, no se asserta aquí).
+    let ctx = orchestrate("arregla el test roto del build de la app", None, false);
+    assert!(
+        !ctx.constraints.is_empty(),
+        "técnico -> constraints presentes"
+    );
+    assert!(
+        ctx.prompt_plan.improved_prompt.contains("[encuadre"),
+        "técnico -> encuadre presente"
+    );
+}
+
+#[test]
+fn is_conversational_boundaries() {
+    use super::rules::is_conversational;
+    assert!(is_conversational("shi cuh thank you cuh"));
+    assert!(is_conversational("dame un ejemplo de cada personalidad"));
+    assert!(!is_conversational("arregla el bug del build"));
+    assert!(!is_conversational("revisa el hook y haz commit"));
+    // Largo (>25 palabras) nunca es charla aunque no haya vocabulario técnico.
+    let long = "palabra ".repeat(26);
+    assert!(!is_conversational(&long));
+}
+
+#[test]
 fn orchestrate_excludes_delegation_for_meta_introspective() {
     // [bvaqws] Autoevaluar la sesion NO es delegable: el subagente no tiene el
     // transcript. La lista de delegados queda vacia, la directiva None, y el
