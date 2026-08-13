@@ -293,10 +293,33 @@ $inner
 "@
 Set-Content -LiteralPath $tmpScript -Value $scriptBody -Encoding UTF8
 
+# --- Per-project color scheme (card vy7sve, 2026-08-13) --------------------
+# Stable hash of the project folder name -> one of the BUILT-IN Windows
+# Terminal dark schemes, so every project always opens with its own color
+# identity (no more identical white-on-black walls). Built-in schemes only:
+# a scheme missing from WT settings would break the tab launch.
+$schemePalette = @("One Half Dark", "Solarized Dark", "Tango Dark", "Campbell", "Vintage", "Campbell Powershell")
+$projName = ""
+if ($cwd -and $cwd.Trim().Length -gt 0) {
+    try { $projName = (Split-Path -Leaf $cwd.Trim()) -replace '^\.+', '' } catch {}
+}
+$colorScheme = ""
+if ($projName) {
+    $h = 0
+    foreach ($ch in $projName.ToCharArray()) { $h = (($h * 31) + [int]$ch) -band 0x7FFFFFFF }
+    $colorScheme = $schemePalette[$h % $schemePalette.Count]
+}
+
 $title = "ULTRON-$provider"
+if ($projName) { $title = "ULTRON-$provider [$projName]" }
 $wtArgs = @(
     "new-tab",
-    "--title", $title,
+    "--title", $title
+)
+if ($colorScheme) {
+    $wtArgs += @("--colorScheme", $colorScheme)
+}
+$wtArgs += @(
     "--",
     "powershell.exe",
     "-NoExit",
