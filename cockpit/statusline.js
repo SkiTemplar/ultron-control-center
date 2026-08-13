@@ -38,8 +38,9 @@ function toneStatusVerb(toneId) {
   }
 }
 
-// Paleta ANSI-256 con contraste alto sobre fondo oscuro (nada de blanco plano).
-const PALETTE = [45, 208, 118, 199, 214, 81, 141, 220, 203, 84, 39, 172];
+// Paleta ANSI-256 MUTED (rediseño 2026-08-13, feedback del usuario: "menos
+// goofy, más profesional"): tonos acero/cobre/salvia apagados, cero neón.
+const PALETTE = [67, 109, 138, 173, 108, 103, 74, 137, 95, 144, 66, 132];
 
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
@@ -98,11 +99,16 @@ function pct(x) {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-/** Color por umbral de consumo: verde <60, amarillo 60-84, rojo >=85. */
+/** Valor de consumo: gris neutro <60, ámbar apagado 60-84, rojo seco >=85. */
 function usageColor(p) {
-  if (p >= 85) return color256(196);
-  if (p >= 60) return color256(214);
-  return color256(114);
+  if (p >= 85) return color256(160);
+  if (p >= 60) return color256(178);
+  return color256(250);
+}
+
+/** Métrica con etiqueta apagada y valor que solo grita cuando toca. */
+function metric(label, p) {
+  return `${color256(240)}${label} ${usageColor(p)}${p}%${RESET}`;
 }
 
 function main() {
@@ -123,29 +129,39 @@ function main() {
   const branch = gitBranch(cwd);
   const tone = activeTone(inp.session_id || inp.sessionId || '');
 
-  const parts = [`${pcol}${BOLD}⚡ ${project.toUpperCase()}${RESET}`];
-  if (branch) parts.push(`${color256(245)} ${branch}${RESET}`);
-  if (model) parts.push(`${DIM}${model}${RESET}`);
+  // Diseño "professional hard" (2026-08-13): sin emojis, barra de acento ▌ en
+  // el color del proyecto como única marca, etiquetas MAYÚSCULAS apagadas,
+  // separador │ fino; el color solo aparece cuando una métrica arde.
+  const parts = [`${pcol}${BOLD}▌${project.toUpperCase()}${RESET}`];
+  if (branch) parts.push(`${color256(245)}${branch}${RESET}`);
+  if (model) parts.push(`${color256(250)}${model.toUpperCase()}${RESET}`);
 
   // Contexto actual (payload v2.1.x: context_window.used_percentage, 0-100).
   const ctxPct = pct(inp.context_window && inp.context_window.used_percentage);
-  if (ctxPct !== null) parts.push(`${usageColor(ctxPct)}▓ ctx ${ctxPct}%${RESET}`);
+  if (ctxPct !== null) parts.push(metric('CTX', ctxPct));
 
   // Límites de suscripción (rate_limits.five_hour / seven_day; solo presentes
   // tras la primera respuesta de la API en cuentas de suscripción).
   const rl = inp.rate_limits || {};
   const fh = rl.five_hour ? pct(rl.five_hour.used_percentage) : null;
-  if (fh !== null) parts.push(`${usageColor(fh)}5h ${fh}%${RESET}`);
+  if (fh !== null) parts.push(metric('5H', fh));
   const sd = rl.seven_day ? pct(rl.seven_day.used_percentage) : null;
-  if (sd !== null) parts.push(`${usageColor(sd)}wk ${sd}%${RESET}`);
+  if (sd !== null) parts.push(metric('WK', sd));
+
+  // Badges de sesión: effort si viene, FAST solo cuando está activo.
+  const effort = inp.effort && (inp.effort.level || inp.effort);
+  if (typeof effort === 'string' && effort) {
+    parts.push(`${color256(240)}E:${color256(250)}${effort.toUpperCase()}${RESET}`);
+  }
+  if (inp.fast_mode === true) parts.push(`${BOLD}${color256(255)}FAST${RESET}`);
 
   if (tone) {
     const verb = toneStatusVerb(tone);
-    const label = verb ? `${tone} · ${verb}` : tone;
-    parts.push(`${color256(213)}🎭 ${label}${RESET}`);
+    const label = (verb ? `${tone}·${verb}` : tone).toUpperCase();
+    parts.push(`${color256(139)}${label}${RESET}`);
   }
 
-  process.stdout.write(parts.join(`${DIM} · ${RESET}`));
+  process.stdout.write(parts.join(` ${color256(238)}│${RESET} `));
 }
 
 try {

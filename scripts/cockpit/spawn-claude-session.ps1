@@ -303,6 +303,10 @@ $projName = ""
 if ($cwd -and $cwd.Trim().Length -gt 0) {
     try { $projName = (Split-Path -Leaf $cwd.Trim()) -replace '^\.+', '' } catch {}
 }
+# El home NO es un proyecto: sin nombre no hay corchetes ni scheme propio.
+if ($projName -and $env:USERPROFILE -and ($cwd.Trim().TrimEnd('\') -ieq $env:USERPROFILE.TrimEnd('\'))) {
+    $projName = ""
+}
 $colorScheme = ""
 if ($projName) {
     $h = 0
@@ -312,6 +316,16 @@ if ($projName) {
 
 $title = "ULTRON-$provider"
 if ($projName) { $title = "ULTRON-$provider [$projName]" }
+
+# BUG FIX 2026-08-13: Start-Process -ArgumentList con un ARRAY une los
+# elementos con espacios SIN quotear — un titulo o scheme con espacios
+# ("Tango Dark") rompia el argv de wt.exe, que acababa ejecutando un trozo
+# del titulo como programa (error 0x80070002 visto por el usuario). Se
+# construye UNA linea con quoting explicito de todo lo que lleve espacios.
+function Quote-Arg([string]$s) {
+    if ($s -match '[\s"]') { return '"' + ($s -replace '"', '\"') + '"' }
+    return $s
+}
 $wtArgs = @(
     "new-tab",
     "--title", $title
@@ -327,9 +341,10 @@ $wtArgs += @(
     "-ExecutionPolicy", "Bypass",
     "-File", $tmpScript
 )
+$wtArgLine = ($wtArgs | ForEach-Object { Quote-Arg $_ }) -join ' '
 
-[Console]::Error.WriteLine("[spawn-claude-session] script=$tmpScript inner=$inner")
+[Console]::Error.WriteLine("[spawn-claude-session] script=$tmpScript scheme=$colorScheme inner=$inner")
 
-Start-Process -FilePath "wt.exe" -ArgumentList $wtArgs -ErrorAction Stop | Out-Null
+Start-Process -FilePath "wt.exe" -ArgumentList $wtArgLine -ErrorAction Stop | Out-Null
 
 Write-Output "launched"
