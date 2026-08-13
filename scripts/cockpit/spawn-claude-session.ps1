@@ -282,6 +282,16 @@ try {
     [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
 } catch {}
 `$env:PYTHONUTF8 = '1'
+# BUG FIX 2026-08-13: si la app Tauri fue lanzada desde DENTRO de una sesion
+# de Claude Code, hereda sus markers de entorno (CLAUDE_CODE_CHILD_SESSION,
+# etc.) y los propaga a cada sesion spawneada -> "Transcript saving is off".
+# Se limpian SIEMPRE antes de arrancar el CLI: una sesion spawneada por
+# ULTRON es una sesion raiz, nunca una hija.
+try {
+    Get-ChildItem Env: | Where-Object { `$_.Name -like 'CLAUDE_CODE_*' -or `$_.Name -eq 'CLAUDECODE' } | ForEach-Object {
+        Remove-Item ('Env:' + `$_.Name) -ErrorAction SilentlyContinue
+    }
+} catch {}
 try {
     `$userPath = [Environment]::GetEnvironmentVariable('Path','User')
     if (`$userPath -and (`$env:PATH -notlike "*`$userPath*")) {
