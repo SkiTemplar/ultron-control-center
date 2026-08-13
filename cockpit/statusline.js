@@ -92,6 +92,19 @@ function activeTone(sessionId) {
   return '';
 }
 
+/** % redondeado o null (payload trae used_percentage pre-calculado). */
+function pct(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+/** Color por umbral de consumo: verde <60, amarillo 60-84, rojo >=85. */
+function usageColor(p) {
+  if (p >= 85) return color256(196);
+  if (p >= 60) return color256(214);
+  return color256(114);
+}
+
 function main() {
   let inp = {};
   try {
@@ -113,6 +126,19 @@ function main() {
   const parts = [`${pcol}${BOLD}⚡ ${project.toUpperCase()}${RESET}`];
   if (branch) parts.push(`${color256(245)} ${branch}${RESET}`);
   if (model) parts.push(`${DIM}${model}${RESET}`);
+
+  // Contexto actual (payload v2.1.x: context_window.used_percentage, 0-100).
+  const ctxPct = pct(inp.context_window && inp.context_window.used_percentage);
+  if (ctxPct !== null) parts.push(`${usageColor(ctxPct)}▓ ctx ${ctxPct}%${RESET}`);
+
+  // Límites de suscripción (rate_limits.five_hour / seven_day; solo presentes
+  // tras la primera respuesta de la API en cuentas de suscripción).
+  const rl = inp.rate_limits || {};
+  const fh = rl.five_hour ? pct(rl.five_hour.used_percentage) : null;
+  if (fh !== null) parts.push(`${usageColor(fh)}5h ${fh}%${RESET}`);
+  const sd = rl.seven_day ? pct(rl.seven_day.used_percentage) : null;
+  if (sd !== null) parts.push(`${usageColor(sd)}wk ${sd}%${RESET}`);
+
   if (tone) {
     const verb = toneStatusVerb(tone);
     const label = verb ? `${tone} · ${verb}` : tone;
