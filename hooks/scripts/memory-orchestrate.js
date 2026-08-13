@@ -17,12 +17,21 @@ observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
 // spawn fallback keeps the wider colchon for cold-hit E5 (see runCli call below).
-const DAEMON_TIMEOUT_MS = 3000;
+// (2026-08-13) Subido de 3000 a 6000 por el RERANK SELECTIVO: los prompts
+// tecnicos ahora pasan por el cross-encoder (+2-2.4s) para doblar el recall
+// (0.491 -> 0.810 medido). Con 3000 esos turnos vencian el plazo SIEMPRE y
+// caian al one-shot, que es peor (E5 frio, cap de 6s). El coste real del cambio
+// es solo cuando el daemon esta colgado de verdad: 6s en vez de 3s antes de
+// degradar. La charla no paga nada: no se rerankea (ver orchestrate.rs).
+const DAEMON_TIMEOUT_MS = 6000;
 // Check 1.5 (2026-07-22): con pack cacheado FRESCO del proyecto, el peor caso
 // del hook queda ~1200 (daemon) + 800 (one-shot cap) + overhead < 3000ms POR
 // CONSTRUCCION. Sin cache fresco se mantiene el colchon completo de 3000ms
 // porque no hay red de seguridad si el daemon tarda.
-const DAEMON_TIMEOUT_CACHED_MS = 1200;
+// Subido de 1200 a 4000 por el mismo motivo: con pack cacheado fresco el
+// presupuesto era mas corto que el propio rerank, asi que un turno tecnico se
+// servia SIEMPRE del cache stale en vez de esperar al pack bueno.
+const DAEMON_TIMEOUT_CACHED_MS = 4000;
 
 // HOOKS-04 (auditoria 2026-07-16, decidido por el usuario 2026-07-17): cap del
 // fallback one-shot + pack cacheado. Medido: daemon HIT p50=562ms, MISS

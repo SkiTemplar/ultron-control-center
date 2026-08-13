@@ -132,16 +132,17 @@ pub fn orchestrate(
     // limit=8: alineado con DEFAULT_LIMIT y el golden eval (k=8). 12 forzaba a
     // rellenar el pack con cola BM25 irrelevante (context_waste ~0.59); el
     // relevance-floor de assemble_pack + este techo dejan el pack few-and-good.
-    // Hot path: cross-encoder OFF por defecto (2-2.4 s/llamada vs p50 134 ms;
-    // ver build_trace). Opt-in explicito con ULTRON_RERANK_HOT=1.
-    let memories = match build_trace(
-        prompt,
-        8,
-        project_id,
-        cross_project,
-        dense_enabled,
-        crate::qdrant::rerank_hot_enabled(),
-    ) {
+    // RERANK SELECTIVO (2026-08-13, decidido por el usuario tras medir): el
+    // cross-encoder sube el recall@8 medido de 0.491 (hot path pelado) a 0.810
+    // (golden con rerank), pero cuesta 2-2.4 s/llamada frente a un p50 de ~134
+    // ms. Encenderlo SIEMPRE castigaría cada turno de charla; apagado siempre
+    // condenaba los turnos técnicos —donde la memoria es la que decide— a la
+    // mitad del recall del que el sistema es capaz. Se paga solo donde importa:
+    // prompts NO conversacionales. `ULTRON_RERANK_HOT=1` sigue forzándolo en
+    // todos (opt-in explícito). El hook lleva su presupuesto de timeout alineado.
+    let conversational = super::rules::is_conversational(prompt);
+    let rerank = crate::qdrant::rerank_hot_enabled() || !conversational;
+    let memories = match build_trace(prompt, 8, project_id, cross_project, dense_enabled, rerank) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected
@@ -155,7 +156,7 @@ pub fn orchestrate(
     // Clase CONVERSACIONAL (2026-08-13): charla corta sin señal técnica → se
     // recorta la ceremonia (workflow, step_plans, constraints, encuadre). El
     // tono, recall y warnings siguen — son lo único útil en esos turnos.
-    let conversational = super::rules::is_conversational(prompt);
+    // (`conversational` ya calculado arriba: gobierna también el rerank.)
     let workflow = if conversational { None } else { workflow };
 
     let constraints = if conversational {

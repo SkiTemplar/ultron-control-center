@@ -341,6 +341,52 @@ pub fn build_trace(
             ));
         }
     }
+    // (margen) 2026-08-13 — PODA POR MARGEN, entrada a entrada. El floor de
+    // arriba es todo-o-nada (vacía el pack entero o lo deja intacto), así que
+    // un pack CON señal arrastraba también su cola: medido sobre el golden,
+    // precision@8 0.267 y context_waste 0.733 (de 8 inyectadas ~2 relevantes;
+    // las otras 6 gastan contexto en CADA prompt y se quedan en el historial).
+    // Se poda relativo al MEJOR dense del propio pack — un umbral absoluto no
+    // sirve porque los dense reales se apiñan en 0.79-0.82 y el reparto cambia
+    // con cada query. Se conservan siempre las PRUNE_KEEP_MIN primeras (nunca
+    // se destripa un pack bueno) y lo podado queda en `discarded` con su razón
+    // (mandamiento 11: nada de recortes silenciosos).
+    if injected.len() > PRUNE_KEEP_MIN {
+        if let Some(margin) = prune_margin() {
+            let best_dense = injected
+                .iter()
+                .filter_map(|e| e.dense_score)
+                .fold(f32::NEG_INFINITY, f32::max);
+            if best_dense.is_finite() {
+                let cutoff = best_dense - margin;
+                let mut kept: Vec<RecallEntry> = Vec::with_capacity(injected.len());
+                let mut pruned = 0usize;
+                for (idx, e) in injected.drain(..).enumerate() {
+                    let strong_sparse = e.sparse_rank.is_some_and(|r| r <= STRONG_SPARSE_RANK);
+                    let dense_ok = e.dense_score.is_some_and(|s| s >= cutoff);
+                    if idx < PRUNE_KEEP_MIN || dense_ok || strong_sparse {
+                        kept.push(e);
+                    } else {
+                        pruned += 1;
+                        total_tokens = total_tokens.saturating_sub(e.token_estimate.max(0));
+                        discarded.push(DiscardedHit {
+                            canonical_id: e.canonical_id,
+                            reason: format!(
+                                "poda por margen: dense {:.3} < cutoff {cutoff:.3}",
+                                e.dense_score.unwrap_or(0.0)
+                            ),
+                        });
+                    }
+                }
+                injected = kept;
+                if pruned > 0 {
+                    warnings.push(format!(
+                        "poda por margen: {pruned} entrada(s) fuera (cutoff {cutoff:.3})"
+                    ));
+                }
+            }
+        }
+    }
     // (c trust gate, 2026-07-02) COBERTURA DE TÉRMINOS: si la query trae un
     // término informativo con CERO documentos en el corpus, el sistema no puede
     // saber de eso — inyectar vecinos temáticos es alucinar contexto (near-miss
@@ -505,6 +551,40 @@ pub(crate) fn ambient_rank_factor(
 
 /// Lee `ULTRON_RECALL_FLOOR`: ausente -> default; "off"/"0" -> gate desactivado;
 /// número -> override; basura -> default (fail-safe: nunca desactiva en silencio).
+/// (margen 2026-08-13) Cuántas entradas se conservan SIEMPRE en cabeza, pase lo
+/// que pase con la poda: 2 = la mejor y su respaldo. Con 1 un pack legítimo de
+/// dos hechos complementarios perdería la mitad por un margen apretado.
+const PRUNE_KEEP_MIN: usize = 2;
+
+/// Margen (en dense cosine) por debajo del MEJOR del pack a partir del cual una
+/// entrada se poda. Default = None: **VEREDICTO NEGATIVO, MEDIDO** (golden 29
+/// queries, sidecar fresco, 2026-08-13):
+///
+///   poda off   -> recall@8 0.8103 · p@8 0.2672 · waste 0.7328  <- se queda
+///   margen 0.08 -> recall@8 0.7776 · p@8 0.2500 · waste 0.7500
+///   margen 0.04 -> recall@8 0.7506 · p@8 0.2371 · waste 0.7629
+///
+/// La hipótesis era que la precisión baja (0.267) venía de cola inyectada por
+/// el gate todo-o-nada, y que el dense separaba lo bueno de la cola. La medida
+/// la REFUTA: cuanto más se poda, PEOR va todo — las memorias relevantes viven
+/// repartidas por toda la banda 0.79-0.82, así que cortar por margen se lleva
+/// señal, no ruido. (El p@8 del eval divide por k fijo, así que podar nunca
+/// puede subirlo; el dato decisivo es el recall cayendo 6 puntos.) El código
+/// se conserva OFF y tuneable por ULTRON_PRUNE_MARGIN para futuros A/B con
+/// otra señal (p.ej. score del cross-encoder en vez del dense crudo), no para
+/// encenderlo a ciegas. Mismo patrón que el A/B del reranker y Contextual
+/// Retrieval: experimento medido, negativo, declarado.
+const DEFAULT_PRUNE_MARGIN: f32 = 0.04;
+
+fn prune_margin() -> Option<f32> {
+    match std::env::var("ULTRON_PRUNE_MARGIN") {
+        Ok(v) if v.eq_ignore_ascii_case("off") || v.trim() == "0" => None,
+        Ok(v) => Some(v.trim().parse::<f32>().unwrap_or(DEFAULT_PRUNE_MARGIN)),
+        // Sin env var: OFF por veredicto medido (ver tabla arriba).
+        Err(_) => None,
+    }
+}
+
 fn recall_floor() -> Option<f32> {
     match std::env::var("ULTRON_RECALL_FLOOR") {
         Ok(v) if v.eq_ignore_ascii_case("off") || v.trim() == "0" => None,
@@ -612,6 +692,30 @@ mod floor_tests {
         assert_eq!(env_knob_f32("ULTRON_RRF_K", 60.0), 20.5);
         std::env::remove_var("ULTRON_RRF_K");
         assert_eq!(env_knob_f32("ULTRON_RRF_K", 60.0), 60.0);
+    }
+
+    #[test]
+    fn prune_margin_env_override_off_and_garbage() {
+        // Mismo contrato que el floor: off desactiva, valor invalido -> default
+        // (nunca silencio ni panic en el hot path).
+        std::env::set_var("ULTRON_PRUNE_MARGIN", "off");
+        assert_eq!(prune_margin(), None, "off desactiva la poda");
+        std::env::set_var("ULTRON_PRUNE_MARGIN", "0.07");
+        assert_eq!(prune_margin(), Some(0.07));
+        std::env::set_var("ULTRON_PRUNE_MARGIN", "basura");
+        assert_eq!(
+            prune_margin(),
+            Some(DEFAULT_PRUNE_MARGIN),
+            "valor invalido -> default"
+        );
+        // Sin env var: OFF por veredicto medido (golden: podar EMPEORA el
+        // recall 0.810 -> 0.751). Este assert es el guardian de esa decision.
+        std::env::remove_var("ULTRON_PRUNE_MARGIN");
+        assert_eq!(
+            prune_margin(),
+            None,
+            "default OFF: la poda por margen quedo refutada por medicion"
+        );
     }
 
     #[test]

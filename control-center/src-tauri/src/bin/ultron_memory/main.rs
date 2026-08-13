@@ -366,10 +366,14 @@ fn run() -> Result<serde_json::Value, String> {
             // Guard prevents the ~1 GB BGERerankerV2M3 download for users who
             // have not opted in. FAIL-SAFE: errors are logged but never block
             // the session or change the `warmed` (E5) status.
-            // Solo se precalienta BGE si el HOT PATH lo va a usar (opt-in
-            // ULTRON_RERANK_HOT): tras el split, el hook no re-rankea, y calentar
-            // ~1 GB extra en cada SessionStart era una tormenta de CPU inutil.
-            let reranker_warmed = if ul::qdrant::rerank_hot_enabled() {
+            // (2026-08-13) Desde el RERANK SELECTIVO el hot path SI re-rankea
+            // los prompts tecnicos, asi que la condicion vieja (solo con el
+            // opt-in ULTRON_RERANK_HOT) dejaba el cross-encoder frio: medido,
+            // el primer prompt tecnico de cada sesion pagaba 4.8 s (carga del
+            // modelo ~1 GB) en vez de los ~2.4 s del rerank en caliente. Se
+            // precalienta salvo apagado global (ULTRON_RERANK=0), donde nadie
+            // re-rankea y calentar seria tirar CPU.
+            let reranker_warmed = if ul::qdrant::reranker_enabled() {
                 match ul::qdrant::warmup_reranker() {
                     Ok(()) => true,
                     Err(e) => {
