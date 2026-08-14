@@ -248,7 +248,7 @@
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 20,
-      "checksum_sha256": "7110fdfef083a6736d380446be1dced0d05ba3fbf6d7128761a2053bedf9e2a5",
+      "checksum_sha256": "fa31571aff11b24e5a0f8aa4e8e754af178973c971cd714c7836541f7e3e7960",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

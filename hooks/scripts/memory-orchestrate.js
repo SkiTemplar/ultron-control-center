@@ -110,7 +110,14 @@ function toneLines(t) {
     // couple of words here and there" — la directiva exige compromiso TOTAL,
     // no salpicar slang sobre una respuesta de oficina.
     out.push(
-      `tone_directive: LA PERSONALIDAD ES LA VOZ DE TODA LA RESPUESTA — cada frase, ` +
+      `tone_directive: AMBITO (limite duro): el tono viste SOLO la conversacion ` +
+        `directa con el usuario. NUNCA sale de ahi: ni codigo, ni comentarios, ni ` +
+        `mensajes de commit, ni PRs, ni issues, ni documentacion, ni README, ni ` +
+        `CHANGELOG, ni texto del TFG, ni prompts a subagentes, ni ningun artefacto ` +
+        `que persista o que pueda leer un tercero — ahi rige el tono tecnico ` +
+        `profesional con ortografia completa, aunque el tono este activo en este ` +
+        `mismo turno. Dentro del chat, en cambio: ` +
+        `LA PERSONALIDAD ES LA VOZ DE TODA LA RESPUESTA — cada frase, ` +
         `la gramatica, el ritmo y la actitud salen en este registro; PROHIBIDO espolvorear ` +
         `dos palabras de slang sobre una respuesta neutra. Los datos tecnicos se mantienen ` +
         `EXACTOS (cambia la voz, nunca el contenido). TEST FINAL antes de responder: si tu ` +
