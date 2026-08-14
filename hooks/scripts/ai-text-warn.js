@@ -31,6 +31,11 @@ const EXCLUDED_PATH_PARTS = [
   '/node_modules/',
   '/.tmp/',
 ];
+// Ficheros de INSTRUCCIONES del asistente: son configuracion en Markdown, no
+// prosa entregable. El catalogo esta calibrado para texto academico (TFG), asi
+// que aqui solo produce ruido — visto 2026-08-14, salto sobre CLAUDE.md marcando
+// la negrita Markdown como "artefacto sin adaptar al formato destino".
+const EXCLUDED_BASENAMES = new Set(['claude.md', 'agents.md', 'gemini.md']);
 const MAX_EXAMPLES = 5;
 
 function readStdinSync() {
@@ -73,12 +78,18 @@ function main() {
 
   const normalized = filePath.replace(/\\/g, '/');
   if (EXCLUDED_PATH_PARTS.some((part) => normalized.includes(part))) return;
+  if (EXCLUDED_BASENAMES.has(path.basename(normalized).toLowerCase())) return;
 
   const text = extractNewText(toolName, toolInput);
   if (!text.trim()) return;
 
-  const { scan } = require('./lib/ai-text-detector');
-  const report = scan(text);
+  const { scan, MARKDOWN_NATIVE_PATTERNS } = require('./lib/ai-text-detector');
+  // En destino .md la negrita y el guion largo son sintaxis del formato: avisar
+  // de ellos es ruido y el ruido acaba en que se ignore el detector entero
+  // (decidido 2026-08-14). El resto del catalogo sigue aplicandose igual.
+  const report = scan(text, null, {
+    skipPatterns: ext === '.md' ? MARKDOWN_NATIVE_PATTERNS : [],
+  });
   if (!report.matches.length) return; // texto limpio → silencio total
 
   const examples = report.matches.slice(0, MAX_EXAMPLES).map((m) => {

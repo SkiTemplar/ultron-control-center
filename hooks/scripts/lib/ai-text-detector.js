@@ -101,14 +101,35 @@ function compileRules(patrones) {
   return rules;
 }
 
+/** Normaliza un nombre de patrón para comparar sin depender de tildes/mayúsculas. */
+function patternKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[áàäâ]/g, 'a')
+    .replace(/[éèëê]/g, 'e')
+    .replace(/[íìïî]/g, 'i')
+    .replace(/[óòöô]/g, 'o')
+    .replace(/[úùüû]/g, 'u');
+}
+
 /**
  * Escanea `text` contra el catálogo. Devuelve la misma forma que TfgReport:
  * { matches, patterns_hit, total_patterns_scanned, words, density_per_100w }.
+ *
+ * `opts.skipPatterns` desactiva patrones por nombre (substring normalizado).
+ * Los patrones saltados NO cuentan para `total_patterns_scanned` ni para la
+ * densidad: el informe describe lo que de verdad se miró. Se usa para el
+ * destino Markdown, donde la negrita y el guion largo son sintaxis legítima y
+ * no artefactos de haber pegado la salida de un chatbot.
  */
-function scan(text, patrones) {
+function scan(text, patrones, opts) {
   const src = String(text || '');
   const cat = patrones || loadCatalog();
-  const rules = compileRules(cat);
+  const skip = ((opts && opts.skipPatterns) || []).map(patternKey).filter(Boolean);
+  let rules = compileRules(cat);
+  if (skip.length) {
+    rules = rules.filter((r) => !skip.some((s) => patternKey(r.pattern).includes(s)));
+  }
   const scannedPatterns = new Set(rules.map((r) => r.patternIdx));
   const hitPatterns = new Set();
   const matches = [];
@@ -144,4 +165,8 @@ function scan(text, patrones) {
   };
 }
 
-module.exports = { loadCatalog, compileRules, scan, CATALOG_PATH };
+// Patrones que describen "he pegado la salida del chatbot en un formato que NO
+// es Markdown". En un destino .md son sintaxis legitima, no artefactos.
+const MARKDOWN_NATIVE_PATTERNS = ['artefactos de markup', 'guion largo'];
+
+module.exports = { loadCatalog, compileRules, scan, patternKey, MARKDOWN_NATIVE_PATTERNS, CATALOG_PATH };

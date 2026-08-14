@@ -314,7 +314,7 @@
       "command": "node ~/.ultron/hooks/scripts/ai-text-warn.js",
       "script": "~/.ultron/hooks/scripts/ai-text-warn.js",
       "timeout_s": 10,
-      "checksum_sha256": "73dd240e4cf22ad82c5579e8c8e9d5c1bcf1d50a987639c4e84ec4d03b8169bb",
+      "checksum_sha256": "7bafabc37c057b50a3e57d4bae644d7205b6ed297f19f0bd5a21c11b06258152",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
