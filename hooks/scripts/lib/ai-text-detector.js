@@ -40,11 +40,24 @@ function loadCatalog(catalogPath) {
 function toJsRegex(source) {
   let src = String(source || '');
   let flags = 'gu';
-  // Rust escribe el modo case-insensitive como prefijo inline `(?i)`; JS no
-  // lo soporta a nivel de patrón completo → se traduce al flag 'i'.
-  if (src.startsWith('(?i)')) {
-    src = src.slice(4);
-    flags += 'i';
+  // Rust escribe los modificadores como prefijo inline `(?i)`, `(?m)`, `(?s)` o
+  // combinados `(?im)`; JS no los soporta a nivel de patrón y se traducen a
+  // flags. Antes solo se contemplaba `(?i)`: cualquier patrón con `(?m)` no
+  // compilaba y se saltaba EN SILENCIO, de modo que vivía en el Lab (Rust sí
+  // soporta el prefijo) y estaba muerto en el hook. Eso le pasaba al patrón
+  // "Gerundio calcado del inglés", 0/2 en el audit de cobertura (2026-08-14).
+  // Flags de Rust sin equivalente en JS (`x` extendido, `U` swap-greedy) siguen
+  // cayendo al camino intraducible en vez de compilar algo que no es lo escrito.
+  const inline = src.match(/^\(\?([a-zA-Z]+)\)/);
+  if (inline) {
+    const soportados = { i: 'i', m: 'm', s: 's' };
+    const pedidos = [...inline[1]];
+    if (pedidos.every((f) => soportados[f])) {
+      src = src.slice(inline[0].length);
+      for (const f of pedidos) {
+        if (!flags.includes(soportados[f])) flags += soportados[f];
+      }
+    }
   }
   try {
     return new RegExp(src, flags);

@@ -1,0 +1,307 @@
+{
+  "_doc": "Casos etiquetados a mano para auditar la COBERTURA del catalogo de texto IA. Por cada patron: 'positivos' = prosa que el patron DEBERIA marcar segun su propia descripcion; 'negativos' = prosa academica española legitima que NO deberia marcar. El harness (scripts/catalog-coverage.js) mide cada patron SOLO contra sus casos. Etiquetado 2026-08-14; revisar si cambia el catalogo.",
+  "_criterio_negativos": "Los negativos son frases que un TFG humano y correcto puede contener con naturalidad. Si un patron los marca, sobredispara y entrena al autor a ignorar el detector.",
+  "patrones": [
+    {
+      "nombre": "Vocabulario 'delve' y oleadas léxicas de IA (base inglesa)",
+      "positivos": [
+        "This section delves into the intricate tapestry of memory systems.",
+        "The results underscore a pivotal shift, standing as a testament to the approach.",
+        "Conviene ahondar en el intrincado entramado de dependencias del modulo."
+      ],
+      "negativos": [
+        "El capitulo tres describe el algoritmo de indexacion y sus dos limitaciones.",
+        "This chapter measures latency under load and reports the raw numbers."
+      ]
+    },
+    {
+      "nombre": "Vocabulario IA sobreusado en español",
+      "positivos": [
+        "Es crucial destacar que exploraremos los desafios del sector.",
+        "Resulta crucial comprender estos desafios antes de continuar.",
+        "En este apartado profundizaremos en las multiples aristas del fenomeno.",
+        "El presente estudio aborda una tematica sumamente relevante y enriquecedora."
+      ],
+      "negativos": [
+        "El sistema tarda 4,2 segundos en responder cuando el modelo esta frio.",
+        "Se compara el rendimiento de dos indices sobre el mismo corpus."
+      ]
+    },
+    {
+      "nombre": "Énfasis indebido en significado/legado",
+      "positivos": [
+        "Su obra deja una huella imborrable en la disciplina.",
+        "Este avance supone un hito fundamental para el area.",
+        "The paper stands as a testament to decades of research.",
+        "Su aportacion marco un antes y un despues en la historia del campo."
+      ],
+      "negativos": [
+        "El articulo de Kobak (2024) analiza 14,2 millones de resumenes de PubMed.",
+        "La tecnica se adopto en tres laboratorios entre 2021 y 2023."
+      ]
+    },
+    {
+      "nombre": "Análisis superficial en gerundio",
+      "positivos": [
+        "El modelo mejora la precision, destacando su utilidad practica.",
+        "La arquitectura reduce la latencia, subrayando la importancia del diseño.",
+        "El sistema escala sin problemas, reflejando la solidez del enfoque.",
+        "Los datos confirman la hipotesis, demostrando el valor del metodo.",
+        "La herramienta automatiza el proceso, permitiendo una mayor eficiencia."
+      ],
+      "negativos": [
+        "El modelo mejora la precision un 12% sobre el mismo conjunto de prueba.",
+        "Midiendo con el daemon caliente, la latencia baja a 3,9 segundos."
+      ]
+    },
+    {
+      "nombre": "Lenguaje promocional/publicitario",
+      "positivos": [
+        "La ciudad, enclavada en un ecosistema dinamico, boasts a vibrant culture.",
+        "Se trata de una solucion revolucionaria y vibrante para el sector.",
+        "Esta potente herramienta ofrece posibilidades ilimitadas al investigador."
+      ],
+      "negativos": [
+        "La biblioteca implementa el algoritmo HNSW con parametros por defecto.",
+        "El campus se encuentra a doce kilometros del centro de la ciudad."
+      ]
+    },
+    {
+      "nombre": "Atribuciones vagas sin fuente",
+      "positivos": [
+        "Algunos expertos argumentan que la tendencia se mantendra.",
+        "Diversos informes del sector apuntan a un crecimiento sostenido.",
+        "Se ha señalado en repetidas ocasiones que el metodo es insuficiente.",
+        "Es ampliamente reconocido que este enfoque presenta limitaciones."
+      ],
+      "negativos": [
+        "Kobak et al. (2024) documentan un exceso de 'delve' en resumenes biomedicos.",
+        "Segun la documentacion oficial de Qdrant, la coleccion admite 1024 dimensiones."
+      ]
+    },
+    {
+      "nombre": "Fórmula de cierre rígida",
+      "positivos": [
+        "A pesar de sus logros, el proyecto enfrenta varios desafios. De cara al futuro, se abren nuevas oportunidades.",
+        "Despite its achievements, the field faces several challenges. The future outlook remains promising.",
+        "En conclusion, si bien quedan retos por delante, el porvenir resulta prometedor."
+      ],
+      "negativos": [
+        "El sistema no resuelve la atribucion de memorias huerfanas; queda documentado como limitacion.",
+        "Se descarto el reranker en el arranque tras medir 1,5 GB de coste en RAM."
+      ]
+    },
+    {
+      "nombre": "Evitación de la cópula simple ('es/son')",
+      "positivos": [
+        "El modulo se erige como el nucleo del sistema.",
+        "Esta capa funciona como intermediaria entre ambos servicios.",
+        "El indice constituye la pieza central de la arquitectura.",
+        "Dicho componente representa el principal cuello de botella.",
+        "La memoria supone el elemento diferenciador de la propuesta."
+      ],
+      "negativos": [
+        "El modulo es el nucleo del sistema y pesa 1,5 GB en memoria.",
+        "Esta capa esta entre ambos servicios y traduce sus formatos."
+      ]
+    },
+    {
+      "nombre": "Paralelismo negativo 'no solo X, sino también Y'",
+      "positivos": [
+        "El metodo no solo acelera la consulta, sino tambien reduce el coste.",
+        "No solo explora la problematica, sino que tambien propone una solucion.",
+        "El sistema no solo indexa, sino ademas reordena los resultados.",
+        "It not only improves recall but also lowers latency."
+      ],
+      "negativos": [
+        "El metodo acelera la consulta y ademas reduce el coste.",
+        "No se midio la latencia en frio, solo en caliente."
+      ]
+    },
+    {
+      "nombre": "Paralelismo negativo total 'no es X, sino Y'",
+      "positivos": [
+        "No es una simple mejora, sino un cambio de paradigma.",
+        "Esto no es un detalle menor, sino el eje del argumento.",
+        "It is not a tool but a platform."
+      ],
+      "negativos": [
+        "El resultado no es concluyente porque la muestra es pequeña.",
+        "La diferencia no es estadisticamente significativa (p = 0,31)."
+      ]
+    },
+    {
+      "nombre": "'X en lugar de Y' (variante invertida)",
+      "positivos": [
+        "El sistema prioriza la precision, midiendo el recall en lugar de estimarlo.",
+        "The model learns representations rather than memorizing examples.",
+        "Se opta por reindexar en lugar de parchear el drift a mano."
+      ],
+      "negativos": [
+        "Se uso Qdrant en lugar de FAISS por la persistencia nativa.",
+        "El daemon carga E5 al arrancar; el reranker no."
+      ]
+    },
+    {
+      "nombre": "Regla de tres (tricolon) obsesiva",
+      "positivos": [
+        "El sistema es rapido, eficiente y escalable.",
+        "La memoria, el routing y la interfaz forman el nucleo.",
+        "Analiza el contexto, sintetiza los hallazgos y evalua el impacto.",
+        "This approach is fast, efficient, and scalable."
+      ],
+      "negativos": [
+        "Si no hay señales, dilo y para ahi.",
+        "Cuando termine el build, avisa y sigue con el deploy.",
+        "Aunque el test falle, reintenta y documenta el motivo.",
+        "Una vez desplegado, arranca y comprueba el doctor."
+      ]
+    },
+    {
+      "nombre": "Variación léxica forzada (elegant variation)",
+      "positivos": [
+        "El transformador procesa la entrada; dicho modelo la codifica y el mencionado sistema la devuelve.",
+        "Qdrant almacena los vectores. La base vectorial los indexa. Este motor de busqueda responde en milisegundos."
+      ],
+      "negativos": [
+        "Qdrant almacena los vectores y Qdrant los indexa; Qdrant responde en milisegundos."
+      ]
+    },
+    {
+      "nombre": "Artefactos de markup sin adaptar al formato destino",
+      "positivos": [
+        "El resultado fue **significativo** segun el analisis :contentReference[oaicite:3]{index=3}.",
+        "Vease el trabajo previo [cite: 12] para el detalle del metodo.",
+        "Consultese la [documentacion oficial](https://example.org) del proyecto."
+      ],
+      "negativos": [
+        "El resultado fue significativo segun el analisis de varianza.",
+        "Vease Kobak et al. (2024) para el detalle del metodo."
+      ]
+    },
+    {
+      "nombre": "Encabezados genéricos repetidos en Title Case",
+      "positivos": [
+        "Retos y perspectivas de futuro",
+        "Marco teorico y estado del arte",
+        "Challenges and future prospects",
+        "Conclusiones y trabajo futuro"
+      ],
+      "negativos": [
+        "Coste en RAM del cross-encoder",
+        "Por que se descarto el prewarm del reranker"
+      ]
+    },
+    {
+      "nombre": "Guion largo (em dash) sobreusado",
+      "positivos": [
+        "El sistema —que carga dos modelos— consume 3 GB, y el daemon —ya medido— otros 1,5 GB, mientras la interfaz —Chromium puro— se lleva el resto."
+      ],
+      "negativos": [
+        "El sistema —que carga dos modelos— consume 3 GB de memoria residente.",
+        "La medicion se repitio tres veces con el modelo en caliente."
+      ]
+    },
+    {
+      "nombre": "Falsos rangos sin detalle real",
+      "positivos": [
+        "El enfoque abarca desde la ingenieria de prompts hasta la evaluacion automatica.",
+        "Applications range from healthcare to finance.",
+        "La propuesta cubre desde el diseño conceptual hasta la puesta en produccion."
+      ],
+      "negativos": [
+        "El experimento se ejecuto desde el 3 hasta el 14 de agosto de 2026.",
+        "La latencia va desde 144 ms en charla hasta 5,0 s en prompts tecnicos."
+      ]
+    },
+    {
+      "nombre": "Inserciones editoriales / contrastes forzados",
+      "positivos": [
+        "Cabe destacar que el metodo requiere calibracion previa.",
+        "Es importante tener en cuenta que los datos provienen de una sola fuente.",
+        "It's important to note that the sample was small.",
+        "Conviene señalar que ambos enfoques comparten el mismo supuesto."
+      ],
+      "negativos": [
+        "El metodo requiere calibracion previa: sin ella el umbral no aplica.",
+        "Los datos provienen de una sola fuente, lo que limita la generalizacion."
+      ]
+    },
+    {
+      "nombre": "Throat-clearing openers (aperturas genéricas)",
+      "positivos": [
+        "En el mundo actual, la inteligencia artificial transforma sectores enteros.",
+        "En la sociedad actual, el acceso a la informacion resulta determinante.",
+        "In today's fast-paced world, efficiency is everything.",
+        "A lo largo de la historia, el ser humano ha buscado automatizar tareas."
+      ],
+      "negativos": [
+        "Este trabajo mide el recall de un sistema de memoria con 3.206 elementos.",
+        "El objetivo es cuantificar el coste en RAM de un cross-encoder residente."
+      ]
+    },
+    {
+      "nombre": "Gerundio calcado del inglés (español)",
+      "positivos": [
+        "Analizando los resultados, se observa una mejora del 12%.",
+        "Considerando las limitaciones descritas, el metodo sigue siendo valido."
+      ],
+      "negativos": [
+        "El sistema sigue mejorando la precision con cada iteracion.",
+        "Se observa una mejora del 12% al analizar los resultados."
+      ]
+    },
+    {
+      "nombre": "Mayúsculas tipo inglés en títulos (español)",
+      "positivos": [
+        "Analisis De Los Resultados Obtenidos",
+        "Estado Del Arte Y Trabajo Relacionado"
+      ],
+      "negativos": [
+        "Analisis de los resultados obtenidos",
+        "La Universidad de Sevilla publico el informe en 2024."
+      ]
+    },
+    {
+      "nombre": "'Español neutro' sin diatopismos",
+      "positivos": [
+        "El usuario debe presionar el boton de la computadora para inicializar el proceso."
+      ],
+      "negativos": [
+        "El equipo de laboratorio usa una computadora con Linux desde 2019.",
+        "El ordenador del laboratorio ejecuta el indice en local."
+      ]
+    },
+    {
+      "nombre": "Hedging uniforme y excesivo",
+      "positivos": [
+        "El resultado podria indicar que el metodo parece funcionar en cierta medida.",
+        "Esto podria sugerir que, en cierta medida, el efecto parece sostenerse."
+      ],
+      "negativos": [
+        "El recall podria bajar si el corpus crece por encima de 10.000 elementos.",
+        "La causa no esta confirmada: requiere una medicion en runtime."
+      ]
+    },
+    {
+      "nombre": "Monotonía de longitud de frase (baja burstiness)",
+      "positivos": [
+        "El sistema indexa los datos. El modelo genera los vectores. La base almacena los indices. El motor responde las consultas. El usuario recibe los resultados."
+      ],
+      "negativos": [
+        "El sistema indexa. Luego el modelo, que carga 2,1 GB de pesos en memoria residente y tarda casi cuatro segundos en arrancar la primera vez, genera los vectores. Se almacenan. El motor responde en 144 ms."
+      ]
+    },
+    {
+      "nombre": "Razonamiento excesivamente equilibrado y relleno sin contenido",
+      "positivos": [
+        "Por un lado, el metodo mejora la precision; por otro lado, incrementa el coste.",
+        "Si bien presenta ventajas, tambien conlleva ciertos inconvenientes que conviene sopesar."
+      ],
+      "negativos": [
+        "El metodo mejora el recall de 0,491 a 0,810 y cuesta 4 segundos por consulta.",
+        "Por un lado del cluster corre Qdrant; por el otro, el daemon de embeddings."
+      ]
+    }
+  ]
+}

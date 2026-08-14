@@ -121,5 +121,24 @@ A(
   `sin match en el catalogo: ${JSON.stringify(huerfanos)}`,
 );
 
+// --- Caso 11 (GUARDA): TODA regex del catalogo compila en JS ----------------
+// Una regex intraducible se salta en silencio, asi que el patron queda vivo en
+// el Lab (Rust) y muerto en el hook (JS) sin que nadie se entere. Le pasaba al
+// "Gerundio calcado del ingles" por el prefijo (?m) (2026-08-14).
+const { loadCatalog: _cat, compileRules: _compile } = await import("./lib/ai-text-detector.js");
+const saltadas = [];
+for (const p of _cat()) {
+  for (const s of (p.senales_ejecutables || []).filter((x) => x.tipo === "regex")) {
+    if (!_compile([{ nombre: p.nombre, senales_ejecutables: [s] }]).length) {
+      saltadas.push(`${p.nombre} :: ${s.valor}`);
+    }
+  }
+}
+A(
+  saltadas.length === 0,
+  "caso11: todas las regex del catalogo compilan (ninguna se salta en silencio)",
+  `intraducibles: ${JSON.stringify(saltadas, null, 1)}`,
+);
+
 console.log(fail === 0 ? "\nSELFTEST ai-text-warn: VERDE" : `\nSELFTEST ai-text-warn: ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);
