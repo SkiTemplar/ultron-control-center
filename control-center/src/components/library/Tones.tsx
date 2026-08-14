@@ -72,6 +72,43 @@ function textToList(text: string): string[] {
     .filter(Boolean);
 }
 
+type ListFieldProps = {
+  value: string[];
+  onChange: (next: string[]) => void;
+  rows?: number;
+  placeholder?: string;
+};
+
+/**
+ * Campo de lista separada por comas.
+ *
+ * Mientras se edita se muestra el texto CRUDO, no el array re-serializado: si
+ * se serializara en cada tecla, `split(",").filter(Boolean)` borraría la coma
+ * recién escrita (y su espacio) antes de poder teclear la palabra siguiente —
+ * era imposible escribir comas en los campos de señales (bug 2026-08-14).
+ * El array sí se actualiza en cada tecla, así que "Guardar" sigue viendo el
+ * estado más reciente; el borrador se suelta al salir del campo.
+ */
+function ListField({ value, onChange, rows, placeholder }: ListFieldProps) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shared = {
+    value: draft ?? listToText(value),
+    onChange: (e: { target: { value: string } }) => {
+      setDraft(e.target.value);
+      onChange(textToList(e.target.value));
+    },
+    onBlur: () => setDraft(null),
+    placeholder,
+    className: "w-full rounded px-2 py-1 text-[11.5px]",
+    style: {
+      background: "var(--color-surface-1)",
+      color: "var(--color-text)",
+      border: "1px solid var(--color-border)",
+    },
+  };
+  return rows ? <textarea rows={rows} {...shared} /> : <input type="text" {...shared} />;
+}
+
 export function Tones() {
   const [file, setFile] = useState<PersonalityFile | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,10 +150,10 @@ export function Tones() {
     void load();
   }, []);
 
-  function statusWordsFor(id: string): string {
+  function statusWordsFor(id: string): string[] {
     const v = toneStatus[id];
-    if (Array.isArray(v)) return v.join(", ");
-    return typeof v === "string" ? v : "";
+    if (Array.isArray(v)) return v;
+    return typeof v === "string" ? textToList(v) : [];
   }
 
   async function saveWords() {
@@ -349,23 +386,14 @@ export function Tones() {
               </button>
             </div>
           </div>
-          <textarea
-            value={spinner.verbs.join(", ")}
-            onChange={(e) =>
-              setSpinner({
-                ...spinner,
-                verbs: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-              })
-            }
-            rows={2}
-            className="mt-2 w-full rounded px-2 py-1 text-[11.5px]"
-            style={{
-              background: "var(--color-surface-1)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-            }}
-            placeholder="Maquinando, Cookin, Currelando, …"
-          />
+          <div className="mt-2">
+            <ListField
+              value={spinner.verbs}
+              onChange={(verbs) => setSpinner({ ...spinner, verbs })}
+              rows={2}
+              placeholder="Maquinando, Cookin, Currelando, …"
+            />
+          </div>
         </div>
       )}
 
@@ -459,34 +487,20 @@ export function Tones() {
                       <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
                         Señales de detección (separadas por coma)
                       </div>
-                      <textarea
-                        value={listToText(t.signals)}
-                        onChange={(e) => patchTone(t.id, { signals: textToList(e.target.value) })}
+                      <ListField
+                        value={t.signals}
+                        onChange={(signals) => patchTone(t.id, { signals })}
                         rows={2}
-                        className="w-full rounded px-2 py-1 text-[11.5px]"
-                        style={{
-                          background: "var(--color-surface-1)",
-                          color: "var(--color-text)",
-                          border: "1px solid var(--color-border)",
-                        }}
                       />
                     </label>
                     <label className="block text-[11.5px]">
                       <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
                         Señales FUERTES (1 basta para activar)
                       </div>
-                      <textarea
-                        value={listToText(t.strong_signals)}
-                        onChange={(e) =>
-                          patchTone(t.id, { strong_signals: textToList(e.target.value) })
-                        }
+                      <ListField
+                        value={t.strong_signals}
+                        onChange={(strong_signals) => patchTone(t.id, { strong_signals })}
                         rows={2}
-                        className="w-full rounded px-2 py-1 text-[11.5px]"
-                        style={{
-                          background: "var(--color-surface-1)",
-                          color: "var(--color-text)",
-                          border: "1px solid var(--color-border)",
-                        }}
                       />
                     </label>
                   </div>
@@ -495,34 +509,20 @@ export function Tones() {
                       <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
                         Triggers explícitos ("modo cani", …)
                       </div>
-                      <textarea
-                        value={listToText(t.explicit_triggers)}
-                        onChange={(e) =>
-                          patchTone(t.id, { explicit_triggers: textToList(e.target.value) })
-                        }
+                      <ListField
+                        value={t.explicit_triggers}
+                        onChange={(explicit_triggers) => patchTone(t.id, { explicit_triggers })}
                         rows={2}
-                        className="w-full rounded px-2 py-1 text-[11.5px]"
-                        style={{
-                          background: "var(--color-surface-1)",
-                          color: "var(--color-text)",
-                          border: "1px solid var(--color-border)",
-                        }}
                       />
                     </label>
                     <label className="block text-[11.5px]">
                       <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
                         Léxico de apoyo (para el escritor, no detecta)
                       </div>
-                      <textarea
-                        value={listToText(t.lexicon)}
-                        onChange={(e) => patchTone(t.id, { lexicon: textToList(e.target.value) })}
+                      <ListField
+                        value={t.lexicon}
+                        onChange={(lexicon) => patchTone(t.id, { lexicon })}
                         rows={2}
-                        className="w-full rounded px-2 py-1 text-[11.5px]"
-                        style={{
-                          background: "var(--color-surface-1)",
-                          color: "var(--color-text)",
-                          border: "1px solid var(--color-border)",
-                        }}
                       />
                     </label>
                   </div>
@@ -530,21 +530,9 @@ export function Tones() {
                     <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
                       Status de la statusline (separados por coma — rotan cada 20s)
                     </div>
-                    <input
-                      type="text"
+                    <ListField
                       value={statusWordsFor(t.id)}
-                      onChange={(e) =>
-                        setToneStatus({
-                          ...toneStatus,
-                          [t.id]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                        })
-                      }
-                      className="w-full rounded px-2 py-1 text-[11.5px]"
-                      style={{
-                        background: "var(--color-surface-1)",
-                        color: "var(--color-text)",
-                        border: "1px solid var(--color-border)",
-                      }}
+                      onChange={(words) => setToneStatus({ ...toneStatus, [t.id]: words })}
                       placeholder="Cookin, Grindin, Slidin, …"
                     />
                   </label>

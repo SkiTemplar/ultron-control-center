@@ -328,6 +328,17 @@ pub fn run_daemon() -> Result<Value, String> {
     // Warm E5 ONCE up front so the very first orchestrate request is already hot.
     let _ = crate::qdrant::embed_e5("warmup", true);
 
+    // NO se calienta el CROSS-ENCODER aqui, a proposito (medido y decidido
+    // 2026-08-14). `BGERerankerV2M3` es un modelo SEPARADO de E5 (`RERANKER`
+    // OnceCell en qdrant.rs) y precalentarlo cuesta 1,5 GB residentes desde el
+    // arranque — medido A/B: daemon 1501 MB sin el, 2962 MB con el, y hasta
+    // 3579 MB con uso — que se pagan aunque la sesion sea pura charla y no
+    // rerankee ni una vez. El problema que iba a resolver (el pico del primer
+    // prompt tecnico venciendo el plazo del hook y descartando el prefetch
+    // ENTERO) ya lo cierra el timeout del hook, subido de 12 s a 20 s el mismo
+    // dia. Carga lazy en la primera peticion que lo necesite: se paga el pico
+    // UNA vez por sesion y solo quien de verdad usa el rerank.
+
     // Idempotent: keep `ultron_skills_lazy` populated so the v3 semantic fallback
     // (skill_query) works after a Qdrant wipe / skill change without a manual
     // `reindex-skills-lazy`. Cheap (one probe search, then skip if populated).

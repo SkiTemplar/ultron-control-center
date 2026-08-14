@@ -13,6 +13,7 @@ const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary } = r
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
+const { detectForPrompt } = require('./lib/tone-detect');
 observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
@@ -39,6 +40,11 @@ const DAEMON_TIMEOUT_CACHED_MS = 4000;
 // tiene 800ms de gracia y despues se sirve el pack cacheado (marcado stale);
 // sin cache, colchon de 6s (mitad del 11s historico) porque no hay red de
 // seguridad. SessionStart ademas precalienta el daemon (memory-session-resume).
+// OJO al presupuesto TOTAL: el peor caso encadena DAEMON_TIMEOUT_MS (6000) +
+// ONE_SHOT_CAP_UNCACHED_MS (6000) = 12s exactos, que era el timeout del hook en
+// settings.json — cualquier overhead lo vencia y Claude Code DESCARTABA todo el
+// prefetch en silencio (visto 2026-08-14). El timeout esta ahora en 20s: si se
+// sube cualquiera de estos dos caps, revisar tambien aquel.
 const ONE_SHOT_CAP_CACHED_MS = 800;
 const ONE_SHOT_CAP_UNCACHED_MS = 6000;
 const ORCH_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
@@ -92,13 +98,13 @@ function emit(additionalContext) {
   );
 }
 
-function render(ctx) {
-  const out = [`<orchestration-context route="${ctx.route || ''}" trust="system">`];
-  // Personalities v1 (2026-08-13): tono detectado por el sidecar (señales del
-  // chat o petición explícita). Se emite ANTES que el resto: es una orden de
-  // registro para TODA la respuesta, no una sugerencia de routing.
-  if (ctx.tone && ctx.tone.id) {
-    const t = ctx.tone;
+// Personalities v1 (2026-08-13): lineas de tono. Se emiten ANTES que el resto:
+// son una orden de registro para TODA la respuesta, no una sugerencia de routing.
+// Viven fuera de render() porque el camino de memoria DEGRADADA (sin contexto)
+// tambien debe entregar el tono: la deteccion es local y no depende del sidecar.
+function toneLines(t) {
+  const out = [];
+  if (t && t.id) {
     out.push(`tone_detected: ${t.name} [${t.id}] — ${t.reason || ''}`);
     // Feedback del usuario 2026-08-13: "a good chunk of personality, not a
     // couple of words here and there" — la directiva exige compromiso TOTAL,
@@ -111,9 +117,22 @@ function render(ctx) {
         `borrador podria salir de un asistente corporativo neutro, REESCRIBELO entero en el ` +
         `registro — el usuario ELIGIO esta voz y entregarla descafeinada es fallarle. ` +
         `Iguala el nivel del EJEMPLO DE VOZ de la guía, nunca por debajo. ` +
+        (t.lang === 'es' && t.id !== 'ultron'
+          ? `EXCEPCION ORTOGRAFICA: la regla de "ortografia completa del español" ` +
+            `describe el registro POR DEFECTO y NO aplica mientras este tono este activo. ` +
+            `Las elisiones y grafias deformadas del registro (q, ke, khe, po zi, pa, to, ` +
+            `-ao por -ado) SON el tono: escribirlo en español pulcro es entregarlo roto. ` +
+            `Los identificadores de codigo y los datos tecnicos se mantienen intactos. `
+          : '') +
         `Idioma: ${t.lang || 'es'}; insultos: ${t.profanity || 'none'}. Guía: ${t.style_guide || ''}`
     );
   }
+  return out;
+}
+
+function render(ctx) {
+  const out = [`<orchestration-context route="${ctx.route || ''}" trust="system">`];
+  out.push(...toneLines(ctx.tone));
   if (ctx.workflow) out.push(`workflow: ${ctx.workflow.id} — ${ctx.workflow.label}`);
   // cat13.4 (2026-06-19): cuando el routing propone un GRUPO (workflow multi-paso),
   // cada paso/agente lleva su PROPIO encuadre derivado del sub-intent de su rol —
@@ -305,17 +324,29 @@ async function main() {
       logHookError('memory-orchestrate', reason);
     }
   }
+  // El tono se detecta SIEMPRE en local sobre ESTE prompt y pisa lo que traiga el
+  // pack: si el pack venia cacheado, su `tone` es el del prompt anterior (o null)
+  // y aplicarlo era la causa medida de "el tono apenas se aplica" (2026-08-14).
+  const localTone = detectForPrompt(prompt);
+
   if (!ctx) {
     // Aviso visible al modelo (mismo patron que el resume degradado): sin esto el
     // fallo era 100% silencioso y el usuario no podia saber que la memoria no aporto.
+    // El tono SI se entrega: no depende del sidecar.
     emit(
-      '[memoria degradada] orchestrate sin respuesta (daemon/Qdrant caido o timeout) — ' +
-        'este prompt va SIN recall de memoria. Si se repite, revisar: bin/ultron-memory.exe doctor'
+      [
+        ...toneLines(localTone),
+        '[memoria degradada] orchestrate sin respuesta (daemon/Qdrant caido o timeout) — ' +
+          'este prompt va SIN recall de memoria. Si se repite, revisar: bin/ultron-memory.exe doctor',
+      ].join('\n')
     );
     return;
   }
+  ctx.tone = localTone;
   if (!staleFromCache) {
-    writeOrchCache(project, ctx);
+    // Sin `tone` en el cache: es del prompt que lo genero y servirlo stale seria
+    // reintroducir el bug por la puerta de atras si alguien deja de sobreescribirlo.
+    writeOrchCache(project, { ...ctx, tone: null });
     // Solo orquestaciones FRESCAS al Live Session Monitor — un pack cacheado
     // re-loggeado duplicaria la entrada original con datos de otro prompt.
     logOrchestration(ctx, prompt, project, sessionId, Date.now() - t0, usedDaemon);

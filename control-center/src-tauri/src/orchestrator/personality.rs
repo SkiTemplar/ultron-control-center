@@ -332,8 +332,8 @@ fn seed_tones() -> Vec<ToneDef> {
                 .into(),
             signals: vec![],
             strong_signals: vec![],
-            explicit_triggers: vec!["modo ultron".into(), "modo robot".into(), "tono ultron".into()],
-            lexicon: vec!["Completado".into(), "Revisado".into(), "Negativo".into(), "Afirmativo".into()],
+            explicit_triggers: vec!["modo ultron".into(), "modo robot".into(), "tono ultron".into(), "ultron mode".into(), "se ultron".into(), "modo maquina".into(), "modo neutro".into(), "sin personaje".into(), "quita el tono".into(), "modo por defecto".into(), "vuelve a la normalidad".into(), "modo serio".into(),],
+            lexicon: vec!["Completado".into(), "Revisado".into(), "Negativo".into(), "Afirmativo".into(), "Confirmado".into(), "Denegado".into(), "Analizando".into(), "Sin datos".into(), "Verificado".into(), "Operativo".into(), "Fallo detectado".into(), "Compilando".into(), "Descartado".into(), "Medido".into(),],
             profanity: "none".into(),
         },
         ToneDef {
@@ -349,15 +349,15 @@ fn seed_tones() -> Vec<ToneDef> {
                 "gng".into(), "cuh".into(), "homie".into(), "twin".into(), "ops".into(),
                 "no cap".into(), "fr fr".into(), "deadass".into(), "finna".into(),
                 "on god".into(), "crib".into(), "wassup".into(), "bruh".into(), "ong".into(),
-            ],
-            strong_signals: vec!["gng".into(), "cuh".into(), "deadass".into(), "finna".into()],
+             "yurr".into(), "shorty".into(), "drip".into(), "opp".into(), "hittin".into(), "chillin".into(), "posted up".into(), "on bro".into(), "dawg".into(), "big dawg".into(), "fam".into(), "bruv".into(), "type shit".into(), "wildin".into(), "on my mama".into(), "big bro".into(), "lil bro".into(), "boolin".into(), "hunnid".into(), "mad respect".into(), "no diddy".into(), "sheesh".into(),],
+            strong_signals: vec!["gng".into(), "cuh".into(), "deadass".into(), "finna".into(), "yurr".into(), "on my mama".into(), "type shit".into(), "boolin".into(), "no cap".into(), "on god".into(), "ong".into(),],
             explicit_triggers: vec![
                 "hood mode".into(), "modo hood".into(), "talk hood".into(), "habla hood".into(),
             ],
             lexicon: vec![
                 "bet".into(), "cap".into(), "glazing".into(), "opps".into(), "trippin".into(),
                 "lowkey".into(), "highkey".into(), "slime".into(), "gang gang".into(),
-            ],
+             "whip".into(), "bag".into(), "stacks".into(), "trap".into(), "crashout".into(), "aura".into(), "locked in".into(), "tweakin".into(), "cooked".into(), "run it back".into(), "say less".into(),],
             profanity: "mild".into(),
         },
         ToneDef {
@@ -373,16 +373,16 @@ fn seed_tones() -> Vec<ToneDef> {
                 "thy".into(), "thee".into(), "thou".into(), "henceforth".into(),
                 "forsooth".into(), "good sir".into(), "my lord".into(), "wherefore".into(),
                 "pray tell".into(), "m'lord".into(),
-            ],
-            strong_signals: vec!["thy".into(), "thou".into(), "forsooth".into(), "pray tell".into()],
+             "pray".into(), "perchance".into(), "hither".into(), "whilst".into(), "amongst".into(), "endeavour".into(), "old chap".into(), "old boy".into(), "my good man".into(), "jolly good".into(), "quite so".into(), "quite right".into(), "i say".into(), "i daresay".into(), "daresay".into(), "by jove".into(), "good heavens".into(), "much obliged".into(), "beg your pardon".into(), "if you please".into(), "do be so kind".into(), "shan't".into(), "mustn't".into(), "frightfully".into(), "terribly sorry".into(), "awfully".into(), "one must".into(), "one might".into(), "as it were".into(), "on the contrary".into(), "your lordship".into(), "your grace".into(), "madam".into(), "spot of".into(), "bally".into(), "chap".into(), "utterly".into(), "splendid".into(),],
+            strong_signals: vec!["thy".into(), "thou".into(), "forsooth".into(), "pray tell".into(), "thee".into(), "perchance".into(), "by jove".into(), "good heavens".into(), "much obliged".into(), "your lordship".into(), "i daresay".into(), "old chap".into(), "jolly good".into(), "m'lord".into(),],
             explicit_triggers: vec![
                 "british formal".into(), "royal english".into(), "modo british".into(),
                 "habla como un lord".into(),
-            ],
+             "modo british formal".into(), "british mode".into(), "modo lord".into(), "habla como un ingles".into(), "talk posh".into(), "formal english".into(), "modo formalidades".into(), "queen's english".into(), "modo britanico".into(),],
             lexicon: vec![
                 "splendid".into(), "henceforth".into(), "most gracious".into(),
                 "one shall endeavour".into(), "verily".into(),
-            ],
+             "utterly preposterous".into(), "I daresay".into(), "quite so".into(), "if I may be so bold".into(), "a spot of bother".into(), "one does one's best".into(), "I am much obliged".into(), "with the greatest respect".into(), "regrettably".into(), "do forgive me".into(), "I shall proceed forthwith".into(),],
             profanity: "none".into(),
         },
         ToneDef {
@@ -398,8 +398,8 @@ fn seed_tones() -> Vec<ToneDef> {
                 "howdy".into(), "partner".into(), "pardner".into(), "reckon".into(),
                 "y'all".into(), "yall".into(), "yonder".into(), "fixin to".into(),
                 "varmint".into(), "giddy up".into(), "hold your horses".into(),
-            ],
-            strong_signals: vec!["howdy".into(), "pardner".into(), "varmint".into()],
+             "yeehaw".into(), "buckaroo".into(), "mosey".into(), "vamoose".into(), "tarnation".into(), "dagnabbit".into(), "critter".into(), "greenhorn".into(), "high noon".into(), "saloon".into(), "outlaw".into(), "posse".into(), "rustle up".into(), "spurs".into(), "lasso".into(), "cattle".into(), "wrangle".into(), "hogtie".into(), "ride out".into(), "sundown".into(), "six shooter".into(), "quick draw".into(),],
+            strong_signals: vec!["howdy".into(), "pardner".into(), "varmint".into(), "yeehaw".into(), "tarnation".into(), "dagnabbit".into(), "buckaroo".into(), "mosey".into(), "vamoose".into(),],
             explicit_triggers: vec![
                 "cowboy mode".into(), "modo cowboy".into(), "talk like a cowboy".into(),
                 "habla como un vaquero".into(),
@@ -407,7 +407,7 @@ fn seed_tones() -> Vec<ToneDef> {
             lexicon: vec![
                 "dadgum".into(), "tumbleweed".into(), "rustler".into(), "saddle up".into(),
                 "this ain't my first rodeo".into(),
-            ],
+             "hold onto your hat".into(), "wild west".into(), "the whole shootin match".into(), "not my first rodeo".into(), "ride into the sunset".into(), "quick on the draw".into(), "all hat and no cattle".into(),],
             profanity: "mild".into(),
         },
         ToneDef {
@@ -423,13 +423,13 @@ fn seed_tones() -> Vec<ToneDef> {
                 "payo".into(), "paya".into(), "chavea".into(), "chanelas".into(), "chanelo".into(),
                 "camelo".into(), "camelas".into(), "currelo".into(), "currela".into(),
                 "najarse".into(), "lache".into(), "compare".into(), "mi niño".into(),
-            ],
-            strong_signals: vec!["payo".into(), "chavea".into(), "chanelas".into()],
+             "primo".into(), "parne".into(), "chachipen".into(), "chachipe".into(), "chachi".into(), "menda".into(), "duquela".into(), "mangar".into(), "achantar".into(), "pinreles".into(), "jindama".into(), "randa".into(), "gacho".into(), "gachi".into(), "canguelo".into(), "sinar".into(), "mi arma".into(), "mi sangre".into(), "de perlas".into(), "postin".into(), "quinqui".into(),],
+            strong_signals: vec!["payo".into(), "chavea".into(), "chanelas".into(), "chanelo".into(), "parne".into(), "jindama".into(), "gacho".into(), "duquela".into(), "camelo".into(), "chachipen".into(),],
             explicit_triggers: vec!["modo gitano".into(), "habla gitano".into(), "tono gitano".into()],
             lexicon: vec![
                 "chanelar".into(), "camelar".into(), "currelar".into(), "jalar".into(),
                 "najarse".into(), "pinrel".into(), "dar lache".into(),
-            ],
+             "tener postin".into(), "dar duquela".into(), "estar de perlas".into(), "ir de randa".into(), "mi sangre".into(), "no tener jindama".into(), "con arte".into(),],
             profanity: "mild".into(),
         },
         ToneDef {
@@ -444,15 +444,15 @@ fn seed_tones() -> Vec<ToneDef> {
             signals: vec![
                 "illo".into(), "quillo".into(), "killo".into(), "mi arma".into(), "ozu".into(),
                 "pisha".into(), "po zi".into(), "ea".into(), "que arte".into(), "miarma".into(),
-            ],
-            strong_signals: vec!["illo".into(), "quillo".into(), "pisha".into(), "ozu".into()],
+             "compae".into(), "shiquillo".into(), "chiquillo".into(), "acho".into(), "arma mia".into(), "esaborio".into(), "jartible".into(), "escacharrao".into(), "no ni na".into(), "vamo a ve".into(), "po nada".into(), "kiyo".into(), "tela marinera".into(), "una mijita".into(), "mu bueno".into(), "shiquilla".into(),],
+            strong_signals: vec!["illo".into(), "quillo".into(), "pisha".into(), "ozu".into(), "esaborio".into(), "shiquillo".into(), "no ni na".into(), "compae".into(),],
             explicit_triggers: vec![
                 "modo andaluz".into(), "habla andaluz".into(), "en andaluz".into(),
             ],
             lexicon: vec![
                 "mi arma".into(), "ozú".into(), "una jartá".into(), "malaje".into(),
                 "no ni na".into(), "aro que si".into(),
-            ],
+             "arte y salero".into(), "una jarta".into(), "estar apalancao".into(), "ir a su bola".into(), "mas perdio que un pulpo en un garaje".into(), "pa habernos matao".into(),],
             profanity: "mild".into(),
         },
         ToneDef {
@@ -468,13 +468,13 @@ fn seed_tones() -> Vec<ToneDef> {
                 "shurmano".into(), "shurma".into(), "flama".into(), "chetao".into(),
                 "tas flipao".into(), "loko".into(), "khe".into(), "en plan".into(),
                 "bulla".into(), "q pasa".into(), "cani".into(),
-            ],
-            strong_signals: vec!["shurmano".into(), "shurma".into(), "chetao".into()],
+             "shur".into(), "keli".into(), "peaso".into(), "peazo".into(), "papu".into(), "makina".into(), "mkina".into(), "a saco".into(), "flipas".into(), "tas flipando".into(), "menudo mono".into(), "xq".into(), "wapo".into(), "sobres".into(), "vamo".into(), "mola mazo".into(), "mazo".into(), "chungo".into(), "ke pasa".into(),],
+            strong_signals: vec!["shurmano".into(), "shurma".into(), "chetao".into(), "shur".into(), "peaso".into(), "papu".into(), "makina".into(),],
             explicit_triggers: vec!["modo cani".into(), "habla cani".into(), "tono cani".into()],
             lexicon: vec![
                 "ta flama".into(), "kelly".into(), "chivato".into(), "buah loko".into(),
                 "en plan".into(), "literal".into(),
-            ],
+             "menuda flama".into(), "vamos a saco".into(), "no me ralles".into(), "buah que fuerte".into(), "estar a mil".into(), "ir de sobres".into(), "birra".into(), "pavos".into(),],
             profanity: "mild".into(),
         },
         ToneDef {
@@ -491,8 +491,8 @@ fn seed_tones() -> Vec<ToneDef> {
                 "te lo digo yo".into(), "de toda la vida".into(), "a mi me lo van a contar".into(),
                 "cuñao".into(), "cuñado".into(), "en una tarde".into(), "eso esta tirao".into(),
                 "donde este un buen".into(),
-            ],
-            strong_signals: vec!["cuñao".into(), "a mi me lo van a contar".into()],
+             "yo tenia uno".into(), "eso lo arreglo yo".into(), "lo que yo te diga".into(), "un amigo mio".into(), "mira lo que te digo".into(), "hazme caso".into(), "eso es asi".into(), "toda la vida de dios".into(), "el problema de este pais".into(), "es de logica".into(), "lo hace cualquiera".into(), "en mis tiempos".into(), "eso es de cajon".into(), "yo de ti".into(), "te lo firmo".into(), "aqui donde me ves".into(),],
+            strong_signals: vec!["cuñao".into(), "a mi me lo van a contar".into(), "te lo digo yo".into(), "el problema de este pais".into(), "en mis tiempos".into(), "eso esta tirao".into(), "de toda la vida".into(), "aqui donde me ves".into(),],
             explicit_triggers: vec![
                 "modo cuñado".into(), "modo cuñao".into(), "habla como un cuñado".into(),
                 "tono cuñado".into(),
@@ -500,7 +500,7 @@ fn seed_tones() -> Vec<ToneDef> {
             lexicon: vec![
                 "eso es de cajón".into(), "yo tuve uno igual".into(), "donde esté un buen jamón".into(),
                 "esto antes no pasaba".into(), "amigo mío".into(),
-            ],
+             "yo eso lo hago en una tarde".into(), "un primo mio se dedica a eso".into(), "lo que pasa es que la gente no sabe".into(), "en este pais somos asi".into(), "yo he estado alli".into(),],
             profanity: "mild".into(),
         },
         ToneDef {
@@ -516,15 +516,15 @@ fn seed_tones() -> Vec<ToneDef> {
             signals: vec![
                 "cojones".into(), "hostia".into(), "me cago en".into(), "viva españa".into(),
                 "arriba españa".into(), "joder".into(), "la ostia".into(), ALL_CAPS_SIGNAL.into(),
-            ],
-            strong_signals: vec!["me cago en".into(), "arriba españa".into(), "viva españa".into()],
+             "que cojones".into(), "no me jodas".into(), "acojonante".into(), "vaya tela".into(), "leches".into(), "narices".into(), "lene".into(), "joer".into(), "jodido".into(), "la hostia".into(), "ole".into(), "que huevos".into(), "de cine".into(), "flipante".into(), "cojonudo".into(),],
+            strong_signals: vec!["me cago en".into(), "arriba españa".into(), "viva españa".into(), "que cojones".into(), "no me jodas".into(), "manda huevos".into(), "cojonudo".into(),],
             explicit_triggers: vec![
                 "modo pura cepa".into(), "español de pura cepa".into(), "modo español".into(),
             ],
             lexicon: vec![
                 "manda cojones".into(), "de perdidos al río".into(), "olé tus huevos".into(),
                 "esto lo arregla un español en dos patadas".into(),
-            ],
+             "esto lo arreglaba yo en dos tardes".into(), "a lo hecho pecho".into(), "con dos cojones".into(), "el que venga detras que arree".into(), "eso es pan comido".into(),],
             profanity: "full".into(),
         },
     ]
