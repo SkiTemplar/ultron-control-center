@@ -44,6 +44,17 @@ cd $env:USERPROFILE\.ultron
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # Linux: ./install.sh
 ```
 
+**Instalacion por componentes** (sin wizard, determinista; `-DryRun` lista el
+plan sin tocar nada):
+
+```powershell
+.\install.ps1 -Core            # app + memoria + hooks (el set por defecto)
+.\install.ps1 -All             # core + skills + tones + agents
+.\install.ps1 -Skills -Tones   # a la carta
+.\install.ps1 -Core -DryRun    # solo listar que haria
+# Linux: ./install.sh --core | --all | --skills | --tones | --agents | --dry-run
+```
+
 **Solo la app de escritorio** (sin skills/hooks/sidecar de memoria):
 
 ```bash
@@ -75,6 +86,12 @@ Las rutas per-maquina se documentan en
   telemetria de uso/ahorro; routing directo en Rust (sin sidecar LiteLLM).
 - **Orquestador por reglas** — mapea prompt -> intent -> workflow -> agentes ->
   memorias; reserva el modelo grande solo para la cola ambigua.
+- **Tonos / personalidades** — deteccion determinista del tono del chat
+  (senales lexicas + peticion explicita) dentro del orchestrate; los tonos se
+  editan en Library -> Tones. La config real (`~/.ultron/personality.json`) es
+  local y gitignored; el repo publica solo los seeds compilados
+  (`orchestrator/personality.rs`). El tono viste unicamente la conversacion:
+  nunca commits, docs ni artefactos.
 
 ---
 
@@ -269,6 +286,8 @@ npm test       # vitest (frontend)
 │           └── bin/          # sidecar ultron-memory
 ├── cockpit/                  # config + estado en JSON/markdown
 │   └── ai-router/            # providers.json, zones.json, metrics.json
+├── personality.json          # tonos del usuario (LOCAL, gitignored; se
+│                             # auto-siembra desde los seeds compilados)
 ├── hooks/                    # hooks de ciclo de vida
 ├── skills/                   # skills core (SKILL.md; catalogo curado no se publica)
 ├── plans/  projects/         # planes y proyectos
@@ -288,6 +307,14 @@ npm test       # vitest (frontend)
   gobernado; aprobacion/rechazo humano via comandos de inbox.
 - **AI Router**: routing real con cadena primario/fallback, deteccion de claves
   y telemetria de uso/ahorro; sin sidecar LiteLLM.
+- **Tonos**: deteccion determinista en el orchestrate (paridad JS/Rust del
+  detector verificada con gate 16/16); editor visual en Library -> Tones y
+  playground de deteccion. `personality.json` local (gitignored) con seeds
+  publicables compilados; limite duro: el tono solo aplica al chat, jamas a
+  artefactos.
+- **Detector de texto IA** (apoyo TFG): hook PostToolUse que avisa cuando la
+  prosa escrita "canta" a IA + Lab de patrones deterministas sobre el catalogo
+  de investigacion; matcher con CLI y banco de casos. Senala, no reescribe.
 - **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,
   System (con sub-tabs de Hooks/Schedules), MCPs,
   Library (sub-tabs Skills/Agents/Rules/**Updates**), **Memory**, Notes,

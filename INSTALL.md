@@ -53,6 +53,36 @@ done are detected and skipped. Common flags:
 .\install.ps1 -Force           # re-run every step even if it looks done
 ```
 
+### Component selection
+
+Passing any component switch skips the wizard and runs a deterministic
+install of ONLY the selected components (every remaining prompt takes its
+non-interactive default). Without these switches nothing changes: you get
+the historical wizard / CLI flow.
+
+```powershell
+.\install.ps1 -Core            # app (npm install) + memory (Qdrant,
+                               # brain_index, sidecar, venv) + hooks
+.\install.ps1 -All             # core + skills + tones + agents
+.\install.ps1 -Skills -Agents  # a-la-carte: only those components
+.\install.ps1 -Core -DryRun    # print what -Core would do; touch nothing
+```
+
+Linux equivalents: `--core`, `--all`, `--skills`, `--tones`, `--agents`,
+`--dry-run` (see `./install.sh --help`).
+
+What each component installs:
+
+| Component | What it does |
+|---|---|
+| `core` | Dependency check/auto-install (git, Node 22+, Claude Code, uv, Rust), Qdrant native binary, directory layout + templates, Python venv (`uv sync`), Claude Code hooks merged into `~/.claude/settings.json` (timestamped backup first), feature flags, `brain_index` init, `ultron-memory` sidecar, `npm install` in `control-center/` (Windows; the Tauri build stays opt-in). |
+| `skills` | Core skills from the repo `skills/` dir into `~/.claude/skills/` (manifest: `templates/skills-manifest.example.yaml`). Existing skill dirs are never overwritten. |
+| `tones` | Verifies tone seeding. The publishable tone seeds ship compiled inside the app and the `ultron-memory` sidecar; `~/.ultron/personality.json` is auto-created from them on first run. An existing `personality.json` (local, gitignored user config) is NEVER read, copied or overwritten. |
+| `agents` | Copies `agents/*.md` from the repo into `~/.claude/agents/` if the repo ships an `agents/` dir. The public repo ships none (community agents carry their own licenses), so on a fresh clone this step reports that and installs nothing; use the Agents tab catalog after first launch. |
+
+Re-running any combination is idempotent: existing destinations and
+existing user config are kept, never silently replaced.
+
 What the installer does, end to end: preflight (OS / PowerShell / disk /
 network) → git + Node 22 prerequisites → Claude Code CLI check (hard
 requirement) → uv → Rust toolchain → Qdrant native binary →

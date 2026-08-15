@@ -4,8 +4,37 @@
 
 Sprint ultracode 2026-07-22: cierre del harness kirkardo (OVERALL 9.73 · CORE
 9.58 · 109/112 checks, partida 8.57/7.78). 13 commits (`30a2297..3608a32`).
+Bloque 2026-08 (commits `d9a3ce5..44056f4` + instalador): Personalities v1,
+detector de texto IA, statusline/vibe, atribución de proyecto en memoria y
+selección de componentes en los instaladores.
 
 ### Added
+- **Selección de componentes en los instaladores** (2026-08-15): `install.ps1`
+  acepta `-All` / `-Core` / `-Skills` / `-Tones` / `-Agents` / `-DryRun` y
+  `install.sh` sus equivalentes `--all` / `--core` / `--skills` / `--tones` /
+  `--agents` / `--dry-run`. Modo determinista sin wizard; sin flags nuevos el
+  comportamiento histórico no cambia. `tones` nunca toca un
+  `personality.json` existente (config local gitignored; los seeds publicables
+  van compilados en la app/sidecar).
+- **Personalities v1** (2026-08-13/14): detección determinista del tono del
+  chat en el orchestrate (señales léxicas + petición explícita), editor y
+  playground en Library → Tones, directiva de compromiso total con límite duro
+  de ámbito (solo chat, jamás artefactos); tono desacoplado del cache de
+  memoria con gate de paridad JS↔Rust 16/16 (6846353, 194a2e0, 21887d0,
+  9703855).
+- **Detector de texto IA** (apoyo TFG): Lab de patrones deterministas sobre el
+  catálogo de investigación (e92c4f5), hook PostToolUse `ai-text-warn`
+  (147c41f), CLI del matcher + routing de la skill escritura-humana (9c08b44)
+  y banco de casos por patrón (09220f8). Señala, no reescribe.
+- **Vibe/statusline**: statusline propia de Claude Code (proyecto + rama +
+  modelo + tono activo), barras de contexto y límites 5h/semana, color de
+  Windows Terminal por proyecto en el spawn (fcb4927, f45ebe2, 4048892,
+  70145e3).
+- **Memoria**: atribución de proyecto real en la captura + backfill fase 2 con
+  exclusión de huérfanos (277b5fa, dbe5e59), fase 4 LLM del backfill
+  (f59f78d), preferencias/perfil a scope Global cross-proyecto (cb32075).
+- **Finance**: wiring del write path + categorización IA (a09ee53; solo build
+  local con `VITE_FINANCE=1`).
 - **Grupos de equivalencia en el oráculo del eval golden** (`expect_groups`,
   collapse retrocompatible) + `DENSE_W` default 1.0→0.8 fijado con evidencia
   del sweep de knobs (3608a32).
@@ -27,6 +56,14 @@ Sprint ultracode 2026-07-22: cierre del harness kirkardo (OVERALL 9.73 · CORE
 - Remediaciones cats 5/9/11 del audit 2026-07-20 en cockpit (935bc2a).
 
 ### Fixed
+- **Instaladores rotos en Windows PowerShell 5.1** (2026-08-15): `install.ps1`,
+  `bootstrap.ps1` y `uninstall.ps1` contenían em-dashes en UTF-8 sin BOM, que
+  PS 5.1 descodifica como ANSI y rompe el parser (21, 6 y 1 errores de parseo
+  respectivamente con `.\install.ps1` desde un clone). Los tres scripts son
+  ahora ASCII puro y parsean con 0 errores.
+- Hooks: los turnos de SISTEMA ya no atraviesan el pipeline como prompts
+  humanos (dc49cce); kanban-update-reminder sin bucle (880b422); arranque frío
+  del orchestrate + falsos positivos del codegraph-reminder (c288b18).
 - Dead-code `save_features` y contrato colgante eliminados (0ed9ee9).
 - Tabla RULES normalizada a palabras desnudas — 14 patrones muertos por
   word-boundary (2209b0c).
