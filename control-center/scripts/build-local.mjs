@@ -19,8 +19,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
 // Finance is local-only: only enable it when both sources are present.
+// The Rust side moved from finance.rs to the finance/ module dir (2026-08-15);
+// accept either layout so the detector does not silently drop the feature.
 const hasFinance =
-  existsSync("src-tauri/src/finance.rs") &&
+  (existsSync("src-tauri/src/finance.rs") || existsSync("src-tauri/src/finance/mod.rs")) &&
   existsSync("src/components/Finance.tsx");
 
 const env = { ...process.env };
