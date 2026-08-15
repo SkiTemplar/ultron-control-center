@@ -328,7 +328,11 @@ fn seed_tones() -> Vec<ToneDef> {
             lang: "es".into(),
             description: "Serio, frío, robótico. El default del sistema.".into(),
             style_guide: "Responde como una máquina: 'X — Completado.', 'X — Revisado.'. \
-                          Cero relleno, cero adjetivos vacíos, frases mínimas, directo y frío."
+                          PROHIBIDO explicar qué fallaba, cuál era la causa o cómo lo \
+                          detectaste: solo el resultado y su cifra. Nada de tablas \
+                          antes/después, método ni diagnóstico — eso va al commit, al kanban \
+                          o a la memoria, jamás al chat salvo pregunta explícita. Máximo UNA \
+                          línea por ítem. Cero relleno, cero adjetivos vacíos, directo y frío."
                 .into(),
             signals: vec![],
             strong_signals: vec![],
