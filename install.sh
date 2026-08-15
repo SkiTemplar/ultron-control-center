@@ -71,6 +71,15 @@ NO_APP=0
 NO_DOCKER=0
 VERBOSE=0
 INSTALL_ROOT_OVERRIDE=""
+# Component selection (v15.7.1). Passing any of these enters "component
+# mode": no interactive prompts (defaults win) and ONLY the selected
+# components run. Without them the behaviour is the historical pipeline.
+OPT_ALL=0
+OPT_CORE=0
+OPT_SKILLS=0
+OPT_TONES=0
+OPT_AGENTS=0
+DRY_RUN=0
 
 usage() {
     cat <<EOF
@@ -85,6 +94,19 @@ Usage: install.sh [flags]
   --install-root DIR      Override install root (default: \$HOME/.ultron)
   -h, --help              Show this message
 
+Component selection (deterministic, no prompts; combinable):
+  --all                   core + skills + tones + agents
+  --core                  app deps + memory (Qdrant, brain_index, sidecar)
+                          + hooks (settings.json merge) - the default set
+  --skills                core skills from the repo skills/ dir
+  --tones                 tone seeds check for ~/.ultron/personality.json
+                          (seeds ship compiled in the app/sidecar; an
+                          existing local personality.json is NEVER touched)
+  --agents                repo agents/ dir -> ~/.claude/agents (the public
+                          repo ships no agents/ dir; reported, not invented)
+  --dry-run               List what the selected components would do and
+                          exit without touching anything. Alone = --core.
+
 ULTRON detects apt-get / dnf / pacman in that order. Other package managers
 (yum, zypper, portage) are not supported — install dependencies manually and
 re-run with --non-interactive if you need to skip the install prompts.
@@ -97,6 +119,12 @@ while [[ $# -gt 0 ]]; do
         --no-app)           NO_APP=1; shift ;;
         --no-docker)        NO_DOCKER=1; shift ;;
         --verbose)          VERBOSE=1; shift ;;
+        --all)              OPT_ALL=1; shift ;;
+        --core)             OPT_CORE=1; shift ;;
+        --skills)           OPT_SKILLS=1; shift ;;
+        --tones)            OPT_TONES=1; shift ;;
+        --agents)           OPT_AGENTS=1; shift ;;
+        --dry-run)          DRY_RUN=1; shift ;;
         --install-root)
             if [[ $# -lt 2 ]]; then
                 echo "ERROR: --install-root requires a directory argument" >&2
@@ -112,6 +140,25 @@ done
 
 if [[ $VERBOSE -eq 1 ]]; then
     set -x
+fi
+
+# Component mode derivation. --dry-run alone plans --core (the default set).
+COMPONENT_MODE=0
+WANT_CORE=0
+WANT_SKILLS=0
+WANT_TONES=0
+WANT_AGENTS=0
+if [[ $OPT_ALL -eq 1 || $OPT_CORE -eq 1 || $OPT_SKILLS -eq 1 || $OPT_TONES -eq 1 || $OPT_AGENTS -eq 1 || $DRY_RUN -eq 1 ]]; then
+    COMPONENT_MODE=1
+    [[ $OPT_CORE -eq 1 || $OPT_ALL -eq 1 ]] && WANT_CORE=1
+    if [[ $DRY_RUN -eq 1 && $OPT_SKILLS -eq 0 && $OPT_TONES -eq 0 && $OPT_AGENTS -eq 0 && $OPT_ALL -eq 0 ]]; then
+        WANT_CORE=1
+    fi
+    [[ $OPT_SKILLS -eq 1 || $OPT_ALL -eq 1 ]] && WANT_SKILLS=1
+    [[ $OPT_TONES  -eq 1 || $OPT_ALL -eq 1 ]] && WANT_TONES=1
+    [[ $OPT_AGENTS -eq 1 || $OPT_ALL -eq 1 ]] && WANT_AGENTS=1
+    # Deterministic: every remaining prompt takes its default.
+    NON_INTERACTIVE=1
 fi
 
 # ---------------------------------------------------------------------------
@@ -1217,6 +1264,91 @@ print_summary() {
 }
 
 # ---------------------------------------------------------------------------
+# Component: tone seeds (--tones)
+#
+# The publishable tone seeds ship COMPILED inside the Control Center and the
+# ultron-memory sidecar (seed_tones() in
+# control-center/src-tauri/src/orchestrator/personality.rs). There is no
+# standalone seed file in the repo: ~/.ultron/personality.json is auto-created
+# from those seeds the first time the app or the orchestrate hook runs
+# (load_or_seed). personality.json is the user's LOCAL, gitignored tone
+# config - this step never reads, copies or overwrites an existing one.
+# ---------------------------------------------------------------------------
+install_tone_seeds() {
+    step "tones (personality.json seeds)"
+    local dest="${INSTALL_ROOT}/personality.json"
+    if [[ -f "$dest" ]]; then
+        skip "kept existing ${dest} (local tone config is never overwritten)"
+        return 0
+    fi
+    if [[ -x "${INSTALL_ROOT}/bin/ultron-memory" ]]; then
+        ok "tone seeds ready: personality.json will self-seed from the compiled seeds on the first session"
+    else
+        warn "memory sidecar missing - tones still self-seed on first app launch; run --core first for hook-side tone detection"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Component mode: --dry-run plan (no side effects at all)
+# ---------------------------------------------------------------------------
+show_component_plan() {
+    step "dry run - nothing will be installed or modified"
+    if [[ $WANT_CORE -eq 1 ]]; then
+        info "[core] app deps + memory + hooks:"
+        info "  - dependency check (pkg-manager auto-install): curl, git, Node ${NODE_MIN_MAJOR}+, uv, Rust, Claude Code"
+        info "  - Qdrant native binary -> ${INSTALL_ROOT}/qdrant-native"
+        info "  - directory layout     -> ${INSTALL_ROOT} + ${VAULT_DIR}"
+        info "  - templates seeded (only if absent): CLAUDE.md, SYSTEM-MAP.md, MEMORY.md, cockpit/personal seeds"
+        info "  - hooks merge -> ${CLAUDE_DIR}/settings.json (template templates/settings-hooks.json; timestamped backup first)"
+        info "  - feature flags -> ${INSTALL_ROOT}/cockpit/features.json (existing answers are kept)"
+        info "  - brain_index init + memory sidecar -> ${INSTALL_ROOT}/bin/ultron-memory"
+        info "  - control-center build stays manual on Linux (cd control-center && npm install && npm run tauri dev)"
+    fi
+    if [[ $WANT_SKILLS -eq 1 ]]; then
+        info "[skills] repo core skills -> ${CLAUDE_DIR}/skills:"
+        local manifest="${REPO_ROOT}/templates/skills-manifest.example.yaml"
+        if [[ ! -f "$manifest" ]]; then
+            info "  - manifest missing: templates/skills-manifest.example.yaml (nothing would install)"
+        else
+            local plan_name="" line
+            while IFS= read -r line; do
+                if [[ "$line" =~ ^[[:space:]]*-[[:space:]]name:[[:space:]]*(.+)$ ]]; then
+                    plan_name="${BASH_REMATCH[1]%$'\r'}"
+                    plan_name="${plan_name%"${plan_name##*[![:space:]]}"}"
+                elif [[ "$line" =~ ^[[:space:]]*core:[[:space:]]*true[[:space:]]*$ && -n "$plan_name" ]]; then
+                    local state="repo source missing - would skip"
+                    if [[ -e "${CLAUDE_DIR}/skills/${plan_name}" ]]; then
+                        state="already installed"
+                    elif [[ -d "${REPO_ROOT}/skills/${plan_name}" ]]; then
+                        state="would copy"
+                    fi
+                    info "  - ${plan_name} (${state})"
+                fi
+            done < "$manifest"
+        fi
+    fi
+    if [[ $WANT_TONES -eq 1 ]]; then
+        info "[tones] personality.json seeds:"
+        if [[ -f "${INSTALL_ROOT}/personality.json" ]]; then
+            info "  - ${INSTALL_ROOT}/personality.json exists - would be kept untouched"
+        else
+            info "  - absent - self-seeds from the compiled seeds (personality.rs) on first app/sidecar run; installer writes nothing"
+        fi
+    fi
+    if [[ $WANT_AGENTS -eq 1 ]]; then
+        info "[agents] repo agents/ -> ${CLAUDE_DIR}/agents:"
+        if [[ -d "${REPO_ROOT}/agents" ]]; then
+            local n
+            n="$(find "${REPO_ROOT}/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)"
+            info "  - ${n} agent file(s) found; existing destinations kept"
+        else
+            info "  - the public repo ships no agents/ dir - nothing would install (use the Agents tab catalog after first launch)"
+        fi
+    fi
+    ok "dry run complete"
+}
+
+# ---------------------------------------------------------------------------
 # Banner + main pipeline
 # ---------------------------------------------------------------------------
 echo ""
@@ -1233,6 +1365,52 @@ echo " via the detected package manager unless you decline."
 [[ $NO_DOCKER       -eq 1 ]] && echo " (--no-docker: skipping Qdrant native)"
 [[ $VERBOSE         -eq 1 ]] && echo " (verbose mode)"
 echo ""
+
+# ---------------------------------------------------------------------------
+# Component mode: deterministic pipeline over the selected components only.
+# Reuses the exact same step functions as the legacy flow, so idempotency
+# guarantees carry over (existing destinations / user config never clobbered).
+# ---------------------------------------------------------------------------
+if [[ $COMPONENT_MODE -eq 1 ]]; then
+    sel=""
+    [[ $WANT_CORE   -eq 1 ]] && sel="${sel}core (app + memory + hooks), "
+    [[ $WANT_SKILLS -eq 1 ]] && sel="${sel}skills, "
+    [[ $WANT_TONES  -eq 1 ]] && sel="${sel}tones, "
+    [[ $WANT_AGENTS -eq 1 ]] && sel="${sel}agents, "
+    step "component mode: ${sel%, }"
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        show_component_plan
+        exit 0
+    fi
+
+    if [[ $WANT_CORE -eq 1 ]]; then
+        preflight
+        detect_pkg_mgr
+        install_curl_git
+        install_node
+        install_uv
+        install_rust
+        install_claude
+        install_qdrant
+        install_tauri_deps
+        make_dirs
+        init_brain_index
+        install_memory_sidecar
+        seed_templates
+        merge_hooks
+        write_feature_flags
+    fi
+    if [[ $WANT_SKILLS -eq 1 ]]; then install_skills; fi
+    if [[ $WANT_TONES  -eq 1 ]]; then install_tone_seeds; fi
+    if [[ $WANT_AGENTS -eq 1 ]]; then install_agents; fi
+
+    print_summary
+    if [[ ${#ERRORS[@]} -gt 0 ]]; then
+        exit 1
+    fi
+    exit 0
+fi
 
 preflight
 detect_pkg_mgr

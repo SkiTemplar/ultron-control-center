@@ -36,7 +36,7 @@
 
 .PARAMETER NoDocker
   Skip the Qdrant native binary step. Semantic recall over the vault is
-  then disabled. The flag name is historical — ULTRON has not used
+  then disabled. The flag name is historical - ULTRON has not used
   Docker since v15.0.2; Qdrant runs as a native Windows binary fetched
   from the official GitHub releases.
 
@@ -69,13 +69,20 @@
   # CI / unattended:
   .\install.ps1 -NonInteractive -NoApp
 
+.EXAMPLE
+  # Component selection (deterministic, no wizard, no prompts):
+  .\install.ps1 -Core            # app + memory + hooks (the default set)
+  .\install.ps1 -All             # core + skills + tones + agents
+  .\install.ps1 -Skills -Agents  # a-la-carte: only those components
+  .\install.ps1 -Core -DryRun    # list what -Core would do, touch nothing
+
 .NOTES
   v15.5.14: the former scripts/install.ps1 + scripts/install.sh inner
   installers (552 + 484 lines, last touched for v15.2 / "v15.2.0" banner)
   were retired to _legacy/install-pre-v15.4.{ps1,sh}. This root script now
   handles the npm install inline (Build-ControlCenter), so there is exactly
   ONE entry point per platform: install.ps1 (Windows) and install.sh
-  (Linux). The legacy copies are kept for archaeology only — do not invoke.
+  (Linux). The legacy copies are kept for archaeology only - do not invoke.
 #>
 
 [CmdletBinding()]
@@ -94,13 +101,37 @@ param(
     [string]$InstallRoot = (Join-Path $env:USERPROFILE ".ultron"),
     # CC-13 hardening: opt-in multi-user host lockdown. When set, the
     # installer breaks ACL inheritance on $InstallRoot and grants Full
-    # Control only to the current user. Default OFF — single-user laptops
+    # Control only to the current user. Default OFF - single-user laptops
     # have no exposure (the home directory already inherits per-user
     # SIDs), and locking the tree breaks scenarios where another local
     # account legitimately needs to read the brain index (e.g. shared
     # household laptop). Set this when ~/.ultron will hold secrets you
     # don't want other Windows accounts on the same machine to read.
-    [switch]$LockdownAcl
+    [switch]$LockdownAcl,
+    # ------------------------------------------------------------------
+    # Component selection (v15.7.1). Passing ANY of these switches enters
+    # "component mode": the wizard is skipped, every remaining prompt is
+    # answered with its non-interactive default, and ONLY the selected
+    # components run. Without these switches the behaviour is exactly the
+    # historical one (wizard / CLI prompts / legacy flags).
+    #   -All    : core + skills + tones + agents
+    #   -Core   : app (npm install) + memory (Qdrant, brain_index, sidecar,
+    #             venv) + hooks (settings.json merge) + base layout/templates
+    #   -Skills : core skills from the repo skills/ dir (manifest picker set)
+    #   -Tones  : tone seeds check for ~/.ultron/personality.json (the seeds
+    #             ship compiled inside the app/sidecar; an existing local
+    #             personality.json is NEVER touched)
+    #   -Agents : repo agents/ dir -> ~/.claude/agents (the public repo ships
+    #             no agents/ dir; the step reports that instead of failing)
+    #   -DryRun : list what the selected components would do, touch nothing.
+    #             With no component switch, -DryRun plans the default (-Core).
+    # ------------------------------------------------------------------
+    [switch]$All,
+    [switch]$Core,
+    [switch]$Skills,
+    [switch]$Tones,
+    [switch]$Agents,
+    [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
@@ -122,6 +153,13 @@ $Script:VerboseOn       = $PSBoundParameters.ContainsKey("Verbose") -or $Verbose
 $Script:Selections      = @{}
 # Where the wizard reads/writes its profile so re-runs remember choices.
 $Script:ProfilePath     = Join-Path $env:USERPROFILE ".ultron\cockpit\install-profile.json"
+# Component mode (see the parameter block). -DryRun alone plans -Core,
+# the default component set.
+$Script:ComponentMode   = ($All -or $Core -or $Skills -or $Tones -or $Agents -or $DryRun)
+$Script:WantCore        = ($Core -or $All -or ($DryRun -and -not ($Skills -or $Tones -or $Agents)))
+$Script:WantSkills      = ($Skills -or $All)
+$Script:WantTones       = ($Tones -or $All)
+$Script:WantAgents      = ($Agents -or $All)
 
 # ----------------------------------------------------------------------
 # Logging
@@ -171,7 +209,7 @@ function Confirm-YesNo {
 #
 # Steps that have a wizard checkbox call Get-Choice with the id and a
 # fallback. If the wizard ran and the id is present, that wins. Otherwise
-# we fall through to the caller's default — which is the legacy behaviour
+# we fall through to the caller's default - which is the legacy behaviour
 # this script had before the wizard existed. This is how the same step
 # functions transparently work in -Cli, -NonInteractive, and -Gui modes
 # without forking the codepaths.
@@ -261,7 +299,7 @@ function Show-InstallWizard {
 
     # Build-ControlCenter, Install-QdrantNative, Set-FeatureFlags etc. all
     # read from $Script:Selections via Get-Choice. We deliberately do NOT
-    # rewrite $NoApp / $NoDocker — those legacy CLI flags are still
+    # rewrite $NoApp / $NoDocker - those legacy CLI flags are still
     # respected at their own check points, and inferring them from the
     # wizard would muddle precedence rules.
     $picked = ($Script:Selections.Keys | Where-Object { $_ -notmatch '^_' -and $Script:Selections[$_] }).Count
@@ -549,7 +587,7 @@ function Test-ClaudeCode {
     }
 
     Update-SessionPath
-    # npm global bin may be at %APPDATA%\npm — make sure session PATH includes it
+    # npm global bin may be at %APPDATA%\npm - make sure session PATH includes it
     $npmPrefix = (& npm config get prefix 2>$null)
     if ($npmPrefix -and (Test-Path -LiteralPath $npmPrefix)) {
         if ($env:Path -notlike "*$npmPrefix*") { $env:Path = $env:Path + ";" + $npmPrefix }
@@ -586,7 +624,7 @@ function Test-OrInstall-Uv {
         throw "uv install"
     }
     Update-SessionPath
-    # winget drops the binary under %LOCALAPPDATA%\Microsoft\WinGet\Links — already on PATH.
+    # winget drops the binary under %LOCALAPPDATA%\Microsoft\WinGet\Links - already on PATH.
     # Fall back to ~/.local/bin in case a previous standalone install put it there.
     $env:Path = $env:Path + ";" + (Join-Path $env:USERPROFILE ".local\bin")
     if (Get-Command "uv" -ErrorAction SilentlyContinue) {
@@ -594,7 +632,7 @@ function Test-OrInstall-Uv {
         Write-OK ("uv " + $ver + " (just installed)")
     } else {
         Write-Warn2 "uv installed but not on PATH yet. Open a fresh shell and re-run."
-        # Don't hard-throw — winget reported success; new shell will see it.
+        # Don't hard-throw - winget reported success; new shell will see it.
     }
 }
 
@@ -648,7 +686,7 @@ function Test-OrInstall-Rust {
 # The Test-Docker + Initialize-Qdrant functions used to provision Qdrant
 # via Docker Desktop. They have been replaced by Install-QdrantNative
 # (below) since v15.0.2, which downloads the native Windows binary
-# straight from qdrant/qdrant releases — no daemon, no container.
+# straight from qdrant/qdrant releases - no daemon, no container.
 #
 # The dead Docker functions were still defined in this script even though
 # the main flow never called them, which confused contributors reading
@@ -658,7 +696,7 @@ function Test-OrInstall-Rust {
 # ----------------------------------------------------------------------
 # Step 4 (new): Qdrant native Windows binary (no Docker)
 #
-# Qdrant is a core ULTRON capability — without it, semantic recall over
+# Qdrant is a core ULTRON capability - without it, semantic recall over
 # the vault is disabled. We ship the *native* Windows binary fetched from
 # the official GitHub releases; no Docker daemon, no container runtime.
 #
@@ -670,7 +708,7 @@ function Test-OrInstall-Rust {
 function Install-QdrantNative {
     Write-Step "4. Qdrant native (no Docker)"
     if ($NoDocker) {
-        Write-Skip "Skipped via -NoDocker (kept for backwards compat — Qdrant is native, not Docker)"
+        Write-Skip "Skipped via -NoDocker (kept for backwards compat - Qdrant is native, not Docker)"
         return
     }
     if (-not (Get-Choice -Id "mem_qdrant" -Default $true)) {
@@ -710,7 +748,7 @@ function Install-QdrantNative {
             if ($actualSha -ne $expectedSha) {
                 Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
                 Write-Fail ("Qdrant zip SHA256 mismatch. Expected " + $expectedSha + ", got " + $actualSha)
-                throw "Qdrant zip hash mismatch — refusing to extract untrusted binary."
+                throw "Qdrant zip hash mismatch - refusing to extract untrusted binary."
             }
             Write-V ("Qdrant zip SHA256 verified (" + $actualSha.Substring(0, 12) + "...)")
             Write-V "Extracting to $nativeDir"
@@ -749,7 +787,7 @@ log_level: INFO
         Write-OK "production.yaml seeded"
     }
 
-    # Probe — is something already serving on 6333?
+    # Probe - is something already serving on 6333?
     try {
         $resp = Invoke-WebRequest -Uri "http://localhost:6333/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {
@@ -757,7 +795,7 @@ log_level: INFO
             return
         }
     } catch {
-        # not running — ensure-qdrant.ps1 will start it on next SessionStart.
+        # not running - ensure-qdrant.ps1 will start it on next SessionStart.
     }
     Write-Info "Qdrant binary in place. ensure-qdrant.ps1 will boot it on the next Claude session (or run it manually now)."
 }
@@ -816,7 +854,7 @@ function New-DirectoryLayout {
 # hold personal-content artefacts the user probably doesn't want other
 # accounts on the same box to be able to read.
 #
-# This step is OFF by default — single-user laptops have no exposure,
+# This step is OFF by default - single-user laptops have no exposure,
 # and locking the tree breaks scenarios where another local account
 # legitimately needs to read the brain index. Opt-in with -LockdownAcl.
 #
@@ -848,7 +886,7 @@ function Set-InstallRootAcl {
             Write-Warn2 ("icacls returned " + $LASTEXITCODE + " - lockdown may be partial.")
             $out | ForEach-Object { Write-V $_ }
         } else {
-            Write-OK ("ACL locked: " + $InstallRoot + " — only " + $user + " has access (inheritance broken)")
+            Write-OK ("ACL locked: " + $InstallRoot + " - only " + $user + " has access (inheritance broken)")
         }
     } catch {
         Write-Warn2 ("icacls failed: " + $_.Exception.Message)
@@ -895,7 +933,7 @@ function New-CockpitSeeds {
         Copy-Item -LiteralPath $srcPath -Destination $dstPath -Force
         Write-OK ("seeded " + $dstPath)
     }
-    # Vault README — different root
+    # Vault README - different root
     $vaultReadme = Join-Path $env:USERPROFILE ".ultron-vault\README.md"
     $vaultSrc = Join-Path $Script:RepoRoot "templates\VAULT-README.md"
     if ((Test-Path $vaultSrc) -and -not (Test-Path $vaultReadme)) {
@@ -1051,7 +1089,7 @@ function Install-Skills {
 # Step 8a': agents installer (v15.4.12)
 # ----------------------------------------------------------------------
 # Copies every agent shipped in the repo's `agents/` directory into
-# `~/.claude/agents/`. Pre-existing destinations are left alone — the
+# `~/.claude/agents/`. Pre-existing destinations are left alone - the
 # user's local edits win, the installer never overwrites.
 #
 # Why a dedicated step (and not part of Install-Skills): agents have
@@ -1293,7 +1331,7 @@ function Initialize-BrainIndex {
 #   schedules    -> on
 #   self_improve -> on
 # The Control Center reads this file at startup and gates tab visibility.
-# Re-running install.ps1 keeps the previous answers — we never silently
+# Re-running install.ps1 keeps the previous answers - we never silently
 # overwrite a user's choice without prompting.
 # ----------------------------------------------------------------------
 function Read-FeatureToggle {
@@ -1318,7 +1356,7 @@ function Read-FeatureToggle {
 # ----------------------------------------------------------------------
 # Step 8d: physically remove files for opted-out features.
 #
-# v15.3.5: the wizard checkboxes used to be purely cosmetic — the
+# v15.3.5: the wizard checkboxes used to be purely cosmetic - the
 # install pipeline ran every step unconditionally because they were
 # "cheap on re-run". That meant unchecking News in the wizard still
 # shipped news_html_generator.py + news_alerts.py + cockpit/news/ to
@@ -1330,7 +1368,7 @@ function Read-FeatureToggle {
 # optional feature the user UNCHECKED in the wizard, we delete the
 # corresponding files from ~/.ultron/scripts/cockpit/ (and any sibling
 # data dirs). The Features tab in the desktop app only toggles
-# *visibility* — it cannot uninstall code. The decision to NOT install
+# *visibility* - it cannot uninstall code. The decision to NOT install
 # an optional feature must be made in the wizard.
 #
 # Guarantees:
@@ -1349,7 +1387,7 @@ function Remove-OptOutFeatureFiles {
 
     # Manifest: id -> list of repo-relative paths to remove if id == false.
     # Paths are interpreted under $Script:RepoRoot. Missing files are silent;
-    # never throw. ONLY optional feature code — never core (skills, agents,
+    # never throw. ONLY optional feature code - never core (skills, agents,
     # hooks, brain_index, qdrant).
     $optOutManifest = @{
         feat_gaming = @(
@@ -1434,10 +1472,10 @@ function Set-FeatureFlags {
         schedules     = $true
         self_improve  = $true
         notifications = $true
-        usage         = $false  # off by default — only useful when on paid plan
+        usage         = $false  # off by default - only useful when on paid plan
         sessions      = $true
-        projects      = $true   # plural — matches Rust Features struct + sidebar key
-        plans         = $false  # off by default — power-user feature
+        projects      = $true   # plural - matches Rust Features struct + sidebar key
+        plans         = $false  # off by default - power-user feature
     }
     if (Test-Path -LiteralPath $featuresFile) {
         try {
@@ -1446,7 +1484,7 @@ function Set-FeatureFlags {
                 if ($null -ne $prev.$k) { $defaults[$k] = [bool]$prev.$k }
             }
         } catch {
-            # corrupt JSON — fall back to baseline.
+            # corrupt JSON - fall back to baseline.
         }
     }
 
@@ -1532,7 +1570,7 @@ function Install-GitHooks {
 # with hooks pointing at a missing interpreter and every Claude session
 # would fail silently.
 function Initialize-PythonVenv {
-    Write-Step "6. python venv (uv sync — required for hooks)"
+    Write-Step "6. python venv (uv sync - required for hooks)"
     if (-not (Get-Command "uv" -ErrorAction SilentlyContinue)) {
         Write-Warn2 "uv not on PATH; cannot create venv. Hooks will fail."
         return
@@ -1544,7 +1582,7 @@ function Initialize-PythonVenv {
     }
     # uv writes progress info to stderr ("Resolved N packages..."). With
     # $ErrorActionPreference = "Stop" active at script scope, those stderr
-    # lines become terminating errors as soon as 2>&1 surfaces them — the
+    # lines become terminating errors as soon as 2>&1 surfaces them - the
     # try/catch fires BEFORE we ever get to check $LASTEXITCODE, so a
     # successful run still landed in the catch as "uv sync failed: Resolved
     # 98 packages". The fix is to relax ErrorActionPreference just for the
@@ -1589,7 +1627,7 @@ function Build-ControlCenter {
 
     # v15.5.14: inlined npm install (was a delegate call to scripts/install.ps1,
     # a 552-line legacy duplicate moved to _legacy/install-pre-v15.4.ps1 in
-    # the same release — see ROUND2-POLISH report). The delegate only existed
+    # the same release - see ROUND2-POLISH report). The delegate only existed
     # to wrap `npm install` in the control-center directory, which is two
     # lines. Initialize-PythonVenv already provisioned the venv in step 6,
     # so no -SkipUvSync gymnastics needed here.
@@ -1721,10 +1759,155 @@ function Write-Summary {
 }
 
 # ----------------------------------------------------------------------
+# Component: tone seeds (-Tones)
+#
+# The publishable tone seeds ship COMPILED inside the Control Center and
+# the ultron-memory sidecar (seed_tones() in
+# control-center/src-tauri/src/orchestrator/personality.rs). There is no
+# standalone seed file in the repo: ~/.ultron/personality.json is
+# auto-created from those seeds the first time the app or the orchestrate
+# hook runs (load_or_seed). personality.json is the user's LOCAL,
+# gitignored tone config - this step never reads, copies or overwrites an
+# existing one.
+# ----------------------------------------------------------------------
+function Install-ToneSeeds {
+    Write-Step "8e. tones (personality.json seeds)"
+    $dest = Join-Path $InstallRoot "personality.json"
+    if (Test-Path -LiteralPath $dest) {
+        Write-Skip ("kept existing " + $dest + " (local tone config is never overwritten)")
+        return
+    }
+    $sidecar = Join-Path $InstallRoot "bin\ultron-memory.exe"
+    if (Test-Path -LiteralPath $sidecar) {
+        Write-OK "tone seeds ready: personality.json will self-seed from the compiled seeds on the first session"
+    } else {
+        Write-Warn2 "memory sidecar missing - tones still self-seed on first app launch; run -Core first for hook-side tone detection"
+    }
+}
+
+# ----------------------------------------------------------------------
+# Component mode: -DryRun plan (no side effects at all)
+# ----------------------------------------------------------------------
+function Show-ComponentPlan {
+    Write-Step "dry run - nothing will be installed or modified"
+    $claudeDir = Join-Path $env:USERPROFILE ".claude"
+    if ($Script:WantCore) {
+        Write-Info "[core] app + memory + hooks:"
+        Write-Info "  - dependency check (winget auto-install if missing): git, Node 22+, Claude Code, uv, Rust"
+        Write-Info ("  - Qdrant native binary -> " + (Join-Path $InstallRoot "qdrant-native"))
+        Write-Info ("  - directory layout     -> " + $InstallRoot + " + " + (Join-Path $env:USERPROFILE ".ultron-vault"))
+        Write-Info ("  - templates seeded (only if absent): CLAUDE.md, SYSTEM-MAP.md, MEMORY.md, cockpit/personal seeds")
+        Write-Info ("  - python venv (uv sync) -> " + (Join-Path $Script:RepoRoot ".venv") + " (the hooks depend on it)")
+        Write-Info ("  - hooks merge -> " + (Join-Path $claudeDir "settings.json") + " (template templates\settings-hooks.json; timestamped backup first)")
+        Write-Info ("  - feature flags -> " + (Join-Path $InstallRoot "cockpit\features.json") + " (existing answers are kept)")
+        Write-Info ("  - brain_index init + memory sidecar -> " + (Join-Path $InstallRoot "bin\ultron-memory.exe"))
+        Write-Info ("  - control-center: npm install (Tauri build stays opt-in; -NoApp skips)")
+        Write-Info ("  - doctor.py verification")
+    }
+    if ($Script:WantSkills) {
+        Write-Info "[skills] repo core skills -> ~/.claude/skills:"
+        $manifestPath = Join-Path $Script:RepoRoot "templates\skills-manifest.example.yaml"
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            Write-Info "  - manifest missing: templates\skills-manifest.example.yaml (nothing would install)"
+        } else {
+            $planName = ""
+            foreach ($line in (Get-Content -LiteralPath $manifestPath)) {
+                if ($line -match '^\s*- name:\s*(.+)$') {
+                    $planName = $Matches[1].Trim()
+                } elseif ($line -match '^\s*core:\s*true\s*$' -and $planName) {
+                    $src = Join-Path $Script:RepoRoot ("skills\" + $planName)
+                    $dst = Join-Path $claudeDir ("skills\" + $planName)
+                    $state = "repo source missing - would skip"
+                    if (Test-Path -LiteralPath $dst) {
+                        $state = "already installed"
+                    } elseif (Test-Path -LiteralPath $src) {
+                        $state = "would copy"
+                    }
+                    Write-Info ("  - " + $planName + " (" + $state + ")")
+                }
+            }
+        }
+    }
+    if ($Script:WantTones) {
+        Write-Info "[tones] personality.json seeds:"
+        $pj = Join-Path $InstallRoot "personality.json"
+        if (Test-Path -LiteralPath $pj) {
+            Write-Info ("  - " + $pj + " exists - would be kept untouched")
+        } else {
+            Write-Info "  - absent - self-seeds from the compiled seeds (personality.rs) on first app/sidecar run; installer writes nothing"
+        }
+    }
+    if ($Script:WantAgents) {
+        Write-Info "[agents] repo agents/ -> ~/.claude/agents:"
+        $agentsDir = Join-Path $Script:RepoRoot "agents"
+        if (Test-Path -LiteralPath $agentsDir) {
+            $n = (Get-ChildItem -LiteralPath $agentsDir -Filter "*.md" -File -ErrorAction SilentlyContinue | Measure-Object).Count
+            Write-Info ("  - " + $n + " agent file(s) found; existing destinations kept")
+        } else {
+            Write-Info "  - the public repo ships no agents/ dir - nothing would install (use the Agents tab catalog after first launch)"
+        }
+    }
+    Write-OK "dry run complete"
+}
+
+# ----------------------------------------------------------------------
+# Component mode pipeline. Deterministic: no wizard, every remaining
+# prompt answered with its non-interactive default. Reuses the exact same
+# step functions as the legacy flow, so idempotency guarantees carry over
+# (existing destinations and existing user config are never overwritten).
+# ----------------------------------------------------------------------
+function Invoke-ComponentInstall {
+    $sel = @()
+    if ($Script:WantCore)   { $sel += "core (app + memory + hooks)" }
+    if ($Script:WantSkills) { $sel += "skills" }
+    if ($Script:WantTones)  { $sel += "tones" }
+    if ($Script:WantAgents) { $sel += "agents" }
+    Write-Step ("component mode: " + ($sel -join ", "))
+
+    if ($DryRun) {
+        Show-ComponentPlan
+        return
+    }
+
+    # Prompts fall back to their defaults - same values -NonInteractive uses.
+    $Script:NonInteractive = $true
+
+    if ($Script:WantCore) {
+        Test-Preflight
+        Test-OrInstall-Git    | Out-Null
+        Test-OrInstall-Node   | Out-Null
+        Test-ClaudeCode
+        Test-OrInstall-Uv
+        Test-OrInstall-Rust   | Out-Null
+        Install-QdrantNative
+        New-DirectoryLayout
+        Set-InstallRootAcl
+        New-WakeUpStubs
+        New-CockpitSeeds
+        Initialize-PythonVenv
+        Update-ClaudeSettings
+        Set-FeatureFlags
+        Initialize-BrainIndex
+        Install-MemorySidecar
+        Install-GitHooks
+        Build-ControlCenter
+    }
+    if ($Script:WantSkills) { Install-Skills }
+    if ($Script:WantTones)  { Install-ToneSeeds }
+    if ($Script:WantAgents) { Install-Agents }
+    if ($Script:WantCore)   { Invoke-Doctor }
+}
+
+# ----------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------
 try {
     Write-Banner
+    if ($Script:ComponentMode) {
+        Invoke-ComponentInstall
+        if (-not $DryRun) { Write-Summary }
+        if ($Script:Errors.Count -gt 0) { exit 1 } else { exit 0 }
+    }
     Show-InstallWizard
     Test-Preflight
     Test-OrInstall-Git    | Out-Null
@@ -1732,7 +1915,7 @@ try {
     Test-ClaudeCode
     Test-OrInstall-Uv
     Test-OrInstall-Rust   | Out-Null
-    # Qdrant — native Windows binary, no Docker needed. Semantic recall is
+    # Qdrant - native Windows binary, no Docker needed. Semantic recall is
     # a core ULTRON capability; the installer fetches the official release
     # zip if `~/.ultron/qdrant-native/qdrant.exe` is missing.
     Install-QdrantNative
