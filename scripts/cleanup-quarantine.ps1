@@ -136,7 +136,7 @@ if ($quarantineDirs.Count -eq 0) {
 # ---------------------------------------------------------------------------
 # Measure each directory
 # ---------------------------------------------------------------------------
-$rows = foreach ($dir in $quarantineDirs) {
+$rows = @(foreach ($dir in $quarantineDirs) {
     $files = Get-ChildItem -Path $dir.FullName -Recurse -Force -File `
                  -ErrorAction SilentlyContinue
     $count = ($files | Measure-Object).Count
@@ -150,7 +150,7 @@ $rows = foreach ($dir in $quarantineDirs) {
         SizeMB  = $mb
         FullPath = $dir.FullName
     }
-}
+})
 
 # ---------------------------------------------------------------------------
 # Always print the report table
