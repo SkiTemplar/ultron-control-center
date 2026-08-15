@@ -86,6 +86,10 @@ function main() {
           command: dehome(h.command),
           script: dehome(sp),
           timeout_s: h.timeout != null ? h.timeout : null,
+          // Semantica critica (ver rules/common/hooks.md): async=true corre
+          // fire-and-forget y su stdout JSON SE DESCARTA — sin este campo el
+          // manifest vendia como sincronos hooks que no pueden hablar al modelo.
+          async: h.async === true,
           checksum_sha256: sp ? sha256(sp) : null,
           version: prev.version || '1.0.0',
           env_allowlist: prev.env_allowlist || [],

@@ -39,14 +39,47 @@ const CODE_EXT = new Set([
 
 // Comandos Bash cuyo PROPOSITO es localizar/leer codigo en el FS a ciegas:
 // justo lo que codegraph_search/explore resuelve sin barrer el arbol.
-const EXPLORE_CMDS = new Set([
-  'find', 'grep', 'rg', 'ls', 'cat', 'head', 'tail', 'tree', 'wc', 'fd', 'dir', 'glob',
-]);
+// SEARCH_CMDS buscan contenido/estructura (disparan salvo objetivo de DATOS);
+// PASSIVE_CMDS solo leen/listan (disparan SOLO con argumento de codigo — leer
+// logs, JSON de runtime o listar .tmp/ no es ubicar simbolos y el indice no lo
+// cubre; falso positivo medido 2026-08-15: 3 nudges seguidos sobre cat/tail/ls
+// de *.json, *.log y .tmp en una misma sesion).
+const SEARCH_CMDS = new Set(['find', 'grep', 'rg', 'fd', 'glob']);
+const PASSIVE_CMDS = new Set(['ls', 'cat', 'head', 'tail', 'tree', 'wc', 'dir']);
 
-// True si el comando Bash es exploracion a ciegas (algun comando LIDER esta en
-// EXPLORE_CMDS). Mira solo los lideres de cada segmento secuenciado (&&/||/;);
-// IGNORA lo que va tras un pipe (`| head`, `| wc -l` son post-proceso de, p.ej.,
-// `cargo test | tail` — que NO debe disparar).
+// Objetivos que el indice NO cubre: datos/estado de runtime, no codigo fuente.
+const DATA_EXT = new Set([
+  '.json', '.jsonl', '.log', '.md', '.txt', '.yaml', '.yml', '.toml',
+  '.lock', '.csv', '.tmp', '.env',
+]);
+const DATA_DIR_RE = /(^|[\\/.])(tmp|logs?|run|node_modules|target|dist|out|sessions|\.git)([\\/]|$)/i;
+
+// Clasifica los ARGUMENTOS (no flags) de un segmento: devuelve 'code' si alguno
+// apunta a codigo (extension CODE_EXT), 'data' si todos los paths reconocibles
+// son de datos, 'unknown' si no hay señal (sin paths o paths sin extension).
+function classifyArgs(tokens) {
+  let sawData = false;
+  let sawUnknown = false;
+  for (const t of tokens) {
+    const arg = t.replace(/^['"]|['"]$/g, '');
+    if (!arg || arg.startsWith('-')) continue;
+    const ext = path.extname(arg.replace(/\*+/g, 'x')).toLowerCase();
+    if (CODE_EXT.has(ext)) return 'code';
+    if (DATA_EXT.has(ext) || DATA_DIR_RE.test(arg)) { sawData = true; continue; }
+    sawUnknown = true;
+  }
+  if (sawData && !sawUnknown) return 'data';
+  return 'unknown';
+}
+
+// True si el comando Bash es exploracion de CODIGO a ciegas. Mira solo los
+// lideres de cada segmento secuenciado (&&/||/;); IGNORA lo que va tras un pipe
+// (`| head`, `| wc -l` son post-proceso de, p.ej., `cargo test | tail` — que NO
+// debe disparar). Reglas por segmento:
+//  - algun argumento con extension de CODE_EXT -> dispara (cat lib.rs, find *.ts)
+//  - busqueda (grep/rg/find/fd) sin objetivo claro -> dispara (barrido del arbol)
+//  - busqueda con objetivo SOLO de datos -> no (grep sobre manifest.json, logs)
+//  - lectura pasiva (cat/tail/ls/...) sin argumento de codigo -> no
 function isBlindCodeExploration(command) {
   const cmd = String(command || '');
   if (!cmd.trim()) return false;
@@ -58,7 +91,22 @@ function isBlindCodeExploration(command) {
     const tokens = leader.split(/\s+/).filter((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
     if (!tokens.length) continue;
     const base = tokens[0].split(/[\\/]/).pop().toLowerCase();
-    if (EXPLORE_CMDS.has(base)) return true;
+    const isSearch = SEARCH_CMDS.has(base);
+    if (!isSearch && !PASSIVE_CMDS.has(base)) continue;
+    let args = tokens.slice(1);
+    // En grep/rg/fd el primer argumento no-flag es el PATRON, no un objetivo:
+    // fuera del analisis (si no, `grep foo datos.json` clasificaria 'foo' como
+    // unknown y dispararia pese a que el unico objetivo real es de datos).
+    if (base === 'grep' || base === 'rg' || base === 'fd') {
+      const i = args.findIndex((t) => {
+        const clean = t.replace(/^['"]|['"]$/g, '');
+        return clean && !clean.startsWith('-');
+      });
+      if (i >= 0) args = args.slice(0, i).concat(args.slice(i + 1));
+    }
+    const kind = classifyArgs(args);
+    if (kind === 'code') return true;
+    if (isSearch && kind === 'unknown') return true;
   }
   return false;
 }
@@ -242,18 +290,24 @@ function handle(raw) {
   return JSON.stringify(out);
 }
 
-(async () => {
-  let raw = '';
-  try { raw = await getStdin(); } catch (_) { /* ignore */ }
+// Solo corre el hook cuando se invoca directamente; al importarse (tests)
+// expone las funciones puras sin leer stdin ni tocar markers.
+if (require.main === module) {
+  (async () => {
+    let raw = '';
+    try { raw = await getStdin(); } catch (_) { /* ignore */ }
 
-  let out = '';
-  try { out = handle(raw) || ''; } catch (e) { logHookError('codegraph-reminder', e); /* nunca romper una lectura */ }
+    let out = '';
+    try { out = handle(raw) || ''; } catch (e) { logHookError('codegraph-reminder', e); /* nunca romper una lectura */ }
 
-  // Escribir y salir SOLO tras el flush (en Windows, process.exit inmediato
-  // trunca stdout con buffer pendiente). Sin salida => salir ya.
-  if (out) {
-    process.stdout.write(out, () => process.exit(0));
-  } else {
-    process.exit(0);
-  }
-})();
+    // Escribir y salir SOLO tras el flush (en Windows, process.exit inmediato
+    // trunca stdout con buffer pendiente). Sin salida => salir ya.
+    if (out) {
+      process.stdout.write(out, () => process.exit(0));
+    } else {
+      process.exit(0);
+    }
+  })();
+} else {
+  module.exports = { isBlindCodeExploration, classifyArgs };
+}

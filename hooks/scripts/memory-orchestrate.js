@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary } = require('./lib/ultron-memory-cli');
+const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary, readDaemonLock } = require('./lib/ultron-memory-cli');
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
@@ -44,10 +44,27 @@ const DAEMON_TIMEOUT_CACHED_MS = 4000;
 // ONE_SHOT_CAP_UNCACHED_MS (6000) = 12s exactos, que era el timeout del hook en
 // settings.json — cualquier overhead lo vencia y Claude Code DESCARTABA todo el
 // prefetch en silencio (visto 2026-08-14). El timeout esta ahora en 20s: si se
-// sube cualquiera de estos dos caps, revisar tambien aquel.
+// sube cualquiera de estos dos caps, revisar tambien aquel. Con daemon en
+// warmup el peor caso sube a 18s (DAEMON_BOOT_WAIT_MS + one-shot, HOOKS-05).
 const ONE_SHOT_CAP_CACHED_MS = 800;
 const ONE_SHOT_CAP_UNCACHED_MS = 6000;
 const ORCH_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+// HOOKS-05 (2026-08-15, decidido por el usuario): espera extendida en ARRANQUE
+// FRIO. Sintoma medido: el primer prompt tras un arranque llegaba con el daemon
+// recien spawneado (memory-warmup) pero E5 aun cargando -> timeout de 6s ->
+// one-shot compitiendo por CPU con el warmup -> tambien fallaba -> prompt SIN
+// memoria (hook-errors.jsonl: 2026-08-15T09:17, 4 casos el 08-14). Cura: si el
+// lockfile es JOVEN (<BOOT_WINDOW: daemon en warmup, no colgado), poll al daemon
+// hasta agotar BOOT_WAIT (presupuesto TOTAL desde t0). Un lock viejo que no
+// responde sigue degradando de inmediato (daemon colgado de verdad).
+// Presupuesto peor caso con espera: BOOT_WAIT (12s, incluye los 6s del primer
+// intento) + ONE_SHOT_CAP_UNCACHED_MS (6s) = 18s < 20s del timeout del hook.
+const DAEMON_BOOT_WINDOW_MS = 90_000;
+const DAEMON_BOOT_WAIT_MS = 12_000;
+const DAEMON_BOOT_POLL_MS = 1_500;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function orchCachePath(project) {
   const safe = String(project || 'default').replace(/[^A-Za-z0-9_-]/g, '-');
@@ -300,6 +317,25 @@ async function main() {
     cached ? DAEMON_TIMEOUT_CACHED_MS : DAEMON_TIMEOUT_MS
   );
   if (ctx && ctx.error) ctx = null; // daemon answered but failed -> fall back
+
+  // HOOKS-05: daemon en warmup (lock joven) -> poll hasta DAEMON_BOOT_WAIT_MS
+  // en vez de degradar al one-shot (que compite por CPU con la carga de E5).
+  if (!ctx) {
+    const lock = readDaemonLock();
+    const bootAge =
+      lock && Number.isFinite(lock.started_at) ? Date.now() - lock.started_at : Infinity;
+    if (bootAge >= 0 && bootAge < DAEMON_BOOT_WINDOW_MS) {
+      const deadline = t0 + DAEMON_BOOT_WAIT_MS;
+      while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS < deadline) {
+        await sleep(DAEMON_BOOT_POLL_MS);
+        ctx = await daemonRequest(
+          { cmd: 'orchestrate', prompt, project: project || undefined },
+          Math.max(1000, deadline - Date.now())
+        );
+        if (ctx && ctx.error) ctx = null;
+      }
+    }
+  }
   const usedDaemon = ctx !== null;
 
   let staleFromCache = false;
