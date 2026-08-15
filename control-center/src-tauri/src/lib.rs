@@ -292,14 +292,41 @@ pub fn run() {
             commands::projects::remove_launcher_item,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
-            // -- FINANCE: native read-only dashboard of the Bank/finanzas project --
-            // Requires --features finance (local-only; finance.rs excluded from public repo).
+            // -- FINANCE: native dashboard + write path of the Bank/finanzas project --
+            // Requires --features finance (local-only; finance/ excluded from public repo).
+            // Read side.
             #[cfg(feature = "finance")]
             finance::finance_overview,
+            #[cfg(feature = "finance")]
+            finance::finance_categorias_list,
             #[cfg(feature = "finance")]
             finance::finance_sync,
             #[cfg(feature = "finance")]
             finance::finance_open_setup,
+            // Write side (2026-08-15) — every mutator snapshots the DB first.
+            #[cfg(feature = "finance")]
+            finance::finance_fondo_upsert,
+            #[cfg(feature = "finance")]
+            finance::finance_fondo_delete,
+            #[cfg(feature = "finance")]
+            finance::finance_fondos_clear,
+            #[cfg(feature = "finance")]
+            finance::finance_fondo_aportar,
+            #[cfg(feature = "finance")]
+            finance::finance_recalibrar_saldo,
+            #[cfg(feature = "finance")]
+            finance::finance_set_limite,
+            #[cfg(feature = "finance")]
+            finance::finance_set_config,
+            #[cfg(feature = "finance")]
+            finance::finance_movimiento_set_categoria,
+            #[cfg(feature = "finance")]
+            finance::finance_backup_db,
+            // AI auto-categorisation: propose (read-only) then apply.
+            #[cfg(feature = "finance")]
+            finance::finance_ai_rank,
+            #[cfg(feature = "finance")]
+            finance::finance_ai_rank_apply,
             // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --

@@ -404,6 +404,7 @@ qdrant-native/
 # === finance feature: local-only files (KutxaBank personal data path hardcoded) ===
 # Build with `cargo build --features finance` + `VITE_FINANCE=1 npm run build` to enable.
 control-center/src-tauri/src/finance.rs
+control-center/src-tauri/src/finance/
 control-center/src/components/Finance.tsx
 control-center/src/components/finance/
 
