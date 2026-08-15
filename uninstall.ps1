@@ -12,7 +12,7 @@
     - hook entries in ~/.claude/settings.json that point at ~/.ultron/
 
   Does NOT touch:
-    - ~/.claude/skills/        (user's installed skills — those are theirs)
+    - ~/.claude/skills/        (user's installed skills - those are theirs)
     - ~/.claude/settings.json  (only the hook entries pointing at ~/.ultron/ are removed; the file stays)
     - ~/.codex/, ~/.agents/    (third-party CLIs, untouched)
     - the cloned ultron repo directory (delete that yourself when ready)
@@ -34,7 +34,7 @@
   .\uninstall.ps1 -NonInteractive -KeepBackups
 
 .NOTES
-  Idempotent. Re-running is safe — items already removed are silently skipped.
+  Idempotent. Re-running is safe - items already removed are silently skipped.
 #>
 
 [CmdletBinding()]
@@ -67,7 +67,7 @@ function Invoke-Step($desc, [ScriptBlock]$block) {
     try {
         & $block
     } catch {
-        Record-Fail "$desc — $($_.Exception.Message)"
+        Record-Fail "$desc - $($_.Exception.Message)"
     }
 }
 
@@ -206,7 +206,7 @@ Invoke-Step "Delete schtasks named ULTRON*" {
             Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false -ErrorAction Stop
             Record-Action "Deleted $($t.TaskName)"
         } catch {
-            Record-Fail "delete $($t.TaskName) — $($_.Exception.Message)"
+            Record-Fail "delete $($t.TaskName) - $($_.Exception.Message)"
         }
     }
 }

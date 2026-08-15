@@ -1,4 +1,4 @@
-# bootstrap.ps1 — ULTRON one-shot installer (v15.4.17+)
+# bootstrap.ps1 - ULTRON one-shot installer (v15.4.17+)
 #
 # Run from anywhere on Windows:
 #   iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
@@ -95,7 +95,7 @@ if (-not $DryRun) {
     Invoke-WebRequest -Uri $systemAsset.browser_download_url -OutFile $zipPath
 }
 
-# 2b. SHA256 verification — review audit v15.4.18: the release publishes
+# 2b. SHA256 verification - review audit v15.4.18: the release publishes
 # a .zip.sha256 manifest; without checking it, tag-pinning is theatre. A
 # tampered or partial download silently corrupts ~/.ultron. Hard-fail if
 # the manifest is present and the hashes diverge.
@@ -107,7 +107,7 @@ if ($shaAsset -and -not $DryRun) {
     $expectedSha = (Get-Content $shaTmp -Raw).Trim().Split()[0].ToLower()
     $actualSha = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLower()
     if ($expectedSha -ne $actualSha) {
-        Write-Err "SHA256 mismatch — ZIP corrupt or tampered."
+        Write-Err "SHA256 mismatch - ZIP corrupt or tampered."
         Write-Err "  expected: $expectedSha"
         Write-Err "  actual:   $actualSha"
         exit 5
@@ -115,7 +115,7 @@ if ($shaAsset -and -not $DryRun) {
     Write-Step "SHA256 verified: $actualSha"
 } elseif (-not $shaAsset) {
     if ($AllowUnsignedZip) {
-        Write-Warn "Release $tag does not include $expectedZip.sha256 — proceeding WITHOUT integrity check (-AllowUnsignedZip)."
+        Write-Warn "Release $tag does not include $expectedZip.sha256 - proceeding WITHOUT integrity check (-AllowUnsignedZip)."
     } else {
         Write-Err "Release $tag does not include $expectedZip.sha256 and -AllowUnsignedZip was NOT passed."
         Write-Err "Refusing to extract an unsigned ZIP. Re-run with -AllowUnsignedZip to bypass (NOT recommended)."
@@ -145,7 +145,7 @@ if (-not $DryRun) {
     $installExit = $LASTEXITCODE
     if ($installExit -ne 0) {
         # Don't silently launch the Control Center installer over a broken
-        # base system — surface the failure and stop (codex review v15.4.17).
+        # base system - surface the failure and stop (codex review v15.4.17).
         Write-Err "install.ps1 exited with code $installExit. Bootstrap aborted."
         Write-Err "Investigate the log above; fix the issue; re-run bootstrap.ps1."
         exit $installExit
@@ -160,7 +160,7 @@ if ($SkipInstaller -or -not $installerAsset) {
     Write-Step "Downloading Control Center installer ($([math]::Round($installerAsset.size / 1MB, 1)) MB)"
     if (-not $DryRun) {
         Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $exePath
-        Write-Step "Launching installer (Windows SmartScreen may warn — click More info -> Run anyway)"
+        Write-Step "Launching installer (Windows SmartScreen may warn - click More info -> Run anyway)"
         Start-Process -FilePath $exePath -Wait
     }
 }
