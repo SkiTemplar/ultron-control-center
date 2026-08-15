@@ -626,7 +626,13 @@ function ProjectsPane() {
   return (
     <div className="flex h-full flex-col">
       <TabsBar />
-      <div className="flex-1 overflow-hidden">
+      {/* v2.7.2 — el wrapper era `overflow-hidden` para las dos ramas. El
+          workspace lo necesita (gestiona su propio scroll interno), pero la
+          home de Projects NO: con la ventana pequeña la rejilla medía 3000px
+          dentro de una caja de 589px recortada y sin scroll, asi que las
+          tarjetas de abajo eran inalcanzables (medido con 15 proyectos a
+          900x620). Scroll vertical solo en la rama home. */}
+      <div className={`min-h-0 flex-1 ${currentId === "home" ? "overflow-y-auto" : "overflow-hidden"}`}>
         {currentId === "home" ? (
           <Projects
             onOpenProject={(p) => open({ id: p.id, title: p.name })}

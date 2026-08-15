@@ -25,6 +25,7 @@
 
 const path = require('path');
 const { loadCatalog, compileRules } = require('../hooks/scripts/lib/ai-text-detector');
+const { runHeuristic } = require('../hooks/scripts/lib/ai-text-heuristics');
 
 const CASES = require(path.join(__dirname, 'fixtures', 'catalog-cases.json'));
 
@@ -33,6 +34,8 @@ function matcherFor(patron) {
   const rules = compileRules([patron]);
   return (text) =>
     rules.some((r) => {
+      // Señal estructural: no hay regex, la decide la heurística homónima.
+      if (r.heuristic) return (runHeuristic(r.heuristic, text) || []).length > 0;
       r.re.lastIndex = 0;
       return r.re.test(text);
     });

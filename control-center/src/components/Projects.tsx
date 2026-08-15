@@ -93,6 +93,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [wPath, setWPath] = useState("");
   const [wTags, setWTags] = useState("");
   const [wIde, setWIde] = useState("");
+  const [wColor, setWColor] = useState("");
   const [wDefaultProvider, setWDefaultProvider] = useState<SessionProvider>("claude");
   const [wDefaultShell, setWDefaultShell] = useState<ProjectShell | "">("");
   const [wParentFolderOverride, setWParentFolderOverride] = useState("");
@@ -307,7 +308,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // Wizard helpers
   // ---------------------------------------------------------------------------
   function resetWizard() {
-    setWName(""); setWPath(""); setWTags(""); setWIde("");
+    setWName(""); setWPath(""); setWTags(""); setWIde(""); setWColor("");
     setWDefaultProvider("claude"); setWDefaultShell("");
     setWParentFolderOverride(""); setWNotes(""); setWExecutables([]);
     setEditingId(null); setCreateError(null);
@@ -316,7 +317,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   function startEdit(p: ProjectInfo) {
     setEditingId(p.id);
     setWName(p.name ?? ""); setWPath(p.path ?? "");
-    setWTags(p.tags.join(", ")); setWIde(p.ide ?? "");
+    setWTags(p.tags.join(", ")); setWIde(p.ide ?? ""); setWColor(p.color ?? "");
     setWDefaultProvider((p.default_provider as SessionProvider | null | undefined) ?? "claude");
     setWDefaultShell((p.default_shell as ProjectShell | null | undefined) ?? "");
     setWParentFolderOverride(p.parent_folder_override ?? "");
@@ -334,6 +335,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       const shellPayload: string | null = wDefaultShell === "" ? null : wDefaultShell;
       const parentFolderTrimmed = wParentFolderOverride.trim();
       const notesTrimmed = wNotes.trim();
+      const colorTrimmed = wColor.trim();
       if (editingId) {
         const cleanedExecs = wExecutables.map((e) => ({ name: e.name.trim(), path: e.path.trim() })).filter((e) => e.name && e.path);
         await invoke("update_project", {
@@ -341,6 +343,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           language: null, tags: tagList, defaultProvider: wDefaultProvider,
           defaultShell: wDefaultShell === "" ? "" : wDefaultShell,
           parentFolderOverride: parentFolderTrimmed, notes: notesTrimmed, executables: cleanedExecs,
+          color: colorTrimmed,
         });
         resetWizard(); setWizardOpen(false); await load();
       } else {
@@ -348,6 +351,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           name: wName, path: wPath, ide: idePayload || null, language: null,
           tags: tagList.length > 0 ? tagList : null, defaultProvider: wDefaultProvider,
           defaultShell: shellPayload, parentFolderOverride: parentFolderTrimmed || null, notes: notesTrimmed || null,
+          color: colorTrimmed || null,
         })) as CreateProjectResult;
         if (r.success) { resetWizard(); setWizardOpen(false); await load(); }
         else { setCreateError(r.message); }
@@ -513,12 +517,12 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       {/* Create / edit wizard modal */}
       {wizardOpen && (
         <ProjectWizardModal
-          editingId={editingId} wName={wName} wPath={wPath} wTags={wTags} wIde={wIde}
+          editingId={editingId} wName={wName} wPath={wPath} wTags={wTags} wIde={wIde} wColor={wColor}
           wDefaultProvider={wDefaultProvider} wDefaultShell={wDefaultShell}
           wParentFolderOverride={wParentFolderOverride} wNotes={wNotes} wExecutables={wExecutables}
           creating={creating} createError={createError} tagPool={tagPool} wTagsParsed={wTagsParsed}
           onClose={closeWizard} onSave={saveProject} onPickPath={pickWizardPath} onToggleTag={toggleWizardTag}
-          setWName={setWName} setWPath={setWPath} setWTags={setWTags} setWIde={setWIde}
+          setWName={setWName} setWPath={setWPath} setWTags={setWTags} setWIde={setWIde} setWColor={setWColor}
           setWDefaultProvider={setWDefaultProvider} setWDefaultShell={setWDefaultShell}
           setWParentFolderOverride={setWParentFolderOverride} setWNotes={setWNotes}
           setWExecutables={setWExecutables}

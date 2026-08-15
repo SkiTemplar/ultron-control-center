@@ -302,6 +302,70 @@
         "El metodo mejora el recall de 0,491 a 0,810 y cuesta 4 segundos por consulta.",
         "Por un lado del cluster corre Qdrant; por el otro, el daemon de embeddings."
       ]
+    },
+    {
+      "nombre": "Puntuación pobre con frases encadenadas",
+      "positivos": [
+        "El sistema de recuperacion procesa el corpus completo y genera los vectores densos que despues almacena en la base para responder consultas en produccion sin intervencion humana. El modelo de lenguaje recibe la consulta del usuario y produce una respuesta que combina los fragmentos recuperados con el conocimiento parametrico aprendido durante el entrenamiento previo. La evaluacion automatica compara las respuestas generadas con las referencias anotadas y calcula metricas de precision y cobertura sobre el conjunto completo de preguntas. El despliegue en produccion requiere una infraestructura capaz de sostener la carga concurrente y de recuperarse ante fallos parciales del servicio sin perder peticiones. El equipo de investigacion documenta cada iteracion del proceso y publica los resultados obtenidos en un repositorio abierto para que cualquier persona interesada pueda reproducir el experimento completo sin necesidad de solicitar acceso previo a los datos originales."
+      ],
+      "negativos": [
+        "El sistema indexa el corpus (unos 12.000 documentos); el modelo responde en 144 ms. La evaluacion usa dos metricas: precision y cobertura.",
+        "Arranca el daemon, comprueba el healthz y mide la latencia."
+      ]
+    },
+    {
+      "nombre": "Densidad de conectores de manual",
+      "positivos": [
+        "Además, el sistema mejora el rendimiento del indice sobre el corpus completo de documentos tecnicos. Sin embargo, presenta limitaciones cuando la carga concurrente supera los cien usuarios simultaneos. Por lo tanto, conviene evaluarlo en un entorno de preproduccion antes del despliegue. Asimismo, el coste operativo crece de forma lineal con el numero de vectores almacenados en memoria. En primer lugar, el equipo debe definir las metricas de calidad. Finalmente, la documentacion tecnica recoge las decisiones tomadas durante todo el proceso de desarrollo del sistema completo."
+      ],
+      "negativos": [
+        "El indice pesa 2,1 GB y responde en 144 ms. Con 100 usuarios simultaneos la latencia sube a 5 s. Habra que medirlo otra vez cuando entre el reranker nuevo del cross-encoder en produccion.",
+        "Arranca Qdrant, indexa el corpus y mide el recall a 8."
+      ]
+    },
+    {
+      "nombre": "Uniformidad de párrafos",
+      "positivos": [
+        "Parrafo 1: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los.\n\nParrafo 2: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos.\n\nParrafo 3: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los."
+      ],
+      "negativos": [
+        "Parrafo 1: el sistema procesa los datos del corpus y devuelve un resultado medido.\n\nParrafo 2: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del.\n\nParrafo 3: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un."
+      ]
+    },
+    {
+      "nombre": "Verbos promocionales de acción (español)",
+      "positivos": [
+        "Sumérgete en el fascinante mundo de la inteligencia artificial y desbloquea todo su potencial.",
+        "Esta guia te ayudara a desatar todo el potencial de tu equipo.",
+        "Unlock the full potential of your data pipeline."
+      ],
+      "negativos": [
+        "El modulo usa el indice denso para recuperar los diez vecinos mas cercanos.",
+        "La herramienta mide la latencia y escribe el resultado en el log."
+      ]
+    },
+    {
+      "nombre": "Pasiva perifrástica anglicada",
+      "positivos": [
+        "El algoritmo puede ser utilizado para clasificar documentos en varias categorias.",
+        "Este enfoque es considerado como el estandar del sector desde 2019."
+      ],
+      "negativos": [
+        "El algoritmo se utiliza para clasificar documentos y tarda 12 ms por documento.",
+        "Este enfoque es el estandar del sector desde 2019."
+      ]
+    },
+    {
+      "nombre": "Anuncio de estructura / eco del encargo",
+      "positivos": [
+        "En este trabajo se explorara en profundidad el papel de la inteligencia artificial.",
+        "A continuación se presentan los principales hallazgos del experimento.",
+        "In this article, we will explore the main techniques."
+      ],
+      "negativos": [
+        "El experimento compara dos configuraciones del reranker sobre el mismo corpus.",
+        "Los resultados del experimento aparecen en la tabla 3."
+      ]
     }
   ]
 }

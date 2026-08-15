@@ -4,12 +4,26 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ProjectExecutable, ProjectShell, SessionProvider } from "../../types";
 
+/// Preset accent colours. Picked to stay legible both as a card tint (very
+/// low alpha) and as a Claude Code accent on a black terminal.
+const PROJECT_SWATCHES = [
+  "#e0263c", // ULTRON red
+  "#38bdf8", // sky
+  "#3ddc84", // green
+  "#f5a524", // amber
+  "#a855f7", // purple
+  "#ec4899", // pink
+  "#14b8a6", // teal
+  "#94a3b8", // slate
+] as const;
+
 export interface ProjectWizardState {
   editingId: string | null;
   wName: string;
   wPath: string;
   wTags: string;
   wIde: string;
+  wColor: string;
   wDefaultProvider: SessionProvider;
   wDefaultShell: ProjectShell | "";
   wParentFolderOverride: string;
@@ -30,6 +44,7 @@ export interface ProjectWizardModalProps extends ProjectWizardState {
   setWPath: (v: string) => void;
   setWTags: (v: string) => void;
   setWIde: (v: string) => void;
+  setWColor: (v: string) => void;
   setWDefaultProvider: (v: SessionProvider) => void;
   setWDefaultShell: (v: ProjectShell | "") => void;
   setWParentFolderOverride: (v: string) => void;
@@ -39,11 +54,11 @@ export interface ProjectWizardModalProps extends ProjectWizardState {
 
 export function ProjectWizardModal({
   editingId,
-  wName, wPath, wTags, wIde, wDefaultProvider, wDefaultShell,
+  wName, wPath, wTags, wIde, wColor, wDefaultProvider, wDefaultShell,
   wParentFolderOverride, wNotes, wExecutables,
   creating, createError, tagPool, wTagsParsed,
   onClose, onSave, onPickPath, onToggleTag,
-  setWName, setWPath, setWTags, setWIde,
+  setWName, setWPath, setWTags, setWIde, setWColor,
   setWDefaultProvider, setWDefaultShell,
   setWParentFolderOverride, setWNotes, setWExecutables,
 }: ProjectWizardModalProps) {
@@ -274,6 +289,75 @@ export function ProjectWizardModal({
               <option value="cmd">cmd.exe</option>
               <option value="bash">Bash / Git Bash</option>
             </select>
+          </div>
+
+          {/* Accent colour */}
+          <div className="col-span-2">
+            <label
+              className="text-[10px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+              title="Tints this project's card and colours Claude Code's accents when you open a session here. Never touches the terminal background."
+            >
+              Color (optional — tinta la tarjeta y el tema de Claude)
+            </label>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {PROJECT_SWATCHES.map((hex) => {
+                const active = wColor.toLowerCase() === hex;
+                return (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setWColor(active ? "" : hex)}
+                    aria-label={`Color ${hex}`}
+                    aria-pressed={active}
+                    className="h-6 w-6 rounded-full"
+                    style={{
+                      background: hex,
+                      border: active
+                        ? "2px solid var(--color-text)"
+                        : "1px solid var(--color-border-strong)",
+                    }}
+                  />
+                );
+              })}
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(wColor) ? wColor : "#38bdf8"}
+                onChange={(e) => setWColor(e.target.value.toLowerCase())}
+                aria-label="Custom colour"
+                className="h-6 w-8 cursor-pointer rounded"
+                style={{ background: "transparent", border: "1px solid var(--color-border-strong)" }}
+              />
+              <input
+                type="text"
+                value={wColor}
+                onChange={(e) => setWColor(e.target.value)}
+                placeholder="#38bdf8"
+                spellCheck={false}
+                className="w-24 rounded px-2 py-1 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  fontFamily: "var(--font-mono)",
+                  outline: "none",
+                }}
+              />
+              {wColor && (
+                <button
+                  type="button"
+                  onClick={() => setWColor("")}
+                  className="rounded px-2 py-1 text-[11px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                >
+                  Sin color
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Parent folder override */}

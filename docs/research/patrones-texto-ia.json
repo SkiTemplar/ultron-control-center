@@ -121,6 +121,56 @@
           "tipo": "lexico",
           "valor": "es crucial destacar",
           "nota": "frase del ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "aristas",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "multifacético",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "sumamente",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "enriquecedor",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "enriquecedora",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "temática",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "profundizaremos",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "ahondaremos",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "de suma importancia",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "resulta fundamental",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -155,6 +205,21 @@
           "tipo": "lexico",
           "valor": "huella imborrable",
           "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "un antes y un después",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "marcó un hito",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "dejó una huella imborrable",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -167,13 +232,13 @@
       "senales_ejecutables": [
         {
           "tipo": "regex",
-          "valor": "(?i),\\s*(destacando|subrayando)\\b",
-          "nota": "coletilla en gerundio tras coma, gerundios citados en ejemplo_es"
+          "valor": "(?i),\\s*(destacando|subrayando|creando|permitiendo|garantizando|ofreciendo|logrando|mejorando|reflejando|demostrando|posicionando|consolidando|impulsando|facilitando|asegurando|convirti[eé]ndose)\\b",
+          "nota": "coletilla en gerundio tras coma (ampliada 2026-08-15)"
         },
         {
           "tipo": "regex",
-          "valor": "(?i),\\s*(highlighting|creating)\\b",
-          "nota": "coletilla en gerundio tras coma, gerundios citados en ejemplo_en"
+          "valor": "(?i),\\s*(highlighting|creating|enabling|ensuring|showcasing|reflecting|demonstrating|fostering|allowing|making)\\b",
+          "nota": "equivalente ingles"
         }
       ]
     },
@@ -213,6 +278,21 @@
           "tipo": "lexico",
           "valor": "ecosistema dinámico",
           "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "posibilidades ilimitadas",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "potente herramienta",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "sinfín de posibilidades",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -242,6 +322,61 @@
           "tipo": "lexico",
           "valor": "algunos expertos argumentan",
           "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "estudios recientes",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "algunos autores",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "diversos autores",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "es ampliamente reconocido",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "se ha demostrado que",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "la literatura sugiere",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "research suggests",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "experts say",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "se ha señalado",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en repetidas ocasiones",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "como es bien sabido",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -281,6 +416,26 @@
           "tipo": "lexico",
           "valor": "de cara al futuro",
           "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "resulta prometedor",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "retos por delante",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "el porvenir",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "queda mucho camino por recorrer",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -325,6 +480,46 @@
           "tipo": "lexico",
           "valor": "constituye",
           "nota": "sustituto de copula citado en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "representa",
+          "nota": "el catalogo solo tenia el ingles \"represents\""
+        },
+        {
+          "tipo": "lexico",
+          "valor": "supone",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "se posiciona como",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "actúa como",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "actua como",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "desempeña el papel de",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "se configura como",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "se consolida como",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -337,13 +532,13 @@
       "senales_ejecutables": [
         {
           "tipo": "regex",
-          "valor": "(?i)\\bno s[oó]lo\\b[^.\\n]{0,80}\\bsino también\\b",
-          "nota": "estructura citada en el nombre y en ejemplo_es"
+          "valor": "(?i)\\bno s[oó]lo\\b[^.\\n]{0,80}\\bsino\\b\\s*(que\\s+)?(tambi[eé]n|adem[aá]s)\\b",
+          "nota": "cubre \"sino que tambien\", \"sino ademas\" y la falta de tilde (3 huecos medidos 2026-08-14)"
         },
         {
           "tipo": "regex",
           "valor": "(?i)\\bnot only\\b[^.\\n]{0,80}\\bbut also\\b",
-          "nota": "estructura citada en ejemplo_en"
+          "nota": "equivalente ingles"
         }
       ]
     },
@@ -375,13 +570,28 @@
       "senales_ejecutables": [
         {
           "tipo": "regex",
-          "valor": "(?i)\\b\\p{L}{3,}(ando|iendo)\\b[^.\\n]{0,60}\\ben lugar de\\b",
-          "nota": "gerundio + 'en lugar de' como en ejemplo_es 'priorizando ... en lugar de'"
+          "valor": "(?i)\\b\\p{L}{3,}(ando|iendo)\\b[^.\\n]{0,60}\\ben (lugar|vez) de\\b",
+          "nota": "gerundio + en lugar/vez de"
         },
         {
           "tipo": "regex",
-          "valor": "(?i)\\b\\p{L}+ing\\b[^.\\n]{0,60}\\brather than\\b",
-          "nota": "gerundio + 'rather than' como en ejemplo_en 'prioritizing ... rather than'"
+          "valor": "(?i)\\ben (lugar|vez) de\\b[^.\\n]{0,60}\\b\\p{L}{3,}(ando|iendo)\\b",
+          "nota": "orden invertido"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b\\p{L}{3,}(ar|er|ir)\\b[^.\\n]{0,40}\\ben (lugar|vez) de\\b",
+          "nota": "infinitivo + en lugar/vez de"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b\\p{L}+ing\\b[^.\\n]{0,60}\\b(rather than|instead of)\\b",
+          "nota": "gerundio antes (ingles)"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b(rather than|instead of)\\b[^.\\n]{0,60}\\b\\p{L}+ing\\b",
+          "nota": "gerundio despues (ingles)"
         }
       ]
     },
@@ -393,9 +603,9 @@
       "correccion": "Listar tantos elementos como el contenido exija (dos, cuatro, siete), no forzar siempre tres.",
       "senales_ejecutables": [
         {
-          "tipo": "regex",
-          "valor": "(?i)\\b\\p{L}+,\\s+\\p{L}+,?\\s+(y|and)\\s+\\p{L}+",
-          "nota": "triada 'A, B y C' / 'A, B, and C' citada en ejemplo_en y ejemplo_es"
+          "tipo": "heuristica",
+          "valor": "tricolon",
+          "nota": "trocea en frases y descarta las que abren con subordinante; el regex plano marcaba \"Si no hay señales, dilo y para ahi\""
         }
       ]
     },
@@ -404,7 +614,13 @@
       "descripcion": "Sustituir el mismo referente por sinónimos artificiales en vez de repetirlo, por el penalizador de repetición de los LLM.",
       "ejemplo_es": "Llamar al mismo concepto sucesivamente 'el sistema', 'la plataforma', 'la herramienta', 'el software' en el mismo párrafo sin razón",
       "correccion": "Repetir el mismo término cuando es lo natural y no genera ambigüedad; el español académico tolera bien la repetición precisa de un término técnico.",
-      "senales_ejecutables": []
+      "senales_ejecutables": [
+        {
+          "tipo": "heuristica",
+          "valor": "variacion_lexica",
+          "nota": "anaforicos explicitos o cadena de sujetos que nunca se repiten"
+        }
+      ]
     },
     {
       "nombre": "Artefactos de markup sin adaptar al formato destino",
@@ -453,24 +669,14 @@
       "correccion": "Titular cada sección según lo que de verdad contiene, en minúscula salvo inicio de frase o nombre propio (norma española).",
       "senales_ejecutables": [
         {
-          "tipo": "lexico",
-          "valor": "challenges and future prospects",
-          "nota": "encabezado citado en ejemplo_en"
+          "tipo": "regex",
+          "valor": "(?im)^\\s*(marco te[oó]rico|estado del arte|marco te[oó]rico y estado del arte|conclusiones y (trabajo|l[ií]neas) futur\\p{L}*|resultados y discusi[oó]n|retos y perspectivas de futuro)\\s*$",
+          "nota": "encabezado plantilla, insensible a tildes (2 fallos medidos)"
         },
         {
-          "tipo": "lexico",
-          "valor": "sustainable development and environmental law",
-          "nota": "encabezado citado en ejemplo_en"
-        },
-        {
-          "tipo": "lexico",
-          "valor": "retos y perspectivas de futuro",
-          "nota": "encabezado citado en ejemplo_es"
-        },
-        {
-          "tipo": "lexico",
-          "valor": "marco teórico y estado del arte",
-          "nota": "encabezado citado en ejemplo_es"
+          "tipo": "regex",
+          "valor": "(?im)^\\s*(challenges and future prospects|sustainable development and environmental law|results and discussion)\\s*$",
+          "nota": "equivalente ingles"
         }
       ]
     },
@@ -481,9 +687,9 @@
       "correccion": "Usar coma, paréntesis o punto y seguido según el registro académico español; reservar el guion largo para incisos puntuales, no como muletilla de puntuación en cada frase.",
       "senales_ejecutables": [
         {
-          "tipo": "regex",
-          "valor": "—",
-          "nota": "cada guion largo cuenta como ocurrencia; la densidad global la aporta el informe (descripcion: uso desproporcionado de '—')"
+          "tipo": "heuristica",
+          "valor": "emdash_incisos",
+          "nota": "un inciso suelto es puntuacion legitima; delata la acumulacion (5+)"
         }
       ]
     },
@@ -496,13 +702,13 @@
       "senales_ejecutables": [
         {
           "tipo": "regex",
-          "valor": "(?i)\\bdesde\\b[^.,;\\n]{3,60}\\bhasta\\b",
-          "nota": "estructura 'desde X hasta Y' citada en descripcion y ejemplo_es"
+          "valor": "(?i)\\bdesde\\b[^.,;\\n\\d]{3,60}\\bhasta\\b",
+          "nota": "excluye dígitos: \"desde el 3 hasta el 14\" es un rango REAL"
         },
         {
           "tipo": "regex",
-          "valor": "(?i)\\branging from\\b[^.\\n]{0,60}\\bto\\b",
-          "nota": "estructura del ejemplo_en 'ranging from ... to ...'"
+          "valor": "(?i)\\brang(e|es|ing)\\s+from\\b[^.\\n\\d]{0,60}\\bto\\b",
+          "nota": "cubre \"range from\" ademas de \"ranging from\""
         }
       ]
     },
@@ -537,6 +743,36 @@
           "tipo": "lexico",
           "valor": "vale la pena señalar que",
           "nota": "frase citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "conviene señalar",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "conviene destacar",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "es preciso destacar",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "merece la pena mencionar",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "resulta relevante señalar",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "no está de más",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -561,6 +797,46 @@
           "tipo": "lexico",
           "valor": "en la sociedad actual",
           "nota": "apertura citada en ejemplo_es"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "a lo largo de la historia",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en la era digital",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "desde tiempos inmemoriales",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en el panorama actual",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "hoy más que nunca",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "hoy mas que nunca",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en un mundo cada vez más",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en un mundo cada vez mas",
+          "nota": "ampliacion 2026-08-15"
         }
       ]
     },
@@ -597,9 +873,9 @@
       "correccion": "Usar el léxico propio de la variedad de español del autor (ordenador, móvil, coger, etc.) sin 'corregirlo' hacia lo neutro.",
       "senales_ejecutables": [
         {
-          "tipo": "lexico",
-          "valor": "computadora",
-          "nota": "unico termino 'neutro' citado explicitamente en ejemplo_es (frente a 'ordenador')"
+          "tipo": "heuristica",
+          "valor": "espanol_neutro",
+          "nota": "exige 2+ marcadores distintos; \"computadora\" a secas no delata a nadie"
         }
       ]
     },
@@ -610,19 +886,9 @@
       "correccion": "Afirmar sin matiz los hechos verificados ('el modelo obtiene un F1 de 0.94') y reservar el hedge para la interpretación incierta, solo cuando de verdad hay incertidumbre.",
       "senales_ejecutables": [
         {
-          "tipo": "lexico",
-          "valor": "podría",
-          "nota": "hedge citado en descripcion y ejemplo_es"
-        },
-        {
-          "tipo": "lexico",
-          "valor": "parece",
-          "nota": "hedge citado en descripcion y ejemplo_es"
-        },
-        {
-          "tipo": "lexico",
-          "valor": "en cierta medida",
-          "nota": "hedge citado en descripcion y ejemplo_es"
+          "tipo": "heuristica",
+          "valor": "hedging_denso",
+          "nota": "2+ atenuadores en la misma frase o 3+ en el fragmento"
         }
       ]
     },
@@ -631,7 +897,13 @@
       "descripcion": "Oraciones de longitud y estructura casi idéntica a lo largo de todo el texto, ritmo predecible al leer en voz alta. Correlato sintáctico medible del texto IA (burstiness humana 0.6-1.2 vs. 0.2-0.4 en GPT, como orden de magnitud orientativo, no prueba aislada).",
       "ejemplo_es": "Un párrafo entero de frases de 18-22 palabras, todas con estructura sujeto-verbo-complemento sin variación",
       "correccion": "Alternar deliberadamente frases cortas de impacto con frases largas de desarrollo; leer el párrafo en voz alta para detectar la monotonía.",
-      "senales_ejecutables": []
+      "senales_ejecutables": [
+        {
+          "tipo": "heuristica",
+          "valor": "monotonia_frases",
+          "nota": "coeficiente de variacion de longitudes < 0.30 con 4+ frases"
+        }
+      ]
     },
     {
       "nombre": "Razonamiento excesivamente equilibrado y relleno sin contenido",
@@ -640,14 +912,153 @@
       "correccion": "Comprometerse con la conclusión que los datos del TFG respaldan; eliminar todo párrafo que se pueda resumir en una frase sin pérdida real de información.",
       "senales_ejecutables": [
         {
-          "tipo": "lexico",
-          "valor": "por un lado",
-          "nota": "estructura citada en descripcion y ejemplo_es"
+          "tipo": "regex",
+          "valor": "(?i)\\bpor un lado\\b[^.\\n]{0,140}\\bpor otro lado\\b",
+          "nota": "la correlacion COMPLETA; \"por un lado del cluster\" no es relleno"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bsi bien\\b[^.\\n]{0,100}\\btambi[eé]n\\b",
+          "nota": "concesiva de relleno"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bon the one hand\\b[^.\\n]{0,140}\\bon the other hand\\b",
+          "nota": "equivalente ingles"
+        }
+      ]
+    },
+    {
+      "nombre": "Puntuación pobre con frases encadenadas",
+      "descripcion": "Medido por el informe de The Economist (2026) sobre estilo de LLM: los modelos usan MENOS punto y coma, paréntesis y dos puntos que un escritor humano, y compensan encadenando cláusulas largas con \"y\". Es señal de documento completo, no de frase suelta: solo se evalúa a partir de 120 palabras.",
+      "ejemplo_es": "Párrafos de 25+ palabras de media sin un solo punto y coma, paréntesis ni dos puntos en toda la página.",
+      "senal_deteccion": "Cero signos de puntuación intermedia (; : parentesis) en 120+ palabras y longitud media de frase >= 20 palabras.",
+      "correccion": "Puntuar de verdad: partir las frases largas, usar punto y coma y paréntesis donde el argumento lo pide.",
+      "senales_ejecutables": [
+        {
+          "tipo": "heuristica",
+          "valor": "puntuacion_pobre",
+          "nota": "The Economist 2026: mejor indicador que el em dash"
+        }
+      ]
+    },
+    {
+      "nombre": "Densidad de conectores de manual",
+      "descripcion": "El LLM articula cada frase con un conector explícito (\"además\", \"asimismo\", \"sin embargo\", \"por lo tanto\"), a un ritmo muy superior al de la prosa humana, que encadena por sentido y no por marcador.",
+      "ejemplo_es": "Además, el sistema mejora el rendimiento. Sin embargo, presenta limitaciones. Por lo tanto, conviene evaluarlo. Asimismo, cabe destacar su coste.",
+      "senal_deteccion": "Un conector formal cada <=35 palabras, con 3 o mas conectores y 80+ palabras de texto.",
+      "correccion": "Quitar la mayoría: si la relación entre frases ya se entiende, el conector sobra.",
+      "senales_ejecutables": [
+        {
+          "tipo": "heuristica",
+          "valor": "densidad_conectores",
+          "nota": "ritmo de conector, no presencia"
+        }
+      ]
+    },
+    {
+      "nombre": "Uniformidad de párrafos",
+      "descripcion": "Los párrafos salen calibrados al mismo tamaño porque el modelo reparte el contenido en bloques equivalentes. Un texto humano alterna párrafos de una línea con otros largos según lo que tenga que decir.",
+      "ejemplo_es": "Cinco párrafos seguidos de 60-65 palabras cada uno.",
+      "senal_deteccion": "Coeficiente de variación de longitud de párrafo < 0.20 con 3+ párrafos de 25+ palabras.",
+      "correccion": "Dejar que el contenido mande: un párrafo dura lo que dura la idea.",
+      "senales_ejecutables": [
+        {
+          "tipo": "heuristica",
+          "valor": "uniformidad_parrafos",
+          "nota": "mismo fenomeno que la monotonia de frase, un nivel arriba"
+        }
+      ]
+    },
+    {
+      "nombre": "Verbos promocionales de acción (español)",
+      "descripcion": "Calco directo del registro de marketing anglosajón que los modelos arrastran del entrenamiento: imperativos grandilocuentes que prometen transformación (\"sumérgete\", \"desbloquea\", \"desata\", \"eleva\"). En un TFG no aparecen nunca de forma natural.",
+      "ejemplo_es": "Sumérgete en el fascinante mundo de la IA y desbloquea todo su potencial.",
+      "senal_deteccion": "Presencia de estos verbos en registro académico o técnico.",
+      "correccion": "Sustituir por el verbo llano que describe la acción real (analizar, medir, usar).",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b(sum[eé]rgete|emb[aá]rcate|desbloquea|desata|eleva tu|revoluciona|potencia tu|transforma tu|domina el arte)\\b",
+          "nota": "imperativos de marketing"
         },
         {
           "tipo": "lexico",
-          "valor": "por otro lado",
-          "nota": "estructura citada en descripcion y ejemplo_es"
+          "valor": "desbloquear el potencial",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "desatar todo el potencial",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "llevar al siguiente nivel",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b(unlock|unleash|elevate|revolutionize|supercharge|embark on)\\b",
+          "nota": "equivalente ingles"
+        }
+      ]
+    },
+    {
+      "nombre": "Pasiva perifrástica anglicada",
+      "descripcion": "El español prefiere la pasiva refleja (\"se utiliza\") o la activa; el modelo calca la pasiva perifrástica inglesa (\"is used by\") como \"es utilizado por\", \"puede ser considerado\", \"fue diseñado para\".",
+      "ejemplo_es": "El algoritmo puede ser utilizado para clasificar documentos y es considerado como el estándar del sector.",
+      "senal_deteccion": "Perífrasis \"ser/poder ser + participio\" en cadena, y \"considerado como\" (redundante en español).",
+      "correccion": "Pasiva refleja o activa: \"se utiliza para clasificar\", \"es el estándar\".",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b(puede|pueden|podr[ií]a|podr[ií]an|debe|deben)\\s+ser\\s+\\p{L}+(ado|ada|ados|adas|ido|ida|idos|idas)\\b",
+          "nota": "perifrasis modal + participio"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\b(es|son|fue|fueron|ser[aá]n?)\\s+(considerad|utilizad|emplead|reconocid|percibid)[oa]s?\\s+como\\b",
+          "nota": "\"considerado como\": calco redundante"
+        }
+      ]
+    },
+    {
+      "nombre": "Anuncio de estructura / eco del encargo",
+      "descripcion": "El modelo devuelve el enunciado antes de responder y anuncia lo que va a hacer (\"En este artículo exploraremos...\", \"A continuación se presentan...\"). Es un residuo de seguir instrucciones, no una necesidad del texto.",
+      "ejemplo_es": "En este trabajo se explorará en profundidad el papel de la inteligencia artificial. A continuación, se presentan los principales hallazgos.",
+      "senal_deteccion": "Fórmulas de anuncio en apertura de sección.",
+      "correccion": "Entrar directamente en el contenido: el índice ya anuncia la estructura.",
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\ben (este|el presente) (art[ií]culo|trabajo|documento|apartado|cap[ií]tulo)\\s+(se\\s+)?(explorar|analizar|presentar|abordar|examinar|profundizar|veremos|exploraremos|analizaremos)\\p{L}*",
+          "nota": "anuncio de lo que hara el propio texto"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "a continuación se presentan",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "a continuacion se presentan",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "a continuación, exploraremos",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "lexico",
+          "valor": "en las siguientes líneas",
+          "nota": "ampliacion 2026-08-15"
+        },
+        {
+          "tipo": "regex",
+          "valor": "(?i)\\bin this (article|paper|post|guide),?\\s+(we|I)\\s+(will|shall)\\b",
+          "nota": "equivalente ingles"
         }
       ]
     }

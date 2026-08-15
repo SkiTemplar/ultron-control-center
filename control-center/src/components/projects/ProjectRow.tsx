@@ -2,7 +2,7 @@
 // Extracted from Projects.tsx (3594 L) as part of the P1 split refactor.
 
 import type { ProjectInfo, SessionProvider } from "../../types";
-import { statusBadge, isBuiltinItem, builtinTooltip, customItemName, providerToKind } from "./utils";
+import { statusBadge, isBuiltinItem, builtinTooltip, customItemName, providerToKind, projectAccent, accentWash } from "./utils";
 import { BuiltinIcon } from "./LauncherIcons";
 import { ProjectQuickActions } from "./ProjectQuickActions";
 
@@ -44,15 +44,24 @@ export function ProjectRow({
   const defaultProvider: SessionProvider =
     (p.default_provider as SessionProvider | null | undefined) ?? "claude";
   const defaultKind = providerToKind(defaultProvider);
+  const accent = projectAccent(p.color);
+  const surface = selected ? "var(--color-surface-3)" : "var(--color-surface-2)";
 
   return (
     <div
-      className="flex flex-col gap-2 rounded p-3 transition-colors"
+      className="relative flex flex-col gap-2 overflow-hidden rounded p-3 transition-colors"
       style={{
-        background: selected ? "var(--color-surface-3)" : "var(--color-surface-2)",
+        background: accent ? accentWash(accent, surface) : surface,
         border: `1px solid ${selected ? "var(--color-border-strong)" : "var(--color-border)"}`,
       }}
     >
+      {accent && (
+        <span
+          aria-hidden="true"
+          className="absolute left-0 top-0 h-full"
+          style={{ width: 3, background: accent }}
+        />
+      )}
       <div className="flex items-baseline gap-3">
         <button type="button" onClick={onClick} className="min-w-0 flex-1 text-left">
           <div className="flex items-baseline gap-2">

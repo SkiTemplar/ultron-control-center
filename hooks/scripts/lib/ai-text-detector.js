@@ -20,6 +20,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const { HEURISTICS, runHeuristic } = require('./ai-text-heuristics');
+
 const CATALOG_PATH = path.join(
   os.homedir(), '.ultron', 'docs', 'research', 'patrones-texto-ia.json',
 );
@@ -75,6 +77,32 @@ function escapeForRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Vuelve un término léxico insensible a las tildes: cada vocal (acentuada o
+ * no) pasa a una clase con todas sus variantes. Motivo medido (2026-08-15): el
+ * catálogo escribía "en conclusión" y el texto real —borradores, material
+ * pegado desde un PDF, gente que escribe sin tildes— decía "en conclusion", y
+ * la señal no disparaba. Era la causa común de varios falsos negativos, no un
+ * fallo de cada patrón por separado. La eñe NO se toca: convertirla en [nñ]
+ * confundiría "ano" con "año".
+ */
+function acentoInsensible(src) {
+  const CLASES = [
+    ['a', '[aáàâä]'], ['e', '[eéèêë]'], ['i', '[iíìîï]'],
+    ['o', '[oóòôö]'], ['u', '[uúùûü]'],
+  ];
+  let out = '';
+  for (const ch of src) {
+    const base = ch
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase();
+    const clase = CLASES.find(([letra]) => letra === base && /\p{L}/u.test(ch));
+    out += clase ? clase[1] : ch;
+  }
+  return out;
+}
+
 /** Compila las senales_ejecutables del catálogo. Una vez por escaneo. */
 function compileRules(patrones) {
   const rules = [];
@@ -89,7 +117,7 @@ function compileRules(patrones) {
       let re = null;
       let label = '';
       if (tipo === 'lexico') {
-        const esc = escapeForRegex(valor);
+        const esc = acentoInsensible(escapeForRegex(valor));
         const src = valor.trim().split(/\s+/).length === 1 ? `\\b${esc}\\b` : esc;
         re = toJsRegex(`(?i)${src}`);
         label = `lexico:${valor}`;
@@ -97,8 +125,21 @@ function compileRules(patrones) {
         re = toJsRegex(valor);
         const nota = (senal && senal.nota) || '';
         label = `regex:${nota || valor}`;
+      } else if (tipo === 'heuristica') {
+        // Señal estructural: no es un regex sino una regla sobre la forma del
+        // texto (longitudes, puntuación, cadenas de sinónimos). Ver
+        // ai-text-heuristics.js; la misma id existe en tfg_lab.rs.
+        if (!HEURISTICS[valor]) continue; // id desconocida: se degrada en silencio
+        rules.push({
+          patternIdx: idx,
+          pattern: (patron && patron.nombre) || `patron-${idx}`,
+          correction: (patron && patron.correccion) || '',
+          label: `heuristica:${valor}`,
+          heuristic: valor,
+        });
+        continue;
       } else {
-        continue; // tipo desconocido: el catálogo solo define dos ejecutables
+        continue; // tipo desconocido: el catálogo manda
       }
       if (re) {
         rules.push({
@@ -149,6 +190,22 @@ function scan(text, patrones, opts) {
 
   for (const rule of rules) {
     if (matches.length >= MAX_MATCHES) break;
+    if (rule.heuristic) {
+      const spans = runHeuristic(rule.heuristic, src) || [];
+      for (const span of spans) {
+        hitPatterns.add(rule.patternIdx);
+        matches.push({
+          pattern: rule.pattern,
+          rule: rule.label,
+          evidence: src.slice(Math.max(0, span.start - EVIDENCE_CONTEXT), Math.min(src.length, span.end + EVIDENCE_CONTEXT)).trim(),
+          start: span.start,
+          end: span.end,
+          correction: rule.correction,
+        });
+        if (matches.length >= MAX_MATCHES) break;
+      }
+      continue;
+    }
     rule.re.lastIndex = 0;
     let m;
     while ((m = rule.re.exec(src)) !== null) {

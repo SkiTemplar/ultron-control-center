@@ -78,6 +78,14 @@ pub struct ProjectInfo {
     /// user to use the chip wizard.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executables: Option<Vec<ExecutableEntry>>,
+    /// v2.7.2 — accent colour for the project, `#rrggbb` lowercase. Two
+    /// consumers: the Projects UI tints the card with it, and
+    /// `spawn_session_inner` derives a per-project Claude Code custom theme
+    /// from it (`~/.claude/themes/ultron-proj-<id>.json`) so the terminal
+    /// session carries the same identity. `None` = neutral card + whatever
+    /// theme the user has globally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// v2.6.2 — single Quick Launch executable. `name` is the user-facing label;
@@ -133,6 +141,8 @@ pub(crate) struct RegEntry {
     pub(crate) notes: Option<String>,
     #[serde(default)]
     pub(crate) executables: Option<Vec<ExecutableEntry>>,
+    #[serde(default)]
+    pub(crate) color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -159,6 +169,9 @@ pub struct CreateProjectPayload {
     pub parent_folder_override: Option<String>,
     /// fb-016 — free-form notes (optional).
     pub notes: Option<String>,
+    /// v2.7.2 — accent colour `#rrggbb` (optional). Invalid values are
+    /// dropped by `normalise_color` instead of failing the create.
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -193,6 +206,10 @@ pub struct UpdateProjectPayload {
     /// the patch fields). Entries with an empty name or path are dropped
     /// before persistence.
     pub executables: Option<Vec<ExecutableEntry>>,
+    /// v2.7.2 — patch the accent colour. Empty string clears it (card goes
+    /// back to neutral and the session stops forcing a theme); an invalid
+    /// hex is ignored so a typo can't wipe a good value.
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

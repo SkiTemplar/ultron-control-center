@@ -459,3 +459,7 @@ CONTINUAR.md
 # para ganar por last-match-wins.
 !control-center/src/components/plans/
 !control-center/src/components/sessions/
+
+# Control humano del detector: escritura personal, no se publica (repo publico).
+scripts/fixtures/ai-text-docs/humano/*
+!scripts/fixtures/ai-text-docs/humano/README.md

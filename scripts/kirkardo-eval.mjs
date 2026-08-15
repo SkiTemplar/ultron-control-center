@@ -1514,7 +1514,17 @@ cat(7, "Calidad de Codigo + Frescura del binario", [
       if (!existsSync(HOOKS_SCRIPTS)) return { pass: false, detail: "no medible: hooks/scripts ausente" };
       // Lista los .js de hooks via find (mismo patron que cat12.4).
       const rLs = run(`find "${fwd(HOOKS_SCRIPTS)}" -maxdepth 1 -name "*.js" 2>/dev/null`, { cwd: ULTRON });
-      const hooks = rLs.stdout.trim().split("\n").filter(Boolean);
+      // Los `_*.js` NO son hooks: son harnesses manuales que viven al lado
+      // (`_tone_parity.js` compara JS vs Rust llamando al sidecar, 1-5s por
+      // prompt). Ejecutarlos aquí los mataba por timeout y el check los
+      // reportaba como "crash=[_tone_parity.js:exit=null]" — un falso positivo
+      // medido el 2026-08-15: lanzado a mano pasa 10/10 con exit 0. Ninguno
+      // está declarado en hooks/manifest.json, que es quien define qué es hook.
+      const hooks = rLs.stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .filter((f) => !f.split(/[/\\]/).pop().startsWith("_"));
       if (hooks.length === 0) return { pass: false, detail: "no medible: 0 hooks .js en hooks/scripts" };
       // Inyectores SessionStart/UserPromptSubmit: su unico proposito es emitir
       // additionalContext -> stdout vacio = no-op silencioso (mandamiento 11). El resto

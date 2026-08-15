@@ -43,6 +43,8 @@ pub async fn create_project(
     default_shell: Option<String>,
     parent_folder_override: Option<String>,
     notes: Option<String>,
+    // v2.7.2 — accent colour `#rrggbb`. None / invalid = no colour.
+    color: Option<String>,
 ) -> Result<projects::CreateProjectResult, String> {
     // F2: route through *_with_emit so project.created notifications fire
     projects::create_project_inner_with_emit(
@@ -57,6 +59,7 @@ pub async fn create_project(
             default_shell,
             parent_folder_override,
             notes,
+            color,
         },
     )
 }
@@ -78,6 +81,8 @@ pub async fn update_project(
     notes: Option<String>,
     // v2.6.2 — patch the Quick Launch executables. Some([]) clears the list.
     executables: Option<Vec<projects::ExecutableEntry>>,
+    // v2.7.2 — patch the accent colour. "" clears it, invalid hex is ignored.
+    color: Option<String>,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::update_project_inner(projects::UpdateProjectPayload {
         id,
@@ -91,6 +96,7 @@ pub async fn update_project(
         parent_folder_override,
         notes,
         executables,
+        color,
     })
 }
 

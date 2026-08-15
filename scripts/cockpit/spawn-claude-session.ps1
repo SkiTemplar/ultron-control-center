@@ -86,6 +86,11 @@ $respectClipboard = [bool]$cfg.respectClipboard
 # El inner-script setea ANTHROPIC_BASE_URL y ANTHROPIC_AUTH_TOKEN antes de
 # invocar claude. Backwards-compatible: campo ausente -> $false.
 $freeTier = [bool]$cfg.freeTier
+# theme: referencia a un tema custom de Claude Code ("custom:<slug>"), generada
+# por claude_theme.rs a partir del color del proyecto. Solo cambia los colores
+# de acento de Claude, NUNCA el fondo de la terminal. Campo ausente o vacio ->
+# la sesion usa el tema global del usuario.
+$claudeTheme = [string]$cfg.theme
 
 # v15.1.4+: ULTRON spawns terminals for internal flows (news, skill edit, MCP
 # create, diagnose, codex-fallback) where the user already authorized the
@@ -173,6 +178,17 @@ switch ($provider) {
         if ($resumeId) {
             if ($resumeId -notmatch '^[A-Fa-f0-9\-]{1,80}$') { throw "Invalid resume id" }
             $inner += " -r $resumeId"
+        }
+        if ($claudeTheme) {
+            # Grammar cerrada a proposito: solo "custom:<slug-kebab>". Cualquier
+            # otra cosa se descarta en silencio en vez de acabar dentro del JSON
+            # que va a --settings (el payload viene de projects.json, que el
+            # usuario puede editar a mano).
+            if ($claudeTheme -match '^custom:[a-z0-9\-]{1,64}$') {
+                $inner += ' --settings ''{"theme":"' + $claudeTheme + '"}'''
+            } else {
+                [Console]::Error.WriteLine("[spawn-claude-session] theme descartado (formato invalido): $claudeTheme")
+            }
         }
     }
     "codex" {
@@ -303,28 +319,23 @@ $inner
 "@
 Set-Content -LiteralPath $tmpScript -Value $scriptBody -Encoding UTF8
 
-# --- Per-project color scheme (card vy7sve, 2026-08-13) --------------------
-# Stable hash of the project folder name -> one of the BUILT-IN Windows
-# Terminal dark schemes, so every project always opens with its own color
-# identity (no more identical white-on-black walls). Built-in schemes only:
-# a scheme missing from WT settings would break the tab launch.
-$schemePalette = @("One Half Dark", "Solarized Dark", "Tango Dark", "Campbell", "Vintage", "Campbell Powershell")
+# --- Identidad visual de la sesion (2026-08-15) ----------------------------
+# ANTES (card vy7sve): un hash del nombre de carpeta elegia un colorScheme de
+# Windows Terminal por proyecto. Eso cambiaba el FONDO de la terminal, que el
+# usuario quiere SIEMPRE en negro puro. Retirado: no se pasa --colorScheme, asi
+# que manda el perfil de Windows Terminal del usuario.
+#
+# La identidad por proyecto vive ahora en el tema de Claude Code ($claudeTheme,
+# generado desde el color del proyecto en projects.json): cambia los colores de
+# acento de Claude, nunca el fondo.
 $projName = ""
 if ($cwd -and $cwd.Trim().Length -gt 0) {
     try { $projName = (Split-Path -Leaf $cwd.Trim()) -replace '^\.+', '' } catch {}
 }
-# El home NO es un proyecto: sin corchetes ni hash, pero SI identidad fija
-# (2026-08-13: el usuario usa el home como launchpad para crear proyectos).
+# El home NO es un proyecto: el titulo va sin corchetes.
 $isHome = $projName -and $env:USERPROFILE -and ($cwd.Trim().TrimEnd('\') -ieq $env:USERPROFILE.TrimEnd('\'))
 if ($isHome) { $projName = "" }
 $colorScheme = ""
-if ($isHome) {
-    $colorScheme = "Campbell"
-} elseif ($projName) {
-    $h = 0
-    foreach ($ch in $projName.ToCharArray()) { $h = (($h * 31) + [int]$ch) -band 0x7FFFFFFF }
-    $colorScheme = $schemePalette[$h % $schemePalette.Count]
-}
 
 $title = "ULTRON-$provider"
 if ($projName) { $title = "ULTRON-$provider [$projName]" }

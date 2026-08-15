@@ -56,6 +56,28 @@ pub(crate) fn normalise_shell(raw: Option<&str>) -> Option<String> {
     })
 }
 
+/// v2.7.2 — coerce a raw project colour to a canonical lowercase `#rrggbb`
+/// string, or `None`. Accepts the shorthand forms users actually type: with
+/// or without the leading `#`, and 3-digit hex (`#0af` -> `#00aaff`).
+/// Anything else (named colours, rgb(), garbage) collapses to `None` so a
+/// bad value degrades to "no colour" instead of poisoning the theme
+/// generator downstream.
+pub(crate) fn normalise_color(raw: Option<&str>) -> Option<String> {
+    let s = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    let hex = s.strip_prefix('#').unwrap_or(s).to_ascii_lowercase();
+    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    match hex.len() {
+        6 => Some(format!("#{hex}")),
+        3 => {
+            let expanded: String = hex.chars().flat_map(|c| [c, c]).collect();
+            Some(format!("#{expanded}"))
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn normalise_provider(raw: Option<&str>) -> String {
     match raw.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => {

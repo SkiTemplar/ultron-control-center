@@ -272,6 +272,41 @@ pub async fn run_inline_inner(
 // spawn_session
 // ---------------------------------------------------------------------------
 
+/// Compare two Windows paths for "same directory" purposes: case-insensitive
+/// and blind to trailing separators. Not a canonicalisation (no symlink
+/// resolution) — the registry stores literal paths and so does the caller.
+fn same_dir(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        s.trim()
+            .trim_end_matches(['\\', '/'])
+            .replace('/', "\\")
+            .to_ascii_lowercase()
+    };
+    !a.trim().is_empty() && norm(a) == norm(b)
+}
+
+/// Resolve the Claude Code theme reference for a session opened at `cwd`.
+/// Returns `None` when the directory isn't a registered project, the project
+/// has no colour, or the theme file can't be written.
+fn project_theme_for_cwd(cwd: &str) -> Option<String> {
+    let projects = crate::projects::list_projects_inner().ok()?;
+    let project = projects.iter().find(|p| {
+        p.path.as_deref().is_some_and(|path| same_dir(path, cwd))
+            || p.parent_folder_override
+                .as_deref()
+                .is_some_and(|path| same_dir(path, cwd))
+    })?;
+    let colour = project.color.as_deref()?;
+    let name = project.name.as_deref().unwrap_or(&project.id);
+    match crate::claude_theme::ensure_project_theme(&project.id, name, colour) {
+        Ok(theme_ref) => Some(theme_ref),
+        Err(e) => {
+            eprintln!("[sessions] per-project theme skipped: {e}");
+            None
+        }
+    }
+}
+
 pub async fn spawn_session_inner(
     app: &tauri::AppHandle,
     provider: String,
@@ -321,6 +356,17 @@ pub async fn spawn_session_inner(
     // (`scripts/cockpit/spawn-claude-session.ps1`) does the wt.exe call via
     // Start-Process. PowerShell parameter binding makes quoting trivial.
 
+    // v2.7.2 — per-project colour. If the session's cwd belongs to a project
+    // that has an accent colour, generate/refresh its Claude Code custom
+    // theme and forward `custom:<slug>`; the wrapper turns it into
+    // `--settings '{"theme":"..."}'`. Best-effort by design: any failure
+    // (no registry, bad hex, unwritable ~/.claude/themes) drops the theme and
+    // the session spawns exactly as before instead of failing the launch.
+    let theme_ref = cwd_ref
+        .as_deref()
+        .filter(|_| provider == "claude")
+        .and_then(project_theme_for_cwd);
+
     let script: PathBuf = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/scripts/cockpit/spawn-claude-session.ps1");
@@ -352,6 +398,9 @@ pub async fn spawn_session_inner(
         // Esto cierra el hueco donde el auto-ON activaba el toggle en la UI pero
         // los spawns sin free_tier=true seguian saliendo por Anthropic directo.
         "freeTier": flags.free_tier || crate::proxy::read_proxy_state_enabled(),
+        // Empty string = no per-project theme; the session keeps whatever
+        // theme the user set globally with /theme.
+        "theme": theme_ref.unwrap_or_default(),
     })
     .to_string();
     let payload = base64_encode(&payload_json);

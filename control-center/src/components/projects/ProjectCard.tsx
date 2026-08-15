@@ -3,7 +3,7 @@
 
 import type { ProjectInfo, SessionProvider } from "../../types";
 import type { CardStats } from "./types";
-import { statusBadge, providerBadge } from "./utils";
+import { statusBadge, providerBadge, projectAccent, accentWash } from "./utils";
 import { ProjectQuickActions } from "./ProjectQuickActions";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ export function ProjectCard({
   const provider: SessionProvider =
     (p.default_provider as SessionProvider | null | undefined) ?? "claude";
   const badge = providerBadge(provider);
+  const accent = projectAccent(p.color);
 
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -51,9 +52,12 @@ export function ProjectCard({
       }}
       className="proj-card group relative flex cursor-pointer flex-col gap-3 rounded-lg p-4 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       style={{
-        background: "var(--color-surface-2)",
+        background: accent
+          ? accentWash(accent, "var(--color-surface-2)")
+          : "var(--color-surface-2)",
         border: "1px solid var(--color-border)",
         minHeight: 168,
+        overflow: "hidden",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = "var(--color-border-strong)";
@@ -66,6 +70,16 @@ export function ProjectCard({
         e.currentTarget.style.boxShadow = "none";
       }}
     >
+      {/* Accent spine — the strongest colour signal on the card, and the only
+          one that survives the hover border swap below. */}
+      {accent && (
+        <span
+          aria-hidden="true"
+          className="absolute left-0 top-0 h-full"
+          style={{ width: 3, background: accent }}
+        />
+      )}
+
       {/* Header row: status pill + name + edit/delete */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

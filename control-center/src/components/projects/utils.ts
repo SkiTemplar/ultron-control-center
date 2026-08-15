@@ -202,3 +202,23 @@ export function navigateTo(root: FolderNode, path: string[]): FolderNode {
   }
   return node;
 }
+
+// ---------------------------------------------------------------------------
+// Per-project accent colour (v2.7.2)
+// ---------------------------------------------------------------------------
+
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+/** Accept a project colour only if it is a well-formed `#rrggbb`. Anything
+ *  else (empty, named colour, half-typed hex) degrades to `null` so the card
+ *  renders neutral instead of with a broken style string. */
+export function projectAccent(color?: string | null): string | null {
+  const raw = color?.trim().toLowerCase();
+  return raw && HEX_RE.test(raw) ? raw : null;
+}
+
+/** Very low-alpha wash used as the card/row background tint. Deliberately
+ *  faint: the colour is an identity hint, not a highlight. */
+export function accentWash(accent: string, surface: string): string {
+  return `linear-gradient(135deg, ${accent}1f 0%, ${accent}0a 38%, transparent 70%), ${surface}`;
+}

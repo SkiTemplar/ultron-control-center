@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use super::normalise::{normalise_ide, normalise_provider, normalise_shell};
+use super::normalise::{normalise_color, normalise_ide, normalise_provider, normalise_shell};
 use super::registry::registry_path;
 use super::types::{LauncherItem, ProjectInfo, ProjectsRoot};
 
@@ -80,6 +80,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             parent_folder_override,
             notes,
             executables,
+            color: normalise_color(p.color.as_deref()),
         });
     }
     // v2.x: synthesise a "Home" entry pointing at the user's home directory
@@ -125,6 +126,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                 parent_folder_override: None,
                 notes: None,
                 executables: None,
+                color: None,
             });
         }
     }

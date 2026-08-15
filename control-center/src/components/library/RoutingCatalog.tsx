@@ -1,20 +1,54 @@
-// Library → Routing — inspector del catálogo semántico de routing
-// (colección Qdrant `ultron_catalog`, E5-large). Dos funciones:
-//   1. Probar a qué agente/skill rutearía un prompt (catalog_search).
-//   2. Reindexar el catálogo a mano (catalog_reindex / catalog_reindex_skills)
-//      — útil cuando el warm-up automático de setup() falla en silencio.
-// Wiring 2026-08-11 (audit 08-09 #40).
+// Library → Routing — inspector del routing REAL.
+//
+// Hasta 2026-08-15 esta pestaña llamaba a `catalog_search`: similitud coseno
+// cruda contra la colección `ultron_catalog`. Eso NO es el routing — es una de
+// sus entradas. De ahí la discrepancia que reportó el usuario: para "corregir
+// este código, el coche va muy lento" la pestaña ofrecía ultron-refactor/docs/
+// test/changelog mientras el hook (que sí pasa por el orquestador) resolvía
+// performance-engineer / debugger / ultron-perf. La pestaña prometía routing y
+// enseñaba búsqueda.
+//
+// Ahora invoca `orchestrate_prompt`, el MISMO motor que ejecuta el hook
+// (intent -> workflow -> agentes -> skills -> directiva de delegación), con
+// recall semántico denso activado. Lo que se ve aquí es lo que va a pasar.
+//
+// Se conserva el reindexado manual del catálogo: sigue siendo la herramienta
+// para cuando un skill/agente nuevo no aparece porque el warm-up falló.
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Search, Loader, Bot, Sparkle } from "./icons";
 
-type CatalogHit = {
-  entity: string; // "agent" | "skill"
+type AgentChoice = { name: string; description: string; score: number };
+type SkillChoice = { name: string; description: string; kind: string; score: number };
+type WorkflowChoice = { id: string; label: string; description: string; steps: string[] };
+type DelegationDirective = {
+  agent: string;
+  objective: string;
+  return_format: string;
+  model_hint: string | null;
+  reason: string;
+} | null;
+type ToneChoice = {
+  id: string;
   name: string;
-  description: string;
-  score: number;
-  kind?: string; // solo skills: "persona" | "technical" | "meta"
+  matched_signals: string[];
+  reason: string;
+  explicit: boolean;
+} | null;
+
+type OrchestrationContext = {
+  prompt: string;
+  route: string;
+  project_id: string | null;
+  workflow: WorkflowChoice | null;
+  delegate_agents: AgentChoice[];
+  delegate_skills: SkillChoice[];
+  constraints: string[];
+  warnings: string[];
+  cross_project: boolean;
+  delegation_directive: DelegationDirective;
+  tone: ToneChoice;
 };
 
 type ReindexResult = {
@@ -42,27 +76,26 @@ function scoreColor(score: number): string {
 export function RoutingCatalog() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<EntityFilter>("any");
-  const [hits, setHits] = useState<CatalogHit[] | null>(null);
+  const [plan, setPlan] = useState<OrchestrationContext | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reindexing, setReindexing] = useState<"full" | "skills" | null>(null);
   const [reindexResult, setReindexResult] = useState<string | null>(null);
 
-  async function runSearch() {
+  async function runRouting() {
     const q = query.trim();
     if (!q || searching) return;
     setSearching(true);
     setError(null);
     try {
-      const res = (await invoke("catalog_search", {
-        query: q,
-        entity: filter === "any" ? null : filter,
-        limit: 8,
-      })) as CatalogHit[];
-      setHits(res);
+      const res = (await invoke("orchestrate_prompt", {
+        prompt: q,
+        projectId: null,
+      })) as OrchestrationContext;
+      setPlan(res);
     } catch (e) {
       setError(String(e));
-      setHits(null);
+      setPlan(null);
     } finally {
       setSearching(false);
     }
@@ -83,17 +116,18 @@ export function RoutingCatalog() {
       if (typeof r.indexed_skills === "number") {
         parts.push(`${r.indexed_skills} skills`);
       }
-      const errs = r.errors ?? 0;
-      let msg = `Indexed ${parts.join(" + ")} into ${r.collection ?? "ultron_catalog"}`;
-      if (errs > 0) msg += ` · ${errs} errors`;
-      if (r.skill_error) msg += ` · skills failed: ${r.skill_error}`;
-      setReindexResult(msg);
+      if (r.skill_error) parts.push(`skill error: ${r.skill_error}`);
+      setReindexResult(parts.length ? `Reindexado: ${parts.join(" · ")}` : "Reindexado.");
     } catch (e) {
       setError(String(e));
     } finally {
       setReindexing(null);
     }
   }
+
+  const agents = plan && filter !== "skill" ? plan.delegate_agents : [];
+  const skills = plan && filter !== "agent" ? plan.delegate_skills : [];
+  const vacio = plan !== null && agents.length === 0 && skills.length === 0 && !plan.workflow;
 
   return (
     <div className="h-full overflow-auto px-6 py-4">
@@ -171,11 +205,11 @@ export function RoutingCatalog() {
         </div>
       )}
 
-      {/* Search row */}
+      {/* Prompt row */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void runSearch();
+          void runRouting();
         }}
         className="mb-3 flex items-center gap-2"
       >
@@ -190,7 +224,7 @@ export function RoutingCatalog() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="¿A quién rutearía este prompt? (p.ej. «optimiza esta query SQL lenta»)"
+            placeholder="¿Cómo rutearía el sistema este prompt? (p.ej. «corrige este código, el coche va muy lento»)"
             className="w-full bg-transparent text-[12.5px] outline-none"
             style={{ color: "var(--color-text)" }}
           />
@@ -227,8 +261,83 @@ export function RoutingCatalog() {
         </button>
       </form>
 
-      {/* Results */}
-      {hits !== null && hits.length === 0 && (
+      {/* Veredicto del orquestador */}
+      {plan && (
+        <div
+          className="mb-3 flex flex-wrap items-center gap-2 rounded p-3 text-[11.5px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <span style={{ color: "var(--color-text-tertiary)" }}>intent</span>
+          <span
+            className="rounded px-2 py-0.5 font-medium"
+            style={{ background: "var(--color-surface-3)", color: "var(--color-text)" }}
+          >
+            {plan.route || "—"}
+          </span>
+          {plan.tone?.id && (
+            <>
+              <span style={{ color: "var(--color-text-tertiary)" }}>tono</span>
+              <span
+                className="rounded px-2 py-0.5"
+                style={{ background: "var(--color-surface-3)", color: "var(--color-text)" }}
+              >
+                {plan.tone.name || plan.tone.id}
+              </span>
+            </>
+          )}
+          {plan.cross_project && (
+            <span style={{ color: "var(--color-warn)" }}>cross-project</span>
+          )}
+          {plan.delegation_directive ? (
+            <span style={{ color: "var(--color-success)" }}>
+              delega en {plan.delegation_directive.agent || "un especialista"}
+            </span>
+          ) : (
+            <span style={{ color: "var(--color-text-tertiary)" }}>sin delegación</span>
+          )}
+        </div>
+      )}
+
+      {plan?.warnings?.length ? (
+        <div
+          className="mb-3 rounded p-3 text-[11.5px]"
+          style={{
+            background: "rgba(210, 153, 34, 0.05)",
+            border: "1px solid rgba(210, 153, 34, 0.18)",
+            color: "var(--color-warn)",
+          }}
+        >
+          {plan.warnings.join(" · ")}
+        </div>
+      ) : null}
+
+      {/* Workflow propuesto */}
+      {plan?.workflow && filter === "any" && (
+        <div
+          className="mb-3 rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div className="flex items-baseline gap-2">
+            <span className="text-[12.5px] font-medium">{plan.workflow.label}</span>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+              workflow
+            </span>
+          </div>
+          {plan.workflow.steps.length > 0 && (
+            <p className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+              {plan.workflow.steps.join(" → ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {vacio && (
         <div
           className="rounded p-3 text-[12px]"
           style={{
@@ -237,68 +346,99 @@ export function RoutingCatalog() {
             color: "var(--color-warn)",
           }}
         >
-          0 hits. O el catálogo está vacío (usa Reindex all) o Qdrant/E5 no
-          responde — el backend devuelve lista vacía en ambos casos, no
-          distingue cuál.
+          El orquestador no propone especialistas para este prompt. Puede ser
+          abstención deliberada (prompts cortos o triviales no delegan) o que el
+          catálogo esté vacío — prueba Reindex all y repite.
         </div>
       )}
 
-      {hits !== null && hits.length > 0 && (
+      {(agents.length > 0 || skills.length > 0) && (
         <div className="space-y-1.5">
-          {hits.map((h, i) => (
+          {agents.map((a, i) => (
             <div
-              key={`${h.entity}-${h.name}-${i}`}
+              key={`agent-${a.name}-${i}`}
               className="flex items-start gap-3 rounded p-3"
               style={{
                 background: "var(--color-surface-2)",
                 border: "1px solid var(--color-border)",
               }}
             >
-              <span
-                className="mt-0.5 shrink-0"
-                style={{ color: "var(--color-text-tertiary)" }}
-                title={h.entity}
-              >
-                {h.entity === "agent" ? <Bot size={14} /> : <Sparkle size={14} />}
+              <span className="mt-0.5 shrink-0" style={{ color: "var(--color-text-tertiary)" }} title="agent">
+                <Bot size={14} />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[12.5px] font-medium">{h.name}</span>
-                  <span
-                    className="text-[10px] uppercase tracking-wide"
-                    style={{ color: "var(--color-text-faint)" }}
-                  >
-                    {h.entity}
-                    {h.kind ? ` · ${h.kind}` : ""}
+                  <span className="text-[12.5px] font-medium">{a.name}</span>
+                  <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                    agent
                   </span>
                 </div>
-                {h.description && (
+                {a.description && (
                   <p
                     className="mt-0.5 truncate text-[11.5px]"
                     style={{ color: "var(--color-text-secondary)" }}
-                    title={h.description}
+                    title={a.description}
                   >
-                    {h.description}
+                    {a.description}
                   </p>
                 )}
               </div>
               <span
                 className="shrink-0 text-[12px] font-semibold tabular-nums"
-                style={{ color: scoreColor(h.score) }}
-                title="Cosine similarity (E5)"
+                style={{ color: scoreColor(a.score) }}
+                title="Score del orquestador"
               >
-                {h.score.toFixed(3)}
+                {a.score.toFixed(3)}
+              </span>
+            </div>
+          ))}
+          {skills.map((s, i) => (
+            <div
+              key={`skill-${s.name}-${i}`}
+              className="flex items-start gap-3 rounded p-3"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <span className="mt-0.5 shrink-0" style={{ color: "var(--color-text-tertiary)" }} title="skill">
+                <Sparkle size={14} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[12.5px] font-medium">{s.name}</span>
+                  <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                    skill{s.kind ? ` · ${s.kind}` : ""}
+                  </span>
+                </div>
+                {s.description && (
+                  <p
+                    className="mt-0.5 truncate text-[11.5px]"
+                    style={{ color: "var(--color-text-secondary)" }}
+                    title={s.description}
+                  >
+                    {s.description}
+                  </p>
+                )}
+              </div>
+              <span
+                className="shrink-0 text-[12px] font-semibold tabular-nums"
+                style={{ color: scoreColor(s.score) }}
+                title="Score del orquestador"
+              >
+                {s.score.toFixed(3)}
               </span>
             </div>
           ))}
         </div>
       )}
 
-      {hits === null && !error && (
+      {plan === null && !error && (
         <p className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Escribe un prompt y pulsa Route para ver el top-8 de especialistas
-          (agentes + skills) por similitud semántica — el mismo índice que usa
-          el orquestador para delegar.
+          Escribe un prompt y pulsa Route para ver la decisión REAL del
+          orquestador — intent, workflow, agentes y skills con sus scores. Es el
+          mismo motor que corre en cada prompt del chat, no una búsqueda del
+          índice.
         </p>
       )}
     </div>

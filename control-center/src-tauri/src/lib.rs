@@ -26,6 +26,7 @@ mod batches;
 mod batches_queue;
 mod button_prompts;
 mod claude_sessions;
+mod claude_theme;
 mod commands_registry;
 mod cost_watchdog;
 mod detach;
@@ -57,6 +58,7 @@ mod project_context;
 mod project_hotkeys;
 mod projects;
 mod proxy;
+mod tfg_heuristics;
 // pty: runtime PTY interno (RunBatch kanban, delegate, tray, lifecycle). El
 // terminal embebido y sus comandos Tauri (pty_spawn/pty_kill/pty_list) se
 // retiraron 2026-07; NO borrar este modulo — sigue teniendo consumidores Rust.

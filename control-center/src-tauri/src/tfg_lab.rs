@@ -62,7 +62,15 @@ fn cargar_catalogo() -> Result<serde_json::Value, String> {
 struct ReglaCompilada {
     patron_idx: usize,
     etiqueta: String,
-    re: regex::Regex,
+    /// Regla ejecutable: o una regex del catálogo, o una señal estructural
+    /// (`tipo: "heuristica"`) implementada en `tfg_heuristics`.
+    motor: Motor,
+}
+
+enum Motor {
+    Regex(regex::Regex),
+    /// Id de heurística, p. ej. "tricolon" o "monotonia_frases".
+    Heuristica(String),
 }
 
 /// Convierte las `senales_ejecutables` del catálogo en regex compiladas.
@@ -75,6 +83,39 @@ struct ReglaCompilada {
 /// El contrato `TfgReport` es cerrado (la UI ya lo consume) y no admite un
 /// campo de warnings, así que el fallo de compilación se degrada a "esta señal
 /// no aporta matches"; el catálogo se corrige en su propio archivo, no aquí.
+/// Vuelve un término léxico insensible a las tildes: cada vocal pasa a una
+/// clase con todas sus variantes. Motivo medido (2026-08-15): el catálogo
+/// escribe "en conclusión" y el texto real —borradores, material pegado desde
+/// un PDF, gente que no acentúa— dice "en conclusion", y la señal no disparaba.
+/// Era la causa común de varios falsos negativos. La eñe NO se toca: volverla
+/// `[nñ]` confundiría "ano" con "año". Gemelo de `acentoInsensible` en
+/// `hooks/scripts/lib/ai-text-detector.js`.
+fn acento_insensible(fuente: &str) -> String {
+    let mut out = String::with_capacity(fuente.len());
+    for ch in fuente.chars() {
+        let clase = match ch.to_ascii_lowercase() {
+            'a' => Some("[aáàâä]"),
+            'e' => Some("[eéèêë]"),
+            'i' => Some("[iíìîï]"),
+            'o' => Some("[oóòôö]"),
+            'u' => Some("[uúùûü]"),
+            _ => match ch {
+                'á' | 'à' | 'â' | 'ä' => Some("[aáàâä]"),
+                'é' | 'è' | 'ê' | 'ë' => Some("[eéèêë]"),
+                'í' | 'ì' | 'î' | 'ï' => Some("[iíìîï]"),
+                'ó' | 'ò' | 'ô' | 'ö' => Some("[oóòôö]"),
+                'ú' | 'ù' | 'û' | 'ü' => Some("[uúùûü]"),
+                _ => None,
+            },
+        };
+        match clase {
+            Some(c) => out.push_str(c),
+            None => out.push(ch),
+        }
+    }
+    out
+}
+
 fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
     let mut reglas = Vec::new();
     for (patron_idx, patron) in patrones.iter().enumerate() {
@@ -91,7 +132,7 @@ fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
             let nota = senal.get("nota").and_then(|v| v.as_str()).unwrap_or("");
             let (fuente, etiqueta) = match tipo {
                 "lexico" => {
-                    let escapado = regex::escape(valor);
+                    let escapado = acento_insensible(&regex::escape(valor));
                     let fuente = if valor.split_whitespace().count() == 1 {
                         format!(r"(?i)\b{escapado}\b")
                     } else {
@@ -103,15 +144,27 @@ fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
                     let referencia = if nota.is_empty() { valor } else { nota };
                     (valor.to_string(), format!("regex:{referencia}"))
                 }
-                // Tipo desconocido: el catálogo manda, pero solo hay dos tipos
-                // ejecutables definidos; cualquier otro se ignora.
+                // Señal estructural: la resuelve tfg_heuristics, no una regex.
+                // Una id que este binario no conozca se salta igual que una
+                // regex que no compila (el catálogo puede ir por delante).
+                "heuristica" => {
+                    if crate::tfg_heuristics::existe(valor) {
+                        reglas.push(ReglaCompilada {
+                            patron_idx,
+                            etiqueta: format!("heuristica:{valor}"),
+                            motor: Motor::Heuristica(valor.to_string()),
+                        });
+                    }
+                    continue;
+                }
+                // Tipo desconocido: el catálogo manda; cualquier otro se ignora.
                 _ => continue,
             };
             if let Ok(re) = regex::Regex::new(&fuente) {
                 reglas.push(ReglaCompilada {
                     patron_idx,
                     etiqueta,
-                    re,
+                    motor: Motor::Regex(re),
                 });
             }
         }
@@ -164,14 +217,22 @@ fn detectar_con_catalogo(catalogo: &serde_json::Value, texto: &str) -> TfgReport
             .get("correccion")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        for m in regla.re.find_iter(texto) {
+        let tramos: Vec<(usize, usize)> = match &regla.motor {
+            Motor::Regex(re) => re.find_iter(texto).map(|m| (m.start(), m.end())).collect(),
+            Motor::Heuristica(id) => crate::tfg_heuristics::ejecutar(id, texto)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| (s.start, s.end))
+                .collect(),
+        };
+        for (inicio, fin) in tramos {
             patron_con_match[regla.patron_idx] = true;
             matches.push(TfgMatch {
                 pattern: nombre.to_string(),
                 rule: regla.etiqueta.clone(),
-                evidence: extraer_evidencia(texto, m.start(), m.end()),
-                start: m.start(),
-                end: m.end(),
+                evidence: extraer_evidencia(texto, inicio, fin),
+                start: inicio,
+                end: fin,
                 correction: correccion.to_string(),
             });
         }

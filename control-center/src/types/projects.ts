@@ -152,6 +152,11 @@ export type ProjectInfo = {
    *  the Project Home. Distinct from `items[]` launcher chips: these are
    *  edited via the Project Edit modal and rendered with a separate UI. */
   executables?: ProjectExecutable[] | null;
+  /** v2.7.2 — accent colour `#rrggbb` (lowercase, normalised by the Rust
+   *  loader). Tints the project card and drives the per-project Claude Code
+   *  theme used when a session is spawned in this project. `null` = neutral
+   *  card and no theme override. */
+  color?: string | null;
 };
 
 export type ProjectActionResult = {

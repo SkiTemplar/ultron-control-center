@@ -1,0 +1,604 @@
+//! tfg_heuristics.rs — señales ESTRUCTURALES del detector de texto IA.
+//!
+//! Gemelo Rust de `hooks/scripts/lib/ai-text-heuristics.js`. El catálogo
+//! (`docs/research/patrones-texto-ia.json`) es la fuente única y declara estas
+//! señales como `{ "tipo": "heuristica", "valor": "<id>" }`; aquí viven las
+//! implementaciones que consume la pestaña Lab, y en el .js las que consume el
+//! hook PostToolUse. Ambas TIENEN que dar el mismo veredicto: el test
+//! `paridad_con_el_fixture_compartido` de este módulo ejecuta el mismo fixture
+//! que `scripts/catalog-coverage.js` y falla si divergen.
+//!
+//! Por qué existen: hasta 2026-08-15 el catálogo solo sabía ejecutar léxicos y
+//! regex, así que todo lo que un LLM delata en la FORMA (frases de longitud
+//! clonada, párrafos calibrados, puntuación lisa, cadenas de sinónimos para no
+//! repetir el sujeto) estaba declarado pero inerte.
+
+use std::sync::OnceLock;
+
+use regex::Regex;
+
+/// Tramo de texto que justifica una señal (offsets en bytes, como `regex`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Segmentación
+// ---------------------------------------------------------------------------
+
+struct Segmento {
+    texto: String,
+    start: usize,
+    end: usize,
+}
+
+/// Trocea en frases por `.`, `!`, `?`, `;` y saltos de línea, conservando los
+/// offsets del original. Misma frontera que el `splitSentences` del JS.
+fn frases(texto: &str) -> Vec<Segmento> {
+    let mut out = Vec::new();
+    let mut inicio = 0usize;
+    let bytes = texto.as_bytes();
+    for (i, b) in bytes.iter().enumerate() {
+        let corta = matches!(b, b'.' | b'!' | b'?' | b';' | b'\n');
+        if !corta {
+            continue;
+        }
+        empujar_segmento(texto, inicio, i + 1, &mut out);
+        inicio = i + 1;
+    }
+    if inicio < texto.len() {
+        empujar_segmento(texto, inicio, texto.len(), &mut out);
+    }
+    out
+}
+
+fn empujar_segmento(texto: &str, desde: usize, hasta: usize, out: &mut Vec<Segmento>) {
+    if desde >= hasta || hasta > texto.len() {
+        return;
+    }
+    if !texto.is_char_boundary(desde) || !texto.is_char_boundary(hasta) {
+        return;
+    }
+    let bruto = &texto[desde..hasta];
+    let recortado = bruto.trim();
+    if recortado.is_empty() {
+        return;
+    }
+    let offset = bruto.find(recortado).unwrap_or(0);
+    out.push(Segmento {
+        texto: recortado.to_string(),
+        start: desde + offset,
+        end: desde + offset + recortado.len(),
+    });
+}
+
+fn parrafos(texto: &str) -> Vec<Segmento> {
+    let mut out = Vec::new();
+    let mut inicio = 0usize;
+    let separador = Regex::new(r"\n[ \t]*\n").expect("separador de parrafos valido");
+    for m in separador.find_iter(texto) {
+        empujar_segmento(texto, inicio, m.start(), &mut out);
+        inicio = m.end();
+    }
+    empujar_segmento(texto, inicio, texto.len(), &mut out);
+    out
+}
+
+fn palabras(s: &str) -> usize {
+    s.split_whitespace().count()
+}
+
+/// Coeficiente de variación (desviación típica / media). 0 = longitudes clon.
+fn coef_variacion(valores: &[usize]) -> f64 {
+    if valores.len() < 2 {
+        return f64::INFINITY;
+    }
+    let n = valores.len() as f64;
+    let media = valores.iter().sum::<usize>() as f64 / n;
+    if media == 0.0 {
+        return f64::INFINITY;
+    }
+    let var = valores
+        .iter()
+        .map(|v| {
+            let d = *v as f64 - media;
+            d * d
+        })
+        .sum::<f64>()
+        / n;
+    var.sqrt() / media
+}
+
+// ---------------------------------------------------------------------------
+// Heurísticas
+// ---------------------------------------------------------------------------
+
+fn monotonia_frases(texto: &str) -> Vec<Span> {
+    let fs: Vec<Segmento> = frases(texto)
+        .into_iter()
+        .filter(|f| palabras(&f.texto) >= 2)
+        .collect();
+    if fs.len() < 4 {
+        return Vec::new();
+    }
+    let longitudes: Vec<usize> = fs.iter().map(|f| palabras(&f.texto)).collect();
+    if coef_variacion(&longitudes) >= 0.30 {
+        return Vec::new();
+    }
+    vec![Span {
+        start: fs[0].start,
+        end: fs[fs.len() - 1].end,
+    }]
+}
+
+fn uniformidad_parrafos(texto: &str) -> Vec<Span> {
+    let ps: Vec<Segmento> = parrafos(texto)
+        .into_iter()
+        .filter(|p| palabras(&p.texto) >= 25)
+        .collect();
+    if ps.len() < 3 {
+        return Vec::new();
+    }
+    let longitudes: Vec<usize> = ps.iter().map(|p| palabras(&p.texto)).collect();
+    if coef_variacion(&longitudes) >= 0.20 {
+        return Vec::new();
+    }
+    vec![Span {
+        start: ps[0].start,
+        end: ps[ps.len() - 1].end,
+    }]
+}
+
+/// Puntuación pobre + frases largas (The Economist, 2026: mejor indicador que
+/// el em dash). La coma cuenta como puntuación interna, si no el habla
+/// transcrita —llena de comas y sin punto y coma— caía marcada.
+fn puntuacion_pobre(texto: &str) -> Vec<Span> {
+    let total = palabras(texto);
+    if total < 120 {
+        return Vec::new();
+    }
+    if texto.chars().any(|c| matches!(c, ';' | ':' | '(' | ')')) {
+        return Vec::new();
+    }
+    let comas = texto.matches(',').count();
+    if comas > 0 && (total as f64 / comas as f64) < 25.0 {
+        return Vec::new();
+    }
+    let fs: Vec<Segmento> = frases(texto)
+        .into_iter()
+        .filter(|f| palabras(&f.texto) >= 2)
+        .collect();
+    if fs.len() < 3 {
+        return Vec::new();
+    }
+    let media = fs.iter().map(|f| palabras(&f.texto)).sum::<usize>() as f64 / fs.len() as f64;
+    if media < 20.0 {
+        return Vec::new();
+    }
+    vec![Span {
+        start: fs[0].start,
+        end: fs[0].end,
+    }]
+}
+
+const CONECTORES: &[&str] = &[
+    "además",
+    "ademas",
+    "asimismo",
+    "sin embargo",
+    "no obstante",
+    "por lo tanto",
+    "por tanto",
+    "en consecuencia",
+    "por otro lado",
+    "por otra parte",
+    "en primer lugar",
+    "en segundo lugar",
+    "finalmente",
+    "en definitiva",
+    "en resumen",
+    "en conclusión",
+    "en conclusion",
+    "de igual manera",
+    "de este modo",
+    "cabe destacar",
+    "es importante",
+];
+
+fn densidad_conectores(texto: &str) -> Vec<Span> {
+    let total = palabras(texto);
+    if total < 80 {
+        return Vec::new();
+    }
+    let minusculas = texto.to_lowercase();
+    let mut hits: Vec<Span> = Vec::new();
+    for c in CONECTORES {
+        let mut desde = 0usize;
+        while let Some(pos) = minusculas[desde..].find(c) {
+            let start = desde + pos;
+            hits.push(Span {
+                start,
+                end: start + c.len(),
+            });
+            desde = start + c.len();
+        }
+    }
+    if hits.len() < 3 {
+        return Vec::new();
+    }
+    if total as f64 / hits.len() as f64 > 35.0 {
+        return Vec::new();
+    }
+    hits.sort_by_key(|h| h.start);
+    hits.truncate(3);
+    hits
+}
+
+fn re(patron: &str) -> Regex {
+    Regex::new(patron).expect("regex de heuristica valida")
+}
+
+fn anaforicos() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        // Solo cuenta si ENCABEZA un sintagma nominal ("dicho modelo", "el
+        // mencionado sistema"): el participio verbal suelto ("lo que había
+        // dicho") marcaba prosa humana normal.
+        re(r"(?i)\b(?:(?:dicho|dicha|dichos|dichas)\s+\w{3,}|(?:el|la|los|las)\s+(?:mencionad|citad|aludid|referid)[oa]s?\s+\w{3,})")
+    })
+}
+
+fn sujeto_inicial() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        re(r"(?i)^((?:el|la|los|las|este|esta|estos|estas|dicho|dicha|dichos|dichas)\s+\w+(?:\s+\w+){0,2}|[A-ZÁÉÍÓÚÑ]\w+)")
+    })
+}
+
+fn variacion_lexica(texto: &str) -> Vec<Span> {
+    let mut anafo: Vec<Span> = anaforicos()
+        .find_iter(texto)
+        .map(|m| Span {
+            start: m.start(),
+            end: m.end(),
+        })
+        .collect();
+    if anafo.len() >= 2 {
+        anafo.truncate(3);
+        return anafo;
+    }
+
+    let segs = frases(texto);
+    if segs.len() < 3 {
+        return Vec::new();
+    }
+    let mut sujetos: Vec<(String, Span)> = Vec::new();
+    for seg in &segs {
+        let Some(m) = sujeto_inicial().find(&seg.texto) else {
+            return Vec::new();
+        };
+        sujetos.push((
+            m.as_str().to_lowercase(),
+            Span {
+                start: seg.start,
+                end: seg.start + m.end(),
+            },
+        ));
+    }
+    let mut unicos: Vec<&String> = sujetos.iter().map(|(s, _)| s).collect();
+    unicos.sort();
+    unicos.dedup();
+    if unicos.len() != sujetos.len() {
+        return Vec::new(); // algo se repite: es prosa honesta
+    }
+    let demostrativo = sujetos.iter().any(|(s, _)| {
+        [
+            "este ", "esta ", "estos ", "estas ", "dicho ", "dicha ", "dichos ", "dichas ",
+        ]
+        .iter()
+        .any(|d| s.starts_with(d))
+    });
+    if !demostrativo {
+        return Vec::new();
+    }
+    sujetos.into_iter().map(|(_, sp)| sp).take(3).collect()
+}
+
+/// Em dash: en 2026 dejó de ser prueba por sí solo; delata la acumulación.
+fn emdash_incisos(texto: &str) -> Vec<Span> {
+    let hits: Vec<Span> = texto
+        .match_indices('—')
+        .map(|(i, s)| Span {
+            start: i,
+            end: i + s.len(),
+        })
+        .collect();
+    if hits.len() < 5 {
+        return Vec::new();
+    }
+    hits.into_iter().take(3).collect()
+}
+
+const NEUTROS: &[&str] = &[
+    r"(?i)\bcomputadoras?\b",
+    r"(?i)\bcelulares?\b",
+    r"(?i)\bpresionar\b",
+    r"(?i)\bpresione\b",
+    r"(?i)\barribar\b",
+    r"(?i)\bamerita\b",
+    r"(?i)\binicializar\b",
+    r"(?i)\bordenamiento\b",
+    r"(?i)\bcarro\b",
+    r"(?i)\bpapas\b",
+];
+
+fn neutros() -> &'static Vec<Regex> {
+    static RES: OnceLock<Vec<Regex>> = OnceLock::new();
+    RES.get_or_init(|| NEUTROS.iter().map(|p| re(p)).collect())
+}
+
+fn espanol_neutro(texto: &str) -> Vec<Span> {
+    let mut hits: Vec<Span> = Vec::new();
+    let mut distintos = 0usize;
+    for r in neutros() {
+        let mut visto = false;
+        for m in r.find_iter(texto) {
+            hits.push(Span {
+                start: m.start(),
+                end: m.end(),
+            });
+            visto = true;
+        }
+        if visto {
+            distintos += 1;
+        }
+    }
+    if distintos < 2 {
+        return Vec::new();
+    }
+    hits.sort_by_key(|h| h.start);
+    hits.truncate(3);
+    hits
+}
+
+const HEDGES: &[&str] = &[
+    r"(?i)\bpodr[íi]an?\b",
+    r"(?i)\bparece(?:r[íi]a)?\b",
+    r"(?i)\ben cierta medida\b",
+    r"(?i)\bhasta cierto punto\b",
+    r"(?i)\bes posible que\b",
+    r"(?i)\bsuele\b",
+    r"(?i)\ben general\b",
+    r"(?i)\bciertos?\b",
+    r"(?i)\balgunos?\b",
+    r"(?i)\bpuede que\b",
+    r"(?i)\btiende a\b",
+    r"(?i)\brelativamente\b",
+];
+
+fn hedges() -> &'static Vec<Regex> {
+    static RES: OnceLock<Vec<Regex>> = OnceLock::new();
+    RES.get_or_init(|| HEDGES.iter().map(|p| re(p)).collect())
+}
+
+/// Un atenuador suelto es prosa honesta; delata la manta de atenuadores.
+fn hedging_denso(texto: &str) -> Vec<Span> {
+    let mut hits: Vec<Span> = Vec::new();
+    for r in hedges() {
+        for m in r.find_iter(texto) {
+            hits.push(Span {
+                start: m.start(),
+                end: m.end(),
+            });
+        }
+    }
+    if hits.is_empty() {
+        return Vec::new();
+    }
+    hits.sort_by_key(|h| h.start);
+    if hits.len() >= 3 {
+        hits.truncate(3);
+        return hits;
+    }
+    for f in frases(texto) {
+        let dentro: Vec<Span> = hits
+            .iter()
+            .copied()
+            .filter(|h| h.start >= f.start && h.end <= f.end)
+            .collect();
+        if dentro.len() >= 2 {
+            return dentro.into_iter().take(3).collect();
+        }
+    }
+    Vec::new()
+}
+
+fn subordinante_inicial() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        re(r"(?i)^(si|cuando|aunque|mientras|una vez|tras|despu[ée]s de|antes de|para que|si bien|en cuanto|dado que|puesto que|ya que|conforme|seg[úu]n|apenas|salvo que|a menos que)\b")
+    })
+}
+
+fn triada() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        re(r"(?i)((?:\w+\s+){0,2}\w+),\s+((?:\w+\s+){0,2}\w+),?\s+(?:y|e|and)\s+((?:\w+\s+){0,2}\w+)")
+    })
+}
+
+/// Tricolon: se trocea en frases y se descartan las que abren con subordinante
+/// (ahí la coma cierra la subordinada, no enumera).
+fn tricolon(texto: &str) -> Vec<Span> {
+    let mut out = Vec::new();
+    for f in frases(texto) {
+        if subordinante_inicial().is_match(&f.texto) {
+            continue;
+        }
+        for m in triada().find_iter(&f.texto) {
+            out.push(Span {
+                start: f.start + m.start(),
+                end: f.start + m.end(),
+            });
+            if out.len() >= 3 {
+                return out;
+            }
+        }
+    }
+    out
+}
+
+/// Punto de entrada: ejecuta la heurística `id` sobre `texto`.
+/// `None` = id desconocida (el catálogo manda; se degrada en silencio, mismo
+/// contrato que una regex que no compila).
+pub fn ejecutar(id: &str, texto: &str) -> Option<Vec<Span>> {
+    let spans = match id {
+        "monotonia_frases" => monotonia_frases(texto),
+        "uniformidad_parrafos" => uniformidad_parrafos(texto),
+        "puntuacion_pobre" => puntuacion_pobre(texto),
+        "densidad_conectores" => densidad_conectores(texto),
+        "variacion_lexica" => variacion_lexica(texto),
+        "emdash_incisos" => emdash_incisos(texto),
+        "espanol_neutro" => espanol_neutro(texto),
+        "hedging_denso" => hedging_denso(texto),
+        "tricolon" => tricolon(texto),
+        _ => return None,
+    };
+    Some(spans)
+}
+
+/// ¿Existe esa heurística? Lo usa el compilador de reglas para no registrar
+/// una señal que nadie sabe ejecutar.
+pub fn existe(id: &str) -> bool {
+    matches!(
+        id,
+        "monotonia_frases"
+            | "uniformidad_parrafos"
+            | "puntuacion_pobre"
+            | "densidad_conectores"
+            | "variacion_lexica"
+            | "emdash_incisos"
+            | "espanol_neutro"
+            | "hedging_denso"
+            | "tricolon"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tricolon_distingue_coma_enumerativa_de_subordinante() {
+        assert!(!tricolon("El sistema es rapido, eficiente y escalable.").is_empty());
+        assert!(!tricolon("La memoria, el routing y la interfaz forman el nucleo.").is_empty());
+        // La coma cierra una subordinada: no es una tríada.
+        assert!(tricolon("Si no hay señales, dilo y para ahi.").is_empty());
+        assert!(tricolon("Cuando termine el build, avisa y sigue con el deploy.").is_empty());
+    }
+
+    #[test]
+    fn monotonia_solo_con_frases_clonadas() {
+        let clon = "El sistema indexa los datos. El modelo genera los vectores. La base almacena los indices. El motor responde las consultas.";
+        assert!(!monotonia_frases(clon).is_empty());
+        let variado = "El sistema indexa. Luego el modelo, que carga 2,1 GB de pesos en memoria residente y tarda casi cuatro segundos en arrancar, genera los vectores. Se almacenan. El motor responde en 144 ms.";
+        assert!(monotonia_frases(variado).is_empty());
+    }
+
+    #[test]
+    fn hedging_exige_acumulacion() {
+        assert!(hedging_denso(
+            "El recall podria bajar si el corpus crece por encima de 10.000 elementos."
+        )
+        .is_empty());
+        assert!(!hedging_denso(
+            "En cierta medida, algunos resultados podrian parecer relativamente mejores."
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn variacion_lexica_ignora_el_participio_verbal() {
+        // "lo que había dicho" / "te he mencionado" NO son anáforas nominales.
+        assert!(variacion_lexica("Por otro lado, lo que había dicho del routing no me convence y lo que te he mencionado del color tampoco.").is_empty());
+        assert!(!variacion_lexica("El transformador procesa la entrada; dicho modelo la codifica y el mencionado sistema la devuelve.").is_empty());
+    }
+
+    #[test]
+    fn emdash_necesita_acumulacion_no_presencia() {
+        assert!(emdash_incisos("El sistema —que carga dos modelos— consume 3 GB.").is_empty());
+        assert!(!emdash_incisos("El sistema —que carga dos modelos— consume 3 GB, y el daemon —ya medido— otros 1,5 GB, mientras la interfaz —Chromium puro— se lleva el resto.").is_empty());
+    }
+
+    /// GATE DE PARIDAD con el matcher JS: mismo fixture, mismo veredicto.
+    /// Si alguien toca una heurística en un solo lado, esto se pone rojo.
+    #[test]
+    fn paridad_con_el_fixture_compartido() {
+        let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("raiz del repo");
+        let fixture_path = raiz.join("scripts/fixtures/catalog-cases.json");
+        let catalogo_path = raiz.join("docs/research/patrones-texto-ia.json");
+        let (Ok(fixture_raw), Ok(catalogo_raw)) = (
+            std::fs::read_to_string(&fixture_path),
+            std::fs::read_to_string(&catalogo_path),
+        ) else {
+            // Sin fixture no se puede medir paridad; no se inventa un verde.
+            panic!(
+                "faltan {} o {}",
+                fixture_path.display(),
+                catalogo_path.display()
+            );
+        };
+        let fixture: serde_json::Value = serde_json::from_str(&fixture_raw).expect("fixture json");
+        let catalogo: serde_json::Value =
+            serde_json::from_str(&catalogo_raw).expect("catalogo json");
+
+        let patrones = catalogo["patrones"].as_array().expect("patrones");
+        let casos = fixture["patrones"].as_array().expect("casos");
+        let mut comprobados = 0usize;
+
+        for caso in casos {
+            let nombre = caso["nombre"].as_str().unwrap_or_default();
+            let patron = patrones
+                .iter()
+                .find(|p| p["nombre"].as_str().unwrap_or_default() == nombre);
+            let Some(patron) = patron else { continue };
+            let senales = patron["senales_ejecutables"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let ids: Vec<String> = senales
+                .iter()
+                .filter(|s| s["tipo"].as_str() == Some("heuristica"))
+                .filter_map(|s| s["valor"].as_str().map(str::to_string))
+                .collect();
+            if ids.is_empty() {
+                continue; // patrón de regex/léxico: lo cubre el otro harness
+            }
+            comprobados += 1;
+            let marca = |texto: &str| {
+                ids.iter()
+                    .any(|id| ejecutar(id, texto).map(|s| !s.is_empty()).unwrap_or(false))
+            };
+            for p in caso["positivos"].as_array().cloned().unwrap_or_default() {
+                let t = p.as_str().unwrap_or_default();
+                assert!(marca(t), "[{nombre}] positivo no detectado en Rust: {t}");
+            }
+            for n in caso["negativos"].as_array().cloned().unwrap_or_default() {
+                let t = n.as_str().unwrap_or_default();
+                assert!(
+                    !marca(t),
+                    "[{nombre}] negativo marcado por error en Rust: {t}"
+                );
+            }
+        }
+        assert!(
+            comprobados >= 6,
+            "solo {comprobados} patrones heuristicos comprobados"
+        );
+    }
+}

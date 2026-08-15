@@ -1,12 +1,58 @@
 {
   "_comment": "Status por personalidad para la statusline (vy7sve; ampliado 2026-08-13: arrays con rotacion cada 20s en statusline.js). Editable a mano; clave = id del tono en personality.json. Un string suelto tambien vale.",
-  "ultron": ["Procesando", "Ejecutando", "Calculando", "Optimizando"],
-  "hood": ["Cookin", "Grindin", "Slidin", "Finessin", "Trappin", "Lockin in"],
-  "british-formal": ["Deliberating", "Endeavouring", "Pondering", "Orchestrating"],
-  "cowboy": ["Wranglin", "Rustlin", "Ropin", "Saddlin up"],
-  "gitano": ["Currelando", "Chanelando", "Camelando"],
-  "andaluz": ["Apañando", "Liándola", "Currando", "Enredando"],
-  "cani": ["Petándolo", "Flipándolo", "Rulando", "Chetándolo"],
-  "cunado": ["Sentenciándolo", "Apañándolo", "Explicándotelo", "Arreglándolo"],
-  "pura-cepa": ["ARREGLANDO ESPAÑA", "DÁNDOLO TODO", "COMO DIOS MANDA", "LIÁNDOLA PARDA"]
+  "andaluz": [
+    "Apañando",
+    "Liándola",
+    "Currando",
+    "Enredando"
+  ],
+  "british-formal": [
+    "Deliberating",
+    "Endeavouring",
+    "Pondering",
+    "Orchestrating"
+  ],
+  "cani": [
+    "Petándolo",
+    "Flipándolo",
+    "Rulando",
+    "Chetándolo"
+  ],
+  "cowboy": [
+    "Wranglin",
+    "Rustlin",
+    "Ropin",
+    "Saddlin up"
+  ],
+  "cunado": [
+    "Sentenciándolo",
+    "Apañándolo",
+    "Explicándotelo",
+    "Arreglándolo"
+  ],
+  "gitano": [
+    "Currelando",
+    "Chanelando",
+    "Camelando"
+  ],
+  "hood": [
+    "Cookin",
+    "Grindin",
+    "Slidin",
+    "Finessin",
+    "Trappin",
+    "Lockin in"
+  ],
+  "pura-cepa": [
+    "ARREGLANDO ESPAÑA",
+    "DÁNDOLO TODO",
+    "COMO DIOS MANDA",
+    "LIÁNDOLA PARDA"
+  ],
+  "ultron": [
+    "Procesando",
+    "Ejecutando",
+    "Calculando",
+    "Optimizando"
+  ]
 }

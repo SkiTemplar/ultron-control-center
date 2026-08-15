@@ -1,6 +1,6 @@
 // projects/write_ops.rs — Create, update, delete, touch operations on projects.json.
 
-use super::normalise::{normalise_ide, normalise_provider, normalise_shell};
+use super::normalise::{normalise_color, normalise_ide, normalise_provider, normalise_shell};
 use super::registry::{atomic_write, find_entry_mut, load_registry_mut, projects_lock, slugify};
 use super::types::{
     AddLauncherItemPayload, CreateProjectPayload, CreateProjectResult, DeleteProjectResult,
@@ -117,6 +117,9 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
     if let Some(n) = notes {
         new_entry["notes"] = serde_json::Value::String(n);
     }
+    if let Some(c) = normalise_color(p.color.as_deref()) {
+        new_entry["color"] = serde_json::Value::String(c);
+    }
     projects.push(new_entry);
 
     if let Some(obj) = root.as_object_mut() {
@@ -223,6 +226,16 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
                 entry["notes"] = serde_json::Value::Null;
             } else {
                 entry["notes"] = serde_json::Value::String(trimmed.to_string());
+            }
+        }
+        // Colour: empty string is an explicit "clear it"; a malformed hex is
+        // ignored so a typo in the picker can't silently wipe a good value.
+        if let Some(raw) = p.color.as_deref() {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                entry["color"] = serde_json::Value::Null;
+            } else if let Some(hex) = normalise_color(Some(trimmed)) {
+                entry["color"] = serde_json::Value::String(hex);
             }
         }
         if let Some(list) = p.executables.as_ref() {
