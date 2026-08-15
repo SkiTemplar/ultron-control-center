@@ -156,6 +156,10 @@ fn run() -> Result<serde_json::Value, String> {
                 knn: flag_value(&args, "--knn")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(ul::memory::backfill::DEFAULT_KNN),
+                llm: has_flag(&args, "--llm"),
+                llm_min_conf: flag_value(&args, "--llm-min-conf")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(ul::memory::backfill::DEFAULT_LLM_MIN_CONF),
             };
             ul::memory::backfill::run(&opts)
         }
