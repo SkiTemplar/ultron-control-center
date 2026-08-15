@@ -143,6 +143,32 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
 /// Patch an existing entry in projects.json. Only fields explicitly provided
 /// (Some) get touched; the rest are preserved. Atomic write through a temp
 /// file so a crash mid-write doesn't corrupt the registry.
+/// Id del proyecto sintético que `list_projects_inner` inventa para el home.
+pub(crate) const HOME_ID: &str = "__home";
+
+/// Añade la entrada real del home al registro. Se llama solo cuando el usuario
+/// edita el proyecto sintético (ponerle color, notas, shell): hasta entonces no
+/// existe en projects.json y el update moría con "project '__home' not found".
+/// El loader deja de sintetizarlo en cuanto ve una entrada con ese path, así
+/// que materializarlo no duplica la tarjeta.
+pub(crate) fn materialise_home_entry(projects: &mut Vec<serde_json::Value>, home: &str) {
+    projects.push(serde_json::json!({
+        "id": HOME_ID,
+        "name": "Home",
+        "path": home,
+        "ide": "",
+        "language": "",
+        "type": "home",
+        "deadline": "",
+        "last_active": chrono::Utc::now().format("%Y-%m-%d").to_string(),
+        "status": "manual",
+        "tags": ["home"],
+        "auto_tags": [],
+        "items": [],
+        "default_provider": "claude",
+    }));
+}
+
 pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResult, String> {
     use std::path::Path;
     if p.id.trim().is_empty() {
@@ -163,6 +189,23 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
             .find(|v| v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone()));
         let entry = match target {
             Some(e) => e,
+            // `__home` es un proyecto SINTÉTICO: `list_projects_inner` lo
+            // inventa cuando el registro no cubre el home del usuario, así que
+            // la UI lo muestra pero no existe nada que actualizar y editarlo
+            // moría con "project '__home' not found" (reportado 2026-08-15 al
+            // ponerle color). Al guardar se materializa como entrada real; el
+            // loader detecta que ya está por path y deja de sintetizarlo, así
+            // que no hay duplicado.
+            None if p.id == HOME_ID => {
+                let home = dirs::home_dir()
+                    .ok_or_else(|| "no HOME".to_string())?
+                    .to_string_lossy()
+                    .to_string();
+                materialise_home_entry(projects, &home);
+                projects
+                    .last_mut()
+                    .ok_or_else(|| "no se pudo materializar __home".to_string())?
+            }
             None => return Err(format!("project '{}' not found", p.id)),
         };
 

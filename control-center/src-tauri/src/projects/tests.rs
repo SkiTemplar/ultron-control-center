@@ -99,3 +99,22 @@ fn normalise_provider_falls_back_to_claude() {
     // Case insensitive
     assert_eq!(normalise_provider(Some("CLAUDE")), "claude");
 }
+
+#[test]
+fn materialise_home_entry_crea_la_entrada_real_del_home() {
+    use super::write_ops::{materialise_home_entry, HOME_ID};
+
+    let mut projects: Vec<serde_json::Value> = Vec::new();
+    materialise_home_entry(&mut projects, r"C:\Users\demo");
+
+    assert_eq!(projects.len(), 1);
+    let entry = &projects[0];
+    assert_eq!(entry["id"].as_str(), Some(HOME_ID));
+    assert_eq!(entry["path"].as_str(), Some(r"C:\Users\demo"));
+    assert_eq!(entry["type"].as_str(), Some("home"));
+    // Caso negativo: no inventa color ni notas — el patch del update es quien
+    // los pone. Si esta entrada naciera con campos, editar el home escribiria
+    // valores que el usuario no pidio.
+    assert!(entry.get("color").is_none(), "no debe nacer con color");
+    assert!(entry.get("notes").is_none(), "no debe nacer con notas");
+}

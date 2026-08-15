@@ -86,11 +86,16 @@ $respectClipboard = [bool]$cfg.respectClipboard
 # El inner-script setea ANTHROPIC_BASE_URL y ANTHROPIC_AUTH_TOKEN antes de
 # invocar claude. Backwards-compatible: campo ausente -> $false.
 $freeTier = [bool]$cfg.freeTier
-# theme: referencia a un tema custom de Claude Code ("custom:<slug>"), generada
-# por claude_theme.rs a partir del color del proyecto. Solo cambia los colores
-# de acento de Claude, NUNCA el fondo de la terminal. Campo ausente o vacio ->
-# la sesion usa el tema global del usuario.
-$claudeTheme = [string]$cfg.theme
+# settingsFile: ruta a un JSON generado por claude_theme.rs con el tema del
+# proyecto ({"theme":"custom:<slug>"}). Solo cambia los colores de acento de
+# Claude, NUNCA el fondo de la terminal. Campo ausente o vacio -> la sesion usa
+# el tema global del usuario.
+#
+# Va por FICHERO y no como JSON inline: PowerShell 5.1 se come las comillas
+# dobles al construir el argv de un ejecutable nativo, asi que claude recibia
+# {theme:custom:...} y respondia "Invalid JSON provided to --settings"
+# (reproducido 2026-08-15).
+$claudeSettings = [string]$cfg.settingsFile
 
 # v15.1.4+: ULTRON spawns terminals for internal flows (news, skill edit, MCP
 # create, diagnose, codex-fallback) where the user already authorized the
@@ -179,15 +184,14 @@ switch ($provider) {
             if ($resumeId -notmatch '^[A-Fa-f0-9\-]{1,80}$') { throw "Invalid resume id" }
             $inner += " -r $resumeId"
         }
-        if ($claudeTheme) {
-            # Grammar cerrada a proposito: solo "custom:<slug-kebab>". Cualquier
-            # otra cosa se descarta en silencio en vez de acabar dentro del JSON
-            # que va a --settings (el payload viene de projects.json, que el
-            # usuario puede editar a mano).
-            if ($claudeTheme -match '^custom:[a-z0-9\-]{1,64}$') {
-                $inner += ' --settings ''{"theme":"' + $claudeTheme + '"}'''
+        if ($claudeSettings) {
+            # Solo se acepta un .json que exista de verdad. Cualquier otra cosa
+            # se descarta en silencio: el payload nace de projects.json, que el
+            # usuario puede editar a mano.
+            if (($claudeSettings -match '\.json$') -and (Test-Path -LiteralPath $claudeSettings)) {
+                $inner += " --settings " + (Quote-Single $claudeSettings)
             } else {
-                [Console]::Error.WriteLine("[spawn-claude-session] theme descartado (formato invalido): $claudeTheme")
+                [Console]::Error.WriteLine("[spawn-claude-session] settings descartado (no existe o no es .json): $claudeSettings")
             }
         }
     }

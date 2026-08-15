@@ -79,8 +79,9 @@ pub fn themes_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("themes"))
 }
 
-/// Write (or refresh) the theme file for a project and return the value to
-/// put in `settings.theme` — `custom:<slug>`.
+/// Write (or refresh) the theme file for a project and return the PATH of a
+/// settings file that selects it (`{"theme":"custom:<slug>"}`), ready to hand
+/// to `claude --settings`.
 ///
 /// Idempotent and cheap: it rewrites the file on every spawn so editing the
 /// colour in the project modal is reflected in the next session without any
@@ -131,7 +132,30 @@ pub fn ensure_project_theme(
     let path = dir.join(format!("{slug}.json"));
     let body = serde_json::to_string_pretty(&theme).map_err(|e| format!("serialize: {e}"))?;
     fs::write(&path, format!("{body}\n")).map_err(|e| format!("write {}: {e}", path.display()))?;
-    Ok(format!("custom:{slug}"))
+
+    write_settings_file(&slug)
+}
+
+/// Escribe el settings que la sesión recibirá con `--settings` y devuelve su
+/// RUTA.
+///
+/// Por qué un fichero y no el JSON en la línea de comando: `--settings` acepta
+/// ambas cosas, pero el JSON viaja por un `.ps1` intermedio y PowerShell 5.1 se
+/// come las comillas dobles al construir el argv de un ejecutable nativo, así
+/// que a `claude` le llegaba `{theme:custom:...}` y respondía "Invalid JSON
+/// provided to --settings" (reproducido 2026-08-15). Una ruta no lleva comillas
+/// dentro y cruza esa capa intacta.
+fn write_settings_file(slug: &str) -> Result<String, String> {
+    let dir = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron")
+        .join(".tmp")
+        .join("session-settings");
+    fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let path = dir.join(format!("{slug}.json"));
+    let body = serde_json::json!({ "theme": format!("custom:{slug}") });
+    fs::write(&path, format!("{body}\n")).map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[cfg(test)]

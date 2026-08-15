@@ -285,9 +285,10 @@ fn same_dir(a: &str, b: &str) -> bool {
     !a.trim().is_empty() && norm(a) == norm(b)
 }
 
-/// Resolve the Claude Code theme reference for a session opened at `cwd`.
-/// Returns `None` when the directory isn't a registered project, the project
-/// has no colour, or the theme file can't be written.
+/// Resolve the per-project Claude Code settings file for a session opened at
+/// `cwd` (it selects the generated theme). Returns `None` when the directory
+/// isn't a registered project, the project has no colour, or the files can't
+/// be written.
 fn project_theme_for_cwd(cwd: &str) -> Option<String> {
     let projects = crate::projects::list_projects_inner().ok()?;
     let project = projects.iter().find(|p| {
@@ -299,7 +300,7 @@ fn project_theme_for_cwd(cwd: &str) -> Option<String> {
     let colour = project.color.as_deref()?;
     let name = project.name.as_deref().unwrap_or(&project.id);
     match crate::claude_theme::ensure_project_theme(&project.id, name, colour) {
-        Ok(theme_ref) => Some(theme_ref),
+        Ok(settings_path) => Some(settings_path),
         Err(e) => {
             eprintln!("[sessions] per-project theme skipped: {e}");
             None
@@ -398,9 +399,11 @@ pub async fn spawn_session_inner(
         // Esto cierra el hueco donde el auto-ON activaba el toggle en la UI pero
         // los spawns sin free_tier=true seguian saliendo por Anthropic directo.
         "freeTier": flags.free_tier || crate::proxy::read_proxy_state_enabled(),
-        // Empty string = no per-project theme; the session keeps whatever
-        // theme the user set globally with /theme.
-        "theme": theme_ref.unwrap_or_default(),
+        // Ruta a un settings JSON con el tema del proyecto; cadena vacía = sin
+        // tema propio y la sesión conserva el que el usuario tenga puesto.
+        // Va como RUTA y no como JSON inline porque PowerShell 5.1 destruye las
+        // comillas dobles al pasar el argumento al ejecutable nativo.
+        "settingsFile": theme_ref.unwrap_or_default(),
     })
     .to_string();
     let payload = base64_encode(&payload_json);
