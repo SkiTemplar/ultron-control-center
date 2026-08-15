@@ -105,6 +105,17 @@ fn run() -> Result<serde_json::Value, String> {
         "resume" => to_json(ul::commands::memory::session_resume::session_resume_inner(project)?),
         "orchestrate" => {
             let prompt = positional(&args)?;
+            // Si el daemon vive, que responda EL: tiene E5 caliente y este
+            // proceso no llega a cargar el modelo. Medido el 2026-08-15: un
+            // one-shot que carga E5 pica en 1,7 GB, y 3,2 GB si ademas entra el
+            // cross-encoder. Sin daemon, se resuelve aqui como siempre.
+            if let Some(v) = ul::daemon_client::orchestrate(
+                &prompt,
+                project.as_deref(),
+                std::time::Duration::from_secs(30),
+            ) {
+                return Ok(v);
+            }
             // CLI one-shot fallback for the hot path. dense=TRUE: quality-first
             // (full hybrid recall + semantic match); see serve.rs for rationale.
             to_json(ul::orchestrator::orchestrate(&prompt, project.as_deref(), true))
@@ -131,6 +142,19 @@ fn run() -> Result<serde_json::Value, String> {
             // the recall searches the WHOLE brain (items from any project), not just
             // the current one. Security is untouched: Secret items stay excluded.
             let cross = has_flag(&args, "--cross") || has_flag(&args, "--all-projects");
+            // Igual que orchestrate: el daemon primero. Aqui el ahorro es el
+            // mayor de todos, porque el recall manual pide cross-encoder y ese
+            // camino cargaba los DOS modelos en este proceso (3,2 GB medidos).
+            if let Some(v) = ul::daemon_client::recall(
+                &query,
+                8,
+                project.as_deref(),
+                cross,
+                true,
+                std::time::Duration::from_secs(60),
+            ) {
+                return Ok(v);
+            }
             to_json(ul::commands::memory::recall_unified::recall_pack(
                 &query,
                 8,

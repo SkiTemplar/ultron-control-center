@@ -199,7 +199,8 @@
       ],
       "negativos": [
         "El sistema —que carga dos modelos— consume 3 GB de memoria residente.",
-        "La medicion se repitio tres veces con el modelo en caliente."
+        "La medicion se repitio tres veces con el modelo en caliente.",
+        "El sistema —que carga dos modelos— consume 3 GB, y el daemon —ya medido— otros 1,5 GB de memoria residente."
       ]
     },
     {
@@ -309,7 +310,7 @@
         "El sistema de recuperacion procesa el corpus completo y genera los vectores densos que despues almacena en la base para responder consultas en produccion sin intervencion humana. El modelo de lenguaje recibe la consulta del usuario y produce una respuesta que combina los fragmentos recuperados con el conocimiento parametrico aprendido durante el entrenamiento previo. La evaluacion automatica compara las respuestas generadas con las referencias anotadas y calcula metricas de precision y cobertura sobre el conjunto completo de preguntas. El despliegue en produccion requiere una infraestructura capaz de sostener la carga concurrente y de recuperarse ante fallos parciales del servicio sin perder peticiones. El equipo de investigacion documenta cada iteracion del proceso y publica los resultados obtenidos en un repositorio abierto para que cualquier persona interesada pueda reproducir el experimento completo sin necesidad de solicitar acceso previo a los datos originales."
       ],
       "negativos": [
-        "El sistema indexa el corpus (unos 12.000 documentos); el modelo responde en 144 ms. La evaluacion usa dos metricas: precision y cobertura.",
+        "El sistema indexa el corpus (unos 12.000 documentos); el modelo responde en 144 ms. La evaluacion usa dos metricas: precision y cobertura, calculadas sobre las 29 consultas del oraculo. El despliegue corre en una maquina con 32 GB de RAM; el daemon carga los pesos una sola vez y los mantiene calientes entre peticiones. Cuando la cola se llena, el proceso rechaza la peticion en vez de encolarla: mas vale un error rapido que una espera de treinta segundos. Los logs guardan cada rechazo con su timestamp.",
         "Arranca el daemon, comprueba el healthz y mide la latencia."
       ]
     },
@@ -319,7 +320,7 @@
         "Además, el sistema mejora el rendimiento del indice sobre el corpus completo de documentos tecnicos. Sin embargo, presenta limitaciones cuando la carga concurrente supera los cien usuarios simultaneos. Por lo tanto, conviene evaluarlo en un entorno de preproduccion antes del despliegue. Asimismo, el coste operativo crece de forma lineal con el numero de vectores almacenados en memoria. En primer lugar, el equipo debe definir las metricas de calidad. Finalmente, la documentacion tecnica recoge las decisiones tomadas durante todo el proceso de desarrollo del sistema completo."
       ],
       "negativos": [
-        "El indice pesa 2,1 GB y responde en 144 ms. Con 100 usuarios simultaneos la latencia sube a 5 s. Habra que medirlo otra vez cuando entre el reranker nuevo del cross-encoder en produccion.",
+        "El indice pesa 2,1 GB y responde en 144 ms. Con 100 usuarios simultaneos la latencia sube a 5 s. Habra que medirlo otra vez cuando entre el reranker nuevo del cross-encoder en produccion, porque el modelo tarda 40 ms mas por consulta y eso se nota en la cola. La memoria residente del proceso ronda los 3 GB con los dos modelos cargados y no crece con el tiempo, asi que no hay fuga.",
         "Arranca Qdrant, indexa el corpus y mide el recall a 8."
       ]
     },
@@ -329,7 +330,8 @@
         "Parrafo 1: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los.\n\nParrafo 2: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos.\n\nParrafo 3: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los."
       ],
       "negativos": [
-        "Parrafo 1: el sistema procesa los datos del corpus y devuelve un resultado medido.\n\nParrafo 2: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del.\n\nParrafo 3: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un."
+        "Parrafo 1: el sistema procesa los datos del corpus y devuelve un resultado medido.\n\nParrafo 2: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del.\n\nParrafo 3: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un.",
+        "Parrafo 1: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido.\n\nParrafo 2: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en.\n\nParrafo 3: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo.\n\nParrafo 4: el sistema procesa los datos del corpus y devuelve un resultado medido en milisegundos sobre el indice completo el sistema procesa los datos del corpus y devuelve un resultado."
       ]
     },
     {

@@ -93,20 +93,17 @@ enum Motor {
 fn acento_insensible(fuente: &str) -> String {
     let mut out = String::with_capacity(fuente.len());
     for ch in fuente.chars() {
-        let clase = match ch.to_ascii_lowercase() {
-            'a' => Some("[aáàâä]"),
-            'e' => Some("[eéèêë]"),
-            'i' => Some("[iíìîï]"),
-            'o' => Some("[oóòôö]"),
-            'u' => Some("[uúùûü]"),
-            _ => match ch {
-                'á' | 'à' | 'â' | 'ä' => Some("[aáàâä]"),
-                'é' | 'è' | 'ê' | 'ë' => Some("[eéèêë]"),
-                'í' | 'ì' | 'î' | 'ï' => Some("[iíìîï]"),
-                'ó' | 'ò' | 'ô' | 'ö' => Some("[oóòôö]"),
-                'ú' | 'ù' | 'û' | 'ü' => Some("[uúùûü]"),
-                _ => None,
-            },
+        // `to_lowercase` Unicode y no `to_ascii_lowercase`: con el ASCII, una
+        // vocal acentuada MAYÚSCULA ("Ánimo", "Éxito") no bajaba y la señal
+        // quedaba fuera de la clase (medido 2026-08-15).
+        let base = ch.to_lowercase().next().unwrap_or(ch);
+        let clase = match base {
+            'a' | 'á' | 'à' | 'â' | 'ä' => Some("[aáàâä]"),
+            'e' | 'é' | 'è' | 'ê' | 'ë' => Some("[eéèêë]"),
+            'i' | 'í' | 'ì' | 'î' | 'ï' => Some("[iíìîï]"),
+            'o' | 'ó' | 'ò' | 'ô' | 'ö' => Some("[oóòôö]"),
+            'u' | 'ú' | 'ù' | 'û' | 'ü' => Some("[uúùûü]"),
+            _ => None,
         };
         match clase {
             Some(c) => out.push_str(c),

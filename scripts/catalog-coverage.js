@@ -104,6 +104,17 @@ function main() {
       `${conFallo} con fallos · ${totalPos} positivos no detectados · ` +
       `${totalRuido} textos legitimos marcados por error.`
   );
+
+  // Gate, no informe: salía 0 pasara lo que pasara, así que en CI una
+  // regresión del catálogo habría entrado en verde. Un patrón inerte o un
+  // caso perdido rompe la build.
+  const ausentes = filas.filter((f) => f.estado).length;
+  if (inertes || conFallo || totalPos || totalRuido || ausentes) {
+    console.error(
+      `FALLA: ${inertes} inerte(s) · ${conFallo} patron(es) con fallos · ${ausentes} ausente(s) del catalogo.`
+    );
+    process.exit(1);
+  }
 }
 
 main();

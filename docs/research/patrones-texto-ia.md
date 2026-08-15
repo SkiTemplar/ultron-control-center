@@ -4,7 +4,7 @@
 > Fuente de datos canonica para herramientas: patrones-texto-ia.json (mismo directorio).
 > Uso: base del laboratorio TFG de ULTRON — deteccion de patrones IA en texto y guia de escritura natural. El TFG lo escribe su autor; esto detecta y apoya.
 
-## 1. Patrones de texto IA (25)
+## 1. Patrones de texto IA (31)
 
 ### Vocabulario 'delve' y oleadas léxicas de IA (base inglesa)
 
@@ -173,6 +173,48 @@ Oraciones de longitud y estructura casi idéntica a lo largo de todo el texto, r
 Presentar 'por un lado / por otro lado' en cada argumento aunque el contexto no lo requiera, y párrafos de pulido superficial que no aportan información nueva (filler / 'surface polish with nothing underneath').
 - Ejemplo (ES): 'Por un lado, esta técnica presenta ventajas; por otro lado, también tiene limitaciones' repetido como estructura fija en cada apartado, incluso cuando el propio TFG ya se ha posicionado
 - Correccion: Comprometerse con la conclusión que los datos del TFG respaldan; eliminar todo párrafo que se pueda resumir en una frase sin pérdida real de información.
+
+### Puntuación pobre con frases encadenadas
+
+Medido por el informe de The Economist (2026) sobre estilo de LLM: los modelos usan MENOS punto y coma, paréntesis y dos puntos que un escritor humano, y compensan encadenando cláusulas largas con "y". Es señal de documento completo, no de frase suelta: solo se evalúa a partir de 120 palabras.
+- Ejemplo (ES): Párrafos de 25+ palabras de media sin un solo punto y coma, paréntesis ni dos puntos en toda la página.
+- Senal medible: Cero signos de puntuación intermedia (; : parentesis) en 120+ palabras y longitud media de frase >= 20 palabras.
+- Correccion: Puntuar de verdad: partir las frases largas, usar punto y coma y paréntesis donde el argumento lo pide.
+
+### Densidad de conectores de manual
+
+El LLM articula cada frase con un conector explícito ("además", "asimismo", "sin embargo", "por lo tanto"), a un ritmo muy superior al de la prosa humana, que encadena por sentido y no por marcador.
+- Ejemplo (ES): Además, el sistema mejora el rendimiento. Sin embargo, presenta limitaciones. Por lo tanto, conviene evaluarlo. Asimismo, cabe destacar su coste.
+- Senal medible: Un conector formal cada <=35 palabras, con 3 o mas conectores y 80+ palabras de texto.
+- Correccion: Quitar la mayoría: si la relación entre frases ya se entiende, el conector sobra.
+
+### Uniformidad de párrafos
+
+Los párrafos salen calibrados al mismo tamaño porque el modelo reparte el contenido en bloques equivalentes. Un texto humano alterna párrafos de una línea con otros largos según lo que tenga que decir.
+- Ejemplo (ES): Cinco párrafos seguidos de 60-65 palabras cada uno.
+- Senal medible: Coeficiente de variación de longitud de párrafo < 0.20 con 3+ párrafos de 25+ palabras.
+- Correccion: Dejar que el contenido mande: un párrafo dura lo que dura la idea.
+
+### Verbos promocionales de acción (español)
+
+Calco directo del registro de marketing anglosajón que los modelos arrastran del entrenamiento: imperativos grandilocuentes que prometen transformación ("sumérgete", "desbloquea", "desata", "eleva"). En un TFG no aparecen nunca de forma natural.
+- Ejemplo (ES): Sumérgete en el fascinante mundo de la IA y desbloquea todo su potencial.
+- Senal medible: Presencia de estos verbos en registro académico o técnico.
+- Correccion: Sustituir por el verbo llano que describe la acción real (analizar, medir, usar).
+
+### Pasiva perifrástica anglicada
+
+El español prefiere la pasiva refleja ("se utiliza") o la activa; el modelo calca la pasiva perifrástica inglesa ("is used by") como "es utilizado por", "puede ser considerado", "fue diseñado para".
+- Ejemplo (ES): El algoritmo puede ser utilizado para clasificar documentos y es considerado como el estándar del sector.
+- Senal medible: Perífrasis "ser/poder ser + participio" en cadena, y "considerado como" (redundante en español).
+- Correccion: Pasiva refleja o activa: "se utiliza para clasificar", "es el estándar".
+
+### Anuncio de estructura / eco del encargo
+
+El modelo devuelve el enunciado antes de responder y anuncia lo que va a hacer ("En este artículo exploraremos...", "A continuación se presentan..."). Es un residuo de seguir instrucciones, no una necesidad del texto.
+- Ejemplo (ES): En este trabajo se explorará en profundidad el papel de la inteligencia artificial. A continuación, se presentan los principales hallazgos.
+- Senal medible: Fórmulas de anuncio en apertura de sección.
+- Correccion: Entrar directamente en el contenido: el índice ya anuncia la estructura.
 
 ## 2. Metodos de deteccion (10)
 

@@ -29,15 +29,31 @@ pub use types_model::{AgentChoice, OrchestrationContext, PromptPlan, SkillChoice
 
 /// Tauri command: run the orchestrator for a prompt (the "Ultron" trigger).
 #[tauri::command]
+/// Devuelve el `OrchestrationContext` ya serializado. Es `Value` y no el tipo
+/// porque la respuesta puede venir tal cual del daemon (que serializa ese mismo
+/// tipo): así se evita añadir `Deserialize` en cascada a media docena de
+/// structs solo para volver a serializarlos al cruzar a la UI. La forma del
+/// JSON es idéntica en los dos caminos.
 pub async fn orchestrate_prompt(
     prompt: String,
     project_id: Option<String>,
-) -> Result<OrchestrationContext, String> {
+) -> Result<serde_json::Value, String> {
     // Manual on-demand invocation (UI badge): full semantic catalog (E5) + hybrid
     // recall (dense=true). The automatic per-prompt hot path (hook -> daemon/CLI)
     // uses dense=false to stay E5-free and under the <300ms budget.
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(orchestrate(&prompt, project_id.as_deref(), true))
+        // Primero el daemon: tiene E5 caliente y evita que la GUI cargue su
+        // propia copia del modelo (~1,5 GB residentes medidos el 2026-08-15).
+        // Si no contesta, se resuelve aqui como siempre.
+        if let Some(v) = crate::daemon_client::orchestrate(
+            &prompt,
+            project_id.as_deref(),
+            std::time::Duration::from_secs(25),
+        ) {
+            return Ok(v);
+        }
+        let ctx = orchestrate(&prompt, project_id.as_deref(), true);
+        serde_json::to_value(&ctx).map_err(|e| format!("serialize orchestration: {e}"))
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

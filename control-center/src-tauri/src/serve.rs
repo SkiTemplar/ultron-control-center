@@ -61,6 +61,10 @@ struct Req {
     project: Option<String>,
     /// Top-N semantic skill hits to return (skill_query only; default 5).
     top: Option<u32>,
+    /// recall: buscar en TODO el cerebro y no solo en el proyecto.
+    cross: Option<bool>,
+    /// recall: pasar el cross-encoder (calidad) o quedarse en el híbrido.
+    rerank: Option<bool>,
 }
 
 /// `~/.ultron/run/orchestrate.json` — the discovery lockfile.
@@ -144,6 +148,40 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
             match serde_json::to_value(&ctx) {
                 Ok(v) => (v, false),
                 Err(e) => (json!({ "error": format!("serialize: {e}") }), false),
+            }
+        }
+        // Calentar el catalogo agente/skill EN EL DAEMON. La GUI lo hacia en su
+        // propio proceso al arrancar y ese probe bastaba para cargarle E5:
+        // 1.522 MB nada mas abrir la ventana, midiera lo que midiera el daemon
+        // (2026-08-15). Aqui el modelo ya esta (o se carga una sola vez).
+        "warm_catalog" => match crate::memory::catalog::maybe_warm_catalog() {
+            Ok((n, errs)) => (json!({ "ok": true, "entities": n, "errors": errs }), false),
+            Err(e) => (json!({ "error": e }), false),
+        },
+        // Recall completo servido por el daemon (2026-08-15). Existe para que
+        // NADIE más tenga que cargar E5: la GUI y los one-shot preguntan aquí,
+        // donde el modelo ya está caliente, en vez de levantar su propia copia
+        // de 1,5 GB (3,2 GB si además entra el cross-encoder).
+        "recall" => {
+            let query = req.prompt.as_deref().unwrap_or("");
+            if query.trim().is_empty() {
+                return (json!({ "error": "empty prompt" }), false);
+            }
+            let top = req.top.unwrap_or(8) as usize;
+            let cross = req.cross.unwrap_or(false);
+            let rerank = req.rerank.unwrap_or(true);
+            match crate::commands::memory::recall_unified::recall_pack(
+                query,
+                top,
+                req.project.as_deref(),
+                cross,
+                rerank,
+            ) {
+                Ok(pack) => match serde_json::to_value(&pack) {
+                    Ok(v) => (v, false),
+                    Err(e) => (json!({ "error": format!("serialize: {e}") }), false),
+                },
+                Err(e) => (json!({ "error": e }), false),
             }
         }
         other => (json!({ "error": format!("unknown cmd '{other}'") }), false),
@@ -328,6 +366,20 @@ pub fn run_daemon() -> Result<Value, String> {
     // Warm E5 ONCE up front so the very first orchestrate request is already hot.
     let _ = crate::qdrant::embed_e5("warmup", true);
 
+    // Barrido de inactividad (2026-08-15): E5 son ~1,5 GB residentes y el
+    // cross-encoder otros ~1,5 GB. El daemon vive toda la sesion, asi que sin
+    // esto la RAM se queda tomada aunque no se consulte en horas. Cada minuto
+    // se comprueba el reloj de uso y se sueltan los modelos que hayan pasado su
+    // ventana (`ULTRON_MODEL_IDLE_MIN`, 0 = nunca soltar). La siguiente
+    // peticion los recarga: se cambia RAM por unos segundos de warmup.
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(60));
+        let soltados = crate::qdrant::release_idle_models();
+        if !soltados.is_empty() {
+            eprintln!("[serve] modelos liberados por inactividad: {soltados:?}");
+        }
+    });
+
     // NO se calienta el CROSS-ENCODER aqui, a proposito (medido y decidido
     // 2026-08-14). `BGERerankerV2M3` es un modelo SEPARADO de E5 (`RERANKER`
     // OnceCell en qdrant.rs) y precalentarlo cuesta 1,5 GB residentes desde el
@@ -495,6 +547,8 @@ mod tests {
             prompt: None,
             project: None,
             top: None,
+            cross: None,
+            rerank: None,
         }
     }
 

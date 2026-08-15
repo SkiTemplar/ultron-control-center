@@ -29,6 +29,7 @@ mod claude_sessions;
 mod claude_theme;
 mod commands_registry;
 mod cost_watchdog;
+pub mod daemon_client; // cliente del daemon: una sola copia de los modelos
 mod detach;
 mod diagnostics_native;
 mod env_keys;
@@ -578,6 +579,20 @@ pub fn run() {
             commands::workflows::workflow_get_state,
         ])
         .setup(|app| {
+            // Barrido de modelos inactivos (2026-08-15). La GUI tambien carga
+            // E5 en su propio proceso cuando ejecuta un recall o el routing, y
+            // se quedaba con ~1,5 GB tomados para el resto de la sesion (medido
+            // con la app abierta y sin usar: 1.523 MB). Cada minuto se sueltan
+            // los modelos que hayan pasado su ventana de inactividad; la
+            // siguiente consulta los recarga.
+            std::thread::spawn(|| loop {
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                let soltados = crate::qdrant::release_idle_models();
+                if !soltados.is_empty() {
+                    tracing::info!(modelos = ?soltados, "modelos liberados por inactividad");
+                }
+            });
+
             // v2.13 -> v2.14 data migration (meta.json + features.json ensure).
             // Best-effort: a failure must never block startup.
             {
@@ -666,6 +681,18 @@ pub fn run() {
             // already indexed). Runs once per launch; the internal probe skips the
             // re-embed when the collection is already warm.
             tauri::async_runtime::spawn_blocking(|| {
+                // Primero el daemon: este probe es lo que le cargaba E5 a la GUI
+                // en cada arranque (1.522 MB medidos el 2026-08-15 con la
+                // ventana recien abierta y sin tocar nada). Hecho en el daemon,
+                // el modelo se carga UNA vez para todo el sistema.
+                if let Some(v) = crate::daemon_client::request(
+                    "warm_catalog",
+                    serde_json::json!({}),
+                    std::time::Duration::from_secs(120),
+                ) {
+                    tracing::info!(respuesta = %v, "catalog warmed (daemon)");
+                    return;
+                }
                 match crate::memory::catalog::maybe_warm_catalog() {
                     Ok((n, errs)) if n > 0 => {
                         tracing::info!(entities = n, errors = errs, "catalog warmed");

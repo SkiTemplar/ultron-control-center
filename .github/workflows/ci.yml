@@ -411,6 +411,21 @@ jobs:
         run: |
           node hooks/scripts/tests/test-freshness-gate.js
           node hooks/scripts/tests/test-resume-quality.js
+      # Detector de texto IA: cobertura patron a patron y separacion sobre
+      # documentos completos. Ambos harness existian desde el 2026-08-15 y no
+      # los ejecutaba nadie, asi que una regresion del catalogo entraba sin
+      # ruido. El banco necesita el corpus humano, que NO se versiona
+      # (escritura personal): en CI se salta con un aviso explicito en vez de
+      # dar un verde que no ha medido nada.
+      - name: Detector texto-IA (cobertura del catalogo)
+        run: node scripts/catalog-coverage.js
+      - name: Detector texto-IA (banco de documentos, si hay corpus humano)
+        run: |
+          if [ -n "$(ls -A scripts/fixtures/ai-text-docs/humano/*.txt 2>/dev/null)" ]; then
+            node scripts/detector-bench.js
+          else
+            echo "SKIP: sin corpus humano versionado (control local del usuario)"
+          fi
 
   # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
   # removed during the 2026-06-04 cleanup. The 15.x Python test suite that

@@ -101,8 +101,117 @@ fn http_client() -> Result<&'static reqwest::blocking::Client, String> {
 }
 
 /// MultilingualE5Large (1024-d, multilingual) — the Fase B canonical embedder.
+///
+/// Vive en un `RwLock<Option<_>>` y no en un `OnceCell` para poder SOLTARLO:
+/// el modelo ocupa ~1,5 GB residentes y hasta 2026-08-15 se quedaba cargado
+/// para siempre en cada proceso que lo tocara (medido: app 1.523 MB + daemon
+/// 1.223 MB a la vez, con picos de 3,2 GB cuando un CLI hacía recall con
+/// cross-encoder). Ahora `release_idle_models` lo libera tras un rato sin uso
+/// y la siguiente llamada lo recarga.
 #[cfg(feature = "qdrant")]
-static E5_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
+static E5_MODEL: OnceCell<std::sync::RwLock<Option<fastembed::TextEmbedding>>> = OnceCell::new();
+
+/// Epoch ms del último uso de E5 / del reranker. Los pone a cero el release.
+#[cfg(feature = "qdrant")]
+static E5_LAST_USED_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+#[cfg(feature = "qdrant")]
+static RERANK_LAST_USED_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+#[cfg(feature = "qdrant")]
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Minutos de inactividad tras los que se sueltan los modelos. `0` = nunca
+/// (comportamiento anterior, para quien prefiera latencia constante).
+/// E5: `ULTRON_MODEL_IDLE_MIN` (default 5). Reranker: la mitad, mínimo 1 —
+/// pesa otros ~1,5 GB y se usa mucho menos.
+#[cfg(feature = "qdrant")]
+fn idle_release_ms(reranker: bool) -> i64 {
+    let min: i64 = std::env::var("ULTRON_MODEL_IDLE_MIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    if min <= 0 {
+        return 0;
+    }
+    let min = if reranker { (min / 2).max(1) } else { min };
+    min * 60_000
+}
+
+/// Suelta los modelos que lleven más de su ventana de inactividad sin usarse.
+/// Devuelve qué se ha liberado, para que el llamante lo pueda registrar.
+/// Es idempotente y barato: sin nada cargado no toca ningún lock de escritura.
+#[cfg(feature = "qdrant")]
+pub fn release_idle_models() -> Vec<&'static str> {
+    let mut soltados = Vec::new();
+    let ahora = now_ms();
+
+    let ventana_e5 = idle_release_ms(false);
+    if ventana_e5 > 0 {
+        let ultimo = E5_LAST_USED_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if ultimo > 0 && ahora - ultimo > ventana_e5 {
+            if let Some(lock) = E5_MODEL.get() {
+                if let Ok(mut guard) = lock.write() {
+                    if guard.take().is_some() {
+                        soltados.push("e5");
+                        E5_LAST_USED_MS.store(0, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+    }
+
+    let ventana_rr = idle_release_ms(true);
+    if ventana_rr > 0 {
+        let ultimo = RERANK_LAST_USED_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if ultimo > 0 && ahora - ultimo > ventana_rr {
+            if let Some(lock) = RERANKER.get() {
+                if let Ok(mut guard) = lock.write() {
+                    if guard.take().is_some() {
+                        soltados.push("reranker");
+                        RERANK_LAST_USED_MS.store(0, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+    }
+    soltados
+}
+
+/// ¿Qué modelos están cargados ahora mismo? Para diagnóstico (doctor / logs).
+#[cfg(feature = "qdrant")]
+pub fn loaded_models() -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if E5_MODEL
+        .get()
+        .and_then(|l| l.read().ok().map(|g| g.is_some()))
+        .unwrap_or(false)
+    {
+        v.push("e5");
+    }
+    if RERANKER
+        .get()
+        .and_then(|l| l.read().ok().map(|g| g.is_some()))
+        .unwrap_or(false)
+    {
+        v.push("reranker");
+    }
+    v
+}
+
+/// Stubs sin la feature: no hay modelos que soltar.
+#[cfg(not(feature = "qdrant"))]
+pub fn release_idle_models() -> Vec<&'static str> {
+    Vec::new()
+}
+#[cfg(not(feature = "qdrant"))]
+pub fn loaded_models() -> Vec<&'static str> {
+    Vec::new()
+}
 
 /// Process-local memo of recent embeddings, keyed by the *prefixed* text (so
 /// `is_query` is part of the key). WHY: one `orchestrate` embeds the SAME
@@ -165,18 +274,40 @@ pub fn embed_e5(text: &str, is_query: bool) -> Result<Vec<f32>, String> {
         }
     }
 
-    let model = E5_MODEL.get_or_try_init(|| {
-        TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::MultilingualE5Large)
-                .with_show_download_progress(false)
-                .with_cache_dir(fastembed_cache_dir()),
-        )
-        .map_err(|e| format!("fastembed E5 init: {e}"))
-    })?;
+    let lock = E5_MODEL.get_or_init(|| std::sync::RwLock::new(None));
+    E5_LAST_USED_MS.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+
+    // Carga perezosa bajo lock de escritura solo cuando de verdad falta: si el
+    // release lo soltó, la siguiente llamada lo vuelve a traer.
+    {
+        let cargado = lock.read().map(|g| g.is_some()).unwrap_or(false);
+        if !cargado {
+            let mut guard = lock
+                .write()
+                .map_err(|_| "E5 model lock poisoned".to_string())?;
+            if guard.is_none() {
+                let model = TextEmbedding::try_new(
+                    InitOptions::new(EmbeddingModel::MultilingualE5Large)
+                        .with_show_download_progress(false)
+                        .with_cache_dir(fastembed_cache_dir()),
+                )
+                .map_err(|e| format!("fastembed E5 init: {e}"))?;
+                *guard = Some(model);
+            }
+        }
+    }
+
+    let guard = lock
+        .read()
+        .map_err(|_| "E5 model lock poisoned".to_string())?;
+    let model = guard
+        .as_ref()
+        .ok_or_else(|| "E5 model released mid-flight".to_string())?;
 
     let mut results = model
         .embed(vec![prefixed.clone()], None)
         .map_err(|e| format!("fastembed E5 embed: {e}"))?;
+    drop(guard);
 
     let vector = results
         .pop()
@@ -643,8 +774,11 @@ pub fn cr_enabled() -> bool {
 /// Lazy `BGERerankerV2M3` — one instance per process, shared across threads.
 /// Initialised on the first call to `rerank_pairs`; afterwards all calls pay
 /// only the inference cost.
+/// Igual que E5: soltable. El cross-encoder son otros ~1,5 GB y solo lo usan
+/// los paths de calidad (recall manual, trace, evals), así que su ventana de
+/// inactividad es la mitad.
 #[cfg(feature = "qdrant")]
-static RERANKER: OnceCell<fastembed::TextRerank> = OnceCell::new();
+static RERANKER: OnceCell<std::sync::RwLock<Option<fastembed::TextRerank>>> = OnceCell::new();
 
 /// Re-rank `docs` (id, text) pairs against `query` using `BGERerankerV2M3`.
 ///
@@ -668,14 +802,32 @@ pub fn rerank_pairs(query: &str, docs: &[(String, String)]) -> Result<Vec<(Strin
         return Ok(Vec::new());
     }
 
-    let reranker = RERANKER.get_or_try_init(|| {
-        TextRerank::try_new(
-            RerankInitOptions::new(RerankerModel::BGERerankerV2M3)
-                .with_cache_dir(fastembed_cache_dir())
-                .with_show_download_progress(false),
-        )
-        .map_err(|e| format!("reranker init (BGERerankerV2M3): {e}"))
-    })?;
+    let lock = RERANKER.get_or_init(|| std::sync::RwLock::new(None));
+    RERANK_LAST_USED_MS.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+    {
+        let cargado = lock.read().map(|g| g.is_some()).unwrap_or(false);
+        if !cargado {
+            let mut guard = lock
+                .write()
+                .map_err(|_| "reranker lock poisoned".to_string())?;
+            if guard.is_none() {
+                let model = TextRerank::try_new(
+                    RerankInitOptions::new(RerankerModel::BGERerankerV2M3)
+                        .with_cache_dir(fastembed_cache_dir())
+                        .with_show_download_progress(false),
+                )
+                .map_err(|e| format!("reranker init (BGERerankerV2M3): {e}"))?;
+                *guard = Some(model);
+            }
+        }
+    }
+
+    let guard = lock
+        .read()
+        .map_err(|_| "reranker lock poisoned".to_string())?;
+    let reranker = guard
+        .as_ref()
+        .ok_or_else(|| "reranker released mid-flight".to_string())?;
 
     let texts: Vec<&str> = docs.iter().map(|(_, text)| text.as_str()).collect();
     let results = reranker

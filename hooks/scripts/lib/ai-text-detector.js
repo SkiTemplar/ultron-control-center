@@ -26,7 +26,16 @@ const CATALOG_PATH = path.join(
   os.homedir(), '.ultron', 'docs', 'research', 'patrones-texto-ia.json',
 );
 
-/** Cap defensivo de matches por escaneo: el aviso resume, no inventaría. */
+/**
+ * Cap de matches que se DEVUELVEN: el aviso resume, no inventaría.
+ *
+ * OJO — antes este cap rompía el bucle de reglas, no solo la lista: un texto
+ * largo agotaba las 50 plazas con los primeros patrones y los demás no llegaban
+ * a ejecutarse nunca. Medido el 2026-08-15 sobre 3.276 palabras de texto de
+ * LLM: 3 patrones y densidad 1,53 con el cap, frente a 19 patrones y 8,16 sin
+ * él. Es decir, cuanto más largo el texto, más se dormía el detector — justo al
+ * revés de lo que debe pasar. Ahora se cuentan todos y se recorta la lista.
+ */
 const MAX_MATCHES = 50;
 const EVIDENCE_CONTEXT = 30;
 
@@ -93,10 +102,12 @@ function acentoInsensible(src) {
   ];
   let out = '';
   for (const ch of src) {
+    // toLowerCase() Unicode antes de quitar el diacrítico: así "Á" y "á" caen
+    // en la misma clase (el gemelo Rust hace lo mismo con to_lowercase()).
     const base = ch
+      .toLowerCase()
       .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase();
+      .replace(/[̀-ͯ]/g, '');
     const clase = CLASES.find(([letra]) => letra === base && /\p{L}/u.test(ch));
     out += clase ? clase[1] : ch;
   }
@@ -187,22 +198,27 @@ function scan(text, patrones, opts) {
   const scannedPatterns = new Set(rules.map((r) => r.patternIdx));
   const hitPatterns = new Set();
   const matches = [];
+  let total = 0; // TODOS los hallazgos, aunque la lista devuelta se recorte
 
+  const push = (rule, start, end) => {
+    total += 1;
+    hitPatterns.add(rule.patternIdx);
+    if (matches.length >= MAX_MATCHES) return;
+    matches.push({
+      pattern: rule.pattern,
+      rule: rule.label,
+      evidence: src.slice(Math.max(0, start - EVIDENCE_CONTEXT), Math.min(src.length, end + EVIDENCE_CONTEXT)).trim(),
+      start,
+      end,
+      correction: rule.correction,
+    });
+  };
+
+  // Ninguna regla se salta: el cap recorta la lista, no la exploración.
   for (const rule of rules) {
-    if (matches.length >= MAX_MATCHES) break;
     if (rule.heuristic) {
-      const spans = runHeuristic(rule.heuristic, src) || [];
-      for (const span of spans) {
-        hitPatterns.add(rule.patternIdx);
-        matches.push({
-          pattern: rule.pattern,
-          rule: rule.label,
-          evidence: src.slice(Math.max(0, span.start - EVIDENCE_CONTEXT), Math.min(src.length, span.end + EVIDENCE_CONTEXT)).trim(),
-          start: span.start,
-          end: span.end,
-          correction: rule.correction,
-        });
-        if (matches.length >= MAX_MATCHES) break;
+      for (const span of runHeuristic(rule.heuristic, src) || []) {
+        push(rule, span.start, span.end);
       }
       continue;
     }
@@ -210,28 +226,21 @@ function scan(text, patrones, opts) {
     let m;
     while ((m = rule.re.exec(src)) !== null) {
       if (m[0] === '') { rule.re.lastIndex++; continue; } // nunca bucle infinito
-      hitPatterns.add(rule.patternIdx);
-      const start = m.index;
-      const end = m.index + m[0].length;
-      matches.push({
-        pattern: rule.pattern,
-        rule: rule.label,
-        evidence: src.slice(Math.max(0, start - EVIDENCE_CONTEXT), Math.min(src.length, end + EVIDENCE_CONTEXT)).trim(),
-        start,
-        end,
-        correction: rule.correction,
-      });
-      if (matches.length >= MAX_MATCHES) break;
+      push(rule, m.index, m.index + m[0].length);
     }
   }
 
   const words = src.trim() ? src.trim().split(/\s+/).length : 0;
   return {
     matches,
+    matches_total: total,
+    matches_truncated: total > matches.length,
     patterns_hit: hitPatterns.size,
     total_patterns_scanned: scannedPatterns.size,
     words,
-    density_per_100w: words > 0 ? (matches.length * 100) / words : 0,
+    // La densidad se calcula sobre el TOTAL, no sobre la lista recortada: si
+    // no, un texto largo salía con menos densidad que uno corto igual de malo.
+    density_per_100w: words > 0 ? (total * 100) / words : 0,
   };
 }
 

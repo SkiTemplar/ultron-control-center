@@ -10,9 +10,12 @@
 // marcaba INERTE.
 //
 // Cada heurística se identifica por `id` y el catálogo la invoca con
-// `{ "tipo": "heuristica", "valor": "<id>" }`. La implementación Rust
-// (tfg_lab.rs) replica estas mismas reglas; `scripts/fixtures/heuristic-cases.json`
-// es el fixture compartido que verifica que ambas dan el mismo veredicto.
+// `{ "tipo": "heuristica", "valor": "<id>" }`. El gemelo Rust vive en
+// `control-center/src-tauri/src/tfg_heuristics.rs` y su test
+// `paridad_real_con_el_matcher_js` ejecuta ESTE módulo (vía
+// `scripts/heuristics-spans.mjs`) y compara los spans uno a uno: si las dos
+// implementaciones se separan, ese test se pone rojo. El corpus de casos es
+// `scripts/fixtures/catalog-cases.json`.
 //
 // Contrato de cada heurística: (texto) -> [{ start, end }] con los tramos que
 // justifican la señal. Lista vacía = no dispara.
@@ -53,6 +56,13 @@ function splitParagraphs(text) {
 function wordCount(s) {
   const t = s.trim();
   return t ? t.split(/\s+/).length : 0;
+}
+
+/** Señales por cada 100 palabras. Los umbrales de acumulación son de densidad,
+ *  no de conteo: si no, un texto lo bastante largo dispara cualquier señal. */
+function density(hits, text) {
+  const words = wordCount(text);
+  return words > 0 ? (hits * 100) / words : 0;
 }
 
 /** Coeficiente de variación (desviación típica / media). 0 = clones. */
@@ -142,7 +152,16 @@ function densidadConectores(text) {
 // de cualquier frase normal —"lo que te he mencionado", "lo que había dicho"—
 // disparaba la señal: dos falsos positivos medidos sobre prosa humana real
 // (2026-08-15).
-const ANAFORICOS = /\b(?:(?:dicho|dicha|dichos|dichas)\s+\p{L}{3,}|(?:el|la|los|las)\s+(?:mencionad|citad|aludid|referid)[oa]s?\s+\p{L}{3,})/giu;
+// Palabras que NO son el nombre al que apunta la anáfora. Sin este filtro,
+// "lo que había dicho del skill agents" contaba como "dicho + sustantivo"
+// porque "del" tiene tres letras: falso positivo medido sobre prosa humana
+// (2026-08-15).
+const FUNCIONALES = '(?:de|del|que|por|para|con|en|a|al|y|o|un|una|unos|unas|el|la|los|las|lo|su|sus|mi|tu|se|no|si)';
+const ANAFORICOS = new RegExp(
+  `\\b(?:(?:dicho|dicha|dichos|dichas)\\s+(?!${FUNCIONALES}\\b)\\p{L}{3,}` +
+    `|(?:el|la|los|las)\\s+(?:mencionad|citad|aludid|referid)[oa]s?\\s+(?!${FUNCIONALES}\\b)\\p{L}{3,})`,
+  'giu',
+);
 const SUJETO_INICIAL = /^((?:el|la|los|las|este|esta|estos|estas|dicho|dicha|dichos|dichas)\s+\p{L}+(?:\s+\p{L}+){0,2}|\p{Lu}\p{L}+)/u;
 
 /**
@@ -189,7 +208,7 @@ function emdashIncisos(text) {
   const re = /—/g;
   let m;
   while ((m = re.exec(text)) !== null) hits.push({ start: m.index, end: m.index + 1 });
-  if (hits.length < 5) return [];
+  if (hits.length < 5 || density(hits.length, text) < 1.0) return [];
   return hits.slice(0, 3);
 }
 
@@ -217,7 +236,7 @@ function espanolNeutro(text) {
     }
     if (vistoEnEsteTermino) distintos += 1;
   }
-  if (distintos < 2) return [];
+  if (distintos < 2 || density(hits.length, text) < 0.5) return [];
   hits.sort((a, b) => a.start - b.start);
   return hits.slice(0, 3);
 }
@@ -273,7 +292,10 @@ function hedgingDenso(text) {
   }
   if (!hits.length) return [];
   hits.sort((a, b) => a.start - b.start);
-  if (hits.length >= 3) return hits.slice(0, 3);
+  // El umbral es de DENSIDAD, no de conteo: tres atenuadores repartidos por
+  // dos mil palabras es prosa normal, y con el umbral absoluto saltaban
+  // (falso positivo medido sobre texto humano largo, 2026-08-15).
+  if (hits.length >= 3 && density(hits.length, text) >= 0.8) return hits.slice(0, 3);
   for (const sentence of splitSentences(text)) {
     const dentro = hits.filter((h) => h.start >= sentence.start && h.end <= sentence.end);
     if (dentro.length >= 2) return dentro.slice(0, 3);

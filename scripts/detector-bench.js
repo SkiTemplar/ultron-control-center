@@ -62,7 +62,11 @@ function main() {
 
   const fallosIa = ia.filter((r) => r.density < UMBRAL_IA);
   const fallosHumano = humano.filter((r) => r.density > UMBRAL_HUMANO);
-  const ok = fallosIa.length === 0 && fallosHumano.length === 0;
+  // Un banco sin corpus no aprueba nada: antes salía exit 0 midiendo cero
+  // documentos, que es el peor verde posible — dice "separación mantenida"
+  // sin haber comparado nada.
+  const corpusVacio = ia.length === 0 || humano.length === 0;
+  const ok = !corpusVacio && fallosIa.length === 0 && fallosHumano.length === 0;
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify({ ia, humano, umbrales: { UMBRAL_IA, UMBRAL_HUMANO }, ok }, null, 2)}\n`);
@@ -84,9 +88,16 @@ function main() {
   const media = (xs) => (xs.length ? xs.reduce((a, b) => a + b.density, 0) / xs.length : 0);
   process.stdout.write(
     `\nRESUMEN: media IA ${media(ia).toFixed(2)} · media humano ${media(humano).toFixed(2)} · ` +
-      `separación x${humano.length && media(humano) > 0 ? (media(ia) / media(humano)).toFixed(1) : '—'}\n`,
+      `separación ${
+        !humano.length ? 'sin medir (falta corpus humano)' : media(humano) > 0 ? `x${(media(ia) / media(humano)).toFixed(1)}` : 'total (0 señales en prosa humana)'
+      }\n`,
   );
-  if (!ok) {
+  if (corpusVacio) {
+    process.stdout.write(
+      `FALLA: corpus incompleto (IA=${ia.length}, humano=${humano.length}). ` +
+        'Sin ambos lados no hay separación que medir — deja .txt humanos en fixtures/ai-text-docs/humano/.\n',
+    );
+  } else if (!ok) {
     process.stdout.write(`FALLA: ${fallosIa.length} doc(s) IA por debajo del umbral, ${fallosHumano.length} humano(s) por encima.\n`);
   }
   process.exit(ok ? 0 : 1);

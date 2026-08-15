@@ -22,6 +22,7 @@ ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.
 - Auto-recall estilo Hermes: `SessionStart` (resume) + `UserPromptSubmit` (prefetch/orchestrate) vía hooks en `~/.ultron/hooks`.
 - Protecciones en el write-path: redaction de secretos + gates de sensibilidad + token budget por sesión.
 - **Mem0 está MUERTO** — no reintroducir. Verificar `bin/ultron-memory.exe eval` (recall) y `doctor` tras cambios de memoria.
+- **RAM: una sola copia de los modelos** (2026-08-15). E5-large son ~1,5 GB y el cross-encoder otros ~1,5 GB. La GUI y los one-shot **no** los cargan: preguntan al daemon (`daemon_client.rs`; cmds `orchestrate`/`recall`/`warm_catalog` en `serve.rs`) y solo caen al camino local si el daemon no responde. El daemon los **suelta por inactividad** (`ULTRON_MODEL_IDLE_MIN`, default 5 min; `0` = nunca). Medido: app 1522→36 MB, CLI recall 3223→20 MB, daemon 1500 MB caliente y ~40 MB en reposo. Coste: la primera consulta tras un rato parado paga la recarga.
 
 ## Routing de skills/agentes
 

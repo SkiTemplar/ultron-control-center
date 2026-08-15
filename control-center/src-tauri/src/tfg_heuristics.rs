@@ -4,9 +4,13 @@
 //! (`docs/research/patrones-texto-ia.json`) es la fuente única y declara estas
 //! señales como `{ "tipo": "heuristica", "valor": "<id>" }`; aquí viven las
 //! implementaciones que consume la pestaña Lab, y en el .js las que consume el
-//! hook PostToolUse. Ambas TIENEN que dar el mismo veredicto: el test
-//! `paridad_con_el_fixture_compartido` de este módulo ejecuta el mismo fixture
-//! que `scripts/catalog-coverage.js` y falla si divergen.
+//! hook PostToolUse. Ambas TIENEN que dar el mismo veredicto, y hay dos tests
+//! que lo vigilan: `conformidad_con_el_fixture_compartido` (este lado aprueba
+//! los mismos casos que mide `scripts/catalog-coverage.js`) y sobre todo
+//! `paridad_real_con_el_matcher_js`, que EJECUTA el módulo JS vía
+//! `scripts/heuristics-spans.mjs` y compara los spans uno a uno. El primero
+//! solo demuestra que los dos aprueban el mismo examen; el segundo es el que
+//! detecta que se han separado fuera de él.
 //!
 //! Por qué existen: hasta 2026-08-15 el catálogo solo sabía ejecutar léxicos y
 //! regex, así que todo lo que un LLM delata en la FORMA (frases de longitud
@@ -88,6 +92,17 @@ fn parrafos(texto: &str) -> Vec<Segmento> {
 
 fn palabras(s: &str) -> usize {
     s.split_whitespace().count()
+}
+
+/// Señales por cada 100 palabras. Los umbrales de acumulación son de densidad y
+/// no de conteo: con un umbral absoluto, un texto lo bastante largo dispara
+/// cualquier señal (medido sobre prosa humana de 2.000 palabras, 2026-08-15).
+fn densidad(hits: usize, texto: &str) -> f64 {
+    let total = palabras(texto);
+    if total == 0 {
+        return 0.0;
+    }
+    (hits as f64 * 100.0) / total as f64
 }
 
 /// Coeficiente de variación (desviación típica / media). 0 = longitudes clon.
@@ -246,20 +261,49 @@ fn anaforicos() -> &'static Regex {
         // Solo cuenta si ENCABEZA un sintagma nominal ("dicho modelo", "el
         // mencionado sistema"): el participio verbal suelto ("lo que había
         // dicho") marcaba prosa humana normal.
-        re(r"(?i)\b(?:(?:dicho|dicha|dichos|dichas)\s+\w{3,}|(?:el|la|los|las)\s+(?:mencionad|citad|aludid|referid)[oa]s?\s+\w{3,})")
+        // `\p{L}` y no `\w`: con `\w` (ASCII) "dicho módulo" no casaba en Rust
+        // y sí en JS. La palabra que sigue al anafórico no puede ser una
+        // funcional ("dicho del skill" no es una anáfora nominal); el crate
+        // regex no tiene lookahead, así que se descarta después con
+        // `FUNCIONALES`.
+        re(r"(?i)\b(?:(?:dicho|dicha|dichos|dichas)\s+\p{L}{3,}|(?:el|la|los|las)\s+(?:mencionad|citad|aludid|referid)[oa]s?\s+\p{L}{3,})")
     })
 }
 
 fn sujeto_inicial() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        re(r"(?i)^((?:el|la|los|las|este|esta|estos|estas|dicho|dicha|dichos|dichas)\s+\w+(?:\s+\w+){0,2}|[A-ZÁÉÍÓÚÑ]\w+)")
+        // SIN `(?i)`: con la bandera, "La base vectorial los" casaba la rama
+        // del determinante y en JS —que no la lleva— casaba solo "La" por la
+        // rama de mayúscula inicial. Spans distintos para el mismo texto:
+        // divergencia real cazada por el gate de paridad (2026-08-15).
+        re(r"^((?:el|la|los|las|este|esta|estos|estas|dicho|dicha|dichos|dichas)\s+\p{L}+(?:\s+\p{L}+){0,2}|\p{Lu}\p{L}+)")
     })
+}
+
+/// Palabras funcionales que no pueden ser el nombre al que apunta la anáfora.
+const FUNCIONALES: &[&str] = &[
+    "de", "del", "que", "por", "para", "con", "en", "a", "al", "y", "o", "un", "una", "unos",
+    "unas", "el", "la", "los", "las", "lo", "su", "sus", "mi", "tu", "se", "no", "si",
+];
+
+fn nucleo_es_funcional(fragmento: &str) -> bool {
+    fragmento
+        .split_whitespace()
+        .last()
+        .map(|w| {
+            let limpio = w
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            FUNCIONALES.contains(&limpio.as_str())
+        })
+        .unwrap_or(false)
 }
 
 fn variacion_lexica(texto: &str) -> Vec<Span> {
     let mut anafo: Vec<Span> = anaforicos()
         .find_iter(texto)
+        .filter(|m| !nucleo_es_funcional(m.as_str()))
         .map(|m| Span {
             start: m.start(),
             end: m.end(),
@@ -293,12 +337,16 @@ fn variacion_lexica(texto: &str) -> Vec<Span> {
     if unicos.len() != sujetos.len() {
         return Vec::new(); // algo se repite: es prosa honesta
     }
+    // Se compara la PRIMERA PALABRA, no un prefijo con espacio: el sujeto
+    // puede ser el demostrativo a secas ("Este"), y exigir "este " lo dejaba
+    // fuera mientras el JS —que usa \b— sí lo contaba.
     let demostrativo = sujetos.iter().any(|(s, _)| {
-        [
-            "este ", "esta ", "estos ", "estas ", "dicho ", "dicha ", "dichos ", "dichas ",
-        ]
-        .iter()
-        .any(|d| s.starts_with(d))
+        s.split_whitespace().next().is_some_and(|primera| {
+            matches!(
+                primera,
+                "este" | "esta" | "estos" | "estas" | "dicho" | "dicha" | "dichos" | "dichas"
+            )
+        })
     });
     if !demostrativo {
         return Vec::new();
@@ -315,7 +363,7 @@ fn emdash_incisos(texto: &str) -> Vec<Span> {
             end: i + s.len(),
         })
         .collect();
-    if hits.len() < 5 {
+    if hits.len() < 5 || densidad(hits.len(), texto) < 1.0 {
         return Vec::new();
     }
     hits.into_iter().take(3).collect()
@@ -355,7 +403,7 @@ fn espanol_neutro(texto: &str) -> Vec<Span> {
             distintos += 1;
         }
     }
-    if distintos < 2 {
+    if distintos < 2 || densidad(hits.len(), texto) < 0.5 {
         return Vec::new();
     }
     hits.sort_by_key(|h| h.start);
@@ -398,7 +446,7 @@ fn hedging_denso(texto: &str) -> Vec<Span> {
         return Vec::new();
     }
     hits.sort_by_key(|h| h.start);
-    if hits.len() >= 3 {
+    if hits.len() >= 3 && densidad(hits.len(), texto) >= 0.8 {
         hits.truncate(3);
         return hits;
     }
@@ -425,7 +473,9 @@ fn subordinante_inicial() -> &'static Regex {
 fn triada() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        re(r"(?i)((?:\w+\s+){0,2}\w+),\s+((?:\w+\s+){0,2}\w+),?\s+(?:y|e|and)\s+((?:\w+\s+){0,2}\w+)")
+        // `\p{L}` y no `\w`: `\w` incluye dígitos y hacía que "Los valores 1, 2
+        // y 3" saltara como tríada en Rust mientras JS lo dejaba pasar.
+        re(r"(?i)((?:\p{L}+\s+){0,2}\p{L}+),\s+((?:\p{L}+\s+){0,2}\p{L}+),?\s+(?:y|e|and)\s+((?:\p{L}+\s+){0,2}\p{L}+)")
     })
 }
 
@@ -532,10 +582,12 @@ mod tests {
         assert!(!emdash_incisos("El sistema —que carga dos modelos— consume 3 GB, y el daemon —ya medido— otros 1,5 GB, mientras la interfaz —Chromium puro— se lleva el resto.").is_empty());
     }
 
-    /// GATE DE PARIDAD con el matcher JS: mismo fixture, mismo veredicto.
-    /// Si alguien toca una heurística en un solo lado, esto se pone rojo.
+    /// CONFORMIDAD con el fixture compartido: este lado aprueba los mismos
+    /// casos que mide `scripts/catalog-coverage.js`. No es paridad — que las
+    /// dos implementaciones aprueben el mismo examen no prueba que coincidan
+    /// fuera de él. La paridad real la mide `paridad_real_con_el_matcher_js`.
     #[test]
-    fn paridad_con_el_fixture_compartido() {
+    fn conformidad_con_el_fixture_compartido() {
         let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|p| p.parent())
@@ -599,6 +651,127 @@ mod tests {
         assert!(
             comprobados >= 6,
             "solo {comprobados} patrones heuristicos comprobados"
+        );
+    }
+
+    /// GATE DE PARIDAD REAL: ejecuta el matcher JS sobre el mismo corpus y
+    /// compara los SPANS, no un booleano. Es lo único que detecta que las dos
+    /// implementaciones se han separado (una regex ASCII aquí, un umbral
+    /// distinto allá) en textos que el fixture no cubre.
+    ///
+    /// Node es una dependencia real del sistema (los hooks son node), así que
+    /// su ausencia se trata como fallo y no como excusa para un verde.
+    #[test]
+    fn paridad_real_con_el_matcher_js() {
+        let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("raiz del repo");
+        let emisor = raiz.join("scripts/heuristics-spans.mjs");
+        assert!(emisor.exists(), "falta {}", emisor.display());
+
+        let ids: Vec<&str> = vec![
+            "monotonia_frases",
+            "uniformidad_parrafos",
+            "puntuacion_pobre",
+            "densidad_conectores",
+            "variacion_lexica",
+            "emdash_incisos",
+            "espanol_neutro",
+            "hedging_denso",
+            "tricolon",
+        ];
+
+        // Corpus: todo el fixture (positivos y negativos) mas textos que lo
+        // desbordan a proposito — acentos, mayusculas acentuadas, elipsis,
+        // digitos dentro de la triada, em dash repetidos y prosa larga.
+        let fixture_raw = std::fs::read_to_string(raiz.join("scripts/fixtures/catalog-cases.json"))
+            .expect("fixture json");
+        let fixture: serde_json::Value = serde_json::from_str(&fixture_raw).expect("fixture json");
+        let mut textos: Vec<String> = Vec::new();
+        for caso in fixture["patrones"].as_array().cloned().unwrap_or_default() {
+            for clave in ["positivos", "negativos"] {
+                for t in caso[clave].as_array().cloned().unwrap_or_default() {
+                    if let Some(s) = t.as_str() {
+                        textos.push(s.to_string());
+                    }
+                }
+            }
+        }
+        textos.extend(
+            [
+                "Ánimo: el módulo se erige como núcleo. Éxito rotundo, dicho módulo responde.",
+                "El sistema es rápido, eficiente y escalable... y además barato.",
+                "Los valores 1, 2 y 3 se guardan en el índice.",
+                "Uno —dos— tres —cuatro— cinco —seis— siete.",
+                "Dicho del skill agents, lo que te he mencionado del color no encaja.",
+                "El equipo usa una computadora con Linux; nadie presiona nada raro.",
+                "",
+                "   ",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
+        );
+
+        let entrada = serde_json::json!({ "textos": textos, "ids": ids }).to_string();
+        let mut hijo = std::process::Command::new("node")
+            .arg(&emisor)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("node debe estar en PATH: los hooks del sistema son node");
+        {
+            use std::io::Write;
+            hijo.stdin
+                .as_mut()
+                .expect("stdin")
+                .write_all(entrada.as_bytes())
+                .expect("escribir corpus");
+        }
+        let salida = hijo.wait_with_output().expect("ejecutar node");
+        assert!(
+            salida.status.success(),
+            "el emisor JS fallo: {}",
+            String::from_utf8_lossy(&salida.stderr)
+        );
+        let js: serde_json::Value =
+            serde_json::from_slice(&salida.stdout).expect("salida JSON del emisor");
+        let resultados = js["resultados"].as_array().expect("resultados");
+        assert_eq!(resultados.len(), textos.len(), "un resultado por texto");
+
+        let mut divergencias: Vec<String> = Vec::new();
+        for (i, texto) in textos.iter().enumerate() {
+            for id in &ids {
+                let esperado: Vec<(usize, usize)> = resultados[i][id]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|p| {
+                        let a = p[0].as_u64()? as usize;
+                        let b = p[1].as_u64()? as usize;
+                        Some((a, b))
+                    })
+                    .collect();
+                let obtenido: Vec<(usize, usize)> = ejecutar(id, texto)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| (s.start, s.end))
+                    .collect();
+                if esperado != obtenido {
+                    divergencias.push(format!(
+                        "[{id}] texto {i} ({:.40}...): js={esperado:?} rust={obtenido:?}",
+                        texto.replace('\n', " ")
+                    ));
+                }
+            }
+        }
+        assert!(
+            divergencias.is_empty(),
+            "JS y Rust divergen en {} caso(s):\n{}",
+            divergencias.len(),
+            divergencias.join("\n")
         );
     }
 }

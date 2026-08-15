@@ -81,6 +81,7 @@ export function RoutingCatalog() {
   const [error, setError] = useState<string | null>(null);
   const [reindexing, setReindexing] = useState<"full" | "skills" | null>(null);
   const [reindexResult, setReindexResult] = useState<string | null>(null);
+  const [reindexOk, setReindexOk] = useState(true);
 
   async function runRouting() {
     const q = query.trim();
@@ -106,6 +107,7 @@ export function RoutingCatalog() {
     setReindexing(mode);
     setError(null);
     setReindexResult(null);
+    setReindexOk(true);
     try {
       const cmd = mode === "full" ? "catalog_reindex" : "catalog_reindex_skills";
       const r = (await invoke(cmd)) as ReindexResult;
@@ -116,8 +118,20 @@ export function RoutingCatalog() {
       if (typeof r.indexed_skills === "number") {
         parts.push(`${r.indexed_skills} skills`);
       }
+      if (typeof r.errors === "number" && r.errors > 0) parts.push(`${r.errors} errores`);
+      if (r.collection) parts.push(r.collection);
       if (r.skill_error) parts.push(`skill error: ${r.skill_error}`);
-      setReindexResult(parts.length ? `Reindexado: ${parts.join(" · ")}` : "Reindexado.");
+      // Un reindex que no indexa nada, o que indexa con errores, NO es un
+      // "hecho" verde: con Qdrant caído el backend devuelve 0/0 y la caja verde
+      // decía que todo fue bien.
+      const indexados = (r.indexed_agents ?? 0) + (r.indexed_skills ?? 0);
+      const fallido = indexados === 0 || (r.errors ?? 0) > 0 || Boolean(r.skill_error);
+      setReindexOk(!fallido);
+      setReindexResult(
+        fallido
+          ? `Reindex sin efecto util: ${parts.join(" · ") || "0 indexados"} — revisa que Qdrant responda.`
+          : `Reindexado: ${parts.join(" · ")}`,
+      );
     } catch (e) {
       setError(String(e));
     } finally {
@@ -182,11 +196,19 @@ export function RoutingCatalog() {
       {reindexResult && (
         <div
           className="mb-4 rounded p-3 text-[12px]"
-          style={{
-            background: "rgba(63, 185, 80, 0.06)",
-            border: "1px solid rgba(63, 185, 80, 0.22)",
-            color: "var(--color-success)",
-          }}
+          style={
+            reindexOk
+              ? {
+                  background: "rgba(63, 185, 80, 0.06)",
+                  border: "1px solid rgba(63, 185, 80, 0.22)",
+                  color: "var(--color-success)",
+                }
+              : {
+                  background: "rgba(210, 153, 34, 0.06)",
+                  border: "1px solid rgba(210, 153, 34, 0.24)",
+                  color: "var(--color-warn)",
+                }
+          }
         >
           {reindexResult}
         </div>
