@@ -46,3 +46,8 @@ if (hasFinance) {
   run("npx", ["tauri", "build"]);
   console.log("[build:local] done — sin Finance.");
 }
+
+// (2026-08-16) Deploy del sidecar a ~/.ultron/bin/ SIEMPRE al final del build.
+// Sin este paso cada build:local dejaba el sidecar desplegado stale: los hooks
+// corrían un binario viejo y el check 7.7 del harness volvía a rojo.
+run("node", ["scripts/deploy-sidecar.mjs"]);

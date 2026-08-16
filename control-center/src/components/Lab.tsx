@@ -6,7 +6,7 @@
 // El motor NO reescribe texto: señala y guía — el TFG lo escribe su autor.
 // Wiring 2026-08-12 (decidido por el usuario: "Detector + guía de corrección").
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type TfgMatch = {
@@ -44,6 +44,96 @@ function densityColor(d: number): string {
   return "var(--color-success)";
 }
 
+/** Tramo elemental del texto y los avisos que lo cubren (0 = texto limpio). */
+type Segment = { start: number; end: number; text: string; hits: number[] };
+
+/**
+ * Traductor de offset de BYTE (lo que emite el backend Rust: `start`/`end` son
+ * indices de byte en UTF-8) a indice de string de JavaScript (UTF-16).
+ *
+ * Sin esto el resaltado se descuadra en cuanto el texto lleva una tilde o una
+ * ñ: 'señal' ocupa 6 bytes y 5 posiciones en JS, asi que cada caracter no-ASCII
+ * anterior al aviso lo desplaza. En un TFG en español eso no es un caso raro,
+ * es el caso normal. Se construye una tabla byte->char de una pasada.
+ */
+function byteOffsetMapper(text: string): (byteOffset: number) => number {
+  const table = new Map<number, number>();
+  let bytes = 0;
+  for (let i = 0; i < text.length; ) {
+    const cp = text.codePointAt(i)!;
+    table.set(bytes, i);
+    // Longitud UTF-8 del code point.
+    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    i += cp > 0xffff ? 2 : 1; // pares suplentes ocupan 2 posiciones en JS
+  }
+  table.set(bytes, text.length);
+  const total = bytes;
+  return (b: number) => {
+    if (b <= 0) return 0;
+    if (b >= total) return text.length;
+    // Un offset que cae dentro de un caracter multibyte (no deberia pasar, pero
+    // el backend y este mapa podrian desincronizarse) se ancla al inicio de ese
+    // caracter en vez de romper el resaltado.
+    for (let probe = b; probe >= 0; probe--) {
+      const hit = table.get(probe);
+      if (hit !== undefined) return hit;
+    }
+    return 0;
+  };
+}
+
+/**
+ * Parte el texto en tramos elementales usando TODOS los limites (start/end) de
+ * los avisos como puntos de corte.
+ *
+ * Por que asi y no pintando cada match por separado: los avisos SE SOLAPAN de
+ * verdad — el detector marca una frase entera por su estructura y, dentro de
+ * ella, una palabra concreta por lexico. Pintando match a match, el segundo
+ * pisaria al primero y se perderia un aviso. Con el barrido por limites, cada
+ * tramo sabe cuantos avisos lo cubren y se puede teñir en consecuencia.
+ */
+function buildSegments(text: string, matches: TfgMatch[]): Segment[] {
+  const clamp = (n: number) => Math.max(0, Math.min(text.length, n));
+  const bounds = new Set<number>([0, text.length]);
+  for (const m of matches) {
+    bounds.add(clamp(m.start));
+    bounds.add(clamp(m.end));
+  }
+  const points = [...bounds].sort((a, b) => a - b);
+  const segments: Segment[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i];
+    const end = points[i + 1];
+    if (end <= start) continue;
+    const hits: number[] = [];
+    matches.forEach((m, idx) => {
+      if (clamp(m.start) <= start && clamp(m.end) >= end) hits.push(idx);
+    });
+    segments.push({ start, end, text: text.slice(start, end), hits });
+  }
+  return segments;
+}
+
+/** Linea y columna (1-based) de un offset, para citar la posicion del aviso. */
+function lineCol(text: string, offset: number): { line: number; col: number } {
+  const upto = text.slice(0, Math.max(0, Math.min(text.length, offset)));
+  const lines = upto.split("\n");
+  return { line: lines.length, col: lines[lines.length - 1].length + 1 };
+}
+
+/** Intensidad del subrayado segun cuantos avisos se apilan en el tramo. */
+function markStyle(hitCount: number, isActive: boolean): React.CSSProperties {
+  if (hitCount === 0) return {};
+  const alpha = Math.min(0.1 + hitCount * 0.12, 0.42);
+  return {
+    background: isActive ? "rgba(210, 153, 34, 0.55)" : `rgba(210, 153, 34, ${alpha})`,
+    borderBottom: `2px solid ${isActive ? "var(--color-warn)" : "rgba(210, 153, 34, 0.5)"}`,
+    borderRadius: "2px",
+    padding: "0 1px",
+    cursor: "pointer",
+  };
+}
+
 export function Lab() {
   const [view, setView] = useState<SubView>("detector");
   const [text, setText] = useState("");
@@ -52,6 +142,13 @@ export function Lab() {
   const [error, setError] = useState<string | null>(null);
   const [patterns, setPatterns] = useState<CatalogPattern[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Texto EXACTO que produjo el informe: si el usuario sigue editando el
+  // textarea, los offsets del informe dejan de casar con lo que hay escrito y
+  // el resaltado señalaria tramos equivocados. Se congela al analizar.
+  const [analyzed, setAnalyzed] = useState("");
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [onlyPattern, setOnlyPattern] = useState<string | null>(null);
+  const markRefs = useRef<Record<number, HTMLElement | null>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -79,12 +176,60 @@ export function Lab() {
     try {
       const r = (await invoke("tfg_detect", { text: t })) as TfgReport;
       setReport(r);
+      setAnalyzed(t);
+      setActiveIdx(null);
+      setOnlyPattern(null);
+      markRefs.current = {};
     } catch (e) {
       setError(String(e));
       setReport(null);
+      setAnalyzed("");
     } finally {
       setAnalyzing(false);
     }
+  }
+
+  // Avisos ordenados por posicion: es el orden en el que se leen sobre el
+  // texto, y el que usa la navegacion anterior/siguiente.
+  const ordered = useMemo(
+    () => (report ? [...report.matches].sort((a, b) => a.start - b.start || a.end - b.end) : []),
+    [report]
+  );
+  // Indices (sobre `ordered`) que la navegacion debe recorrer: con un patron
+  // aislado, ‹ › no puede seguir paseando por avisos que no se ven.
+  const navIdx = useMemo(
+    () =>
+      ordered
+        .map((m, i) => (!onlyPattern || m.pattern === onlyPattern ? i : -1))
+        .filter((i) => i >= 0),
+    [ordered, onlyPattern]
+  );
+  // Avisos con los offsets ya traducidos de byte (Rust/UTF-8) a indice de
+  // string (JS/UTF-16); sin esta traduccion el resaltado se desplaza en cuanto
+  // hay una tilde antes del match.
+  const located = useMemo(() => {
+    if (!report || !analyzed) return [] as TfgMatch[];
+    const toChar = byteOffsetMapper(analyzed);
+    return ordered.map((m) => ({ ...m, start: toChar(m.start), end: toChar(m.end) }));
+  }, [report, analyzed, ordered]);
+  const segments = useMemo(
+    () => (report && analyzed ? buildSegments(analyzed, located) : []),
+    [report, analyzed, located]
+  );
+
+  /** Salta al aviso `idx` (indice sobre `ordered`) y lo centra en el panel. */
+  function goTo(idx: number) {
+    setActiveIdx(idx);
+    const el = markRefs.current[idx];
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  /** Anterior/siguiente dentro de lo que se esta viendo, con vuelta al inicio. */
+  function step(delta: number) {
+    if (!navIdx.length) return;
+    const pos = activeIdx === null ? -1 : navIdx.indexOf(activeIdx);
+    const next = pos < 0 ? (delta > 0 ? 0 : navIdx.length - 1) : (pos + delta + navIdx.length) % navIdx.length;
+    goTo(navIdx[next]);
   }
 
   // Agrupa matches por patrón para el informe.
@@ -214,6 +359,95 @@ export function Lab() {
                   </div>
                 </div>
 
+                {report.matches.length > 0 && (
+                  <div
+                    className="mb-4 rounded"
+                    style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+                  >
+                    <div
+                      className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2"
+                      style={{ borderColor: "var(--color-border)" }}
+                    >
+                      <span className="text-[11.5px] font-medium">
+                        Texto marcado
+                        <span className="ml-2 font-normal" style={{ color: "var(--color-text-tertiary)" }}>
+                          cada tramo subrayado es un aviso; el color se intensifica donde se apilan varios
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {onlyPattern && (
+                          <button
+                            type="button"
+                            onClick={() => setOnlyPattern(null)}
+                            className="rounded px-2 py-1 text-[10.5px]"
+                            style={{
+                              background: "var(--color-surface-3)",
+                              color: "var(--color-text-secondary)",
+                              border: "1px solid var(--color-border-strong)",
+                            }}
+                          >
+                            filtrando: {onlyPattern} ✕
+                          </button>
+                        )}
+                        <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
+                          {activeIdx === null || navIdx.indexOf(activeIdx) < 0
+                            ? `${navIdx.length} aviso${navIdx.length !== 1 ? "s" : ""}`
+                            : `${navIdx.indexOf(activeIdx) + 1} / ${navIdx.length}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => step(-1)}
+                          aria-label="Aviso anterior"
+                          className="rounded px-2 py-1 text-[12px]"
+                          style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)" }}
+                        >
+                          ‹
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => step(1)}
+                          aria-label="Aviso siguiente"
+                          className="rounded px-2 py-1 text-[12px]"
+                          style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)" }}
+                        >
+                          ›
+                        </button>
+                      </div>
+                    </div>
+                    <div
+                      className="max-h-[340px] overflow-auto px-3 py-3 text-[12.5px] leading-relaxed"
+                      style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                    >
+                      {segments.map((seg, i) => {
+                        const shown = onlyPattern
+                          ? seg.hits.filter((h) => ordered[h].pattern === onlyPattern)
+                          : seg.hits;
+                        if (shown.length === 0) return <span key={i}>{seg.text}</span>;
+                        const first = shown[0];
+                        const isActive = activeIdx !== null && shown.includes(activeIdx);
+                        const etiquetas = [...new Set(shown.map((h) => ordered[h].pattern))].join(" · ");
+                        return (
+                          <span
+                            key={i}
+                            ref={(el) => {
+                              // Solo el PRIMER tramo de cada aviso guarda ref: es su
+                              // ancla de scroll. Un aviso largo abarca varios tramos.
+                              for (const h of shown) {
+                                if (located[h].start === seg.start) markRefs.current[h] = el;
+                              }
+                            }}
+                            title={`${etiquetas} — ${shown.length} aviso(s)`}
+                            onClick={() => goTo(first)}
+                            style={markStyle(shown.length, isActive)}
+                          >
+                            {seg.text}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {report.matches.length === 0 ? (
                   <p className="text-[12.5px]" style={{ color: "var(--color-success)" }}>
                     Sin señales del catálogo en este texto. Ojo con el alcance: solo se detecta lo que
@@ -221,7 +455,9 @@ export function Lab() {
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {Object.entries(grouped).map(([pattern, ms]) => (
+                    {Object.entries(grouped)
+                      .filter(([pattern]) => !onlyPattern || pattern === onlyPattern)
+                      .map(([pattern, ms]) => (
                       <div
                         key={pattern}
                         className="rounded p-3"
@@ -229,22 +465,65 @@ export function Lab() {
                       >
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-[12.5px] font-medium">{pattern}</span>
-                          <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
-                            {ms.length} aviso{ms.length !== 1 ? "s" : ""}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setOnlyPattern(onlyPattern === pattern ? null : pattern)}
+                              className="rounded px-1.5 py-0.5 text-[10px]"
+                              style={{
+                                background: onlyPattern === pattern ? "var(--color-accent)" : "var(--color-surface-3)",
+                                color:
+                                  onlyPattern === pattern ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
+                                border: "1px solid var(--color-border-strong)",
+                              }}
+                            >
+                              {onlyPattern === pattern ? "solo este" : "aislar"}
+                            </button>
+                            <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
+                              {ms.length} aviso{ms.length !== 1 ? "s" : ""}
+                            </span>
+                          </div>
                         </div>
                         <ul className="mt-2 space-y-1">
-                          {ms.slice(0, 8).map((m, i) => (
-                            <li key={i} className="text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
-                              <span
-                                className="rounded px-1 text-[10px] uppercase tracking-wide"
-                                style={{ background: "var(--color-surface-3)", color: "var(--color-text-tertiary)" }}
-                              >
-                                {m.rule}
-                              </span>{" "}
-                              …{m.evidence}…
-                            </li>
-                          ))}
+                          {ms.slice(0, 8).map((m, i) => {
+                            // Indice en `ordered` = el que usa la navegacion y el
+                            // resaltado. Se busca por posicion, que es unica.
+                            const gi = ordered.findIndex((o) => o.start === m.start && o.rule === m.rule);
+                            // La posicion se cita sobre el offset YA traducido: si
+                            // no, L:C se calcularia con un indice de byte y saldria
+                            // corrida en cualquier texto con tildes.
+                            const pos = analyzed && gi >= 0 ? lineCol(analyzed, located[gi].start) : null;
+                            const isActive = gi >= 0 && gi === activeIdx;
+                            return (
+                              <li key={i}>
+                                <button
+                                  type="button"
+                                  onClick={() => gi >= 0 && goTo(gi)}
+                                  className="w-full rounded px-1 py-0.5 text-left text-[11.5px] transition-colors"
+                                  style={{
+                                    color: "var(--color-text-secondary)",
+                                    background: isActive ? "var(--color-surface-3)" : "transparent",
+                                  }}
+                                >
+                                  {pos && (
+                                    <span
+                                      className="mr-1 tabular-nums text-[10px]"
+                                      style={{ color: "var(--color-text-faint)" }}
+                                    >
+                                      L{pos.line}:{pos.col}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="rounded px-1 text-[10px] uppercase tracking-wide"
+                                    style={{ background: "var(--color-surface-3)", color: "var(--color-text-tertiary)" }}
+                                  >
+                                    {m.rule}
+                                  </span>{" "}
+                                  …{m.evidence}…
+                                </button>
+                              </li>
+                            );
+                          })}
                           {ms.length > 8 && (
                             <li className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
                               +{ms.length - 8} más del mismo patrón
