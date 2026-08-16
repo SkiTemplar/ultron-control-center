@@ -502,10 +502,15 @@ pub fn build_trace(
 /// Floor por defecto del gate de abstención (E5 cosine). Barrido empírico
 /// 2026-07-02 sobre golden eval-full + memory-bench abstain:
 ///   off   -> recall@8 0.637 · abstain 0/3
-///   0.83  -> recall@8 0.610 · abstain 3/3   <- elegido (mínimo coste golden)
+///   0.83  -> recall@8 0.610 · abstain 3/3   <- elegido entonces
 ///   0.84  -> recall@8 0.588 · abstain 3/3
-/// Incontestables reales maxean dense <= 0.828. Tuneable por ULTRON_RECALL_FLOOR.
-const DEFAULT_RECALL_FLOOR: f32 = 0.83;
+///
+/// (2026-08-16) Bajado a 0.81 tras re-medirlo sobre TRAFICO REAL en vez de solo
+/// sobre conjuntos escritos a mano: 0.83 silenciaba el 24,2% de los prompts del
+/// usuario y 0.81 baja al 15,8% sin perder una sola casilla del memory-bench.
+/// La tabla completa y la fragilidad del umbral están documentadas en
+/// `recall_floor()`. Tuneable por ULTRON_RECALL_FLOOR (incluido `off`).
+const DEFAULT_RECALL_FLOOR: f32 = 0.81;
 
 /// Rank FTS máximo que cuenta como "sparse FUERTE" (match léxico exacto, p.ej.
 /// un identificador). Los matches de stopwords caen a ranks profundos (probe
@@ -623,6 +628,37 @@ fn prune_margin() -> Option<f32> {
     }
 }
 
+/// Floor de confianza. Bajado de 0.83 a 0.81 el 2026-08-16 (decidido por el
+/// usuario). `ULTRON_RECALL_FLOOR=off` lo desactiva sin recompilar.
+///
+/// El 0.83 venía de un barrido de julio contra el golden. Medido ahora sobre el
+/// TRAFICO REAL —120 prompts del log, re-ejecutados contra el binario del día—
+/// resultó estar cobrando mucho más de lo que se creía:
+///
+///   floor   silencio real   memorias/turno   memory-bench   abstain
+///   0.83    29/120 (24,2%)      6,07            9,47         9,17
+///   0.81    19/120 (15,8%)      6,66            9,47         9,17   <- elegido
+///   off      8/120 ( 6,7%)      7,24            9,35         8,33
+///
+/// 0.81 es el único punto que no sacrifica nada medible: recupera 10 prompts de
+/// trabajo que 0.83 silenciaba y conserva el bench entero. Separa los dos casos
+/// límite reales — `paella` (dense máx 0.8049, off-topic: debe callarse) por
+/// debajo, `qdrant` (0.8240, la palabra más central del proyecto) por encima.
+///
+/// Retirarlo del todo recuperaría el triple de prompts, pero entonces las
+/// preguntas off-topic reciben 8 memorias irrelevantes en vez de abstenerse
+/// (bench 9.35, abstain 8.33): el floor SI compra abstención, al contrario de lo
+/// que parecía en una medición anterior que resultó estar mal hecha — la env var
+/// no llega al daemon, que es quien resuelve el recall, así que aquellas
+/// corridas "sin floor" en realidad lo llevaban puesto. Para un A/B honesto de
+/// este knob hay que relanzar el daemon con la variable, o pararlo.
+///
+/// FRAGILIDAD DECLARADA: los dense reales se apiñan en 0.79-0.82, así que 0.81
+/// corta por el medio de la masa. Un cambio de corpus puede moverlo; conviene
+/// re-medirlo con `scripts/traffic-recall-audit.mjs --replay` de vez en cuando.
+///
+/// El near-miss "AWS" que motivó el gate en julio maxea dense 0.8503 y nunca lo
+/// frenó este floor: lo frena el trust gate de términos, que va aparte.
 fn recall_floor() -> Option<f32> {
     match std::env::var("ULTRON_RECALL_FLOOR") {
         Ok(v) if v.eq_ignore_ascii_case("off") || v.trim() == "0" => None,
@@ -781,7 +817,14 @@ mod floor_tests {
             Some(DEFAULT_RECALL_FLOOR),
             "valor invalido -> default, no silencio"
         );
+        // (2026-08-16) Sin env var manda el default, que ahora es 0.81: medido
+        // sobre trafico real, 0.83 silenciaba el 24,2% de los prompts y 0.81 baja
+        // al 15,8% conservando entero el memory-bench.
         std::env::remove_var("ULTRON_RECALL_FLOOR");
         assert_eq!(recall_floor(), Some(DEFAULT_RECALL_FLOOR));
+        assert!(
+            (DEFAULT_RECALL_FLOOR - 0.81).abs() < f32::EPSILON,
+            "el default es el umbral medido, no un valor cualquiera"
+        );
     }
 }
