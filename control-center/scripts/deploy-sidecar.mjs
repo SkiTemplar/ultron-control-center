@@ -17,6 +17,7 @@ import { connect } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const exe = process.platform === "win32" ? "ultron-memory.exe" : "ultron-memory";
@@ -67,10 +68,21 @@ async function main() {
     console.log(`[deploy-sidecar] sin binario en ${SRC} — nada que desplegar.`);
     return;
   }
-  // Hasta 3 intentos: el daemon puede tardar un par de segundos en soltar el
-  // .exe tras aceptar el shutdown.
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  // Hasta 4 intentos: el daemon puede tardar en soltar el .exe tras el
+  // shutdown, y ADEMAS los hooks de otras sesiones Claude concurrentes lo
+  // RESPAWNEAN en la ventana entre el shutdown y la copia (medido 2026-08-16:
+  // 3 shutdowns limpios seguidos y EBUSY igualmente). En el ultimo intento se
+  // mata el proceso: es seguro — el daemon es un lector con escrituras SQLite
+  // transaccionales (WAL), no es Qdrant (aquel NUNCA se force-killea).
+  for (let attempt = 1; attempt <= 4; attempt++) {
     await requestShutdown();
+    if (attempt === 4 && process.platform === "win32") {
+      try {
+        execFileSync("taskkill", ["/IM", "ultron-memory.exe", "/F"], { stdio: "ignore" });
+      } catch {
+        /* sin proceso que matar */
+      }
+    }
     await sleep(attempt * 1500);
     try {
       copyFileSync(SRC, DST);
@@ -80,7 +92,7 @@ async function main() {
       console.log(`[deploy-sidecar] desplegado ${DST} (${(b / 1048576).toFixed(1)} MB)`);
       return;
     } catch (e) {
-      if (attempt === 3) {
+      if (attempt === 4) {
         // Mandamiento 11: nada de no-ops silenciosos. El build no se rompe por
         // esto, pero el aviso tiene que ser inconfundible.
         console.error(
