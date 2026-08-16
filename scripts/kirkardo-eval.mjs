@@ -392,6 +392,61 @@ cat(1, "Memoria Qdrant", [
       };
     },
   },
+  {
+    id: "1.7",
+    desc: "sobre TRAFICO REAL: <=20% de prompts sin memoria (traffic-recall-audit --replay)",
+    auto: true,
+    check() {
+      // (2026-08-16) Los checks 1.1 y 1.6 miden el oraculo golden: 29 queries
+      // escritas a mano, limpias, sin una errata ni un 'venga'. Ese dia se
+      // descubrio que NO representan el trafico real y que por eso dos fallos
+      // graves vivieron semanas sin que ningun medidor los viera:
+      //   - el trust gate vaciaba 443 de 670 packs reales (66%), y el golden no
+      //     movio una decima porque ninguna de sus queries lleva las palabras
+      //     que lo disparaban.
+      //   - el floor de confianza silenciaba 21 de cada 120 prompts de trabajo;
+      //     en el golden costaba 0.017 de recall, un ruido despreciable.
+      // Este check cierra ese hueco: coge prompts REALES del log y mide cuantos
+      // se quedan sin una sola memoria. No puntua relevancia (eso exige
+      // etiquetas humanas): mide si la memoria CONTESTA. Un pack irrelevante se
+      // nota; un pack vacio es invisible.
+      //
+      // Usa --replay (no el modo lectura) a proposito: mide el BINARIO ACTUAL,
+      // no lo que hacia el binario que corria cuando se escribio el log. Coste
+      // ~30-60s con el daemon caliente; muestra de 40 para no inflar el harness.
+      //
+      // Umbral 20%: medido 6.7% tras retirar el floor, y los silencios que
+      // quedan son saludos y charla. 20% deja margen de variacion del trafico y
+      // sigue disparando muy por debajo del 24-66% que llego a haber.
+      const script = join(ULTRON, "scripts", "traffic-recall-audit.mjs");
+      if (!existsSync(script)) {
+        return { pass: false, detail: "traffic-recall-audit.mjs ausente" };
+      }
+      const out = run(`node "${fwd(script)}" --replay 40 --json`, { timeout: 300000 });
+      let j = null;
+      try {
+        j = JSON.parse(String(out.stdout || "").trim());
+      } catch {
+        return { pass: false, detail: `audit no devolvio JSON: ${String(out.stdout || out.stderr || "").slice(0, 120)}` };
+      }
+      if (j.ok === false && j.error) {
+        return { skip: true, detail: `no medible: ${j.error}` };
+      }
+      // Sin daemon vivo el replay marca todo como 'infra': eso mide la
+      // infraestructura del momento, no la calidad del recall -> no puntua.
+      const infra = j.por_causa?.infra ?? 0;
+      if (infra > j.total / 2) {
+        return { skip: true, detail: `daemon sin responder (${infra}/${j.total} turnos) — no medible aqui` };
+      }
+      const causas = Object.entries(j.por_causa || {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ");
+      return {
+        pass: j.silenced_pct <= 20,
+        detail: `${j.silenced}/${j.total} prompts reales sin memoria (${j.silenced_pct}%, <=20%)${causas ? ` · ${causas}` : ""}`,
+      };
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------
