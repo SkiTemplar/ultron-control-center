@@ -851,6 +851,55 @@ pub fn rerank_pairs(
     Err("rerank_pairs: qdrant feature not enabled".to_string())
 }
 
+/// ¿Está el cross-encoder residente AHORA MISMO?
+///
+/// Lo pregunta el hot path antes de decidir si rerankea: cargarlo cuesta ~8,6 s
+/// medidos (2026-08-16, con E5 ya caliente) contra un presupuesto de hook de
+/// 6 s, así que pedirlo en frío no devolvía mejor recall — devolvía un prompt
+/// SIN memoria. Los paths de calidad no llaman aquí: allí se carga y se espera.
+#[cfg(feature = "qdrant")]
+pub fn reranker_is_warm() -> bool {
+    RERANKER
+        .get()
+        .and_then(|l| l.read().ok().map(|g| g.is_some()))
+        .unwrap_or(false)
+}
+
+/// Evita N hilos de carga si llegan N peticiones mientras el modelo se carga.
+#[cfg(feature = "qdrant")]
+static RERANK_LOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Carga el cross-encoder EN BACKGROUND y devuelve al momento.
+///
+/// `true` = esta llamada lanzó la carga; `false` = ya había una en vuelo (o el
+/// modelo está cargado). El turno en curso responde sin rerank; a partir del
+/// siguiente el modelo está caliente y vuelve la calidad plena (recall@8
+/// medido: 0.491 sin rerank, 0.810 con él).
+#[cfg(feature = "qdrant")]
+pub fn spawn_reranker_warmup() -> bool {
+    use std::sync::atomic::Ordering;
+    if reranker_is_warm() || RERANK_LOADING.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    std::thread::spawn(|| {
+        if let Err(e) = warmup_reranker() {
+            eprintln!("[rerank] carga en background fallida: {e}");
+        }
+        RERANK_LOADING.store(false, Ordering::SeqCst);
+    });
+    true
+}
+
+/// Stubs sin la feature: sin modelos, nunca hay nada caliente que cargar.
+#[cfg(not(feature = "qdrant"))]
+pub fn reranker_is_warm() -> bool {
+    false
+}
+#[cfg(not(feature = "qdrant"))]
+pub fn spawn_reranker_warmup() -> bool {
+    false
+}
+
 /// Force `BGERerankerV2M3` to initialise (downloading ~1 GB on first use) by
 /// running one trivial rerank. Call from the `warmup` sidecar subcommand
 /// **only** when `reranker_enabled()` is true — the download must not be

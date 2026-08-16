@@ -141,7 +141,27 @@ pub fn orchestrate(
     // prompts NO conversacionales. `ULTRON_RERANK_HOT=1` sigue forzándolo en
     // todos (opt-in explícito). El hook lleva su presupuesto de timeout alineado.
     let conversational = super::rules::is_conversational(prompt);
-    let rerank = crate::qdrant::rerank_hot_enabled() || !conversational;
+    // (2026-08-16, decidido por el usuario) NUNCA se carga el cross-encoder
+    // dentro del turno. Medido: con E5 ya caliente, la primera llamada tras
+    // soltarlo por inactividad cuesta 8762 ms — más que el presupuesto entero
+    // del hook (6000 ms) — así que el prompt no llegaba con recall PEOR, sino
+    // con recall NINGUNO: 12 turnos ciegos entre el 14 y el 16 de agosto, y su
+    // ventana de idle son 2,5 min, o sea que bastaba una pausa de café. Si está
+    // frío se responde ya sin rerank (recall@8 0.491) y se carga de fondo; del
+    // siguiente prompt en adelante vuelve la calidad plena (0.810).
+    let quiere_rerank = crate::qdrant::rerank_hot_enabled() || !conversational;
+    let rerank = if quiere_rerank && !crate::qdrant::reranker_is_warm() {
+        if crate::qdrant::spawn_reranker_warmup() {
+            warnings.push(
+                "cross-encoder frío: este turno va sin re-rank (recall más pobre, pero recall); \
+                 cargándolo en background para los siguientes"
+                    .to_string(),
+            );
+        }
+        false
+    } else {
+        quiere_rerank
+    };
     let memories = match build_trace(prompt, 8, project_id, cross_project, dense_enabled, rerank) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
