@@ -64,6 +64,7 @@ const SKILLS_DIR = path.join(HOME, '.claude', 'skills');
 const AGENTS_DIR = path.join(HOME, '.claude', 'agents');
 const ULTRON_SKILLS_DIR = path.join(HOME, '.ultron', 'skills');
 const PLUGINS_CACHE = path.join(HOME, '.claude', 'plugins', 'cache');
+const SETTINGS_JSON = path.join(HOME, '.claude', 'settings.json');
 
 const REGISTRY_MD_PATH = path.join(
   HOME, '.claude', 'skills', 'ultron', 'references', 'skill-registry.md'
@@ -102,8 +103,33 @@ function loadExistingRegistry() {
 }
 
 // ---------------------------------------------------------------------------
+// Plugins ACTIVOS segun ~/.claude/settings.json (enabledPlugins con valor true).
+// Un id con ":" (formato "plugin:skill") solo puede registrarse si su plugin
+// esta activo: si no, la skill no existe para Claude Code y el registry queda
+// prometiendo algo que el dispatcher nunca podra inyectar.
+// ---------------------------------------------------------------------------
+function enabledPluginNames() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_JSON, 'utf8'));
+    return Object.keys(settings.enabledPlugins || {}).filter(
+      (k) => settings.enabledPlugins[k] === true
+    );
+  } catch (_) {
+    // Fail-open: sin settings legible no se puede afirmar que un plugin este
+    // apagado, y silenciar skills reales seria peor que dejar pasar una fantasma.
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Extract PERSONAS / PLUGINS / AGENTS ids from the dispatcher source.
 // Uses a simple regex to avoid a full AST parse.
+//
+// (2026-08-16) Los ids de plugin DESACTIVADO se descartan aqui: el dispatcher
+// declaraba `ecc:hookify` y sync lo registraba aunque `ecc@ecc` esta en false
+// desde 2026-06-08, asi que el registry arrastraba una skill fantasma que el
+// harness marcaba en cada medicion (check 13.3). Si el plugin se reactiva, la
+// entrada vuelve sola en la siguiente sincronizacion.
 // ---------------------------------------------------------------------------
 function extractIdsFromDispatcher() {
   let src;
@@ -118,7 +144,16 @@ function extractIdsFromDispatcher() {
   const reDouble = /\bid:\s*"([^"]+)"/g;
   while ((m = reSingle.exec(src)) !== null) ids.push(m[1]);
   while ((m = reDouble.exec(src)) !== null) ids.push(m[1]);
-  return [...new Set(ids)];
+
+  const enabled = enabledPluginNames();
+  const usable = enabled === null
+    ? [...new Set(ids)]
+    : [...new Set(ids)].filter((id) => {
+        if (!id.includes(':')) return true;
+        const plugin = id.split(':')[0];
+        return enabled.some((p) => p.startsWith(plugin));
+      });
+  return usable;
 }
 
 // ---------------------------------------------------------------------------
@@ -428,11 +463,22 @@ function buildRegistry() {
   // FORCE_KEEP_ACTIVE ids are never pruned (core skills loaded every session;
   // a transient fs hiccup must not drop them). Everything else must resolve to
   // a real SKILL.md / agent .md(.disabled) / plugin-cache asset to survive.
+  // (2026-08-16) Tambien se poda la skill de un plugin DESACTIVADO. Filtrarla
+  // solo en la entrada (extractIdsFromDispatcher) no bastaba: el merge arranca
+  // de las entradas existentes para no perder altas manuales, asi que una
+  // fantasma ya registrada sobrevivia a cada sincronizacion.
+  const enabled = enabledPluginNames();
+  const pluginIsOff = (id) => {
+    if (enabled === null || !id.includes(':')) return false;
+    const plugin = id.split(':')[0];
+    return !enabled.some((p) => p.startsWith(plugin));
+  };
+
   let pruned = 0;
   const prunedIds = [];
   for (const [id, entry] of [...merged.entries()]) {
     if (FORCE_KEEP_ACTIVE.has(id)) continue;
-    if (!entryExistsOnDisk(entry)) {
+    if (pluginIsOff(id) || !entryExistsOnDisk(entry)) {
       merged.delete(id);
       pruned++;
       prunedIds.push(id);
