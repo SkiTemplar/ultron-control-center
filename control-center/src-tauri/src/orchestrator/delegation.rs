@@ -78,6 +78,64 @@ const ACTION_VERBS: &[&str] = &[
 /// Mínimo de palabras para considerar una tarea no-trivial. Calibrable.
 const MIN_WORDS: usize = 6;
 
+/// Frases (con espacios — los substrings cortos fueron catastróficos en el
+/// routing, lección 2026-06-05) que identifican una META-TAREA sobre el propio
+/// sistema ULTRON: operar su memoria, sus skills, su kanban o su inbox. Eso lo
+/// ejecuta el agente principal con sus herramientas (MemoryService, kanban.mjs,
+/// SKILL.md) — un subagente delegado no tiene ese contexto operativo y delegarlo
+/// era ordenar un imposible (medido: "consolida la memoria" -> rust-engineer).
+const ULTRON_META_PHRASES: &[&str] = &[
+    "consolida la memoria",
+    "consolidar la memoria",
+    "consolida memoria",
+    "fusiona las notas",
+    "fusiona memorias",
+    "limpia el index de memoria",
+    "edita la skill",
+    "editar la skill",
+    "edita el skill",
+    "mejora la descripcion de la skill",
+    "mueve la card",
+    "mueve la tarjeta",
+    "mueve la carta",
+    "columna del kanban",
+    "del kanban a la columna",
+    "al kanban",
+    "olvida esa decision",
+    "olvida la decision",
+    "olvida esa memoria",
+    "actualiza la memoria",
+    "guarda en la memoria",
+    "drena el inbox",
+    "valida los candidatos",
+];
+
+/// `true` si el prompt es una meta-tarea de operación del propio sistema
+/// (memoria/skills/kanban/inbox): NUNCA se delega.
+pub fn is_ultron_meta_task(prompt: &str) -> bool {
+    let p = prompt.to_lowercase();
+    ULTRON_META_PHRASES.iter().any(|f| p.contains(f))
+}
+
+/// Señales de RAZONAMIENTO PROFUNDO en el propio prompt. El intent no basta:
+/// "revisa la arquitectura del pipeline" clasifica como `refactor` (el
+/// clasificador pesa el verbo), y con solo el intent salía sonnet para un
+/// trabajo que es análisis de arquitectura puro (medido, check 22.2). La
+/// política calidad>tokens exige opus ahí.
+const DEEP_REASONING_HINTS: &[&str] = &[
+    "arquitectura",
+    "architecture",
+    "trade-off",
+    "trade off",
+    "acoplamiento",
+    "coupling",
+    "diseño del sistema",
+    "system design",
+    "threat model",
+    "auditoria de seguridad",
+    "auditoría de seguridad",
+];
+
 /// Formato de retorno exigido al subagente — lo que hace REAL el ahorro de
 /// contexto: resumen compacto, nunca volcado de archivos.
 const RETURN_FORMAT: &str = "Resumen <=400 tokens: hallazgos / decision / archivos tocados. \
@@ -121,6 +179,17 @@ pub fn model_for_intent(intent: &str) -> Option<String> {
     Some(model.to_string())
 }
 
+/// Modelo para la tarea CONCRETA: intent + señales del propio prompt. Un prompt
+/// de arquitectura clasificado como `refactor` por su verbo sigue mereciendo
+/// opus — el razonamiento profundo lo define el contenido, no solo la etiqueta.
+pub fn model_for_task(intent: &str, prompt: &str) -> Option<String> {
+    let p = prompt.to_lowercase();
+    if DEEP_REASONING_HINTS.iter().any(|h| p.contains(h)) {
+        return Some("opus".to_string());
+    }
+    model_for_intent(intent)
+}
+
 /// Decide si emitir una directiva. `Some` SOLO si el intent es delegable Y la
 /// tarea es no-trivial Y hay un especialista top. `objective` = improved_prompt.
 pub fn decide_delegation(
@@ -136,11 +205,16 @@ pub fn decide_delegation(
     if !is_nontrivial(prompt) {
         return None;
     }
+    // Meta-tarea del propio sistema (memoria/skills/kanban/inbox): el agente
+    // principal la ejecuta con sus herramientas; delegarla es un imposible.
+    if is_ultron_meta_task(prompt) {
+        return None;
+    }
     Some(DelegationDirective {
         agent: agent.name.clone(),
         objective: objective.to_string(),
         return_format: RETURN_FORMAT.to_string(),
-        model_hint: model_for_intent(intent),
+        model_hint: model_for_task(intent, prompt),
         reason: format!("intent={intent}; tarea no-trivial"),
     })
 }
@@ -197,6 +271,53 @@ mod tests {
             Some(&agent("rust-engineer"))
         )
         .is_none());
+    }
+
+    #[test]
+    fn meta_tasks_never_delegate() {
+        // Los 4 casos MEDIDOS que se delegaban por error (harness 22.5): operar
+        // la memoria/skills/kanban del propio sistema no es delegable.
+        for prompt in [
+            "consolida la memoria y fusiona las notas duplicadas del index",
+            "edita la skill de ultron para mejorar su descripcion de triggers",
+            "mueve la card del kanban a la columna done porque ya esta hecha",
+            "olvida esa decision y actualiza la memoria con la nueva politica del proyecto",
+        ] {
+            let d = decide_delegation("refactor", prompt, "obj", Some(&agent("rust-engineer")));
+            assert!(d.is_none(), "meta-tarea delegada por error: {prompt}");
+        }
+        // CASO NEGATIVO: una tarea real que solo MENCIONA memoria de programa
+        // no es meta-tarea — sigue delegándose.
+        let d = decide_delegation(
+            "rust",
+            "arregla el leak de memoria del parser y añade un test que lo cubra",
+            "obj",
+            Some(&agent("rust-engineer")),
+        );
+        assert!(d.is_some(), "tarea real bloqueada por el filtro meta");
+    }
+
+    #[test]
+    fn architecture_prompt_gets_opus_even_if_intent_is_refactor() {
+        // Medido (22.2): "revisa la arquitectura..." clasifica como `refactor`
+        // por el verbo; el contenido es análisis de arquitectura -> opus.
+        let d = decide_delegation(
+            "refactor",
+            "revisa la arquitectura del nuevo pipeline de recall: trade-offs, modulos y su acoplamiento",
+            "obj",
+            Some(&agent("architect-reviewer")),
+        )
+        .expect("debe emitir directiva");
+        assert_eq!(d.model_hint.as_deref(), Some("opus"));
+        // CASO NEGATIVO: un refactor sin señal profunda sigue en sonnet.
+        let d2 = decide_delegation(
+            "refactor",
+            "refactoriza el modulo de recall unificado a async sin romper recall@8",
+            "obj",
+            Some(&agent("refactoring-specialist")),
+        )
+        .expect("debe emitir directiva");
+        assert_eq!(d2.model_hint.as_deref(), Some("sonnet"));
     }
 
     #[test]
