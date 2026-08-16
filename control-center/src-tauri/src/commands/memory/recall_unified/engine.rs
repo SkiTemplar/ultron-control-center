@@ -510,7 +510,19 @@ const DEFAULT_RECALL_FLOOR: f32 = 0.83;
 /// Rank FTS máximo que cuenta como "sparse FUERTE" (match léxico exacto, p.ej.
 /// un identificador). Los matches de stopwords caen a ranks profundos (probe
 /// "paella": ranks 11-13), así que no compran confianza.
-const STRONG_SPARSE_RANK: usize = 2;
+///
+/// (2026-08-16, decidido por el usuario) Subido de 2 a 5. Con 2, la query
+/// `qdrant` —un término que aparece literalmente por todo el corpus— devolvía
+/// CERO memorias: sus mejores candidatos maxean dense 0.8240 contra un floor de
+/// 0.83, y el ítem que BM25 colocaba TERCERO de todo el corpus no llegaba a
+/// contar como señal porque el corte estaba en el segundo. El gate se quedaba
+/// sin ninguna prueba que aceptar y vaciaba el pack entero. Medido en el
+/// oráculo golden: era la única query con pack vacío de las 29.
+///
+/// 5 sigue muy por encima de los ranks 11-13 donde caen los matches de
+/// stopwords que motivaron el corte original, así que la query sin anclaje
+/// léxico real se sigue absteniendo.
+const STRONG_SPARSE_RANK: usize = 5;
 
 /// (cat1 ranking, 2026-07-02) Knobs de retrieval por env para el A/B honesto:
 /// `ULTRON_FANOUT_K` (candidatos por fuente antes de fusionar, default 30) y
@@ -687,14 +699,26 @@ mod floor_tests {
         let dense_ok = vec![entry(Some(0.8459), None)];
         assert!(pack_has_confident_signal(&dense_ok, 0.84));
 
-        // sparse FUERTE (rank <= 2, match lexico exacto tipo identificador)
-        // protege las queries sparse-only aunque el dense sea debil.
+        // sparse FUERTE (rank <= STRONG_SPARSE_RANK, match lexico exacto tipo
+        // identificador) protege las queries sparse-only aunque el dense sea debil.
         let sparse_ok = vec![entry(None, Some(0)), entry(Some(0.70), None)];
         assert!(pack_has_confident_signal(&sparse_ok, 0.84));
 
-        // sparse justo por encima del umbral fuerte NO cuenta como señal.
-        let sparse_weak = vec![entry(None, Some(3))];
+        // (2026-08-16) rank 3 SI cuenta: es el caso real de la query `qdrant`,
+        // cuyo mejor dense (0.8240) no alcanza el floor y cuyo respaldo lexico
+        // BM25 estaba en tercera posicion. Con el corte antiguo en 2 se quedaba
+        // sin ninguna señal y el pack se vaciaba entero.
+        let sparse_rank3 = vec![entry(Some(0.8240), Some(3))];
+        assert!(pack_has_confident_signal(&sparse_rank3, 0.83));
+        let sparse_rank5 = vec![entry(None, Some(5))];
+        assert!(pack_has_confident_signal(&sparse_rank5, 0.84));
+
+        // CASO NEGATIVO: pasado el umbral se vuelve a ser ruido. Rank 6 y los
+        // ranks 11-13 del probe "paella" no compran confianza.
+        let sparse_weak = vec![entry(None, Some(6))];
         assert!(!pack_has_confident_signal(&sparse_weak, 0.84));
+        let sparse_noise = vec![entry(None, Some(12))];
+        assert!(!pack_has_confident_signal(&sparse_noise, 0.84));
 
         // pack vacio: sin señal (gate no-op sobre vacio).
         assert!(!pack_has_confident_signal(&[], 0.84));
