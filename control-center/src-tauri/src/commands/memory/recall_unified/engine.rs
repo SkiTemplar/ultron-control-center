@@ -21,6 +21,7 @@ use crate::commands::memory::recall_unified::rrf_fuse_weighted;
 
 use super::pack::{
     assemble_pack, diacritic_probe_variants, informative_query_terms, trust_terms_enabled,
+    unknown_terms_dominate,
 };
 
 /// Core hybrid recall + full trace (Retrieval Inspector). Synchronous; both the
@@ -41,9 +42,15 @@ use super::pack::{
 /// fusionado con el cross-encoder BGE-v2-m3 (recall@8 0.682→0.709, p@3
 /// 0.379→0.483 contra el oráculo golden) a un coste de ~2-2.4 s por llamada en
 /// CPU (24 pares, 568M params). Los callers de CALIDAD (recall CLI/browser,
-/// trace, evals) pasan `true`; el hot path del hook UserPromptSubmit pasa
-/// `false` (p50 134 ms — 19× menos; +2.7 pts de recall no pagan 2.5 s en CADA
-/// prompt) salvo opt-in `ULTRON_RERANK_HOT=1`. `ULTRON_RERANK=0` lo apaga
+/// trace, evals) pasan `true`.
+///
+/// El hot path del hook NO es ya un `false` fijo (lo era hasta el rerank
+/// selectivo de 2026-08-13): `orchestrate` pasa `true` en los prompts técnicos
+/// —donde la memoria decide— y `false` en la charla. Desde 2026-08-16 añade una
+/// condición más: solo `true` si el cross-encoder YA está residente, porque
+/// cargarlo cuesta 8762 ms medidos contra un presupuesto de hook de 6000 y el
+/// turno se quedaba sin memoria en vez de con memoria peor. `ULTRON_RERANK_HOT=1`
+/// fuerza el intento en todos los prompts; `ULTRON_RERANK=0` lo apaga
 /// GLOBALMENTE (restaura el baseline byte-a-byte, verificado e2e).
 pub fn build_trace(
     query: &str,
@@ -251,8 +258,11 @@ pub fn build_trace(
         // (cat1 2026-07-03, subido 2026-07-22) N tuneable por env para el A/B:
         // el diagnostico del golden situo relevantes cortados hasta fused rank
         // 56 — con N=24 el cross-encoder ni los veia (techo ~0.82); N=48 sube
-        // el techo a ~0.92 a cambio del doble de pares por query (solo paths
-        // de calidad — el hook pasa rerank=false y no entra aqui).
+        // el techo a ~0.92 a cambio del doble de pares por query.
+        // (2026-08-16) El hook YA NO pasa siempre rerank=false: desde el rerank
+        // selectivo (2026-08-13) un prompt tecnico entra aqui con el modelo
+        // caliente. Lo que nunca ocurre en el hot path es CARGARLO: si esta
+        // frio, `orchestrate` pasa rerank=false y lo calienta en background.
         let rerank_top_n = env_knob_usize("ULTRON_RERANK_TOP_N", RERANK_TOP_N);
         let top_n_len = rerank_top_n.min(fused.len());
         // Collect (id, text) pairs for the cross-encoder. Items whose text
@@ -404,21 +414,37 @@ pub fn build_trace(
                 .map(|v| v.is_empty())
                 .unwrap_or(false) // fail-open: error FTS != termino desconocido
         };
-        let unknown = informative_query_terms(query).into_iter().find(|t| {
-            term_is_unknown(t)
-                && diacritic_probe_variants(t)
-                    .iter()
-                    .all(|v| term_is_unknown(v))
-        });
-        if let Some(term) = unknown {
+        // (2026-08-16) Ya NO basta el PRIMER desconocido: se cuentan todos y
+        // decide `unknown_terms_dominate`. Con el corte al primero, un `venga` o
+        // el id de una tarjeta vaciaba el pack de un turno entero de trabajo
+        // (medido: 412/670 packs, 61,5% del tráfico real).
+        let terms = informative_query_terms(query);
+        let unknown: Vec<String> = terms
+            .iter()
+            .filter(|t| {
+                term_is_unknown(t)
+                    && diacritic_probe_variants(t)
+                        .iter()
+                        .all(|v| term_is_unknown(v))
+            })
+            .cloned()
+            .collect();
+        if unknown_terms_dominate(terms.len(), unknown.len()) {
+            let lista = unknown.join("', '");
             for e in injected.drain(..) {
                 discarded.push(DiscardedHit {
                     canonical_id: e.canonical_id,
-                    reason: format!("abstain: término desconocido para el corpus ('{term}')"),
+                    reason: format!(
+                        "abstain: término(s) desconocido(s) para el corpus ('{lista}')"
+                    ),
                 });
             }
             total_tokens = 0;
-            warnings.push(format!("recall abstained — el corpus no conoce '{term}'"));
+            warnings.push(format!(
+                "recall abstained — el corpus no conoce '{lista}' ({}/{} términos de la query)",
+                unknown.len(),
+                terms.len()
+            ));
         }
     }
     if cross_project && project_id.is_some() {

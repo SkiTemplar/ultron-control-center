@@ -115,8 +115,28 @@ const QUERY_STOPWORDS: &[&str] = &[
     "will", "about", "could", "should", "would", "there", "many", "much",
 ];
 
+/// Longitud a partir de la cual un token alfanumérico mixto se trata como
+/// identificador opaco. Por debajo caben tecnologías reales que mezclan letra y
+/// dígito y SÍ son informativas: `fts5`, `bm25`, `e5`, `sha1`, `utf8`.
+const OPAQUE_ID_MIN_LEN: usize = 8;
+
+/// ¿El token es un identificador opaco (id de tarjeta, hash, uuid corto)?
+///
+/// Medido 2026-08-16 sobre las 670 orquestaciones reales: los ids de las
+/// tarjetas del kanban (`b7d23ga2p`, `bmucgfi8d`) y los hashes hex que aparecen
+/// en un prompt pasaban el filtro de longitud, entraban como término
+/// "informativo" y —al no existir en el corpus— vaciaban el pack entero. Un id
+/// nunca es un término temático: preguntar por él no significa que la memoria
+/// deba callarse.
+pub(crate) fn is_opaque_id(term: &str) -> bool {
+    term.chars().count() >= OPAQUE_ID_MIN_LEN
+        && term.chars().any(|c| c.is_ascii_digit())
+        && term.chars().any(|c| c.is_alphabetic())
+}
+
 /// Términos con carga informativa de una query: >= 4 chars (o sigla en
-/// MAYÚSCULAS >= 2), sin stopwords, sin números puros. Minúsculas en la salida.
+/// MAYÚSCULAS >= 2), sin stopwords, sin números puros, sin ids opacos.
+/// Minúsculas en la salida.
 pub(crate) fn informative_query_terms(query: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for tok in query.split(|c: char| !c.is_alphanumeric()) {
@@ -131,11 +151,46 @@ pub(crate) fn informative_query_terms(query: &str) -> Vec<String> {
         if QUERY_STOPWORDS.contains(&low.as_str()) || low.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
+        if is_opaque_id(&low) {
+            continue;
+        }
         if !out.contains(&low) {
             out.push(low);
         }
     }
     out
+}
+
+/// Hasta cuántos términos informativos hacen a una query "corta". En una query
+/// así cada término pesa: si uno solo es ajeno al corpus, el recall no tiene
+/// sobre qué apoyarse y abstenerse es lo honesto.
+const SHORT_QUERY_TERMS: usize = 3;
+
+/// ¿Los términos desconocidos DOMINAN la query lo bastante como para abstenerse?
+///
+/// Regla decidida por el usuario 2026-08-16 tras simular siete variantes sobre
+/// las 670 orquestaciones reales del log. La regla anterior —abstenerse en
+/// cuanto UN término fuera desconocido— vaciaba 412 de esos 670 packs (61,5%):
+/// bastaba un `venga`, un `hola`, una errata o el id de una tarjeta para dejar
+/// el turno sin memoria, porque cualquier token de >= 4 caracteres fuera de la
+/// stoplist contaba como informativo.
+///
+/// Se abstiene cuando:
+///   - la query es CORTA (<= SHORT_QUERY_TERMS) y trae algún desconocido, o
+///   - en una query larga, al menos la mitad de los términos son desconocidos
+///     (el prompt entero habla de algo que el corpus no conoce).
+///
+/// Medido con esta regla: 77/670 abstenciones (11,5%) conservando los 5/5 casos
+/// de control en los que la abstención debe seguir ocurriendo (`fastapi`,
+/// `grpc`, `OWASP`, `golang`, `kubernetes/nomad`).
+pub(crate) fn unknown_terms_dominate(total_terms: usize, unknown_terms: usize) -> bool {
+    if total_terms == 0 || unknown_terms == 0 {
+        return false;
+    }
+    if total_terms <= SHORT_QUERY_TERMS {
+        return true;
+    }
+    unknown_terms * 2 >= total_terms
 }
 
 /// ASCII-fold de diacriticos del español (tildes, diéresis, ñ) en minúsculas.
@@ -461,6 +516,55 @@ mod trust_gate_tests {
             t2.contains(&"skills".to_string()) && t2.contains(&"nucleo".to_string()),
             "{t2:?}"
         );
+    }
+
+    // (2026-08-16) Los ids de tarjeta y los hashes NO son términos temáticos:
+    // pegar uno en el prompt vaciaba el pack entero (medido en el log real).
+    #[test]
+    fn opaque_ids_are_not_informative_terms() {
+        assert!(is_opaque_id("b7d23ga2p"), "id de tarjeta del kanban");
+        assert!(is_opaque_id("129a52f3ce4e34f0"), "hash hex");
+        assert!(is_opaque_id(
+            "card-1786894372097-02vnpv".replace('-', "").as_str()
+        ));
+
+        // CASO NEGATIVO: tecnologías reales que mezclan letra y dígito y SÍ son
+        // informativas. Si el filtro se las tragara, el gate dejaría de frenar
+        // una query legítima sobre ellas.
+        assert!(!is_opaque_id("fts5"));
+        assert!(!is_opaque_id("bm25"));
+        assert!(!is_opaque_id("sha256"));
+        assert!(!is_opaque_id("qdrant"), "sin dígitos");
+        assert!(!is_opaque_id("e5large"), "7 chars: por debajo del umbral");
+
+        let terms = informative_query_terms("mira la tarjeta b7d23ga2p del kanban");
+        assert!(!terms.contains(&"b7d23ga2p".to_string()), "{terms:?}");
+        assert!(terms.contains(&"tarjeta".to_string()), "{terms:?}");
+    }
+
+    // (2026-08-16) La abstención exige que los desconocidos DOMINEN. Con la
+    // regla anterior (>= 1 desconocido) se vaciaban 412 de 670 packs reales.
+    #[test]
+    fn abstention_requires_unknown_terms_to_dominate() {
+        // Query corta: un solo desconocido ya manda ('¿como configuro fastapi?').
+        assert!(unknown_terms_dominate(2, 1));
+        assert!(unknown_terms_dominate(3, 1));
+
+        // Query larga mayoritariamente desconocida: el prompt entero va de algo
+        // que el corpus no conoce.
+        assert!(unknown_terms_dominate(8, 4));
+        assert!(unknown_terms_dominate(10, 7));
+
+        // CASO NEGATIVO: lo que rompía el sistema. Un turno de trabajo largo con
+        // un 'venga' o una errata suelta NO puede quedarse sin memoria.
+        assert!(
+            !unknown_terms_dominate(12, 1),
+            "un término suelto no domina"
+        );
+        assert!(!unknown_terms_dominate(8, 3), "3 de 8 no llegan a la mitad");
+        // Sin términos, o sin desconocidos, nunca se abstiene.
+        assert!(!unknown_terms_dominate(0, 0));
+        assert!(!unknown_terms_dominate(6, 0));
     }
 
     // (2026-07-22) Falso abstain por tildes (gs-0017): la query dice 'simbolos'
