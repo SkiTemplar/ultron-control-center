@@ -25,13 +25,45 @@
 
 ---
 
-**El problema:** cada sesion de un asistente de codigo arranca de cero. **Lo que hace ULTRON:**
-persiste lo que importa (decisiones, gotchas, arquitectura, estado de proyectos) en una memoria
-local **event-sourced** (`brain.db`, SQLite) con indice semantico (Qdrant + E5 1024d), y lo
-reinyecta en cada sesion mediante hooks — recall hibrido sub-segundo con un daemon residente.
-Ademas: **AI Router** multi-proveedor, **orquestador** de skills/agentes y cockpit de escritorio
-(Tauri 2 + React 19). Todo el estado son ficheros locales inspeccionables. Nada sale de tu maquina
-sin que lo configures.
+## ¿Que es esto?
+
+Tu asistente de IA **olvida todo** cada vez que cierras la ventana: las decisiones que
+tomasteis, los errores que ya resolvisteis, como esta montado tu proyecto. Al dia
+siguiente se lo vuelves a explicar todo.
+
+**ULTRON le da memoria.** Mientras trabajas, guarda lo importante en tu propio
+ordenador; cuando abres una conversacion nueva, se lo recuerda a la IA
+automaticamente. Tu no haces nada: trabajas como siempre y tu asistente cada vez
+te conoce mejor. Tu decides que se guarda (todo pasa por una bandeja de aprobacion)
+y nada sale de tu maquina.
+
+<details>
+<summary><strong>La version tecnica</strong> (click para abrir)</summary>
+
+Memoria local **event-sourced** (`brain.db`, SQLite) con indice semantico (Qdrant +
+E5 1024d), reinyectada en cada sesion mediante hooks — recall hibrido sub-segundo
+con un daemon residente. Ademas: **AI Router** multi-proveedor, **orquestador** de
+skills/agentes y cockpit de escritorio (Tauri 2 + React 19). Todo el estado son
+ficheros locales inspeccionables. Spec: [`docs/memory-spec.md`](docs/memory-spec.md).
+
+</details>
+
+## Con y sin ULTRON
+
+| | Claude Code a secas | Con ULTRON |
+|---|---|---|
+| Al abrir una sesion | Empieza de cero | Resume del proyecto: estado, tareas, decisiones |
+| Contexto en cada prompt | El que tu escribas | + memorias relevantes recuperadas solas (~84% de prompts reales) |
+| Errores ya resueltos | Se repiten | Se recuerdan ("eso ya lo intentamos, fallo por X") |
+| Que se guarda | Nada | Lo que apruebes en la bandeja (con auditoria de cada cambio) |
+| Donde viven tus datos | — | En tu disco, en ficheros que puedes abrir |
+
+**Frente a otros sistemas de memoria** (servicios cloud tipo Mem0 y similares), las
+diferencias son de diseño, no de marketing: aqui la memoria es **100% local** (sin
+cuenta, sin suscripcion, sin enviar tu codigo a un tercero), **gobernada** (la IA
+propone, tu apruebas; cada escritura deja evento de auditoria), **honesta** (si no
+sabe, se abstiene en vez de inyectar relleno — medido) y **abierta** (SQLite +
+Markdown + un MCP server estandar que cualquier asistente puede consultar).
 
 > Tutorial de uso diario (humano + IA): [`docs/TUTORIAL.md`](docs/TUTORIAL.md) ·
 > Spec completa del sistema de memoria: [`docs/memory-spec.md`](docs/memory-spec.md) ·

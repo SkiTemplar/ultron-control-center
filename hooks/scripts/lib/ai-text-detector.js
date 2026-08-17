@@ -22,9 +22,22 @@ const os = require('os');
 
 const { HEURISTICS, runHeuristic } = require('./ai-text-heuristics');
 
-const CATALOG_PATH = path.join(
-  os.homedir(), '.ultron', 'docs', 'research', 'patrones-texto-ia.json',
-);
+// Resolución del catálogo: instalación real primero (~/.ultron), y si no
+// existe, el propio repo (este fichero vive en hooks/scripts/lib/ → tres
+// niveles arriba está la raíz). Sin el fallback, los selftests del CI morían
+// con ENOENT en un runner limpio (checkout fuera de ~/.ultron) — el módulo no
+// era hermético aunque el catálogo viajara en el repo (visto 2026-08-17).
+const CATALOG_PATH = [
+  path.join(os.homedir(), '.ultron', 'docs', 'research', 'patrones-texto-ia.json'),
+  path.join(__dirname, '..', '..', '..', 'docs', 'research', 'patrones-texto-ia.json'),
+].find((p) => {
+  try {
+    fs.accessSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}) || path.join(__dirname, '..', '..', '..', 'docs', 'research', 'patrones-texto-ia.json');
 
 /**
  * Cap de matches que se DEVUELVEN: el aviso resume, no inventaría.
