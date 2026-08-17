@@ -1,37 +1,59 @@
+<p align="center">
+  <img src="control-center/src-tauri/icons/128x128@2x.png" width="110" alt="ULTRON">
+</p>
+
 <h1 align="center">ULTRON Control Center</h1>
 
 <p align="center">
-  <em>Una capa de memoria gobernada, enrutado multi-LLM y orquestacion de
-  skills/agentes para <a href="https://claude.com/claude-code">Claude Code</a>.</em>
+  <strong>Memoria persistente y gobernada para <a href="https://claude.com/claude-code">Claude Code</a></strong> —
+  <em>tu asistente recuerda decisiones, arquitectura y contexto entre sesiones, con auditoria de cada escritura.</em>
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.7.1-555">
-  <img alt="stack" src="https://img.shields.io/badge/Tauri_2-%2B_React_19-555">
-  <img alt="backend" src="https://img.shields.io/badge/backend-Rust_2021-555">
-  <img alt="memoria" src="https://img.shields.io/badge/memoria-SQLite_%2B_Qdrant-555">
-  <img alt="plataforma" src="https://img.shields.io/badge/plataforma-Windows_11-555">
-  <img alt="licencia" src="https://img.shields.io/badge/licencia-MIT-555">
+  <img alt="version" src="https://img.shields.io/badge/version-2.7.1-6e40c9?style=for-the-badge">
+  <img alt="memoria" src="https://img.shields.io/badge/memoria-SQLite_+_Qdrant-2da44e?style=for-the-badge">
+  <img alt="recall" src="https://img.shields.io/badge/recall-BM25_+_E5_+_reranker-1f6feb?style=for-the-badge">
+  <img alt="mcp" src="https://img.shields.io/badge/MCP-server_incluido-d29922?style=for-the-badge">
 </p>
 
-Cockpit personal de escritorio (Tauri 2 + React 19) construido sobre la CLI de
-Claude Code. Vive bajo `~/.ultron/` y reune tres piezas: **memoria gobernada**,
-**AI Router** y un **orquestador de skills/agentes**. No reemplaza a Claude
-Code: lo envuelve con estado persistente, inspeccionable y versionable.
-
-> Repositorio MIT de un solo mantenedor, pensado para publicarse (hoy la
-> visibilidad la decide el mantenedor: si puedes leer esto en GitHub, ya es
-> publico). No es un producto comercial ni un SaaS. Esta documentacion
-> describe el sistema tal y como esta en el disco; no contiene secretos ni
-> datos personales (la informacion personal vive solo en ficheros locales
-> fuera de control de versiones).
-
-- **Version**: 2.7.1 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
-- **Plataforma**: Windows 11 (objetivo principal); Linux x86_64 compila pero el
-  flujo end-to-end no esta verificado por el autor.
-- **Licencia**: MIT (ver [`LICENSE`](LICENSE)).
+<p align="center">
+  <img alt="stack" src="https://img.shields.io/badge/Tauri_2-React_19-24292f?logo=tauri">
+  <img alt="backend" src="https://img.shields.io/badge/Rust-2021-f74c00?logo=rust&logoColor=white">
+  <img alt="plataforma" src="https://img.shields.io/badge/Windows_11-principal-0078d4?logo=windows">
+  <img alt="licencia" src="https://img.shields.io/badge/MIT-licencia-3fb950">
+</p>
 
 ---
+
+**El problema:** cada sesion de un asistente de codigo arranca de cero. **Lo que hace ULTRON:**
+persiste lo que importa (decisiones, gotchas, arquitectura, estado de proyectos) en una memoria
+local **event-sourced** (`brain.db`, SQLite) con indice semantico (Qdrant + E5 1024d), y lo
+reinyecta en cada sesion mediante hooks — recall hibrido sub-segundo con un daemon residente.
+Ademas: **AI Router** multi-proveedor, **orquestador** de skills/agentes y cockpit de escritorio
+(Tauri 2 + React 19). Todo el estado son ficheros locales inspeccionables. Nada sale de tu maquina
+sin que lo configures.
+
+> Spec completa del sistema de memoria: [`docs/memory-spec.md`](docs/memory-spec.md) ·
+> Instalacion por componentes: [`INSTALL.md`](INSTALL.md) · Licencia MIT.
+
+## Como fluye la memoria
+
+```mermaid
+flowchart LR
+    A[Prompt en Claude Code] -->|hook UserPromptSubmit| B[daemon ultron-memory
+E5 residente]
+    B --> C[(brain.db
+SQLite + FTS5)]
+    B --> D[(Qdrant
+E5 1024d)]
+    C -->|BM25| E[Fusion RRF + cross-encoder]
+    D -->|dense| E
+    E -->|pack de memorias| A
+    F[Fin de sesion] -->|hook Stop| G[Captura -> inbox de candidatos]
+    G -->|aprobacion| C
+    H[Cualquier cliente MCP
+Codex, Gemini CLI...] -->|MCP server| B
+```
 
 ## Quickstart
 
@@ -312,7 +334,7 @@ npm test       # vitest (frontend)
   playground de deteccion. `personality.json` local (gitignored) con seeds
   publicables compilados; limite duro: el tono solo aplica al chat, jamas a
   artefactos.
-- **Detector de texto IA** (apoyo TFG): hook PostToolUse que avisa cuando la
+- **Detector de texto IA**: hook PostToolUse que avisa cuando la
   prosa escrita "canta" a IA + Lab de patrones deterministas sobre el catalogo
   de investigacion; matcher con CLI y banco de casos. Senala, no reescribe.
 - **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,
