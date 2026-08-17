@@ -28,7 +28,7 @@ This is the path that works today. The install root is tied to a git
 checkout you can edit and PR back:
 
 ```powershell
-git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 .\install.ps1
 ```
@@ -36,7 +36,7 @@ cd $env:USERPROFILE\.ultron
 Linux equivalent:
 
 ```bash
-git clone https://github.com/SkiTemplar/ultron.git ~/.ultron
+git clone https://github.com/SkiTemplar/ultron-control-center.git ~/.ultron
 cd ~/.ultron
 ./install.sh
 ```
@@ -129,7 +129,7 @@ To uninstall:
 ### Windows 11 (PowerShell, no Git required)
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.ps1 | iex
 ```
 
 The script hits the GitHub Releases API, finds the latest `v*.*.*` tag,
@@ -140,13 +140,13 @@ Control Center.
 **Pin to a specific release** (reproducible installs):
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.7.0/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/refs/tags/v15.7.0/bootstrap.ps1 | iex
 ```
 
 ### Linux x86_64 (Debian / Ubuntu / Fedora / Arch)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.sh | bash
 ```
 
 `install.sh` package-manager-detects (`apt` / `dnf` / `pacman`) and may
@@ -182,4 +182,4 @@ For deeper failures — wizard internals, per-feature opt-outs, hook list,
 auto-install matrix, Linux package-manager detection, scheduled tasks,
 manual uninstall — see [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 
-Issue tracker: <https://github.com/SkiTemplar/ultron/issues>.
+Issue tracker: <https://github.com/SkiTemplar/ultron-control-center/issues>.

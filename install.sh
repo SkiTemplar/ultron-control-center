@@ -1354,7 +1354,7 @@ show_component_plan() {
 echo ""
 echo "======================================================="
 echo " ULTRON installer (root, Linux) ${ULTRON_VERSION}"
-echo " https://github.com/SkiTemplar/ultron"
+echo " https://github.com/SkiTemplar/ultron-control-center"
 echo "======================================================="
 echo ""
 echo " Auto-install enabled: missing dependencies (curl, git,"

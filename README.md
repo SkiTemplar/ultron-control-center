@@ -39,7 +39,7 @@ Code: lo envuelve con estado persistente, inspeccionable y versionable.
 recomendado; es idempotente y pregunta antes de tocar nada:
 
 ```powershell
-git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # Linux: ./install.sh
 ```
@@ -58,7 +58,7 @@ plan sin tocar nada):
 **Solo la app de escritorio** (sin skills/hooks/sidecar de memoria):
 
 ```bash
-git clone https://github.com/SkiTemplar/ultron.git ~/.ultron && cd ~/.ultron/control-center
+git clone https://github.com/SkiTemplar/ultron-control-center.git ~/.ultron && cd ~/.ultron/control-center
 cp ../.env.example ../.env   # opcional: claves de proveedores LLM (todas vacias por defecto)
 npm install
 npm run build:app            # = kill-app + tauri build -> ejecutable de escritorio
@@ -329,4 +329,4 @@ npm test       # vitest (frontend)
 
 ## Licencia
 
-MIT — ver [`LICENSE`](LICENSE). Copyright (c) 2026 USER SURNAME.
+MIT — ver [`LICENSE`](LICENSE). Copyright (c) 2026 Rodrigo Fernandez.
