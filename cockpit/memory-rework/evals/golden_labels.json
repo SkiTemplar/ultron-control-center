@@ -387,10 +387,9 @@
     {
       "id": "gs-0021",
       "query": "Tauri build:local build:app diferencia binario",
-      "expect_ids": [
-        "a23b517a-b8de-4201-b2dc-25b312795ecf"
-      ],
-      "n_relevant": 1
+      "expect_ids": [],
+      "n_relevant": 0,
+      "note": "2026-08-17 golden-remap: expect_id a23b517a deprecado sin gemelo activo (action=remove) — la query queda de testigo con 0 relevantes hasta re-etiquetarla a mano"
     },
     {
       "id": "gs-0022",
