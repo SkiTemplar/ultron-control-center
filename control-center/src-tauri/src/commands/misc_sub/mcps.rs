@@ -78,3 +78,32 @@ pub async fn mcp_set_disabled(
 ) -> Result<mcps::McpMutationResult, String> {
     mcps::set_mcpjson_disabled_inner(name, disabled)
 }
+
+// -- Cuentas multi-token por plantilla (Settings -> MCP Accounts) ------------
+
+#[tauri::command]
+pub async fn mcp_account_templates() -> Vec<mcps::McpAccountTemplate> {
+    mcps::TEMPLATES.to_vec()
+}
+
+#[tauri::command]
+pub async fn mcp_accounts_list() -> Result<Vec<mcps::McpAccountRow>, String> {
+    mcps::accounts_list_inner()
+}
+
+/// Alta: el token llega del formulario y aterriza en ~/.claude.json (local);
+/// jamás se devuelve ni se loguea. Respuesta = (nombre_final, ruta_backup).
+#[tauri::command]
+pub async fn mcp_account_add(
+    template_id: String,
+    alias: String,
+    token: String,
+    read_only: bool,
+) -> Result<(String, String), String> {
+    mcps::account_add_inner(&template_id, &alias, &token, read_only)
+}
+
+#[tauri::command]
+pub async fn mcp_account_remove(name: String) -> Result<String, String> {
+    mcps::account_remove_inner(&name)
+}

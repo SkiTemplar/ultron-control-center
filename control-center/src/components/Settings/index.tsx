@@ -7,6 +7,7 @@ import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { McpAccountsSection } from "./McpAccountsSection";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
@@ -18,6 +19,7 @@ type Section =
   | "general"
   | "auth"
   | "api-keys"
+  | "mcp-accounts"
   | "backups"
   | "button-prompts"
   | "raw";
@@ -154,6 +156,7 @@ export function Settings(_props: SettingsProps = {}) {
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
           { id: "api-keys" as Section, label: "API Keys" },
+          { id: "mcp-accounts" as Section, label: "MCP Accounts" },
           { id: "backups" as Section, label: "Backups" },
           { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "raw" as Section, label: "settings.json" },
@@ -207,6 +210,7 @@ export function Settings(_props: SettingsProps = {}) {
         {section === "general" && <LifecyclePanel />}
         {section === "auth" && <AuthStatus onRecheck={load} />}
         {section === "api-keys" && <ApiKeysSection />}
+        {section === "mcp-accounts" && <McpAccountsSection />}
 
         {section === "raw" && draft && (
           <JsonEditor

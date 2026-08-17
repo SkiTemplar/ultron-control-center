@@ -42,6 +42,10 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::mcps::generate_mcp_from_prompt,
         commands::mcps::mcp_ping,
         commands::mcps::mcp_set_disabled,
+        commands::mcps::mcp_account_templates,
+        commands::mcps::mcp_accounts_list,
+        commands::mcps::mcp_account_add,
+        commands::mcps::mcp_account_remove,
         // -- skills --
         commands::skills::list_skills,
         commands::skills::list_skills_legacy,

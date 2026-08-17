@@ -10,12 +10,17 @@
 // delete) round-trip through settings::settings_save_inner so we get the
 // timestamped backup + atomic write for free.
 
+pub(crate) mod accounts;
 pub(crate) mod discovery;
 pub(crate) mod mutations_gen;
 #[cfg(test)]
 mod tests;
 pub(crate) mod types_io;
 
+pub use accounts::{
+    account_add_inner, account_remove_inner, accounts_list_inner, McpAccountRow,
+    McpAccountTemplate, TEMPLATES,
+};
 pub use discovery::list_mcps_inner;
 pub use mutations_gen::{
     add_mcp_inner, delete_mcp_inner, generate_mcp_from_prompt_inner, mcp_ping_inner,
