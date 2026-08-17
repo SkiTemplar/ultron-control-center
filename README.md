@@ -73,19 +73,15 @@ Markdown + un MCP server estandar que cualquier asistente puede consultar).
 
 ```mermaid
 flowchart LR
-    A[Prompt en Claude Code] -->|hook UserPromptSubmit| B[daemon ultron-memory
-E5 residente]
-    B --> C[(brain.db
-SQLite + FTS5)]
-    B --> D[(Qdrant
-E5 1024d)]
+    A[Prompt en Claude Code] -->|hook UserPromptSubmit| B[daemon ultron-memory<br/>E5 residente]
+    B --> C[(brain.db<br/>SQLite + FTS5)]
+    B --> D[(Qdrant<br/>E5 1024d)]
     C -->|BM25| E[Fusion RRF + cross-encoder]
     D -->|dense| E
     E -->|pack de memorias| A
     F[Fin de sesion] -->|hook Stop| G[Captura -> inbox de candidatos]
     G -->|aprobacion| C
-    H[Cualquier cliente MCP
-Codex, Gemini CLI...] -->|MCP server| B
+    H[Cualquier cliente MCP<br/>Codex, Gemini CLI...] -->|MCP server| B
 ```
 
 ## Numeros reales (medidos, no simulados)
