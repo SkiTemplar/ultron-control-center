@@ -288,10 +288,15 @@ fn llm_classify_batch(
     let prompt = LLM_CLASSIFY_PROMPT
         .replace("{PROJECTS}", &slugs.join(", "))
         .replace("{ITEMS}", &items_txt);
+    // Modelo actualizado 2026-08-17: Groq retiró llama-3.3-70b-versatile (404
+    // en chat/completions, 33/33 lotes fallidos en el primer run real). El
+    // catálogo de producción vigente es gpt-oss; el 120b es el flagship y esta
+    // tarea adjudica proyectos (calidad > ahorro). max_tokens 1024 -> 2048:
+    // gpt-oss razona antes de responder y el razonamiento consume output.
     let payload = serde_json::json!({
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "temperature": 0,
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "messages": [{ "role": "user", "content": prompt }],
     });
     let mut last_err = String::new();
@@ -552,6 +557,7 @@ pub fn run(opts: &BackfillOpts) -> Result<serde_json::Value, String> {
             }
             batch.push((id.clone(), text));
         }
+        let mut last_llm_err: Option<String> = None;
         for (i, chunk) in batch.chunks(LLM_BATCH_SIZE).enumerate() {
             if i > 0 {
                 // El cuello real del free tier es el TPM (~6k), no el RPM:
@@ -563,7 +569,20 @@ pub fn run(opts: &BackfillOpts) -> Result<serde_json::Value, String> {
                 Ok(c) => c,
                 Err(e) => {
                     llm_errors += 1;
+                    // Fail-fast (2026-08-17): un error IDÉNTICO al anterior es
+                    // sistémico (modelo retirado -> 404, key inválida -> 401),
+                    // no transitorio: seguir machacando repite el mismo fallo
+                    // en cada lote con 30s de sleep entre medias (medido: 33
+                    // lotes x 404 = ~16 min para no clasificar nada). Dos
+                    // seguidos idénticos -> se aborta el resto de la fase; el
+                    // JSON de salida ya reporta llm_first_error y el contador.
+                    let repeated = last_llm_err.as_deref() == Some(e.as_str());
+                    last_llm_err = Some(e.clone());
                     llm_first_error.get_or_insert(e);
+                    if repeated {
+                        llm_errors += (batch.chunks(LLM_BATCH_SIZE).count() - i - 1) as u32;
+                        break;
+                    }
                     continue;
                 }
             };
