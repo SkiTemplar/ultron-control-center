@@ -55,6 +55,27 @@ E5 1024d)]
 Codex, Gemini CLI...] -->|MCP server| B
 ```
 
+## Numeros reales (medidos, no simulados)
+
+Medidos sobre el corpus real del mantenedor (~3.300 memorias activas) con un
+oraculo de 29 queries etiquetadas a mano — tu instalacion arranca vacia y las
+cifras de recall dependen de tu corpus. Reproducibles con `ultron-memory eval --golden` y los
+scripts del repo.
+
+| Metrica | Valor |
+|---|---|
+| Recall@8 (oraculo etiquetado a mano) | **0.82** |
+| MRR (la memoria correcta, arriba) | **0.95** |
+| Orchestrate con daemon caliente | **~0.5 s** (vs ~3.5 s por proceso frio) |
+| RAM en reposo (app / daemon) | **36 MB / ~40 MB** (1.5-3.5 GB con modelos cargados) |
+| Prompts reales servidos con memoria | **84%** (gates calibrados sobre trafico real, no solo golden) |
+
+Cuando el corpus no conoce la respuesta, el sistema **se abstiene** en vez de
+inyectar relleno — la honestidad del recall tambien esta medida (categoria
+abstain del bench propio).
+
+---
+
 ## Quickstart
 
 **Sistema completo** (app + skills + hooks + memoria semantica) — el camino
@@ -178,12 +199,9 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 - Devuelve un *context pack* compacto de resumenes bajo presupuesto de tokens
   (`TOKEN_BUDGET = 1500`), con trazas de *por que esta memoria* (rangos por
   fuente, scores, descartes) para el Retrieval Inspector.
-- El antiguo `recall_hybrid` (union de scores constantes, multi-store) fue
-  **eliminado el 2026-06-28** sin callers vivos: el unico camino de recall es
-  el comando unificado `recall` con RRF. Las patas multi-store **ECC**, **KG**
-  y **Mem0** estan **retiradas** (Mem0 esta muerto por politica; no
-  reintroducir): hoy las unicas fuentes vivas son Qdrant (denso) +
-  SQLite/FTS5 (sparse).
+- El unico camino de recall es el comando unificado `recall` con RRF; las
+  fuentes son Qdrant (denso) + SQLite/FTS5 (sparse). No usa servicios de
+  memoria externos.
 
 ### Captura automatica via Stop hook
 
@@ -231,10 +249,6 @@ memoria esta en `control-center/src-tauri/src/memory/`.
   como **servidor MCP** y consultado por los agentes via `codegraph_explore` /
   `codegraph_callers` / `codegraph_impact`. Indexa el repo con tree-sitter (AST)
   en `.codegraph/` (SQLite local, incremental) — 20+ lenguajes.
-- El casero v4 anterior (regex + tablas `edges`/`unresolved_refs` en brain.db +
-  panel System) fue **jubilado** (2026-06-08): aportaba menos y no se inyectaba
-  al contexto del agente. La migracion `schema_v4` se conserva como historia
-  inerte (las tablas existen vacias; no hay codigo que las consuma).
 
 ### Plugin Updates: chequeo de actualizaciones de plugins
 
@@ -283,7 +297,7 @@ npm test       # vitest (frontend)
 
 > Nota Windows: `build:app` ejecuta primero `kill-app` para cerrar cualquier
 > instancia en marcha; un binario obsoleto es la causa habitual de "no se ha
-> aplicado el cambio". Verifica HEAD y rebuild antes de re-implementar.
+> aplicado el cambio": cierra la app y recompila.
 
 ---
 

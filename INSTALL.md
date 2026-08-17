@@ -17,7 +17,6 @@ ULTRON has three install paths; pick one.
    > **Requires a published GitHub Release.** The pipeline
    > (`.github/workflows/release.yml`, triggered by a `v*.*.*` tag) is
    > active; if the Releases page is still empty on your fork/clone, use
-   > path 1. Details: [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 3. **Per-step manual** — see [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 
 ---
@@ -94,7 +93,7 @@ Full per-step reference in
 
 On Windows the first launch shows a SmartScreen warning (the NSIS
 installer is unsigned). Click **More info → Run anyway**. Code signing is
-tracked in [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+tracked by the maintainer.
 
 On Linux the `.AppImage` is `chmod +x` and run; the `.deb` installs with
 `sudo dpkg -i ultron-control-center_<ver>_amd64.deb` (`sudo apt -f install`
@@ -124,7 +123,7 @@ To uninstall:
 > If the Releases page is empty (fresh fork, or no `v*.*.*` tag pushed yet),
 > the one-liner fails at "fetching latest release" — use path 1 (clone)
 > instead. Releases are cut by pushing a version tag; see
-> [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+> el proceso de release del mantenedor.
 
 ### Windows 11 (PowerShell, no Git required)
 
