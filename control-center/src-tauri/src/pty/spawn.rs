@@ -123,6 +123,20 @@ pub(super) fn resolve_powershell_exe() -> String {
     "pwsh".to_string()
 }
 
+/// (2026-08-17, medido) Una `ANTHROPIC_API_KEY` en el entorno SECUESTRA al CLI
+/// de Claude hijo: ignora el login OAuth de la suscripción Max y cobra por
+/// token contra esa key — con saldo 0 la delegación muere en "Credit balance
+/// is too low" y además desactiva los conectores de claude.ai. La delegación
+/// del sistema es CLI-first por suscripción (coste 0 extra), así que al
+/// spawnear `claude` se limpia la variable del entorno del hijo; la key sigue
+/// disponible para quien la usa de verdad (captura del Stop hook, proxy).
+/// Solo afecta a `claude`: otros providers no leen esa variable.
+fn strip_api_key_for_claude(cmd: &mut CommandBuilder, provider: &str) {
+    if provider == "claude" {
+        cmd.env_remove("ANTHROPIC_API_KEY");
+    }
+}
+
 /// Resolve a provider slug to the CommandBuilder that actually spawns it.
 ///
 /// Windows-specific bug fix (2026-05-23): the Claude/Codex CLIs are
@@ -175,6 +189,7 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
                     cmd.arg("--agent");
                     cmd.arg(a);
                 }
+                strip_api_key_for_claude(&mut cmd, trimmed);
                 Ok(cmd)
             }
             #[cfg(not(windows))]
@@ -194,6 +209,7 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
                     cmd.arg("--agent");
                     cmd.arg(a);
                 }
+                strip_api_key_for_claude(&mut cmd, trimmed);
                 Ok(cmd)
             }
         }
