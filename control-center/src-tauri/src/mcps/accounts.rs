@@ -32,14 +32,26 @@ pub struct McpAccountTemplate {
 }
 
 /// Catálogo de plantillas. Añadir aquí = aparece en la UI sin tocar nada más.
-pub const TEMPLATES: &[McpAccountTemplate] = &[McpAccountTemplate {
-    id: "supabase",
-    label: "Supabase",
-    env_key: "SUPABASE_ACCESS_TOKEN",
-    package: "@supabase/mcp-server-supabase",
-    read_only_flag: Some("--read-only"),
-    docs_url: "https://supabase.com/dashboard/account/tokens",
-}];
+pub const TEMPLATES: &[McpAccountTemplate] = &[
+    McpAccountTemplate {
+        id: "supabase",
+        label: "Supabase",
+        env_key: "SUPABASE_ACCESS_TOKEN",
+        package: "@supabase/mcp-server-supabase",
+        read_only_flag: Some("--read-only"),
+        docs_url: "https://supabase.com/dashboard/account/tokens",
+    },
+    // Mismo paquete que el server `github-pat` ya en uso en esta máquina:
+    // coherencia antes que novedad (el server Go oficial exige docker).
+    McpAccountTemplate {
+        id: "github",
+        label: "GitHub",
+        env_key: "GITHUB_PERSONAL_ACCESS_TOKEN",
+        package: "@modelcontextprotocol/server-github",
+        read_only_flag: None,
+        docs_url: "https://github.com/settings/tokens",
+    },
+];
 
 fn template_by_id(id: &str) -> Option<&'static McpAccountTemplate> {
     TEMPLATES.iter().find(|t| t.id == id)
