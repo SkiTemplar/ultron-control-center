@@ -24,7 +24,13 @@ observe('memory-orchestrate');
 // caian al one-shot, que es peor (E5 frio, cap de 6s). El coste real del cambio
 // es solo cuando el daemon esta colgado de verdad: 6s en vez de 3s antes de
 // degradar. La charla no paga nada: no se rerankea (ver orchestrate.rs).
-const DAEMON_TIMEOUT_MS = 6000;
+// (2026-08-17) Subido de 6000 a 9000: el primer prompt tras una pausa larga
+// pilla al daemon VIVO pero con los modelos soltados por idle; recargar E5
+// (~2-5s) + resolver pasaba de los 6s por decimas (12 fallos medidos a
+// 6159-6219ms) y el prompt entraba SIN memoria. Con 9s ese prompt espera la
+// recarga y llega con recall; el precio real es solo con daemon colgado de
+// verdad (9s antes de degradar, caso raro). Presupuesto total abajo.
+const DAEMON_TIMEOUT_MS = 9000;
 // Check 1.5 (2026-07-22): con pack cacheado FRESCO del proyecto, el peor caso
 // del hook queda ~1200 (daemon) + 800 (one-shot cap) + overhead < 3000ms POR
 // CONSTRUCCION. Sin cache fresco se mantiene el colchon completo de 3000ms
@@ -40,10 +46,10 @@ const DAEMON_TIMEOUT_CACHED_MS = 4000;
 // tiene 800ms de gracia y despues se sirve el pack cacheado (marcado stale);
 // sin cache, colchon de 6s (mitad del 11s historico) porque no hay red de
 // seguridad. SessionStart ademas precalienta el daemon (memory-session-resume).
-// OJO al presupuesto TOTAL: el peor caso encadena DAEMON_TIMEOUT_MS (6000) +
-// ONE_SHOT_CAP_UNCACHED_MS (6000) = 12s exactos, que era el timeout del hook en
-// settings.json — cualquier overhead lo vencia y Claude Code DESCARTABA todo el
-// prefetch en silencio (visto 2026-08-14). El timeout esta ahora en 20s: si se
+// OJO al presupuesto TOTAL: el peor caso encadena DAEMON_TIMEOUT_MS (9000) +
+// ONE_SHOT_CAP_UNCACHED_MS (6000) = 15s, contra el timeout del hook de 20s en
+// settings.json — cualquier overhead que lo venza hace que Claude Code
+// DESCARTE todo el prefetch en silencio (visto 2026-08-14 con 12s/12s). Si se
 // sube cualquiera de estos dos caps, revisar tambien aquel. Con daemon en
 // warmup el peor caso sube a 18s (DAEMON_BOOT_WAIT_MS + one-shot, HOOKS-05).
 const ONE_SHOT_CAP_CACHED_MS = 800;

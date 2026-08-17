@@ -44,6 +44,14 @@ use emit::{emit_candidate, emit_supersede};
 use inbox_cli::inbox_command;
 
 fn main() {
+    // Config desde ~/.ultron/.env (mismo patrón no-override que lib.rs): sin
+    // esto las ULTRON_* solo llegaban si el shell/hook exportaba la variable —
+    // el daemon (serve) arrancado por un hook no las veía y un A/B por env var
+    // medía la config vieja (gotcha 2026-08-16). El proceso lee el .env al
+    // ARRANCAR: cambiar un valor exige reiniciar el daemon para que lo vea.
+    if let Some(home) = dirs::home_dir() {
+        let _ = dotenvy::from_filename(home.join(".ultron").join(".env"));
+    }
     // cat15: trace to stderr so the JSON result on stdout (the hook IPC
     // channel) stays clean. Honours RUST_LOG; defaults to info.
     control_center_lib::init_tracing_stderr();

@@ -128,14 +128,18 @@ pub(crate) fn now_ms() -> i64 {
 
 /// Minutos de inactividad tras los que se sueltan los modelos. `0` = nunca
 /// (comportamiento anterior, para quien prefiera latencia constante).
-/// E5: `ULTRON_MODEL_IDLE_MIN` (default 5). Reranker: la mitad, mínimo 1 —
-/// pesa otros ~1,5 GB y se usa mucho menos.
+/// E5: `ULTRON_MODEL_IDLE_MIN` (default 30). Reranker: la mitad, mínimo 1 —
+/// pesa otros ~1,5 GB y se usa mucho menos. El default subió de 5 a 30 el
+/// 2026-08-17: con 5 min cualquier pausa corta enfriaba el daemon y el primer
+/// prompt al volver pagaba la recarga de ~3 GB y entraba sin memoria (12 casos
+/// medidos en 3 días). 30 min cubre una sesión de trabajo real; una máquina
+/// frugal puede seguir bajándolo por variable de entorno.
 #[cfg(feature = "qdrant")]
 fn idle_release_ms(reranker: bool) -> i64 {
     let min: i64 = std::env::var("ULTRON_MODEL_IDLE_MIN")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(5);
+        .unwrap_or(30);
     if min <= 0 {
         return 0;
     }
