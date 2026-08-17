@@ -362,17 +362,19 @@ cat(1, "Memoria Qdrant", [
   },
   {
     id: "1.6",
-    desc: "precision@3 >= 0.6 y context_waste <= 0.62 (el pack es relevante, no ruido) — oraculo golden",
+    desc: "precision@3 >= 0.6 y context_waste <= 0.64 (el pack es relevante, no ruido) — oraculo golden",
     auto: true,
     check() {
       // La memoria CONTIENE el dato != lo inyectado es RELEVANTE. precision@3 mide
-      // que el top del pack sea señal; context_waste <= 0.62 acota el ruido del pack
+      // que el top del pack sea señal; context_waste <= 0.64 acota el ruido del pack
       // completo.
-      // GOAL waste 0.62 (no 0.4): waste@8 = 1 - precision@8 con denominador fijo k=8;
-      // con media n_relevant=3.31 por query, un retriever PERFECTO puntua
-      // 1 - 3.31/8 = 0.586 -> 0.4 es aritmeticamente imposible. 0.62 = suelo 0.586
-      // + margen. No se usa waste@3 porque seria 1 - p@3: tautologico con la
-      // condicion p@3 >= 0.6 que este mismo check ya exige.
+      // GOAL waste 0.64 (decidido por el usuario 2026-08-17; antes 0.62): waste@8 =
+      // 1 - precision@8 con denominador fijo k=8. Con media n_relevant~3.2 por query,
+      // waste 0.62 exigia recall >= 0.947 — por encima del techo practico (~0.92,
+      // labels con gemelos near-dup) y MAS duro que el 0.90 del check 1.1: un
+      // umbral que 1.1 no pide no puede exigirlo 1.6 de rebote. 0.64 equivale a
+      // recall ~0.90: coherente con 1.1 y alcanzable. No se usa waste@3 porque
+      // seria 1 - p@3: tautologico con la condicion p@3 >= 0.6 que ya exige.
       if (!existsSync(GOLDEN_LABELS)) {
         return { pass: false, detail: "golden_labels.json ausente (no medible)" };
       }
@@ -387,8 +389,8 @@ cat(1, "Memoria Qdrant", [
         return { pass: false, detail: "sin precision@3/context_waste en el aggregate" };
       }
       return {
-        pass: p3 >= 0.6 && waste <= 0.62,
-        detail: `precision@3=${p3.toFixed(3)} (>=0.6) context_waste=${waste.toFixed(3)} (<=0.62)`,
+        pass: p3 >= 0.6 && waste <= 0.64,
+        detail: `precision@3=${p3.toFixed(3)} (>=0.6) context_waste=${waste.toFixed(3)} (<=0.64)`,
       };
     },
   },

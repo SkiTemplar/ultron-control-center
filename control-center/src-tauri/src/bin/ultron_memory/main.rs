@@ -195,6 +195,21 @@ fn run() -> Result<serde_json::Value, String> {
             };
             ul::memory::backfill::run(&opts)
         }
+        // Curación de UN item (bisturí): project_id y/o título, con evento y
+        // reindex denso si el texto cambia. Dry-run salvo --apply.
+        //   ultron-memory curate --id <prefix> [--project <slug>] [--title "..."] [--apply]
+        "curate" => {
+            let id = flag_value(&args, "--id")
+                .ok_or_else(|| "curate requiere --id <prefijo>".to_string())?;
+            let proj = flag_value(&args, "--project");
+            let title = flag_value(&args, "--title");
+            ul::memory::curate::curate_item(
+                &id,
+                proj.as_deref(),
+                title.as_deref(),
+                has_flag(&args, "--apply"),
+            )
+        }
         // Curación puntual: mueve TODOS los items de un project_id a otro slug
         // canónico (ids legado que el normalize no puede plegar). Dry-run salvo --apply.
         "reassign-project" => {

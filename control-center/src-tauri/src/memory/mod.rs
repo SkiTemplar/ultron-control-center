@@ -148,6 +148,7 @@ pub mod auto_approve;
 pub mod backfill;
 pub mod capture;
 pub mod catalog;
+pub mod curate;
 pub mod doctor;
 pub mod migrations;
 pub mod model;
