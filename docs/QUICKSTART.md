@@ -166,7 +166,7 @@ that previews the removal without touching disk:
 3. If still red, read the relevant section in
    [`INSTALL.md`](../INSTALL.md#3-troubleshooting).
 4. If documented fixes don't help, open an issue on
-   [GitHub](https://github.com/SkiTemplar/ultron/issues) with the
+   [GitHub](https://github.com/SkiTemplar/ultron-control-center/issues) with the
    diagnostic output pasted in.
 
 That's the whole tour. Everything else is depth — feel free to dig

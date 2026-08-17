@@ -100,7 +100,7 @@ Scripts under `scripts/cockpit/*.py`. Always run them with `uv run python <scrip
 > stay synchronized with the canonical version in `pyproject.toml`. Users do
 > **not** call this directly — the Rust `version_drift` module and the release
 > helper `scripts/cut-release.ps1` are the maintainer-facing tools (see
-> `docs/RELEASE-PROCESS.md`). For end-users, version bumps happen transparently
+> el proceso del mantenedor). For end-users, version bumps happen transparently
 > via the auto-updater.
 
 The full Python toolkit is ~47 scripts (40 under `scripts/cockpit/`, the rest in `scripts/` and `scripts/hooks/`); the ones above are the ones the UI surfaces directly.

@@ -42,7 +42,7 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 > and Linux; first release published 2026-07-06). It installs the release
 > snapshot, which may lag `main`; use the clone path above if you need the
 > newest commits. The pipeline that produces releases is described in
-> [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md).
+> el proceso de release del mantenedor.
 
 This skips the clone entirely. Pick the line for your OS:
 

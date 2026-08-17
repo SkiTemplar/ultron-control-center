@@ -26,7 +26,7 @@ Produces signed installers under `src-tauri/target/release/bundle/`
 (NSIS `.exe` + MSI on Windows; `.deb` + `.AppImage` on Linux). Public releases
 are cut manually via `scripts/cut-release.ps1` (the `.github/workflows/release.yml`
 automation is currently disabled, shipped as `release.yml.disabled`) —
-see `docs/RELEASE-PROCESS.md` for the operator-facing flow.
+the release flow is maintainer-side.
 
 ## Where things live
 
