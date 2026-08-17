@@ -33,6 +33,7 @@ Ademas: **AI Router** multi-proveedor, **orquestador** de skills/agentes y cockp
 (Tauri 2 + React 19). Todo el estado son ficheros locales inspeccionables. Nada sale de tu maquina
 sin que lo configures.
 
+> Tutorial de uso diario (humano + IA): [`docs/TUTORIAL.md`](docs/TUTORIAL.md) ·
 > Spec completa del sistema de memoria: [`docs/memory-spec.md`](docs/memory-spec.md) ·
 > Instalacion por componentes: [`INSTALL.md`](INSTALL.md) · Licencia MIT.
 
