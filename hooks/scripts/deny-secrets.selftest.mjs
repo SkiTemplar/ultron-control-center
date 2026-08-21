@@ -5,7 +5,7 @@
 
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { classify, handle } = require('./deny-secrets.js');
+const { classify, decisionFor, handle } = require('./deny-secrets.js');
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -44,11 +44,38 @@ check('bash flag no-ruta', classify('Bash', { command: 'cargo build --release' }
 check('tool sin path', classify('Read', {}), null);
 check('tool desconocida', classify('Grep', { pattern: '.env' }), null);
 
+// --- deny vs ask ----------------------------------------------------------
+// El fichero de entorno del proyecto degrada a permiso explicito del usuario;
+// el resto de credenciales sigue en bloqueo duro.
+check('decisionFor: dotenv -> ask', decisionFor('dotenv credential file'), 'ask');
+check(
+  'decisionFor: dotenv via bash -> ask',
+  decisionFor('command accesses a dotenv credential file'),
+  'ask',
+);
+check('decisionFor: SSH key -> deny', decisionFor('SSH private key'), 'deny');
+check('decisionFor: keystore -> deny', decisionFor('private key / keystore (.pem)'), 'deny');
+check('decisionFor: sin motivo -> deny', decisionFor(null), 'deny');
+
 // --- Contrato del hook completo (handle) ----------------------------------
-const denyOut = handle(JSON.stringify({
+const askOut = handle(JSON.stringify({
   hook_event_name: 'PreToolUse',
   tool_name: 'Read',
   tool_input: { file_path: '/x/.env' },
+}));
+const askJson = JSON.parse(askOut);
+check('handle ask: permissionDecision', askJson.hookSpecificOutput.permissionDecision, 'ask');
+check('handle ask: event name', askJson.hookSpecificOutput.hookEventName, 'PreToolUse');
+check(
+  'handle ask: razon con prefijo',
+  askJson.hookSpecificOutput.permissionDecisionReason.startsWith('PERMISO REQUERIDO (deny-secrets):'),
+  true,
+);
+
+const denyOut = handle(JSON.stringify({
+  hook_event_name: 'PreToolUse',
+  tool_name: 'Read',
+  tool_input: { file_path: '/home/u/.ssh/id_rsa' },
 }));
 const denyJson = JSON.parse(denyOut);
 check('handle deny: permissionDecision', denyJson.hookSpecificOutput.permissionDecision, 'deny');

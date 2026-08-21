@@ -769,7 +769,15 @@ cat(3, "AI Routing (route real)", [
         `codex exec "reply with just the word OK and nothing else" --sandbox read-only --skip-git-repo-check </dev/null 2>&1`,
         { timeout: 120000 },
       );
-      const out = probe.stdout + probe.stderr;
+      // Las lineas "<timestamp> ERROR ..." del logger de codex se descartan antes del regex:
+      // codex 0.137 vuelca el body ENTERO del catalogo de modelos (~110 KB) en una linea ERROR
+      // cuando el backend le manda un reasoning level que no conoce, y ese body contiene
+      // "unauthorized" dentro de los system prompts de los modelos — ruido de log, no auth.
+      // Sin auth real no hay agujero: el modelo no responde y `replied` ya tumba el check.
+      const out = (probe.stdout + probe.stderr)
+        .split("\n")
+        .filter((l) => !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+ERROR\b/.test(l))
+        .join("\n");
       // Tokens de fallo de AUTENTICACION. OJO: NO usar la palabra "Failed" suelta: codex emite
       // "SessionStart Failed" (sus propios hooks, ajenos al login) en stdout aun autenticado.
       const authFail = /not logged in|please (log|sign) ?in|run `?codex login|IneligibleTier|unauthorized|\b401\b|invalid api key/i.test(out);
@@ -3360,15 +3368,15 @@ cat(20, "Write-path real (dedupe + PII + sink + ledger)", [
 //     (engine.rs governance gate: status/valid_to/project/source/sensitivity,
 //     jamas expires_at) -> un item caducado sigue saliendo en recall.
 //   - deprecation_entries: tabla vacia -> doctor.overdue=0 por vacuidad.
-//   - cierre-kanban: el unico mecanismo es un Stop hook (kanban-update-reminder)
-//     que SOLO emite texto "RECORDATORIO"; nunca mueve la card a 'done' ni
-//     escribe kanban.json.
+//   - cierre-kanban: el Stop hook (kanban-update-reminder) debe mover a 'done'
+//     las cards cuyo titulo matchea un commit reciente; si solo emitiera texto
+//     "RECORDATORIO" con el kanban intacto seria un no-op de cierre.
 // Todos ejecutan un artefacto REAL (hook/binario/brain.db) y aseveran sobre su
 // output observable. Los cuatro son known_red HOY: deben FALLAR honesto. Sin
 // datos (clon limpio/CI sin brain.db/kanban/binario) -> pass:false con detail
 // "no medible: <que falta>" (nunca pass por vacuidad).
-const KANBAN_CAT21 = join(COCKPIT, "projects", "ultron", "kanban.json");
 const KANBAN_REMINDER_HOOK = join(HOOKS_SCRIPTS, "kanban-update-reminder.js");
+const KANBAN_REMINDER_SELFTEST = join(HOOKS_SCRIPTS, "kanban-update-reminder.selftest.mjs");
 
 // python -c en UNA sola linea (sin '\n' literal, que el shell no reconvierte a
 // salto y rompe el parser de python). Statements unidos por ';'. Requiere
@@ -3395,82 +3403,36 @@ function sqliteScalar(query) {
 cat(21, "Estado vivo (codigo muerto: Stale/TTL/cierre-kanban)", [
   {
     id: "21.1",
-    desc: "cierre-kanban e2e: el Stop hook con transcript de tarea-hecha CIERRA la card (role=done) o escribe el kanban, NO solo emite texto RECORDATORIO",
+    desc: "cierre-kanban e2e: con commit que matchea una card viva, el Stop hook la mueve a role=done; sin esa evidencia deja el kanban intacto",
     auto: true,
     check() {
       if (!fileExists(KANBAN_REMINDER_HOOK)) {
         return { pass: false, detail: "no medible: falta hooks/scripts/kanban-update-reminder.js" };
       }
-      if (!fileExists(KANBAN_CAT21)) {
-        return { pass: false, detail: "no medible: falta cockpit/projects/ultron/kanban.json (clon limpio/CI)" };
+      if (!fileExists(KANBAN_REMINDER_SELFTEST)) {
+        return { pass: false, detail: "no medible: falta hooks/scripts/kanban-update-reminder.selftest.mjs" };
       }
-      // Fixture: usuario pide tarea completable + asistente la marca hecha + commit.
-      // HERMETICO (fidelidad 2026-07-03): el texto lleva un run-id UNICO — con
-      // texto fijo, el auto-log del run ANTERIOR (dedupe Jaccard del hook, que
-      // es la salvaguarda CORRECTA en produccion) bloqueaba la card nueva y el
-      // check leia su PROPIO residuo como "no-op de cierre" (falso negativo).
-      // Tras medir, el kanban se RESTAURA (finally) para no acumular residuo.
-      const logsDir = join(ULTRON, "logs");
-      try { if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true }); } catch {}
-      const runId = Date.now();
-      const fixture = join(logsDir, `kirkardo-cat21-transcript-${runId}.jsonl`);
-      const transcript = [
-        JSON.stringify({ type: "user", message: { role: "user", content: `implementa la tarea sintetica ${runId} del harness de verificacion e2e` } }),
-        JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Listo. He completado la tarea y la card ya esta hecha. Commit aplicado." }] } }),
-      ].join("\n");
-
-      // Conteo de cards en columnas role=done ANTES (detecta cierre real).
-      const countDone = (raw) => {
-        try {
-          const d = JSON.parse(raw);
-          const doneCols = new Set((d.columns ?? []).filter((c) => c.role === "done").map((c) => c.id));
-          return (d.cards ?? []).filter((c) => doneCols.has(c.column_id)).length;
-        } catch { return null; }
-      };
-      const before = (() => { try { return readFileSync(KANBAN_CAT21, "utf8"); } catch { return null; } })();
-      const doneBefore = before === null ? null : countDone(before);
-
-      let out = "", code = -1;
-      try {
-        writeFileSync(fixture, transcript, "utf8");
-        const payload = JSON.stringify({
-          transcript_path: fwd(fixture),
-          cwd: fwd(ULTRON),
-          hook_event_name: "Stop",
-          session_id: "kirkardo-cat21",
-        });
-        // stdin via spawnSync DIRECTO (el helper run() NO reenvia opts.input);
-        // mismo patron que runResumeHook.
-        const r = spawnSync("node", [KANBAN_REMINDER_HOOK], {
-          input: payload, encoding: "utf8", timeout: 15000, cwd: ULTRON,
-        });
-        out = (r.stdout ?? "").trim();
-        code = r.status;
-      } catch (e) {
-        return { pass: false, detail: `excepcion ejecutando el hook: ${e.message}` };
-      } finally {
-        try { run(`rm -f "${fwd(fixture)}"`, { timeout: 5000 }); } catch {}
-      }
-
-      const after = (() => { try { return readFileSync(KANBAN_CAT21, "utf8"); } catch { return null; } })();
-      const doneAfter = after === null ? null : countDone(after);
-      const kanbanChanged = before !== null && after !== null && before !== after;
-      // Restaurar el tablero de produccion al estado previo: el check mide el
-      // cierre real pero NO debe dejar la card sintetica en el board.
-      if (kanbanChanged) {
-        try { writeFileSync(KANBAN_CAT21, before, "utf8"); } catch {}
-      }
-      const cardClosed = doneBefore !== null && doneAfter !== null && doneAfter > doneBefore;
-      const realClose = cardClosed || kanbanChanged;
-      const onlyReminder = /RECORDATORIO/i.test(out) && !realClose;
-
+      // 2026-08-19: el check ejecuta el selftest HERMETICO del hook en vez de
+      // dispararlo contra cockpit/projects/ultron/kanban.json. Antes medimos
+      // sobre el board de produccion y dependiamos del auto-registro de cards
+      // (retirado por invasivo): sin el, ese fixture ya no podia cerrar nada
+      // y el check habria dado rojo por un contrato viejo, no por un fallo.
+      // El selftest levanta repo git + kanban temporales, corre el hook REAL y
+      // asevera sobre el kanban resultante — misma clase de evidencia, cero
+      // residuo en el tablero del usuario.
+      const r = spawnSync("node", [KANBAN_REMINDER_SELFTEST], {
+        encoding: "utf8", timeout: 120000, cwd: ULTRON,
+      });
+      const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+      const closedByCommit = /\[PASS\] caso1: card viva cerrada por match de commit/.test(out);
+      const intactWithoutCommit = /\[PASS\] caso2: sin commit que matchee -> kanban INTACTO/.test(out);
+      const green = r.status === 0;
+      const failing = (out.match(/\[FAIL\][^\n]*/g) ?? []).slice(0, 2).join(" | ");
       return {
-        pass: realClose,
-        detail: realClose
-          ? `cierre real detectado (cards_done ${doneBefore}->${doneAfter}, kanban_changed=${kanbanChanged})`
-          : onlyReminder
-            ? `solo RECORDATORIO de texto, kanban INTACTO (cards_done=${doneBefore}); no-op de cierre (mandamiento 11)`
-            : `sin cierre ni recordatorio (exit=${code}, out="${out.slice(0, 80)}")`,
+        pass: green && closedByCommit && intactWithoutCommit,
+        detail: green && closedByCommit && intactWithoutCommit
+          ? "selftest VERDE: cierra por match de commit y no toca el board sin evidencia"
+          : `selftest exit=${r.status} cierre=${closedByCommit} intacto=${intactWithoutCommit}${failing ? ` :: ${failing}` : ""}`,
       };
     },
   },
@@ -3667,21 +3629,52 @@ const ROUTE_VALID_AGENTS = {
 
 // Ejecuta el hook con stdin {prompt,cwd} y parsea la <orchestration-directive>
 // del additionalContext renderizado. Devuelve { ok, route, directive|null }.
+// (2026-08-17) Reintenta si la salida viene del CACHE stale (daemon frio en el
+// arranque de la corrida): el pack cacheado ya NO trae directiva (el hook la
+// anula porque es de otro prompt), asi que medirlo puntuaba la ventana de
+// warmup como fallo de delegacion (22.1/22.2/22.5 con detalles de otro prompt
+// o "sin-directiva"). El primer intento ya spawnea el daemon; 5s despues la
+// respuesta es del motor real. Max 3 intentos; si sigue cacheado se mide tal
+// cual (un daemon que nunca arranca SI es un fallo real).
+let _orchWarmed = false;
+function warmOrchestrateOnce() {
+  // Mismo patron que runGoldenEval con E5 (fidelidad bs60k6): el primer prompt
+  // TECNICO de una corrida paga la carga del cross-encoder (~1 GB) y vence el
+  // presupuesto del hook -> pack cacheado sin directiva. Eso mide la ventana de
+  // warmup, no la calidad de delegacion. Un orchestrate de sacrificio (no
+  // puntuado) calienta el CE; los checks miden el motor en regimen.
+  if (_orchWarmed) return;
+  _orchWarmed = true;
+  const input = JSON.stringify({
+    prompt: "warmup tecnico del harness: analiza el rendimiento del pipeline de recall hibrido",
+    cwd: ULTRON,
+    hook_event_name: "UserPromptSubmit",
+  });
+  try {
+    spawnSync("node", [ORCH_HOOK], { input, encoding: "utf8", timeout: 60000, cwd: ULTRON });
+  } catch { /* best-effort */ }
+}
+
 function runOrchestrate(prompt, cwd) {
+  warmOrchestrateOnce();
   const input = JSON.stringify({ prompt, cwd, hook_event_name: "UserPromptSubmit" });
-  let r;
-  try {
-    r = spawnSync("node", [ORCH_HOOK], { input, encoding: "utf8", timeout: 60000, cwd: ULTRON });
-  } catch (e) {
-    return { ok: false, raw: String(e) };
-  }
-  const out = (r.stdout ?? "").trim();
   let ac = "";
-  try {
-    const j = JSON.parse(out);
-    ac = j.hookSpecificOutput?.additionalContext ?? j.additionalContext ?? "";
-  } catch {
-    return { ok: false, raw: out.slice(0, 160) };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) execSync("node -e \"setTimeout(()=>{},5000)\"", { timeout: 20000 });
+    let r;
+    try {
+      r = spawnSync("node", [ORCH_HOOK], { input, encoding: "utf8", timeout: 60000, cwd: ULTRON });
+    } catch (e) {
+      return { ok: false, raw: String(e) };
+    }
+    const out = (r.stdout ?? "").trim();
+    try {
+      const j = JSON.parse(out);
+      ac = j.hookSpecificOutput?.additionalContext ?? j.additionalContext ?? "";
+    } catch {
+      return { ok: false, raw: out.slice(0, 160) };
+    }
+    if (!ac.includes("context pack CACHEADO")) break;
   }
   const route = (ac.match(/route="([^"]*)"/) || [])[1] ?? "";
   const m = ac.match(/<orchestration-directive[^>]*>([\s\S]*?)<\/orchestration-directive>/);

@@ -13,7 +13,7 @@ const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary, read
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
-const { detectForPrompt } = require('./lib/tone-detect');
+const { detectForPrompt, loadPersonality } = require('./lib/tone-detect');
 observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
@@ -38,7 +38,12 @@ const DAEMON_TIMEOUT_MS = 9000;
 // Subido de 1200 a 4000 por el mismo motivo: con pack cacheado fresco el
 // presupuesto era mas corto que el propio rerank, asi que un turno tecnico se
 // servia SIEMPRE del cache stale en vez de esperar al pack bueno.
-const DAEMON_TIMEOUT_CACHED_MS = 4000;
+// (2026-08-17) 4000 -> 6000: medido en el harness (22.1/22.2), un prompt
+// tecnico con rerank quedaba AL LIMITE de los 4s y caia al cache stale de
+// forma reproducible (route de otro prompt, sin directiva). 6s = el mismo
+// presupuesto que sin cache; el cache fresco sigue siendo la red si el daemon
+// esta colgado de verdad.
+const DAEMON_TIMEOUT_CACHED_MS = 6000;
 
 // HOOKS-04 (auditoria 2026-07-16, decidido por el usuario 2026-07-17): cap del
 // fallback one-shot + pack cacheado. Medido: daemon HIT p50=562ms, MISS
@@ -125,9 +130,65 @@ function emit(additionalContext) {
 // son una orden de registro para TODA la respuesta, no una sugerencia de routing.
 // Viven fuera de render() porque el camino de memoria DEGRADADA (sin contexto)
 // tambien debe entregar el tono: la deteccion es local y no depende del sidecar.
+/**
+ * Tono por defecto del sistema (`default_tone` de personality.json).
+ *
+ * `detectForPrompt` devuelve null cuando ningun tono gana, porque el default
+ * "ya es la base" (vive en el CLAUDE.md global). La practica dice otra cosa: sin
+ * la directiva viajando CON el prompt, el registro se diluye turno a turno
+ * — el usuario lo reclamo cinco veces entre julio y agosto de 2026. Asi que el
+ * default se inyecta siempre, en todos los proyectos, con la version compacta
+ * de la directiva.
+ *
+ * Ojo al tocar esto: la POLITICA vive aqui, no en lib/tone-detect.js. La
+ * deteccion tiene un gate de paridad JS<->Rust (_tone_parity.js) y meterle el
+ * fallback la haria divergir del detector del sidecar, que responde a otra
+ * pregunta ("que tono pide este prompt", no "con que tono respondo").
+ */
+function defaultTone() {
+  try {
+    const file = loadPersonality();
+    if (!file || !file.default_tone) return null;
+    const tone = (file.tones || []).find((t) => t.id === file.default_tone);
+    if (!tone) return null;
+    return {
+      id: tone.id,
+      name: tone.name,
+      lang: tone.lang,
+      style_guide: tone.style_guide,
+      profanity: tone.profanity,
+      is_default: true,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Tono detectado en el prompt; si no hay, el default del sistema. */
+function toneForPrompt(prompt) {
+  return detectForPrompt(prompt) || defaultTone();
+}
+
 function toneLines(t) {
   const out = [];
-  if (t && t.id) {
+  if (!t || !t.id) return out;
+
+  // El default viaja en TODOS los turnos, asi que se paga en todos: se emite la
+  // guia de estilo completa y el limite de ambito, sin el bloque de conviccion
+  // que necesita un tono elegido a proposito (~90 tokens frente a ~350).
+  if (t.is_default) {
+    out.push(`tone_active: ${t.name} [${t.id}] — registro por defecto del sistema`);
+    out.push(
+      `tone_directive: este es el registro de TODA la respuesta al usuario, en ` +
+        `cualquier proyecto y sin que haga falta pedirlo. Viste SOLO el chat: codigo, ` +
+        `comentarios, commits, PRs, docs y prompts a subagentes van en tono tecnico ` +
+        `profesional con ortografia completa. Los datos tecnicos se mantienen EXACTOS. ` +
+        `Idioma: ${t.lang || 'es'}. Guía: ${t.style_guide || ''}`
+    );
+    return out;
+  }
+
+  if (t.id) {
     out.push(`tone_detected: ${t.name} [${t.id}] — ${t.reason || ''}`);
     // Feedback del usuario 2026-08-13: "a good chunk of personality, not a
     // couple of words here and there" — la directiva exige compromiso TOTAL,
@@ -361,6 +422,15 @@ async function main() {
       staleFromCache = true;
       if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
       ctx.warnings.push('context pack CACHEADO de un prompt anterior (daemon frio) — route/steps pueden no aplicar a este prompt');
+      // (2026-08-17, medido en el harness 22.2/22.5) La DIRECTIVA de delegacion
+      // es especifica del prompt que la genero: servirla stale ordenaba delegar
+      // "consolida la memoria" a rust-engineer y ponia sonnet a un analisis de
+      // arquitectura — el motor decide bien, el cache re-emitia la decision de
+      // OTRO prompt. Las memorias stale ayudan; una orden de delegar stale
+      // desinforma. Se anula junto a los step_plans (misma naturaleza).
+      ctx.delegation_directive = null;
+      ctx.directive = null;
+      ctx.step_plans = null;
     }
     // cat9 (mandamiento 11: prohibido el no-op silencioso). Si ni el daemon ni el
     // spawn one-shot devolvieron orquestacion, es FALLO real del sidecar (no hay
@@ -376,7 +446,7 @@ async function main() {
   // El tono se detecta SIEMPRE en local sobre ESTE prompt y pisa lo que traiga el
   // pack: si el pack venia cacheado, su `tone` es el del prompt anterior (o null)
   // y aplicarlo era la causa medida de "el tono apenas se aplica" (2026-08-14).
-  const localTone = detectForPrompt(prompt);
+  const localTone = toneForPrompt(prompt);
 
   if (!ctx) {
     // Aviso visible al modelo (mismo patron que el resume degradado): sin esto el

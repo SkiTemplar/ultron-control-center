@@ -39,3 +39,43 @@ pub fn roster_save(project_id: &str, file: &AgentRosterFile) -> Result<(), Strin
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::RosterEntry;
+    use super::*;
+
+    #[test]
+    fn roster_roundtrip_and_missing_project() {
+        let pid = format!("test-roster-{}", std::process::id());
+        let file = AgentRosterFile {
+            entries: vec![RosterEntry {
+                name: "debugger".into(),
+                reason: "bugs del stack".into(),
+                suggested_role: "QA".into(),
+            }],
+        };
+        roster_save(&pid, &file).expect("save");
+        let loaded = roster_load(&pid).expect("load");
+        assert_eq!(loaded.entries.len(), 1);
+        assert_eq!(loaded.entries[0].name, "debugger");
+        assert_eq!(loaded.entries[0].reason, "bugs del stack");
+        assert_eq!(loaded.entries[0].suggested_role, "QA");
+
+        // Contract: a project without agent-roster.json yields Ok with an
+        // empty default roster, never Err (persistence.rs early-return).
+        let missing =
+            roster_load("proyecto-que-no-existe-xyz").expect("missing roster must be Ok(default)");
+        assert!(missing.entries.is_empty());
+
+        // Cleanup: remove only the test project dir created above.
+        if let Some(home) = dirs::home_dir() {
+            let _ = fs::remove_dir_all(
+                home.join(".ultron")
+                    .join("cockpit")
+                    .join("projects")
+                    .join(&pid),
+            );
+        }
+    }
+}

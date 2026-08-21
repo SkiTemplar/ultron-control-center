@@ -8,8 +8,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 
-use crate::sessions::{self, SpawnFlags, SpawnResult};
-
 use super::delegation_log::{log_delegation, now_secs_safe, truncate};
 use super::provider_router;
 use super::types::{DelegateRequest, DelegateTaskResult, DelegationLogEntry};
@@ -72,14 +70,14 @@ pub fn strip_ansi(raw: &[u8]) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Lightweight model hint picked by the UI when the user opts into the
-/// "use cheap model" checkbox. We map this to a concrete Claude CLI
-/// `--model` flag here so the frontend stays agnostic about which model
-/// IDs are valid at any given time.
-/// Resolve the cheap model id from the AI Router's `light` zone primary, so
-/// the cheap delegation path follows the same config as the rest of the system
-/// instead of a hardcoded literal. Falls back to Haiku 4.5 (the historical
-/// default) when zones are unreadable, preserving prior behaviour.
+/// Resolve the cheap model id from the AI Router's `light` zone primary.
+/// Falls back to Haiku 4.5 (the historical default) when zones are unreadable.
+///
+/// HONESTY NOTE: no production caller performs this mapping today — the
+/// function is exercised only by tests. `DelegateRequest.use_cheap_model` is
+/// recorded in the delegation log but NOT applied to the spawned CLI (no
+/// `--model` flag is passed); this resolver is kept as the single place that
+/// mapping will live when the flag is wired for real.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn resolve_cheap_model() -> String {
     crate::ai_router::primary_model_for_zone("light")
@@ -102,6 +100,23 @@ pub fn validate_agent_slug(slug: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Synchronous guards shared by the blocking path and the launch path.
+pub(super) fn validate_delegate_request(req: &DelegateRequest) -> Result<(), String> {
+    let agent_trim = req.agent.trim();
+    if agent_trim.is_empty() {
+        return Err("agent slug is empty".to_string());
+    }
+    validate_agent_slug(agent_trim)?;
+    let task = req.task.trim();
+    if task.is_empty() {
+        return Err("task description is empty".to_string());
+    }
+    if task.len() > 16_000 {
+        return Err("task description exceeds 16KB ceiling".to_string());
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Core delegation paths
 // ---------------------------------------------------------------------------
@@ -119,25 +134,30 @@ pub fn validate_agent_slug(slug: &str) -> Result<(), String> {
 ///    `Err("timeout — partial output: ...")` containing whatever was
 ///    captured so the caller can pass it to a `debugger` fallback.
 ///
-/// The legacy `SpawnResult`-returning fire-and-forget path is preserved as
-/// `delegate_task_fire_and_forget` for callers that do not need the output
-/// (e.g. the UI "Launch agent" button).
-pub async fn delegate_task_inner(
+/// The fire-and-forget counterpart is `delegate_task_launch_inner`, which
+/// pre-registers a "running" log entry and runs this function in the
+/// background.
+///
+/// `log_id` lets the caller pre-register a delegation log entry (e.g. a
+/// "running" placeholder) and have the final entry written with the SAME id;
+/// `None` keeps the historical auto-generated `dl-<secs>-<nonce>` id.
+/// NOTE: on early `Err` (guards, PTY spawn failure, missing CLI) NO final
+/// entry is written under `log_id` — closing the entry is the caller's
+/// responsibility (which is exactly what `delegate_task_launch_inner` does
+/// with its "failed" append).
+pub async fn delegate_task_inner_logged(
     app: &tauri::AppHandle,
     req: DelegateRequest,
+    log_id: Option<String>,
 ) -> Result<DelegateTaskResult, String> {
+    validate_delegate_request(&req)?;
+    // Launch timestamp, captured BEFORE spawning the PTY: the final log entry
+    // must record when the delegation STARTED, not when it finished — the
+    // dedupe collapses running→final, so stamping at log time would make a
+    // 10-min delegation claim it started 10 min late in the UI.
+    let started_at_iso = crate::activity_timeline::epoch_secs_to_iso(now_secs_safe());
     let agent_trim = req.agent.trim();
-    if agent_trim.is_empty() {
-        return Err("agent slug is empty".to_string());
-    }
-    validate_agent_slug(agent_trim)?;
     let task = req.task.trim();
-    if task.is_empty() {
-        return Err("task description is empty".to_string());
-    }
-    if task.len() > 16_000 {
-        return Err("task description exceeds 16KB ceiling".to_string());
-    }
 
     // Resolve timeout — clamp to 1 hour ceiling, default 300 s.
     let timeout_secs = match req.timeout_secs {
@@ -240,7 +260,10 @@ pub async fn delegate_task_inner(
 
     loop {
         // Sleep first so the agent has time to start up before the first check.
-        std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+        // Async sleep: this fn runs on tauri::async_runtime::spawn (tokio) —
+        // a blocking thread::sleep here would pin a worker thread for up to
+        // 3600 s per delegation and starve every other Tauri command.
+        tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
 
         let capture = crate::pty::capture_output_inner(&session_id, offset)?;
         offset = capture.new_offset;
@@ -341,15 +364,17 @@ pub async fn delegate_task_inner(
     } else {
         "timeout"
     };
+    let entry_id = log_id.unwrap_or_else(|| format!("dl-{}-{:04}", now_secs_safe(), id_nonce));
     if let Err(e) = log_delegation(DelegationLogEntry {
-        id: format!("dl-{}-{:04}", now_secs_safe(), id_nonce),
+        id: entry_id,
         agent: agent_trim.to_string(),
         task_preview: truncate(task, 200),
         cwd: req.cwd.clone(),
         cheap_model_requested: req.use_cheap_model,
-        started_at: crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
+        started_at: started_at_iso,
         status: log_status.to_string(),
         session_id: Some(session_id.clone()),
+        error: None,
     }) {
         eprintln!("[agent_orchestration] log_delegation failed: {e}");
     }
@@ -370,83 +395,72 @@ pub async fn delegate_task_inner(
     }
 }
 
-/// Fire-and-forget delegation: spawns a session via wt.exe and returns
-/// immediately without waiting for the agent to finish.  Retained for
-/// future re-wiring; the `delegate_task_launch` Tauri command was
-/// removed (cat10, 2026-06-19) pending a live frontend invoke().
-#[allow(dead_code)]
-pub async fn delegate_task_fire_and_forget(
+/// Compatibility wrapper: same contract as before the `log_id` refactor —
+/// the delegation log entry keeps its auto-generated id.
+pub async fn delegate_task_inner(
     app: &tauri::AppHandle,
     req: DelegateRequest,
-) -> Result<SpawnResult, String> {
-    let agent_trim = req.agent.trim();
-    if agent_trim.is_empty() {
-        return Err("agent slug is empty".to_string());
-    }
-    validate_agent_slug(agent_trim)?;
-    let task = req.task.trim();
-    if task.is_empty() {
-        return Err("task description is empty".to_string());
-    }
-    if task.len() > 16_000 {
-        return Err("task description exceeds 16KB ceiling".to_string());
-    }
+) -> Result<DelegateTaskResult, String> {
+    delegate_task_inner_logged(app, req, None).await
+}
 
-    let mut flags = SpawnFlags {
-        agent: Some(agent_trim.to_string()),
-        ..Default::default()
-    };
-    if req.use_cheap_model {
-        flags.model = Some(resolve_cheap_model());
-    }
-    let cwd_for_log = req.cwd.clone();
-
-    use tauri::Emitter;
-    let _ = app.emit(
-        "workflow:delegating",
-        serde_json::json!({
-            "agent": agent_trim,
-            "task_preview": truncate(task, 160),
-            "cheap_model_requested": req.use_cheap_model,
-            "started_at": crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
-        }),
-    );
-
-    let result = sessions::spawn_session_inner(
-        app,
-        "claude".to_string(),
-        Some(task.to_string()),
-        req.cwd,
-        Some(flags),
-    )
-    .await;
-
-    let _ = app.emit(
-        "workflow:delegated",
-        serde_json::json!({
-            "agent": agent_trim,
-            "status": if result.is_ok() { "launched" } else { "failed" },
-            "task_preview": truncate(task, 160),
-        }),
-    );
-
-    let status = if result.is_ok() { "launched" } else { "failed" };
+/// Fire-and-forget: validates, appends a "running" log entry and launches
+/// `delegate_task_inner_logged` in the background with the SAME log id, so the
+/// final entry (done/timeout) collapses onto the running one in
+/// `list_delegations_inner`. On ANY background `Err` — early failures (PTY
+/// spawn, missing CLI) AND timeouts — a "failed" entry with the error is
+/// appended, so launch-initiated rows never end as "timeout": the "failed"
+/// append wins the dedupe over the "timeout" entry and the timeout message
+/// survives inside `error`. Silent no-ops are forbidden.
+pub async fn delegate_task_launch_inner(
+    app: &tauri::AppHandle,
+    req: DelegateRequest,
+) -> Result<String, String> {
+    validate_delegate_request(&req)?;
     let id_nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_micros() % 10_000)
         .unwrap_or(0);
-    if let Err(e) = log_delegation(DelegationLogEntry {
-        id: format!("dl-{}-{:04}", now_secs_safe(), id_nonce),
-        agent: agent_trim.to_string(),
-        task_preview: truncate(task, 200),
-        cwd: cwd_for_log,
+    let id = format!("dl-{}-{:04}", now_secs_safe(), id_nonce);
+    let started_at_iso = crate::activity_timeline::epoch_secs_to_iso(now_secs_safe());
+    log_delegation(DelegationLogEntry {
+        id: id.clone(),
+        agent: req.agent.trim().to_string(),
+        task_preview: truncate(req.task.trim(), 200),
+        cwd: req.cwd.clone(),
         cheap_model_requested: req.use_cheap_model,
-        started_at: crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
-        status: status.to_string(),
+        started_at: started_at_iso.clone(),
+        status: "running".to_string(),
         session_id: None,
-    }) {
-        eprintln!("[agent_orchestration] log_delegation failed: {e}");
-    }
+        error: None,
+    })?;
 
-    result
+    let app2 = app.clone();
+    let id2 = id.clone();
+    let agent = req.agent.trim().to_string();
+    let task_preview = truncate(req.task.trim(), 200);
+    let cwd = req.cwd.clone();
+    let cheap = req.use_cheap_model;
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = delegate_task_inner_logged(&app2, req, Some(id2.clone())).await {
+            // A timeout Err already left its "timeout" entry under this id; this
+            // later "failed" entry wins in the dedupe and preserves the error.
+            // `started_at_iso` is the LAUNCH time — a fresh timestamp here would
+            // make the UI row claim the delegation started when it died.
+            if let Err(log_err) = log_delegation(DelegationLogEntry {
+                id: id2,
+                agent,
+                task_preview,
+                cwd,
+                cheap_model_requested: cheap,
+                started_at: started_at_iso,
+                status: "failed".to_string(),
+                session_id: None,
+                error: Some(truncate(&e, 300)),
+            }) {
+                eprintln!("[agent_orchestration] launch log failed: {log_err}");
+            }
+        }
+    });
+    Ok(id)
 }

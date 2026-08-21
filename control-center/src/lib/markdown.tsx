@@ -13,6 +13,7 @@
 // blockquote, tables.
 
 import { Fragment, type ReactNode } from "react";
+import { handleExternalClick } from "./openExternal";
 
 // ---------------------------------------------------------------------------
 // Inline tokenizer.
@@ -93,6 +94,7 @@ export function renderInline(text: string, keyBase: string): ReactNode[] {
               key={`${keyBase}-a-${k++}`}
               href={text.slice(close + 2, urlEnd)}
               target="_blank"
+              onClick={handleExternalClick}
               rel="noreferrer"
               style={{ color: "var(--color-accent)", textDecoration: "underline" }}
             >

@@ -74,11 +74,11 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
           aceptadas + agentes delegados + previsualizar orquestacion) vive ahora
           en la zona Sessions -> sub-tab "Orquestacion" (movido del Dashboard). */}
 
-      {/* Two-column shell: main content + right To-Do side panel. */}
-      <div
-        className="grid gap-4"
-        style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 340px)" }}
-      >
+      {/* Two-column shell: main content + right To-Do side panel.
+          (2026-08-17) Responsive: en ventana estrecha (<1280px) el panel To-Do
+          caia FUERA del viewport (columna fija de 300-340px que no colapsaba,
+          visto en captura a 1114px). Bajo xl el To-Do cae debajo del contenido. */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,340px)]">
         {/* Main column — two bento rows */}
         <div className="flex flex-col gap-4">
           {/* Top row: Memory (narrower) + Crash Events (wider, spans 2 cols at ≥1024px) */}

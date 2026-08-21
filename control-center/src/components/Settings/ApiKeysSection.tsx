@@ -9,6 +9,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { handleExternalClick } from "../../lib/openExternal";
 
 // ------------------------------------------------------------------
 // Types
@@ -253,6 +254,7 @@ function GithubTokenSubsection() {
         <a
           href="https://github.com/settings/tokens"
           target="_blank"
+          onClick={handleExternalClick}
           rel="noopener noreferrer"
           className="text-[10.5px] transition-colors"
           style={{ color: "var(--color-accent)" }}
@@ -551,6 +553,7 @@ export function ApiKeysSection() {
                 <a
                   href={def.docsUrl}
                   target="_blank"
+                  onClick={handleExternalClick}
                   rel="noopener noreferrer"
                   className="text-[10.5px] transition-colors"
                   style={{ color: "var(--color-accent)" }}

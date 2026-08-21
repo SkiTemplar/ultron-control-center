@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { handleExternalClick } from "../../lib/openExternal";
 
 // Settings > MCP Accounts — alta de N cuentas por plantilla de MCP (Supabase…)
 // sin tocar comandos: alias + token y la app escribe la entrada mcpServers en
@@ -154,6 +155,7 @@ export function McpAccountsSection() {
             <a
               href={template.docs_url}
               target="_blank"
+              onClick={handleExternalClick}
               rel="noopener noreferrer"
               className="ml-auto text-[10.5px]"
               style={{ color: "var(--color-accent)" }}

@@ -117,6 +117,29 @@ function classify(toolName, toolInput) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// deny vs ask
+// ---------------------------------------------------------------------------
+
+// Motivos que degradan de bloqueo duro a peticion de permiso (2026-08-19).
+// El fichero de variables de entorno es la config del proyecto en el que se
+// trabaja: bloquearlo en seco obligaba a salir a una shell manual para tareas
+// legitimas (ver que variable falta, anadir una clave). Con 'ask' el harness
+// pide confirmacion al usuario en el momento y el permiso muere con esa tool
+// call — sigue sin haber acceso silencioso, que es lo que este hook existe
+// para impedir.
+//
+// Todo lo demas (claves privadas, keystores, .ssh, credenciales cloud,
+// service accounts) se queda en deny duro: ningun flujo normal necesita que
+// el agente las lea.
+const ASK_REASON_FRAGMENTS = ['dotenv credential file'];
+
+/** 'ask' si el motivo admite permiso explicito del usuario, 'deny' si no. */
+function decisionFor(reason) {
+  if (!reason || typeof reason !== 'string') return 'deny';
+  return ASK_REASON_FRAGMENTS.some((f) => reason.includes(f)) ? 'ask' : 'deny';
+}
+
 function handle(raw) {
   let data;
   try {
@@ -141,6 +164,21 @@ function handle(raw) {
   }
 
   if (!reason) return null;
+
+  const decision = decisionFor(reason);
+  if (decision === 'ask') {
+    return JSON.stringify({
+      systemMessage:
+        `ULTRON deny-secrets: ${reason} — requiere permiso explicito del ` +
+        `usuario. Concedido, el acceso vale solo para esta tool call.`,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: `PERMISO REQUERIDO (deny-secrets): ${reason}`,
+      },
+    });
+  }
+
   return JSON.stringify({
     systemMessage:
       `ULTRON deny-secrets blocked: ${reason}. Credential files are ` +
@@ -155,7 +193,7 @@ function handle(raw) {
 }
 
 // Export para el selftest; ejecucion real solo como script principal.
-module.exports = { classify, classifyPath, classifyBash, handle };
+module.exports = { classify, classifyPath, classifyBash, decisionFor, handle };
 
 if (require.main === module) {
   let raw = '';

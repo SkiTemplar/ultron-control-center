@@ -1,6 +1,8 @@
 // Tipos para el monitor de sesiones activas (list_active_sessions).
 // Separados de types.ts (launcher) para evitar colisiones.
 
+import type { DelegationLogEntry } from "../agents/types";
+
 export type SessionStatus = "working" | "waiting" | "idle" | "dead";
 
 export interface SessionInfo {
@@ -90,17 +92,11 @@ export interface RoutingLogEntry {
   confidence: number | null;
 }
 
-/** Delegación de agente registrada (delegations.jsonl). */
-export interface DelegationLogEntry {
-  id: string;
-  agent: string;
-  task_preview: string;
-  cwd: string | null;
-  used_cheap_model: boolean;
-  started_at: string;
-  status: string;
-  session_id: string | null;
-}
+/**
+ * Delegación de agente registrada (delegations.jsonl). Espejo único en
+ * agents/types.ts — aquí solo se re-exporta para los consumidores del monitor.
+ */
+export type { DelegationLogEntry };
 
 /**
  * Subagente COMPLETADO, cosechado por el hook SubagentStop

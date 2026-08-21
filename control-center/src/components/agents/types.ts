@@ -12,15 +12,21 @@ export type ScopeFilter = "all" | SkillOrigin;
 
 export type EnableFilter = "active" | "disabled" | "all";
 
+/**
+ * ÚNICO espejo TS de `agent_orchestration::DelegationLogEntry` (types.rs).
+ * Serde serializa `cheap_model_requested`; el alias legacy del campo solo
+ * cubre la DEserialización del JSONL histórico — nunca llega al frontend.
+ */
 export type DelegationLogEntry = {
   id: string;
   agent: string;
   task_preview: string;
   cwd: string | null;
-  used_cheap_model: boolean;
+  cheap_model_requested: boolean;
   started_at: string;
-  status: string;
+  status: string; // "running" | "done" | "failed" | "stale" | legacy: "timeout" | "launched"
   session_id: string | null;
+  error?: string | null;
 };
 
 export type LabelCount = {

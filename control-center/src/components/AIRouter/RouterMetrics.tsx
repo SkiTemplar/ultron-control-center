@@ -184,7 +184,7 @@ export function RouterMetrics() {
       {/* Con trafico — mostrar tarjetas + matriz */}
       {hasTraffic && (
         <>
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <StatCard
               label="Tokens salida fallback"
               value={formatNum(metrics.fallback_output_tokens)}

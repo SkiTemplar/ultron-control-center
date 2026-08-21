@@ -70,7 +70,7 @@ export function DelegationsStrip({ delegations }: DelegationsStripProps) {
                   >
                     {chip.label}
                   </span>
-                  {d.used_cheap_model && (
+                  {d.cheap_model_requested && (
                     <span
                       className="shrink-0 rounded px-1 py-px text-[9px] uppercase"
                       style={{

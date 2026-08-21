@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { notify } from "../lib/notify";
+import { handleExternalClick } from "../lib/openExternal";
 
 // v15.4.2 — surfaces the "new version available" hint that
 // `update_checker.rs` fires on startup. Reusable; mount once at the top
@@ -166,6 +167,7 @@ export function UpdateBanner() {
         <a
           href={info.release_url}
           target="_blank"
+          onClick={handleExternalClick}
           rel="noreferrer noopener"
           className="rounded px-2 py-1 text-[11.5px]"
           style={{

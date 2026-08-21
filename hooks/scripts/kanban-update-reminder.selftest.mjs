@@ -2,11 +2,12 @@
  * kanban-update-reminder.selftest.mjs — check conductual del Stop hook de
  * cierre de kanban (cat21.1).
  *
- * Contrato bajo prueba (kirkardo-eval.mjs 21.1): dado un transcript con una
- * peticion accionable Y el asistente marcandola hecha, el hook debe ACTUAR
- * sobre kanban.json (cerrar una card viva por match de commit, o registrar
- * la tarea como card nueva ya en Done) — NUNCA quedarse en solo-texto
- * "RECORDATORIO" con el kanban intacto (mandamiento 11, no-op de cierre).
+ * Contrato bajo prueba (kirkardo-eval.mjs 21.1, revisado 2026-08-19): dado un
+ * transcript con una peticion accionable, el asistente marcandola hecha Y un
+ * commit reciente que matchea el titulo de una card viva, el hook debe CERRAR
+ * esa card en kanban.json. Sin esa evidencia dura NO escribe nada: solo el
+ * texto "RECORDATORIO". El auto-registro de cards nuevas se retiro por
+ * invasivo (llenaba el board de entradas [auto] no pedidas).
  *
  * Aislamiento: usa KANBAN_REMINDER_BASE_OVERRIDE + KANBAN_REMINDER_SESSION_STATE_OVERRIDE
  * para NUNCA tocar el cockpit/projects/ real del usuario (mismo patron que
@@ -17,12 +18,10 @@
  *   1) POSITIVO (cierre real por commit): repo git temporal con un commit
  *      reciente cuyo asunto matchea (Jaccard) el titulo de una card viva ->
  *      la card se mueve a Done, sin recordatorio de solo-texto.
- *   2) POSITIVO (fallback auto-log): sin commits que matcheen (root no es
- *      repo git) -> ninguna card viva matchea -> se registra una card NUEVA
- *      ya en Done con el texto de la peticion. Idempotente: re-disparar con
- *      la misma sesion+texto NO duplica.
+ *   2) NEGATIVO (sin evidencia): sin commits que matcheen (root no es repo
+ *      git) -> kanban INTACTO y additionalContext = solo RECORDATORIO.
  *   3) NEGATIVO: transcript sin marcador de finalizacion del asistente ->
- *      kanban INTACTO (ni cierre ni auto-log), hook no escribe nada a stdout.
+ *      kanban INTACTO, hook no escribe nada a stdout.
  *
  * Uso: node hooks/scripts/kanban-update-reminder.selftest.mjs   (exit 0 = verde)
  */
@@ -175,11 +174,13 @@ A(
 );
 A(
   board1.cards.length === 1,
-  "caso1: NO se creo ninguna card nueva (auto-log no se dispara si ya cerro por commit)",
+  "caso1: NO se creo ninguna card nueva (el hook solo mueve cards existentes)",
   `cards=${board1.cards.length}`,
 );
 
-// --- Caso 2: fallback auto-log (sin commit ni card viva que matchee) ------
+// --- Caso 2 (NEGATIVO): sin commit que matchee -> kanban INTACTO ----------
+// Antes esto registraba una card nueva ya en Done. Se retiro (2026-08-19): el
+// hook solo escribe con evidencia dura de commit; sin ella, recordatorio y ya.
 resetFixture();
 writeBoard(baseBoard());
 const nonGitDir = join(FIXTURE_ROOT, "no-git-cwd");
@@ -190,38 +191,21 @@ const t2 = makeTranscript(
   "implementa el sistema de notificaciones push para el movil",
   "Listo. He completado la tarea y ya esta hecha.",
 );
-const before2 = doneTitles(readBoard());
-const r2 = fireHook({ transcriptPath: t2, cwd: nonGitDir, sessionId: "selftest-autolog" });
-const board2 = readBoard();
-const after2 = doneTitles(board2);
+const rawBefore2 = readFileSync(KANBAN_PATH, "utf8");
+const r2 = fireHook({ transcriptPath: t2, cwd: nonGitDir, sessionId: "selftest-no-evidence" });
+const rawAfter2 = readFileSync(KANBAN_PATH, "utf8");
 
 A(r2.status === 0, "caso2: hook exit 0", `status=${r2.status} stderr=${r2.stderr}`);
 A(
-  after2.length === before2.length + 1
-    && after2.some((t) => t.includes("implementa el sistema de notificaciones push")),
-  "caso2: sin commit/card viva -> registra card NUEVA ya en Done (fallback seguro)",
-  `before=${JSON.stringify(before2)} after=${JSON.stringify(after2)}`,
+  rawBefore2 === rawAfter2,
+  "caso2: sin commit que matchee -> kanban INTACTO (no inventa cards)",
+  `antes=${rawBefore2.length}b despues=${rawAfter2.length}b`,
 );
 A(
-  board2.cards.find((c) => c.id === "card-live-1").column_id === "col-todo",
-  "caso2: la card viva preexistente NO se toco (cero riesgo de mis-cierre)",
-  JSON.stringify(board2.cards[0]),
-);
-A(
-  /BOARD ACTUALIZADO/.test(r2.stdout) && /registrada y cerrada en Done/.test(r2.stdout),
-  "caso2: additionalContext reporta el auto-registro (no solo RECORDATORIO)",
+  /RECORDATORIO/.test(r2.stdout) && !/BOARD ACTUALIZADO/.test(r2.stdout),
+  "caso2: additionalContext = solo RECORDATORIO",
   r2.stdout,
 );
-
-// idempotencia: re-disparar la MISMA sesion+texto no duplica.
-const r2b = fireHook({ transcriptPath: t2, cwd: nonGitDir, sessionId: "selftest-autolog" });
-const board2b = readBoard();
-A(
-  board2b.cards.length === board2.cards.length,
-  "caso2b: re-disparo idempotente de la MISMA sesion+texto no duplica la card",
-  `cards antes=${board2.cards.length} despues=${board2b.cards.length}`,
-);
-void r2b;
 
 // --- Caso 3 (NEGATIVO): sin marcador de finalizacion -> kanban INTACTO ----
 resetFixture();
@@ -469,50 +453,6 @@ A(
   rawBefore9 === rawAfter9 && r9.stdout === "",
   "caso9 (bug 2026-08-13): verbo de accion SOLO en un tool_result -> no actionable, kanban intacto",
   `stdout="${r9.stdout}"`,
-);
-
-// --- Caso 10 (bug 2026-08-13): las cards auto BORRADAS no resucitan ---------
-// El auto-log usa id estable por sesion+texto y su idempotencia miraba solo
-// si la card EXISTE: borrarla la hacia resucitar en cada Stop (visto 3 veces
-// en vivo). Con lapida (kanban.mjs rm la registra), el hook la respeta.
-resetFixture();
-writeBoard(baseBoard());
-const t10 = makeTranscript(
-  FIXTURE_ROOT,
-  "t10",
-  "implementa el modulo de exportacion de informes",
-  "Listo, completado. La tarea quedo hecha.",
-);
-const r10a = fireHook({ transcriptPath: t10, cwd: nonGitDir, sessionId: "selftest-tombstone" });
-const board10 = readBoard();
-const autoCard = board10.cards.find((c) => c.id.startsWith("auto-"));
-A(!!autoCard, "caso10a: primer Stop crea la card auto", `stdout=${r10a.stdout.slice(0, 120)}`);
-// Simular el rm con lapida: quitar la card + registrar el id como tumba.
-board10.cards = board10.cards.filter((c) => c.id !== autoCard.id);
-writeBoard(board10);
-const tombPath = join(FIXTURE_ROOT, "tombstones.json");
-writeFileSync(tombPath, JSON.stringify([autoCard.id]), "utf8");
-const r10b = spawnSync("node", [HOOK], {
-  input: JSON.stringify({
-    transcript_path: t10.replace(/\\/g, "/"),
-    cwd: nonGitDir.replace(/\\/g, "/"),
-    hook_event_name: "Stop",
-    session_id: "selftest-tombstone",
-  }),
-  encoding: "utf8",
-  timeout: 15000,
-  env: {
-    ...process.env,
-    KANBAN_REMINDER_BASE_OVERRIDE: KANBAN_BASE,
-    KANBAN_REMINDER_SESSION_STATE_OVERRIDE: SESSION_STATE,
-    KANBAN_REMINDER_TOMBSTONES_OVERRIDE: tombPath,
-  },
-});
-const board10b = readBoard();
-A(
-  !board10b.cards.some((c) => c.id === autoCard.id),
-  "caso10b: con lapida, el segundo Stop NO resucita la card borrada",
-  `stdout=${(r10b.stdout || "").slice(0, 160)}`,
 );
 
 // ---------------------------------------------------------------------------

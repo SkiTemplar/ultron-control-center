@@ -62,11 +62,14 @@ pub async fn agents_bulk_toggle(
     agents::agents_bulk_toggle_inner(names, disabled)
 }
 
+/// `cwd`: optional exact-match filter applied server-side BEFORE the limit
+/// cap, so one project's rows can't be starved by other projects' activity.
 #[tauri::command]
 pub async fn list_delegations(
     limit: Option<usize>,
+    cwd: Option<String>,
 ) -> Result<Vec<agent_orchestration::DelegationLogEntry>, String> {
-    agent_orchestration::list_delegations_inner(limit.unwrap_or(50))
+    agent_orchestration::list_delegations_inner(limit.unwrap_or(50), cwd.as_deref())
 }
 
 // ---- P4: per-project agent pinning ----
@@ -113,12 +116,17 @@ pub async fn agents_pinned_load(project_id: String) -> Result<PinnedAgents, Stri
 // Agents tab redesign — "plantilla de empleados" surface.
 // ---------------------------------------------------------------------------
 //
-// Three commands feed the new UI:
+// Three commands were written for that surface:
 //   * `delegate_task_to_agent` — spawn a Claude session pre-bound to a
-//     subagent slug. The frontend "Asignar tarea" modal posts here.
+//     subagent slug and wait for completion.
 //   * `list_agent_workflows`   — return the canonical seven alignments.
 //   * `list_active_hooks`      — proxy over hooks_admin so the Automations
 //     sub-tab can render the global + plugin hook surface.
+//
+// NOTE (2026-08-18): none of the three is registered in `generate_handler` —
+// they have no frontend consumer today. The live delegation surface is the
+// A2 roster section, which uses `delegate_task_launch` + `list_delegations`.
+// Register these here AND in handlers.rs if a UI ever adopts them.
 
 /// Delegate a task to an agent and **wait for completion** (synchronous hand-off).
 ///
@@ -135,6 +143,16 @@ pub async fn delegate_task_to_agent(
     request: agent_orchestration::DelegateRequest,
 ) -> Result<agent_orchestration::DelegateTaskResult, String> {
     agent_orchestration::delegate_task_inner(&app, request).await
+}
+
+/// Delegación fire-and-forget: devuelve el id de log inmediatamente; el
+/// estado (running → done/timeout/failed) se sigue vía `list_delegations`.
+#[tauri::command]
+pub async fn delegate_task_launch(
+    app: tauri::AppHandle,
+    request: agent_orchestration::DelegateRequest,
+) -> Result<String, String> {
+    agent_orchestration::delegate_task_launch_inner(&app, request).await
 }
 
 #[tauri::command]

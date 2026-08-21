@@ -178,22 +178,10 @@ function cmdRm(proj, needle) {
   const card = findCard(board, needle);
   board.cards = (board.cards || []).filter((c) => c.id !== card.id);
   saveBoard(path, board);
-  // Tombstone (2026-08-13): las cards "auto-*" las crea el Stop hook
-  // kanban-update-reminder con id estable por sesion+texto — si solo se
-  // borran, el siguiente Stop de la misma conversacion las RESUCITA (visto
-  // 3 veces en vivo). El rm deja lapida y el hook la respeta.
-  if (card.id.startsWith('auto-')) {
-    try {
-      const tombPath = join(ULTRON, '.tmp', 'kanban-auto-tombstones.json');
-      mkdirSync(dirname(tombPath), { recursive: true });
-      let tombs = [];
-      try { tombs = JSON.parse(readFileSync(tombPath, 'utf8')); } catch { /* primera vez */ }
-      if (!Array.isArray(tombs)) tombs = [];
-      if (!tombs.includes(card.id)) tombs.push(card.id);
-      writeFileSync(tombPath, JSON.stringify(tombs.slice(-500)) + '\n', 'utf8');
-      console.log(`[kanban]   lapida registrada: el Stop hook no recreara ${card.id}`);
-    } catch { /* best-effort: sin lapida, el rm sigue valiendo */ }
-  }
+  // 2026-08-19: fuera el mecanismo de lapidas. Existia porque el Stop hook
+  // kanban-update-reminder recreaba cards "auto-*" con id estable por
+  // sesion+texto, asi que borrarlas no bastaba. Ese auto-registro se retiro
+  // (era invasivo), no hay nada que resucitar y un rm es un rm.
   console.log(`[kanban] - eliminada: ${card.title}  (${card.id})`);
 }
 

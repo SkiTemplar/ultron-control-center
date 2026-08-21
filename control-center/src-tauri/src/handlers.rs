@@ -58,6 +58,14 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::agents::agent_toggle,
         commands::agents::agents_bulk_toggle,
         commands::agents::list_delegations,
+        commands::agents::delegate_task_launch,
+        // -- A2: per-project agent roster ("Plantilla") --
+        // Wiring 2026-08-18: los tres comandos existian desde P0 pero nunca se
+        // registraron (mandamiento 12: dato sin punto de consumo). Su primer
+        // consumidor es RosterSection.tsx en ProjectWorkspace.
+        commands::agents::project_propose_agent_roster,
+        commands::agents::project_roster_save,
+        commands::agents::project_roster_load,
         agent_orchestration::usage::agent_usage_stats,
         // -- rules --
         commands::rules::rules_list,

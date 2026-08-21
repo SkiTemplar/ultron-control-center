@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>ULTRON — Reordenar Home</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222c; --border: #2a2f3a;
+    --text: #e6e8ec; --muted: #8b93a3; --accent: #5b8cff; --green: #3ecf8e;
+    --amber: #e0a83e; --red: #e0555a; --purple: #b389f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:var(--bg); z-index:10; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.02em; }
+  header .stats { color:var(--muted); font-size:12px; }
+  nav { display:flex; gap:4px; padding:8px 24px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  nav button { background:none; border:1px solid transparent; color:var(--muted); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+  nav button.active { background:var(--panel2); color:var(--text); border-color:var(--border); }
+  main { padding:20px 24px; max-width:980px; margin:0 auto; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+  .card.done { opacity:.5; }
+  .card .title { font-weight:600; font-size:13.5px; word-break:break-all; }
+  .card .meta { color:var(--muted); font-size:12px; margin-top:4px; display:flex; gap:10px; flex-wrap:wrap; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px; border:1px solid var(--border); }
+  .badge.personal { color:var(--accent); border-color:var(--accent); }
+  .badge.carrera { color:var(--purple); border-color:var(--purple); }
+  .badge.revisar { color:var(--amber); border-color:var(--amber); }
+  .badge.warn { color:var(--red); border-color:var(--red); }
+  .hint { color:var(--muted); font-size:12.5px; margin-top:6px; }
+  .warning { color:var(--red); font-size:12.5px; margin-top:6px; }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center; }
+  button.act { background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:6px 12px; border-radius:7px; cursor:pointer; font-size:12.5px; }
+  button.act:hover { border-color:var(--accent); }
+  button.act.danger:hover { border-color:var(--red); }
+  button.act.primary { background:var(--accent); border-color:var(--accent); color:#0b0d12; font-weight:600; }
+  input.inline { background:var(--bg); border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:7px; font-size:12.5px; min-width:220px; }
+  .locked { border-left:3px solid var(--amber); }
+  .status-tag { font-size:11px; padding:2px 8px; border-radius:99px; }
+  .status-tag.moved { background:rgba(62,207,142,.15); color:var(--green); }
+  .status-tag.deleted { background:rgba(224,85,90,.15); color:var(--red); }
+  .status-tag.kept { background:rgba(139,147,163,.2); color:var(--muted); }
+  .status-tag.skipped, .status-tag.later { background:rgba(224,168,62,.15); color:var(--amber); }
+  .section-title { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:20px 0 10px; }
+  .checklist label { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--border); }
+  .checklist label:last-child { border-bottom:none; }
+  .totalbar { display:flex; justify-content:space-between; align-items:center; margin-top:14px; }
+  table.log { width:100%; border-collapse:collapse; font-size:12px; }
+  table.log td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+  table.log td.ts { color:var(--muted); white-space:nowrap; }
+  .empty-note { color:var(--muted); padding:20px; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ULTRON — Reordenar Home</h1>
+  <div class="stats" id="stats"></div>
+</header>
+<nav id="tabs"></nav>
+<main id="main"></main>
+
+<script>
+const TABS = [
+  { id: 'classify', label: 'Clasificar proyectos' },
+  { id: 'ask', label: 'Revisar dudosos' },
+  { id: 'safeDelete', label: 'Limpieza segura' },
+  { id: 'emptyDirs', label: 'Carpetas vacías' },
+  { id: 'oldFiles', label: 'Archivos antiguos' },
+  { id: 'log', label: 'Registro' },
+];
+let current = 'classify';
+let manifest = null;
+let emptyDirsCache = {};
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'error');
+  return data;
+}
+
+async function loadManifest() {
+  manifest = await api('/api/manifest');
+}
+
+function pendingCount() {
+  const c1 = manifest.classify.filter(i => i.status === 'pending').length;
+  const c2 = (manifest.classifyGroups || []).filter(i => i.status === 'pending').length;
+  const c3 = manifest.ask.filter(i => i.status === 'pending').length;
+  const c4 = manifest.safeDelete.filter(i => i.status !== 'deleted').length;
+  return { classify: c1 + c2, ask: c3, safeDelete: c4 };
+}
+
+function renderNav() {
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = '';
+  for (const t of TABS) {
+    const b = document.createElement('button');
+    b.textContent = t.label;
+    b.className = t.id === current ? 'active' : '';
+    b.onclick = () => { current = t.id; render(); };
+    nav.appendChild(b);
+  }
+}
+
+function renderStats() {
+  const p = pendingCount();
+  document.getElementById('stats').textContent =
+    `Clasificar: ${p.classify} pendientes · Revisar: ${p.ask} pendientes · Limpieza segura: ${p.safeDelete} sin ejecutar`;
+}
+
+function fmtItem(item) {
+  return `${item.size || '?'}${item.modified && item.modified !== '?' ? ' · ' + item.modified : ''}${item.git ? ' · git' : ''}`;
+}
+
+function renderClassify() {
+  const el = document.createElement('div');
+
+  if (manifest.locked && manifest.locked.length) {
+    for (const l of manifest.locked) {
+      const d = document.createElement('div');
+      d.className = 'card locked';
+      d.innerHTML = `<div class="title">🔒 ${l.path}</div><div class="hint">${l.note}</div>`;
+      el.appendChild(d);
+    }
+  }
+
+  el.appendChild(sectionTitle('Proyectos'));
+  const items = [...manifest.classify, ...(manifest.classifyGroups || [])].sort((a, b) => {
+    const pa = a.status === 'pending' ? 0 : 1, pb = b.status === 'pending' ? 0 : 1;
+    return pa - pb;
+  });
+  for (const item of items) {
+    el.appendChild(classifyCard(item));
+  }
+  return el;
+}
+
+function sectionTitle(t) {
+  const d = document.createElement('div');
+  d.className = 'section-title';
+  d.textContent = t;
+  return d;
+}
+
+function classifyCard(item) {
+  const isGroup = !!item.files;
+  const card = document.createElement('div');
+  card.className = 'card' + (item.status !== 'pending' ? ' done' : '');
+  const name = isGroup ? item.label : item.path;
+  const defaultName = isGroup ? item.id : (item.path.split('/').pop());
+
+  let statusHtml = '';
+  if (item.status !== 'pending') {
+    statusHtml = `<span class="status-tag ${item.status}">${item.status}${item.movedTo ? ' → ' + item.movedTo : ''}</span>`;
+  }
+
+  card.innerHTML = `
+    <div class="title">${name} ${statusHtml}</div>
+    <div class="meta">
+      <span>${isGroup ? item.files.length + ' archivos' : fmtItem(item)}</span>
+      ${item.suggested === 'personal' ? '<span class="badge personal">sugerido: personal</span>' : ''}
+      ${item.suggested === 'carrera' ? '<span class="badge carrera">sugerido: carrera</span>' : ''}
+      ${item.suggested === 'revisar' ? '<span class="badge revisar">sin sugerencia</span>' : ''}
+      ${item.absPaths ? `<span class="badge warn">${item.absPaths} archivo(s) con ruta absoluta</span>` : ''}
+    </div>
+    ${item.hint ? `<div class="hint">${item.hint}</div>` : ''}
+    ${item.warning ? `<div class="warning">⚠ ${item.warning}</div>` : ''}
+    <div class="row actions"></div>
+  `;
+
+  if (item.status === 'pending') {
+    const actions = card.querySelector('.actions');
+    const bPersonal = mkBtn('→ Personal', () => showTargetForm(card, item, isGroup, 'personal', defaultName));
+    const bCarrera = mkBtn('→ Carrera', () => showTargetForm(card, item, isGroup, 'carrera', defaultName));
+    const bProfesional = mkBtn('→ Profesional', () => showTargetForm(card, item, isGroup, 'profesional', defaultName));
+    const bCustom = mkBtn('Otro destino', () => showTargetForm(card, item, isGroup, 'custom', item.path || item.dir));
+    const bDelete = mkBtn('Borrar', () => doClassifyAction(item, isGroup, 'delete'), true);
+    const bSkip = mkBtn('Saltar', () => doClassifyAction(item, isGroup, 'skip'));
+    actions.append(bPersonal, bCarrera, bProfesional, bCustom, bDelete, bSkip);
+  }
+  return card;
+}
+
+function mkBtn(label, onClick, danger) {
+  const b = document.createElement('button');
+  b.className = 'act' + (danger ? ' danger' : '');
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
+}
+
+function slugifyPreview(s) {
+  const words = (s || '')
+    .slice(0, 60)
+    .replace(/º/g, 'o').replace(/ª/g, 'a')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .split(/[\s_\-—–.]+/)
+    .filter(Boolean)
+    .map((w) => w.replace(/[^a-zA-Z0-9]+/g, ''))
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+  return words.join('') || 'Item';
+}
+
+function showTargetForm(card, item, isGroup, decision, defaultName) {
+  const existing = card.querySelector('.target-form');
+  if (existing) existing.remove();
+  if (existing && existing.dataset.decision === decision) return; // mismo boton: solo cerrar
+
+  const form = document.createElement('div');
+  form.className = 'row target-form';
+  form.dataset.decision = decision;
+  form.style.flexDirection = 'column';
+  form.style.alignItems = 'flex-start';
+
+  const inputRow = document.createElement('div');
+  inputRow.className = 'row';
+  const input = document.createElement('input');
+  input.className = 'inline';
+  input.value = defaultName;
+  if (input.value.length > 40) {
+    input.title = 'Esto parece una frase larga, no un nombre de carpeta. Revisa antes de confirmar.';
+  }
+  inputRow.appendChild(input);
+
+  const preview = document.createElement('div');
+  preview.className = 'hint';
+  const catPart = item.category ? slugifyPreview(item.category) + '/' : '';
+  const prefix = decision === 'personal' ? 'PERSONAL/ProyectosPersonales/' + catPart
+    : decision === 'carrera' ? 'CARRERA/CURSOS_ANTERIORES/' + catPart
+    : decision === 'profesional' ? 'PROFESIONAL/' + catPart
+    : '';
+  function updatePreview() {
+    const finalPath = decision === 'custom' ? slugifyPreview(input.value) : prefix + slugifyPreview(input.value);
+    const long = input.value.trim().split(/\s+/).length > 6;
+    preview.innerHTML = 'Se moverá a: <b>' + finalPath + '</b>' + (long ? ' &nbsp;<span class="badge warn">esto parece una frase, no un nombre — revisa</span>' : '');
+  }
+  input.addEventListener('input', updatePreview);
+  updatePreview();
+
+  const confirmBtn = mkBtn('Confirmar', async () => {
+    const long = input.value.trim().split(/\s+/).length > 6;
+    if (long && !confirm('El nombre de destino parece una frase larga:\n\n"' + input.value + '"\n\n¿Seguro que quieres usar esto como nombre de carpeta?')) return;
+    confirmBtn.disabled = true;
+    try {
+      if (decision === 'custom') {
+        await doClassifyAction(item, isGroup, 'custom', null, input.value);
+      } else {
+        await doClassifyAction(item, isGroup, decision, input.value);
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+      confirmBtn.disabled = false;
+    }
+  });
+  confirmBtn.classList.add('primary');
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'row';
+  btnRow.appendChild(confirmBtn);
+  btnRow.appendChild(mkBtn('Cancelar', () => form.remove()));
+
+  form.append(inputRow, preview, btnRow);
+  card.appendChild(form);
+  input.focus();
+}
+
+async function doClassifyAction(item, isGroup, decision, targetName, customPath) {
+  if (decision === 'delete') {
+    if (!confirm('¿Enviar a la papelera de reciclaje: ' + (item.path || item.label) + '?')) return;
+  }
+  const endpoint = isGroup ? '/api/classify-group' : '/api/classify';
+  await api(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: item.id, decision, targetName, customPath }),
+  });
+  await loadManifest();
+  render();
+}
+
+function renderAsk() {
+  const el = document.createElement('div');
+  el.appendChild(sectionTitle('Revisar (borrar / mantener / luego)'));
+  const items = [...manifest.ask].sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1));
+  for (const item of items) {
+    const card = document.createElement('div');
+    card.className = 'card' + (item.status !== 'pending' ? ' done' : '');
+    let statusHtml = item.status !== 'pending' ? `<span class="status-tag ${item.status}">${item.status}</span>` : '';
+    card.innerHTML = `
+      <div class="title">${item.label} ${statusHtml}</div>
+      <div class="meta"><span>${item.size || '?'}</span><span>${item.paths.length} ruta(s)</span></div>
+      ${item.hint ? `<div class="hint">${item.hint}</div>` : ''}
+      <div class="row actions"></div>
+    `;
+    if (item.status === 'pending') {
+      const actions = card.querySelector('.actions');
+      actions.append(
+        mkBtn('Borrar', async () => {
+          if (!confirm('¿Enviar a la papelera: ' + item.label + '?')) return;
+          await api('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, decision: 'delete' }) });
+          await loadManifest(); render();
+        }, true),
+        mkBtn('Mantener', async () => {
+          await api('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, decision: 'keep' }) });
+          await loadManifest(); render();
+        }),
+        mkBtn('Luego', async () => {
+          await api('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, decision: 'later' }) });
+          await loadManifest(); render();
+        })
+      );
+    }
+    el.appendChild(card);
+  }
+  return el;
+}
+
+function renderSafeDelete() {
+  const el = document.createElement('div');
+  el.appendChild(sectionTitle('Limpieza segura — preseleccionado, revisa y ejecuta'));
+  const list = document.createElement('div');
+  list.className = 'card checklist';
+  for (const item of manifest.safeDelete) {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = item.status !== 'deleted';
+    cb.disabled = item.status === 'deleted';
+    cb.dataset.id = item.id;
+    label.appendChild(cb);
+    const span = document.createElement('div');
+    span.innerHTML = `<div>${item.label} ${item.status === 'deleted' ? '<span class="status-tag deleted">borrado</span>' : ''}</div><div class="hint">${item.size} · ${item.paths.length} ruta(s)</div>`;
+    label.appendChild(span);
+    list.appendChild(label);
+  }
+  el.appendChild(list);
+  const bar = document.createElement('div');
+  bar.className = 'totalbar';
+  bar.innerHTML = `<span class="hint">Todo va a la papelera de reciclaje, no se borra de forma permanente.</span>`;
+  const runBtn = mkBtn('Ejecutar limpieza seleccionada', async () => {
+    const ids = [...list.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.dataset.id);
+    if (!ids.length) return;
+    if (!confirm(`¿Enviar ${ids.length} elemento(s) a la papelera de reciclaje?`)) return;
+    runBtn.disabled = true;
+    await api('/api/safe-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+    await loadManifest();
+    render();
+  });
+  runBtn.classList.add('primary');
+  bar.appendChild(runBtn);
+  el.appendChild(bar);
+  return el;
+}
+
+let oldFilesCache = null;
+
+function renderOldFiles() {
+  const el = document.createElement('div');
+  el.appendChild(sectionTitle('Buscar archivos antiguos (escaneo en vivo)'));
+  const bar = document.createElement('div');
+  bar.className = 'row';
+  const dirInput = document.createElement('input');
+  dirInput.className = 'inline';
+  dirInput.value = 'Pictures/Screenshots';
+  const daysInput = document.createElement('input');
+  daysInput.className = 'inline';
+  daysInput.value = '90';
+  daysInput.style.minWidth = '70px';
+  daysInput.title = 'días de antigüedad';
+  bar.append(dirInput, daysInput, mkBtn('Escanear', async () => {
+    const data = await api('/api/old-files?dir=' + encodeURIComponent(dirInput.value) + '&days=' + encodeURIComponent(daysInput.value));
+    oldFilesCache = data;
+    render();
+  }));
+  el.appendChild(bar);
+
+  if (oldFilesCache && oldFilesCache.files.length) {
+    const totalSize = oldFilesCache.files.reduce((s, f) => s + f.size, 0);
+    const note = document.createElement('div');
+    note.className = 'hint';
+    note.textContent = `${oldFilesCache.files.length} archivos de más de ${oldFilesCache.days} días en ${oldFilesCache.base} (~${(totalSize / 1024 / 1024).toFixed(0)} MB)`;
+    el.appendChild(note);
+
+    const list = document.createElement('div');
+    list.className = 'card checklist';
+    for (const f of oldFilesCache.files.slice(0, 500)) {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.value = f.path;
+      label.appendChild(cb);
+      const span = document.createElement('div');
+      span.textContent = `${f.path} — ${(f.size / 1024).toFixed(0)}K — ${f.mtime}`;
+      label.appendChild(span);
+      list.appendChild(label);
+    }
+    el.appendChild(list);
+    if (oldFilesCache.files.length > 500) {
+      const more = document.createElement('div');
+      more.className = 'hint';
+      more.textContent = `... y ${oldFilesCache.files.length - 500} más (no mostrados, pero se incluyen en "seleccionar todos" si los marcas por script). Reduce el rango de días para ver menos de golpe.`;
+      el.appendChild(more);
+    }
+    const runBtn = mkBtn('Borrar seleccionados', async () => {
+      const paths = [...list.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+      if (!paths.length) return;
+      if (!confirm(`¿Enviar ${paths.length} archivo(s) a la papelera?`)) return;
+      await api('/api/old-files/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }) });
+      oldFilesCache = null;
+      render();
+    });
+    runBtn.classList.add('primary');
+    el.appendChild(runBtn);
+  } else if (oldFilesCache) {
+    const note = document.createElement('div');
+    note.className = 'empty-note';
+    note.textContent = 'Nada por encima de ese umbral.';
+    el.appendChild(note);
+  }
+  return el;
+}
+
+function renderEmptyDirs() {
+  const el = document.createElement('div');
+  el.appendChild(sectionTitle('Buscar carpetas vacías (escaneo en vivo)'));
+  const bar = document.createElement('div');
+  bar.className = 'row';
+  for (const base of ['Downloads', 'Documents', 'Desktop']) {
+    bar.appendChild(mkBtn('Escanear ' + base, async () => {
+      const data = await api('/api/empty-dirs?base=' + encodeURIComponent(base));
+      emptyDirsCache[base] = data.dirs;
+      render();
+    }));
+  }
+  el.appendChild(bar);
+
+  const found = Object.entries(emptyDirsCache).flatMap(([base, dirs]) => dirs);
+  if (found.length) {
+    const list = document.createElement('div');
+    list.className = 'card checklist';
+    for (const d of found) {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.value = d;
+      label.appendChild(cb);
+      const span = document.createElement('div');
+      span.textContent = d;
+      label.appendChild(span);
+      list.appendChild(label);
+    }
+    el.appendChild(list);
+    const runBtn = mkBtn('Borrar seleccionadas', async () => {
+      const paths = [...list.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+      if (!paths.length) return;
+      if (!confirm(`¿Enviar ${paths.length} carpeta(s) vacía(s) a la papelera?`)) return;
+      await api('/api/empty-dirs/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }) });
+      emptyDirsCache = {};
+      render();
+    });
+    runBtn.classList.add('primary');
+    el.appendChild(runBtn);
+  } else {
+    const note = document.createElement('div');
+    note.className = 'empty-note';
+    note.textContent = 'Pulsa un botón de arriba para escanear.';
+    el.appendChild(note);
+  }
+  return el;
+}
+
+async function renderLog() {
+  const el = document.createElement('div');
+  el.appendChild(sectionTitle('Registro de acciones'));
+  const data = await api('/api/log');
+  const table = document.createElement('table');
+  table.className = 'log';
+  for (const l of data.lines) {
+    const tr = document.createElement('tr');
+    const rest = { ...l }; delete rest.ts;
+    tr.innerHTML = `<td class="ts">${l.ts || ''}</td><td>${JSON.stringify(rest)}</td>`;
+    table.appendChild(tr);
+  }
+  if (!data.lines.length) {
+    const note = document.createElement('div');
+    note.className = 'empty-note';
+    note.textContent = 'Sin acciones todavía.';
+    el.appendChild(note);
+  } else {
+    el.appendChild(table);
+  }
+  return el;
+}
+
+async function render() {
+  renderNav();
+  renderStats();
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  let node;
+  if (current === 'classify') node = renderClassify();
+  else if (current === 'ask') node = renderAsk();
+  else if (current === 'safeDelete') node = renderSafeDelete();
+  else if (current === 'emptyDirs') node = renderEmptyDirs();
+  else if (current === 'oldFiles') node = renderOldFiles();
+  else if (current === 'log') node = await renderLog();
+  main.appendChild(node);
+}
+
+(async () => {
+  await loadManifest();
+  render();
+})();
+</script>
+</body>
+</html>

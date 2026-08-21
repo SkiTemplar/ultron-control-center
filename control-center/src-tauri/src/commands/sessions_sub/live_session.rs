@@ -326,7 +326,8 @@ pub fn live_session_feed(limit: Option<usize>) -> Result<LiveSessionFeed, String
 
     let orchestrations = read_jsonl_tail::<OrchestrateLogEntry>(&logs.join("orchestrate.jsonl"), n);
     let routing = read_jsonl_tail::<RoutingLogEntry>(&logs.join("routing-dispatcher.jsonl"), n);
-    let delegations = list_delegations_inner(n).unwrap_or_default();
+    // Feed global: sin filtro de cwd (None) — comportamiento previo intacto.
+    let delegations = list_delegations_inner(n, None).unwrap_or_default();
     let subagents = recent_subagents(n);
     let running_subagents = running_subagents(n);
 

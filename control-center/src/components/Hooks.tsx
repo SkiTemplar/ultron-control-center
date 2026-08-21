@@ -43,6 +43,10 @@ export function Hooks() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [filterText, setFilterText] = useState<string>("");
+  // Ocultar hooks de plugins desactivados (p.ej. los ~28 de ecc@ecc=false):
+  // son inertes por diseno y ensuciaban la lista como "disabled" sin serlo
+  // el sistema propio. ON por defecto (decidido por el usuario 2026-08-17).
+  const [hideDisabledPlugins, setHideDisabledPlugins] = useState<boolean>(true);
 
   // Selected hook id drives the detail pane
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -254,6 +258,9 @@ export function Hooks() {
   const filtered = useMemo(() => {
     if (!list) return [];
     return list.hooks.filter((h) => {
+      if (hideDisabledPlugins && !h.enabled && h.source.startsWith("plugin:")) {
+        return false;
+      }
       if (!q) return true;
       const displayName = resolveDisplayName(h) ?? h.id;
       const summary = descriptions[h.id]?.summary ?? "";
@@ -261,7 +268,7 @@ export function Hooks() {
       return hay.includes(q);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, q, namesCache, descriptions]);
+  }, [list, q, namesCache, descriptions, hideDisabledPlugins]);
 
   const selectedHook = useMemo(
     () => list?.hooks.find((h) => h.id === selectedId) ?? null,
@@ -570,18 +577,32 @@ export function Hooks() {
       {!loading && list && list.hooks.length > 0 && (
         <div className="flex h-full flex-col gap-3 p-4">
           {/* Search */}
-          <input
-            type="text"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Search hooks by name, command, matcher or event…"
-            className="w-full rounded-md px-3 py-2 text-sm outline-none"
-            style={{
-              border: "1px solid var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-            }}
-          />
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              placeholder="Search hooks by name, command, matcher or event…"
+              className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none"
+              style={{
+                border: "1px solid var(--color-border-strong)",
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+              }}
+            />
+            <label
+              className="flex shrink-0 items-center gap-1.5 text-[12px]"
+              style={{ color: "var(--color-text-secondary)" }}
+              title="Los hooks de un plugin apagado en settings.json son inertes; ocultarlos evita que parezcan hooks propios desactivados"
+            >
+              <input
+                type="checkbox"
+                checked={hideDisabledPlugins}
+                onChange={(e) => setHideDisabledPlugins(e.target.checked)}
+              />
+              ocultar plugins apagados
+            </label>
+          </div>
 
           {/* Navegador de bloques | detail pane */}
           <div className="flex flex-1 gap-3 overflow-hidden">

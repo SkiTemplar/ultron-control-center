@@ -463,3 +463,10 @@ CONTINUAR.md
 # Control humano del detector: escritura personal, no se publica (repo publico).
 scripts/fixtures/ai-text-docs/humano/*
 !scripts/fixtures/ai-text-docs/humano/README.md
+
+# === 2026-08-21: tools/home-reorg — la herramienta se versiona, su estado no ===
+# manifest.json y el log llevan el arbol real del home del usuario (rutas,
+# nombres de proyectos, notas personales). El servidor los recrea vacios.
+tools/home-reorg/manifest.json
+tools/home-reorg/reorg-log.jsonl
+tools/home-reorg/server.log

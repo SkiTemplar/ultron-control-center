@@ -1,9 +1,10 @@
 // agent_orchestration/tests.rs — unit tests for the agent_orchestration module.
 
 use super::delegate::{
-    resolve_cheap_model, strip_ansi, validate_agent_slug, COMPLETION_SENTINEL,
-    DEFAULT_DELEGATE_TIMEOUT_SECS,
+    resolve_cheap_model, strip_ansi, validate_agent_slug, validate_delegate_request,
+    COMPLETION_SENTINEL, DEFAULT_DELEGATE_TIMEOUT_SECS,
 };
+use super::types::DelegateRequest;
 use super::workflows::list_workflows_inner;
 
 // ------------------------------------------------------------------
@@ -34,6 +35,52 @@ fn validate_slug_rejects_uppercase_and_path_chars() {
     assert!(validate_agent_slug("agent/etc").is_err());
     assert!(validate_agent_slug("agent\\bad").is_err());
     assert!(validate_agent_slug("agent.md").is_err());
+}
+
+// ------------------------------------------------------------------
+// validate_delegate_request (shared sync guards — blocking + launch paths)
+// ------------------------------------------------------------------
+
+#[test]
+fn launch_rejects_empty_agent_synchronously() {
+    let req = DelegateRequest {
+        agent: "  ".into(),
+        task: "do something".into(),
+        use_cheap_model: false,
+        cwd: None,
+        timeout_secs: None,
+        project_id: None,
+    };
+    let err = validate_delegate_request(&req).unwrap_err();
+    assert!(err.contains("agent slug is empty"));
+}
+
+#[test]
+fn validate_rejects_empty_task() {
+    let req = DelegateRequest {
+        agent: "debugger".into(),
+        task: "   ".into(),
+        use_cheap_model: false,
+        cwd: None,
+        timeout_secs: None,
+        project_id: None,
+    };
+    let err = validate_delegate_request(&req).unwrap_err();
+    assert!(err.contains("task description is empty"));
+}
+
+#[test]
+fn validate_rejects_task_over_16kb_ceiling() {
+    let req = DelegateRequest {
+        agent: "debugger".into(),
+        task: "x".repeat(16_001),
+        use_cheap_model: false,
+        cwd: None,
+        timeout_secs: None,
+        project_id: None,
+    };
+    let err = validate_delegate_request(&req).unwrap_err();
+    assert!(err.contains("exceeds 16KB ceiling"));
 }
 
 // ------------------------------------------------------------------

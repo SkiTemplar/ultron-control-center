@@ -4,26 +4,22 @@
  *
  * Detecta heurísticamente si en la última ronda el usuario pidió una tarea
  * completable (verbos de acción) Y el asistente la marcó como hecha. Si las
- * dos condiciones se cumplen, ACTÚA sobre `kanban.json` (mandamiento 11: un
- * hook que solo imprime texto es un no-op de cierre) en dos niveles, en orden:
+ * dos condiciones se cumplen, ACTÚA sobre `kanban.json` con UNA sola regla:
  *
- *   1) closeCompletedCards(): cierra (column_id -> role=done) cards VIVAS
- *      (doing/todo) cuyo título matchea fuerte con el asunto de un commit
- *      reciente (evidencia dura: trabajo hecho Y registrado en git). Nunca
- *      cierra por ambigüedad — cerrar la card equivocada es peor que no
- *      cerrar (ver comentario de `closeCompletedCards`).
- *   2) autoLogCompletedTask(): SOLO si (1) no cerró nada, registra la tarea
- *      recién completada como una card NUEVA ya en Done (título derivado del
- *      último mensaje de usuario). Es la contraparte segura de (1): nunca
- *      toca una card existente (cero riesgo de mis-cierre), es idempotente
- *      (id estable por sesión+texto, no duplica en Stops repetidos de la
- *      misma sesión) y deduplica contra cards ya parecidas en el board.
- *      Así el kanban queda actualizado incluso cuando no hay commit/card
- *      previa que matchee — la alternativa (no escribir nada) es el no-op
- *      que este hook existe para eliminar.
+ *   closeCompletedCards(): cierra (column_id -> role=done) cards VIVAS
+ *   (doing/todo) cuyo título matchea fuerte con el asunto de un commit
+ *   reciente (evidencia dura: trabajo hecho Y registrado en git). Nunca
+ *   cierra por ambigüedad — cerrar la card equivocada es peor que no cerrar
+ *   (ver comentario de `closeCompletedCards`).
  *
- * Si ninguna de las dos acciones aplica, cae al recordatorio de texto
- * original (comportamiento previo, conservador ante ambigüedad real).
+ * Sin match no se escribe nada: solo el recordatorio de texto.
+ *
+ * 2026-08-19 — retirado `autoLogCompletedTask()`, que registraba la tarea como
+ * card NUEVA ya en Done cuando no había cierre posible. Era invasivo: cualquier
+ * turno con verbo de acción + marcador de "hecho" acababa en una card `[auto]`
+ * derivada del texto del prompt, así que el board se llenaba de entradas que el
+ * usuario no había pedido y tenía que limpiar a mano. El hook solo escribe con
+ * evidencia dura (commit); el resto del cierre lo decide el usuario.
  *
  * Diseño:
  *   - Lee `transcript_path` de stdin (Stop hook payload de Claude Code).
@@ -51,7 +47,6 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const HOME = os.homedir();
@@ -550,93 +545,6 @@ function closeCompletedCards(project, root) {
   return closed;
 }
 
-// Contraparte SEGURA de closeCompletedCards(): cuando NINGUNA card viva
-// matcheo (asi que (1) no cerro nada), esto NO es licencia para quedarse en
-// no-op — mandamiento 11 exige actuar o explicar por que no se puede. Como no
-// hay card existente inequivoca a la que atribuir el cierre (cerrar la
-// equivocada es peor que no cerrar), la accion segura es registrar la tarea
-// YA HECHA como una card NUEVA directamente en Done. Nunca toca una card
-// existente -> cero riesgo de mis-cierre.
-//
-// Salvaguardas contra ruido en el board real (esto escribe sobre
-// cockpit/projects/<proyecto>/kanban.json de produccion, no un fixture):
-//   - id ESTABLE = sha1(session_id + texto normalizado): reintentos/Stops
-//     repetidos de la MISMA sesion sobre la MISMA peticion son idempotentes
-//     (no duplican la card).
-//   - dedupe: si ya existe cualquier card (viva o done) con titulo parecido
-//     (>=CLOSE_THRESHOLD o cat-code/issue compartido), no se crea otra.
-//   - titulos triviales (<8 chars tras limpiar) no generan card (ruido puro).
-// Devuelve el titulo de la card creada, o null si no se creo ninguna.
-function autoLogCompletedTask(project, extracted, payload) {
-  const loaded = loadKanbanDoc(project);
-  if (!loaded) return null;
-  const { kanbanPath, doc } = loaded;
-  const cols = Array.isArray(doc.columns) ? doc.columns : [];
-  const doneCol = cols.find((c) => c.role === 'done');
-  if (!doneCol) return null;
-
-  const lastUser = extracted.userMessages[extracted.userMessages.length - 1] || '';
-  const bareTitle = clamp(String(lastUser).trim(), 120);
-  if (bareTitle.length < 8) return null;
-
-  const sessionKey = String((payload && payload.session_id) || '');
-  const sig = crypto
-    .createHash('sha1')
-    .update(sessionKey + '|' + bareTitle.toLowerCase())
-    .digest('hex')
-    .slice(0, 12);
-  const autoId = `auto-${sig}`;
-
-  const cards = Array.isArray(doc.cards) ? doc.cards : [];
-  if (cards.some((c) => c.id === autoId)) return null; // ya registrada (idempotente)
-
-  // Tombstones (2026-08-13): si esta card auto se BORRO a proposito
-  // (kanban.mjs rm deja lapida), no resucitarla en cada Stop de la misma
-  // conversacion — el borrado del usuario es una decision, no un hueco.
-  try {
-    const tombPath =
-      process.env.KANBAN_REMINDER_TOMBSTONES_OVERRIDE ||
-      path.join(HOME, '.ultron', '.tmp', 'kanban-auto-tombstones.json');
-    const tombs = JSON.parse(fs.readFileSync(tombPath, 'utf8'));
-    if (Array.isArray(tombs) && tombs.includes(autoId)) return null;
-  } catch (_) {
-    /* sin lapidas: seguir normal */
-  }
-
-  const titleKeys = extractKeys(bareTitle);
-  const isDuplicate = cards.some((c) => {
-    const existingTitle = String(c.title || '');
-    if (titleKeys.size && sharesKey(extractKeys(existingTitle), titleKeys)) return true;
-    return jaccardTokens(bareTitle, existingTitle) >= CLOSE_THRESHOLD;
-  });
-  if (isDuplicate) return null;
-
-  const ts = new Date().toISOString();
-  const card = {
-    id: autoId,
-    column_id: doneCol.id,
-    title: `[auto] ${bareTitle}`,
-    description:
-      'Auto-registrada por el Stop hook kanban-update-reminder: el asistente marco la tarea como hecha en la conversacion y ninguna card viva ni commit reciente matcheaba, asi que se registra como nueva card ya cerrada (evita el no-op de cierre, mandamiento 11).',
-    agent: null,
-    prompt_template: null,
-    cwd: null,
-    tags: ['auto-log'],
-    order: cards.filter((c) => c.column_id === doneCol.id).length,
-    created_at: ts,
-    updated_at: ts,
-    runs: [],
-  };
-
-  try {
-    saveKanbanDoc(kanbanPath, { ...doc, cards: cards.concat([card]) });
-  } catch (err) {
-    safeLog({ level: 'warn', msg: 'kanban_autolog_write_failed', error: String(err && err.message) });
-    return null;
-  }
-  return card.title;
-}
-
 function buildReminder(project) {
   const kanbanPath = path.join(KANBAN_BASE, project, 'kanban.json');
   return (
@@ -675,15 +583,9 @@ function main() {
   const project = resolveProject(payload);
   const root = (payload && payload.cwd) || ULTRON_ROOT;
 
-  // Mandamiento 11: no solo recordar — ACTUAR. Cierra cards cumplidas (match
-  // fuerte con commit reciente) antes de emitir el recordatorio para el resto.
+  // No solo recordar — ACTUAR, pero solo con evidencia dura: cierra las cards
+  // cuyo titulo matchea un commit reciente. Sin match, recordatorio y nada mas.
   const closed = closeCompletedCards(project, root);
-
-  // Si (1) no cerro nada, intenta (2) el fallback seguro: registrar la tarea
-  // como card nueva ya en Done (nunca toca una card existente). Solo se
-  // intenta cuando (1) no aplico, para no duplicar evidencia de la misma
-  // tarea en dos sitios.
-  const autoLoggedTitle = closed.length ? null : autoLogCompletedTask(project, extracted, payload);
 
   let context = buildReminder(project);
   if (closed.length) {
@@ -694,11 +596,6 @@ function main() {
       closed.map((t) => '"' + clamp(t, 60) + '"').join(', ') +
       '. ' +
       context;
-  } else if (autoLoggedTitle) {
-    context =
-      'BOARD ACTUALIZADO: tarea completada sin card previa que matcheara -> registrada y cerrada en Done: "' +
-      clamp(autoLoggedTitle, 80) +
-      '".';
   }
 
   const output = {
@@ -712,10 +609,9 @@ function main() {
 
   safeLog({
     level: 'info',
-    msg: closed.length ? 'cards_closed_and_reminder' : autoLoggedTitle ? 'card_auto_logged' : 'reminder_emitted',
+    msg: closed.length ? 'cards_closed_and_reminder' : 'reminder_emitted',
     project,
     closed,
-    auto_logged: autoLoggedTitle,
     session_id: payload.session_id || null,
   });
 }

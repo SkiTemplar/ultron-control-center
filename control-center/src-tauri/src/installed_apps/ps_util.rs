@@ -100,9 +100,15 @@ pub(super) async fn run_ps_command(
 pub(super) fn decode_ps_stdout(bytes: &[u8]) -> String {
     // UTF-16 LE BOM (FF FE)
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        // `as_chunks::<2>()` en vez de `chunks_exact(2)`: mismo recorrido (el
+        // byte suelto de una longitud impar se descarta igual, ahora via `.1`),
+        // pero cada elemento llega ya como `[u8; 2]`, sin indexar. Exigido por
+        // clippy::chunks_exact_to_as_chunks desde 1.98.
         let pairs: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .collect();
         return String::from_utf16_lossy(&pairs);
     }

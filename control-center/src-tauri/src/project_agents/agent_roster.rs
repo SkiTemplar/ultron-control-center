@@ -272,9 +272,73 @@ pub fn propose_roster_inner(
 
     match crate::ai_router::route("utility", &prompt) {
         Ok(raw) => match parse_ai_response(&raw, stack.clone()) {
-            Ok(proposal) => Ok(proposal),
+            Ok(proposal) => match filter_known_agents(proposal, &names_only) {
+                Some(filtered) => Ok(filtered),
+                None => Ok(fallback_proposal(&stack, &agents)),
+            },
             Err(_) => Ok(fallback_proposal(&stack, &agents)),
         },
         Err(_) => Ok(fallback_proposal(&stack, &agents)),
+    }
+}
+
+/// Drop recommended entries whose `name` is not a real agent on disk.
+///
+/// The prompt asks the model to stick to the valid list, but nothing enforces
+/// it: a hallucinated slug would enter the roster, pass delegate's lexical
+/// validation and die as a misleading 300 s "timeout". Returns `None` when the
+/// filter empties the proposal, so the caller falls back to the deterministic
+/// path instead of returning an empty modal.
+fn filter_known_agents(
+    mut proposal: AgentRosterProposal,
+    known: &[&str],
+) -> Option<AgentRosterProposal> {
+    proposal
+        .recommended
+        .retain(|e| known.contains(&e.name.as_str()));
+    if proposal.recommended.is_empty() {
+        None
+    } else {
+        Some(proposal)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proposal_with(names: &[&str]) -> AgentRosterProposal {
+        AgentRosterProposal {
+            recommended: names
+                .iter()
+                .map(|n| RosterEntry {
+                    name: (*n).to_string(),
+                    reason: "r".to_string(),
+                    suggested_role: "role".to_string(),
+                })
+                .collect(),
+            gaps: Vec::new(),
+            detected_stack: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn filter_drops_hallucinated_slugs_and_keeps_real_ones() {
+        let known = ["debugger", "rust-engineer"];
+        let out = filter_known_agents(
+            proposal_with(&["debugger", "agente-inventado", "rust-engineer"]),
+            &known,
+        )
+        .expect("two real agents must survive");
+        let names: Vec<&str> = out.recommended.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["debugger", "rust-engineer"]);
+    }
+
+    #[test]
+    fn filter_returns_none_when_everything_is_hallucinated() {
+        let known = ["debugger"];
+        assert!(
+            filter_known_agents(proposal_with(&["fantasma-uno", "fantasma-dos"]), &known).is_none()
+        );
     }
 }
