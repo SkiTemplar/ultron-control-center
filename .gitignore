@@ -476,3 +476,6 @@ tools/home-reorg/server.log
 # Corpus del detector de texto IA: textos personales, repo publico
 docs/research/corpus/*
 !docs/research/corpus/README.md
+
+# Lista de exclusiones del espejo publico: no debe viajar en el espejo
+.publicignore
