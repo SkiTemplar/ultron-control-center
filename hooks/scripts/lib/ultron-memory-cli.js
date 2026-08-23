@@ -160,14 +160,22 @@ function logMs(rec) {
   appendJsonl(path.join(os.homedir(), '.ultron', 'logs', 'capture.jsonl'), { ts: Date.now(), ...rec });
 }
 
-/** Normalise a cwd into a project_id (basename, leading dots stripped). */
+/**
+ * project_id de un cwd. La identidad real es el commit raíz del repositorio
+ * (ver lib/project-identity.js): el basename solo actúa de reserva cuando la
+ * carpeta no está bajo git. Mover un proyecto ya no le vacía la memoria.
+ */
 function projectIdFromCwd(cwd) {
   try {
-    const base = path.basename(cwd || process.cwd());
-    const p = base.replace(/^\.+/, '');
-    return p || null;
+    return require('./project-identity').resolveProjectId(cwd);
   } catch {
-    return null;
+    // Reserva histórica: si el módulo de identidad falla, el hook sigue vivo.
+    try {
+      const base = path.basename(cwd || process.cwd());
+      return base.replace(/^\.+/, '') || null;
+    } catch {
+      return null;
+    }
   }
 }
 

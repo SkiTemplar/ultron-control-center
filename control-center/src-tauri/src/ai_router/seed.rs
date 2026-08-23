@@ -97,10 +97,16 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "GROQ_API_KEY".into(),
             base_url: "https://api.groq.com/openai".into(),
-            default_model: "llama-3.3-70b-versatile".into(),
+            // Groq retiró la familia llama-3.x: `llama-3.3-70b-versatile` y
+            // `llama-3.1-8b-instant` ya no existen en su catálogo (verificado
+            // contra /v1/models el 2026-08-23) y cualquier ruta a este proveedor
+            // moría con model_not_found. `gpt-oss-20b` es el que responde sin
+            // rate limit (~300 ms); el 120b ya los devuelve en esta cuenta.
+            default_model: "openai/gpt-oss-20b".into(),
             models: vec![
-                "llama-3.3-70b-versatile".into(),
-                "llama-3.1-8b-instant".into(),
+                "openai/gpt-oss-20b".into(),
+                "openai/gpt-oss-120b".into(),
+                "qwen/qwen3.6-27b".into(),
             ],
             cli_command: None,
         },

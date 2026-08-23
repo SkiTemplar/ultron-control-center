@@ -2,7 +2,7 @@
 name = "control-center"
 version = "2.7.1"
 description = "ULTRON Control Center - desktop control panel for the ULTRON system"
-authors = ["USER SURNAME"]
+authors = ["Rodrigo Fernandez"]
 edition = "2021"
 # The crate ships several binaries (app + ultron-memory sidecar + embed
 # helper). Without default-run, tauri-cli picks an arbitrary bin as "the

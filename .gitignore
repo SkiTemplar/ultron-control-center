@@ -98,6 +98,8 @@ cockpit/projects/
 cockpit/projects-archive/
 cockpit/projects.json
 cockpit/projects-exclusions.json
+cockpit/project-identity.json
+cockpit/identity-migration.json
 cockpit/bridge-index.json
 cockpit/features.json
 cockpit/features.example.json
@@ -470,3 +472,7 @@ scripts/fixtures/ai-text-docs/humano/*
 tools/home-reorg/manifest.json
 tools/home-reorg/reorg-log.jsonl
 tools/home-reorg/server.log
+
+# Corpus del detector de texto IA: textos personales, repo publico
+docs/research/corpus/*
+!docs/research/corpus/README.md

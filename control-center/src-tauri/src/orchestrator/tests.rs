@@ -219,6 +219,78 @@ fn agent(name: &str) -> AgentChoice {
         score: 1.0,
     }
 }
+fn agent_con(name: &str, score: f32) -> AgentChoice {
+    AgentChoice {
+        name: name.to_string(),
+        description: "x".repeat(40),
+        score,
+    }
+}
+
+#[test]
+fn la_directiva_se_ancla_al_preferido_con_mas_score() {
+    use super::ranking::{elegir_directive_agent, preferred_specialists};
+    // Caso real medido (2026-08-23): en `feature` el ranking pone
+    // fullstack-developer por encima de architect-reviewer, pero el anclaje por
+    // orden de lista elegia architect-reviewer por ser el primero.
+    let agentes = vec![
+        agent_con("fullstack-developer", 1.00),
+        agent_con("code-reviewer", 1.00),
+        agent_con("architect-reviewer", 0.96),
+        agent_con("javascript-pro", 0.77),
+    ];
+    let elegido = elegir_directive_agent(preferred_specialists("feature"), &agentes)
+        .expect("debe elegir alguno");
+    assert_eq!(
+        elegido.name, "fullstack-developer",
+        "gana el canonico de mayor score, no el primero de la lista"
+    );
+
+    // Caso REAL mas frecuente: E5 no recupera ninguno y los tres entran
+    // inyectados al mismo floor. Con empate manda el orden de la lista, asi que
+    // una feature debe caer en quien la implementa, no en quien la revisa.
+    let empatados = vec![
+        agent_con("architect-reviewer", 1.00),
+        agent_con("fullstack-developer", 1.00),
+        agent_con("code-reviewer", 1.00),
+    ];
+    let elegido = elegir_directive_agent(preferred_specialists("feature"), &empatados).unwrap();
+    assert_eq!(
+        elegido.name, "fullstack-developer",
+        "en empate, una feature la implementa fullstack-developer"
+    );
+
+    // Pero si el ranking recupera de verdad al arquitecto con mas score, manda el.
+    let arquitecto_real = vec![
+        agent_con("architect-reviewer", 0.99),
+        agent_con("fullstack-developer", 0.85),
+    ];
+    let elegido =
+        elegir_directive_agent(preferred_specialists("feature"), &arquitecto_real).unwrap();
+    assert_eq!(
+        elegido.name, "architect-reviewer",
+        "el score real gana al orden"
+    );
+}
+
+#[test]
+fn la_directiva_nunca_se_ancla_al_ruido_de_e5() {
+    use super::ranking::elegir_directive_agent;
+    // Caso negativo del fix de 2026-06-25: un agente irrelevante con score alto
+    // NO puede robarle la directiva a un especialista canonico presente.
+    let agentes = vec![agent_con("cpp-pro", 0.99), agent_con("debugger", 0.80)];
+    let elegido = elegir_directive_agent(&["debugger", "error-detective"], &agentes).unwrap();
+    assert_eq!(elegido.name, "debugger", "solo compiten los canonicos");
+
+    // Sin ningun canonico presente se cae al top del ranking, como antes.
+    let solo_ruido = vec![agent_con("swift-expert", 0.78)];
+    let elegido = elegir_directive_agent(&["debugger"], &solo_ruido).unwrap();
+    assert_eq!(elegido.name, "swift-expert");
+
+    // Lista vacia: sin agente no hay directiva.
+    assert!(elegir_directive_agent(&["debugger"], &[]).is_none());
+}
+
 fn skill(name: &str) -> SkillChoice {
     SkillChoice {
         name: name.to_string(),

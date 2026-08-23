@@ -73,6 +73,32 @@ fn delegate_abstain_floor() -> f32 {
     }
 }
 
+/// Especialista al que se ancla la DIRECTIVA de delegación.
+///
+/// Entre los canónicos de `preferred_specialists` que estén presentes gana el de
+/// mayor score; la lista solo desempata. El anclaje por orden de lista hacía que
+/// `feature` terminara SIEMPRE en `architect-reviewer` —primero de su lista—
+/// aunque el ranking pusiera `fullstack-developer` por encima (medido
+/// 2026-08-23: 0.96 contra 1.00), y revisar arquitectura no es implementar una
+/// feature.
+///
+/// Se conserva lo que arregló el fix de 2026-06-25: solo compiten especialistas
+/// canónicos, nunca el ruido de E5 (~0.77), que podía colar `cpp-pro` en un
+/// trabajo de Rust. Sin ningún canónico presente se cae al top del ranking.
+pub(super) fn elegir_directive_agent<'a>(
+    preferidos: &[&str],
+    agents: &'a [AgentChoice],
+) -> Option<&'a AgentChoice> {
+    preferidos
+        .iter()
+        .filter_map(|p| agents.iter().find(|a| a.name == *p))
+        .fold(None::<&'a AgentChoice>, |mejor, cand| match mejor {
+            Some(m) if m.score >= cand.score => Some(m),
+            _ => Some(cand),
+        })
+        .or_else(|| agents.first())
+}
+
 /// Specialist agent names the detected `intent` should prioritise. These are
 /// REAL agents in `~/.claude/agents` (verified). The boost lifts them above the
 /// meta agents when the prompt clearly belongs to their domain.
@@ -110,7 +136,13 @@ pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
             "cloud-architect",
             "ultron-arch",
         ],
-        "feature" => &["architect-reviewer", "fullstack-developer", "code-reviewer"],
+        // El implementador va PRIMERO (2026-08-23): cuando E5 no recupera
+        // ninguno, los tres entran inyectados al mismo floor y el desempate es
+        // este orden — con `architect-reviewer` en cabeza, toda feature acababa
+        // delegada a un revisor de arquitectura en vez de a quien la construye.
+        // Si el ranking recupera de verdad a architect-reviewer con más score,
+        // sigue ganando él.
+        "feature" => &["fullstack-developer", "architect-reviewer", "code-reviewer"],
         "research" => &["ai-engineer", "llm-architect", "architect-reviewer"],
         "game" => &["unreal-engine-engineer", "cpp-pro", "architect-reviewer"],
         // Language / framework / infra domains — verifier found these buried

@@ -20,12 +20,12 @@
 
 | | |
 |---|---|
-| **Name** | USER SURNAME |
+| **Name** | Rodrigo Fernández |
 | **Year** | 2026 |
 | **Role** | Creator and original author of ULTRON |
 | **Scope** | Designed and built the original memory architecture, hook system, skill / persona routing, dual-mode protocol and Control Center |
 | **GitHub** | [@SkiTemplar](https://github.com/SkiTemplar) |
-| **LinkedIn** | [USER SURNAME SURNAME2](https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/) |
+| **LinkedIn** | [Rodrigo Fernández Carnicer](https://www.linkedin.com/in/rodrigo-fern%C3%A1ndez-carnicer-671b02274/) |
 
 ---
 
@@ -42,6 +42,6 @@ _No external contributors yet._
 ## Attribution requirement
 
 > [!IMPORTANT]
-> Per the MIT License, any copy, fork or derivative work that builds on this codebase must retain the original copyright notice naming **USER SURNAME** as the originator of ULTRON.
+> Per the MIT License, any copy, fork or derivative work that builds on this codebase must retain the original copyright notice naming **Rodrigo Fernández** as the originator of ULTRON.
 
 The project name "ULTRON" remains associated with the original work; derivative projects are encouraged to use a distinct name unless they intend to upstream changes. Full attribution policy in [`NOTICE`](NOTICE).

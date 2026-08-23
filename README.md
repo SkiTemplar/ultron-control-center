@@ -1,107 +1,35 @@
-<p align="center">
-  <img src="control-center/src-tauri/icons/128x128@2x.png" width="110" alt="ULTRON">
-</p>
-
 <h1 align="center">ULTRON Control Center</h1>
 
 <p align="center">
-  <strong>Memoria persistente y gobernada para <a href="https://claude.com/claude-code">Claude Code</a></strong> —
-  <em>tu asistente recuerda decisiones, arquitectura y contexto entre sesiones, con auditoria de cada escritura.</em>
+  <em>Una capa de memoria gobernada, enrutado multi-LLM y orquestacion de
+  skills/agentes para <a href="https://claude.com/claude-code">Claude Code</a>.</em>
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.7.1-6e40c9?style=for-the-badge">
-  <img alt="memoria" src="https://img.shields.io/badge/memoria-SQLite_+_Qdrant-2da44e?style=for-the-badge">
-  <img alt="recall" src="https://img.shields.io/badge/recall-BM25_+_E5_+_reranker-1f6feb?style=for-the-badge">
-  <img alt="mcp" src="https://img.shields.io/badge/MCP-server_incluido-d29922?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/badge/version-2.7.1-555">
+  <img alt="stack" src="https://img.shields.io/badge/Tauri_2-%2B_React_19-555">
+  <img alt="backend" src="https://img.shields.io/badge/backend-Rust_2021-555">
+  <img alt="memoria" src="https://img.shields.io/badge/memoria-SQLite_%2B_Qdrant-555">
+  <img alt="plataforma" src="https://img.shields.io/badge/plataforma-Windows_11-555">
+  <img alt="licencia" src="https://img.shields.io/badge/licencia-MIT-555">
 </p>
 
-<p align="center">
-  <img alt="stack" src="https://img.shields.io/badge/Tauri_2-React_19-24292f?logo=tauri">
-  <img alt="backend" src="https://img.shields.io/badge/Rust-2021-f74c00?logo=rust&logoColor=white">
-  <img alt="plataforma" src="https://img.shields.io/badge/Windows_11-principal-0078d4?logo=windows">
-  <img alt="licencia" src="https://img.shields.io/badge/MIT-licencia-3fb950">
-</p>
+Cockpit personal de escritorio (Tauri 2 + React 19) construido sobre la CLI de
+Claude Code. Vive bajo `~/.ultron/` y reune tres piezas: **memoria gobernada**,
+**AI Router** y un **orquestador de skills/agentes**. No reemplaza a Claude
+Code: lo envuelve con estado persistente, inspeccionable y versionable.
 
----
+> Repositorio MIT de un solo mantenedor, pensado para publicarse (hoy la
+> visibilidad la decide el mantenedor: si puedes leer esto en GitHub, ya es
+> publico). No es un producto comercial ni un SaaS. Esta documentacion
+> describe el sistema tal y como esta en el disco; no contiene secretos ni
+> datos personales (la informacion personal vive solo en ficheros locales
+> fuera de control de versiones).
 
-## ¿Que es esto?
-
-Tu asistente de IA **olvida todo** cada vez que cierras la ventana: las decisiones que
-tomasteis, los errores que ya resolvisteis, como esta montado tu proyecto. Al dia
-siguiente se lo vuelves a explicar todo.
-
-**ULTRON le da memoria.** Mientras trabajas, guarda lo importante en tu propio
-ordenador; cuando abres una conversacion nueva, se lo recuerda a la IA
-automaticamente. Tu no haces nada: trabajas como siempre y tu asistente cada vez
-te conoce mejor. Tu decides que se guarda (todo pasa por una bandeja de aprobacion)
-y nada sale de tu maquina.
-
-<details>
-<summary><strong>La version tecnica</strong> (click para abrir)</summary>
-
-Memoria local **event-sourced** (`brain.db`, SQLite) con indice semantico (Qdrant +
-E5 1024d), reinyectada en cada sesion mediante hooks — recall hibrido sub-segundo
-con un daemon residente. Ademas: **AI Router** multi-proveedor, **orquestador** de
-skills/agentes y cockpit de escritorio (Tauri 2 + React 19). Todo el estado son
-ficheros locales inspeccionables. Spec: [`docs/memory-spec.md`](docs/memory-spec.md).
-
-</details>
-
-## Con y sin ULTRON
-
-| | Claude Code a secas | Con ULTRON |
-|---|---|---|
-| Al abrir una sesion | Empieza de cero | Resume del proyecto: estado, tareas, decisiones |
-| Contexto en cada prompt | El que tu escribas | + memorias relevantes recuperadas solas (~84% de prompts reales) |
-| Errores ya resueltos | Se repiten | Se recuerdan ("eso ya lo intentamos, fallo por X") |
-| Que se guarda | Nada | Lo que apruebes en la bandeja (con auditoria de cada cambio) |
-| Donde viven tus datos | — | En tu disco, en ficheros que puedes abrir |
-
-**Frente a otros sistemas de memoria** (servicios cloud tipo Mem0 y similares), las
-diferencias son de diseño, no de marketing: aqui la memoria es **100% local** (sin
-cuenta, sin suscripcion, sin enviar tu codigo a un tercero), **gobernada** (la IA
-propone, tu apruebas; cada escritura deja evento de auditoria), **honesta** (si no
-sabe, se abstiene en vez de inyectar relleno — medido) y **abierta** (SQLite +
-Markdown + un MCP server estandar que cualquier asistente puede consultar).
-
-> Tutorial de uso diario (humano + IA): [`docs/TUTORIAL.md`](docs/TUTORIAL.md) ·
-> Spec completa del sistema de memoria: [`docs/memory-spec.md`](docs/memory-spec.md) ·
-> Instalacion por componentes: [`INSTALL.md`](INSTALL.md) · Licencia MIT.
-
-## Como fluye la memoria
-
-```mermaid
-flowchart LR
-    A[Prompt en Claude Code] -->|hook UserPromptSubmit| B[daemon ultron-memory<br/>E5 residente]
-    B --> C[(brain.db<br/>SQLite + FTS5)]
-    B --> D[(Qdrant<br/>E5 1024d)]
-    C -->|BM25| E[Fusion RRF + cross-encoder]
-    D -->|dense| E
-    E -->|pack de memorias| A
-    F[Fin de sesion] -->|hook Stop| G[Captura -> inbox de candidatos]
-    G -->|aprobacion| C
-    H[Cualquier cliente MCP<br/>Codex, Gemini CLI...] -->|MCP server| B
-```
-
-## Numeros reales (medidos, no simulados)
-
-Medidos sobre el corpus real del mantenedor (~3.300 memorias activas) con un
-oraculo de 29 queries etiquetadas a mano — tu instalacion arranca vacia y las
-cifras de recall dependen de tu corpus. Reproducibles con `ultron-memory eval --golden` y los
-scripts del repo.
-
-| Metrica | Valor |
-|---|---|
-| Recall@8 (oraculo etiquetado a mano) | **0.82** |
-| MRR (la memoria correcta, arriba) | **0.95** |
-| Orchestrate con daemon caliente | **~0.5 s** (vs ~3.5 s por proceso frio) |
-| RAM en reposo (app / daemon) | **36 MB / ~40 MB** (1.5-3.5 GB con modelos cargados) |
-| Prompts reales servidos con memoria | **84%** (gates calibrados sobre trafico real, no solo golden) |
-
-Cuando el corpus no conoce la respuesta, el sistema **se abstiene** en vez de
-inyectar relleno — la honestidad del recall tambien esta medida (categoria
-abstain del bench propio).
+- **Version**: 2.7.1 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
+- **Plataforma**: Windows 11 (objetivo principal); Linux x86_64 compila pero el
+  flujo end-to-end no esta verificado por el autor.
+- **Licencia**: MIT (ver [`LICENSE`](LICENSE)).
 
 ---
 
@@ -111,7 +39,7 @@ abstain del bench propio).
 recomendado; es idempotente y pregunta antes de tocar nada:
 
 ```powershell
-git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # Linux: ./install.sh
 ```
@@ -130,7 +58,7 @@ plan sin tocar nada):
 **Solo la app de escritorio** (sin skills/hooks/sidecar de memoria):
 
 ```bash
-git clone https://github.com/SkiTemplar/ultron-control-center.git ~/.ultron && cd ~/.ultron/control-center
+git clone https://github.com/SkiTemplar/ultron.git ~/.ultron && cd ~/.ultron/control-center
 cp ../.env.example ../.env   # opcional: claves de proveedores LLM (todas vacias por defecto)
 npm install
 npm run build:app            # = kill-app + tauri build -> ejecutable de escritorio
@@ -228,9 +156,12 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 - Devuelve un *context pack* compacto de resumenes bajo presupuesto de tokens
   (`TOKEN_BUDGET = 1500`), con trazas de *por que esta memoria* (rangos por
   fuente, scores, descartes) para el Retrieval Inspector.
-- El unico camino de recall es el comando unificado `recall` con RRF; las
-  fuentes son Qdrant (denso) + SQLite/FTS5 (sparse). No usa servicios de
-  memoria externos.
+- El antiguo `recall_hybrid` (union de scores constantes, multi-store) fue
+  **eliminado el 2026-06-28** sin callers vivos: el unico camino de recall es
+  el comando unificado `recall` con RRF. Las patas multi-store **ECC**, **KG**
+  y **Mem0** estan **retiradas** (Mem0 esta muerto por politica; no
+  reintroducir): hoy las unicas fuentes vivas son Qdrant (denso) +
+  SQLite/FTS5 (sparse).
 
 ### Captura automatica via Stop hook
 
@@ -278,6 +209,10 @@ memoria esta en `control-center/src-tauri/src/memory/`.
   como **servidor MCP** y consultado por los agentes via `codegraph_explore` /
   `codegraph_callers` / `codegraph_impact`. Indexa el repo con tree-sitter (AST)
   en `.codegraph/` (SQLite local, incremental) — 20+ lenguajes.
+- El casero v4 anterior (regex + tablas `edges`/`unresolved_refs` en brain.db +
+  panel System) fue **jubilado** (2026-06-08): aportaba menos y no se inyectaba
+  al contexto del agente. La migracion `schema_v4` se conserva como historia
+  inerte (las tablas existen vacias; no hay codigo que las consuma).
 
 ### Plugin Updates: chequeo de actualizaciones de plugins
 
@@ -326,7 +261,7 @@ npm test       # vitest (frontend)
 
 > Nota Windows: `build:app` ejecuta primero `kill-app` para cerrar cualquier
 > instancia en marcha; un binario obsoleto es la causa habitual de "no se ha
-> aplicado el cambio": cierra la app y recompila.
+> aplicado el cambio". Verifica HEAD y rebuild antes de re-implementar.
 
 ---
 
@@ -377,7 +312,7 @@ npm test       # vitest (frontend)
   playground de deteccion. `personality.json` local (gitignored) con seeds
   publicables compilados; limite duro: el tono solo aplica al chat, jamas a
   artefactos.
-- **Detector de texto IA**: hook PostToolUse que avisa cuando la
+- **Detector de texto IA** (apoyo TFG): hook PostToolUse que avisa cuando la
   prosa escrita "canta" a IA + Lab de patrones deterministas sobre el catalogo
   de investigacion; matcher con CLI y banco de casos. Senala, no reescribe.
 - **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,

@@ -26,7 +26,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::Deserialize;
@@ -47,6 +47,86 @@ const MAX_REQUEST_BYTES: u64 = 256 * 1024;
 /// Mutex sin límite — cada prompt pagaba ~9.2s para recibir contexto vacío.
 /// Pasado este plazo el daemon responde "busy" y el hook degrada en local.
 const ORCH_LOCK_WAIT: Duration = Duration::from_millis(2500);
+/// Peticiones pesadas (orchestrate/skill_query) servidas A LA VEZ. Antes era un
+/// `Mutex<()>`: UNA sola, por precaución ante "concurrent SQLite/ONNX", nunca
+/// medida. Ambas premisas se verificaron falsas el 2026-08-22:
+///   - E5 vive en un `static RwLock<Option<TextEmbedding>>` y `embed_e5` toma el
+///     lock en modo LECTURA — el compilador ya exige `TextEmbedding: Sync`, así
+///     que N hilos pueden embeber contra el MISMO modelo residente.
+///   - brain.db está en `journal_mode=wal` (verificado): lectores concurrentes
+///     + un escritor, con busy_timeout para el que escribe.
+/// Serializar de más tenía coste real: con varias sesiones abiertas, cada una
+/// esperaba su turno, recibía "busy" y lanzaba un proceso one-shot que cargaba
+/// OTRA copia del modelo (15s medidos, 5/5 prompts sin memoria).
+/// Un semáforo en vez de barra libre: el modelo es único y compartido, pero
+/// cada inferencia concurrente sí consume CPU y buffers. Configurable por
+/// `ULTRON_ORCH_CONCURRENCY`.
+const ORCH_CONCURRENCY_DEFAULT: usize = 4;
+
+/// Semáforo contado sobre `std` (sin dependencias nuevas): admite `n` titulares
+/// a la vez y libera el permiso al soltar el guard.
+struct Semaforo {
+    permisos: Mutex<usize>,
+    hay_hueco: Condvar,
+}
+
+/// Permiso vivo. Al soltarse devuelve su hueco y despierta a UN esperante.
+struct PermisoSemaforo<'a> {
+    sem: &'a Semaforo,
+}
+
+impl Semaforo {
+    fn nuevo(n: usize) -> Self {
+        Self {
+            permisos: Mutex::new(n.max(1)),
+            hay_hueco: Condvar::new(),
+        }
+    }
+
+    /// Toma un permiso esperando como mucho `max_wait`. `None` = sin hueco a
+    /// tiempo (el llamante responde "busy" y el hook degrada sin spawnear).
+    fn adquirir(&self, max_wait: Duration) -> Option<PermisoSemaforo<'_>> {
+        let deadline = Instant::now() + max_wait;
+        let mut libres = self
+            .permisos
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *libres == 0 {
+            let restante = deadline.checked_duration_since(Instant::now())?;
+            let (siguiente, espera) = self
+                .hay_hueco
+                .wait_timeout(libres, restante)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            libres = siguiente;
+            if espera.timed_out() && *libres == 0 {
+                return None;
+            }
+        }
+        *libres -= 1;
+        Some(PermisoSemaforo { sem: self })
+    }
+}
+
+impl Drop for PermisoSemaforo<'_> {
+    fn drop(&mut self) {
+        let mut libres = self
+            .sem
+            .permisos
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *libres += 1;
+        self.sem.hay_hueco.notify_one();
+    }
+}
+
+/// Cuántas peticiones pesadas se sirven a la vez (`ULTRON_ORCH_CONCURRENCY`).
+fn orch_concurrency() -> usize {
+    std::env::var("ULTRON_ORCH_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(ORCH_CONCURRENCY_DEFAULT)
+}
 
 /// One request line from a hook client.
 #[derive(Debug, Deserialize)]
@@ -437,9 +517,13 @@ pub fn run_daemon() -> Result<Value, String> {
         });
     }
 
-    // Serialize orchestrate calls (prompts are sequential; this also sidesteps any
-    // surprise about concurrent SQLite/ONNX use under load — KISS + safe).
-    let orch_lock = Arc::new(Mutex::new(()));
+    // Un solo modelo residente sirviendo a varias sesiones a la vez (ver
+    // ORCH_CONCURRENCY_DEFAULT). Sustituye al Mutex que serializaba TODO.
+    let orch_sem = Arc::new(Semaforo::nuevo(orch_concurrency()));
+    eprintln!(
+        "ultron-memory serve: concurrencia de orchestrate = {}",
+        orch_concurrency()
+    );
 
     for incoming in listener.incoming() {
         let stream = match incoming {
@@ -448,9 +532,9 @@ pub fn run_daemon() -> Result<Value, String> {
         };
         let token = token.clone();
         let last = Arc::clone(&last_activity);
-        let orch_lock = Arc::clone(&orch_lock);
+        let orch_sem = Arc::clone(&orch_sem);
         std::thread::spawn(move || {
-            handle_conn(stream, &token, &last, &orch_lock, started);
+            handle_conn(stream, &token, &last, &orch_sem, started);
         });
     }
     // `incoming()` only ends on a listener error; treat as clean shutdown.
@@ -458,29 +542,11 @@ pub fn run_daemon() -> Result<Value, String> {
     Ok(json!({ "stopped": true }))
 }
 
-/// `Mutex::lock` con deadline (std no trae `try_lock_for`): reintenta cada 50ms
-/// hasta `max_wait`. Poisoned se recupera igual que hacía el `lock()` directo.
-fn try_lock_bounded(lock: &Mutex<()>, max_wait: Duration) -> Option<std::sync::MutexGuard<'_, ()>> {
-    let deadline = Instant::now() + max_wait;
-    loop {
-        match lock.try_lock() {
-            Ok(guard) => return Some(guard),
-            Err(std::sync::TryLockError::Poisoned(p)) => return Some(p.into_inner()),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                if Instant::now() >= deadline {
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        }
-    }
-}
-
 fn handle_conn(
     stream: TcpStream,
     token: &str,
     last_activity: &AtomicI64,
-    orch_lock: &Mutex<()>,
+    orch_sem: &Semaforo,
     started: Instant,
 ) {
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
@@ -507,18 +573,20 @@ fn handle_conn(
     };
     last_activity.store(now_ms(), Ordering::Relaxed);
 
-    // Serialize the heavy E5 paths (orchestrate + skill_query both embed via the
-    // process-global E5 OnceCell); ping/shutdown stay lock-free. Espera ACOTADA
-    // (ORCH_LOCK_WAIT): si el lock no llega, "busy" — nunca cola infinita.
+    // Acota cuántas peticiones pesadas (orchestrate + skill_query, ambas embeben
+    // contra el E5 residente) se sirven a la vez; ping/shutdown quedan libres.
+    // Espera ACOTADA (ORCH_LOCK_WAIT): sin hueco a tiempo se responde "busy" y
+    // el hook espera al MISMO daemon — nunca cola infinita ni proceso rival.
     let (resp, shutdown) = if req.cmd == "orchestrate" || req.cmd == "skill_query" {
-        match try_lock_bounded(orch_lock, ORCH_LOCK_WAIT) {
-            Some(_guard) => handle_request(&req, token, started),
+        match orch_sem.adquirir(ORCH_LOCK_WAIT) {
+            Some(_permiso) => handle_request(&req, token, started),
             None => (
                 json!({
                     "error": "busy",
                     "detail": format!(
-                        "orchestrate lock no liberado en {}ms — daemon ocupado; el hook degrada",
-                        ORCH_LOCK_WAIT.as_millis()
+                        "sin hueco en {}ms con {} plazas — daemon saturado; el hook espera y degrada",
+                        ORCH_LOCK_WAIT.as_millis(),
+                        orch_concurrency()
                     ),
                 }),
                 false,
@@ -619,6 +687,57 @@ mod tests {
             Some("empty prompt")
         );
         assert!(!shutdown);
+    }
+
+    #[test]
+    fn semaforo_admite_varios_titulares_a_la_vez() {
+        // El punto del cambio: N peticiones pesadas simultáneas, no una.
+        let sem = Semaforo::nuevo(3);
+        let a = sem.adquirir(Duration::from_millis(50));
+        let b = sem.adquirir(Duration::from_millis(50));
+        let c = sem.adquirir(Duration::from_millis(50));
+        assert!(
+            a.is_some() && b.is_some() && c.is_some(),
+            "3 plazas, 3 permisos"
+        );
+    }
+
+    #[test]
+    fn semaforo_agotado_responde_none_sin_colgarse() {
+        let sem = Semaforo::nuevo(1);
+        let _ocupado = sem
+            .adquirir(Duration::from_millis(50))
+            .expect("primer permiso");
+        let t0 = Instant::now();
+        assert!(
+            sem.adquirir(Duration::from_millis(80)).is_none(),
+            "sin plazas libres debe rendirse, no bloquear para siempre"
+        );
+        assert!(
+            t0.elapsed() < Duration::from_secs(2),
+            "la espera está acotada"
+        );
+    }
+
+    #[test]
+    fn semaforo_devuelve_el_hueco_al_soltar_el_permiso() {
+        let sem = Semaforo::nuevo(1);
+        {
+            let _p = sem
+                .adquirir(Duration::from_millis(50))
+                .expect("permiso inicial");
+        } // Drop -> hueco devuelto
+        assert!(
+            sem.adquirir(Duration::from_millis(50)).is_some(),
+            "el permiso soltado debe volver al pool"
+        );
+    }
+
+    #[test]
+    fn semaforo_nunca_tiene_cero_plazas() {
+        // Un 0 mal configurado dejaría el daemon incapaz de servir nada.
+        let sem = Semaforo::nuevo(0);
+        assert!(sem.adquirir(Duration::from_millis(50)).is_some());
     }
 
     #[test]

@@ -17,6 +17,7 @@ ULTRON has three install paths; pick one.
    > **Requires a published GitHub Release.** The pipeline
    > (`.github/workflows/release.yml`, triggered by a `v*.*.*` tag) is
    > active; if the Releases page is still empty on your fork/clone, use
+   > path 1. Details: [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 3. **Per-step manual** — see [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 
 ---
@@ -27,7 +28,7 @@ This is the path that works today. The install root is tied to a git
 checkout you can edit and PR back:
 
 ```powershell
-git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 .\install.ps1
 ```
@@ -35,7 +36,7 @@ cd $env:USERPROFILE\.ultron
 Linux equivalent:
 
 ```bash
-git clone https://github.com/SkiTemplar/ultron-control-center.git ~/.ultron
+git clone https://github.com/SkiTemplar/ultron.git ~/.ultron
 cd ~/.ultron
 ./install.sh
 ```
@@ -93,7 +94,7 @@ Full per-step reference in
 
 On Windows the first launch shows a SmartScreen warning (the NSIS
 installer is unsigned). Click **More info → Run anyway**. Code signing is
-tracked by the maintainer.
+tracked in [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 
 On Linux the `.AppImage` is `chmod +x` and run; the `.deb` installs with
 `sudo dpkg -i ultron-control-center_<ver>_amd64.deb` (`sudo apt -f install`
@@ -123,12 +124,12 @@ To uninstall:
 > If the Releases page is empty (fresh fork, or no `v*.*.*` tag pushed yet),
 > the one-liner fails at "fetching latest release" — use path 1 (clone)
 > instead. Releases are cut by pushing a version tag; see
-> el proceso de release del mantenedor.
+> [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 
 ### Windows 11 (PowerShell, no Git required)
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
 ```
 
 The script hits the GitHub Releases API, finds the latest `v*.*.*` tag,
@@ -139,13 +140,13 @@ Control Center.
 **Pin to a specific release** (reproducible installs):
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/refs/tags/v15.7.0/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.7.0/bootstrap.ps1 | iex
 ```
 
 ### Linux x86_64 (Debian / Ubuntu / Fedora / Arch)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
 ```
 
 `install.sh` package-manager-detects (`apt` / `dnf` / `pacman`) and may
@@ -181,4 +182,4 @@ For deeper failures — wizard internals, per-feature opt-outs, hook list,
 auto-install matrix, Linux package-manager detection, scheduled tasks,
 manual uninstall — see [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 
-Issue tracker: <https://github.com/SkiTemplar/ultron-control-center/issues>.
+Issue tracker: <https://github.com/SkiTemplar/ultron/issues>.

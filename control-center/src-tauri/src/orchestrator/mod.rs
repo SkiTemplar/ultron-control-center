@@ -5,7 +5,10 @@
 //
 // Intent classification is RULES-based on purpose: the master prompt says "no
 // usar modelo grande para lo que resuelven reglas/triggers/metadata". The LLM
-// (AI Routing #8) is reserved for the ambiguous tail later.
+// (AI Routing #8) covers the ambiguous tail ONLY: cuando las reglas dicen
+// `general` se pregunta a un modelo pequeño (`intent_llm`), porque el usuario
+// describe síntomas en español coloquial y ese es justo el turno que las reglas
+// no saben clasificar — y `general` nunca delega.
 //
 // Reuses, does NOT duplicate: agent catalog (memory::catalog), recall
 // (commands::memory::recall_unified::build_trace), and the 7 built-in workflows
@@ -14,6 +17,7 @@
 // agents in ~/.claude/agents (ghost agents are sanitized out).
 
 pub(crate) mod delegation;
+pub(crate) mod intent_llm;
 pub(crate) mod orchestrate;
 pub(crate) mod personality;
 pub(crate) mod ranking;

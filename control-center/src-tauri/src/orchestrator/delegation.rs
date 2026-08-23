@@ -108,6 +108,17 @@ const ULTRON_META_PHRASES: &[&str] = &[
     "guarda en la memoria",
     "drena el inbox",
     "valida los candidatos",
+    // (2026-08-23) Falsos positivos medidos al activar el rescate de intent:
+    // con el intent ya rescatado, la barrera lexica de `is_nontrivial` no
+    // aplica, asi que estas meta-tareas llegaban a delegarse. "revisa el kanban
+    // board" salia como bug_fix -> debugger, y un subagente no tiene el tablero.
+    "el kanban",
+    "kanban board",
+    "tablero kanban",
+    "guardar sesion",
+    "guardar sesión",
+    "guarda la sesion",
+    "guarda la sesión",
 ];
 
 /// `true` si el prompt es una meta-tarea de operación del propio sistema
@@ -197,12 +208,18 @@ pub fn decide_delegation(
     prompt: &str,
     objective: &str,
     top_agent: Option<&AgentChoice>,
+    intent_rescatado: bool,
 ) -> Option<DelegationDirective> {
     let agent = top_agent?;
     if !DELEGABLE_INTENTS.contains(&intent) {
         return None;
     }
-    if !is_nontrivial(prompt) {
+    // `is_nontrivial` pide un verbo de acción, así que descarta al usuario que
+    // describe SÍNTOMAS ("no se pueden eliminar fotos") en vez de dar órdenes —
+    // el mismo muro que ya sorteó el rescate de intent, un nivel más abajo.
+    // Cuando un modelo ha dictaminado que el turno es trabajo delegable, esa
+    // heurística léxica ya no aporta: aplicarla anularía el rescate entero.
+    if !intent_rescatado && !is_nontrivial(prompt) {
         return None;
     }
     // Meta-tarea del propio sistema (memoria/skills/kanban/inbox): el agente
@@ -215,7 +232,11 @@ pub fn decide_delegation(
         objective: objective.to_string(),
         return_format: RETURN_FORMAT.to_string(),
         model_hint: model_for_task(intent, prompt),
-        reason: format!("intent={intent}; tarea no-trivial"),
+        reason: if intent_rescatado {
+            format!("intent={intent} (rescatado por modelo)")
+        } else {
+            format!("intent={intent}; tarea no-trivial")
+        },
     })
 }
 
@@ -238,12 +259,81 @@ mod tests {
             "refactoriza el modulo de recall unificado a async sin romper recall@8",
             "[encuadre refactor] refactoriza el modulo de recall a async",
             Some(&agent("refactoring-specialist")),
+            false,
         );
         let d = d.expect("debe emitir directiva");
         assert_eq!(d.agent, "refactoring-specialist");
         // calidad>tokens: refactor delegado -> sonnet (jamás haiku).
         assert_eq!(d.model_hint.as_deref(), Some("sonnet"));
         assert!(d.return_format.contains("Resumen"));
+    }
+
+    #[test]
+    fn un_sintoma_delega_solo_si_el_intent_viene_rescatado() {
+        // Prompt real del usuario (2026-08-22): describe un fallo sin usar
+        // ningun verbo de accion, asi que `is_nontrivial` lo rechaza.
+        let sintoma = "Varias cosas, 1. No se pueden eliminar fotos. 2. Se deberian poder reordenar las paginas";
+        assert!(
+            !is_nontrivial(sintoma),
+            "el prompt no tiene verbo de accion: sin rescate no debe delegar"
+        );
+        assert!(
+            decide_delegation("bug_fix", sintoma, "obj", Some(&agent("debugger")), false).is_none(),
+            "sin rescate se mantiene la heuristica lexica de siempre"
+        );
+        // Con el intent rescatado por el modelo, la heuristica lexica ya no
+        // manda: si volviera a aplicarse, el rescate seria decorativo.
+        let d = decide_delegation("bug_fix", sintoma, "obj", Some(&agent("debugger")), true)
+            .expect("con intent rescatado debe emitir directiva");
+        assert_eq!(d.agent, "debugger");
+        assert!(
+            d.reason.contains("rescatado"),
+            "la razon debe delatar el rescate"
+        );
+    }
+
+    #[test]
+    fn las_meta_tareas_medidas_al_activar_el_rescate_siguen_bloqueadas() {
+        // Prompts reales que el rescate clasifico como trabajo delegable y que
+        // NO lo son: operan el propio ULTRON, no un repo.
+        for p in [
+            "revisa el kanban board. He probado la app, y no esta mal, pero le faltan cosas",
+            "Acepto, deberias guardar sesion por si no te da tiempo a terminar",
+        ] {
+            assert!(is_ultron_meta_task(p), "meta-tarea no detectada: {p}");
+            assert!(
+                decide_delegation("bug_fix", p, "obj", Some(&agent("debugger")), true).is_none(),
+                "una meta-tarea de ULTRON no se delega ni con el intent rescatado: {p}"
+            );
+        }
+    }
+
+    #[test]
+    fn el_rescate_no_salta_las_demas_barreras() {
+        // Caso negativo: el rescate solo releva a `is_nontrivial`. Un intent no
+        // delegable y una meta-tarea de ULTRON siguen bloqueados.
+        assert!(
+            decide_delegation(
+                "general",
+                "no se pueden eliminar las fotos",
+                "obj",
+                Some(&agent("debugger")),
+                true
+            )
+            .is_none(),
+            "un intent no delegable no se delega ni rescatado"
+        );
+        assert!(
+            decide_delegation(
+                "feature",
+                "mueve la tarjeta al kanban de ultron",
+                "obj",
+                Some(&agent("debugger")),
+                true
+            )
+            .is_none(),
+            "una meta-tarea de ULTRON no se delega ni rescatada"
+        );
     }
 
     #[test]
@@ -254,6 +344,7 @@ mod tests {
             "implementa una funcion que sume dos numeros y devuelva el total ahora",
             "objetivo",
             Some(&agent("code-reviewer")),
+            false,
         );
         assert!(d.is_none());
     }
@@ -261,14 +352,20 @@ mod tests {
     #[test]
     fn trivial_prompt_does_not_delegate() {
         // Caso negativo (mandamiento 7): saludo / pregunta corta -> 0 directiva.
-        assert!(
-            decide_delegation("research", "hola", "hola", Some(&agent("ai-engineer"))).is_none()
-        );
+        assert!(decide_delegation(
+            "research",
+            "hola",
+            "hola",
+            Some(&agent("ai-engineer")),
+            false
+        )
+        .is_none());
         assert!(decide_delegation(
             "rust",
             "que es RRF",
             "que es RRF",
-            Some(&agent("rust-engineer"))
+            Some(&agent("rust-engineer")),
+            false,
         )
         .is_none());
     }
@@ -283,7 +380,13 @@ mod tests {
             "mueve la card del kanban a la columna done porque ya esta hecha",
             "olvida esa decision y actualiza la memoria con la nueva politica del proyecto",
         ] {
-            let d = decide_delegation("refactor", prompt, "obj", Some(&agent("rust-engineer")));
+            let d = decide_delegation(
+                "refactor",
+                prompt,
+                "obj",
+                Some(&agent("rust-engineer")),
+                false,
+            );
             assert!(d.is_none(), "meta-tarea delegada por error: {prompt}");
         }
         // CASO NEGATIVO: una tarea real que solo MENCIONA memoria de programa
@@ -293,6 +396,7 @@ mod tests {
             "arregla el leak de memoria del parser y añade un test que lo cubra",
             "obj",
             Some(&agent("rust-engineer")),
+            false,
         );
         assert!(d.is_some(), "tarea real bloqueada por el filtro meta");
     }
@@ -306,6 +410,7 @@ mod tests {
             "revisa la arquitectura del nuevo pipeline de recall: trade-offs, modulos y su acoplamiento",
             "obj",
             Some(&agent("architect-reviewer")),
+            false,
         )
         .expect("debe emitir directiva");
         assert_eq!(d.model_hint.as_deref(), Some("opus"));
@@ -315,6 +420,7 @@ mod tests {
             "refactoriza el modulo de recall unificado a async sin romper recall@8",
             "obj",
             Some(&agent("refactoring-specialist")),
+            false,
         )
         .expect("debe emitir directiva");
         assert_eq!(d2.model_hint.as_deref(), Some("sonnet"));
@@ -327,6 +433,7 @@ mod tests {
             "implementa la feature completa de delegacion ahora mismo",
             "obj",
             None,
+            false,
         );
         assert!(d.is_none());
     }

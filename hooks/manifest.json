@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-08-21",
+  "generated_at": "2026-08-22",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -280,6 +280,22 @@
       "description": "SessionStart: resuelve el proyecto por cwd contra cockpit/projects.json e inyecta como additionalContext el roster de subagentes de ese proyecto (cockpit/projects/<id>/agent-roster.json). Si no hay roster lo genera deterministicamente por stack detectado y lo persiste; filtra agentes sin fichero en ~/.claude/agents. No llama a ningun LLM, no escribe memoria. Fail-safe: error -> sin output, exit 0."
     },
     {
+      "id": "ensure-project",
+      "event": "SessionStart",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/ensure-project.js",
+      "script": "~/.ultron/hooks/scripts/ensure-project.js",
+      "timeout_s": 15,
+      "async": false,
+      "checksum_sha256": "b62fdc8f1b8c27b9788a220e9bea9d89fb720de5f90b3838571600b12a20831c",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "TODO: describir (hook nuevo detectado por regen-manifest)"
+    },
+    {
       "id": "stop-compress-session",
       "event": "Stop",
       "matcher": "*",
@@ -477,7 +493,7 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 20,
       "async": false,
-      "checksum_sha256": "4a780ed9f4c6810f6453a72ed431f86b004624c41b3d22d5c99368e934f00c06",
+      "checksum_sha256": "f4bc3ede36a1d5dfefedca3465fdfbab9d0095b14f269f529051f66614b42a87",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

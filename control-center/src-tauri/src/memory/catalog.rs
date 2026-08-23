@@ -530,6 +530,50 @@ pub fn search_catalog(query: &str, entity: Option<&str>, k: u32) -> Vec<CatalogH
     }
 }
 
+/// Ventana mínima entre dos reindexados automáticos. Reindexar cuesta un embed
+/// E5 por agente y por skill: si el catálogo no se puede reconstruir (E5 caído,
+/// Qdrant caído, `~/.claude/agents` ausente) hay que fallar espaciado, no en
+/// cada prompt.
+const AUTO_REINDEX_COOLDOWN_SECS: u64 = 600;
+
+/// Epoch del último reindex automático lanzado. 0 = nunca.
+static ULTIMO_AUTO_REINDEX: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Repuebla el catálogo en segundo plano cuando se detecta vacío.
+///
+/// Existe porque el catálogo NO tiene fuente de verdad que lo reconstruya —
+/// vive solo en Qdrant— y nadie lo repuebla salvo el botón de la UI o el CLI a
+/// mano. Si Qdrant pierde la colección, la delegación queda apagada en silencio
+/// e indefinidamente (medido el 2026-08-22: 0 candidatos en todas las sesiones).
+///
+/// Devuelve `true` si ha lanzado el trabajo, `false` si está en cooldown. Nunca
+/// bloquea al llamante: el turno que lo detecta ya va sin delegación y es el
+/// siguiente el que se beneficia.
+pub fn spawn_reindex_si_vacio() -> bool {
+    use std::sync::atomic::Ordering;
+    let ahora = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let previo = ULTIMO_AUTO_REINDEX.load(Ordering::Relaxed);
+    if ahora.saturating_sub(previo) < AUTO_REINDEX_COOLDOWN_SECS {
+        return false;
+    }
+    // compare_exchange: con varias sesiones orquestando a la vez, solo una
+    // lanza el reindex. Las demás siguen su turno sin pagar nada.
+    if ULTIMO_AUTO_REINDEX
+        .compare_exchange(previo, ahora, Ordering::SeqCst, Ordering::Relaxed)
+        .is_err()
+    {
+        return false;
+    }
+    std::thread::spawn(|| {
+        let _ = index_agents();
+        let _ = index_skills();
+    });
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

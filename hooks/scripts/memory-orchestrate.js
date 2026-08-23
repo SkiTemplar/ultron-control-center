@@ -75,6 +75,24 @@ const DAEMON_BOOT_WINDOW_MS = 90_000;
 const DAEMON_BOOT_WAIT_MS = 12_000;
 const DAEMON_BOOT_POLL_MS = 1_500;
 
+// HOOKS-06 (2026-08-22): "busy" NO es un daemon caido. El daemon responde
+// {error:"busy"} cuando su lock global sigue ocupado tras ORCH_LOCK_WAIT (2,5s)
+// — otra sesion embebiendo, o E5 recargandose tras el idle-release. El codigo
+// anterior lo metia en el mismo saco que "sin respuesta" y disparaba el
+// fallback one-shot, que carga OTRA copia de E5 (~1,5 GB) y compite por CPU con
+// quien ya la estaba cargando. Con 5 sesiones abiertas eso son 5 cargas
+// simultaneas del mismo modelo: 15s medidos (9000 daemon + 6000 one-shot),
+// 5/5 prompts degradados. Ante "busy" se reintenta contra el MISMO daemon
+// dentro de este presupuesto y NUNCA se spawnea competencia.
+// Peor caso: 2500 (busy del daemon) + 6000 (reintentos) = 8,5s < 20s del hook.
+const BUSY_RETRY_BUDGET_MS = 6000;
+const BUSY_RETRY_POLL_MS = 400;
+
+/** ¿La respuesta es un "busy" del daemon (vivo pero con el lock ocupado)? */
+function isDaemonBusy(resp) {
+  return Boolean(resp && typeof resp.error === 'string' && resp.error === 'busy');
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function orchCachePath(project) {
@@ -383,7 +401,30 @@ async function main() {
     { cmd: 'orchestrate', prompt, project: project || undefined },
     cached ? DAEMON_TIMEOUT_CACHED_MS : DAEMON_TIMEOUT_MS
   );
+  // HOOKS-06: separar "busy" (daemon VIVO, lock ocupado) de "caido/roto". Solo
+  // el segundo justifica el fallback one-shot; ante el primero se espera al
+  // mismo daemon, que es justo lo que evita la estampida de cargas de E5.
+  let daemonBusy = isDaemonBusy(ctx);
   if (ctx && ctx.error) ctx = null; // daemon answered but failed -> fall back
+
+  if (!ctx && daemonBusy) {
+    const busyDeadline = Date.now() + BUSY_RETRY_BUDGET_MS;
+    while (Date.now() + BUSY_RETRY_POLL_MS < busyDeadline) {
+      await sleep(BUSY_RETRY_POLL_MS);
+      const retry = await daemonRequest(
+        { cmd: 'orchestrate', prompt, project: project || undefined },
+        Math.max(1000, busyDeadline - Date.now())
+      );
+      daemonBusy = isDaemonBusy(retry);
+      if (retry && !retry.error) {
+        ctx = retry;
+        break;
+      }
+      // Un error que NO es "busy" (o silencio) sí es daemon roto: se abandona
+      // el reintento y se cae al camino de degradación de abajo.
+      if (!daemonBusy) break;
+    }
+  }
 
   // HOOKS-05: daemon en warmup (lock joven) -> poll hasta DAEMON_BOOT_WAIT_MS
   // en vez de degradar al one-shot (que compite por CPU con la carga de E5).
@@ -407,13 +448,20 @@ async function main() {
 
   let staleFromCache = false;
   if (!ctx) {
-    // No daemon (cold session / it died): spawn one for the NEXT prompt
-    // (idempotent — exits at once if a live one already answers), and serve THIS
-    // turn from a capped one-shot, with the cached pack as safety net (HOOKS-04).
-    spawnDetached(['serve']);
-    const args = ['orchestrate', prompt];
-    if (project) args.push('--project', project);
-    ctx = runCli(args, { timeoutMs: cached ? ONE_SHOT_CAP_CACHED_MS : ONE_SHOT_CAP_UNCACHED_MS });
+    // HOOKS-06: si el daemon sigue diciendo "busy", está VIVO — solo saturado.
+    // Ni spawn (ya hay uno) ni one-shot: este último cargaría otra copia de E5
+    // compitiendo con quien ya la está cargando, que es exactamente la
+    // estampida que degradó 5/5 prompts el 2026-08-22. Se cae directo a la red
+    // de seguridad de abajo (pack cacheado, o degradación marcada).
+    if (!daemonBusy) {
+      // No daemon (cold session / it died): spawn one for the NEXT prompt
+      // (idempotent — exits at once if a live one already answers), and serve THIS
+      // turn from a capped one-shot, with the cached pack as safety net (HOOKS-04).
+      spawnDetached(['serve']);
+      const args = ['orchestrate', prompt];
+      if (project) args.push('--project', project);
+      ctx = runCli(args, { timeoutMs: cached ? ONE_SHOT_CAP_CACHED_MS : ONE_SHOT_CAP_UNCACHED_MS });
+    }
     if (ctx === null && cached) {
       // Pack del prompt ANTERIOR del mismo proyecto (<30 min): mejor un pack
       // stale marcado que 4-5s de bloqueo o que nada. El route/step_plans

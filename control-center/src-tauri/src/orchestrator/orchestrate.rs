@@ -25,9 +25,32 @@ pub fn orchestrate(
     project_id: Option<&str>,
     dense_enabled: bool,
 ) -> OrchestrationContext {
-    let (intent, wf_id) = classify_intent(prompt);
+    let (rule_intent, wf_id) = classify_intent(prompt);
     let known = catalog::known_agent_names();
     let mut warnings: Vec<String> = Vec::new();
+
+    // Cola ambigua (2026-08-23): las reglas aciertan con encargos técnicos, pero
+    // el usuario describe SÍNTOMAS en español coloquial y eso cae en `general`,
+    // que no delega nunca. Medido sobre 15 prompts reales: 14/15 eran `general`;
+    // con el rescate bajan a 3/15. Solo se paga la llamada en ese caso, y un
+    // fallo devuelve el intent de las reglas — nunca empeora lo que ya había.
+    let (intent, intent_rescatado) = if super::intent_llm::merece_consulta(rule_intent, prompt) {
+        match super::intent_llm::rescatar_intent(prompt) {
+            Some(rescatado) => {
+                warnings.push(format!(
+                    "intent rescatado por modelo: general -> {rescatado} (las reglas no supieron clasificarlo)"
+                ));
+                (rescatado, true)
+            }
+            None => (rule_intent, false),
+        }
+    } else {
+        (rule_intent, false)
+    };
+    // `wf_id` se queda con el de las reglas a propósito: el workflow describe la
+    // CEREMONIA del turno (pasos, agentes por paso) y un rescate de intent no es
+    // señal suficiente para imponer un flujo multi-paso. El rescate sirve para
+    // delegar, no para orquestar un workflow entero.
 
     // Personalities v1 (2026-08-13): detección determinista del TONO del chat
     // (señales léxicas / petición explícita) — <1ms, sin red ni E5. Un
@@ -91,7 +114,20 @@ pub fn orchestrate(
     };
     if delegate_agents.is_empty() && !meta_introspective {
         if raw_hits_empty {
-            warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
+            // Auto-reparación (2026-08-23, decidido por el usuario): el catálogo
+            // solo vive en Qdrant — a diferencia de las memorias, no tiene fuente
+            // de verdad que reconstruirlo — y NADIE lo repuebla salvo a mano. Si
+            // Qdrant pierde la colección, la delegación se apaga en silencio y
+            // para siempre: así estuvo el 2026-08-22, con 0 candidatos en todas
+            // las sesiones. Se dispara el reindex en segundo plano; este turno ya
+            // sale sin delegación, pero el siguiente la recupera solo.
+            let lanzado = catalog::spawn_reindex_si_vacio();
+            warnings.push(if lanzado {
+                "agent catalog vacío — reindexando en segundo plano; la delegación vuelve en el próximo turno"
+                    .to_string()
+            } else {
+                "agent catalog empty/unavailable — run `catalog_reindex`".to_string()
+            });
         } else {
             // Abstencion (2026-08-12): habia hits pero ninguno supero el floor
             // — senal semantica debil (prompt conversacional / sin dominio).
@@ -234,15 +270,23 @@ pub fn orchestrate(
     // de `preferred_specialists(intent)` que esté presente en `delegate_agents`,
     // en lugar de al [0] reordenado por E5 (que puede subir cpp-pro sobre
     // rust-engineer, etc.). La lista visible `delegate_agents` no cambia.
-    let directive_agent = super::ranking::preferred_specialists(intent)
-        .iter()
-        .find_map(|p| delegate_agents.iter().find(|a| a.name == *p))
-        .or_else(|| delegate_agents.first());
+    // Entre los especialistas CANÓNICOS presentes gana el de mayor score, no el
+    // primero de la lista (2026-08-23). El anclaje por orden hacía que `feature`
+    // acabara SIEMPRE en `architect-reviewer` —primero de su lista— aunque el
+    // ranking pusiera `fullstack-developer` por encima: revisar arquitectura no
+    // es implementar una feature. Se mantiene intacto lo que arregló el fix de
+    // 2026-06-25: solo compiten preferidos canónicos, nunca el ruido de E5
+    // (~0.77), y el orden de la lista sigue siendo el desempate.
+    let directive_agent = super::ranking::elegir_directive_agent(
+        super::ranking::preferred_specialists(intent),
+        &delegate_agents,
+    );
     let delegation_directive = super::delegation::decide_delegation(
         intent,
         prompt,
         &prompt_plan.improved_prompt,
         directive_agent,
+        intent_rescatado,
     );
 
     OrchestrationContext {
