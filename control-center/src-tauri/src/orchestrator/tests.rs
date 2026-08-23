@@ -4,8 +4,8 @@ use crate::memory::catalog;
 
 use super::orchestrate::orchestrate;
 use super::ranking::{
-    agent_sub_intent, apply_token_budget, build_prompt_plan, build_step_plans, optimize_prompt,
-    rebalance_delegates,
+    agent_sub_intent, apply_token_budget, build_prompt_plan, build_step_plans,
+    inject_preferred_floor, optimize_prompt, rebalance_delegates,
 };
 use super::rules::{classify_intent, detect_cross_project};
 use super::types_model::{AgentChoice, SkillChoice, StepPlan};
@@ -630,4 +630,54 @@ fn rebalance_keeps_strong_hits_and_boosted_preferred() {
         "preferred con boost (1.00) supera el floor y sobrevive"
     );
     assert_eq!(ranked[0].name, "debugger");
+}
+
+/// (2026-08-23) El orden declarado en `preferred_specialists` ES la prioridad, y
+/// hasta hoy no se respetaba: todos los preferidos ausentes se inyectaban al
+/// mismo floor. Medido en runtime con intent `rust` (preferidos: rust-engineer,
+/// cpp-pro), un prompt que decía "Rust" y "cargo" salía con cpp-pro a 1.00 por
+/// delante de rust-engineer a 0.99 — el segundo de la lista le ganaba al primero
+/// solo por entrar por regla en vez de por similitud.
+#[test]
+fn preferido_primero_de_la_lista_gana_al_segundo_y_al_hit_recuperado() {
+    // Nadie recuperado: el orden de la lista decide.
+    let inyectados = inject_preferred_floor(Vec::new(), "rust");
+    let rust = inyectados
+        .iter()
+        .find(|h| h.name == "rust-engineer")
+        .map(|h| h.score);
+    let cpp = inyectados
+        .iter()
+        .find(|h| h.name == "cpp-pro")
+        .map(|h| h.score);
+    // Si el catálogo de agentes no está disponible en el entorno de test no hay
+    // nada que ordenar; el caso con datos es el de abajo.
+    if let (Some(rust), Some(cpp)) = (rust, cpp) {
+        assert!(
+            rust > cpp,
+            "rust-engineer va primero en la lista del intent rust: {rust} debe superar a {cpp}"
+        );
+    }
+
+    // Y el que E5 recupera de verdad no puede quedar por debajo del inyectado
+    // que va DETRÁS de él en la lista.
+    let recuperado = vec![catalog::CatalogHit {
+        entity: "agent".into(),
+        name: "rust-engineer".into(),
+        description: "Rust systems engineering".into(),
+        score: 0.79,
+        kind: String::new(),
+    }];
+    let pool = inject_preferred_floor(recuperado, "rust");
+    if let Some(cpp) = pool.iter().find(|h| h.name == "cpp-pro").map(|h| h.score) {
+        let rust = pool
+            .iter()
+            .find(|h| h.name == "rust-engineer")
+            .map(|h| h.score)
+            .expect("el hit recuperado sigue en el pool");
+        assert!(
+            rust > cpp,
+            "un especialista recuperado ({rust}) no puede perder contra un inyectado posterior ({cpp})"
+        );
+    }
 }

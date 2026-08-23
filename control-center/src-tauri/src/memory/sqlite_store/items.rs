@@ -131,6 +131,33 @@ pub fn delete_item(conn: &Connection, id: &str) -> Result<(), MemoryError> {
     Ok(())
 }
 
+/// Cláusula SQL que veta los tipos excluidos del recall, lista para concatenar
+/// tras un `WHERE`. Vacía cuando no hay exclusiones (ver `memory::recall_policy`).
+///
+/// Los tipos son identificadores de configuración, no entrada de usuario, pero
+/// van inline en el SQL: se sanea a `[a-z0-9_]` y se descarta lo demás, así un
+/// valor raro en la env var no puede alterar la consulta.
+fn excluded_types_clause(column_prefix: &str) -> String {
+    let tipos: Vec<String> = crate::memory::recall_policy::excluded_types()
+        .into_iter()
+        .map(|t| {
+            t.chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect::<String>()
+        })
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("'{t}'"))
+        .collect();
+    if tipos.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " AND ({column_prefix}type IS NULL OR {column_prefix}type NOT IN ({}))",
+            tipos.join(", ")
+        )
+    }
+}
+
 pub fn search_items(
     conn: &Connection,
     query: &str,
@@ -147,10 +174,11 @@ pub fn search_items(
         // this order, so the sparse_rank HashMap in build_trace reflects true BM25
         // rank. The quality re-ranker multiplier is applied AFTER RRF fusion, not
         // here, so BM25 order feeds into the sparse rank input cleanly.
+        let veto = excluded_types_clause("m.");
         let sql = format!(
             "SELECT {ITEM_COLS} FROM memory_items_fts f
              JOIN memory_items m ON m.rowid = f.rowid
-             WHERE memory_items_fts MATCH ?1 AND m.status = ?2
+             WHERE memory_items_fts MATCH ?1 AND m.status = ?2{veto}
              ORDER BY bm25(memory_items_fts) ASC LIMIT ?3"
         );
         // B3: term-OR query instead of whole-string PHRASE match. Quoting the
@@ -199,9 +227,10 @@ pub fn search_items(
             .join(" OR ");
         // status.as_str() and limit are fixed-shape, non-user values -> inlined
         // safely; the user-derived needles are bound parameters (no injection).
+        let veto = excluded_types_clause("");
         let sql = format!(
             "SELECT {ITEM_COLS} FROM memory_items
-             WHERE status = '{}' AND ({clause})
+             WHERE status = '{}' AND ({clause}){veto}
              ORDER BY importance DESC, updated_at DESC LIMIT {}",
             status.as_str(),
             limit as i64

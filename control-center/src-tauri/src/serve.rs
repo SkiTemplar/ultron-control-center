@@ -50,11 +50,13 @@ const ORCH_LOCK_WAIT: Duration = Duration::from_millis(2500);
 /// Peticiones pesadas (orchestrate/skill_query) servidas A LA VEZ. Antes era un
 /// `Mutex<()>`: UNA sola, por precaución ante "concurrent SQLite/ONNX", nunca
 /// medida. Ambas premisas se verificaron falsas el 2026-08-22:
-///   - E5 vive en un `static RwLock<Option<TextEmbedding>>` y `embed_e5` toma el
-///     lock en modo LECTURA — el compilador ya exige `TextEmbedding: Sync`, así
-///     que N hilos pueden embeber contra el MISMO modelo residente.
-///   - brain.db está en `journal_mode=wal` (verificado): lectores concurrentes
-///     + un escritor, con busy_timeout para el que escribe.
+///
+/// - E5 vive en un `static RwLock<Option<TextEmbedding>>` y `embed_e5` toma el
+///   lock en modo LECTURA — el compilador ya exige `TextEmbedding: Sync`, así
+///   que N hilos pueden embeber contra el MISMO modelo residente.
+/// - brain.db está en `journal_mode=wal` (verificado): lectores concurrentes
+///   + un escritor, con busy_timeout para el que escribe.
+///
 /// Serializar de más tenía coste real: con varias sesiones abiertas, cada una
 /// esperaba su turno, recibía "busy" y lanzaba un proceso one-shot que cargaba
 /// OTRA copia del modelo (15s medidos, 5/5 prompts sin memoria).

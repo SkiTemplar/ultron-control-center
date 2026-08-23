@@ -114,7 +114,7 @@ function makeTranscript(fixtureDir, name, userText, assistantText) {
   return p;
 }
 
-function fireHook({ transcriptPath, cwd, sessionId }) {
+function fireHook({ transcriptPath, cwd, sessionId, projectsRegistry, sessionState }) {
   const payload = JSON.stringify({
     transcript_path: transcriptPath.replace(/\\/g, "/"),
     cwd: cwd.replace(/\\/g, "/"),
@@ -128,7 +128,15 @@ function fireHook({ transcriptPath, cwd, sessionId }) {
     env: {
       ...process.env,
       KANBAN_REMINDER_BASE_OVERRIDE: KANBAN_BASE,
-      KANBAN_REMINDER_SESSION_STATE_OVERRIDE: SESSION_STATE,
+      // sessionState se pasa vacio (fichero ausente) en los casos que prueban
+      // la resolucion por cwd: con una seleccion explicita de tablero, esa
+      // rama nunca se ejecuta.
+      KANBAN_REMINDER_SESSION_STATE_OVERRIDE: sessionState || SESSION_STATE,
+      // Sin este override el hook leeria el cockpit/projects.json REAL del
+      // usuario para resolver el tablero, y el selftest dejaria de ser
+      // hermetico. Por defecto apunta a un fichero que no existe.
+      KANBAN_REMINDER_PROJECTS_OVERRIDE:
+        projectsRegistry || join(FIXTURE_ROOT, "projects-registry-ausente.json"),
     },
   });
   return { stdout: (r.stdout || "").trim(), status: r.status, stderr: r.stderr || "" };
@@ -453,6 +461,49 @@ A(
   rawBefore9 === rawAfter9 && r9.stdout === "",
   "caso9 (bug 2026-08-13): verbo de accion SOLO en un tool_result -> no actionable, kanban intacto",
   `stdout="${r9.stdout}"`,
+);
+
+// ---------------------------------------------------------------------------
+// Caso 10: el id del tablero no tiene por que ser el nombre de la carpeta. Si
+// projects.json registra este cwd bajo otro id, el recordatorio debe apuntar a
+// ESE tablero; antes usaba el basename y mandaba a sincronizar un kanban.json
+// inexistente mientras el tablero real se quedaba sin tocar.
+resetFixture();
+writeBoard(baseBoard());
+const registryPath = join(FIXTURE_ROOT, "projects-registrados.json");
+writeFileSync(
+  registryPath,
+  JSON.stringify({ projects: [{ id: "tablero-registrado", path: nonGitDir }] }),
+  "utf8",
+);
+const t10 = makeTranscript(FIXTURE_ROOT, "t10", "arregla el sitemap", "Sitemap arreglado. Completado.");
+const sessionStateAusente = join(FIXTURE_ROOT, "current-session-ausente.json");
+const r10 = fireHook({
+  transcriptPath: t10,
+  cwd: nonGitDir,
+  sessionId: "selftest-registry",
+  projectsRegistry: registryPath,
+  sessionState: sessionStateAusente,
+});
+A(r10.status === 0, "caso10: hook exit 0", `status=${r10.status} stderr=${r10.stderr}`);
+A(
+  r10.stdout.includes("tablero-registrado") && !r10.stdout.includes("no-git-cwd"),
+  "caso10: el tablero sale de projects.json, no del nombre de la carpeta",
+  `stdout="${r10.stdout}"`,
+);
+
+// Caso 11: sin registro que cubra el cwd, se mantiene el basename de siempre.
+const t11 = makeTranscript(FIXTURE_ROOT, "t11", "arregla el sitemap", "Sitemap arreglado. Completado.");
+const r11 = fireHook({
+  transcriptPath: t11,
+  cwd: nonGitDir,
+  sessionId: "selftest-sin-registro",
+  sessionState: sessionStateAusente,
+});
+A(
+  r11.stdout.includes("no-git-cwd"),
+  "caso11: sin registro, el tablero sigue siendo el basename del cwd",
+  `stdout="${r11.stdout}"`,
 );
 
 // ---------------------------------------------------------------------------

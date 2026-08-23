@@ -29,7 +29,8 @@
  *   - Heurística assistant: marcador de finalización (completado, hecho,
  *     done, aplicado, listo, etc.) en español o inglés.
  *   - Proyecto: 1) `current-session.json` -> `active_project` (seleccion
- *     explicita); 2) derivado del `cwd` de la sesion; 3) fallback "ultron".
+ *     explicita); 2) el id que `cockpit/projects.json` registra para el `cwd`
+ *     de la sesion; 3) basename del `cwd`; 4) fallback "ultron".
  *   - Timeout duro 5s. Errores y traza → `~/.claude/logs/kanban-reminder.jsonl`.
  *   - Nunca bloquea: process.exitCode siempre 0, sin output a stderr en hot path.
  *
@@ -70,6 +71,9 @@ const SESSION_STATE_PATH =
   path.join(HOME, '.ultron', '.tmp', 'current-session.json');
 const KANBAN_BASE =
   process.env.KANBAN_REMINDER_BASE_OVERRIDE || path.join(HOME, '.ultron', 'cockpit', 'projects');
+const PROJECTS_REGISTRY_PATH =
+  process.env.KANBAN_REMINDER_PROJECTS_OVERRIDE ||
+  path.join(HOME, '.ultron', 'cockpit', 'projects.json');
 const DEFAULT_PROJECT = 'ultron';
 const HARD_TIMEOUT_MS = 5000;
 const MAX_USER_MESSAGES = 3;
@@ -315,6 +319,43 @@ function loadActiveProject(opts) {
   }
 }
 
+// Compara rutas de forma tolerante: separadores unificados, sin barra final y
+// sin distinguir mayusculas (Windows).
+const BARRA_WINDOWS = String.fromCharCode(92);
+const BARRA_URL = '/';
+
+function normalizePath(p) {
+  if (!p) return '';
+  try {
+    const unificada = path.resolve(String(p)).split(BARRA_WINDOWS).join(BARRA_URL);
+    return unificada.replace(/[/]+$/, '').toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
+// Id que el Control Center tiene registrado para este directorio. Es la unica
+// fuente que sabe que `.../LaundryClubFolder/laundry-club-next` es el proyecto
+// "laundry-club": derivarlo del basename apuntaba a un tablero inexistente y el
+// recordatorio mandaba a sincronizar un kanban.json que nunca se creo.
+function projectFromRegistry(cwd) {
+  const objetivo = normalizePath(cwd);
+  if (!objetivo) return '';
+  try {
+    if (!fs.existsSync(PROJECTS_REGISTRY_PATH)) return '';
+    const raw = JSON.parse(fs.readFileSync(PROJECTS_REGISTRY_PATH, 'utf8'));
+    const proyectos = Array.isArray(raw) ? raw : (raw && raw.projects) || [];
+    for (const proyecto of proyectos) {
+      if (proyecto && proyecto.id && normalizePath(proyecto.path) === objetivo) {
+        return String(proyecto.id).trim();
+      }
+    }
+  } catch (err) {
+    safeLog({ level: 'warn', msg: 'projects_registry_read_failed', error: String(err && err.message) });
+  }
+  return '';
+}
+
 // Deriva el proyecto del cwd de la sesion (misma convencion que el resto del
 // sistema: basename del cwd sin puntos iniciales -> '.ultron' => 'ultron').
 function projectFromCwd(cwd) {
@@ -328,13 +369,17 @@ function projectFromCwd(cwd) {
 
 // Resuelve el tablero al que apunta el recordatorio, en orden de fiabilidad:
 //   1) seleccion explicita de tablero (current-session.json -> active_project)
-//   2) proyecto derivado del cwd de ESTA sesion (no asume 'ultron')
-//   3) ultimo recurso: DEFAULT_PROJECT
-// Antes caia SIEMPRE a 'ultron' cuando (1) no estaba poblado, mandando al
-// tablero equivocado en cualquier sesion de otro proyecto.
+//   2) el id que projects.json registra para el cwd de ESTA sesion
+//   3) basename del cwd, para proyectos aun no registrados
+//   4) ultimo recurso: DEFAULT_PROJECT
+// (2) se antepone a (3) porque el id del registro y el nombre de la carpeta no
+// tienen por que coincidir; con solo el basename el recordatorio apuntaba a un
+// tablero que no existe mientras el real quedaba sin sincronizar.
 function resolveProject(payload) {
   const explicit = loadActiveProject({ allowDefault: false });
   if (explicit) return explicit;
+  const fromRegistry = projectFromRegistry(payload && payload.cwd);
+  if (fromRegistry) return fromRegistry;
   const fromCwd = projectFromCwd(payload && payload.cwd);
   if (fromCwd) return fromCwd;
   return DEFAULT_PROJECT;

@@ -52,6 +52,21 @@ pub(super) const SPECIALIST_BOOST: f32 = 0.20;
 /// the +SPECIALIST_BOOST is applied, it ranks above irrelevant retrieved agents
 /// but below specialists that were genuinely retrieved with a real high score.
 pub(super) const PREFERRED_FLOOR: f32 = 0.80;
+/// Escalón que separa a un preferido del siguiente en la lista de su intent.
+///
+/// (2026-08-23) `preferred_specialists` declara sus agentes EN ORDEN de
+/// prioridad —el comentario del intent `feature` lo dice literalmente: "el
+/// desempate es este orden"— pero el desempate no existía: todos los ausentes
+/// se inyectaban al MISMO floor, así que el orden final lo decidía el sort. Con
+/// intent `rust` (preferidos: rust-engineer, cpp-pro), un prompt que decía
+/// "Rust" y "cargo" salía con cpp-pro a 1.00 por delante de rust-engineer a
+/// 0.99: el segundo de la lista, inyectado al floor, le ganaba al primero, que
+/// E5 sí había recuperado de verdad con 0.79.
+///
+/// El escalón es pequeño a propósito: ordena entre preferidos sin hundir a
+/// ninguno por debajo del ruido, y deja que un especialista realmente
+/// recuperado con score alto siga ganando a cualquier inyectado.
+pub(super) const PREFERRED_RANK_STEP: f32 = 0.02;
 
 /// (2026-08-12) Abstencion de delegacion: si NI SIQUIERA el top delegate
 /// (post-boost) supera este floor, la lista entera se vacia — la senal
@@ -275,13 +290,15 @@ pub(super) fn inject_preferred_floor(
     let preferred = preferred_specialists(intent);
     let present: std::collections::HashSet<String> = hits.iter().map(|h| h.name.clone()).collect();
     let known = catalog::known_agent_names();
-    for name in preferred {
+    for (posicion, name) in preferred.iter().enumerate() {
         if !present.contains(*name) && known.contains(*name) {
             hits.push(catalog::CatalogHit {
                 entity: "agent".into(),
                 name: (*name).to_string(),
                 description: catalog::agent_description(name).unwrap_or_default(),
-                score: PREFERRED_FLOOR,
+                // Escalonado por posición: el primero de la lista de su intent
+                // entra por encima del segundo (ver PREFERRED_RANK_STEP).
+                score: PREFERRED_FLOOR - posicion as f32 * PREFERRED_RANK_STEP,
                 kind: String::new(),
             });
         }

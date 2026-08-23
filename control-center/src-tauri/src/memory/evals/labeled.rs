@@ -2,6 +2,7 @@
 
 use crate::commands::memory::recall_unified::build_trace;
 use crate::memory::eval_metrics::{EvalMetrics, LabeledSet};
+use std::collections::HashSet;
 
 // ===========================================================================
 
@@ -100,6 +101,49 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
     run_labeled_golden_with(path, k, eval_dense, eval_rerank)
 }
 
+/// Quita de los grupos del oráculo los ids cuyo tipo está vetado en el recall.
+///
+/// (2026-08-23) El golden etiquetaba como relevantes 37 de 107 ids que eran
+/// `agent_note` — el 35% —, y 12 de las 29 queries dependían de al menos uno.
+/// Desde que esos tipos no se inyectan (ver `memory::recall_policy`), pedirle al
+/// retriever que los devuelva es pedirle que falle: la métrica bajaba sin que
+/// bajara la utilidad, y al revés, subirla exigía recuperar justo el ruido que
+/// hace inútil el pack. Un id vetado no es un fallo de recall, es un label que
+/// ya no aplica.
+///
+/// Un grupo que se queda sin ids desaparece; una query que se queda sin grupos
+/// cae en la rama `relevant.is_empty()` de arriba y sale del agregado como
+/// "zero-relevant", que es el trato correcto para un oráculo sin juicio válido.
+fn filtrar_tipos_vetados(groups: Vec<HashSet<String>>) -> Vec<HashSet<String>> {
+    let vetados = crate::memory::recall_policy::excluded_types();
+    if vetados.is_empty() {
+        return groups;
+    }
+    let conn = match crate::memory::sqlite_store::open_conn() {
+        Ok(c) => c,
+        // Sin base no se puede juzgar el tipo: se deja el oráculo intacto antes
+        // que inventar un filtro a ciegas.
+        Err(_) => return groups,
+    };
+    groups
+        .into_iter()
+        .map(|grupo| {
+            grupo
+                .into_iter()
+                .filter(|id| {
+                    match crate::memory::sqlite_store::get_item(&conn, id) {
+                        Ok(Some(item)) => !vetados.iter().any(|t| t == item.kind.as_str()),
+                        // Un id ilegible o ausente se conserva: el veto solo
+                        // retira lo que se ha comprobado que es de tipo vetado.
+                        _ => true,
+                    }
+                })
+                .collect::<HashSet<String>>()
+        })
+        .filter(|grupo| !grupo.is_empty())
+        .collect()
+}
+
 /// Variante con knobs EXPLÍCITOS (2026-08-10): el doctor mide el oráculo sin
 /// rerank y no debe depender de (ni mutar) el env del proceso para hacerlo.
 #[must_use]
@@ -158,7 +202,7 @@ pub fn run_labeled_golden_with(
         // Grupos de equivalencia (higiene multi-id 2026-07-22): un gemelo no
         // listado del expect vale el slot de su grupo; sin expect_groups el
         // comportamiento es identico al historico (grupos de 1).
-        let groups = label.groups();
+        let groups = filtrar_tipos_vetados(label.groups());
 
         // build_trace directo (recall_pack fija dense=true): .injected son las
         // mismas entries que el pack, con dense/rerank gobernados por los knobs.

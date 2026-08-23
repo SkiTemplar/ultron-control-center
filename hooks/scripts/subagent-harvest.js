@@ -156,6 +156,19 @@ function main() {
 
   // Sink 2: governed candidate (best-effort, writer_path MemoryService).
   if (resultText.length < MIN_CANDIDATE_CHARS) return;
+
+  // (2026-08-23, decidido por el usuario) Si no se puede derivar un titulo del
+  // CONTENIDO, no hay nota que merezca entrar en el corpus. Medido ese dia:
+  // 1.623 de los 3.536 items activos (46%) eran agent_note de este hook, y el
+  // grueso llevaba el titulo generico repetido en masa — "Subagente
+  // workflow-subagent - resultado" x561, "Subagente unknown - resultado" x269,
+  // "Subagente general-purpose - resultado" x210. Un titulo generico es la
+  // senal de que `deriveNoteTitle` no encontro ni una linea con sustancia: son
+  // wrappers sin conclusion, y en el recall solo servian para desplazar
+  // decisiones reales. El log de scratch (Sink 1) los sigue registrando: se
+  // pierde la nota en brain.db, no la trazabilidad.
+  const proposedTitle = deriveNoteTitle({ agent, label, resultText });
+  if (proposedTitle === `Subagente ${agent} — resultado`) return;
   const bin = findBinary();
   if (!bin) return;
 
@@ -166,7 +179,7 @@ function main() {
     // generico "Subagente X — resultado" hacia indistinguibles 1181 notas en el
     // top-k. deriveNoteTitle redacta secretos y cae al titulo viejo si no hay
     // contenido usable; el write-path Rust vuelve a redactar proposed_title.
-    title: deriveNoteTitle({ agent, label, resultText }),
+    title: proposedTitle,
     summary: resultText.replace(/\s+/g, ' ').slice(0, 220),
     content: resultText.slice(0, 2000),
     confidence: 0.6,

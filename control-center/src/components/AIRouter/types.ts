@@ -257,7 +257,7 @@ export const DEFAULT_ZONES: Zone[] = [
     label: "Explain Code",
     category: "code",
 
-    primary: { provider_id: "groq", model: "llama-3.3-70b-versatile", max_tokens: 0 },
+    primary: { provider_id: "groq", model: "openai/gpt-oss-120b", max_tokens: 0 },
     fallbacks: [{ provider_id: "anthropic", model: "claude-haiku-4-5-20251001", max_tokens: 0 }],
   },
   {

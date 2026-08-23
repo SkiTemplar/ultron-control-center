@@ -188,7 +188,17 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
             ]
         }));
     }
-    let filter = serde_json::json!({ "must": must });
+    // Tipos vetados en el recall (ver memory::recall_policy): se cortan aqui, en
+    // el k-NN, y no despues — si llegaran al fanout coparían sus 30-60 slots y el
+    // pack saldria vacio en vez de saliendo con las memorias buenas detras.
+    let excluded = crate::memory::recall_policy::excluded_types();
+    let mut filter = serde_json::json!({ "must": must });
+    if !excluded.is_empty() {
+        filter["must_not"] = serde_json::json!(excluded
+            .iter()
+            .map(|t| serde_json::json!({ "key": "type", "match": { "value": t } }))
+            .collect::<Vec<_>>());
+    }
     match crate::qdrant::search_with_vector(COLLECTION, vector, k, Some(filter)) {
         Ok(hits) => hits
             .into_iter()

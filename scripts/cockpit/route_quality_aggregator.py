@@ -494,6 +494,148 @@ def aggregate(today_only: bool = False) -> None:
     print(f"Coverage: {active}/{len(edges)} edges have real data "
           f"({fallbacks} fallback(s), {corrections} correction(s) recorded)")
 
+    # Calidad del dispatcher: la medida que SI tiene datos cada dia.
+    resumen = aggregate_dispatcher_quality(today_only)
+    if "error" in resumen:
+        print(f"Dispatcher: {resumen['error']}")
+    else:
+        dias = resumen.get("dias", {})
+        if not dias:
+            print("Dispatcher: sin decisiones registradas en la ventana")
+        else:
+            dia, d = next(reversed(dias.items()))
+            sem = d["semantico"]
+            print(f"Dispatcher {dia}: {d['decisiones']} decision(es) · "
+                  f"resuelto {d['tasa_resuelto']:.0%} · sin ruta {d['tasa_sin_ruta']:.0%} · "
+                  f"fallback semantico {sem['disparado']} "
+                  f"(vacio {sem['vacio']}, score top1 {sem['score_top1_medio']})")
+
+
+
+# ---------------------------------------------------------------------------
+# Calidad del DISPATCHER (2026-08-23)
+# ---------------------------------------------------------------------------
+# Las aristas de arriba miden transiciones entre invocaciones reales de Skill /
+# Agent, y su fuente (~/.ultron/sessions/*/routing.jsonl) no la escribe nadie:
+# el fichero no existe, asi que este agregador llevaba desde el 2026-05-22
+# corriendo en cada Stop — 64 veces solo el 2026-08-23, 532 ms cada una — para
+# imprimir "No skill-transition data found yet" y no tocar route_quality.json.
+#
+# Lo que SI se escribe en cada prompt es el log del dispatcher v3, con la
+# decision de routing y su confianza. Eso no dice que skill acabo usandose,
+# pero si responde la pregunta util: cuantos prompts resuelve el matcher
+# determinista, cuantos caen al fallback semantico, con que score, y cuantos se
+# quedan sin ruta. Se agrega aparte para no mezclarlo con las aristas: son dos
+# medidas distintas y confundirlas es como este fichero acabo mintiendo.
+
+QUALITY_DISPATCHER_FILE = CACHE_DIR / "dispatcher_quality.json"
+
+# Eventos del log que representan una DECISION de ruta (uno por prompt).
+_DECISION_MSGS = {
+    "high_confidence_routing": "alta",
+    "medium_confidence_routing": "media",
+    "low_confidence_skip": "baja_descartada",
+    "no_match": "sin_ruta",
+}
+
+
+def aggregate_dispatcher_quality(today_only: bool = False) -> dict:
+    """Resume las decisiones del dispatcher del log vivo.
+
+    Devuelve (y persiste) el resumen del dia. `today_only` limita al dia en
+    curso; sin el, agrega TODO el log, que es lo que se quiere en una pasada
+    manual para ver la serie completa.
+    """
+    if not DISPATCHER_LOG.exists():
+        return {"error": f"no existe {DISPATCHER_LOG}"}
+
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    por_dia: dict[str, dict] = {}
+
+    for raw in DISPATCHER_LOG.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ev = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        ts = str(ev.get("ts") or "")
+        dia = ts[:10]
+        if not dia:
+            continue
+        if today_only and dia != hoy:
+            continue
+
+        d = por_dia.setdefault(dia, {
+            "fecha": dia,
+            "decisiones": 0,
+            "por_confianza": {},
+            "top_rutas": {},
+            "semantico": {"disparado": 0, "vacio": 0, "score_top1_suma": 0.0, "score_top1_n": 0},
+            "latencia_ms": {"n": 0, "suma": 0, "max": 0},
+        })
+
+        msg = ev.get("msg")
+        if msg in _DECISION_MSGS:
+            d["decisiones"] += 1
+            clase = _DECISION_MSGS[msg]
+            d["por_confianza"][clase] = d["por_confianza"].get(clase, 0) + 1
+            top = ev.get("top")
+            if top:
+                d["top_rutas"][top] = d["top_rutas"].get(top, 0) + 1
+        elif msg == "semantic_fallback_triggered":
+            d["semantico"]["disparado"] += 1
+            top3 = ev.get("semantic_top3") or []
+            if top3 and isinstance(top3[0], dict):
+                score = top3[0].get("score")
+                if isinstance(score, (int, float)):
+                    d["semantico"]["score_top1_suma"] += float(score)
+                    d["semantico"]["score_top1_n"] += 1
+        elif msg == "semantic_fallback_empty":
+            d["semantico"]["vacio"] += 1
+        elif msg in ("v3_hook_complete", "v2_hook_complete"):
+            ms = ev.get("total_elapsed_ms")
+            if isinstance(ms, (int, float)):
+                lat = d["latencia_ms"]
+                lat["n"] += 1
+                lat["suma"] += int(ms)
+                lat["max"] = max(lat["max"], int(ms))
+
+    # Derivados: medias y tasas, calculadas al final para no arrastrar redondeos.
+    for d in por_dia.values():
+        sem = d["semantico"]
+        sem["score_top1_medio"] = (
+            round(sem["score_top1_suma"] / sem["score_top1_n"], 4)
+            if sem["score_top1_n"] else None
+        )
+        del sem["score_top1_suma"], sem["score_top1_n"]
+        lat = d["latencia_ms"]
+        lat["media"] = round(lat["suma"] / lat["n"]) if lat["n"] else None
+        del lat["suma"]
+        total = d["decisiones"] or 1
+        conf = d["por_confianza"]
+        d["tasa_resuelto"] = round(
+            (conf.get("alta", 0) + conf.get("media", 0)) / total, 4
+        )
+        d["tasa_sin_ruta"] = round(conf.get("sin_ruta", 0) / total, 4)
+        # Solo las 10 rutas mas frecuentes: la cola larga no aporta y engorda el fichero.
+        d["top_rutas"] = dict(
+            sorted(d["top_rutas"].items(), key=lambda kv: -kv[1])[:10]
+        )
+
+    salida = {
+        "version": "1.0",
+        "updated": datetime.now().isoformat(),
+        "fuente": str(DISPATCHER_LOG),
+        "dias": dict(sorted(por_dia.items())),
+    }
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    QUALITY_DISPATCHER_FILE.write_text(
+        json.dumps(salida, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return salida
+
 
 def status() -> None:
     quality = load_quality()

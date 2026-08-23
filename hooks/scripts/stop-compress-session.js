@@ -227,7 +227,7 @@ async function extractFactsWithAI(turns) {
 
   async function tryGroq() {
     const body = JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-20b',
       max_tokens: 512,
       messages: [{ role: 'user', content }],
     });

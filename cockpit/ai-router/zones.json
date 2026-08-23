@@ -5,7 +5,7 @@
     "category": "chat",
     "primary": {
       "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
+      "model": "openai/gpt-oss-120b",
       "max_tokens": 1024
     },
     "fallbacks": [
@@ -77,7 +77,7 @@
     "fallbacks": [
       {
         "provider_id": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "max_tokens": 4096
       }
     ]
@@ -88,7 +88,7 @@
     "category": "chat",
     "primary": {
       "provider_id": "groq",
-      "model": "llama-3.1-8b-instant",
+      "model": "openai/gpt-oss-20b",
       "max_tokens": 1024
     },
     "fallbacks": [
@@ -105,7 +105,7 @@
     "category": "system",
     "primary": {
       "provider_id": "groq",
-      "model": "llama-3.1-8b-instant",
+      "model": "openai/gpt-oss-20b",
       "max_tokens": 256
     },
     "fallbacks": [
@@ -134,7 +134,7 @@
     "category": "system",
     "primary": {
       "provider_id": "groq",
-      "model": "llama-3.1-8b-instant",
+      "model": "openai/gpt-oss-20b",
       "max_tokens": 512
     },
     "fallbacks": [
@@ -151,7 +151,7 @@
     "category": "chat",
     "primary": {
       "provider_id": "groq",
-      "model": "llama-3.1-8b-instant",
+      "model": "openai/gpt-oss-20b",
       "max_tokens": 1024
     },
     "fallbacks": [

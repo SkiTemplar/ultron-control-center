@@ -185,19 +185,35 @@ pub fn orchestrate(
     // ventana de idle son 2,5 min, o sea que bastaba una pausa de café. Si está
     // frío se responde ya sin rerank (recall@8 0.491) y se carga de fondo; del
     // siguiente prompt en adelante vuelve la calidad plena (0.810).
-    let quiere_rerank = crate::qdrant::rerank_hot_enabled() || !conversational;
-    let rerank = if quiere_rerank && !crate::qdrant::reranker_is_warm() {
+    // (2026-08-23, decidido por el usuario tras volver a medir) El rerank SALE
+    // del hot path. El coste real no eran los 2-2.4 s de la nota de arriba: con
+    // el daemon caliente y los modelos residentes (ULTRON_MODEL_IDLE_MIN=0) un
+    // prompt tecnico costaba 7,7-8,3 s de punta a punta (3/3) y el `trace` del
+    // path de calidad 13,0 s, contra 257-605 ms de un prompt de charla. El
+    // presupuesto del hook con pack cacheado son 6.000 ms, asi que el turno
+    // tecnico vencia el plazo SIEMPRE y el hook servia el pack CACHEADO de otro
+    // prompt: no "recall peor", sino recall de OTRA pregunta, y en silencio. El
+    // 11% de los turnos de un dia acabo en esa banda (7 de 61 clavados en
+    // ~6,9 s, que es el tope del presupuesto, no trabajo real).
+    //
+    // Sin rerank el recall@8 del hot path baja al 0.491 medido, pero es 0.491
+    // DE ESTE prompt y en menos de un segundo, lo que bate a un 0.810 que no
+    // llegaba nunca a tiempo. El cross-encoder sigue sirviendo a los callers de
+    // calidad (Memory Browser, `trace`, evals) y se sigue calentando de fondo
+    // para ellos; `ULTRON_RERANK_HOT=1` lo devuelve al hot path el dia que su
+    // coste baje del presupuesto.
+    let rerank = crate::qdrant::rerank_hot_enabled();
+    if rerank && !crate::qdrant::reranker_is_warm() {
+        // Opt-in explicito con el modelo frio: cargarlo DENTRO del turno cuesta
+        // mas que el presupuesto entero del hook, asi que este turno va sin el
+        // igualmente y el modelo queda listo para el siguiente.
         if crate::qdrant::spawn_reranker_warmup() {
             warnings.push(
-                "cross-encoder frío: este turno va sin re-rank (recall más pobre, pero recall); \
-                 cargándolo en background para los siguientes"
+                "cross-encoder frio: este turno va sin re-rank; cargandolo en background"
                     .to_string(),
             );
         }
-        false
-    } else {
-        quiere_rerank
-    };
+    }
     let memories = match build_trace(prompt, 8, project_id, cross_project, dense_enabled, rerank) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());

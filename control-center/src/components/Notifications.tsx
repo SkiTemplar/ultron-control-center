@@ -58,19 +58,6 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
     [alerts, dateFilter],
   );
 
-  const sevCounts = useMemo(() => {
-    let info = 0,
-      warn = 0,
-      crit = 0;
-    for (const a of dateFiltered) {
-      const w = severityStyle(a.severity).weight;
-      if (w === 0) info++;
-      else if (w === 1) warn++;
-      else crit++;
-    }
-    return { info, warn, critical: crit };
-  }, [dateFiltered]);
-
   const allGroups = useMemo(() => dedupe(dateFiltered), [dateFiltered]);
 
   // Compute group fingerprint the same way dedupe does so dismissed-set
@@ -78,17 +65,46 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   const groupKey = (g: { source: string; message: string }) =>
     `${g.source}::${(g.message ?? "").trim().replace(/\s+/g, " ").slice(0, 80)}`;
 
+  // Groups the user has NOT hidden. Everything the header reports counts
+  // over this set: a hidden group must not show up in any number, or the
+  // tab claims "Info 8" over an empty list (the counters used to run over
+  // the raw date-filtered alerts, before dedupe and before `dismissed`).
+  const undismissedGroups = useMemo(
+    () => allGroups.filter((g) => !dismissed.has(groupKey(g))),
+    [allGroups, dismissed],
+  );
+
+  // Per-severity totals for the filter pills. Counted over the groups the
+  // severity filter would reveal (so the pill answers "what do I get if I
+  // switch this on"), never over hidden ones.
+  const sevCounts = useMemo(() => {
+    let info = 0,
+      warn = 0,
+      crit = 0;
+    for (const g of undismissedGroups) {
+      const w = severityStyle(g.severity).weight;
+      const n = g.count ?? 0;
+      if (w === 0) info += n;
+      else if (w === 1) warn += n;
+      else crit += n;
+    }
+    return { info, warn, critical: crit };
+  }, [undismissedGroups]);
+
+  // How many groups are hidden inside the current date window. Surfaced in
+  // the header so hiding a notification is never a one-way trip.
+  const hiddenCount = allGroups.length - undismissedGroups.length;
+
   const visibleGroups = useMemo(
     () =>
-      allGroups
+      undismissedGroups
         .filter((g) => sevFilters.has(severityStyle(g.severity).key))
-        .filter((g) => !dismissed.has(groupKey(g)))
         .sort(
           (a, b) =>
             severityStyle(b.severity).weight - severityStyle(a.severity).weight ||
             b.count - a.count,
         ),
-    [allGroups, sevFilters, dismissed],
+    [undismissedGroups, sevFilters],
   );
 
   const visibleTotal = visibleGroups.reduce((acc, g) => acc + (g.count ?? 0), 0);
@@ -164,6 +180,24 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
         <h1 className="text-[20px] font-semibold leading-tight">Notifications</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
           {visibleGroups.length} unique · {visibleTotal} total {DATE_LABEL[dateFilter].toLowerCase()}
+          {hiddenCount > 0 && (
+            <>
+              {" · "}
+              <span>
+                {hiddenCount} hidden
+              </span>
+              {" "}
+              <button
+                type="button"
+                onClick={() => setDismissed(new Set())}
+                title="Restore every notification hidden with the eye button. They are hidden per browser, not deleted from alerts.jsonl."
+                className="underline underline-offset-2 transition-colors"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                restore
+              </button>
+            </>
+          )}
         </p>
       </header>
 

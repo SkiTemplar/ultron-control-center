@@ -154,6 +154,7 @@ pub mod migrations;
 pub mod model;
 pub mod qdrant_index;
 pub mod qdrant_store;
+pub mod recall_policy;
 pub mod schema_v3;
 // Schema v5 (2026-07-02): RETIRADA del codegraph interno (drop edges +
 // unresolved_refs, user_version 4->5). El módulo conserva el nombre histórico.
