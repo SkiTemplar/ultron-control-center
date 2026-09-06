@@ -760,7 +760,8 @@ pub fn rerank_hot_enabled() -> bool {
 
 /// Modo del cross-encoder en el HOT PATH (`ULTRON_RERANK_HOT`):
 ///   `1`/`true`  -> siempre; `0`/`false` -> nunca;
-///   sin definir o `route` -> solo cuando el intent del turno NO es `general`.
+///   sin definir o `route` -> solo cuando el intent del turno NO está en
+///   `RERANK_HOT_SKIP_INTENTS` (`general`, `continue`, `quick`).
 ///
 /// Decidido el 2026-09-06 sobre el golden v2 (30 prompts reales,
 /// con proyecto): nDCG@8 0.391 -> 0.650 y MRR 0.256 -> 0.652 con re-rank, a
@@ -781,12 +782,17 @@ pub fn rerank_hot_mode() -> RerankHotMode {
     }
 }
 
+/// Intents que en modo `Route` NO pagan el cross-encoder: charla y acks
+/// (`general`), "sigue con lo que estabas" (`continue`) y arreglos rápidos
+/// (`quick`). En 30 días de tráfico real (494 turnos) suman el 39 %.
+pub const RERANK_HOT_SKIP_INTENTS: &[&str] = &["general", "continue", "quick"];
+
 /// Decisión por turno: re-rank en el hot path para este `intent`.
 pub fn rerank_hot_for_intent(intent: &str) -> bool {
     match rerank_hot_mode() {
         RerankHotMode::Always => true,
         RerankHotMode::Never => false,
-        RerankHotMode::Route => intent != "general",
+        RerankHotMode::Route => !RERANK_HOT_SKIP_INTENTS.contains(&intent),
     }
 }
 

@@ -287,7 +287,11 @@ pub fn build_trace_typed(
     // Fallback: any error from rerank_pairs is printed to stderr and silently
     // ignored — the existing `fused` order is preserved and recall continues.
     // The recall MUST NOT fail because the re-ranker is unavailable.
-    const RERANK_TOP_N: usize = 48;
+    // 2026-09-06: 48 -> 24. Medido sobre el golden v2 (30 prompts reales, con
+    // proyecto): nDCG@8 0.636 -> 0.626 y recall@8 0.827 -> 0.818, a cambio de
+    // 5.5 s -> 2.7 s por turno bug_fix en el hot path. Decidido tras ver la
+    // latencia real, no la estimada.
+    const RERANK_TOP_N: usize = 24;
     if rerank && crate::qdrant::reranker_enabled() {
         // (cat1 2026-07-03, subido 2026-07-22) N tuneable por env para el A/B:
         // el diagnostico del golden situo relevantes cortados hasta fused rank

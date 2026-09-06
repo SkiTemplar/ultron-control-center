@@ -157,6 +157,14 @@ fn rerank_hot_mode_by_route() {
             !super::rerank_hot_for_intent("general"),
             "general must NOT re-rank in Route mode"
         );
+        assert!(
+            !super::rerank_hot_for_intent("continue"),
+            "continue must NOT re-rank in Route mode"
+        );
+        assert!(
+            !super::rerank_hot_for_intent("quick"),
+            "quick must NOT re-rank in Route mode"
+        );
     }
     std::env::set_var("ULTRON_RERANK_HOT", "1");
     assert_eq!(super::rerank_hot_mode(), super::RerankHotMode::Always);
