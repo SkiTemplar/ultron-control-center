@@ -386,6 +386,11 @@ function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
 }
 
 function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
+  // 2026-09-06 (F1.6): sin session_id no es un turno de la persona, es el harness
+  // (kirkardo-eval manda {prompt, hook_event_name} a pelo). 42 líneas sintéticas
+  // ("hola que tal como estas hoy" x9, "microservicio en golang" x7...) inflaban
+  // el audit de tráfico real un 4,6 %. El log mide tráfico REAL; el harness no.
+  if (!sessionId) return;
   try {
     // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
     appendJsonl(ORCH_LOG, buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon));

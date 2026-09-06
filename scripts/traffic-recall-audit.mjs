@@ -74,6 +74,21 @@ const CAUSAS = [
     desc: 'E5/Qdrant no devolvieron nada (sparse-only)' },
 ];
 
+// Acks ("adelante", "me parece bien", "sí, commit y push"): un turno con <=3
+// términos informativos (misma regla que informative_query_terms en Rust:
+// >=4 letras, sin stopwords ni números). Ahí el silencio es lo correcto;
+// inyectar memoria en un "adelante" es justo el context_waste que se combate.
+// Se reportan aparte para que el 20 % mida lo que duele, no lo que sobra.
+const STOPWORDS_ACK = new Set(
+  'para como donde cuando cual cuales cuanto cuanta cuantos cuantas quien quienes este esta esto estos estas pero porque sobre entre hacia desde hasta tiene tienen hace hacen sigue siguen usando usar estan estoy somos sido siendo puede pueden podria podrian debe deben deberia habria seria serian cada todo toda todos todas what when where which this that with from does have been will about could should would there many much'.split(' ')
+);
+function terminosInformativos(prompt) {
+  return String(prompt || '')
+    .split(/[^0-9A-Za-z\u00C0-\u024F]+/)
+    .filter((t) => t.length >= 4 && !STOPWORDS_ACK.has(t.toLowerCase()) && !/^\d+$/.test(t));
+}
+const ACK_MAX_TERMS = 3;
+
 function clasificar(warnings) {
   for (const c of CAUSAS) {
     const hit = (warnings || []).find((w) => c.test(String(w)));
@@ -101,7 +116,13 @@ function leerTurnos() {
       }
     })
     .filter((r) => r && typeof r.prompt === 'string' && r.prompt.trim());
-  return filas;
+  // Sin session_id DESPUÉS de que el hook empezara a registrarlo = harness
+  // (kirkardo-eval manda {prompt, hook_event_name} a pelo): 42 líneas sintéticas
+  // hasta 2026-09-06. Las líneas anteriores al primer session_id son tráfico
+  // real de antes del campo y se conservan. Las nuevas ya no se escriben.
+  const primeraConSesion = filas.findIndex((r) => r.session_id);
+  if (primeraConSesion < 0) return filas;
+  return filas.filter((r, i) => i < primeraConSesion || r.session_id);
 }
 
 async function replay(turnos) {
@@ -125,6 +146,7 @@ async function replay(turnos) {
 function analizar(turnos, listar) {
   const total = turnos.length;
   const mudos = turnos.filter((t) => (t.memories || []).length === 0);
+  const acks = mudos.filter((t) => terminosInformativos(t.prompt).length <= ACK_MAX_TERMS);
   // --list: los prompts concretos que se quedaron sin memoria. Un porcentaje
   // agregado no dice si el silencio fue correcto ('hola') o un fallo ('qdrant');
   // eso solo se ve leyendo los prompts, asi que el audit los puede escupir.
@@ -148,6 +170,9 @@ function analizar(turnos, listar) {
     total,
     silenced: mudos.length,
     silenced_pct: Number(pct(mudos.length).toFixed(1)),
+    silenced_acks: acks.length,
+    silenced_sin_acks: mudos.length - acks.length,
+    silenced_sin_acks_pct: Number(pct(mudos.length - acks.length).toFixed(1)),
     memories_p50: cuentas.length ? cuentas[Math.floor(cuentas.length / 2)] : 0,
     memories_media: cuentas.length
       ? Number((cuentas.reduce((a, b) => a + b, 0) / cuentas.length).toFixed(2))
@@ -188,6 +213,7 @@ if (AS_JSON) {
   console.log(`traffic-recall-audit · ${r.modo} · ${r.total} turnos`);
   console.log('');
   console.log(`  turnos SIN memoria : ${r.silenced}/${r.total} (${r.silenced_pct}%)  [umbral ${MAX_SILENCED}%]`);
+  console.log(`    de ellos acks      : ${r.silenced_acks} (<=${ACK_MAX_TERMS} términos informativos: silencio correcto) · sin acks ${r.silenced_sin_acks}/${r.total} (${r.silenced_sin_acks_pct}%)`);
   console.log(`  memorias por turno : mediana ${r.memories_p50} · media ${r.memories_media}`);
   if (Object.keys(r.por_causa).length) {
     console.log('');

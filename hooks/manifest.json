@@ -624,7 +624,7 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 20,
       "async": false,
-      "checksum_sha256": "9a520e0cd524f4edb576d32ff63e42c4ba90f252a9be8629a74e451c25ee0b51",
+      "checksum_sha256": "8976dfd26ed754c184d6c13eafc9c73338f61e665cffd58e16ee5b39ddb17ebf",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
