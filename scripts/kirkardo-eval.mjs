@@ -39,7 +39,13 @@ const SKILLS_REGISTRY_COCKPIT = join(SKILL_LAZY, "skills-registry.json");
 const SKILLS_REGISTRY_ROOT = join(ULTRON, "skills-registry.json");
 const ZONES_JSON = join(COCKPIT, "ai-router", "zones.json");
 const METRICS_JSON = join(COCKPIT, "ai-router", "metrics.json");
-const GOLDEN_LABELS = join(COCKPIT, "memory-rework", "evals", "golden_labels.json");
+const GOLDEN_LABELS_V1 = join(COCKPIT, "memory-rework", "evals", "golden_labels.json");
+// Golden v2 (F1.5, 2026-09-06): prompts REALES etiquetados a mano, con project_id por
+// query; vive solo en local (lleva prompts reales, gitignored). Si existe, es el
+// oráculo de 1.1/1.6; ULTRON_GOLDEN=v1 fuerza el antiguo (29 queries limpias).
+const GOLDEN_LABELS_V2 = join(COCKPIT, "memory-rework", "evals", "golden-v2", "golden_labels.v2.json");
+const GOLDEN_LABELS =
+  process.env.ULTRON_GOLDEN === "v1" || !existsSync(GOLDEN_LABELS_V2) ? GOLDEN_LABELS_V1 : GOLDEN_LABELS_V2;
 const AGENTS_DIR = join(CLAUDE, "agents");
 const SKILLS_DIR = join(CLAUDE, "skills");
 

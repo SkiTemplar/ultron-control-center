@@ -261,7 +261,7 @@ impl GoldenSet {
 // ---------------------------------------------------------------------------
 // External labeled golden set (cockpit/memory-rework/evals/golden_labels_draft.json)
 //
-// Schema: `{ "labeled": [ { id, query, expect_ids, n_relevant, nota }, ... ] }`.
+// Schema: `{ "labeled": [ { id, query, expect_ids, n_relevant, nota, project_id? }, ... ] }`.
 // This is the HAND-LABELED oracle used for cat19 FASE A external eval. It is
 // intentionally separate from `GoldenSet` / `golden_set.json` (generated) so
 // the two evaluation tracks stay independent.
@@ -288,6 +288,12 @@ pub struct LabeledQuery {
     /// Human annotation note; informational only.
     #[serde(default)]
     pub nota: String,
+    /// Proyecto en el que se hizo la pregunta (golden v2, 2026-09-06). El hook
+    /// de producción recuerda SIEMPRE con el proyecto del turno; un eval sin
+    /// proyecto mide otro camino (medido: recall@8 0.045 vs los relevantes en
+    /// los puestos 5-8 del daemon con proyecto). `None` = como el v1.
+    #[serde(default)]
+    pub project_id: Option<String>,
     /// Equivalence groups: any id inside a group scores that group's ONE slot
     /// (twin memories with the same claim must not punish the retriever for
     /// returning the unlisted twin — higiene multi-id 2026-07-22). When empty,

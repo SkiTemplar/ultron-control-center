@@ -485,3 +485,6 @@ docs/research/corpus/*
 benchmarks/skill-routing-ab/arms.json
 benchmarks/skill-routing-ab/prompts.json
 benchmarks/skill-routing-ab/votes.json
+
+# Golden v2 (F1.5): prompts reales y resúmenes de memoria — local, nunca al repo ni al espejo
+cockpit/memory-rework/evals/golden-v2/

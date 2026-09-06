@@ -206,8 +206,11 @@ pub fn run_labeled_golden_with(
 
         // build_trace directo (recall_pack fija dense=true): .injected son las
         // mismas entries que el pack, con dense/rerank gobernados por los knobs.
+        // Con el proyecto de la query (golden v2): el hook recuerda siempre en
+        // el ámbito del proyecto del turno; sin él se medía otro camino.
+        let project = label.project_id.as_deref();
         let (retrieved_ids, degraded_query) =
-            match build_trace(&label.query, k, None, false, eval_dense, eval_rerank) {
+            match build_trace(&label.query, k, project, false, eval_dense, eval_rerank) {
                 Ok(t) => {
                     let ids: Vec<String> = t.injected.into_iter().map(|e| e.canonical_id).collect();
                     (ids, false)
