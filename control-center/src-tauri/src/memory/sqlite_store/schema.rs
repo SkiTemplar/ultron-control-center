@@ -9,6 +9,11 @@ use crate::memory::MemoryError;
 
 pub(super) static FTS5_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
+/// Espera máxima de un escritor ante la base bloqueada por otro proceso. Las
+/// escrituras de memoria son cortas (ms); 5 s cubre un lote de captura entero
+/// sin que un hook (timeout 20 s) note la espera.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub(super) fn brain_db_path() -> Result<PathBuf, MemoryError> {
     dirs::home_dir()
         .map(|h| h.join(".ultron").join("brain.db"))
@@ -38,6 +43,11 @@ pub fn open_conn() -> Result<Connection, MemoryError> {
     }
     let conn = Connection::open(&path)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("brain.db open: {e}")))?;
+    // Sin busy_timeout, un segundo escritor recibía "database is locked" al
+    // instante (2026-09-03: drains solapados + captura + daemon sobre la misma
+    // base, y el gate anti-dup del approve fallaba en abierto por ese error).
+    conn.busy_timeout(BUSY_TIMEOUT)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("busy_timeout: {e}")))?;
     conn.execute_batch("PRAGMA journal_mode=WAL;")
         .map_err(|e| MemoryError::RemoteUnavailable(format!("WAL pragma: {e}")))?;
     apply_schema(&conn)?;

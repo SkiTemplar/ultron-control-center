@@ -84,6 +84,35 @@ const HOME = os.homedir();
 // ---------------------------------------------------------------------------
 const v2 = require('./routing-dispatcher.v2.js');
 
+/**
+ * Dedupe por sesión de la inyección lazy (2026-09-06, ahorro de tokens).
+ * Un SKILL.md inyectado ya vive en el contexto de la sesión: volver a
+ * inyectarlo en cada prompt que repite el trigger sumaba ~1,5k tokens por
+ * turno sin aportar nada. Marker en temp por session_id (mismo patrón que
+ * codegraph-reminder.js). Devuelve { fresh: Map, repeated: string[] }.
+ */
+function splitAlreadyInjected(injected, sessionId) {
+  const sid = String(sessionId || 'nosession').replace(/[^A-Za-z0-9_-]/g, '');
+  const marker = path.join(os.tmpdir(), 'ultron-lazy-injected-' + sid + '.json');
+  let already = [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    if (Array.isArray(parsed)) already = parsed;
+  } catch (_) { /* primer prompt de la sesión */ }
+  const fresh = new Map();
+  const repeated = [];
+  for (const [id, body] of injected) {
+    if (already.includes(id)) repeated.push(id);
+    else fresh.set(id, body);
+  }
+  if (fresh.size > 0) {
+    try {
+      fs.writeFileSync(marker, JSON.stringify(already.concat(Array.from(fresh.keys()))));
+    } catch (_) { /* sin marker seguimos: mejor repetir que romper */ }
+  }
+  return { fresh, repeated };
+}
+
 // Re-export everything from v2 so unit-tests that import v3 still pass.
 Object.assign(module.exports, v2);
 
@@ -200,6 +229,233 @@ async function querySemanticSkills(promptText, topN, timeoutMs) {
     effectiveTimeout,
   );
   return Array.isArray(resp) ? resp : null;
+}
+
+// ---------------------------------------------------------------------------
+// Gate de intencion: dominio no es lo mismo que intencion
+// ---------------------------------------------------------------------------
+
+/**
+ * Señales de que el turno es TRABAJO SOBRE CODIGO y no una consulta al dominio.
+ *
+ * POR QUE EXISTE (medido 2026-08-28 sobre 40 prompts reales del inbox): 19 de
+ * las 57 sugerencias emitidas eran personas, y solo UNA acertaba — la que
+ * llamaba a la persona por su nombre. Las demas salian por dominio: "detectar
+ * fotos rectas o torcidas" sacaba a mike-tyson, "quita de Cuentame la seccion
+ * de La Tienda" sacaba a terry-davis. El caso que lo resume: un bug en el
+ * dashboard de finanzas invocaba a tio-gilito, que es un asesor financiero, en
+ * vez de al depurador.
+ *
+ * La causa esta en el propio catalogo: las personas declaran `context` con
+ * tokens como 'bug', 'commit', 'refactor' o '.py', asi que cuanto mas tecnico
+ * es el turno, mas puntuan. Este gate invierte esa regla.
+ *
+ * Vocabulario deliberadamente corto y en frases/palabras completas: un gate de
+ * EXCLUSION con falsos positivos te quita la persona cuando si la querias, asi
+ * que solo entran señales que describen trabajo sobre el codigo sin ambiguedad.
+ */
+const SENALES_TRABAJO_TECNICO = [
+  'bug', 'bugs', 'error', 'errores', 'falla', 'fallo', 'falta', 'crash', 'excepcion',
+  'stacktrace', 'traceback', 'no funciona', 'no va', 'peta', 'roto', 'rota',
+  'arregla', 'arreglar', 'corrige el', 'depura', 'debug', 'debuggear',
+  'implementa', 'implementar', 'programa', 'codifica', 'refactoriza', 'refactor',
+  'test', 'tests', 'testea', 'cobertura', 'compila', 'build', 'deploy', 'despliega',
+  'endpoint', 'commit', 'merge', 'pull request', 'migracion', 'query', 'schema',
+  'funcion', 'variable', 'dependencia', 'linter', 'excepciones',
+];
+
+/** Extensiones de fichero: nombrar un `.py` es hablar de codigo, no de dominio. */
+const RE_EXTENSION = /\.(js|mjs|ts|tsx|jsx|py|rs|go|java|cs|cpp|c|h|hpp|sql|sh|ps1|json|toml|yaml|yml)\b/;
+
+/**
+ * Rutas del clasificador determinista que significan "esto es trabajo sobre el
+ * codigo". Se piden al daemon (`cmd: route`, solo reglas, sin LLM ni memoria).
+ */
+const RUTAS_TECNICAS = new Set([
+  'bug_fix', 'feature', 'refactor', 'testing', 'security', 'performance',
+  'architecture_review', 'api_design', 'database', 'rust', 'python', 'typescript',
+]);
+
+/** Techo de espera del clasificador: si tarda mas, se decide solo con lexico. */
+const ROUTE_TIMEOUT_MS = 300;
+
+/**
+ * `true` si el turno pide trabajo sobre el codigo.
+ *
+ * DOS SEÑALES, PORQUE NINGUNA BASTA SOLA (medido 2026-08-28):
+ *   - El lexico de aqui abajo no ve "el umbral de caras da valores raros" ni
+ *     "quita de Cuentame la seccion de La Tienda": describen sintomas y
+ *     ediciones sin una sola palabra tecnica.
+ *   - El clasificador del daemon SI los marca (`bug_fix` y `feature`), pero
+ *     arrastra el mismo sesgo de dominio que este gate viene a corregir: "hay un
+ *     bug en el dashboard de finanzas" lo rutea como `finance`.
+ * Cada una tapa el agujero de la otra, asi que basta con que una diga que si.
+ *
+ * @param {string} promptNorm prompt ya normalizado (minusculas, sin acentos)
+ * @param {string} [ruta] ruta del daemon, si se pudo consultar a tiempo
+ * @returns {boolean}
+ */
+function pideTrabajoTecnico(promptNorm, ruta) {
+  if (ruta && RUTAS_TECNICAS.has(ruta)) return true;
+  if (RE_EXTENSION.test(promptNorm)) return true;
+  return SENALES_TRABAJO_TECNICO.some((s) => v2.hasToken(promptNorm, s));
+}
+
+/**
+ * Ruta determinista del daemon. FAIL-OPEN: sin daemon o fuera de tiempo
+ * devuelve null y el gate se queda con el lexico.
+ *
+ * @param {string} promptText
+ * @returns {Promise<string|null>}
+ */
+async function rutaDeterminista(promptText) {
+  const resp = await daemonRequest({ cmd: 'route', prompt: promptText.slice(0, 500) }, ROUTE_TIMEOUT_MS);
+  return resp && typeof resp.route === 'string' ? resp.route : null;
+}
+
+/**
+ * `true` si el prompt llama a la persona por su nombre. Una invocacion
+ * explicita gana SIEMPRE: "Tio Gilito, hay un bug en tus cuentas" sigue siendo
+ * para Gilito aunque el turno sea tecnico.
+ *
+ * @param {string} promptNorm
+ * @param {string} personaId
+ * @returns {boolean}
+ */
+function invocadaPorNombre(promptNorm, personaId) {
+  const persona = (v2.PERSONAS || []).find((p) => v2.normalize(p.id) === v2.normalize(personaId));
+  if (!persona) return false;
+  const triggers = persona.triggers || [];
+  return triggers.some((t) => v2.hasToken(promptNorm, v2.normalize(t)));
+}
+
+/** `true` si ese id es una persona del catalogo. */
+function esPersona(id) {
+  const n = v2.normalize(id || '');
+  return (v2.PERSONAS || []).some((p) => v2.normalize(p.id) === n);
+}
+
+/**
+ * Quita del ranking las personas que nadie ha llamado cuando el turno es
+ * trabajo sobre codigo. No toca nada mas: si el turno no es tecnico, o si la
+ * persona viene invocada por su nombre, el ranking sale intacto.
+ *
+ * @param {Array<{id:string, kind?:string}>} candidatos
+ * @param {string} prompt
+ * @returns {Array} el mismo array filtrado
+ */
+function filtrarPersonas(candidatos, prompt) {
+  const lista = Array.isArray(candidatos) ? candidatos : [];
+  const promptNorm = v2.normalize(prompt);
+  if (!pideTrabajoTecnico(promptNorm)) return lista;
+  const fuera = [];
+  const dentro = lista.filter((c) => {
+    const persona = c.kind === 'persona' || esPersona(c.id);
+    if (!persona) return true;
+    if (invocadaPorNombre(promptNorm, c.id)) return true;
+    fuera.push(c.id);
+    return false;
+  });
+  if (fuera.length) {
+    safeLogV3({ level: 'info', msg: 'gate_intencion_descarta_personas', descartadas: fuera });
+  }
+  return dentro;
+}
+
+/**
+ * Floor propio para las personas que llegan por similitud.
+ *
+ * POR QUE MAS ALTO QUE EL GENERAL (0.82): sugerir una persona equivocada cuesta
+ * entre 1.797 y 2.791 tokens si el determinista la inyecta, y ademas cambia el
+ * registro de la respuesta. Un `python-pro` de mas es ruido barato; un
+ * `mike-tyson` de mas en una pregunta de vision por computador no lo es. En la
+ * bateria del 2026-08-28 las personas erroneas del denso puntuaban 0.79-0.82,
+ * justo en la banda de ruido.
+ */
+const PERSONA_RELEVANCE_FLOOR = 0.86;
+
+/**
+ * Misma regla, aplicada a una lista de nombres (juez) o de hits con score
+ * (denso). A las personas se les exige ademas el floor alto: el gate de
+ * intencion solo ve señales lexicas, y "el umbral de caras da valores raros" no
+ * tiene ninguna aunque sea trabajo de codigo puro.
+ */
+function filtrarNombresPersona(nombres, prompt) {
+  const lista = Array.isArray(nombres) ? nombres : [];
+  const promptNorm = v2.normalize(prompt);
+  const tecnico = pideTrabajoTecnico(promptNorm);
+  const fuera = [];
+  const dentro = lista.filter((n) => {
+    const nombre = typeof n === 'string' ? n : (n && n.name) || '';
+    if (!esPersona(nombre)) return true;
+    if (invocadaPorNombre(promptNorm, nombre)) return true;
+    if (tecnico) {
+      fuera.push(nombre);
+      return false;
+    }
+    const score = typeof n === 'object' && typeof n.score === 'number' ? n.score : null;
+    if (score !== null && score < PERSONA_RELEVANCE_FLOOR) {
+      fuera.push(`${nombre}(${score.toFixed(3)})`);
+      return false;
+    }
+    return true;
+  });
+  if (fuera.length) {
+    safeLogV3({ level: 'info', msg: 'gate_intencion_descarta_personas', descartadas: fuera, tecnico });
+  }
+  return dentro;
+}
+
+/**
+ * Techo propio del juez LLM. El daemon corta a los 2500 ms por su cuenta
+ * (ULTRON_SKILL_LLM_TIMEOUT_MS); aqui se acota otra vez para que, si el juez
+ * agota su tiempo, aun quede presupuesto del hook para el fallback denso.
+ */
+const JUDGE_TIMEOUT_MS = 2600;
+
+/**
+ * Skills elegidas por el juez LLM (`skill_judge` del daemon). El daemon le pasa
+ * un catalogo prefiltrado por el denso (top-25) mas TODOS los slash commands de
+ * plugin, que no estan en el indice: el catalogo entero costaba ~2.400 tokens
+ * por consulta y con eso ningun tier gratis aguanta una jornada.
+ *
+ * POR QUE ANTES DEL DENSO: medido el 2026-08-27 sobre 10 prompts reales, el
+ * retriever E5 acierta 4/10 en top-1 y todos sus scores caben entre 0.79 y
+ * 0.84, asi que ningun umbral separa un acierto de un candidato al azar. El
+ * juez, con el mismo catalogo delante, acierta 8/10 (los 2 restantes fueron
+ * cortes de cuota del proveedor, no elecciones malas).
+ *
+ * FAIL-SAFE: sin daemon, sin clave, en cooldown o fuera de tiempo devuelve
+ * null y la rama sigue con el fallback denso de siempre.
+ *
+ * @param {string} promptText
+ * @param {number} timeoutMs
+ * @returns {Promise<string[]|null>}
+ */
+async function judgeSkills(promptText, timeoutMs) {
+  const resp = await daemonRequest(
+    { cmd: 'skill_judge', prompt: promptText.slice(0, 500) },
+    timeoutMs,
+  );
+  if (!resp || !Array.isArray(resp.skills) || resp.skills.length === 0) return null;
+  return resp.skills;
+}
+
+/**
+ * Hint del juez. Sin scores: el modelo elige o no elige, no hay similitud que
+ * ensenar, y un numero inventado solo daria una falsa sensacion de medida.
+ *
+ * @param {string[]} names
+ * @returns {string}
+ */
+function buildJudgeHint(names) {
+  if (!names || names.length === 0) return '';
+  const lines = ['', '[skill-match: elegidas por el juez LLM]'];
+  names.forEach(function (n, i) {
+    lines.push((i + 1) + '. ' + n);
+  });
+  lines.push('(If one fits: invoke it with the Skill tool if it is active; if it is .disabled on disk, Read ~/.claude/skills/<name>.disabled/SKILL.md instead.)');
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +586,7 @@ async function mainV3() {
   }
 
   // --- Step 1: Run v2 deterministic ranking (synchronous, < 50 ms) ---
-  const ranked = v2.rankCandidates(prompt);
+  const ranked = filtrarPersonas(v2.rankCandidates(prompt), prompt);
   const top = ranked[0] || null;
   const second = ranked[1] || null;
 
@@ -415,10 +671,17 @@ async function mainV3() {
         ]);
         if (lazyTimerHandle) clearTimeout(lazyTimerHandle);
         if (injected.size > 0) {
-          lazyBlock = v2.buildInjectionBlock(injected);
+          const split = splitAlreadyInjected(injected, payload.session_id);
+          if (split.fresh.size > 0) lazyBlock = v2.buildInjectionBlock(split.fresh);
+          if (split.repeated.length > 0) {
+            lazyBlock +=
+              '\n[skills ya inyectadas en esta sesion (aplican, no se repiten): ' +
+              split.repeated.join(', ') + ']';
+          }
           safeLogV3({
             level: 'info', msg: 'lazy_skill_injected',
-            skills: Array.from(injected.keys()),
+            skills: Array.from(split.fresh.keys()),
+            repeated: split.repeated,
             elapsed_ms: Date.now() - hookStart,
           });
         }
@@ -436,7 +699,28 @@ async function mainV3() {
     const semBudget = remainingMs();
     if (semBudget > 50) {  // skip if < 50 ms left
       try {
-        const semResults = await querySemanticSkills(prompt, effectiveSemanticTopN, semBudget);
+        // El juez LLM decide primero; el denso queda como respaldo cuando no
+        // hay proveedor, no hay clave o se agota el tiempo.
+        const judged = filtrarNombresPersona(
+          await judgeSkills(prompt, Math.min(semBudget, JUDGE_TIMEOUT_MS)),
+          prompt,
+        );
+        if (judged && judged.length) {
+          semanticBlock = buildJudgeHint(judged);
+          safeLogV3({
+            level: 'info',
+            msg: 'skill_judge_hit',
+            deterministic_top_id: top ? top.id : null,
+            deterministic_confidence: topConfidence,
+            judged: judged,
+          });
+        }
+        const semResults = semanticBlock
+          ? null
+          : filtrarNombresPersona(
+              await querySemanticSkills(prompt, effectiveSemanticTopN, remainingMs()),
+              prompt,
+            );
         if (semResults && semResults.length > 0) {
           semanticBlock = buildSemanticHint(semResults);
           safeLogV3({
@@ -558,7 +842,12 @@ if (require.main === module) {
 
 // Exported for unit tests — includes all v2 symbols plus v3-specific ones.
 module.exports.querySemanticSkills = querySemanticSkills;
+module.exports.judgeSkills = judgeSkills;
+module.exports.buildJudgeHint = buildJudgeHint;
 module.exports.buildSemanticHint = buildSemanticHint;
+module.exports.filtrarPersonas = filtrarPersonas;
+module.exports.filtrarNombresPersona = filtrarNombresPersona;
+module.exports.pideTrabajoTecnico = pideTrabajoTecnico;
 module.exports.SEMANTIC_FALLBACK_THRESHOLD = SEMANTIC_FALLBACK_THRESHOLD;
 module.exports.SEMANTIC_TIMEOUT_MS = SEMANTIC_TIMEOUT_MS;
 module.exports.HOOK_DEADLINE_MS = HOOK_DEADLINE_MS;

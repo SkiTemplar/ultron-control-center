@@ -34,7 +34,10 @@ pub(crate) mod types;
 // ---------------------------------------------------------------------------
 
 pub use crud::update_skill_md_inner;
-pub use origin::{list_skills_with_origin_inner, skill_toggle_inner, skills_bulk_toggle_inner};
+pub use origin::{
+    list_skills_with_origin_inner, plugin_command_entries, skill_toggle_inner,
+    skills_bulk_toggle_inner,
+};
 pub use registry::list_skills_inner;
 pub use types::{BulkToggleResult, SkillEntry, SkillInfo, SkillUpdateResult};
 // SkillOrigin dejó de re-exportarse plano (2026-07-04): su último consumidor externo

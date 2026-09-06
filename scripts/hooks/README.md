@@ -30,15 +30,18 @@ All paths are relative to `~/.ultron/` unless noted.
 | `hooks/scripts/memory-warmup.js` | Starts the memory daemon so the E5 model stays resident across the session. |
 | `hooks/scripts/load-cross-project-memory.js` | Loads cross-project memory relevant to the current working directory. |
 | `hooks/scripts/session-start-override.js` | Injects the session resume / initial context block. |
-| `hooks/scripts/memory-session-resume.js` | Hermes-style recall: open tasks, recent decisions, warnings. |
+| `hooks/scripts/memory-session-resume.js` | Hermes-style recall: open tasks, recent decisions, warnings. Also: session feedback question, concision meter and the CodeGraph summary block. |
 
 ### UserPromptSubmit
 
 | Script | Purpose |
 |---|---|
 | `cockpit/skill-lazy/routing-dispatcher.v2.js` | Lazy skill/agent routing: injects the matching skill on-demand from the prompt. |
+| `hooks/scripts/socratic-gate.js` | Socratic decision protocol on every prompt; per-project mode `socratic: strict|light|off` in `cockpit/projects.json` (default strict). |
 | `hooks/scripts/save-user-prompt.js` | Persists the user prompt for the capture pipeline. |
 | `hooks/scripts/memory-orchestrate.js` | Prefetch / orchestrate: relevant memories, step plans, delegation hints. |
+| `hooks/scripts/session-feedback-capture.js` | Captures `fb: si|no|estorbo [note]` into `logs/session-feedback.jsonl` (external metric), clears the project pending marker, proposes the note as a memory candidate. |
+| `hooks/scripts/run-project-tests-report.js` | Reports failed tests (names), timeouts, or a missing test command from the last automatic run; announces green only after a reported failure. |
 
 ### PreToolUse
 
@@ -52,6 +55,7 @@ All paths are relative to `~/.ultron/` unless noted.
 | Script | Event | Purpose |
 |---|---|---|
 | `hooks/scripts/posttoolfail-capture.js` | PostToolUse | Captures tool failures as memory candidates. |
+| `hooks/scripts/run-project-tests.js` | PostToolUse (Edit|Write|MultiEdit|NotebookEdit, async) | Runs the project test suite in a detached runner after a code edit (120 s cap, 60 s debounce); command from `test: <cmd>` in the project CLAUDE.md or the manifest. |
 | `hooks/scripts/subagent-harvest.js` | SubagentStop | Harvests subagent results into memory. |
 | `hooks/scripts/precompact-preserve-l0.js` | PreCompact | Preserves L0 (pinned) memory before context compaction. |
 
@@ -60,11 +64,13 @@ All paths are relative to `~/.ultron/` unless noted.
 | Script | Event | Purpose |
 |---|---|---|
 | `hooks/scripts/stop-compress-session.js` | Stop | Compresses the session into memory candidates. |
-| `hooks/scripts/kanban-update-reminder.js` | Stop | Reminds to sync the project kanban. |
+| `hooks/scripts/response-meter.js` | Stop | Measures the finished response (lines, words, apologies, preambles) into `logs/response-meter.jsonl`; the SessionStart resume shows the trend. |
+| `hooks/scripts/kanban-update-reminder.js` | Stop | Closes kanban cards matched by a recent commit; names In Progress cards only after real work in the turn (Edit/Write/commit). |
 | `hooks/scripts/batch-capture.js` | Stop | Batch-captures pending memory candidates. |
 | `hooks/scripts/qdrant-mirror-sync.js` | Stop | Syncs the SQLite → Qdrant mirror. |
 | `scripts/cockpit/route_quality_aggregator.py` | Stop | Aggregates the day's routing-quality telemetry. |
 | `hooks/scripts/session-end-summary.js` | SessionEnd | Writes a short end-of-session summary. |
+| `hooks/scripts/session-feedback-mark.js` | SessionEnd | Writes `feedback-pending.json` (minutes, human turns, commits) so the next SessionStart in that project asks whether ULTRON helped. Projects other than ultron, >=3 human turns. |
 | `hooks/scripts/notify-relay.js` | Notification | Relays Claude Code notifications to the desktop. |
 
 The one surviving Python hook (`route_quality_aggregator.py`) runs via

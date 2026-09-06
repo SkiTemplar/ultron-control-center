@@ -135,7 +135,7 @@ fn orch_concurrency() -> usize {
 struct Req {
     /// Per-launch shared token (must match the lockfile's). Anti-accident only.
     token: Option<String>,
-    /// "orchestrate" | "skill_query" | "ping" | "shutdown".
+    /// "orchestrate" | "skill_query" | "skill_judge" | "ping" | "shutdown".
     cmd: String,
     /// Prompt to route / query (orchestrate + skill_query).
     prompt: Option<String>,
@@ -199,6 +199,112 @@ fn handle_request(req: &Req, expected_token: &str, started: Instant) -> (Value, 
             false,
         ),
         "shutdown" => (json!({ "ok": true, "shutting_down": true }), true),
+        "skill_judge" => {
+            // Enrutado de skill por LLM sobre el catalogo completo. El denso de
+            // `skill_query` acierta 4/10 en top-1 y sus scores caben todos en
+            // 0.79-0.84 (medido 2026-08-27), asi que no hay umbral que separe;
+            // este camino le da el catalogo entero a un flash y valida la
+            // respuesta contra el. Fail-safe: devuelve [] cuando el proveedor
+            // no esta, y el llamante se queda con el resultado denso.
+            let prompt = req.prompt.as_deref().unwrap_or("");
+            if prompt.trim().is_empty() {
+                return (json!({ "error": "empty prompt" }), false);
+            }
+            if !crate::orchestrator::skill_llm::merece_consulta(prompt) {
+                return (
+                    json!({ "skills": [], "skipped": "prompt sin cuerpo" }),
+                    false,
+                );
+            }
+            // El catalogo va prefiltrado por el denso: el completo son ~2.400
+            // tokens por consulta y con eso ningun tier gratis aguanta un dia
+            // de trabajo (medido 2026-08-28: 0 enrutados desde el despliegue).
+            let catalogo = crate::orchestrator::skill_llm::catalogo_para(prompt);
+            let skills = crate::orchestrator::skill_llm::elegir_skills(prompt, &catalogo);
+            (
+                json!({ "skills": skills, "catalog_size": catalogo.len() }),
+                false,
+            )
+        }
+        // Destilado de lecciones al cerrar sesion (ULTRON 4 F1.2, Q2b). El hook
+        // `lesson-distill` manda el digest ya redactado; aqui se vuelve a
+        // redactar, se recorta y se consulta la cadena de `skill_llm` (cuota
+        // separada del AI Router). Devuelve 0-3 lecciones validadas; el hook
+        // las propone como candidatos por `ultron-memory candidate`. Fail-safe:
+        // sin proveedor, lista vacia y `skipped` con el motivo.
+        "lesson_distill" => {
+            let digest = req.prompt.as_deref().unwrap_or("");
+            if digest.trim().is_empty() {
+                return (json!({ "error": "empty prompt" }), false);
+            }
+            if !crate::orchestrator::lesson_llm::merece_destilar(digest) {
+                return (
+                    json!({ "lessons": [], "skipped": "digest sin cuerpo" }),
+                    false,
+                );
+            }
+            let lessons = crate::orchestrator::lesson_llm::destilar(digest);
+            (
+                json!({ "lessons": lessons, "digest_chars": digest.chars().count() }),
+                false,
+            )
+        }
+        // Perfil de proyecto al cerrar sesion (ULTRON 4 F1.4, G9). El hook
+        // `project-profile` manda en `prompt` lo que sabe del repositorio (docs,
+        // manifiestos, kanban, commits) y aqui se junta con la memoria del
+        // proyecto (decisiones, restricciones, arquitectura, lecciones,
+        // resumenes) antes de consultar la cadena de `skill_llm`. Devuelve UN
+        // perfil validado o `profile: null` con el motivo; el hook decide si
+        // lo guarda o conserva el anterior. Fail-safe: sin proveedor, null.
+        "profile_distill" => {
+            let Some(project) = req
+                .project
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+            else {
+                return (
+                    json!({ "error": "profile_distill requiere project" }),
+                    false,
+                );
+            };
+            let repo = req.prompt.as_deref().unwrap_or("");
+            let memoria = crate::orchestrator::profile_llm::fuentes_de_memoria(project);
+            let fuentes =
+                crate::orchestrator::profile_llm::preparar_fuentes(project, repo, &memoria);
+            let base = json!({
+                "repo_chars": repo.chars().count(),
+                "memory_chars": memoria.chars().count(),
+            });
+            if !crate::orchestrator::profile_llm::merece_destilar(&fuentes) {
+                let mut out = base;
+                out["profile"] = serde_json::Value::Null;
+                out["skipped"] = json!("fuentes sin cuerpo");
+                return (out, false);
+            }
+            let mut out = base;
+            match crate::orchestrator::profile_llm::destilar(&fuentes) {
+                Some(perfil) => out["profile"] = json!(perfil),
+                None => {
+                    out["profile"] = serde_json::Value::Null;
+                    out["skipped"] = json!("sin proveedor o respuesta sin forma");
+                }
+            }
+            (out, false)
+        }
+        // Clasificacion de intencion DETERMINISTA (solo reglas, sin LLM ni
+        // memoria). Existe para el gate de personas del dispatcher: `orchestrate`
+        // ya devuelve `route`, pero cuesta entre 90 y 780 ms porque monta el
+        // context pack entero, y el hook solo necesita saber si el turno pide
+        // trabajo sobre codigo.
+        "route" => {
+            let prompt = req.prompt.as_deref().unwrap_or("");
+            if prompt.trim().is_empty() {
+                return (json!({ "error": "empty prompt" }), false);
+            }
+            let (intent, workflow) = crate::orchestrator::rules::classify_intent(prompt);
+            (json!({ "route": intent, "workflow": workflow }), false)
+        }
         "skill_query" => {
             // Semantic skill match over `ultron_skills_lazy` (E5 1024d, incl.
             // `.disabled`). Warm in the daemon → sub-second, vs the ~10 s the
@@ -620,6 +726,47 @@ mod tests {
             cross: None,
             rerank: None,
         }
+    }
+
+    #[test]
+    fn profile_distill_sin_project_es_error() {
+        // Sin proyecto no hay de que hacer perfil: error inmediato, sin tocar
+        // ni el store ni la red.
+        let mut r = req(Some("t"), "profile_distill");
+        r.prompt = Some("README: un proyecto".to_string());
+        let started = Instant::now();
+        let (resp, shutdown) = handle_request(&r, "t", started);
+        assert!(!shutdown);
+        assert_eq!(resp["error"], "profile_distill requiere project");
+        assert!(started.elapsed().as_millis() < 500);
+        let mut vacio = req(Some("t"), "profile_distill");
+        vacio.project = Some("   ".to_string());
+        let (resp, _) = handle_request(&vacio, "t", Instant::now());
+        assert_eq!(resp["error"], "profile_distill requiere project");
+    }
+
+    #[test]
+    fn lesson_distill_sin_prompt_es_error() {
+        let (resp, shutdown) =
+            handle_request(&req(Some("t"), "lesson_distill"), "t", Instant::now());
+        assert!(!shutdown);
+        assert_eq!(resp["error"], "empty prompt");
+    }
+
+    #[test]
+    fn lesson_distill_con_digest_corto_se_salta_sin_tocar_la_red() {
+        // Un digest por debajo del minimo no merece cuota: respuesta inmediata
+        // con lista vacia y motivo, sin pasar por la cadena de proveedores.
+        let mut r = req(Some("t"), "lesson_distill");
+        r.prompt = Some("hola, una pregunta suelta".to_string());
+        let started = Instant::now();
+        let (resp, _) = handle_request(&r, "t", started);
+        assert_eq!(resp["lessons"].as_array().map(|a| a.len()), Some(0));
+        assert_eq!(resp["skipped"], "digest sin cuerpo");
+        assert!(
+            started.elapsed().as_millis() < 500,
+            "no debe esperar a ningun proveedor"
+        );
     }
 
     #[test]

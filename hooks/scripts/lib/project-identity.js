@@ -58,6 +58,51 @@ function normPath(p) {
   }
 }
 
+/**
+ * Id que el Control Center ya tiene registrado para esta ruta, si lo hay.
+ *
+ * (2026-08-23) `cockpit/projects.json` es el registro canonico de proyectos del
+ * sistema — sin entrada ahi, un proyecto es invisible para kanban, sesiones y
+ * resume — pero la identidad de memoria no lo consultaba: cuando el repo aun no
+ * estaba en `project-identity.json`, caia a `basenameId` y estrenaba un id
+ * distinto del que el Control Center ya usaba. Resultado medido ese dia: el
+ * mismo proyecto partido en dos (`auto-album-maker` 26 items vs
+ * `AutoAlbumMaker` 91; `legacy-fc` 281 vs `LegacyFc` 14), 412 items en total.
+ * Como el recall filtra por project_id exacto, cada sesion veia solo su mitad y
+ * lo decidido en una no existia para la otra.
+ *
+ * Se compara por igualdad exacta de ruta normalizada, contra la del cwd y
+ * contra la raiz del repo, para que una sesion abierta en una subcarpeta
+ * resuelva igual sin que un proyecto padre se trague a sus descendientes.
+ */
+function idRegistradoEnCockpit(cwd, root) {
+  try {
+    const fichero = path.join(os.homedir(), '.ultron', 'cockpit', 'projects.json');
+    const crudo = fs.readFileSync(fichero, 'utf8').replace(/^﻿/, '');
+    const datos = JSON.parse(crudo);
+    let lista = Array.isArray(datos) ? datos : datos.projects || datos;
+    if (lista && !Array.isArray(lista)) lista = Object.values(lista);
+    if (!Array.isArray(lista)) return null;
+
+    const candidatas = [normPath(cwd), root ? normPath(root) : null].filter(Boolean);
+    for (const proyecto of lista) {
+      const ruta = proyecto && (proyecto.path || proyecto.root);
+      const id = proyecto && proyecto.id;
+      if (!ruta || !id) continue;
+      const registrada = normPath(ruta);
+      // Igualdad EXACTA, nunca prefijo: con `startsWith` cualquier carpeta
+      // colgando de un proyecto registrado heredaba su id — y con el home dado
+      // de alta como proyecto, eso era TODO el disco del usuario.  Una sesion
+      // abierta en una subcarpeta ya resuelve bien porque se compara tambien
+      // contra la raiz del repo.
+      if (candidatas.some((c) => c === registrada)) return id;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Basename saneado: comportamiento histórico y último recurso. */
 function basenameId(cwd) {
   try {
@@ -173,6 +218,26 @@ function writeRepoUuid(repoRoot, uuid) {
 }
 
 /**
+ * El id del Control Center manda sobre el que fijó el registro.
+ *
+ * (2026-09-03) El registro nació el 23-08 con el basename de repos que aún no
+ * estaban dados de alta en el Control Center; el alta posterior con OTRO id
+ * partía la memoria en dos identidades del mismo repo — medido: `laundry-club`
+ * 4 items frente a `laundry-club-next` 22, `reto-bretana-2026` 31 frente a
+ * `Reto` 12 — y el recall por proyecto solo veía una mitad. `projects.json` es
+ * el registro canónico (kanban, sesiones, resume), así que si su id difiere
+ * del registrado se adopta y el registro se corrige en el acto. Las filas ya
+ * escritas con el id viejo se mueven con `ultron-memory reassign-project`.
+ */
+function adoptarIdDelCockpit(uuid, registrado, enCockpit) {
+  if (!enCockpit || enCockpit === registrado) return registrado;
+  writeRegistry((r) => {
+    if (r.repos[uuid]) r.repos[uuid].id = enCockpit;
+  });
+  return enCockpit;
+}
+
+/**
  * project_id estable para un cwd.
  *
  * 1. Ruta ya conocida: se resuelve sin tocar git (camino caliente, 0 spawns).
@@ -182,19 +247,23 @@ function writeRepoUuid(repoRoot, uuid) {
  * 4. Sin repo: basename, igual que antes.
  */
 function resolveProjectId(cwd) {
-  const fallback = basenameId(cwd);
+  // El id del Control Center manda sobre el basename: es el registro canonico
+  // y usarlo evita que el mismo proyecto nazca partido en dos identidades.
+  const enCockpit = idRegistradoEnCockpit(cwd, null);
+  const fallback = enCockpit || basenameId(cwd);
   try {
     const key = normPath(cwd || process.cwd());
     const reg = readRegistry();
 
     const knownUuid = reg.paths[key];
     if (knownUuid && reg.repos[knownUuid] && reg.repos[knownUuid].id) {
-      return reg.repos[knownUuid].id;
+      return adoptarIdDelCockpit(knownUuid, reg.repos[knownUuid].id, enCockpit);
     }
 
     const root = repoRootFor(cwd);
     if (!root) return fallback;
     const rootKey = normPath(root);
+    const enCockpitRaiz = idRegistradoEnCockpit(cwd, root);
 
     let uuid = readRepoUuid(root);
     const sha = rootShaFor(root);
@@ -215,7 +284,9 @@ function resolveProjectId(cwd) {
     const fijado = yaEnGit || writeRepoUuid(root, uuid);
 
     const known = reg.repos[uuid];
-    const id = known && known.id ? known.id : basenameId(root) || fallback;
+    const id = known && known.id
+      ? adoptarIdDelCockpit(uuid, known.id, enCockpitRaiz)
+      : enCockpitRaiz || basenameId(root) || fallback;
     if (!id) return fallback;
 
     // Sin UUID en `.git/config` la identidad no es estable: persistir el atajo
@@ -232,7 +303,7 @@ function resolveProjectId(cwd) {
         paths: [],
         created_at: new Date().toISOString(),
       };
-      entry.id = entry.id || id;
+      entry.id = id;
       entry.rootSha = entry.rootSha || sha || null;
       entry.paths = Array.isArray(entry.paths) ? entry.paths : [];
       if (!entry.paths.includes(rootKey)) entry.paths.push(rootKey);

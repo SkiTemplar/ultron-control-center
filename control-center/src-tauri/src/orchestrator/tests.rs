@@ -204,6 +204,7 @@ fn mem(id: &str, tokens: i64) -> RecallEntry {
         summary: None,
         scope: "indexed".to_string(),
         project_id: None,
+        kind: "fact".to_string(),
         score: 1.0,
         dense_rank: None,
         sparse_rank: None,

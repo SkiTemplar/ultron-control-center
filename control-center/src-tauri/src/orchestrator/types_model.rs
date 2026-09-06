@@ -91,6 +91,10 @@ pub struct OrchestrationContext {
     /// léxicas o petición explícita, ver `personality::detect`). `None` = tono
     /// default del sistema — no se inyecta nada.
     pub tone: Option<super::personality::ToneChoice>,
+    /// ULTRON 4 F1.3 (2026-09-02): lecciones (`lesson`) de OTROS proyectos que
+    /// encajan con el síntoma del turno. Solo se buscan cuando el intent es
+    /// `bug_fix` o el workflow `debug`; vacío en el resto de turnos.
+    pub lessons: Vec<super::lessons::LessonHit>,
 }
 
 /// Encuadre optimizado POR PASO del grupo (cat13.4). `optimize_prompt`/

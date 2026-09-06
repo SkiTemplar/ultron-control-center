@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope};
+use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, MemoryType, Scope};
 
 use super::types_model::{
     DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, AMBIENT_PENALTY, FANOUT_K,
@@ -60,6 +60,32 @@ pub fn build_trace(
     dense_enabled: bool,
     rerank: bool,
 ) -> Result<RecallTrace, String> {
+    build_trace_typed(
+        query,
+        limit,
+        project_id,
+        cross_project,
+        dense_enabled,
+        rerank,
+        None,
+    )
+}
+
+/// [`build_trace`] restringido a UN tipo de memoria (`only_type`): el k-NN
+/// denso y el FTS buscan solo entre items de ese tipo, y el resto del pipeline
+/// (fusión RRF, multiplicador de calidad, floor, poda por margen, trust gate,
+/// `assemble_pack`) es idéntico. F1.3 (2026-09-03): la pasada de lecciones
+/// cross-project busca solo entre `lesson`; con el recall general sin reranker
+/// la lección relevante (dense 0.888) caía al rango 15 y nunca se inyectaba.
+pub fn build_trace_typed(
+    query: &str,
+    limit: usize,
+    project_id: Option<&str>,
+    cross_project: bool,
+    dense_enabled: bool,
+    rerank: bool,
+    only_type: Option<MemoryType>,
+) -> Result<RecallTrace, String> {
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN. Empty if offline,
     //     OR skipped when dense_enabled=false. OJO: desde la política
     //     quality-first (2026-06-19) el hook UserPromptSubmit TAMBIÉN corre
@@ -79,7 +105,12 @@ pub fn build_trace(
         // Dense (Qdrant) project filter: drop it in cross-project mode so the
         // k-NN is not pre-restricted to the current project at the index level.
         let dense_project = if cross_project { None } else { project_id };
-        qdrant_index::search_dense_scored(query, fanout_k as u32, dense_project)
+        qdrant_index::search_dense_scored_typed(
+            query,
+            fanout_k as u32,
+            dense_project,
+            only_type.map(|t| t.as_str()),
+        )
     } else {
         Vec::new()
     };
@@ -102,8 +133,11 @@ pub fn build_trace(
     } else {
         fanout_k * 12
     };
-    let sparse_items = MemoryService::search_active(query, sparse_fanout)
-        .map_err(|e| format!("sparse search: {e}"))?;
+    let sparse_items = match only_type {
+        Some(kind) => MemoryService::search_active_of_type(query, kind, sparse_fanout),
+        None => MemoryService::search_active(query, sparse_fanout),
+    }
+    .map_err(|e| format!("sparse search: {e}"))?;
     let sparse_ids: Vec<String> = sparse_items.iter().map(|it| it.id.clone()).collect();
 
     let dense_rank: HashMap<&str, usize> = dense_ids
@@ -483,6 +517,12 @@ pub fn build_trace(
             .to_string(),
         );
     let _ = store::insert_event(&conn, &ev);
+
+    // Telemetria de utilidad (2026-08-28): lo que entra en el pack queda
+    // marcado como inyectado. Es la unica forma de saber despues que memoria
+    // se usa de verdad y cual solo ocupa sitio en el retriever.
+    let injected_ids: Vec<String> = injected.iter().map(|e| e.canonical_id.clone()).collect();
+    store::touch_injected(&conn, &injected_ids);
 
     Ok(RecallTrace {
         query: query.to_string(),

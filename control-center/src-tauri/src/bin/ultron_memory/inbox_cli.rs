@@ -85,10 +85,31 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
             let total = pending.len();
 
             if auto {
+                // Single-flight (2026-09-03): un drain por máquina. El Stop hook
+                // lanza uno por turno y por sesión; con varias sesiones vivas se
+                // solapaban y re-aprobaban la misma lista pending rancia.
+                let _lock = if dry {
+                    None
+                } else {
+                    let path = crate::drain_lock::default_path()?;
+                    match crate::drain_lock::acquire(&path, crate::drain_lock::STALE_AFTER)? {
+                        Some(guard) => Some(guard),
+                        None => {
+                            return Ok(serde_json::json!({
+                                "mode": "auto",
+                                "dry_run": false,
+                                "skipped": "drain en curso (lock vivo)",
+                                "lock": path.display().to_string(),
+                                "total": total,
+                            }));
+                        }
+                    }
+                };
                 let (mut approved, mut superseded, mut kept_unverified, mut failed) =
                     (0u32, 0u32, 0u32, 0u32);
                 let (mut rej_secret, mut rej_dup, mut rej_conflict, mut rej_noise) =
                     (0u32, 0u32, 0u32, 0u32);
+                let mut already_decided = 0u32;
                 for cand in pending {
                     // Re-verificacion primero (persiste; en dry-run se salta y
                     // el candidato se clasifica con lo que ya se sabe de el).
@@ -111,6 +132,10 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                                     Ok(_) => approved += 1,
                                     // Gate anti-dup en approve: cuenta como dup, no fallo.
                                     Err(ul::memory::MemoryError::Duplicate(_)) => rej_dup += 1,
+                                    // Otro proceso lo decidió antes: no-op, no fallo.
+                                    Err(ul::memory::MemoryError::AlreadyDecided(_)) => {
+                                        already_decided += 1
+                                    }
                                     Err(_) => failed += 1,
                                 }
                             }
@@ -150,6 +175,9 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                                     Some(reason),
                                 ) {
                                     Ok(()) => *counter += 1,
+                                    Err(ul::memory::MemoryError::AlreadyDecided(_)) => {
+                                        already_decided += 1
+                                    }
                                     Err(_) => failed += 1,
                                 }
                             }
@@ -167,6 +195,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                     "rejected_contradiction": rej_conflict,
                     "rejected_noise": rej_noise,
                     "kept_unverified": kept_unverified,
+                    "already_decided": already_decided,
                     "failed": failed,
                 }));
             }

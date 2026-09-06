@@ -121,6 +121,37 @@ pub fn find_active_by_content_hash(
     }
 }
 
+/// Marca que estos items acaban de INYECTARSE en un context pack: sube
+/// `access_count` y sella `last_injected_at` / `last_accessed_at`.
+///
+/// POR QUE (2026-08-28): las tres columnas existian desde el esquema inicial y
+/// nadie las escribia — 3.903 items activos, todos a cero, de todos los tipos.
+/// Sin ellas no hay forma honesta de saber que memoria se usa y cual sobra: el
+/// 43% del corpus son `agent_note` y la unica prueba de que no sirven era "a ojo
+/// no las veo salir". Esto es la telemetria que falta para decidir podas con
+/// datos y no con corazonadas.
+///
+/// Best-effort: un fallo aqui no puede tumbar un recall, asi que devuelve el
+/// numero de filas tocadas y nunca Err. Una sola sentencia con `IN (...)` para
+/// no pagar N round-trips en el hot path.
+pub fn touch_injected(conn: &Connection, ids: &[String]) -> usize {
+    if ids.is_empty() {
+        return 0;
+    }
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "UPDATE memory_items SET \
+            access_count = COALESCE(access_count, 0) + 1, \
+            last_injected_at = strftime('%s','now'), \
+            last_accessed_at = strftime('%s','now') \
+         WHERE id IN ({placeholders})"
+    );
+    let params: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    conn.execute(&sql, params.as_slice()).unwrap_or(0)
+}
+
 pub fn delete_item(conn: &Connection, id: &str) -> Result<(), MemoryError> {
     let n = conn
         .execute("DELETE FROM memory_items WHERE id = ?1", params![id])
@@ -158,10 +189,46 @@ fn excluded_types_clause(column_prefix: &str) -> String {
     }
 }
 
+/// Cláusula `AND type = '<t>'` para restringir la búsqueda a UN tipo (F1.3:
+/// la pasada de lecciones busca solo entre `lesson`). El valor viene del código
+/// (un `MemoryType`), no del usuario, pero va inline en el SQL: se sanea a
+/// `[a-z0-9_]` igual que los tipos vetados.
+fn only_type_clause(column_prefix: &str, only_type: Option<&str>) -> String {
+    match only_type {
+        Some(t) => {
+            let limpio: String = t
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            if limpio.is_empty() {
+                String::new()
+            } else {
+                format!(" AND {column_prefix}type = '{limpio}'")
+            }
+        }
+        None => String::new(),
+    }
+}
+
 pub fn search_items(
     conn: &Connection,
     query: &str,
     status: Status,
+    limit: usize,
+) -> Result<Vec<MemoryItem>, MemoryError> {
+    search_items_typed(conn, query, status, None, limit)
+}
+
+/// Como [`search_items`] pero, con `only_type = Some(t)`, solo devuelve items
+/// de ese tipo (misma búsqueda FTS5/LIKE, mismo orden BM25). Sirve para
+/// buscar dentro de una familia de memorias sin que el resto del corpus
+/// ocupe el fanout (2026-09-03: la lección top-1 con reranker caía al rango 15
+/// sin él, detrás de constraints con un solo hit sparse).
+pub fn search_items_typed(
+    conn: &Connection,
+    query: &str,
+    status: Status,
+    only_type: Option<&str>,
     limit: usize,
 ) -> Result<Vec<MemoryItem>, MemoryError> {
     let mut out: Vec<MemoryItem> = Vec::new();
@@ -175,10 +242,11 @@ pub fn search_items(
         // rank. The quality re-ranker multiplier is applied AFTER RRF fusion, not
         // here, so BM25 order feeds into the sparse rank input cleanly.
         let veto = excluded_types_clause("m.");
+        let solo = only_type_clause("m.", only_type);
         let sql = format!(
             "SELECT {ITEM_COLS} FROM memory_items_fts f
              JOIN memory_items m ON m.rowid = f.rowid
-             WHERE memory_items_fts MATCH ?1 AND m.status = ?2{veto}
+             WHERE memory_items_fts MATCH ?1 AND m.status = ?2{veto}{solo}
              ORDER BY bm25(memory_items_fts) ASC LIMIT ?3"
         );
         // B3: term-OR query instead of whole-string PHRASE match. Quoting the
@@ -228,9 +296,10 @@ pub fn search_items(
         // status.as_str() and limit are fixed-shape, non-user values -> inlined
         // safely; the user-derived needles are bound parameters (no injection).
         let veto = excluded_types_clause("");
+        let solo = only_type_clause("", only_type);
         let sql = format!(
             "SELECT {ITEM_COLS} FROM memory_items
-             WHERE status = '{}' AND ({clause}){veto}
+             WHERE status = '{}' AND ({clause}){veto}{solo}
              ORDER BY importance DESC, updated_at DESC LIMIT {}",
             status.as_str(),
             limit as i64
@@ -431,4 +500,45 @@ pub fn find_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<String>
         .flatten()
         .collect();
     Ok(ids)
+}
+
+/// Grupos de items ACTIVE con el mismo `content_hash` dentro del mismo
+/// (scope, project_id) — la misma clave que el dedupe exacto del write-path.
+/// Cada grupo viene ordenado con el SUPERVIVIENTE primero: pinned, luego
+/// validado por el usuario, luego el más antiguo. Solo grupos con 2+ filas.
+pub fn list_active_duplicate_groups(
+    conn: &Connection,
+) -> Result<Vec<Vec<MemoryItem>>, MemoryError> {
+    let sql = format!(
+        "SELECT {ITEM_COLS} FROM memory_items m
+         WHERE m.status = 'active' AND m.content_hash IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM memory_items d
+             WHERE d.status = 'active' AND d.content_hash = m.content_hash
+               AND d.scope = m.scope AND d.project_id IS m.project_id AND d.id <> m.id)
+         ORDER BY m.content_hash, m.scope, m.project_id,
+                  m.pinned DESC, m.validated_by_user DESC, m.created_at ASC, m.id ASC"
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("duplicate_groups prepare: {e}")))?;
+    let rows = stmt
+        .query_map([], item_from_row)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("duplicate_groups query: {e}")))?;
+    let mut groups: Vec<Vec<MemoryItem>> = Vec::new();
+    for item in rows.flatten() {
+        let same_group = groups.last().is_some_and(|g| {
+            g[0].content_hash == item.content_hash
+                && g[0].scope == item.scope
+                && g[0].project_id == item.project_id
+        });
+        if same_group {
+            if let Some(g) = groups.last_mut() {
+                g.push(item);
+            }
+        } else {
+            groups.push(vec![item]);
+        }
+    }
+    Ok(groups)
 }

@@ -322,3 +322,129 @@ fn exact_duplicate_among_pending_candidates_is_detected() {
         "un candidato no puede ser duplicado de si mismo"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Drains solapados (2026-09-03): un candidato ya decidido no se vuelve a
+// decidir. Causa real de 206 filas activas duplicadas: cada Stop de cada
+// sesion abierta lanzaba `inbox drain --auto`, y cada drain re-aprobaba su
+// lista pending rancia.
+// ---------------------------------------------------------------------------
+mod decided_candidates {
+    use super::mem_conn;
+    use crate::memory::model::{
+        Actor, CandidateStatus, MemoryCandidate, MemoryType, Scope, Source, Status,
+    };
+    use crate::memory::service::MemoryService;
+    use crate::memory::sqlite_store as store;
+    use crate::memory::MemoryError;
+    use rusqlite::Connection;
+
+    fn pending_fact(conn: &Connection, title: &str) -> MemoryCandidate {
+        let mut c = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+        c.proposed_project_id = Some("ultron".to_string());
+        c.proposed_title = Some(title.to_string());
+        c.proposed_summary = Some(format!(
+            "{title}: resumen con cuerpo suficiente para el gate"
+        ));
+        c.proposed_content = Some(format!("{title}: contenido del hecho"));
+        c.confidence = 0.9;
+        store::insert_candidate(conn, &c).unwrap();
+        c
+    }
+
+    fn candidate_status(conn: &Connection, id: &str) -> CandidateStatus {
+        store::get_candidate(conn, id).unwrap().unwrap().status
+    }
+
+    #[test]
+    fn approving_twice_creates_one_item_and_refuses_the_second_time() {
+        let conn = mem_conn();
+        let c = pending_fact(&conn, "Qdrant arranca oculto");
+        MemoryService::approve_candidate_on(&conn, &c.id, Actor::System).expect("primer approve");
+
+        let second = MemoryService::approve_candidate_on(&conn, &c.id, Actor::System);
+        assert!(
+            matches!(second, Err(MemoryError::AlreadyDecided(_))),
+            "el segundo approve debe rechazarse, no duplicar: {second:?}"
+        );
+        assert_eq!(
+            store::list_items(&conn, Status::Active, 100).unwrap().len(),
+            1
+        );
+        assert_eq!(candidate_status(&conn, &c.id), CandidateStatus::Approved);
+    }
+
+    #[test]
+    fn rejecting_an_approved_candidate_is_refused_and_keeps_the_item() {
+        let conn = mem_conn();
+        let c = pending_fact(&conn, "Reranker BGE");
+        MemoryService::approve_candidate_on(&conn, &c.id, Actor::System).unwrap();
+
+        let r = MemoryService::reject_candidate_on(&conn, &c.id, Actor::System, None);
+        assert!(matches!(r, Err(MemoryError::AlreadyDecided(_))), "{r:?}");
+        assert_eq!(candidate_status(&conn, &c.id), CandidateStatus::Approved);
+        assert_eq!(
+            store::list_items(&conn, Status::Active, 100).unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn rejecting_twice_is_refused_the_second_time() {
+        let conn = mem_conn();
+        let c = pending_fact(&conn, "Ruido");
+        MemoryService::reject_candidate_on(&conn, &c.id, Actor::System, None).unwrap();
+        let r = MemoryService::reject_candidate_on(&conn, &c.id, Actor::System, None);
+        assert!(matches!(r, Err(MemoryError::AlreadyDecided(_))), "{r:?}");
+    }
+
+    #[test]
+    fn reverify_does_not_resurrect_a_decided_candidate() {
+        let conn = mem_conn();
+        let c = pending_fact(&conn, "Daemon E5 residente");
+        MemoryService::approve_candidate_on(&conn, &c.id, Actor::System).unwrap();
+
+        // Un drain solapado trae el clon PENDING listado antes del approve.
+        let mut stale = c.clone();
+        stale.proposed_tags.push("dedup-unverified".to_string());
+        let persisted = MemoryService::persist_reverified_if_pending(&conn, &stale).unwrap();
+        assert!(!persisted, "el clon rancio no debe escribirse");
+        assert_eq!(candidate_status(&conn, &c.id), CandidateStatus::Approved);
+    }
+
+    #[test]
+    fn reverify_persists_while_the_candidate_is_still_pending() {
+        let conn = mem_conn();
+        let c = pending_fact(&conn, "Sigue pending");
+        let mut edited = c.clone();
+        edited.proposed_tags.push("reverified".to_string());
+        assert!(MemoryService::persist_reverified_if_pending(&conn, &edited).unwrap());
+        let fresh = store::get_candidate(&conn, &c.id).unwrap().unwrap();
+        assert!(fresh.proposed_tags.iter().any(|t| t == "reverified"));
+        assert_eq!(fresh.status, CandidateStatus::Pending);
+    }
+
+    #[test]
+    fn approve_gate_blocks_exact_content_already_active_without_summary() {
+        // Sin summary el gate near-dup (FTS) no corre; el hash exacto si debe.
+        let conn = mem_conn();
+        let mut c = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+        c.proposed_project_id = Some("ultron".to_string());
+        c.proposed_tags = vec!["project:ultron".to_string()];
+        c.proposed_content = Some("brain.db es la fuente de verdad de la memoria".to_string());
+        store::insert_candidate(&conn, &c).unwrap();
+        let existing = c.to_item(Status::Active, Source::AssistantInferred);
+        store::insert_item(&conn, &existing).unwrap();
+
+        let r = MemoryService::approve_candidate_on(&conn, &c.id, Actor::System);
+        assert!(
+            matches!(&r, Err(MemoryError::Duplicate(id)) if id == &existing.id),
+            "{r:?}"
+        );
+        assert_eq!(
+            store::list_items(&conn, Status::Active, 100).unwrap().len(),
+            1
+        );
+        assert_eq!(candidate_status(&conn, &c.id), CandidateStatus::Rejected);
+    }
+}

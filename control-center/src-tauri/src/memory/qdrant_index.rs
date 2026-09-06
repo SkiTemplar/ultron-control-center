@@ -122,9 +122,9 @@ fn diff_ids(
 /// Detects missing points (active item never indexed) and orphan points
 /// (indexed but no longer active). Does NOT modify either store.
 ///
-/// `reconcile --repair` is intentionally NOT implemented here: repairing mutates
-/// the index and the policy (08-AUDIT) requires an explicit dry-run + confirm;
-/// `reindex_all` already rebuilds the index from the SoT when that is desired.
+/// Repairing is a separate, opt-in call: see `reconcile_fix` (`reconcile --fix`,
+/// with `--dry-run`), which re-embeds only the drift; `reindex_all` rebuilds the
+/// whole index when that is what is wanted.
 pub fn reconcile_check() -> Result<ReconcileReport, MemoryError> {
     let items = MemoryService::list_by_status(Status::Active, 100_000)?;
     let sqlite_active: std::collections::HashSet<String> =
@@ -147,6 +147,114 @@ pub fn reconcile_check() -> Result<ReconcileReport, MemoryError> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Reconciliation repair (OLA B): re-embed the drift instead of rebuilding all
+// ---------------------------------------------------------------------------
+
+/// Upper bound on how many missing items `reconcile_fix` re-embeds in one run.
+/// Drift above this is not a handful of swallowed write-path failures but a
+/// lost or rebuilt index; there `reindex_all` (one warmup, one pass) is the
+/// honest operation, and silently re-embedding thousands of items behind a
+/// `--fix` flag would hide that cost.
+pub const RECONCILE_FIX_MAX_MISSING: usize = 500;
+
+/// Outcome of `reconcile_fix`. Carries the `reconcile_check` report it acted on
+/// so one payload shows both the drift and the repair.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReconcileFixReport {
+    pub dry_run: bool,
+    /// Missing items successfully re-embedded and upserted.
+    pub reindexed: usize,
+    /// Orphan points deleted from the dense index.
+    pub removed_orphans: usize,
+    /// Ids that no longer resolve to an ACTIVE item (deleted or deprecated
+    /// between the check and the repair): nothing to index, not a failure.
+    pub skipped_not_found: Vec<String>,
+    /// `(id, error)` for every item that could not be repaired.
+    pub failed: Vec<(String, String)>,
+    pub report: ReconcileReport,
+}
+
+/// Refuse a repair whose missing set is large enough that `reindex_all` is the
+/// right tool. Pure, so the policy is unit-testable without a live Qdrant.
+fn check_fix_cap(missing_count: usize) -> Result<(), MemoryError> {
+    if missing_count > RECONCILE_FIX_MAX_MISSING {
+        return Err(MemoryError::Unsupported(format!(
+            "{missing_count} missing points exceed the {RECONCILE_FIX_MAX_MISSING} cap for --fix; use `ultron-memory reindex`"
+        )));
+    }
+    Ok(())
+}
+
+/// Repair the drift reported by `reconcile_check`: re-embed every ACTIVE item
+/// with no dense point, and delete every orphan point.
+///
+/// Closes the gap left by `sync_index`, which indexes best-effort and swallows
+/// the error: an item written while Qdrant was down or E5 cold stayed out of
+/// the dense index permanently, because a full `reindex_all` was the only
+/// repair available. Mutating, hence opt-in (`reconcile --fix`) and honouring
+/// `--dry-run` (08-AUDIT policy: repair needs a dry-run plus a confirmation).
+pub fn reconcile_fix(dry_run: bool) -> Result<ReconcileFixReport, MemoryError> {
+    let report = reconcile_check()?;
+    check_fix_cap(report.missing_count)?;
+
+    if dry_run || report.in_sync {
+        return Ok(ReconcileFixReport {
+            dry_run,
+            reindexed: 0,
+            removed_orphans: 0,
+            skipped_not_found: Vec::new(),
+            failed: Vec::new(),
+            report,
+        });
+    }
+
+    // Warm up E5 once: a missing model must surface as a single clear error
+    // instead of N identical per-item failures (same discipline as
+    // `reindex_all`).
+    if !report.missing_in_qdrant.is_empty() {
+        let probe = crate::qdrant::embed_e5("warmup", false)
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("E5 model unavailable: {e}")))?;
+        if probe.iter().all(|&x| x == 0.0) {
+            return Err(MemoryError::RemoteUnavailable(
+                "E5 returned a zero vector - model unavailable or `qdrant` feature off".to_string(),
+            ));
+        }
+    }
+
+    let mut reindexed = 0usize;
+    let mut skipped_not_found: Vec<String> = Vec::new();
+    let mut failed: Vec<(String, String)> = Vec::new();
+
+    for id in &report.missing_in_qdrant {
+        match MemoryService::get(id) {
+            Ok(Some(item)) if matches!(item.status, Status::Active) => match index_item(&item) {
+                Ok(()) => reindexed += 1,
+                Err(e) => failed.push((id.clone(), e)),
+            },
+            Ok(_) => skipped_not_found.push(id.clone()),
+            Err(e) => failed.push((id.clone(), e.to_string())),
+        }
+    }
+
+    let mut removed_orphans = 0usize;
+    for id in &report.orphan_in_qdrant {
+        match remove_item(id) {
+            Ok(()) => removed_orphans += 1,
+            Err(e) => failed.push((id.clone(), e)),
+        }
+    }
+
+    Ok(ReconcileFixReport {
+        dry_run,
+        reindexed,
+        removed_orphans,
+        skipped_not_found,
+        failed,
+        report,
+    })
+}
+
 /// Dense recall: embed the query (E5 `query:`), filter `status = active`
 /// (+ optional project), return canonical_ids best-first. Returns an empty vec
 /// when E5 is unavailable (zero vector) or Qdrant is offline, so the caller
@@ -162,19 +270,19 @@ pub fn search_dense(query: &str, k: u32, project_id: Option<&str>) -> Vec<String
 /// the fusion can use the REAL similarity (not just rank order) — B1. Empty when
 /// E5/Qdrant is unavailable, so the caller degrades to sparse-only.
 pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec<(String, f32)> {
-    // Fail-fast (2026-08-10): Qdrant caído → vacío SIN pagar el embed E5 ni el
-    // connect; el caller degrada a sparse (audit 2026-08-09: ~9.2s/prompt para
-    // inyectar contexto vacío).
-    if !crate::qdrant::qdrant_healthy_cached() {
-        return Vec::new();
-    }
-    let vector = match crate::qdrant::embed_e5(query, true) {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
-    };
-    if vector.iter().all(|&x| x == 0.0) {
-        return Vec::new(); // E5 stub / unavailable -> sparse only
-    }
+    search_dense_scored_typed(query, k, project_id, None)
+}
+
+/// Filtro del k-NN denso. PURO para poder testearlo sin Qdrant:
+/// - `status = active` siempre;
+/// - `project_id`: el proyecto dado O items ambiente (sin project_id);
+/// - `only_type`: restringe a UN tipo (F1.3, pasada de lecciones);
+/// - `excluded`: tipos vetados por `recall_policy` (must_not).
+pub(crate) fn dense_filter(
+    project_id: Option<&str>,
+    only_type: Option<&str>,
+    excluded: &[String],
+) -> serde_json::Value {
     let mut must = vec![serde_json::json!({ "key": "status", "match": { "value": "active" } })];
     if let Some(pid) = project_id {
         // 1.0 (recall cross-project): ademas del proyecto, admite items AMBIENTE
@@ -188,10 +296,12 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
             ]
         }));
     }
+    if let Some(t) = only_type {
+        must.push(serde_json::json!({ "key": "type", "match": { "value": t } }));
+    }
     // Tipos vetados en el recall (ver memory::recall_policy): se cortan aqui, en
     // el k-NN, y no despues — si llegaran al fanout coparían sus 30-60 slots y el
     // pack saldria vacio en vez de saliendo con las memorias buenas detras.
-    let excluded = crate::memory::recall_policy::excluded_types();
     let mut filter = serde_json::json!({ "must": must });
     if !excluded.is_empty() {
         filter["must_not"] = serde_json::json!(excluded
@@ -199,6 +309,34 @@ pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec
             .map(|t| serde_json::json!({ "key": "type", "match": { "value": t } }))
             .collect::<Vec<_>>());
     }
+    filter
+}
+
+/// Como [`search_dense_scored`] con un filtro opcional por tipo de memoria
+/// (`only_type`): el k-NN se hace SOLO entre esos puntos, así el fanout no lo
+/// ocupan otros tipos (2026-09-03: la lección con dense 0.888 caía al rango 15
+/// del recall general sin reranker).
+pub fn search_dense_scored_typed(
+    query: &str,
+    k: u32,
+    project_id: Option<&str>,
+    only_type: Option<&str>,
+) -> Vec<(String, f32)> {
+    // Fail-fast (2026-08-10): Qdrant caído → vacío SIN pagar el embed E5 ni el
+    // connect; el caller degrada a sparse (audit 2026-08-09: ~9.2s/prompt para
+    // inyectar contexto vacío).
+    if !crate::qdrant::qdrant_healthy_cached() {
+        return Vec::new();
+    }
+    let vector = match crate::qdrant::embed_e5(query, true) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    if vector.iter().all(|&x| x == 0.0) {
+        return Vec::new(); // E5 stub / unavailable -> sparse only
+    }
+    let excluded = crate::memory::recall_policy::excluded_types();
+    let filter = dense_filter(project_id, only_type, &excluded);
     match crate::qdrant::search_with_vector(COLLECTION, vector, k, Some(filter)) {
         Ok(hits) => hits
             .into_iter()
@@ -289,5 +427,65 @@ mod reconcile_tests {
         let s = set(&["a", "b"]);
         let (missing, orphan) = diff_ids(&s, &s.clone());
         assert!(missing.is_empty() && orphan.is_empty());
+    }
+
+    #[test]
+    fn fix_cap_allows_drift_up_to_the_limit() {
+        assert!(super::check_fix_cap(0).is_ok());
+        assert!(super::check_fix_cap(super::RECONCILE_FIX_MAX_MISSING).is_ok());
+    }
+
+    #[test]
+    fn fix_cap_rejects_index_wide_drift_and_points_at_reindex() {
+        let err = super::check_fix_cap(super::RECONCILE_FIX_MAX_MISSING + 1)
+            .expect_err("drift past the cap must be refused");
+        assert!(err.to_string().contains("reindex"));
+    }
+}
+
+#[cfg(test)]
+mod dense_filter_tests {
+    use super::dense_filter;
+
+    fn must_of(filter: &serde_json::Value) -> Vec<serde_json::Value> {
+        filter["must"].as_array().cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn filter_always_pins_active_status() {
+        let f = dense_filter(None, None, &[]);
+        let must = must_of(&f);
+        assert_eq!(must.len(), 1);
+        assert_eq!(must[0]["key"], "status");
+        assert_eq!(must[0]["match"]["value"], "active");
+        assert!(f.get("must_not").is_none());
+    }
+
+    #[test]
+    fn only_type_adds_a_must_match_on_type() {
+        let f = dense_filter(None, Some("lesson"), &[]);
+        let must = must_of(&f);
+        assert!(
+            must.iter()
+                .any(|c| c["key"] == "type" && c["match"]["value"] == "lesson"),
+            "{f}"
+        );
+    }
+
+    #[test]
+    fn project_filter_admits_ambient_items_and_excluded_types_go_to_must_not() {
+        let f = dense_filter(
+            Some("tortunabo"),
+            Some("lesson"),
+            &["agent_note".to_string()],
+        );
+        let must = must_of(&f);
+        assert_eq!(must.len(), 3, "{f}");
+        let should = must[1]["should"].as_array().cloned().unwrap_or_default();
+        assert!(should.iter().any(|c| c["match"]["value"] == "tortunabo"));
+        assert!(should.iter().any(|c| c["is_empty"]["key"] == "project_id"));
+        let must_not = f["must_not"].as_array().cloned().unwrap_or_default();
+        assert_eq!(must_not.len(), 1);
+        assert_eq!(must_not[0]["match"]["value"], "agent_note");
     }
 }

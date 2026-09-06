@@ -38,7 +38,10 @@ const RAICES_PROPIAS = ['PERSONAL', 'CARRERA', 'PROFESIONAL'];
 /// Cuenta de GitHub del usuario: un remote suyo marca el repo como propio.
 const CUENTA_GIT = 'SkiTemplar';
 /// Carpetas que NUNCA son proyecto aunque cumplan lo demas.
-const NUNCA = [/\\AppData\\/i, /\\Temp\\/i, /\\node_modules\\/i, /\\\.git$/i, /^[A-Z]:\\Windows/i];
+// `~/.claude/` guarda skills, agentes y config: nunca es un proyecto aunque
+// alguna carpeta sea un repo git propio (caso real: `~/.claude/skills/ultron`
+// se dio de alta y duplico el proyecto ULTRON; fusionado el 2026-09-02).
+const NUNCA = [/\\\.claude\\/i, /\\AppData\\/i, /\\Temp\\/i, /\\node_modules\\/i, /\\\.git$/i, /^[A-Z]:\\Windows/i];
 
 function emit(additionalContext) {
   process.stdout.write(

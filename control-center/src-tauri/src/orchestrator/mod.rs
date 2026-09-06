@@ -18,10 +18,14 @@
 
 pub(crate) mod delegation;
 pub(crate) mod intent_llm;
+pub mod lesson_llm;
+pub mod lessons;
 pub(crate) mod orchestrate;
 pub(crate) mod personality;
+pub mod profile_llm;
 pub(crate) mod ranking;
 pub(crate) mod rules;
+pub mod skill_llm;
 #[cfg(test)]
 mod tests;
 pub(crate) mod types_model;

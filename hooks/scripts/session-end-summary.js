@@ -23,8 +23,9 @@ const { spawnSync } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
 // HOOKS-JS-07: resolucion compartida del sidecar (antes copia local duplicada).
 const { findBinary } = require('./lib/ultron-memory-cli');
-// PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
-const { readJsonlTail } = require('./lib/jsonl-tail');
+// PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero
+// (lo hace lib/transcript-turns.js, compartido con lesson-distill.js).
+const { parseTurns: parseTranscriptTurns } = require('./lib/transcript-turns');
 observe('session-end-summary');
 
 const MAX_TURNS = 40;
@@ -49,35 +50,9 @@ function projectIdFromCwd(cwd) {
 }
 
 // Extract last MAX_TURNS user/assistant text turns from a JSONL transcript.
+// (2026-09-02) Compartido con lesson-distill.js via lib/transcript-turns.js.
 function parseTurns(jsonlPath) {
-  const lines = readJsonlTail(jsonlPath).filter((l) => l.trim());
-  const tail = lines.slice(-MAX_TURNS);
-  const turns = [];
-  for (const line of tail) {
-    let obj;
-    try {
-      obj = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    const type = obj.type || '';
-    if (type !== 'user' && type !== 'assistant') continue;
-    const msg = obj.message || obj;
-    const content = msg.content;
-    let text = '';
-    if (typeof content === 'string') {
-      text = content;
-    } else if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && block.type === 'text' && block.text) {
-          text = block.text;
-          break;
-        }
-      }
-    }
-    if (text.trim()) turns.push({ role: type, text: text.trim().slice(0, 400) });
-  }
-  return turns;
+  return parseTranscriptTurns(jsonlPath, { maxTurns: MAX_TURNS, textChars: 400 });
 }
 
 // Cheap rule-based summary: first user ask + count of turns. No LLM, no egress.

@@ -15,6 +15,17 @@
  *    instruye al modelo a NO dar la decision por aprobada y a exigir
  *    eleccion razonada (opcion + porque) antes de avanzar.
  *  - NUNCA bloquea el prompt; cualquier error => exit 0 silencioso.
+ *
+ * Modo por proyecto (ULTRON 4 F4.3, decision Q5a 2026-09-02): campo
+ * `socratic` en la entrada del proyecto en cockpit/projects.json.
+ *  - `strict` (por defecto, tambien si el campo falta o es invalido): todo lo
+ *    de arriba.
+ *  - `light`: protocolo y recordatorio, pero SIN escalada — un "ok" pasa.
+ *  - `off`: silencio absoluto (proyectos personales donde da igual).
+ * El proyecto se resuelve por el cwd de la sesion (prefijo de `path`, asi que
+ * las subcarpetas heredan el modo). Cambiar el modo:
+ *   node ~/.ultron/scripts/project-socratic.mjs <id> strict|light|off
+ * Override (selftest): SOCRATIC_PROJECTS_OVERRIDE = ruta del registro.
  */
 'use strict';
 
@@ -24,6 +35,12 @@ const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('socratic-gate');
+
+const PROJECTS_REGISTRY_PATH =
+  process.env.SOCRATIC_PROJECTS_OVERRIDE ||
+  path.join(os.homedir(), '.ultron', 'cockpit', 'projects.json');
+const MODES = new Set(['strict', 'light', 'off']);
+const DEFAULT_MODE = 'strict';
 
 // Acks de una palabra que NO constituyen una eleccion razonada.
 const ACK_WORDS = new Set([
@@ -65,8 +82,8 @@ function normalize(text) {
 // Recorte de tokens (decidido por el usuario 2026-08-13): el recordatorio
 // SHORT solo se inyecta cuando el prompt PARECE llevar una decision abierta
 // (pregunta o vocabulario decisional). En charla y ordenes directas, silencio
-// — la ESCALADA por ack debil se mantiene SIEMPRE (es el corazon del gate) y
-// el FULL de primer prompt de sesion tambien (1 vez, barato).
+// — la ESCALADA por ack debil se mantiene SIEMPRE en strict (es el corazon del
+// gate) y el FULL de primer prompt de sesion tambien (1 vez, barato).
 const DECISION_HINTS = [
   'decid', 'opcion', 'opciones', 'elegir', 'elige', 'arquitectura', 'diseno',
   'disena', 'enfoque', 'alternativa', 'trade', 'prefieres', 'mejor forma',
@@ -100,6 +117,40 @@ function isLowEffort(prompt) {
   return tokens.every((t) => ACK_WORDS.has(t));
 }
 
+function normalizePath(p) {
+  if (!p) return '';
+  try {
+    return path.resolve(String(p)).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
+// Modo socratico del proyecto cuyo `path` contiene el cwd (el mas largo gana);
+// sin registro, sin proyecto o valor invalido => strict.
+function modeForCwd(cwd) {
+  const objetivo = normalizePath(cwd);
+  if (!objetivo) return DEFAULT_MODE;
+  let raw;
+  try {
+    if (!fs.existsSync(PROJECTS_REGISTRY_PATH)) return DEFAULT_MODE;
+    raw = JSON.parse(fs.readFileSync(PROJECTS_REGISTRY_PATH, 'utf8'));
+  } catch (_) {
+    return DEFAULT_MODE;
+  }
+  const proyectos = Array.isArray(raw) ? raw : (raw && raw.projects) || [];
+  let best = null;
+  for (const p of proyectos) {
+    const base = normalizePath(p && p.path);
+    if (!base) continue;
+    if (objetivo === base || objetivo.startsWith(base + '/')) {
+      if (!best || base.length > best.base.length) best = { base, mode: p.socratic };
+    }
+  }
+  const mode = best ? String(best.mode || '').trim().toLowerCase() : '';
+  return MODES.has(mode) ? mode : DEFAULT_MODE;
+}
+
 // Limpieza de markers de sesiones pasadas (>48h) — evita acumulacion en %TEMP%.
 function sweepOldMarkers(tmpdir) {
   try {
@@ -125,6 +176,10 @@ const FULL_MSG =
   '(naming, fixes obvios, detalles de implementacion) NO se pregunta — esto no ' +
   'es un examen. TFG/proyectos de investigacion: senalar problemas SI, dar la ' +
   'solucion NUNCA (el usuario la investiga; la IA valida y ayuda a aplicar).';
+
+const LIGHT_SUFFIX =
+  ' [modo light en este proyecto: presenta las opciones, pero un "ok" del ' +
+  'usuario vale como eleccion; sin escalada.]';
 
 const SHORT_MSG =
   '[ULTRON / SOCRATICO] Decision no trivial de arquitectura/diseno/resolucion ' +
@@ -156,10 +211,14 @@ function handle(raw) {
   // Turno de SISTEMA (notificacion de tarea background): no es un prompt
   // humano — sin protocolo socratico ni escalada (salida limpia, sin output).
   if (isSystemTurnPrompt(prompt)) return;
+
+  const mode = modeForCwd(input.cwd || process.cwd());
+  if (mode === 'off') return;
+
   const sessionId = String(input.session_id || 'nosession').replace(/[^A-Za-z0-9_-]/g, '');
 
   let msg;
-  if (isLowEffort(prompt)) {
+  if (mode === 'strict' && isLowEffort(prompt)) {
     msg = ESCALATED_MSG;
   } else {
     const marker = path.join(os.tmpdir(), `ultron-socratic-${sessionId}`);
@@ -174,7 +233,7 @@ function handle(raw) {
       // sin marcador fiable => mandar la version corta (mejor poco que doble)
     }
     if (firstTime) {
-      msg = FULL_MSG;
+      msg = mode === 'light' ? FULL_MSG + LIGHT_SUFFIX : FULL_MSG;
     } else if (looksDecisional(prompt)) {
       msg = SHORT_MSG;
     } else {

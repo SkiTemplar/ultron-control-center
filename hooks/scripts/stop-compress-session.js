@@ -193,18 +193,14 @@ Return ONLY valid JSON with this exact shape:
 
 Rules:
 - "text": one sentence, max 120 chars, in the same language as the conversation
-- "kind": one of decision, bug, feature, todo, file, context
+- "kind": one of decision, bug, feature, todo, file
 - "importance": float 0-1 (1 = critical architectural decision, 0.1 = minor note)
 - For "decision" facts, set importance >= 0.7 — an architectural/design/tooling
   choice ("we decided X over Y", "we'll use Z") is always worth remembering
-- Use "context" ONLY for a fact that describes WHAT THIS PROJECT IS or what the
-  user is building at a high level (e.g. "ULTRON is a personal AI OS in
-  Tauri/Rust", "this project is a roguelike game about dungeon traders"). NOT
-  per-session work. At most 1 context fact; omit it entirely if the conversation
-  does not clearly reveal the nature of the project.
+- Do NOT describe what the project is: that is covered elsewhere. Only
+  per-session work.
 - Return between 3 and 5 facts
-- Focus on decisions made, bugs fixed, files changed, todos left, and (only if
-  revealed) what the project is about
+- Focus on decisions made, bugs fixed, files changed and todos left
 
 Transcript (last turns):
 `;
@@ -405,43 +401,12 @@ function resolveProjectId(cwd) {
 // (mas abajo) -> inbox de candidatos con redaction + aprobacion humana
 // (single-writer). Era una segunda cola redundante que crecia sin sumidero.
 
-// Captura automatica de CONTEXTO de proyecto (peticion 2026-06-22: "que el
-// sistema sepa de este proyecto cuando toque, captura automatica por proyecto").
-// Acumula los facts kind="context" (que es el proyecto / a que se dedica) en
-// cockpit/projects/<projectId>/context.md, que el SessionStart del MISMO proyecto
-// reinyecta (memory-session-resume.readProjectContext). Dedup por texto + bounded
-// a las ultimas N lineas. Best-effort: nunca lanza en el hot path de cierre.
-const CONTEXT_MAX_LINES = 12;
-
-function appendProjectContext(projectId, facts) {
-  try {
-    const ctx = (facts || []).filter((f) => f && f.kind === 'context' && f.text && f.text.trim().length >= 5);
-    if (ctx.length === 0) return;
-    const dir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId);
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, 'context.md');
-    let lines = [];
-    try {
-      lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-    } catch {
-      /* primer context.md del proyecto */
-    }
-    const keyOf = (s) => s.toLowerCase().replace(/^[-*\s]+/, '').slice(0, 80);
-    const seen = new Set(lines.map(keyOf));
-    for (const f of ctx) {
-      const text = f.text.trim();
-      const key = keyOf(text);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      lines.push(`- ${text}`);
-    }
-    const bounded = lines.slice(-CONTEXT_MAX_LINES);
-    fs.writeFileSync(file, bounded.join('\n') + '\n', 'utf8');
-    safeLog({ level: 'info', msg: 'project_context_written', count: ctx.length, projectId });
-  } catch (e) {
-    safeLog({ level: 'warn', msg: 'project_context_failed', error: String(e && e.message) });
-  }
-}
+// [retirado 2026-09-03 · ULTRON 4 F1.4] appendProjectContext acumulaba los
+// facts kind="context" en cockpit/projects/<p>/context.md para que el resume
+// dijera "que es este proyecto". Medido en 3 proyectos: frases sueltas ("Kanban
+// card updated", "UE 5.6 instalado"), gemelos que el dedupe no colapsaba y
+// contaminacion de otros proyectos; nunca respondio "de que iba". Lo sustituye
+// el perfil de proyecto (hook SessionEnd project-profile -> profile.json).
 
 // ---------------------------------------------------------------------------
 // cat17.1 — Structured compact output (>=4 of 8 outputs)
@@ -595,10 +560,6 @@ async function main() {
   if (projectId) {
     // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
     writeCompact(projectId, sessionId, cwd, turns, facts, date);
-
-    // Captura automatica de contexto de proyecto (kind=context) -> context.md, que
-    // el SessionStart del mismo proyecto reinyecta. Best-effort.
-    appendProjectContext(projectId, facts);
   }
 
   // OLA write-path (2026-06-04): propose GOVERNED memory candidates via the
@@ -698,5 +659,5 @@ if (require.main === module) {
   });
   process.exitCode = 0;
 } else {
-  module.exports = { appendProjectContext, resolveProjectId };
+  module.exports = { resolveProjectId };
 }

@@ -195,13 +195,11 @@ function toneLines(t) {
   // guia de estilo completa y el limite de ambito, sin el bloque de conviccion
   // que necesita un tono elegido a proposito (~90 tokens frente a ~350).
   if (t.is_default) {
-    out.push(`tone_active: ${t.name} [${t.id}] — registro por defecto del sistema`);
+    // ULTRON 4 7.1 (Q4b): UNA linea. La directiva larga (5 frases + ejemplo)
+    // viajaba en cada prompt y se diluia igual; la corta cabe en una lectura.
     out.push(
-      `tone_directive: este es el registro de TODA la respuesta al usuario, en ` +
-        `cualquier proyecto y sin que haga falta pedirlo. Viste SOLO el chat: codigo, ` +
-        `comentarios, commits, PRs, docs y prompts a subagentes van en tono tecnico ` +
-        `profesional con ortografia completa. Los datos tecnicos se mantienen EXACTOS. ` +
-        `Idioma: ${t.lang || 'es'}. Guía: ${t.style_guide || ''}`
+      `tone [${t.id}, defecto, solo chat, ${t.lang || 'es'}]: ${t.style_guide || ''} ` +
+        `(codigo, commits, docs y prompts a subagentes: tono tecnico, ortografia completa; datos EXACTOS).`
     );
     return out;
   }
@@ -239,9 +237,27 @@ function toneLines(t) {
   return out;
 }
 
+// 2026-09-06 (ahorro de tokens): resúmenes de sesión cuyo "tema inicial" es
+// la salida de /context no aportan nada al turno; y 12 memorias por prompt se
+// quedan en el contexto para siempre. Tope 6 tras filtrar.
+const JUNK_MEMORY_RE = /^Sesi[oó]n cerrada \(|## Context Usage/;
+const MAX_MEMORIES_PER_TURN = 6;
+const MAX_SKILLS_PER_TURN = 3;
+
+function usefulMemories(memories) {
+  if (!Array.isArray(memories)) return [];
+  return memories
+    .filter((m) => !JUNK_MEMORY_RE.test(String((m && m.summary) || '')))
+    .slice(0, MAX_MEMORIES_PER_TURN);
+}
+
 function render(ctx) {
-  const out = [`<orchestration-context route="${ctx.route || ''}" trust="system">`];
-  out.push(...toneLines(ctx.tone));
+  const tone = toneLines(ctx.tone);
+  // 7.1: el tono por defecto va FUERA del bloque de orquestacion (primera linea,
+  // sola); un tono elegido a proposito sigue dentro con su bloque de conviccion.
+  const out = ctx.tone && ctx.tone.is_default ? [...tone] : [];
+  out.push(`<orchestration-context route="${ctx.route || ''}" trust="system">`);
+  if (!(ctx.tone && ctx.tone.is_default)) out.push(...tone);
   if (ctx.workflow) out.push(`workflow: ${ctx.workflow.id} — ${ctx.workflow.label}`);
   // cat13.4 (2026-06-19): cuando el routing propone un GRUPO (workflow multi-paso),
   // cada paso/agente lleva su PROPIO encuadre derivado del sub-intent de su rol —
@@ -282,14 +298,25 @@ function render(ctx) {
   }
   if (Array.isArray(ctx.delegate_skills) && ctx.delegate_skills.length) {
     out.push('consider_skills (by similarity):');
-    for (const s of ctx.delegate_skills.slice(0, 4)) {
+    for (const s of ctx.delegate_skills.slice(0, MAX_SKILLS_PER_TURN)) {
       const k = s.kind ? `, ${s.kind}` : '';
       out.push(`  - ${s.name} (${Number(s.score || 0).toFixed(2)}${k})`);
     }
   }
-  if (Array.isArray(ctx.memories) && ctx.memories.length) {
+  const memories = usefulMemories(ctx.memories);
+  if (memories.length) {
     out.push('relevant_memories:');
-    for (const m of ctx.memories.slice(0, 12)) out.push(`  - [${m.scope || ''}] ${m.summary || ''}`);
+    for (const m of memories) out.push(`  - [${m.scope || ''}] ${m.summary || ''}`);
+  }
+  // ULTRON 4 F1.3: lecciones de OTROS proyectos que encajan con el sintoma del
+  // turno (solo llegan en turnos bug_fix/debug). Una linea por leccion.
+  if (Array.isArray(ctx.lessons) && ctx.lessons.length) {
+    out.push('lessons_cross_project (lecciones de otros proyectos que encajan con este fallo — aplicar antes de investigar de cero):');
+    for (const l of ctx.lessons.slice(0, 3)) {
+      const origen = l.project_id ? `[${l.project_id}] ` : '';
+      const detalle = l.symptom_cause ? ` — ${l.symptom_cause}` : '';
+      out.push(`  - ${origen}${l.rule || ''}${detalle}`);
+    }
   }
   if (Array.isArray(ctx.constraints) && ctx.constraints.length) {
     out.push(`constraints: ${ctx.constraints.join(' | ')}`);

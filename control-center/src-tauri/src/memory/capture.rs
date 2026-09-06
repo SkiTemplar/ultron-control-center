@@ -412,6 +412,10 @@ fn heuristic_facts(transcript: &str) -> Vec<Fact> {
 fn type_base_importance(kind: MemoryType) -> f32 {
     match kind {
         MemoryType::Decision | MemoryType::Constraint | MemoryType::Architecture => 0.78,
+        // Una leccion (sintoma + causa + regla) es conocimiento durable que
+        // viaja entre proyectos: por encima de error_resolution (el fallo
+        // crudo) y justo por debajo de una decision de arquitectura.
+        MemoryType::Lesson => 0.75,
         MemoryType::Preference | MemoryType::UserProfile => 0.70,
         MemoryType::CodebaseFact | MemoryType::ErrorResolution | MemoryType::Skill => 0.62,
         MemoryType::Fact | MemoryType::Task => 0.55,

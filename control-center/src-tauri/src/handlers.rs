@@ -250,6 +250,11 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::system::rich_system_info,
         commands::system::edit_scheduled_task,
         commands::system::delete_scheduled_task,
+        // -- Turn Off: apagado programado via shutdown.exe (Windows-only;
+        //    panel System -> Turn Off) --
+        commands::turn_off::turn_off_schedule,
+        commands::turn_off::turn_off_cancel,
+        commands::turn_off::turn_off_status,
         // -- installed apps --
         commands::apps::list_installed_apps,
         commands::apps::open_app_folder,

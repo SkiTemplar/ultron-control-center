@@ -241,7 +241,12 @@ const PERSONAS = [
     persona: 'terry-davis',
     triggers: ['terry', 'terry davis', 'modo terry', 'activa a terry'],
     strong: ['debuggear', 'refactorizar', 'arquitectura de software', 'incident'],
-    context: ['codigo', 'bug', 'commit', 'deploy', 'refactor', 'testing', '.cpp', '.cs', '.ts', '.py', '.rs', '.go'],
+    // El `context` de una persona NO puede ser vocabulario de trabajo tecnico.
+    // Tenia 'codigo', 'bug', 'commit', 'refactor', '.py'… y por eso cualquier
+    // turno de programar sacaba a Terry: medido el 2026-08-28, "quita de
+    // Cuentame la seccion de La Tienda" lo activaba. Una persona es un registro
+    // de conversacion; quien decide que es trabajo tecnico es el gate, no ella.
+    context: ['modo dios', 'programador de sistemas', 'kernel', 'ensamblador'],
   },
   {
     id: 'don-claudio',
@@ -1743,7 +1748,7 @@ async function fetchLazySkillContent(candidates, promptNorm) {
  * reventaba el additionalContext (cat4.6, techo 12k). La inyección lazy existe
  * para AHORRAR contexto, no para volcar 16k de golpe -> se trunca con marcador.
  */
-const INJECT_CHAR_BUDGET = 10000;
+const INJECT_CHAR_BUDGET = 6000;
 
 /**
  * Build the injection block appended after the routing hint.
@@ -1891,6 +1896,10 @@ if (require.main === module) {
 
 // Exported for unit tests.
 module.exports = {
+  // El catalogo de personas, para que v3 pueda distinguirlas del resto al
+  // aplicar el gate de intencion: una persona es un registro de conversacion,
+  // no una herramienta de trabajo sobre codigo.
+  PERSONAS,
   hasToken,
   normalize,
   scoreEntry,

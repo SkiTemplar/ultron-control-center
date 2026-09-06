@@ -70,6 +70,11 @@ str_enum! {
         ErrorResolution => "error_resolution",
         Architecture => "architecture",
         UserProfile => "user_profile",
+        // Leccion reutilizable destilada al cerrar sesion (ULTRON 4 F1.2,
+        // 2026-09-02): sintoma + causa + regla, pensada para que un fallo
+        // visto en un proyecto no se repita en otro. Productor: hook
+        // `lesson-distill` (SessionEnd) via cmd `lesson_distill` del daemon.
+        Lesson => "lesson",
     }
 }
 

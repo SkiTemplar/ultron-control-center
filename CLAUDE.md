@@ -13,6 +13,8 @@ ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.
 - **EL .EXE SE BLOQUEA SI ULTRON ESTÁ ABIERTO**: si la app corre, el `build` construye el frontend pero **NO relinka el binario Rust** → los cambios de Rust no entran. **Cerrar ULTRON antes de buildear.** ("Stale binary" = parece que no se aplicó pero es el .exe viejo: verificar HEAD + rebuild antes de re-implementar.)
 - Sidecar de memoria: tras tocar Rust de `memory/`, rebuild `cargo build --release --features qdrant --bin ultron-memory` y copiar a `~/.ultron/bin/ultron-memory.exe` (lo que usan los hooks). Verificar con `bin/ultron-memory.exe doctor`.
 - Scripts `.ps1`: **ASCII puro** (sin em-dash) — PowerShell 5.1 rompe el parser si no.
+- **Tokens (2026-09-06)**: subagentes y workflows en Sonnet por defecto (`CLAUDE_CODE_SUBAGENT_MODEL` en settings); Fable solo en la sesión principal. Nunca un `Workflow` sin `model` explícito en cada `agent()`: 14 subagentes en Fable fueron el 85 % del gasto de un día. `/clear` por tarea y `/compact` antes de 100 k.
+- test: `cd control-center && npx vitest run --silent` (suite que lanza el hook `run-project-tests` tras editar código; 57 tests, ~15 s. `cargo test` no cabe en el tope de 120 s: se lanza a mano).
 
 ## Memoria (sistema propio — NO Mem0)
 

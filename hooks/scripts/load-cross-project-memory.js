@@ -32,10 +32,10 @@ const LOG_PATH = path.join(HOME, '.claude', 'logs', 'load-cross-project-memory.j
 // ~18k bootstrap context to ~3-6k on typical sessions. Projects sharing >=2
 // path segments with the active cwd are considered "near" and get full body;
 // the rest only appear in the index (1 line per project).
-const MAX_PROJECTS_INDEXED = 15;
+const MAX_PROJECTS_INDEXED = 8;
 const MAX_FULL_BODY_PROJECTS = 3;
 const MAX_BODY_CHARS = 1500;
-const MAX_TOTAL_CONTEXT_CHARS = 6000;
+const MAX_TOTAL_CONTEXT_CHARS = 3000;
 const ACTIVITY_WINDOW_DAYS = 60;
 const MIN_SIMILARITY_FOR_BODY = 2;
 

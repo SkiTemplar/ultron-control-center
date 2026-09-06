@@ -88,6 +88,24 @@ pub fn set_candidate_status(
     Ok(())
 }
 
+/// Transición CONDICIONAL de estado (`from` -> `to`) en una sola sentencia.
+/// Devuelve `Ok(false)` si el candidato ya no estaba en `from` (otro proceso lo
+/// decidió antes) o no existe: el caller decide sin ventana check-then-write.
+pub fn set_candidate_status_if(
+    conn: &Connection,
+    id: &str,
+    from: CandidateStatus,
+    to: CandidateStatus,
+) -> Result<bool, MemoryError> {
+    let n = conn
+        .execute(
+            "UPDATE memory_candidates SET status = ?1 WHERE id = ?2 AND status = ?3",
+            params![to.as_str(), id, from.as_str()],
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("set_candidate_status_if: {e}")))?;
+    Ok(n == 1)
+}
+
 pub fn count_candidates_pending(conn: &Connection) -> i64 {
     conn.query_row(
         "SELECT COUNT(*) FROM memory_candidates WHERE status = 'pending'",

@@ -1,46 +1,41 @@
 #!/usr/bin/env node
 /**
- * Stop hook → cierre real de kanban del proyecto activo (NO solo recordatorio).
+ * Stop hook → cierre real de kanban del proyecto activo, sin ruido.
  *
- * Detecta heurísticamente si en la última ronda el usuario pidió una tarea
- * completable (verbos de acción) Y el asistente la marcó como hecha. Si las
- * dos condiciones se cumplen, ACTÚA sobre `kanban.json` con UNA sola regla:
+ * v3.0 (ULTRON 4 F4.4, 2026-09-04). El hook solo actua cuando el turno que
+ * termina tiene EVIDENCIA DE TRABAJO:
+ *   - un tool_use Edit / Write / MultiEdit / NotebookEdit sobre un fichero
+ *     dentro del cwd de la sesion, o
+ *   - un `git commit` lanzado con Bash.
  *
- *   closeCompletedCards(): cierra (column_id -> role=done) cards VIVAS
- *   (doing/todo) cuyo título matchea fuerte con el asunto de un commit
- *   reciente (evidencia dura: trabajo hecho Y registrado en git). Nunca
- *   cierra por ambigüedad — cerrar la card equivocada es peor que no cerrar
- *   (ver comentario de `closeCompletedCards`).
+ * Con esa evidencia hace, en este orden:
+ *   1. closeCompletedCards(): mueve a role=done las cards VIVAS (doing/todo)
+ *      cuyo titulo matchea fuerte el asunto de un commit reciente (trabajo
+ *      hecho Y registrado en git). Nunca cierra por ambiguedad. Si cierra
+ *      algo lo anuncia como "BOARD ACTUALIZADO" (sin cooldown).
+ *   2. Si no cerro nada pero el tablero tiene tarjetas In Progress
+ *      (role=doing), emite UN recordatorio que las nombra (titulo + id) con
+ *      el comando exacto para cerrarlas; cooldown por sesion
+ *      (KANBAN_REMINDER_COOLDOWN_MIN, 30 min por defecto).
+ *   3. Sin tarjeta In Progress: silencio.
  *
- * Sin match no se escribe nada: solo el recordatorio de texto.
+ * Sin evidencia de trabajo en el turno: silencio absoluto, diga lo que diga
+ * el asistente. Las heuristicas v1/v2 (verbo de accion del usuario + marcador
+ * de "hecho" del asistente) se retiraron: median 47 recordatorios en 29
+ * sesiones con 0 cierres reales, y en proyectos personales acababan en cards
+ * `kanban.mjs add` que nadie habia pedido (audit 2026-09-04).
  *
- * 2026-08-19 — retirado `autoLogCompletedTask()`, que registraba la tarea como
- * card NUEVA ya en Done cuando no había cierre posible. Era invasivo: cualquier
- * turno con verbo de acción + marcador de "hecho" acababa en una card `[auto]`
- * derivada del texto del prompt, así que el board se llenaba de entradas que el
- * usuario no había pedido y tenía que limpiar a mano. El hook solo escribe con
- * evidencia dura (commit); el resto del cierre lo decide el usuario.
+ * Tablero: 1) `current-session.json` -> `active_project`; 2) el id que
+ * `cockpit/projects.json` registra para el cwd; 3) basename del cwd SOLO si
+ * ese tablero existe. Sin tablero resoluble no se cae a "ultron": un cwd sin
+ * registro no debe recibir avisos del tablero de otro proyecto.
  *
- * Diseño:
- *   - Lee `transcript_path` de stdin (Stop hook payload de Claude Code).
- *   - Extrae los últimos 3 user messages "reales" (no system-reminder /
- *     command-name / tool_result) y la última assistant response (texto).
- *   - Heurística user: cualquier verbo de acción en imperativo/2ª persona.
- *   - Heurística assistant: marcador de finalización (completado, hecho,
- *     done, aplicado, listo, etc.) en español o inglés.
- *   - Proyecto: 1) `current-session.json` -> `active_project` (seleccion
- *     explicita); 2) el id que `cockpit/projects.json` registra para el `cwd`
- *     de la sesion; 3) basename del `cwd`; 4) fallback "ultron".
- *   - Timeout duro 5s. Errores y traza → `~/.claude/logs/kanban-reminder.jsonl`.
- *   - Nunca bloquea: process.exitCode siempre 0, sin output a stderr en hot path.
+ * Timeout duro 5 s. Errores y traza -> `~/.claude/logs/kanban-reminder.jsonl`.
+ * Nunca bloquea: exitCode 0 siempre, sin stderr en el hot path.
  *
- * Output al harness (cuando aplica):
- *   {
- *     "hookSpecificOutput": {
- *       "hookEventName": "Stop",
- *       "additionalContext": "BOARD ACTUALIZADO: ..." | "RECORDATORIO: ..."
- *     }
- *   }
+ * Output al harness (solo cuando aplica):
+ *   { "hookSpecificOutput": { "hookEventName": "Stop",
+ *       "additionalContext": "BOARD ACTUALIZADO: ..." | "KANBAN <proyecto>: ..." } }
  */
 
 'use strict';
@@ -51,21 +46,17 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 
 const HOME = os.homedir();
-const ULTRON_ROOT = path.join(HOME, '.ultron');
 // Umbral de cierre automatico (Jaccard de tokens sobre el asunto de commit YA
 // SIN su prefijo conventional-commit). Antes era 0.7 contra el asunto crudo:
 // estructuralmente inalcanzable (titulos de card largos vs asuntos cortos
 // "fix(scope): ..."), asi que el cierre era un no-op de facto (cat21.1). Ahora
 // 0.5 sobre el asunto LIMPIO + dos senales de ALTA PRECISION adicionales
 // (cat-code/issue compartido, substring) -> dispara con precision, no por azar.
-// La evidencia sigue siendo el commit (trabajo hecho Y registrado).
 const CLOSE_THRESHOLD = 0.5;
 const LOG_PATH = path.join(HOME, '.claude', 'logs', 'kanban-reminder.jsonl');
 // Overrides SOLO para selftest hermetico (nunca se setean en produccion): sin
 // ellos el selftest tendria que leer/escribir el kanban.json y el
-// current-session.json REALES del usuario, arriesgando falsos positivos (una
-// seleccion de proyecto real interfiriendo) y dejando cards sinteticas en
-// produccion (mismo patron que SUBAGENT_LIFECYCLE_LOG en otros hooks).
+// current-session.json REALES del usuario.
 const SESSION_STATE_PATH =
   process.env.KANBAN_REMINDER_SESSION_STATE_OVERRIDE ||
   path.join(HOME, '.ultron', '.tmp', 'current-session.json');
@@ -74,75 +65,26 @@ const KANBAN_BASE =
 const PROJECTS_REGISTRY_PATH =
   process.env.KANBAN_REMINDER_PROJECTS_OVERRIDE ||
   path.join(HOME, '.ultron', 'cockpit', 'projects.json');
-const DEFAULT_PROJECT = 'ultron';
 const HARD_TIMEOUT_MS = 5000;
-const MAX_USER_MESSAGES = 3;
-const MAX_MESSAGE_CHARS = 1500;
-
-// Verbos de acción que sugieren una tarea completable. Mezcla ES/EN, imperativo.
-const ACTION_VERBS = [
-  // Spanish (imperativo + infinitivo + 2ª persona presente)
-  'implementa', 'implementar', 'implementas',
-  'arregla', 'arreglar', 'arreglas',
-  'añade', 'anade', 'añadir', 'anadir', 'añades', 'anades',
-  'agrega', 'agregar', 'agregas',
-  'crea', 'crear', 'creas',
-  'actualiza', 'actualizar', 'actualizas',
-  'borra', 'borrar', 'borras',
-  'elimina', 'eliminar', 'eliminas',
-  'corrige', 'corregir', 'corriges',
-  'refactoriza', 'refactorizar', 'refactorizas',
-  'configura', 'configurar', 'configuras',
-  'instala', 'instalar', 'instalas',
-  'integra', 'integrar', 'integras',
-  'mejora', 'mejorar', 'mejoras',
-  'reactiva', 'reactivar', 'reactivas',
-  'deshabilita', 'deshabilitar', 'deshabilitas',
-  'genera', 'generar', 'generas',
-  'construye', 'construir', 'construyes',
-  'commit', 'commitea', 'commitear',
-  'pushea', 'pushear',
-  'cambia', 'cambiar', 'cambias',
-  'mueve', 'mover', 'mueves',
-  'renombra', 'renombrar', 'renombras',
-  'limpia', 'limpiar', 'limpias',
-  'optimiza', 'optimizar', 'optimizas',
-  // English
-  'implement', 'implements',
-  'fix', 'fixes',
-  'add', 'adds',
-  'create', 'creates',
-  'update', 'updates',
-  'delete', 'deletes',
-  'remove', 'removes',
-  'refactor', 'refactors',
-  'configure', 'configures',
-  'install', 'installs',
-  'integrate', 'integrates',
-  'enable', 'enables',
-  'disable', 'disables',
-  'build', 'builds',
-  'rename', 'renames',
-  'move', 'moves',
-  'cleanup', 'clean',
-];
-
-// Marcadores de finalización que el asistente típicamente usa al cerrar.
-// OJO: 'lista'/'listas' NO pueden ser markers — colisionan con el sustantivo
-// ("espero tu lista de X") y causaron un bucle de 5 recordatorios seguidos
-// (bug 2026-08-13). Solo los masculinos, que no tienen homógrafo común.
-const COMPLETION_MARKERS = [
-  'completado', 'completada', 'completadas', 'completados',
-  'aplicado', 'aplicada', 'aplicados', 'aplicadas',
-  'hecho', 'hecha', 'hechos', 'hechas',
-  'listo', 'listos',
-  'terminado', 'terminada',
-  'done', 'completed', 'finished', 'applied', 'finalized', 'shipped',
-];
+// Cola del transcript que se inspecciona (2 MiB): el turno que termina esta
+// al final; un turno mas largo que esto se trata entero como "el turno".
+const TRANSCRIPT_TAIL_BYTES = 2 * 1024 * 1024;
+// Herramientas cuyo uso sobre un fichero del proyecto es evidencia de trabajo.
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+// `git commit` en un comando Bash (no dentro de un pipe/`&&` posterior que lo
+// mencione de paso: basta con que el comando lleve `git ... commit`).
+const GIT_COMMIT_RE = /\bgit\b[^\n|;&]*\bcommit\b/;
+const COOLDOWN_MIN = (() => {
+  const raw = process.env.KANBAN_REMINDER_COOLDOWN_MIN;
+  if (raw === undefined || raw === '') return 30;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 30;
+})();
+const MAX_CARDS_IN_REMINDER = 3;
+const MAX_TITLE_CHARS = 70;
 
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
-const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('kanban-update-reminder');
 
 function safeLog(entry) {
@@ -163,162 +105,6 @@ function clamp(str, max) {
   return s.length <= max ? s : s.slice(0, max - 3) + '...';
 }
 
-function extractContentString(content) {
-  if (content == null) return '';
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (!part) return '';
-        if (typeof part === 'string') return part;
-        if (typeof part.text === 'string') return part.text;
-        if (part.type === 'tool_result' && part.content) {
-          return extractContentString(part.content);
-        }
-        return '';
-      })
-      .filter(Boolean)
-      .join(' ');
-  }
-  if (typeof content === 'object' && typeof content.text === 'string') return content.text;
-  return '';
-}
-
-function looksSynthetic(text) {
-  if (!text) return true;
-  // Turnos de SISTEMA (notificaciones de tareas background) tampoco son
-  // mensajes humanos: sin este filtro, el XML crudo de una notificacion
-  // acababa como titulo de una card auto-registrada en el kanban.
-  if (isSystemTurnPrompt(text)) return true;
-  return (
-    text.startsWith('<system-reminder>') ||
-    text.startsWith('<command-name>') ||
-    text.startsWith('[Request interrupted') ||
-    text.startsWith('<local-command-stdout>')
-  );
-}
-
-function parseTranscript(transcriptPath) {
-  const userMessages = [];
-  let lastAssistantText = '';
-
-  if (!transcriptPath || !fs.existsSync(transcriptPath)) {
-    return { userMessages, lastAssistantText };
-  }
-
-  let raw;
-  try {
-    raw = fs.readFileSync(transcriptPath, 'utf8');
-  } catch (err) {
-    safeLog({ level: 'warn', msg: 'transcript_read_failed', error: String(err && err.message) });
-    return { userMessages, lastAssistantText };
-  }
-
-  const lines = raw.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let entry;
-    try {
-      entry = JSON.parse(trimmed);
-    } catch (_) {
-      continue;
-    }
-
-    const message = entry.message || entry;
-    const role = message && message.role;
-    if (!role) continue;
-
-    if (role === 'user' && message.content) {
-      // Las entradas user que transportan tool_results NO son mensajes humanos
-      // (la cabecera de este archivo ya lo prometía, pero el código no lo
-      // cumplía): un help de CLI con 'add'/'mv' en un tool_result mantenía
-      // actionable=true para siempre (bug 2026-08-13, bucle de recordatorios).
-      const carriesToolResult =
-        Array.isArray(message.content)
-        && message.content.some((p) => p && p.type === 'tool_result');
-      if (carriesToolResult) continue;
-      const text = extractContentString(message.content).trim();
-      if (!looksSynthetic(text)) {
-        userMessages.push(clamp(text, MAX_MESSAGE_CHARS));
-      }
-    }
-
-    if (role === 'assistant' && message.content) {
-      // Solo texto del asistente; ignoramos tool_use.
-      let text = '';
-      if (Array.isArray(message.content)) {
-        text = message.content
-          .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
-          .map((p) => p.text)
-          .join(' ');
-      } else if (typeof message.content === 'string') {
-        text = message.content;
-      }
-      text = text.trim();
-      if (text) lastAssistantText = clamp(text, MAX_MESSAGE_CHARS * 2);
-    }
-  }
-
-  return {
-    userMessages: userMessages.slice(-MAX_USER_MESSAGES),
-    lastAssistantText,
-  };
-}
-
-function tokenize(text) {
-  // Minúsculas + sin diacríticos para comparar contra listas planas.
-  return String(text || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-}
-
-function userAskedActionable(userMessages) {
-  if (!userMessages.length) return false;
-  const verbSet = new Set(ACTION_VERBS.map((v) => v.toLowerCase()));
-  for (const msg of userMessages) {
-    const tokens = tokenize(msg);
-    for (const t of tokens) {
-      if (verbSet.has(t)) return true;
-    }
-  }
-  return false;
-}
-
-function assistantMarkedDone(assistantText) {
-  if (!assistantText) return false;
-  const tokens = new Set(tokenize(assistantText));
-  for (const marker of COMPLETION_MARKERS) {
-    if (tokens.has(marker.toLowerCase())) return true;
-  }
-  return false;
-}
-
-function loadActiveProject(opts) {
-  const allowDefault = !opts || opts.allowDefault !== false;
-  const fallback = allowDefault ? DEFAULT_PROJECT : '';
-  try {
-    if (!fs.existsSync(SESSION_STATE_PATH)) return fallback;
-    const raw = fs.readFileSync(SESSION_STATE_PATH, 'utf8');
-    const cfg = JSON.parse(raw);
-    // Acepta variantes de capitalización (el state actual usa PascalCase).
-    const candidate =
-      cfg.active_project ||
-      cfg.activeProject ||
-      cfg.ActiveProject ||
-      cfg.Active_Project ||
-      '';
-    const name = String(candidate || '').trim();
-    return name || fallback;
-  } catch (err) {
-    safeLog({ level: 'warn', msg: 'active_project_read_failed', error: String(err && err.message) });
-    return fallback;
-  }
-}
-
 // Compara rutas de forma tolerante: separadores unificados, sin barra final y
 // sin distinguir mayusculas (Windows).
 const BARRA_WINDOWS = String.fromCharCode(92);
@@ -334,10 +120,127 @@ function normalizePath(p) {
   }
 }
 
+function isUnder(filePath, rootPath) {
+  const f = normalizePath(filePath);
+  const r = normalizePath(rootPath);
+  if (!f || !r) return false;
+  return f === r || f.startsWith(r + BARRA_URL);
+}
+
+function readTranscriptTail(transcriptPath) {
+  let fd = null;
+  try {
+    const size = fs.statSync(transcriptPath).size;
+    const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    fd = fs.openSync(transcriptPath, 'r');
+    fs.readSync(fd, buf, 0, len, start);
+    let text = buf.toString('utf8');
+    if (start > 0) {
+      // Se descarta la primera linea, casi seguro partida.
+      const nl = text.indexOf('\n');
+      text = nl >= 0 ? text.slice(nl + 1) : '';
+    }
+    return text;
+  } catch (err) {
+    safeLog({ level: 'warn', msg: 'transcript_read_failed', error: String(err && err.message) });
+    return '';
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (_) { /* nada */ }
+    }
+  }
+}
+
+// Frontera de turno: cualquier entrada `user` que no sea un tool_result, sea
+// humana o de sistema (task-notification, system-reminder de un hook). Un
+// turno de sistema tambien tiene su propio Stop: si el trabajo del turno
+// humano anterior se contara otra vez, el mismo commit cerraria (o volveria a
+// cerrar) cards en cada Stop hasta salir de la ventana de 18 h (visto el
+// 2026-09-06 con la tarjeta del corte por valor).
+function isPromptEntry(message) {
+  if (!message || message.role !== 'user' || !message.content) return false;
+  return !(
+    Array.isArray(message.content)
+    && message.content.some((p) => p && p.type === 'tool_result')
+  );
+}
+
+// Evidencia de trabajo del turno que termina: tool_use de edicion sobre un
+// fichero del cwd, o `git commit` por Bash, contados SOLO despues del ultimo
+// prompt (humano o de sistema). Devuelve { edits, commits, entries }.
+function parseTurnWork(transcriptPath, cwd) {
+  const result = { edits: 0, commits: 0, entries: 0 };
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return result;
+
+  const entries = [];
+  for (const line of readTranscriptTail(transcriptPath).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed));
+    } catch (_) {
+      // linea partida o basura: se ignora
+    }
+  }
+  result.entries = entries.length;
+
+  let lastPrompt = -1;
+  for (let i = 0; i < entries.length; i++) {
+    const message = entries[i].message || entries[i];
+    if (isPromptEntry(message)) lastPrompt = i;
+  }
+
+  for (let i = lastPrompt + 1; i < entries.length; i++) {
+    const message = entries[i].message || entries[i];
+    if (!message || message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!part || part.type !== 'tool_use' || !part.name) continue;
+      const input = part.input || {};
+      if (EDIT_TOOLS.has(part.name)) {
+        const file = input.file_path || input.notebook_path || '';
+        if (!file || !cwd || isUnder(file, cwd)) result.edits++;
+      } else if (part.name === 'Bash' && typeof input.command === 'string') {
+        if (GIT_COMMIT_RE.test(input.command)) result.commits++;
+      }
+    }
+  }
+  return result;
+}
+
+function tokenize(text) {
+  // Minusculas + sin diacriticos para comparar contra listas planas.
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function loadActiveProject() {
+  try {
+    if (!fs.existsSync(SESSION_STATE_PATH)) return '';
+    const raw = fs.readFileSync(SESSION_STATE_PATH, 'utf8');
+    const cfg = JSON.parse(raw);
+    // Acepta variantes de capitalizacion (el state actual usa PascalCase).
+    const candidate =
+      cfg.active_project ||
+      cfg.activeProject ||
+      cfg.ActiveProject ||
+      cfg.Active_Project ||
+      '';
+    return String(candidate || '').trim();
+  } catch (err) {
+    safeLog({ level: 'warn', msg: 'active_project_read_failed', error: String(err && err.message) });
+    return '';
+  }
+}
+
 // Id que el Control Center tiene registrado para este directorio. Es la unica
 // fuente que sabe que `.../LaundryClubFolder/laundry-club-next` es el proyecto
-// "laundry-club": derivarlo del basename apuntaba a un tablero inexistente y el
-// recordatorio mandaba a sincronizar un kanban.json que nunca se creo.
+// "laundry-club".
 function projectFromRegistry(cwd) {
   const objetivo = normalizePath(cwd);
   if (!objetivo) return '';
@@ -356,8 +259,7 @@ function projectFromRegistry(cwd) {
   return '';
 }
 
-// Deriva el proyecto del cwd de la sesion (misma convencion que el resto del
-// sistema: basename del cwd sin puntos iniciales -> '.ultron' => 'ultron').
+// Basename del cwd sin puntos iniciales ('.ultron' => 'ultron').
 function projectFromCwd(cwd) {
   if (!cwd) return '';
   try {
@@ -367,34 +269,44 @@ function projectFromCwd(cwd) {
   }
 }
 
-// Resuelve el tablero al que apunta el recordatorio, en orden de fiabilidad:
-//   1) seleccion explicita de tablero (current-session.json -> active_project)
-//   2) el id que projects.json registra para el cwd de ESTA sesion
-//   3) basename del cwd, para proyectos aun no registrados
-//   4) ultimo recurso: DEFAULT_PROJECT
-// (2) se antepone a (3) porque el id del registro y el nombre de la carpeta no
-// tienen por que coincidir; con solo el basename el recordatorio apuntaba a un
-// tablero que no existe mientras el real quedaba sin sincronizar.
-function resolveProject(payload) {
-  const explicit = loadActiveProject({ allowDefault: false });
-  if (explicit) return explicit;
-  const fromRegistry = projectFromRegistry(payload && payload.cwd);
-  if (fromRegistry) return fromRegistry;
-  const fromCwd = projectFromCwd(payload && payload.cwd);
-  if (fromCwd) return fromCwd;
-  return DEFAULT_PROJECT;
+function kanbanPathFor(project) {
+  return path.join(KANBAN_BASE, project, 'kanban.json');
 }
 
-// Asuntos de commits recientes del repo en `root` (evidencia dura de trabajo
-// hecho-y-registrado). Best-effort: [] ante cualquier fallo. Nunca lanza.
-function recentCommitSubjects(root) {
+// Resuelve el tablero, en orden de fiabilidad: seleccion explicita, registro
+// del cockpit para el cwd, basename del cwd (solo si el tablero existe).
+// Devuelve { project, source } o null: sin tablero resoluble no se avisa.
+function resolveProject(payload) {
+  const explicit = loadActiveProject();
+  if (explicit) return { project: explicit, source: 'explicit' };
+  const cwd = payload && payload.cwd;
+  const fromRegistry = projectFromRegistry(cwd);
+  if (fromRegistry) return { project: fromRegistry, source: 'registry' };
+  const fromCwd = projectFromCwd(cwd);
+  if (fromCwd && fs.existsSync(kanbanPathFor(fromCwd))) return { project: fromCwd, source: 'cwd' };
+  return null;
+}
+
+// Commits recientes del repo en `root` (evidencia dura de trabajo
+// hecho-y-registrado) como { ts (epoch s), subject }. Best-effort: [] ante
+// cualquier fallo. Nunca lanza.
+function recentCommits(root) {
   try {
     const out = execFileSync(
       'git',
-      ['-C', root, 'log', '--since=18 hours ago', '--format=%s', '-n', '40'],
+      ['-C', root, 'log', '--since=18 hours ago', '--format=%ct%x09%s', '-n', '40'],
       { encoding: 'utf8', timeout: 4000 },
     );
-    return out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    return out
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const tab = line.indexOf('\t');
+        if (tab < 0) return { ts: 0, subject: line };
+        return { ts: Number(line.slice(0, tab)) || 0, subject: line.slice(tab + 1).trim() };
+      })
+      .filter((c) => c.subject);
   } catch (_) {
     return [];
   }
@@ -433,8 +345,7 @@ function sharesKey(a, b) {
 }
 
 // Stopwords ES/EN para el camino de COBERTURA multi-commit (ver
-// multiCommitCoverageMatch). Solo particulas gramaticales sin señal
-// (articulos, preposiciones cortas, pronombres) — nunca palabras de dominio.
+// multiCommitCoverageMatch). Solo particulas gramaticales sin señal.
 const STOPWORDS = new Set([
   'el', 'la', 'los', 'las', 'de', 'del', 'y', 'en', 'a', 'al', 'un', 'una',
   'con', 'por', 'para', 'que', 'se', 'su', 'sus', 'lo', 'le', 'via',
@@ -446,22 +357,12 @@ function significantTokenSet(text) {
 }
 
 // Umbral de COBERTURA (containment) para el camino multi-commit (cat-code
-// 2026-08-02): que fraccion de los tokens SIGNIFICATIVOS del titulo de la
-// card aparece en la UNION de tokens de TODOS los commits recientes, en vez
-// de exigir que UN commit solo cruce el Jaccard 0.5 de arriba. 0.6 (no 0.5)
-// porque containment no divide por el tamaño de la union (que crece con cada
-// commit añadido) y por tanto satura mas facil por azar que Jaccard -> se
-// compensa con un umbral mas alto. Piso absoluto de 3 tokens MATCHEADOS
-// (ademas del ratio) para que titulos cortos no cierren por 1-2 coincidencias
-// sueltas, y piso de 3 tokens significativos en el propio titulo para que
-// este camino ni se intente en cards de titulo trivial. Calibrado contra:
-// (a) el caso real que lo motivo — "Deuda: trocear career.ts y events.ts" no
-// cerraba nunca porque career.ts y events.ts se trocearon en DOS commits
-// separados, ninguno cruzando el 0.5 de Jaccard por si solo — y (b) un
-// dry-run de solo-lectura contra los kanban.json de TODOS los proyectos de
-// cockpit/projects/ con el git log real de cada repo, para descartar falsos
-// positivos antes de fijar el umbral (ver informe del debugger agent,
-// 2026-08-02).
+// 2026-08-02): fraccion de los tokens SIGNIFICATIVOS del titulo de la card
+// que aparece en la UNION de tokens de TODOS los commits recientes. 0.6 (no
+// 0.5) porque containment satura mas facil por azar que Jaccard. Piso de 3
+// tokens MATCHEADOS y de 3 tokens significativos en el titulo. Calibrado
+// contra el caso real "Deuda: trocear career.ts y events.ts" (dos commits) y
+// un dry-run sobre los kanban.json de todos los proyectos (2026-08-02).
 const MULTI_COMMIT_COVERAGE_THRESHOLD = 0.6;
 const MULTI_COMMIT_MIN_CARD_TOKENS = 3;
 const MULTI_COMMIT_MIN_MATCHED = 3;
@@ -480,15 +381,10 @@ function multiCommitCoverageMatch(cardTitle, subjects) {
   return matched / cardTokens.size >= MULTI_COMMIT_COVERAGE_THRESHOLD;
 }
 
-// (2026-07-13) Claves de FASE ("Fase 4", "fase 4.2", "phase 3"). A diferencia
-// de los cat-codes, una fase acumula commits INTERMEDIOS durante dias, asi que
-// compartir la clave NO basta para cerrar: el asunto debe ademas DECLARAR el
-// cierre (CLOSURE_MARKER_RE). Caso real que motivo esto (sesion Tortunabo
-// 2026-07-13): la card "Fase 4 — Hardening + tests (...)" quedo viva tras el
-// commit "docs: Fase 4.2 hecha - Fase 4 completa" porque ni keys ni substring
-// ni Jaccard matcheaban -> el resume sirvio un next_action stale 2 dias.
-// Especificidad como en cat-codes: fase4.2 != fase4 (cerrar "Fase 4.3" no
-// cierra la card "Fase 4").
+// (2026-07-13) Claves de FASE ("Fase 4", "fase 4.2", "phase 3"). Una fase
+// acumula commits INTERMEDIOS durante dias, asi que compartir la clave NO
+// basta para cerrar: el asunto debe ademas DECLARAR el cierre
+// (CLOSURE_MARKER_RE). Especificidad como en cat-codes: fase4.2 != fase4.
 function extractPhaseKeys(text) {
   const keys = new Set();
   const s = String(text || '').toLowerCase();
@@ -504,7 +400,7 @@ const CLOSURE_MARKER_RE =
 // Carga kanban.json de `project`. Devuelve null si no existe / no parsea
 // (nunca lanza — mismo contrato defensivo que el resto del hook).
 function loadKanbanDoc(project) {
-  const kanbanPath = path.join(KANBAN_BASE, project, 'kanban.json');
+  const kanbanPath = kanbanPathFor(project);
   if (!fs.existsSync(kanbanPath)) return null;
   try {
     return { kanbanPath, doc: JSON.parse(fs.readFileSync(kanbanPath, 'utf8')) };
@@ -513,30 +409,62 @@ function loadKanbanDoc(project) {
   }
 }
 
-// Escritura inmutable: nunca muta `doc` in-place, siempre construye el nuevo
-// documento antes de persistir. Trailing '\n' para igualar a
-// scripts/kanban.mjs saveBoard (evita diffs de formato espurios cuando ambos
-// escritores tocan el mismo fichero).
+// Escritura inmutable: nunca muta `doc` in-place. Trailing '\n' para igualar
+// a scripts/kanban.mjs saveBoard (evita diffs de formato espurios).
 function saveKanbanDoc(kanbanPath, doc) {
   fs.writeFileSync(kanbanPath, JSON.stringify(doc, null, 2) + '\n');
+}
+
+// Memoria de cierres automaticos, al lado del kanban.json
+// (cockpit/projects/<id>/kanban.auto-close.json): { [cardId]: { at, by } }
+// con `at` en epoch segundos y `by` el asunto del commit. Vive FUERA de la
+// card porque el Control Center reescribe las cards con un struct cerrado
+// (kanban/types_model.rs) y perderia cualquier campo extra.
+function autoClosePathFor(kanbanPath) {
+  return path.join(path.dirname(kanbanPath), 'kanban.auto-close.json');
+}
+
+function readAutoClosed(autoClosePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(autoClosePath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+// Escribe la memoria quedandose solo con las cards que siguen en el tablero.
+function saveAutoClosed(autoClosePath, map, cards) {
+  const ids = new Set(cards.map((c) => c.id));
+  const pruned = Object.fromEntries(Object.entries(map).filter(([id]) => ids.has(id)));
+  try {
+    fs.writeFileSync(autoClosePath, JSON.stringify(pruned, null, 2) + '\n');
+  } catch (err) {
+    safeLog({ level: 'warn', msg: 'auto_close_write_failed', error: String(err && err.message) });
+  }
+}
+
+function liveColumnIds(cols) {
+  return new Set(cols.filter((c) => c.role === 'doing' || c.role === 'todo').map((c) => c.id));
 }
 
 // Cierra (mueve a la columna role=done) las cards VIVAS (doing/todo) cuyo titulo
 // matchea FUERTE (>=CLOSE_THRESHOLD) el asunto de un commit reciente. Escritura
 // inmutable de kanban.json. Devuelve los titulos cerrados ([] si ninguno o sin
-// kanban). Conservador: ante duda NO cierra (el recordatorio cubre el resto).
-function closeCompletedCards(project, root) {
-  const loaded = loadKanbanDoc(project);
+// kanban). Conservador: ante duda NO cierra.
+function closeCompletedCards(loaded, root) {
   if (!loaded) return [];
   const { kanbanPath, doc } = loaded;
   const cols = Array.isArray(doc.columns) ? doc.columns : [];
   const doneCol = cols.find((c) => c.role === 'done');
   if (!doneCol) return [];
-  const liveColIds = new Set(
-    cols.filter((c) => c.role === 'doing' || c.role === 'todo').map((c) => c.id),
-  );
-  const subjects = recentCommitSubjects(root);
-  if (!subjects.length) return [];
+  const liveColIds = liveColumnIds(cols);
+  const commits = recentCommits(root);
+  if (!commits.length) return [];
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  const autoClosePath = autoClosePathFor(kanbanPath);
+  const autoClosed = readAutoClosed(autoClosePath);
+  const autoClosedNext = {};
 
   const closed = [];
   const cards = Array.isArray(doc.cards) ? doc.cards : [];
@@ -544,19 +472,21 @@ function closeCompletedCards(project, root) {
     if (!liveColIds.has(card.column_id)) return card;
     const bare = String(card.title || '').replace(/^\[[^\]]*\]\s*/, '');
     if (bare.length < 8) return card; // titulos triviales no se auto-cierran
+    // Idempotencia: una card que este hook ya cerro y alguien REABRIO solo
+    // puede volver a cerrarse por un commit POSTERIOR a aquel cierre. Sin
+    // esto, el mismo commit la volvia a cerrar en cada Stop durante 18 h.
+    const closedAt = Number((autoClosed[card.id] || {}).at) || 0;
+    const candidates = closedAt ? commits.filter((c) => c.ts > closedAt) : commits;
+    if (!candidates.length) return card;
+    const subjects = candidates.map((c) => c.subject);
     const bareLc = bare.toLowerCase();
-    const cardKeys = extractKeys(
-      card.title + ' ' + (Array.isArray(card.tags) ? card.tags.join(' ') : ''),
-    );
-    const cardPhases = extractPhaseKeys(
-      card.title + ' ' + (Array.isArray(card.tags) ? card.tags.join(' ') : ''),
-    );
-    const hit = subjects.some((s) => {
-      // 1) ALTA PRECISION: cat-code / issue-ref compartido (commit "(cat21.4)"
-      //    cierra la card cat21.4). La senal mas fuerte: trabajo etiquetado.
+    const tagText = Array.isArray(card.tags) ? card.tags.join(' ') : '';
+    const cardKeys = extractKeys(card.title + ' ' + tagText);
+    const cardPhases = extractPhaseKeys(card.title + ' ' + tagText);
+    const single = subjects.find((s) => {
+      // 1) ALTA PRECISION: cat-code / issue-ref compartido.
       if (cardKeys.size && sharesKey(extractKeys(s), cardKeys)) return true;
       // 1.5) FASE compartida + commit que DECLARA cierre ("Fase 4 completa").
-      //      Un commit intermedio de la fase (sin marcador) NO cierra nada.
       if (
         cardPhases.size
         && sharesKey(extractPhaseKeys(s), cardPhases)
@@ -567,21 +497,20 @@ function closeCompletedCards(project, root) {
       if (bareLc.length >= 12 && cleaned.toLowerCase().includes(bareLc)) return true;
       // 3) fuzzy: Jaccard sobre el asunto SIN prefijo conventional-commit.
       return jaccardTokens(bare, cleaned) >= CLOSE_THRESHOLD;
-    })
-      // 4) COBERTURA MULTI-COMMIT (aditivo): el trabajo de una card puede
-      //    repartirse en VARIOS commits que cubren cada uno solo una parte del
-      //    titulo (ninguno cruza el Jaccard 0.5 de (3) por si solo) -> ver
-      //    multiCommitCoverageMatch. No sustituye a (1)-(3), solo se evalua
-      //    si ninguno de esos matcheo.
-      || multiCommitCoverageMatch(bare, subjects);
+    });
+    // 4) COBERTURA MULTI-COMMIT (aditivo): varios commits que cubren cada uno
+    //    una parte del titulo. Solo si ninguno de (1)-(3) matcheo.
+    const hit = single !== undefined || multiCommitCoverageMatch(bare, subjects);
     if (!hit) return card;
     closed.push(String(card.title || ''));
+    autoClosedNext[card.id] = { at: nowEpoch, by: single !== undefined ? single : subjects[0] };
     return { ...card, column_id: doneCol.id };
   });
 
   if (closed.length) {
     try {
       saveKanbanDoc(kanbanPath, { ...doc, cards: newCards });
+      saveAutoClosed(autoClosePath, { ...autoClosed, ...autoClosedNext }, newCards);
     } catch (err) {
       safeLog({ level: 'warn', msg: 'kanban_write_failed', error: String(err && err.message) });
       return [];
@@ -590,13 +519,61 @@ function closeCompletedCards(project, root) {
   return closed;
 }
 
-function buildReminder(project) {
-  const kanbanPath = path.join(KANBAN_BASE, project, 'kanban.json');
+// Tarjetas en columnas role=doing (In Progress), tras el cierre.
+function doingCards(project) {
+  const loaded = loadKanbanDoc(project);
+  if (!loaded) return [];
+  const cols = Array.isArray(loaded.doc.columns) ? loaded.doc.columns : [];
+  const doingIds = new Set(cols.filter((c) => c.role === 'doing').map((c) => c.id));
+  const cards = Array.isArray(loaded.doc.cards) ? loaded.doc.cards : [];
+  return cards.filter((c) => doingIds.has(c.column_id));
+}
+
+function cooldownMarkerPath(sessionId) {
+  return path.join(os.tmpdir(), `ultron-kanban-reminder-${String(sessionId).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+}
+
+// true si el recordatorio de texto ya se emitio hace menos de COOLDOWN_MIN en
+// esta sesion. Sin session_id o con cooldown 0 nunca frena.
+function inCooldown(sessionId) {
+  if (!sessionId || COOLDOWN_MIN <= 0) return false;
+  try {
+    const marker = cooldownMarkerPath(sessionId);
+    if (!fs.existsSync(marker)) return false;
+    const last = JSON.parse(fs.readFileSync(marker, 'utf8')).last_reminder_ts;
+    const elapsedMs = Date.now() - Date.parse(last || 0);
+    return Number.isFinite(elapsedMs) && elapsedMs < COOLDOWN_MIN * 60 * 1000;
+  } catch (_) {
+    return false;
+  }
+}
+
+function markReminder(sessionId) {
+  if (!sessionId || COOLDOWN_MIN <= 0) return;
+  try {
+    fs.writeFileSync(cooldownMarkerPath(sessionId), JSON.stringify({ last_reminder_ts: new Date().toISOString() }));
+  } catch (_) {
+    // best-effort: sin marcador solo se pierde el cooldown
+  }
+}
+
+function buildReminder(project, cards) {
+  const shown = cards.slice(0, MAX_CARDS_IN_REMINDER)
+    .map((c) => `"${clamp(c.title, MAX_TITLE_CHARS)}" (${c.id})`)
+    .join(', ');
+  const extra = cards.length > MAX_CARDS_IN_REMINDER ? ` y ${cards.length - MAX_CARDS_IN_REMINDER} mas` : '';
+  const first = cards[0];
   return (
-    'RECORDATORIO: actualizar kanban en `' +
-    kanbanPath +
-    '` con esta tarea. NO cerrar sesion sin sincronizar.'
+    `KANBAN ${project}: In Progress -> ${shown}${extra}. ` +
+    `Si este turno la cierra: node ~/.ultron/scripts/kanban.mjs mv ${project} "${first.id}" done. ` +
+    'Si la avanza, actualiza su descripcion. Si no aplica, ignora.'
   );
+}
+
+function emit(context) {
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: context },
+  }));
 }
 
 function main() {
@@ -607,57 +584,55 @@ function main() {
   } catch (err) {
     safeLog({ level: 'warn', msg: 'stdin_parse_failed', error: String(err && err.message) });
   }
+  const sessionId = payload.session_id || null;
+  const cwd = (payload && payload.cwd) || '';
 
   const transcriptPath = payload.transcript_path || payload.transcriptPath || '';
-  const extracted = parseTranscript(transcriptPath);
-
-  const actionable = userAskedActionable(extracted.userMessages);
-  const completed = assistantMarkedDone(extracted.lastAssistantText);
-
-  if (!actionable || !completed) {
-    safeLog({
-      level: 'info',
-      msg: 'no_reminder_emitted',
-      reason: !actionable ? 'no_action_verb' : 'no_completion_marker',
-      user_messages_seen: extracted.userMessages.length,
-      session_id: payload.session_id || null,
-    });
+  const work = parseTurnWork(transcriptPath, cwd);
+  if (work.edits === 0 && work.commits === 0) {
+    safeLog({ level: 'info', msg: 'silent', reason: 'no_work_in_turn', entries: work.entries, session_id: sessionId });
     return;
   }
 
-  const project = resolveProject(payload);
-  const root = (payload && payload.cwd) || ULTRON_ROOT;
+  const resolved = resolveProject(payload);
+  if (!resolved) {
+    safeLog({ level: 'info', msg: 'silent', reason: 'no_project', cwd: cwd || null, session_id: sessionId });
+    return;
+  }
+  const { project, source } = resolved;
 
-  // No solo recordar — ACTUAR, pero solo con evidencia dura: cierra las cards
-  // cuyo titulo matchea un commit reciente. Sin match, recordatorio y nada mas.
-  const closed = closeCompletedCards(project, root);
-
-  let context = buildReminder(project);
+  // ACTUAR solo con evidencia dura: cierra las cards cuyo titulo matchea un
+  // commit reciente del repo de la sesion.
+  const closed = cwd ? closeCompletedCards(loadKanbanDoc(project), cwd) : [];
   if (closed.length) {
-    context =
-      'BOARD ACTUALIZADO: ' +
-      closed.length +
-      ' card(s) cerradas por match con commit reciente -> ' +
-      closed.map((t) => '"' + clamp(t, 60) + '"').join(', ') +
-      '. ' +
-      context;
+    emit(
+      'BOARD ACTUALIZADO: ' + closed.length + ' card(s) cerradas por match con commit reciente -> ' +
+      closed.map((t) => '"' + clamp(t, 60) + '"').join(', ') + '.',
+    );
+    safeLog({ level: 'info', msg: 'cards_closed', project, source, closed, work, session_id: sessionId });
+    return;
   }
 
-  const output = {
-    hookSpecificOutput: {
-      hookEventName: 'Stop',
-      additionalContext: context,
-    },
-  };
+  const doing = doingCards(project);
+  if (!doing.length) {
+    safeLog({ level: 'info', msg: 'silent', reason: 'no_doing_cards', project, source, work, session_id: sessionId });
+    return;
+  }
+  if (inCooldown(sessionId)) {
+    safeLog({ level: 'info', msg: 'silent', reason: 'cooldown', project, source, session_id: sessionId });
+    return;
+  }
 
-  process.stdout.write(JSON.stringify(output));
-
+  emit(buildReminder(project, doing));
+  markReminder(sessionId);
   safeLog({
     level: 'info',
-    msg: closed.length ? 'cards_closed_and_reminder' : 'reminder_emitted',
+    msg: 'reminder_emitted',
     project,
-    closed,
-    session_id: payload.session_id || null,
+    source,
+    doing: doing.map((c) => c.id),
+    work,
+    session_id: sessionId,
   });
 }
 

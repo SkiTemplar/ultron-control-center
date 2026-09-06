@@ -57,6 +57,10 @@ pub struct RecallEntry {
     pub summary: Option<String>, // compact form injected; full content is lazy-loaded
     pub scope: String,
     pub project_id: Option<String>,
+    /// Tipo del item (`decision`, `lesson`, ...). Lo consume el orquestador para
+    /// separar las lecciones cross-project del resto (ULTRON 4 F1.3).
+    #[serde(default)]
+    pub kind: String,
     pub score: f32, // RRF fused score
     pub dense_rank: Option<usize>,
     pub sparse_rank: Option<usize>,

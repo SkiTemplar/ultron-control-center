@@ -7,6 +7,7 @@ fn entry(dense: Option<f32>, sparse: Option<usize>) -> RecallEntry {
         summary: Some("s".into()),
         scope: "project".into(),
         project_id: None,
+        kind: "fact".into(),
         score: 0.01,
         dense_rank: None,
         sparse_rank: sparse,

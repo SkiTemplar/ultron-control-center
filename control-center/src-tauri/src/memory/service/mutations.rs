@@ -13,7 +13,7 @@ use super::super::MemoryError;
 use super::super::{redaction, sqlite_store as store};
 use super::{
     raised_sensitivity, redact_tags, sync_index, BackfillDeprecationsResult, BulkDeprecateResult,
-    ConfidenceSweepResult, MemoryService, MemoryStats, StaleSweepResult,
+    ConfidenceSweepResult, DedupeResult, MemoryService, MemoryStats, StaleSweepResult,
 };
 
 impl MemoryService {
@@ -54,6 +54,16 @@ impl MemoryService {
     pub fn search_active(query: &str, limit: usize) -> Result<Vec<MemoryItem>, MemoryError> {
         let conn = store::open_conn()?;
         store::search_items(&conn, query, Status::Active, limit)
+    }
+
+    /// Como [`Self::search_active`] restringido a un tipo (F1.3: solo `lesson`).
+    pub fn search_active_of_type(
+        query: &str,
+        kind: MemoryType,
+        limit: usize,
+    ) -> Result<Vec<MemoryItem>, MemoryError> {
+        let conn = store::open_conn()?;
+        store::search_items_typed(&conn, query, Status::Active, Some(kind.as_str()), limit)
     }
 
     pub fn list_by_status(status: Status, limit: usize) -> Result<Vec<MemoryItem>, MemoryError> {
@@ -245,6 +255,50 @@ impl MemoryService {
             project: proj_owned,
             failed,
         })
+    }
+
+    /// Deprecar las copias exactas (2026-09-03): en cada grupo de ACTIVE con el
+    /// mismo `content_hash` + scope + proyecto sobrevive UNA fila (pinned,
+    /// luego validada por el usuario, luego la más antigua) y el resto pasa a
+    /// Deprecated vía `set_status` (FTS5 + Qdrant + ledger en sync; reversible).
+    /// Origen medido: 206 sobrantes creadas por drains `--auto` solapados.
+    pub fn deprecate_exact_duplicates(
+        dry_run: bool,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<DedupeResult, MemoryError> {
+        let groups = {
+            let conn = store::open_conn()?;
+            store::list_active_duplicate_groups(&conn)?
+        };
+        let reason =
+            reason.unwrap_or_else(|| "dedupe: copia exacta de un ACTIVE (drains solapados)".into());
+        let mut result = DedupeResult {
+            groups: groups.len(),
+            surplus: 0,
+            deprecated: 0,
+            dry_run,
+            by_type: std::collections::BTreeMap::new(),
+            failed: Vec::new(),
+        };
+        for group in &groups {
+            for extra in group.iter().skip(1) {
+                result.surplus += 1;
+                *result
+                    .by_type
+                    .entry(extra.kind.as_str().to_string())
+                    .or_insert(0) += 1;
+                if dry_run {
+                    continue;
+                }
+                let why = format!("{reason}; sobrevive {}", group[0].id);
+                match Self::set_status(&extra.id, Status::Deprecated, actor, Some(why)) {
+                    Ok(_) => result.deprecated += 1,
+                    Err(e) => result.failed.push((extra.id.clone(), e.to_string())),
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// Sweep por confianza (audit 2026-08-09): deprecar ACTIVE con

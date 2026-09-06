@@ -13,6 +13,12 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { runCli, projectIdFromCwd, findBinary, spawnDetached } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
+// ULTRON 4 12.1: lineas de feedback de sesion (lib/session-feedback).
+const { renderResumeLines: renderFeedbackLines } = require('./lib/session-feedback');
+// ULTRON 4 4.2: cifra de concision de las ultimas sesiones (lib/response-meter).
+const { renderResumeLine: renderMeterLine } = require('./lib/response-meter');
+// ULTRON 4 8.1: resumen del indice CodeGraph del proyecto (lib/codegraph-summary).
+const codegraphSummary = require('./lib/codegraph-summary');
 observe('memory-session-resume');
 
 // HOOKS-04 (auditoria 2026-07-16): calentar el daemon de memoria DESDE
@@ -68,82 +74,62 @@ function readL0Scratch(currentProject) {
   }
 }
 
-// Contexto del proyecto ACTUAL (peticion 2026-06-22: NO un overview de todos los
-// proyectos al arrancar, sino que el sistema sepa de ESTE proyecto cuando se
-// trabaja en el). El Stop hook (stop-compress) acumula en
-// cockpit/projects/<p>/context.md "que es este proyecto y en que se trabaja";
-// aqui inyectamos SOLO el del proyecto actual. Bounded + fail-safe.
+// Perfil del proyecto ACTUAL (ULTRON 4 F1.4 / G9, 2026-09-03): "de que iba este
+// proyecto" respondido completo. Lo mantiene el hook SessionEnd project-profile
+// en cockpit/projects/<p>/profile.json (que es, stack, arquitectura, estado,
+// decisiones clave; fuente llm o deterministic). Sustituye a la captura
+// kind=context (context.md), que acumulaba frases sueltas y contaminacion de
+// otros proyectos sin responder nunca que era el proyecto. Bounded + fail-safe.
 const PROJECTS_DIR = path.join(os.homedir(), '.ultron', 'cockpit', 'projects');
-const CONTEXT_MAX_CHARS = 1200;
+const PROFILE_FIELD_MAX_CHARS = 420;
+const PROFILE_MAX_DECISIONS = 5;
 
-function readProjectContext(projectId) {
-  if (!projectId) return '';
+function readProjectProfile(projectId) {
+  if (!projectId) return null;
   try {
-    const raw = fs.readFileSync(path.join(PROJECTS_DIR, projectId, 'context.md'), 'utf8').trim();
-    if (!raw) return '';
-    return raw.length > CONTEXT_MAX_CHARS ? raw.slice(0, CONTEXT_MAX_CHARS) + '\n[...]' : raw;
+    const doc = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, projectId, 'profile.json'), 'utf8'));
+    if (!doc || typeof doc !== 'object' || !doc.profile || typeof doc.profile.que_es !== 'string') return null;
+    return doc;
   } catch {
-    return ''; // sin context.md / ilegible -> nada que inyectar (fail-safe)
+    return null; // sin profile.json / ilegible -> nada que inyectar (fail-safe)
   }
 }
 
-// Dedupe + cap de las lineas de project_context. El Stop hook acumula en
-// context.md frases casi identicas ("ULTRON es Rust+Tauri" x6); inyectarlas todas
-// es ruido. Defensa en el punto de inyeccion (la captura duplicada se trata aparte).
-const CONTEXT_MAX_LINES = 6;
-const JACCARD_DUP = 0.5;
-
-// (2026-08-10, audit 08-09) Dedupe MULTILINGUE: el corpus mezcla ES/EN y los
-// gemelos cruzados sobrevivian al Jaccard puro ("ULTRON es un sistema personal"
-// + "ULTRON is a personal AI OS" + "ULTRON es un proyecto de AI" = 3 lineas).
-// Canon minimo ES->EN de los tokens que de verdad aparecen en context.md; no es
-// un traductor, es un normalizador de vocabulario para comparar conjuntos.
-const ES_EN_CANON = {
-  es: 'is', son: 'are', un: 'a', una: 'a', el: 'the', la: 'the', los: 'the', las: 'the',
-  de: 'of', del: 'of', y: 'and', con: 'with', para: 'for', en: 'in',
-  sistema: 'system', proyecto: 'project', ia: 'ai', memoria: 'memory',
-  pruebas: 'tests', codigo: 'code',
-};
-// Palabras funcion (ya canonizadas a EN) que no aportan contenido al dedupe.
-const CTX_STOPWORDS = new Set(['is', 'are', 'a', 'the', 'of', 'and', 'with', 'for', 'in', 'at']);
-
-function normCtx(s) {
-  return String(s)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // sin tildes: "ejecución" == "ejecucion"
-    .replace(/[`*#_~]/g, '')
-    .replace(/[/,]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function clipField(s) {
+  const plano = String(s || '').replace(/\s+/g, ' ').trim();
+  return plano.length > PROFILE_FIELD_MAX_CHARS ? plano.slice(0, PROFILE_FIELD_MAX_CHARS - 1) + '…' : plano;
 }
 
-// Tokens de CONTENIDO canonizados (ES->EN, sin stopwords) para comparar lineas.
-function contentTokens(s) {
-  return new Set(
-    normCtx(s)
-      .split(' ')
-      .filter(Boolean)
-      .map((t) => ES_EN_CANON[t] || t)
-      .filter((t) => !CTX_STOPWORDS.has(t))
-  );
+// Lineas del bloque project_profile. Declara procedencia (fuente, fecha, HEAD) y
+// avisa si el perfil es de un HEAD anterior al actual: el "estado" puede haber
+// cambiado (mandamiento 13: declarar el alcance real). Las metricas memorizadas
+// se filtran igual que en las decisiones.
+function renderProfileLines(doc, currentHeadSha) {
+  if (!doc) return [];
+  const p = doc.profile;
+  if (!p || !String(p.que_es || '').trim()) return [];
+  const fecha = String(doc.generated_at || '').slice(0, 10) || '?';
+  const fuente = doc.source === 'llm' ? 'llm' : 'deterministic';
+  const sha = doc.head && doc.head.sha ? doc.head.sha : null;
+  const stale = sha && currentHeadSha && sha !== currentHeadSha;
+  const cab = [`project_profile (perfil del proyecto, generado ${fecha} por ${fuente}${sha ? `, head ${sha}` : ''})${stale ? ' -- de un HEAD anterior: el estado puede haber cambiado' : ''}:`];
+  const out = [];
+  for (const [k, v] of [['que_es', p.que_es], ['stack', p.stack], ['arquitectura', p.arquitectura], ['estado', p.estado]]) {
+    const t = clipField(v);
+    if (t && !isStaleMetricLine(t)) out.push(`  ${k}: ${t}`);
+  }
+  const decisiones = (Array.isArray(p.decisiones_clave) ? p.decisiones_clave : [])
+    .map(clipField)
+    .filter((d) => d && !isStaleMetricLine(d) && !isTrivialDecision(d))
+    .slice(0, PROFILE_MAX_DECISIONS);
+  if (decisiones.length) {
+    out.push('  decisiones_clave:');
+    for (const d of decisiones) out.push(`    - ${d}`);
+  }
+  return out.length ? cab.concat(out) : [];
 }
 
-function jaccardCtx(a, b) {
-  const A = contentTokens(a);
-  const B = contentTokens(b);
-  if (!A.size || !B.size) return 0;
-  let inter = 0;
-  for (const x of A) if (B.has(x)) inter++;
-  // Lineas cortas (<=5 tokens de contenido): coeficiente de solapamiento
-  // (inter/min) — con conjuntos pequenos el Jaccard castiga una sola palabra
-  // distinta y los gemelos ES/EN no colapsaban jamas.
-  const minSize = Math.min(A.size, B.size);
-  if (minSize <= 5) return inter / minSize;
-  return inter / (A.size + B.size - inter);
-}
-
-// (2026-08-10) Gate de claims numericos: context.md acumula metricas viejas sin
+// (2026-08-10) Gate de claims numericos: la memoria acumula metricas viejas sin
 // fecha ("ULTRON is a project at 9.73/10 score" — superseded desde 06-25) y el
 // resume las inyectaba como verdad. Las cifras de calidad VIVAS ya viajan en
 // harnessNote (con gate de frescura 48h); una metrica memorizada sin fecha es
@@ -178,22 +164,6 @@ function isTrivialDecision(summary) {
   const s = String(summary || '').trim();
   if (!s) return true; // sin texto no hay decision que mostrar
   return TRIVIAL_DECISION_RES.some((re) => re.test(s));
-}
-
-// Lineas unicas (sin near-duplicados ni metricas memorizadas), capadas a maxLines.
-function dedupeContextLines(text, maxLines = CONTEXT_MAX_LINES) {
-  const lines = text
-    .split('\n')
-    .map((l) => l.replace(/^\s*-\s*/, '').trim())
-    .filter(Boolean)
-    .filter((l) => !isStaleMetricLine(l));
-  const kept = [];
-  for (const line of lines) {
-    if (kept.some((k) => normCtx(k) === normCtx(line) || jaccardCtx(k, line) > JACCARD_DUP)) continue;
-    kept.push(line);
-    if (kept.length >= maxLines) break;
-  }
-  return kept;
 }
 
 // Nota VIVA del medidor (audit 2026-06-25): el resume arrastraba una nota
@@ -252,7 +222,7 @@ function readHead(cwd) {
   }
 }
 
-function render(r, projectContext, opts = {}) {
+function render(r, profileDoc, opts = {}) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
   // Directiva de arranque (audit 2026-06-25): inyectabamos datos sin NINGUNA
   // instruccion -> el modelo quemaba tokens en arqueologia git y devolvia menus.
@@ -303,13 +273,13 @@ function render(r, projectContext, opts = {}) {
     out.push('next_action: (sin tarea fijada) -- propon a partir de los laggards del harness (arriba), NO arqueologia git.');
   }
   if (Array.isArray(r.warnings) && r.warnings.length) out.push(`warnings: ${r.warnings.join('; ')}`);
-  if (projectContext) {
-    const ctxLines = dedupeContextLines(projectContext);
-    if (ctxLines.length) {
-      out.push('project_context (que es este proyecto / en que andas — captura automatica):');
-      for (const line of ctxLines) out.push(`  - ${line}`);
-    }
-  }
+  for (const line of renderProfileLines(profileDoc, opts.headSha)) out.push(line);
+  // Metrica externa (12.1): pregunta pendiente para este proyecto y % de 'si'.
+  for (const line of (Array.isArray(opts.feedbackLines) ? opts.feedbackLines : [])) out.push(line);
+  // Medidor de concision (4.2/7.3): una linea, solo con datos.
+  if (opts.meterLine) out.push(opts.meterLine);
+  // CodeGraph (8.1, pilar 2): tamano, zonas y hubs del indice, con la orden de consultarlo.
+  for (const line of (Array.isArray(opts.codegraphLines) ? opts.codegraphLines : [])) out.push(line);
   out.push('</ultron-memory-resume>');
   return out.join('\n');
 }
@@ -343,16 +313,24 @@ function main() {
   // cat17.2: inyecta tambien el scratch L0 preservado en la ultima compactacion
   // (aunque no haya resume del sidecar).
   const l0 = readL0Scratch(project);
-  // Contexto del proyecto actual (independiente del sidecar: se inyecta aunque
+  // Perfil del proyecto actual (independiente del sidecar: se inyecta aunque
   // el resume Rust falle).
-  const projectContext = readProjectContext(project);
+  const profileDoc = readProjectProfile(project);
   const harnessNote = readHarnessNote();
   const head = readHead(cwd);
-  if (!resume && !projectContext && !harnessNote && !head) {
+  // ULTRON 4 12.1: pregunta de feedback pendiente + cifra global (fail-safe).
+  let feedbackLines = [];
+  try { feedbackLines = renderFeedbackLines(project); } catch { /* sin feedback */ }
+  let meterLine = '';
+  try { meterLine = renderMeterLine(); } catch { /* sin medidor */ }
+  let codegraphLines = [];
+  try { codegraphLines = codegraphSummary.renderLines(codegraphSummary.summarize(cwd)); } catch { /* sin indice */ }
+  if (!resume && !profileDoc && !harnessNote && !head && !feedbackLines.length && !codegraphLines.length) {
     emit(l0);
     return;
   }
-  emit(render(resume, projectContext, { harnessNote, head, degraded: resume === null }) + l0);
+  const headSha = (head.match(/@ ([0-9a-f]+) --/) || [])[1] || null;
+  emit(render(resume, profileDoc, { harnessNote, head, headSha, degraded: resume === null, feedbackLines, meterLine, codegraphLines }) + l0);
 }
 
 // Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script
@@ -366,5 +344,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectContext, render, dedupeContextLines, readHarnessNote, readHead, isStaleMetricLine, isTrivialDecision, jaccardCtx, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
+  module.exports = { readL0Scratch, readProjectProfile, renderProfileLines, render, readHarnessNote, readHead, isStaleMetricLine, isTrivialDecision, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
 }

@@ -57,6 +57,22 @@ pub struct BulkDeprecateResult {
     pub failed: Vec<(String, String)>,
 }
 
+/// Resultado de [`MemoryService::deprecate_exact_duplicates`] (2026-09-03):
+/// grupos de ACTIVE con el mismo `content_hash` (misma clave scope+proyecto
+/// que el dedupe del write-path), filas sobrantes y cuántas se deprecaron.
+/// El superviviente de cada grupo es el pinned / validado / más antiguo.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DedupeResult {
+    pub groups: usize,
+    pub surplus: usize,
+    pub deprecated: usize,
+    pub dry_run: bool,
+    /// Sobrantes por tipo de memoria (para saber de dónde salía el ruido).
+    pub by_type: std::collections::BTreeMap<String, usize>,
+    /// (id, error) por fila que no se pudo deprecar; no aborta el lote.
+    pub failed: Vec<(String, String)>,
+}
+
 /// Resultado de [`MemoryService::backfill_deprecations`]: cuántos eventos de
 /// deprecación históricos se escanearon y cuántos se insertaron en el ledger.
 #[derive(Debug, Clone, serde::Serialize)]

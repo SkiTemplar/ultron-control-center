@@ -26,6 +26,13 @@ pub enum MemoryError {
     #[error("duplicate content: already covered by {0}")]
     Duplicate(String),
 
+    /// El candidato ya salió del inbox (approved/rejected) cuando llegó esta
+    /// decisión. Aparece cuando dos drains solapados trabajan sobre la misma
+    /// lista pending (2026-09-03: 206 filas duplicadas por re-aprobar). El
+    /// valor es "id (status)"; los callers lo cuentan como no-op, no como fallo.
+    #[error("candidate already decided: {0}")]
+    AlreadyDecided(String),
+
     /// An I/O error occurred while accessing the backing store.
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),

@@ -456,6 +456,7 @@ pub(crate) fn assemble_pack(
             summary, // compact; full content lazy via get_item
             scope: item.scope.as_str().to_string(),
             project_id: item.project_id.clone(),
+            kind: item.kind.as_str().to_string(),
             score: fh.rrf_score,
             dense_rank: fh.dense_rank,
             sparse_rank: fh.sparse_rank,

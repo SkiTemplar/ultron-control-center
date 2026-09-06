@@ -183,3 +183,16 @@ export type BloatwareUninstallResult = {
   command: string;
   removed: string[];
 };
+
+// ---------------------------------------------------------------------------
+// Turn Off (System → Turn Off): apagado programado via shutdown.exe.
+// El backend (src-tauri/src/turn_off.rs) es la única fuente de verdad del
+// plazo — el frontend solo recalcula la cuenta atrás en cliente a partir de
+// deadline_epoch_secs.
+// ---------------------------------------------------------------------------
+
+export type TurnOffState = {
+  active: boolean;
+  deadline_epoch_secs: number | null;
+  hours: number | null;
+};

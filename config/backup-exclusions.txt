@@ -137,3 +137,10 @@ desktop.ini
 *.dmg
 *.bak
 *.swp
+
+# === Cache de launchers de juegos (Documents) ===
+# "Social Club" es el cache del launcher de Rockstar: Service Worker,
+# CacheStorage y SSLErrorAssistant. Regenerable, y sus rutas rompian el
+# robocopy de Documents con exit 9 (3 directorios con ERROR). Los saves de
+# Rockstar viven fuera de esta carpeta y siguen respaldandose.
+Social Club/

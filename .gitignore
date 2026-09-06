@@ -479,3 +479,9 @@ docs/research/corpus/*
 
 # Lista de exclusiones del espejo publico: no debe viajar en el espejo
 .publicignore
+
+# Corpus de prompts reales del banco A/B de routing: datos personales, no
+# versionables (el gate de PII los marca HIGH). Los scripts del arnes si van.
+benchmarks/skill-routing-ab/arms.json
+benchmarks/skill-routing-ab/prompts.json
+benchmarks/skill-routing-ab/votes.json

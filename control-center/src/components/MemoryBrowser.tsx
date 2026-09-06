@@ -70,6 +70,7 @@ const TYPE_OPTIONS = [
   "error_resolution",
   "architecture",
   "user_profile",
+  "lesson",
 ] as const;
 
 // "archived" retirado 2026-07-04: 0 filas en brain.db y 0 productores en el

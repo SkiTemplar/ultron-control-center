@@ -12,7 +12,7 @@ use super::candidates::{get_candidate, insert_candidate, list_candidates, set_ca
 use super::events::{insert_event, list_events_for};
 use super::items::{
     delete_item, find_active_by_content_hash, get_item, insert_item, list_by_type_status,
-    list_pinned, search_items,
+    list_pinned, search_items, touch_injected,
 };
 use super::row_mapping::{sparse_terms, MAX_SPARSE_TERMS};
 use super::schema::apply_schema;
@@ -194,6 +194,48 @@ fn find_active_by_content_hash_ignores_non_active() {
             .is_none(),
         "non-active items must not be returned as active dupes"
     );
+}
+
+/// Telemetria de utilidad (2026-08-28): las columnas existian desde el primer
+/// esquema y nadie las escribia. Este test es la garantia de que a partir de
+/// ahora un item inyectado deja huella, y de que uno no inyectado sigue a cero.
+#[test]
+fn touch_injected_marks_only_the_injected_items() {
+    let conn = mem_conn();
+    let mut usada = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Global,
+        Source::ToolObserved,
+        Status::Active,
+    );
+    usada.summary = Some("memoria que si entra en el pack".into());
+    let mut ignorada = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Global,
+        Source::ToolObserved,
+        Status::Active,
+    );
+    ignorada.summary = Some("memoria que nunca sale".into());
+    insert_item(&conn, &usada).unwrap();
+    insert_item(&conn, &ignorada).unwrap();
+
+    let tocadas = touch_injected(&conn, &[usada.id.clone()]);
+    let tocadas_de_nuevo = touch_injected(&conn, &[usada.id.clone()]);
+
+    assert_eq!(tocadas, 1);
+    assert_eq!(tocadas_de_nuevo, 1);
+    let u = get_item(&conn, &usada.id).unwrap().expect("usada existe");
+    assert_eq!(u.access_count, 2, "cada inyeccion suma una");
+    assert!(u.last_injected_at.is_some());
+    assert!(u.last_accessed_at.is_some());
+    let i = get_item(&conn, &ignorada.id)
+        .unwrap()
+        .expect("ignorada existe");
+    assert_eq!(i.access_count, 0, "lo no inyectado no se toca");
+    assert!(i.last_injected_at.is_none());
+    // Lista vacia e ids inexistentes: cero filas, cero errores.
+    assert_eq!(touch_injected(&conn, &[]), 0);
+    assert_eq!(touch_injected(&conn, &["no-existe".to_string()]), 0);
 }
 
 #[test]
@@ -570,4 +612,177 @@ fn list_by_type_status_filters_by_type() {
             .len(),
         1
     );
+}
+
+#[test]
+fn set_candidate_status_if_only_moves_from_the_expected_status() {
+    use super::candidates::set_candidate_status_if;
+    let conn = mem_conn();
+    let c = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+    insert_candidate(&conn, &c).unwrap();
+
+    assert!(set_candidate_status_if(
+        &conn,
+        &c.id,
+        CandidateStatus::Pending,
+        CandidateStatus::Approved
+    )
+    .unwrap());
+    // Ya aprobado: ninguna transicion desde Pending puede volver a ganar.
+    assert!(!set_candidate_status_if(
+        &conn,
+        &c.id,
+        CandidateStatus::Pending,
+        CandidateStatus::Approved
+    )
+    .unwrap());
+    assert!(!set_candidate_status_if(
+        &conn,
+        &c.id,
+        CandidateStatus::Pending,
+        CandidateStatus::Rejected
+    )
+    .unwrap());
+    assert_eq!(
+        get_candidate(&conn, &c.id).unwrap().unwrap().status,
+        CandidateStatus::Approved
+    );
+    // Id inexistente: false, no error.
+    assert!(!set_candidate_status_if(
+        &conn,
+        "nope",
+        CandidateStatus::Pending,
+        CandidateStatus::Approved
+    )
+    .unwrap());
+}
+
+#[test]
+fn active_duplicate_groups_put_the_survivor_first_and_ignore_non_active() {
+    use super::items::list_active_duplicate_groups;
+    use crate::memory::model::new_id;
+    let conn = mem_conn();
+    let mut a = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Project,
+        Source::AssistantInferred,
+        Status::Active,
+    );
+    a.project_id = Some("ultron".to_string());
+    a.title = Some("Qdrant nativo".to_string());
+    a.summary = Some("qdrant corre nativo en D:".to_string());
+    a.created_at = 2_000;
+    let mut b = a.clone();
+    b.id = new_id();
+    b.created_at = 1_000; // mas antiguo: superviviente
+    let mut c = a.clone();
+    c.id = new_id();
+    c.created_at = 3_000;
+    c.status = Status::Deprecated; // no cuenta
+    let mut otro_proyecto = a.clone();
+    otro_proyecto.id = new_id();
+    otro_proyecto.project_id = Some("tortunabo".to_string()); // otra clave: no es dup
+    let mut distinto = a.clone();
+    distinto.id = new_id();
+    distinto.summary = Some("otro contenido".to_string());
+    for it in [&a, &b, &c, &otro_proyecto, &distinto] {
+        insert_item(&conn, it).unwrap();
+    }
+
+    let groups = list_active_duplicate_groups(&conn).unwrap();
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    let ids: Vec<&str> = groups[0].iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(ids, vec![b.id.as_str(), a.id.as_str()]);
+}
+
+#[test]
+fn active_duplicate_groups_prefer_pinned_and_validated_survivors() {
+    use super::items::list_active_duplicate_groups;
+    use crate::memory::model::new_id;
+    let conn = mem_conn();
+    let mut viejo = MemoryItem::new(
+        MemoryType::Decision,
+        Scope::Global,
+        Source::AssistantInferred,
+        Status::Active,
+    );
+    viejo.summary = Some("decision repetida".to_string());
+    viejo.created_at = 1_000;
+    let mut validado = viejo.clone();
+    validado.id = new_id();
+    validado.created_at = 2_000;
+    validado.validated_by_user = true;
+    let mut pinned = viejo.clone();
+    pinned.id = new_id();
+    pinned.created_at = 3_000;
+    pinned.pinned = true;
+    for it in [&viejo, &validado, &pinned] {
+        insert_item(&conn, it).unwrap();
+    }
+    let groups = list_active_duplicate_groups(&conn).unwrap();
+    assert_eq!(groups.len(), 1);
+    let ids: Vec<&str> = groups[0].iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![pinned.id.as_str(), validado.id.as_str(), viejo.id.as_str()]
+    );
+}
+
+#[test]
+fn search_items_typed_only_returns_the_requested_type() {
+    use super::items::search_items_typed;
+    let conn = mem_conn();
+    let mut leccion = MemoryItem::new(
+        MemoryType::Lesson,
+        Scope::Project,
+        Source::AssistantInferred,
+        Status::Active,
+    );
+    leccion.title = Some("[lesson] Quita los doc-comments de las variantes del enum".to_string());
+    leccion.summary = Some("la macro del enum no admite doc-comments en variantes".to_string());
+    let mut hecho = MemoryItem::new(
+        MemoryType::Fact,
+        Scope::Project,
+        Source::AssistantInferred,
+        Status::Active,
+    );
+    hecho.title = Some("El enum de tipos usa una macro".to_string());
+    hecho.summary = Some("la macro del enum genera las variantes y el parse".to_string());
+    let mut leccion_deprecada = leccion.clone();
+    leccion_deprecada.id = crate::memory::model::new_id();
+    leccion_deprecada.status = Status::Deprecated;
+    for it in [&leccion, &hecho, &leccion_deprecada] {
+        insert_item(&conn, it).unwrap();
+    }
+
+    let todos = search_items(&conn, "macro enum variantes", Status::Active, 10).unwrap();
+    assert_eq!(todos.len(), 2, "sin filtro entran ambos tipos: {todos:?}");
+
+    let solo_lecciones = search_items_typed(
+        &conn,
+        "macro enum variantes",
+        Status::Active,
+        Some("lesson"),
+        10,
+    )
+    .unwrap();
+    let ids: Vec<&str> = solo_lecciones.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(ids, vec![leccion.id.as_str()], "solo la leccion ACTIVE");
+
+    // Un tipo que no existe en el corpus: lista vacia, no error.
+    assert!(
+        search_items_typed(&conn, "macro enum", Status::Active, Some("constraint"), 10)
+            .unwrap()
+            .is_empty()
+    );
+    // El valor del tipo se sanea: nada de romper el SQL.
+    assert!(search_items_typed(
+        &conn,
+        "macro enum",
+        Status::Active,
+        Some("x\' OR 1=1 --"),
+        10
+    )
+    .unwrap()
+    .is_empty());
 }

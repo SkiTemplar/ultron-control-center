@@ -327,12 +327,10 @@ fn seed_tones() -> Vec<ToneDef> {
             name: "Ultron".into(),
             lang: "es".into(),
             description: "Serio, frío, robótico. El default del sistema.".into(),
-            style_guide: "Responde como una máquina: 'X — Completado.', 'X — Revisado.'. \
-                          PROHIBIDO explicar qué fallaba, cuál era la causa o cómo lo \
-                          detectaste: solo el resultado y su cifra. Nada de tablas \
-                          antes/después, método ni diagnóstico — eso va al commit, al kanban \
-                          o a la memoria, jamás al chat salvo pregunta explícita. Máximo UNA \
-                          línea por ítem. Cero relleno, cero adjetivos vacíos, directo y frío."
+            // ULTRON 4 7.1: una sola linea (la larga se diluia igual y costaba en cada prompt).
+            style_guide: "Español de España (tú, nunca voseo). Máquina: resultado + cifra, una línea \
+                          por ítem; sin causa, método, relleno ni adjetivos (eso va al commit, al \
+                          kanban o a la memoria). Voz: 'Test — Reparado. Build — Verde. RAM — 1522->36 MB.'"
                 .into(),
             signals: vec![],
             strong_signals: vec![],

@@ -17,23 +17,23 @@
 //!   ultron-memory eval [--project X] [--golden [<path>]] # recall@8; --golden <path>=external oracle (cat19)
 //!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
+//!   ultron-memory reconcile --fix [--dry-run]   # repair just the drift (missing/orphans)
 //!   ultron-memory warmup                        # SessionStart -> warm E5 (page cache)
 //!   ultron-memory serve                         # persistent daemon: E5 resident, sub-second orchestrate
 //!   ultron-memory serve-ping                    # is a live daemon reachable? (read-only)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory capture [--session <id>]      # Stop -> extract facts (stdin transcript)
 //!   ultron-memory provenance --id <id|prefix>   # cita episódica verificable (transcript+hash)
-//!   ultron-memory eval-contradiction [<path>]   # gate 1.3b del juez 3-way (auto_supersede)
 //!   (edge — RETIRADO 2026-07-02: codegraph interno erradicado, mand.12)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
-//!   ultron-memory dep-backfill                      # backfill one-shot del ledger de deprecaciones
+//!   ultron-memory dedupe [--dry-run] [--reason R]      # deprecar copias exactas de ACTIVE (sobrevive 1 por grupo)
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
 
 mod cli_args;
+mod drain_lock;
 mod emit;
-mod eval_contradiction;
 mod inbox_cli;
 
 use std::io::Read;
@@ -74,12 +74,10 @@ fn main() {
 const BATCH_CMDS: &[&str] = &[
     "eval",
     "eval-full",
-    "eval-contradiction",
     "backfill-projects",
     "reindex",
     "reindex-skills-lazy",
     "catalog",
-    "dep-backfill",
     "sweep",
 ];
 
@@ -303,30 +301,21 @@ fn run() -> Result<serde_json::Value, String> {
         // FAIL-SAFE: degrades to an all-zero `degraded` report if the golden set
         // is missing or Qdrant/E5 is offline.
         "eval-full" => to_json(ul::memory::evals::run_golden_metrics(project.as_deref(), 8, true)),
-        // Eval 1.3b: accuracy del juez 3-way classify_contradiction sobre un golden
-        // etiquetado a mano. GATE de auto_supersede: pass = todos decididos +
-        // accuracy >= 0.85 + false_state_updates == 0. Corre contra el router real.
-        //   ultron-memory eval-contradiction [<path>]
-        "eval-contradiction" => {
-            let default_path = dirs::home_dir()
-                .map(|h| {
-                    h.join(".ultron/cockpit/memory-rework/evals/contradiction_golden.json")
-                        .display()
-                        .to_string()
-                })
-                .unwrap_or_default();
-            let path = args
-                .get(2)
-                .filter(|a| !a.starts_with("--"))
-                .cloned()
-                .unwrap_or(default_path);
-            eval_contradiction::run(&path)
-        }
         "reconcile" => {
-            // Read-only SQLite<->Qdrant drift check (--check, the default mode).
-            // --repair is intentionally not wired (it mutates the index; policy
-            // requires dry-run + confirmation). Use `reindex` to rebuild instead.
-            to_json(ul::memory::qdrant_index::reconcile_check().map_err(|e| e.to_string())?)
+            // Default: read-only SQLite<->Qdrant drift check.
+            // `--fix` repairs only the drift (re-embed missing, drop orphans) so
+            // an item swallowed by `sync_index` does not stay out of the dense
+            // index until a full `reindex`. Mutating, hence opt-in and
+            // dry-runnable (08-AUDIT policy).
+            reject_unknown_flags(&args, &["--fix", "--dry-run"])?;
+            if has_flag(&args, "--fix") {
+                let dry_run = has_flag(&args, "--dry-run");
+                to_json(
+                    ul::memory::qdrant_index::reconcile_fix(dry_run).map_err(|e| e.to_string())?,
+                )
+            } else {
+                to_json(ul::memory::qdrant_index::reconcile_check().map_err(|e| e.to_string())?)
+            }
         }
         "candidate" => {
             let mut buf = String::new();
@@ -598,6 +587,21 @@ fn run() -> Result<serde_json::Value, String> {
         // b1ea0e5): expect_ids no-ACTIVE con su gemelo activo por content_hash.
         // No muta nada — el remap de los JSON lo aplica quien lee el informe.
         //   ultron-memory golden-remap
+        // Copias exactas de ACTIVE (2026-09-03: 206 sobrantes por drains --auto
+        // solapados). Reversible: Deprecated, no forget. `--dry-run` solo cuenta.
+        "dedupe" => {
+            reject_unknown_flags(&args, &["--dry-run", "--reason"])?;
+            let dry = has_flag(&args, "--dry-run");
+            let reason = flag_value(&args, "--reason");
+            to_json(
+                ul::memory::MemoryService::deprecate_exact_duplicates(
+                    dry,
+                    ul::memory::Actor::System,
+                    reason,
+                )
+                .map_err(|e| e.to_string())?,
+            )
+        }
         "golden-remap" => Ok(ul::memory::evals::golden_remap_report()),
         // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
         // orchestration drops from ~3.5s (cold model load every spawn) to sub-second.
@@ -659,6 +663,30 @@ fn run() -> Result<serde_json::Value, String> {
                 .collect();
             to_json(result)
         }
+        // Skill routing por LLM sobre el catalogo completo (2026-08-27). El
+        // retriever denso de `skill-query` acierta 4/10 en top-1 y sus scores
+        // caben todos en 0.79-0.84, asi que no hay umbral que separe un acierto
+        // de un candidato al azar; este camino le da el catalogo entero a un
+        // modelo pequeno y valida la respuesta contra el.
+        //   ultron-memory skill-judge <prompt>
+        "skill-judge" => {
+            let prompt = args[2..].join(" ");
+            if prompt.trim().is_empty() {
+                return Err("skill-judge requires a prompt argument".to_string());
+            }
+            let catalogo = ul::orchestrator::skill_llm::catalogo_desde_disco();
+            let elegidas = ul::orchestrator::skill_llm::elegir_skills(&prompt, &catalogo);
+            // `elegir_skills` calla cualquier fallo por diseno (es hot path del
+            // hook). Este subcomando existe para MEDIR, asi que expone por que
+            // vino vacio: sin clave y "el modelo dijo ninguna" son diagnosticos
+            // opuestos y sin esto se confunden.
+            to_json(serde_json::json!({
+                "skills": elegidas,
+                "catalog_size": catalogo.len(),
+                "key_var": ul::orchestrator::skill_llm::key_var(),
+                "model": ul::orchestrator::skill_llm::modelo(),
+            }))
+        }
         "serve" => ul::serve::run_daemon(),
         // Report whether a live daemon is reachable (lockfile + ping). Read-only.
         "serve-ping" => Ok(ul::serve::ping_status()),
@@ -673,16 +701,6 @@ fn run() -> Result<serde_json::Value, String> {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             inbox_command(sub, &args)
         }
-        // Backfill one-shot del ledger de deprecaciones (cat21.4):
-        // recorre memory_events WHERE event_type='deprecated' e inserta en
-        // deprecation_entries (INSERT OR IGNORE). Idempotente; retorna
-        // { scanned, inserted, skipped }. Ejecutar UNA VEZ tras deployar el binario.
-        //   ultron-memory dep-backfill
-        "dep-backfill" => {
-            let res = ul::memory::MemoryService::backfill_deprecations()
-                .map_err(|e| e.to_string())?;
-            to_json(res)
-        }
         // cat7.8: SHA corto de HEAD embebido en build time (build.rs) para verificar
         // exe<->commit sin depender del mtime (un `touch` lo falsea). option_env!
         // degrada a "unknown" si el build no tuvo git disponible.
@@ -691,7 +709,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|eval [--golden [<path>]]|eval-full|reconcile|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|eval-contradiction [<path>]|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|dep-backfill|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

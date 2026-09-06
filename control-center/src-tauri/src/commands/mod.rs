@@ -74,6 +74,7 @@ pub use system_ops::event_log;
 pub use system_ops::lifecycle;
 pub use system_ops::settings;
 pub use system_ops::system;
+pub use system_ops::turn_off;
 
 pub use workflows::hooks;
 pub use workflows::maintenance;

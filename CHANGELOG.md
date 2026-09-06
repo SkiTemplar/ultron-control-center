@@ -9,6 +9,78 @@ detector de texto IA, statusline/vibe, atribución de proyecto en memoria y
 selección de componentes en los instaladores.
 
 ### Added
+- **Corte por valor de ULTRON 4** (2026-09-04, plan sección 15): la métrica de
+  acabado pasa a ser externa (`session_feedback`), no el Kirkardo.
+- **`session_feedback`** (ULTRON 4, 12.1): el hook SessionEnd
+  `session-feedback-mark` deja `cockpit/projects/<id>/feedback-pending.json`
+  (minutos, turnos humanos, commits) y el siguiente SessionStart en ese proyecto
+  pregunta si ULTRON ayudó; `session-feedback-capture` (UserPromptSubmit)
+  registra `fb: sí|no|estorbó [nota]` en `logs/session-feedback.jsonl`, retira
+  el pending y propone la nota como candidato de memoria; el resume muestra el
+  % de "sí" de las últimas 20 sesiones de proyecto. Ignorar cuenta como
+  `sin_respuesta`. Solo proyectos registrados que no son `ultron`.
+- **Tests automáticos por proyecto** (ULTRON 4, F4.1): `run-project-tests`
+  (PostToolUse Edit|Write|MultiEdit|NotebookEdit, async) lanza la suite completa
+  en un runner desacoplado (tope 120 s con kill del árbol, debounce 60 s) tras
+  editar código; comando por `test: <cmd>` en el CLAUDE.md del proyecto o por
+  manifiesto (package.json, Cargo.toml, pyproject, go.mod). `run-project-tests-
+  report` (UserPromptSubmit) nombra los tests rotos en el turno siguiente,
+  avisa del timeout o de que no hay comando de test, y anuncia el verde solo
+  tras un fallo reportado.
+- **CodeGraph en el resume** (ULTRON 4, F8.1, pilar 2): `memory-session-resume`
+  inyecta el bloque `codegraph` (ficheros, símbolos, aristas, lenguajes, zonas
+  con más símbolos, hubs usados desde más ficheros y la orden de consultar el
+  grafo antes de leer) a partir de `.codegraph/codegraph.db` (node:sqlite, solo
+  lectura, cache en `.codegraph/ultron-summary.json`, sin resumen por encima de
+  512 MB). Medido antes: 0 usos de codegraph fuera de ULTRON en 7 días.
+- **Medidor de concisión** (ULTRON 4, F4.2/7.3): `response-meter` (Stop, async)
+  registra líneas, palabras, cabeceras, listas, disculpas y preámbulos de cada
+  respuesta en `logs/response-meter.jsonl`; el resume pinta la media, el % sobre
+  el límite (12 líneas / 220 palabras) y la tendencia de las últimas 3 sesiones.
+
+### Changed
+- **Gate socrático por proyecto** (ULTRON 4, F4.3, Q5a): `socratic-gate` lee el
+  campo `socratic` de `cockpit/projects.json` (`strict` por defecto, `light` sin
+  escalada, `off` silencio) resuelto por el path que contiene el cwd;
+  `scripts/project-socratic.mjs <id> <modo>` y `project-new.mjs --socratic`.
+- **`kanban-update-reminder` v3.0** (ULTRON 4, F4.4): solo actúa con evidencia
+  de trabajo en el turno (Edit/Write en el cwd o `git commit`); cierra por match
+  de commit y, si hay tarjetas In Progress, las nombra con el comando de cierre
+  una vez por sesión (cooldown 30 min). Sin trabajo, sin tablero resoluble (ya
+  no cae a `ultron`) o sin tarjeta viva: silencio. Retiradas las heurísticas de
+  verbo de acción + marcador de "hecho" (47 avisos en 29 sesiones, 0 cierres).
+  v3.1 (06-09): una card reabierta a mano no se vuelve a cerrar por el mismo
+  commit (memoria de cierres en `kanban.auto-close.json`, junto al tablero) y el
+  turno se corta en el último prompt, humano o de sistema: antes un turno de
+  sistema reprocesaba el commit del turno anterior y volvía a cerrar la card en
+  cada Stop.
+- **`tone_directive` a una línea** (ULTRON 4, 7.1): el tono por defecto viaja
+  como primera línea fuera del bloque de orquestación (365 caracteres frente a
+  ~1.100); `style_guide` del tono `ultron` reducido en `personality.json` y en el
+  seed de `orchestrator/personality.rs`. Los tonos elegidos a propósito
+  conservan su bloque completo.
+- `CLAUDE.md` de ULTRON declara `test: cd control-center && npx vitest run
+  --silent` para el hook de tests (la raíz tiene `pyproject.toml` y sin la línea
+  se lanzaba pytest, que tiene un test en rojo: tarjeta en el kanban).
+
+- **Perfil de proyecto en el resume** (2026-09-03, ULTRON 4 F1.4 / G9): el
+  hook SessionEnd `project-profile` mantiene `cockpit/projects/<id>/profile.json`
+  (qué es, stack, arquitectura, estado, decisiones clave) a partir del
+  registro del Control Center, la cabecera de CLAUDE.md/README, los
+  manifiestos, el kanban y git; el daemon (cmd `profile_distill`,
+  `orchestrator/profile_llm.rs`) lo junta con la memoria del proyecto y
+  consulta la cadena de proveedores de `skill_llm` con timeout propio. Gate de
+  frescura por HEAD y edad; sin daemon, perfil determinista solo si no había
+  ninguno. `memory-session-resume` inyecta el bloque `project_profile` y avisa
+  si el perfil es de un HEAD anterior. Sustituye a la captura `kind=context`
+  (`context.md`), retirada de `stop-compress-session`.
+- **Turn Off en System** (2026-09-03): apagado programado del PC. La app lanza
+  `shutdown /s /t N` al activar y `shutdown /a` al cancelar (solo Windows; en
+  otro SO el comando devuelve error explícito), persiste el plazo en
+  `cockpit/turn-off.json` y repinta la cuenta atrás real al reabrir. Comandos
+  `turn_off_schedule` / `turn_off_cancel` / `turn_off_status`
+  (`src-tauri/src/turn_off.rs`) y panel `TurnOffPanel` con toggle, horas
+  (0,1–24), cuenta atrás y Cancelar.
 - **Selección de componentes en los instaladores** (2026-08-15): `install.ps1`
   acepta `-All` / `-Core` / `-Skills` / `-Tones` / `-Agents` / `-DryRun` y
   `install.sh` sus equivalentes `--all` / `--core` / `--skills` / `--tones` /
@@ -56,6 +128,15 @@ selección de componentes en los instaladores.
 - Remediaciones cats 5/9/11 del audit 2026-07-20 en cockpit (935bc2a).
 
 ### Fixed
+- **Ids de proyecto partidos** (2026-09-03): el registro de identidad del
+  23-08 fijó el basename de repos que aún no estaban dados de alta en el
+  Control Center; el alta posterior con otro id dividía la memoria del mismo
+  repo (`laundry-club` 4 items frente a `laundry-club-next` 22,
+  `reto-bretana-2026` 31 frente a `Reto` 12, y tres pares más). Unificados
+  con `reassign-project` al id canónico de `projects.json` (92 filas), registro
+  corregido, y `resolveProjectId` adopta el id del cockpit cuando difiere del
+  registrado para que no vuelva a pasar. Backup previo en
+  `backups/brain-pre-reassign-2026-09-03.db`.
 - **Instaladores rotos en Windows PowerShell 5.1** (2026-08-15): `install.ps1`,
   `bootstrap.ps1` y `uninstall.ps1` contenían em-dashes en UTF-8 sin BOM, que
   PS 5.1 descodifica como ANSI y rompe el parser (21, 6 y 1 errores de parseo

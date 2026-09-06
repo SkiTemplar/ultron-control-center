@@ -79,6 +79,7 @@ mod test_support;
 mod tfg_lab; // Lab TFG — deteccion determinista de patrones de texto IA (docs/research)
 mod toast_emit;
 mod tray;
+mod turn_off;
 mod update_checker;
 mod usage;
 mod workflow_loader;

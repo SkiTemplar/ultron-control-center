@@ -57,6 +57,12 @@ function parseArgs(argv) {
       case '--color': out.color = next(); break;
       case '--provider': out.provider = next(); break;
       case '--notes': out.notes = next(); break;
+      case '--socratic': {
+        const v = next();
+        if (!['strict', 'light', 'off'].includes(v)) fail('--socratic admite strict | light | off');
+        out.socratic = v;
+        break;
+      }
       case '--tags': out.tags.push(...next().split(',').map((t) => t.trim()).filter(Boolean)); break;
       case '--card': out.cards.push(next()); break;
       case '--dry-run': out.dryRun = true; break;
@@ -113,6 +119,8 @@ function buildEntry(args, id) {
     tags: args.tags,
     type: '',
     ...(args.color ? { color: args.color } : {}),
+    // ULTRON 4 F4.3: modo del gate socratico (ausente = strict, decision Q5a).
+    ...(args.socratic ? { socratic: args.socratic } : {}),
   };
 }
 
@@ -170,6 +178,7 @@ if (args.help || (!args.name && !args.id)) {
 Opciones:
   --id <slug>        id del proyecto (por defecto: slug del nombre)
   --color "#rrggbb"  color del proyecto (tinte de tarjeta + tema de Claude)
+  --socratic strict|light|off  modo del gate socratico (por defecto strict; off en proyectos personales)
   --tags a,b,c       etiquetas
   --provider claude|codex
   --notes "texto"

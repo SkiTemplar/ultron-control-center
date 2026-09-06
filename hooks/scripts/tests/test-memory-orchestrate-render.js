@@ -71,4 +71,23 @@ const entryNone = buildLogEntry({ route: 'general', delegate_agents: [] }, 'hola
 assert.strictEqual(entryNone.directive_emitted, false, 'sin directiva -> false');
 assert.strictEqual(entryNone.directive_agent, null, 'sin directiva -> agent null');
 
-console.log('OK test-memory-orchestrate-render (3 casos)');
+// Caso 4 (ULTRON 4, 7.1): el tono por defecto es UNA linea y va fuera del bloque.
+const conDefault = render({
+  route: 'general',
+  tone: { id: 'ultron', name: 'Ultron', lang: 'es', style_guide: 'Maquina: resultado + cifra.', is_default: true },
+});
+const lineasDefault = conDefault.split('\n');
+assert.ok(lineasDefault[0].startsWith('tone [ultron, defecto, solo chat, es]: Maquina: resultado + cifra.'), 'la primera linea es el tono');
+assert.ok(lineasDefault[1].startsWith('<orchestration-context'), 'el bloque empieza en la segunda linea');
+assert.ok(!conDefault.includes('tone_directive:') && !conDefault.includes('tone_active:'), 'sin las lineas largas del default');
+assert.ok(lineasDefault[0].length < 320, `la linea del tono debe ser corta (${lineasDefault[0].length})`);
+
+// Caso 4b (NEGATIVO): un tono elegido a proposito sigue dentro del bloque, con su conviccion.
+const conElegido = render({
+  route: 'general',
+  tone: { id: 'cani', name: 'Cani', lang: 'es', style_guide: 'q, ke, po zi', profanity: 'mild', reason: 'trigger' },
+});
+assert.ok(conElegido.startsWith('<orchestration-context'), 'el tono elegido no va fuera del bloque');
+assert.ok(conElegido.includes('tone_detected: Cani [cani]') && conElegido.includes('tone_directive: AMBITO'), 'el tono elegido conserva su directiva completa');
+
+console.log('OK test-memory-orchestrate-render (5 casos)');

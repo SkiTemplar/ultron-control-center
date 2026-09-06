@@ -225,6 +225,19 @@ pub fn orchestrate(
         }
     };
 
+    // ULTRON 4 F1.3 (2026-09-02): lecciones de OTROS proyectos, solo cuando el
+    // turno describe un fallo (bug_fix / debug). Segunda pasada de recall con
+    // cross_project=true filtrada a `lesson`; en el resto de turnos no cuesta
+    // nada. Una charla corta tampoco la paga aunque mencione un "error".
+    let lessons = if !conversational && super::lessons::es_sintoma(intent, Some(wf_id), prompt) {
+        let (hits, avisos) =
+            super::lessons::recall_lecciones(prompt, project_id, dense_enabled, rerank, &memories);
+        warnings.extend(avisos);
+        hits
+    } else {
+        Vec::new()
+    };
+
     // Clase CONVERSACIONAL (2026-08-13): charla corta sin señal técnica → se
     // recorta la ceremonia (workflow, step_plans, constraints, encuadre). El
     // tono, recall y warnings siguen — son lo único útil en esos turnos.
@@ -321,5 +334,6 @@ pub fn orchestrate(
         step_plans,
         delegation_directive,
         tone,
+        lessons,
     }
 }

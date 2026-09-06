@@ -29,8 +29,27 @@ observe('subagent-harvest');
 const HOME = os.homedir();
 const TMP_DIR = path.join(HOME, '.ultron', '.tmp');
 const LOG_PATH = process.env.SUBAGENT_HARVEST_LOG || path.join(TMP_DIR, 'subagent-harvest.jsonl');
-const MIN_CANDIDATE_CHARS = 80; // skip trivial / empty results
+// Grifo del harvest (ULTRON 4, Q1a, decidido 2026-09-02): solo especialistas
+// nombrados, con al menos 400 caracteres y titulo derivable del contenido.
+// Medido ese dia: 1.705 agent_note activos (43 % del corpus), 0 inyectados en
+// 5 dias de telemetria de utilidad; 1.039 de ellos venian de wrappers
+// genericos (workflow-subagent x561, unknown x268, general-purpose x210).
+const MIN_CANDIDATE_CHARS = 400;
+// Wrappers y agentes de sistema: su salida es un relato de ejecucion, no una
+// leccion. Siguen en el scratch log (Sink 1); nunca proponen candidato.
+const GENERIC_AGENTS = new Set([
+  'unknown',
+  'general-purpose',
+  'explore',
+  'plan',
+  'claude',
+  'fork',
+  'workflow-subagent',
+  'statusline-setup',
+]);
 const SIDECAR_TIMEOUT_MS = 12000;
+// Tope de lectura del transcript del subagente (se lee solo la cola).
+const TRANSCRIPT_TAIL_BYTES = 512 * 1024;
 
 function readStdin() {
   try {
@@ -117,6 +136,62 @@ function extractResultText(stdin) {
   return '';
 }
 
+// Cola del transcript del subagente (`agent_transcript_path` en SubagentStop).
+// Medido 2026-09-02 sobre 1.490 registros del scratch log: `chars` era 0 en el
+// grueso porque el payload no traia el texto final; el transcript si lo trae
+// como ultimo `assistant` con bloques `text`. Se lee solo la cola para no
+// cargar transcripts de megas en un hook.
+function readFileTail(file, maxBytes) {
+  let fd = null;
+  try {
+    const size = fs.statSync(file).size;
+    const start = Math.max(0, size - maxBytes);
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    fd = fs.openSync(file, 'r');
+    fs.readSync(fd, buf, 0, len, start);
+    return buf.toString('utf8');
+  } catch (_) {
+    return '';
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch (_) {}
+    }
+  }
+}
+
+function lastAssistantTextFromTranscript(transcriptPath) {
+  if (typeof transcriptPath !== 'string' || !transcriptPath.trim()) return '';
+  const tail = readFileTail(transcriptPath, TRANSCRIPT_TAIL_BYTES);
+  if (!tail) return '';
+  const lines = tail.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch (_) {
+      continue; // la primera linea de la cola puede venir partida
+    }
+    if (!entry || entry.type !== 'assistant' || !entry.message) continue;
+    const content = entry.message.content;
+    if (typeof content === 'string' && content.trim()) return content.trim();
+    if (!Array.isArray(content)) continue;
+    const text = content
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text.trim())
+      .filter(Boolean)
+      .join('\n');
+    if (text) return text;
+  }
+  return '';
+}
+
+function isGenericAgent(agent) {
+  return GENERIC_AGENTS.has(String(agent || '').trim().toLowerCase());
+}
+
 function appendScratchLog(record) {
   appendJsonl(LOG_PATH, record);
 }
@@ -138,7 +213,13 @@ function main() {
   const project = projectName(cwd);
   const agent = resolveAgent(stdin);
   const label = resolveLabel(stdin);
-  const resultText = extractResultText(stdin);
+  const transcriptPath = stdin.agent_transcript_path || stdin.agentTranscriptPath || '';
+  let resultText = extractResultText(stdin);
+  let resultFrom = resultText ? 'payload' : 'none';
+  if (!resultText && transcriptPath) {
+    resultText = lastAssistantTextFromTranscript(transcriptPath);
+    if (resultText) resultFrom = 'transcript';
+  }
 
   // Sink 1: scratch log (always, writer_path NONE).
   const record = {
@@ -146,15 +227,23 @@ function main() {
     project,
     agent,
     chars: resultText.length,
+    from: resultFrom,
     preview: resultText.slice(0, 200),
   };
+  if (typeof stdin.hook_event_name === 'string') record.event = stdin.hook_event_name;
   // Identidad de la tarea: desambigua wrappers genericos (workflow-subagent / general-purpose).
   if (label) record.label = label;
-  // Diagnostico (mand. 10): si no hay nombre, deja las claves del payload para fijar el campo real.
-  if (agent === 'unknown') record._keys = Object.keys(stdin).slice(0, 25);
+  // Diagnostico (mand. 10): si no hay nombre, deja las claves del payload para fijar el campo real
+  // y el valor crudo de agent_type (1.410 'unknown' con la clave presente, 2026-09-02).
+  if (agent === 'unknown') {
+    record._keys = Object.keys(stdin).slice(0, 25);
+    if ('agent_type' in stdin) record._agent_type_raw = JSON.stringify(stdin.agent_type).slice(0, 60);
+  }
   appendScratchLog(record);
 
   // Sink 2: governed candidate (best-effort, writer_path MemoryService).
+  // Grifo Q1a: wrappers genericos fuera; minimo de sustancia; titulo derivable.
+  if (isGenericAgent(agent)) return;
   if (resultText.length < MIN_CANDIDATE_CHARS) return;
 
   // (2026-08-23, decidido por el usuario) Si no se puede derivar un titulo del
@@ -169,8 +258,6 @@ function main() {
   // pierde la nota en brain.db, no la trazabilidad.
   const proposedTitle = deriveNoteTitle({ agent, label, resultText });
   if (proposedTitle === `Subagente ${agent} — resultado`) return;
-  const bin = findBinary();
-  if (!bin) return;
 
   const candidate = {
     type: 'agent_note',
@@ -190,6 +277,15 @@ function main() {
     // (donde vive el transcript que citará `provenance --id`).
     session_id: stdin.session_id || stdin.sessionId || null,
   };
+
+  // Seam de test: con SUBAGENT_HARVEST_CANDIDATE_OUT el candidato se escribe a
+  // ese fichero en vez de ir al sidecar (el selftest no debe ensuciar el inbox).
+  if (process.env.SUBAGENT_HARVEST_CANDIDATE_OUT) {
+    appendJsonl(process.env.SUBAGENT_HARVEST_CANDIDATE_OUT, { project, candidate });
+    return;
+  }
+  const bin = findBinary();
+  if (!bin) return;
 
   try {
     spawnSync(bin, ['candidate', '--project', project], {

@@ -4,6 +4,7 @@ import { type SystemSubTab } from "./system/system-tab/types";
 import { SystemHeader } from "./system/system-tab/SystemHeader";
 import { AppsPanel } from "./system/system-tab/AppsPanel";
 import { TasksPanel } from "./system/system-tab/TasksPanel";
+import { TurnOffPanel } from "./system/system-tab/TurnOffPanel";
 
 // v2.7 cleanup (internal audit 2026-05-24):
 //   - Bloatware sub-tab DROPPED: most catalog entries weren't present on his
@@ -27,6 +28,7 @@ export function System() {
         {subTab === "apps" && <AppsPanel />}
         {subTab === "diagnostics" && <Diagnostics />}
         {subTab === "tasks" && <TasksPanel />}
+        {subTab === "turn_off" && <TurnOffPanel />}
       </div>
     </div>
   );

@@ -27,6 +27,13 @@ pub(crate) fn project_skills_dir(project_path: &str) -> PathBuf {
 /// `disabled = true` when the plugin is turned off in settings.json
 /// `enabledPlugins` (key `<plugin>@<marketplace>`): casilla 2.2.
 pub(crate) fn plugin_skills_dirs() -> Vec<(bool, PathBuf)> {
+    plugin_subdirs("skills")
+}
+
+/// Subdirectorio `sub` de la versión más reciente de cada plugin instalado,
+/// junto a si el plugin está deshabilitado. `skills` da el pool de skills;
+/// `commands` da los slash commands, que el enrutador también necesita.
+pub(crate) fn plugin_subdirs(sub: &str) -> Vec<(bool, PathBuf)> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
@@ -67,9 +74,9 @@ pub(crate) fn plugin_skills_dirs() -> Vec<(bool, PathBuf)> {
                 bn.cmp(an)
             });
             if let Some(latest) = versions.first() {
-                let skills = latest.join("skills");
-                if skills.is_dir() {
-                    out.push((disabled, skills));
+                let dir = latest.join(sub);
+                if dir.is_dir() {
+                    out.push((disabled, dir));
                 }
             }
         }
@@ -256,6 +263,86 @@ pub(crate) fn collect_skills_from(
         });
     }
     out
+}
+
+/// Slash commands de plugins (`<plugin>/<version>/commands/<name>.md`) como
+/// entradas de catálogo.
+///
+/// El enrutador los necesita: `/commit` o `/code-review` son tan invocables
+/// como una skill, pero no viven en `skills/<name>/SKILL.md` y por eso el
+/// catálogo los ignoraba. Medido el 2026-08-27 sobre 10 prompts reales, tres
+/// (commit, push, review de código) no tenían NINGÚN candidato posible por
+/// esto: no era el retriever fallando, era una opción que no existía.
+///
+/// El nombre se cualifica con el plugin (`commit-commands:commit`) porque es
+/// así como se invoca, y porque dos plugins pueden traer un `commit.md` cada
+/// uno.
+pub fn plugin_command_entries() -> Vec<SkillEntry> {
+    let mut out = Vec::new();
+    for (plugin_disabled, dir) in plugin_subdirs("commands") {
+        // `<marketplace>/<plugin>/<version>/commands` → el plugin está tres
+        // niveles por encima del directorio de comandos.
+        let plugin = dir
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("md") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Ok(contents) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let description = frontmatter_description(&contents);
+            if description.trim().is_empty() {
+                continue;
+            }
+            let name = if plugin.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{plugin}:{stem}")
+            };
+            out.push(SkillEntry {
+                name,
+                path: path.to_string_lossy().to_string(),
+                description,
+                origin: SkillOrigin::Plugin,
+                enabled: !plugin_disabled,
+            });
+        }
+    }
+    out
+}
+
+/// `description:` del frontmatter YAML de un fichero markdown, con el mismo
+/// soporte de block scalars que `read_skill_meta`. Vacío si no hay frontmatter
+/// o no declara descripción.
+pub(crate) fn frontmatter_description(contents: &str) -> String {
+    let trimmed = contents.trim_start();
+    let Some(after_fence) = trimmed.strip_prefix("---") else {
+        return String::new();
+    };
+    let Some(end) = after_fence.find("\n---") else {
+        return String::new();
+    };
+    let block = &after_fence[..end];
+    let lines: Vec<&str> = block.lines().collect();
+    for (i, raw) in lines.iter().enumerate() {
+        if let Some(rest) = raw.trim().strip_prefix("description:") {
+            return parse_yaml_description(rest, &lines[i + 1..]);
+        }
+    }
+    String::new()
 }
 
 pub fn list_skills_with_origin_inner(
