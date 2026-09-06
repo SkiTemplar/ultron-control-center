@@ -786,3 +786,53 @@ fn search_items_typed_only_returns_the_requested_type() {
     .unwrap()
     .is_empty());
 }
+
+#[test]
+fn archive_item_moves_row_out_of_memory_items_and_fts() {
+    let conn = mem_conn();
+    let mut item = MemoryItem::new(
+        MemoryType::AgentNote,
+        Scope::Agent,
+        Source::UserExplicit,
+        Status::Active,
+    );
+    item.summary = Some("salida cruda del subagente sobre qdrant".into());
+    insert_item(&conn, &item).unwrap();
+    let mut keep = MemoryItem::new(
+        MemoryType::Decision,
+        Scope::Project,
+        Source::UserExplicit,
+        Status::Active,
+    );
+    keep.summary = Some("decision que se queda".into());
+    insert_item(&conn, &keep).unwrap();
+
+    super::archive::archive_item(&conn, &item.id, 1_700_000_000_000, "test").unwrap();
+
+    assert!(
+        get_item(&conn, &item.id).unwrap().is_none(),
+        "archived row must leave memory_items"
+    );
+    assert!(get_item(&conn, &keep.id).unwrap().is_some());
+    assert_eq!(super::archive::count_archived(&conn, Some("agent_note")), 1);
+    assert_eq!(super::archive::count_archived(&conn, Some("decision")), 0);
+    assert_eq!(super::archive::count_archived(&conn, None), 1);
+    let (reason, at): (String, i64) = conn
+        .query_row(
+            "SELECT archive_reason, archived_at FROM memory_items_archive WHERE id = ?1",
+            rusqlite::params![item.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(reason, "test");
+    assert_eq!(at, 1_700_000_000_000);
+    // FTS5: el trigger memory_items_ad quita la fila del índice.
+    let hits = search_items(&conn, "subagente", Status::Active, 10).unwrap();
+    assert!(hits.is_empty(), "archived row must not be searchable");
+    // Negativo: archivar de nuevo (ya no existe) -> NotFound, y el archivo no crece.
+    assert!(matches!(
+        super::archive::archive_item(&conn, &item.id, 1, "x"),
+        Err(MemoryError::NotFound(_))
+    ));
+    assert_eq!(super::archive::count_archived(&conn, None), 1);
+}

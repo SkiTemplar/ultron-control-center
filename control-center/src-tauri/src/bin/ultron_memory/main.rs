@@ -506,6 +506,36 @@ fn run() -> Result<serde_json::Value, String> {
         // FTS5 + Qdrant stay in sync; appends a Deprecated event per item.
         //   ultron-memory deprecate --type codebase_fact [--dry-run] [--project X] [--reason R]
         //   ultron-memory deprecate --id <id|prefix> [--reason R]   (curacion de eras, 2026-07-02)
+        // F1.7 (Q8b): archivar a tabla aparte (memory_items_archive) los ACTIVE
+        // de --type creados hace más de --older-than-days (default 14).
+        // --dry-run solo cuenta. Fuera del retriever, FTS5, Qdrant y reconcile.
+        "archive" => {
+            reject_unknown_flags(
+                &args,
+                &["--type", "--older-than-days", "--dry-run", "--reason"],
+            )?;
+            let kind_s = flag_value(&args, "--type")
+                .ok_or_else(|| "archive requires --type <T>".to_string())?;
+            let kind = ul::memory::MemoryType::parse(&kind_s)
+                .ok_or_else(|| format!("invalid memory type '{kind_s}'"))?;
+            let days: u64 = match flag_value(&args, "--older-than-days") {
+                Some(v) => v
+                    .parse::<u64>()
+                    .map_err(|e| format!("--older-than-days: {e}"))?,
+                None => 14,
+            };
+            let dry = has_flag(&args, "--dry-run");
+            let reason = flag_value(&args, "--reason");
+            let res = ul::memory::MemoryService::archive_by_type(
+                kind,
+                days,
+                dry,
+                ul::memory::Actor::System,
+                reason,
+            )
+            .map_err(|e| e.to_string())?;
+            to_json(res)
+        }
         "deprecate" => {
             // Modo por-id: deprecacion RECOVERABLE de un item concreto (hechos de
             // una era superseded: la afirmacion fue real, ya no es verdad vigente).

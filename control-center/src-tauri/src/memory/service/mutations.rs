@@ -257,6 +257,68 @@ impl MemoryService {
         })
     }
 
+    /// F1.7 (Q8b, decidido 2026-08-29): mover a `memory_items_archive` los
+    /// ACTIVE de `kind` creados hace más de `older_than_days`. Salen del
+    /// retriever, de FTS5 (trigger `memory_items_ad`), de Qdrant
+    /// (`qdrant_index::remove_item`) y de reconcile; la fila entera queda en el
+    /// archivo y el evento en `memory_events`. Medido 2026-09-06: 1.654
+    /// `agent_note` activas, 0 inyectadas jamás (excluidas por policy) y aun
+    /// así en FTS5 y en Qdrant. `dry_run` solo cuenta; un fallo por item no
+    /// aborta el lote. Qdrant primero: si el punto no se puede quitar, el item
+    /// se queda (un archivo parcial es peor que uno pospuesto).
+    pub fn archive_by_type(
+        kind: MemoryType,
+        older_than_days: u64,
+        dry_run: bool,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<super::ArchiveResult, MemoryError> {
+        let kind_label: &'static str = kind.as_str();
+        let now = now_millis();
+        let cutoff = now - (older_than_days as i64) * 24 * 3_600 * 1_000;
+        let items: Vec<MemoryItem> = Self::list_active_of_type(kind, 100_000)?
+            .into_iter()
+            .filter(|it| it.created_at < cutoff)
+            .collect();
+        let matched = items.len();
+        let reason = reason.unwrap_or_else(|| {
+            format!("archive: type={kind_label} older_than_days={older_than_days} (F1.7 Q8b)")
+        });
+        let mut res = super::ArchiveResult {
+            kind: kind_label.to_string(),
+            older_than_days,
+            matched,
+            archived: 0,
+            dry_run,
+            archived_total: 0,
+            failed: Vec::new(),
+        };
+        let conn = store::open_conn()?;
+        if dry_run {
+            res.archived_total = store::count_archived(&conn, Some(kind_label));
+            return Ok(res);
+        }
+        for it in items {
+            let before = serde_json::to_string(&it).unwrap_or_default();
+            if let Err(e) = super::super::qdrant_index::remove_item(&it.id) {
+                res.failed.push((it.id.clone(), format!("qdrant: {e}")));
+                continue;
+            }
+            match store::archive_item(&conn, &it.id, now, &reason) {
+                Ok(()) => {
+                    res.archived += 1;
+                    let ev = MemoryEvent::new(EventType::Updated, Some(it.id.clone()), actor)
+                        .with_reason(reason.clone())
+                        .with_before(before);
+                    let _ = store::insert_event(&conn, &ev);
+                }
+                Err(e) => res.failed.push((it.id.clone(), e.to_string())),
+            }
+        }
+        res.archived_total = store::count_archived(&conn, Some(kind_label));
+        Ok(res)
+    }
+
     /// Deprecar las copias exactas (2026-09-03): en cada grupo de ACTIVE con el
     /// mismo `content_hash` + scope + proyecto sobrevive UNA fila (pinned,
     /// luego validada por el usuario, luego la más antigua) y el resto pasa a

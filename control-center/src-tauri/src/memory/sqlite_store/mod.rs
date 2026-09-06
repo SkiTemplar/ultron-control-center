@@ -36,6 +36,8 @@ mod tests;
 // Public re-exports — all callers use `crate::memory::sqlite_store::*`
 // ---------------------------------------------------------------------------
 
+mod archive;
+pub use archive::{archive_item, count_archived, ensure_archive_table, ARCHIVE_TABLE};
 pub use schema::{apply_schema, open_conn};
 
 pub use items::{

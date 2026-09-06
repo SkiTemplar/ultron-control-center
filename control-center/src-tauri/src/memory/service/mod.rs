@@ -160,3 +160,18 @@ fn redact_tags(tags: &mut [String]) -> bool {
     }
     hit
 }
+
+/// Resultado de [`MemoryService::archive_by_type`] (F1.7, Q8b): items de un
+/// tipo movidos a `memory_items_archive`. `archived_total` es el acumulado del
+/// tipo en el archivo tras la operación (también en `dry_run`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ArchiveResult {
+    pub kind: String,
+    pub older_than_days: u64,
+    pub matched: usize,
+    pub archived: usize,
+    pub dry_run: bool,
+    pub archived_total: i64,
+    /// (id, error) por item que no se pudo archivar; no aborta el lote.
+    pub failed: Vec<(String, String)>,
+}
