@@ -202,7 +202,9 @@ pub fn orchestrate(
     // calidad (Memory Browser, `trace`, evals) y se sigue calentando de fondo
     // para ellos; `ULTRON_RERANK_HOT=1` lo devuelve al hot path el dia que su
     // coste baje del presupuesto.
-    let rerank = crate::qdrant::rerank_hot_enabled();
+    // 2026-09-06 (decisión sobre el golden v2): re-rank por ruta — todo
+    // intent salvo `general`; `ULTRON_RERANK_HOT=1/0` fuerza siempre/nunca.
+    let rerank = crate::qdrant::rerank_hot_for_intent(intent);
     if rerank && !crate::qdrant::reranker_is_warm() {
         // Opt-in explicito con el modelo frio: cargarlo DENTRO del turno cuesta
         // mas que el presupuesto entero del hook, asi que este turno va sin el
@@ -214,6 +216,9 @@ pub fn orchestrate(
             );
         }
     }
+    // Telemetría honesta: `true` solo si el cross-encoder estaba caliente y el
+    // pack pasó por él; decidido-pero-frío se ve en el warning, no aquí.
+    let rerank_applied = rerank && crate::qdrant::reranker_is_warm();
     let memories = match build_trace(prompt, 8, project_id, cross_project, dense_enabled, rerank) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
@@ -328,6 +333,7 @@ pub fn orchestrate(
         memories,
         constraints,
         warnings,
+        rerank_hot: rerank_applied,
         token_budget: TOKEN_BUDGET,
         cross_project,
         prompt_plan,

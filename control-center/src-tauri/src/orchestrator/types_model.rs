@@ -67,6 +67,8 @@ pub struct OrchestrationContext {
     pub memories: Vec<RecallEntry>,        // from hybrid recall
     pub constraints: Vec<String>,
     pub warnings: Vec<String>,
+    /// El pack de este turno pasó por el cross-encoder (modo por ruta, 2026-09-06).
+    pub rerank_hot: bool,
     pub token_budget: i64,
     /// Whether recall ran in CROSS-PROJECT mode (whole-brain). True only when a
     /// `project_id` is set AND the prompt explicitly asks about another project

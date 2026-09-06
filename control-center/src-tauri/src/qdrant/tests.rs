@@ -134,6 +134,48 @@ fn rerank_hot_env_matrix() {
     }
 }
 
+/// Modo por ruta (2026-09-06): sin definir o `route` re-rankea todo menos
+/// `general`; `1` siempre; `0` nunca. Secuencial por la misma carrera del env.
+#[test]
+fn rerank_hot_mode_by_route() {
+    let prev = std::env::var("ULTRON_RERANK_HOT").ok();
+    for unset_or_route in [None, Some("route")] {
+        match unset_or_route {
+            None => std::env::remove_var("ULTRON_RERANK_HOT"),
+            Some(v) => std::env::set_var("ULTRON_RERANK_HOT", v),
+        }
+        assert_eq!(super::rerank_hot_mode(), super::RerankHotMode::Route);
+        assert!(
+            super::rerank_hot_for_intent("bug_fix"),
+            "bug_fix must re-rank in Route mode"
+        );
+        assert!(
+            super::rerank_hot_for_intent("feature"),
+            "feature must re-rank in Route mode"
+        );
+        assert!(
+            !super::rerank_hot_for_intent("general"),
+            "general must NOT re-rank in Route mode"
+        );
+    }
+    std::env::set_var("ULTRON_RERANK_HOT", "1");
+    assert_eq!(super::rerank_hot_mode(), super::RerankHotMode::Always);
+    assert!(
+        super::rerank_hot_for_intent("general"),
+        "Always re-ranks general too"
+    );
+    std::env::set_var("ULTRON_RERANK_HOT", "0");
+    assert_eq!(super::rerank_hot_mode(), super::RerankHotMode::Never);
+    assert!(
+        !super::rerank_hot_for_intent("bug_fix"),
+        "Never re-ranks nothing"
+    );
+    match prev {
+        Some(v) => std::env::set_var("ULTRON_RERANK_HOT", v),
+        None => std::env::remove_var("ULTRON_RERANK_HOT"),
+    }
+}
+
 /// Empty `docs` hits the fast-path guard and returns `Ok([])` without ever
 /// touching the model or the OnceCell. Hermetic by construction.
 #[test]

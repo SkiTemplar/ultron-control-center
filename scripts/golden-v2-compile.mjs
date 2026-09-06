@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +22,29 @@ const DIR = path.join(ROOT, 'cockpit', 'memory-rework', 'evals', 'golden-v2');
 const args = process.argv.slice(2);
 const outIdx = args.indexOf('--out');
 const OUT = outIdx >= 0 && args[outIdx + 1] ? path.resolve(args[outIdx + 1]) : path.join(DIR, 'golden_labels.v2.json');
+
+const CHECK_IDS = path.join(ROOT, 'benchmarks', 'memory', 'check_ids.py');
+
+/**
+ * Un expect_id deprecado o borrado después de etiquetar deja la query sin
+ * relevante y el eval lo cuenta como fallo del recall (medido 2026-09-06: un
+ * dedupe de user_profile bajó recall@8 de 0.827 a 0.736 sin tocar el recall).
+ * Se reusa check_ids.py (solo SELECT) para avisar; no bloquea la compilación.
+ */
+function checkIdsActive(ids) {
+  if (!ids.length) return { checked: 0, non_active: [], secret: [], note: 'sin ids' };
+  const r = spawnSync('uv', ['run', 'python', CHECK_IDS], {
+    input: JSON.stringify(ids),
+    encoding: 'utf8',
+    timeout: 60000,
+  });
+  if (r.status !== 0) return { checked: 0, non_active: [], secret: [], note: 'no verificado: ' + String(r.stderr || r.error || '').trim().slice(0, 120) };
+  try {
+    return JSON.parse(String(r.stdout).trim().split('\n').pop());
+  } catch (e) {
+    return { checked: 0, non_active: [], secret: [], note: 'no verificado: salida no JSON' };
+  }
+}
 
 const QUERY_RE = /^## (q\d{2}) /;
 const MARK_RE = /^- \[([ xX])\] (c\d{2}) `([0-9a-f]{8})`/;
@@ -93,6 +117,11 @@ function main() {
     labeled,
   };
   fs.writeFileSync(OUT, JSON.stringify(golden, null, 2));
+  const check = checkIdsActive(labeled.flatMap((q) => q.expect_ids));
+  if (check.non_active.length || check.secret.length) {
+    console.error('[compile] AVISO: expect_ids que ya no están activos o son secretos — re-etiquetar antes de medir:\n  ' +
+      check.non_active.concat(check.secret.map((s) => s + ':SECRET')).join('\n  '));
+  }
   console.log(JSON.stringify({
     ok: true,
     queries: labeled.length,
@@ -100,6 +129,10 @@ function main() {
     without_labels: unlabeled,
     relevant_total: relevantTotal,
     relevant_per_query: labeled.length ? +(relevantTotal / labeled.length).toFixed(2) : 0,
+    ids_checked: check.checked,
+    ids_non_active: check.non_active.length,
+    ids_secret: check.secret.length,
+    check_note: check.note || '',
     out: OUT,
   }));
 }

@@ -358,6 +358,9 @@ function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
     project: project || null,
     prompt: String(prompt || '').slice(0, 280),
     route: ctx.route || null,
+    // 2026-09-06: el daemon re-rankea por ruta (todo menos general); se traza
+    // para poder medir latencia y utilidad con y sin re-rank sobre tráfico real.
+    rerank_hot: ctx.rerank_hot === true,
     workflow: ctx.workflow ? { id: ctx.workflow.id, label: ctx.workflow.label } : null,
     step_plans: (Array.isArray(ctx.step_plans) ? ctx.step_plans : [])
       .slice(0, 6)

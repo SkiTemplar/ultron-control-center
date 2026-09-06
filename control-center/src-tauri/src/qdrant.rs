@@ -758,6 +758,38 @@ pub fn rerank_hot_enabled() -> bool {
     )
 }
 
+/// Modo del cross-encoder en el HOT PATH (`ULTRON_RERANK_HOT`):
+///   `1`/`true`  -> siempre; `0`/`false` -> nunca;
+///   sin definir o `route` -> solo cuando el intent del turno NO es `general`.
+///
+/// Decidido el 2026-09-06 sobre el golden v2 (30 prompts reales,
+/// con proyecto): nDCG@8 0.391 -> 0.650 y MRR 0.256 -> 0.652 con re-rank, a
+/// 2-2.4 s por prompt en CPU. En `general` (charla, "sigue", acks) el pack
+/// no compensa la latencia; en el resto sí.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RerankHotMode {
+    Always,
+    Never,
+    Route,
+}
+
+pub fn rerank_hot_mode() -> RerankHotMode {
+    match std::env::var("ULTRON_RERANK_HOT").as_deref() {
+        Ok("1") | Ok("true") => RerankHotMode::Always,
+        Ok("0") | Ok("false") => RerankHotMode::Never,
+        _ => RerankHotMode::Route,
+    }
+}
+
+/// Decisión por turno: re-rank en el hot path para este `intent`.
+pub fn rerank_hot_for_intent(intent: &str) -> bool {
+    match rerank_hot_mode() {
+        RerankHotMode::Always => true,
+        RerankHotMode::Never => false,
+        RerankHotMode::Route => intent != "general",
+    }
+}
+
 /// Returns `true` when `ULTRON_CR` is set to `"1"` or `"true"`.
 ///
 /// Controls **Contextual Retrieval (CR)**: when active, `MemoryItem::searchable_text`
