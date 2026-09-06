@@ -28,7 +28,7 @@ ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.
 
 ## Routing de skills/agentes
 
-- **Lazy por defecto**: las skills viven `.disabled` y el dispatcher (`cockpit/skill-lazy/routing-dispatcher.v2.js` determinista + `v3.js` semántico) las **inyecta on-demand** según el prompt. Núcleo mínimo activo (ultron, skill-creator…). **No activar skills en masa.**
+- **Lazy por defecto**: las skills viven en `~/.claude/skills/_disabled/<name>/` (Claude Code no desciende a subdirectorios, así que no cargan en la sesión; el sufijo `.disabled` es legacy y SÍ carga) y el dispatcher (`cockpit/skill-lazy/routing-dispatcher.v2.js` determinista + `v3.js` semántico) las **inyecta on-demand** según el prompt. Núcleo mínimo activo (ultron, skill-creator…). **No activar skills en masa.**
 - Harnesses: `node cockpit/skill-lazy/_verify_final.js` y `_accuracy_at3.js` deben quedar verdes tras tocar routing.
 - Antes de delegar a un agente, verificar que existe en `~/.claude/agents/` (si no, no-op silencioso).
 

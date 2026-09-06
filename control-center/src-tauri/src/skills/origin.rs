@@ -127,10 +127,10 @@ pub(crate) fn parse_yaml_description(after_key: &str, following: &[&str]) -> Str
 ///
 /// **Disabled detection** — two conventions are supported in parallel:
 ///   1. Suffix `.disabled` on the folder itself (e.g. `kotlin-patterns.disabled`).
-///      This is what `Rename-Item` produces on Windows and what the new toggle
-///      logic writes.
-///   2. Legacy `_disabled/` subdirectory parent — kept for backwards compat
-///      with old toggle logic that moved folders into a `_disabled` container.
+///      Legacy: Claude Code still lists these in every session, so the toggle
+///      no longer writes this form.
+///   2. `_disabled/` container parent — what the toggle writes since 2026-09-06;
+///      invisible to Claude Code, injectable by the ULTRON dispatcher.
 pub(crate) fn read_skill_meta(dir: &std::path::Path) -> (String, String, bool, bool) {
     let raw_dir_name = dir
         .file_name()
@@ -379,18 +379,21 @@ pub fn list_skills_with_origin_inner(
 ///
 /// | Convention | Enabled path | Disabled path |
 /// |------------|--------------|---------------|
-/// | Suffix (preferred, `Rename-Item` output) | `skills/<name>/` | `skills/<name>.disabled/` |
-/// | Legacy container | `skills/<name>/` | `skills/_disabled/<name>/` |
+/// | Container (preferred since 2026-09-06) | `skills/<name>/` | `skills/_disabled/<name>/` |
+/// | Suffix (legacy, read-only) | `skills/<name>/` | `skills/<name>.disabled/` |
 ///
 /// Toggle resolution order (for enabling):
-///   1. Look for `<name>.disabled/` (suffix convention) — rename to `<name>/`.
-///   2. Look for `_disabled/<name>/` (legacy) — rename to `<name>/`.
+///   1. Look for `<name>.disabled/` (legacy suffix) — rename to `<name>/`.
+///   2. Look for `_disabled/<name>/` (container) — rename to `<name>/`.
 ///
 /// Toggle resolution order (for disabling):
-///   1. Look for `<name>/` — rename to `<name>.disabled/` (suffix convention).
+///   1. Look for `<name>/` — move to `_disabled/<name>/` (container).
 ///
-/// Disabling always writes the suffix convention going forward. That keeps the
-/// output consistent with what `Rename-Item` produces on Windows.
+/// Disabling always writes the container. Claude Code lists every
+/// `<name>.disabled/SKILL.md` in the session context (~3k tokens for 85 lazy
+/// skills) but does not descend into `_disabled/<name>/`, so the container is
+/// the only form that keeps a lazy skill out of the session while the ULTRON
+/// dispatcher can still inject it on demand.
 pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, String> {
     skill_toggle_at(&global_skills_dir()?, name, enabled)
 }
@@ -411,14 +414,14 @@ pub(crate) fn skill_toggle_at(
     // Candidate paths for each convention.
     let path_enabled = root.join(&name);
     let path_suffix_disabled = root.join(format!("{}.disabled", name));
-    let path_legacy_disabled = root.join("_disabled").join(&name);
+    let path_container_disabled = root.join("_disabled").join(&name);
 
     if enabled {
         // Re-enabling: find whichever disabled form exists.
         let from = if path_suffix_disabled.exists() {
             path_suffix_disabled
-        } else if path_legacy_disabled.exists() {
-            path_legacy_disabled
+        } else if path_container_disabled.exists() {
+            path_container_disabled
         } else {
             return Err(format!(
                 "skill '{name}' not found in disabled state (checked {}.disabled and _disabled/{name})",
@@ -440,25 +443,27 @@ pub(crate) fn skill_toggle_at(
         });
     }
 
-    // Disabling: always write the suffix convention.
+    // Disabling: always write the container convention.
     if !path_enabled.exists() {
         return Err(format!("skill '{name}' not found at enabled path"));
     }
-    if path_suffix_disabled.exists() {
-        return Err(format!(
-            "skill '{name}' already disabled (suffix path exists)"
-        ));
+    if path_suffix_disabled.exists() || path_container_disabled.exists() {
+        return Err(format!("skill '{name}' already disabled"));
     }
-    std::fs::rename(&path_enabled, &path_suffix_disabled).map_err(|e| {
+    if let Some(container) = path_container_disabled.parent() {
+        std::fs::create_dir_all(container)
+            .map_err(|e| format!("create_dir_all {:?}: {e}", container))?;
+    }
+    std::fs::rename(&path_enabled, &path_container_disabled).map_err(|e| {
         format!(
             "rename {:?} → {:?}: {e}",
-            path_enabled, path_suffix_disabled
+            path_enabled, path_container_disabled
         )
     })?;
-    let (n, desc, e, _) = read_skill_meta(&path_suffix_disabled);
+    let (n, desc, e, _) = read_skill_meta(&path_container_disabled);
     Ok(SkillEntry {
         name: n,
-        path: path_suffix_disabled.to_string_lossy().to_string(),
+        path: path_container_disabled.to_string_lossy().to_string(),
         description: desc,
         origin: SkillOrigin::Global,
         enabled: e,
@@ -466,7 +471,7 @@ pub(crate) fn skill_toggle_at(
 }
 
 /// Enable or disable many global skills in one call. `disabled = true` moves
-/// each `<name>/` to `<name>.disabled/`; `disabled = false` reverses it.
+/// each `<name>/` to `_disabled/<name>/`; `disabled = false` reverses it.
 ///
 /// Loops the existing `skill_toggle_inner` so the on-disk conventions stay
 /// identical to the single-item path. Failures are collected per-item rather
@@ -533,12 +538,13 @@ mod toggle_tests {
     }
 
     #[test]
-    fn disable_moves_to_suffix_convention() {
+    fn disable_moves_to_container_convention() {
         let tmp = tempfile::tempdir().unwrap();
         make_skill(tmp.path(), "alpha");
         let entry = skill_toggle_at(tmp.path(), "alpha".into(), false).unwrap();
         assert!(!entry.enabled);
-        assert!(tmp.path().join("alpha.disabled").is_dir());
+        assert!(tmp.path().join("_disabled").join("alpha").is_dir());
+        assert!(!tmp.path().join("alpha.disabled").exists());
         assert!(!tmp.path().join("alpha").exists());
     }
 
@@ -601,7 +607,7 @@ mod toggle_tests {
         // El fallo esta identificado y NO aborto el resto.
         let bad = r.outcomes.iter().find(|o| o.name == "missing").unwrap();
         assert!(!bad.ok);
-        assert!(tmp.path().join("ok1.disabled").is_dir());
-        assert!(tmp.path().join("ok2.disabled").is_dir());
+        assert!(tmp.path().join("_disabled").join("ok1").is_dir());
+        assert!(tmp.path().join("_disabled").join("ok2").is_dir());
     }
 }

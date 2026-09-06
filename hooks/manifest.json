@@ -576,7 +576,7 @@
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "c1a6a0257378b1a9476ef64a960aff060360950de26ee00cc0f1d8252ffbfeea",
+      "checksum_sha256": "8d0c611b96f70632b6bd084d464b73d5e5bb368b7efe46818c8568aaf89d5c1e",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

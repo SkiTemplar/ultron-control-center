@@ -61,6 +61,7 @@ const HOME = os.homedir();
 const REGISTRY_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'skills-registry.json');
 const DISPATCHER_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'routing-dispatcher.v2.js');
 const SKILLS_DIR = path.join(HOME, '.claude', 'skills');
+const skillPaths = require('../../hooks/scripts/lib/skill-paths');
 const AGENTS_DIR = path.join(HOME, '.claude', 'agents');
 const ULTRON_SKILLS_DIR = path.join(HOME, '.ultron', 'skills');
 const PLUGINS_CACHE = path.join(HOME, '.claude', 'plugins', 'cache');
@@ -166,10 +167,8 @@ function estimateTokens(skillId) {
   if (hasColon) {
     const [nsPrefix, baseName] = skillId.split(':', 2);
     const candidates = [
-      path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'),
-      path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'),
-      path.join(SKILLS_DIR, nsPrefix, 'SKILL.md'),
-      path.join(SKILLS_DIR, nsPrefix + '.disabled', 'SKILL.md'),
+      ...skillPaths.namespacedSkillMdCandidates(SKILLS_DIR, nsPrefix, baseName),
+      ...skillPaths.skillMdCandidates(SKILLS_DIR, nsPrefix),
     ];
     try {
       for (const pluginDir of fs.readdirSync(PLUGINS_CACHE).map(d => path.join(PLUGINS_CACHE, d))) {
@@ -191,8 +190,7 @@ function estimateTokens(skillId) {
   }
 
   const candidates = [
-    path.join(SKILLS_DIR, skillId, 'SKILL.md'),
-    path.join(SKILLS_DIR, skillId + '.disabled', 'SKILL.md'),
+    ...skillPaths.skillMdCandidates(SKILLS_DIR, skillId),
     path.join(ULTRON_SKILLS_DIR, skillId, 'SKILL.md'),
   ];
   for (const c of candidates) {
@@ -229,8 +227,7 @@ function resolveRegistryPath(skillId) {
   }
   // Check if this id exists as a skill (SKILL.md) anywhere — if not, look in agents.
   const isSkill =
-    fs.existsSync(path.join(SKILLS_DIR, skillId, 'SKILL.md')) ||
-    fs.existsSync(path.join(SKILLS_DIR, skillId + '.disabled', 'SKILL.md')) ||
+    skillPaths.firstExisting(skillPaths.skillMdCandidates(SKILLS_DIR, skillId)) !== null ||
     fs.existsSync(path.join(ULTRON_SKILLS_DIR, skillId, 'SKILL.md'));
   if (!isSkill) {
     const agentMd = path.join(AGENTS_DIR, skillId + '.md');
@@ -252,22 +249,17 @@ function resolveRegistryPath(skillId) {
 function scanFilesystemAssets(existingRegistry) {
   const detected = [];
 
-  // --- ~/.claude/skills/<name>[.disabled]/SKILL.md ---
+  // --- ~/.claude/skills/<name>/, _disabled/<name>/ y <name>.disabled/ (legacy) ---
   try {
-    for (const entry of fs.readdirSync(SKILLS_DIR)) {
-      const fullPath = path.join(SKILLS_DIR, entry);
-      if (!fs.statSync(fullPath).isDirectory()) continue;
-      const isDisabled = entry.endsWith('.disabled');
-      const id = isDisabled ? entry.slice(0, -9) : entry;
-      if (existingRegistry.has(id)) continue;
-      const skillMd = path.join(fullPath, 'SKILL.md');
-      if (!fs.existsSync(skillMd)) continue;
+    for (const s of skillPaths.scanSkillDirs(SKILLS_DIR)) {
+      if (existingRegistry.has(s.id)) continue;
+      const skillMd = path.join(s.dir, 'SKILL.md');
       detected.push({
-        id,
-        registryPath: `~/.claude/skills/${id}`,
+        id: s.id,
+        registryPath: `~/.claude/skills/${s.id}`,
         tokenEstimate: Math.round(fs.statSync(skillMd).size / 4),
         source: 'claude-skill',
-        disabled: isDisabled,
+        disabled: s.lazy,
       });
     }
   } catch (_) {}
@@ -341,8 +333,7 @@ function scanFilesystemAssets(existingRegistry) {
 // ---------------------------------------------------------------------------
 function diskCandidates(id) {
   const candidates = [
-    path.join(SKILLS_DIR, id, 'SKILL.md'),
-    path.join(SKILLS_DIR, id + '.disabled', 'SKILL.md'),
+    ...skillPaths.skillMdCandidates(SKILLS_DIR, id),
     path.join(ULTRON_SKILLS_DIR, id, 'SKILL.md'),
     path.join(AGENTS_DIR, id + '.md'),
     path.join(AGENTS_DIR, id + '.md.disabled'),
@@ -350,8 +341,7 @@ function diskCandidates(id) {
 
   if (id.includes(':')) {
     const [nsPrefix, baseName] = id.split(':', 2);
-    candidates.push(path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'));
-    candidates.push(path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'));
+    candidates.push(...skillPaths.namespacedSkillMdCandidates(SKILLS_DIR, nsPrefix, baseName));
     try {
       for (const pluginDir of fs.readdirSync(PLUGINS_CACHE).map(d => path.join(PLUGINS_CACHE, d))) {
         try {
@@ -568,7 +558,7 @@ function loadDisabledPlugins() {
 // detection-time snapshot, so status is always re-derived from disk.
 function liveStatus(id, file) {
   if (!file) return 'fantasma';
-  if (file.includes('.disabled')) return '.disabled (lazy)';
+  if (skillPaths.isLazyPath(file)) return '.disabled (lazy)';
   if (id.includes(':')) return 'plugin';
   if (file.startsWith(AGENTS_DIR)) return 'agente';
   return 'activa';

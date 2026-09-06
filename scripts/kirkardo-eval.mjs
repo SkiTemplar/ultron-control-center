@@ -2401,6 +2401,7 @@ cat(13, "Mejora de prompts", [
         // Verifica en ~/.claude/skills/ (activo o .disabled) O ~/.claude/agents/
         const checks = [
           join(SKILLS_DIR, rawId),
+          join(SKILLS_DIR, "_disabled", rawId),
           join(SKILLS_DIR, rawId + ".disabled"),
           join(AGENTS_DIR, `${rawId}.md`),
           join(AGENTS_DIR, `${rawId}.md.disabled`),

@@ -510,6 +510,7 @@ const AGENTS = [
 
 const { appendJsonl } = require('../../hooks/scripts/lib/jsonl-log');
 const { isSystemTurnPrompt } = require('../../hooks/scripts/lib/system-turn');
+const skillPaths = require('../../hooks/scripts/lib/skill-paths');
 
 function safeLog(entry) {
   // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
@@ -1536,11 +1537,8 @@ function resolveSkillMdPath(skillId) {
 
   if (hasColon) {
     const [nsPrefix, baseName] = skillId.split(':', 2);
-    // 1-2. Sub-skill inside ~/.claude/skills (active / disabled).
-    const local = [
-      path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'),
-      path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'),
-    ];
+    // 1-2. Sub-skill inside ~/.claude/skills (active / lazy container / legacy suffix).
+    const local = skillPaths.namespacedSkillMdCandidates(SKILLS_DIR, nsPrefix, baseName);
     for (const candidate of local) {
       if (fs.existsSync(candidate)) return candidate;
     }
@@ -1557,11 +1555,11 @@ function resolveSkillMdPath(skillId) {
     return local[0];
   }
 
-  // Non-namespaced: try disabled variant first (active after apply-lazy-skills.ps1),
-  // then active folder.
-  const disabled = path.join(SKILLS_DIR, skillId + '.disabled', 'SKILL.md');
-  if (fs.existsSync(disabled)) return disabled;
-  return path.join(SKILLS_DIR, skillId, 'SKILL.md');
+  // Non-namespaced: lazy container first (where the toggle writes since
+  // 2026-09-06), then the legacy `.disabled` suffix, then the active folder.
+  const candidates = skillPaths.skillMdCandidates(SKILLS_DIR, skillId);
+  const lazyFirst = [candidates[1], candidates[2], candidates[0]];
+  return skillPaths.firstExisting(lazyFirst) || candidates[0];
 }
 
 /**

@@ -454,7 +454,7 @@ function buildJudgeHint(names) {
   names.forEach(function (n, i) {
     lines.push((i + 1) + '. ' + n);
   });
-  lines.push('(If one fits: invoke it with the Skill tool if it is active; if it is .disabled on disk, Read ~/.claude/skills/<name>.disabled/SKILL.md instead.)');
+  lines.push('(If one fits: invoke it with the Skill tool if it is active; if it is lazy on disk, Read ~/.claude/skills/_disabled/<name>/SKILL.md instead.)');
   return lines.join('\n');
 }
 
@@ -497,7 +497,7 @@ function buildSemanticHint(results) {
   });
   // RT-06 (auditoria 2026-07-16): '/use <skill>' no existe en Claude Code.
   // Instruccion honesta: Skill tool para activas, Read del SKILL.md para .disabled.
-  lines.push('(If one fits: invoke it with the Skill tool if it is active; if it is .disabled on disk, Read ~/.claude/skills/<name>.disabled/SKILL.md instead.)');
+  lines.push('(If one fits: invoke it with the Skill tool if it is active; if it is lazy on disk, Read ~/.claude/skills/_disabled/<name>/SKILL.md instead.)');
   return lines.join('\n');
 }
 

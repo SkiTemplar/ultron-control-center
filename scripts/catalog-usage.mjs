@@ -12,6 +12,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import skillPaths from "../hooks/scripts/lib/skill-paths.js";
 import { homedir } from "node:os";
 
 const HOME = process.env.USERPROFILE || process.env.HOME || homedir();
@@ -45,9 +46,7 @@ for (const e of orch) {
 // --- Disco: que existe ---
 function listSkills() {
   if (!existsSync(SKILLS_DIR)) return [];
-  return readdirSync(SKILLS_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => ({ id: d.name.replace(/\.disabled$/, ""), disabled: d.name.endsWith(".disabled") }));
+  return skillPaths.scanSkillDirs(SKILLS_DIR).map((s) => ({ id: s.id, disabled: s.lazy }));
 }
 function listAgents() {
   if (!existsSync(AGENTS_DIR)) return [];
