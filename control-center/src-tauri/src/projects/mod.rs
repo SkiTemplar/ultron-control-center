@@ -10,7 +10,8 @@
 //   registry.rs   — Registry I/O helpers: load, atomic write, path helpers
 //   read_ops.rs   — list_projects_inner, load_items_for
 //   write_ops.rs  — create, update, delete, touch, launcher-item mutations
-//   launch.rs     — open_project, launch_item, launch_all, open_in_ide, dispatch
+//   launch.rs     — open_project, launch_item, launch_all, open_in_ide, dispatch,
+//                   project_open_app (FRENTE D)
 //   scan.rs       — scan_projects_inner + emit-aware wrappers
 
 pub(crate) mod launch;
@@ -31,6 +32,7 @@ mod tests;
 
 pub use launch::{
     launch_all_items_inner, launch_item_inner, launch_project_executable_inner, open_project_inner,
+    project_open_app_inner,
 };
 pub use read_ops::list_projects_inner;
 pub use scan::{

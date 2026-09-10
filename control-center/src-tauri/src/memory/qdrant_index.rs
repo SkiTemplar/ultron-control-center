@@ -370,12 +370,38 @@ pub fn search_dense_checked(query: &str, k: u32, project_id: Option<&str>) -> Op
     // hay proposición que puedan contradecir.
     const JUDGE_NEIGHBOUR_FLOOR: f32 = 0.83;
 
+    Some(
+        search_dense_scored_checked(query, k, project_id)?
+            .into_iter()
+            .filter(|(_, score)| *score >= JUDGE_NEIGHBOUR_FLOOR)
+            .map(|(id, _)| id)
+            .collect(),
+    )
+}
+
+/// Igual que [`search_dense_checked`] pero devuelve el coseno de cada vecino y
+/// SIN floor: lo pone el llamante (el juez de contradicción usa 0.83; el gate
+/// anti-paráfrasis del write-path, 0.92).
+///
+/// El embedding de la query va por [`crate::daemon_client::embed_prefer_daemon`]:
+/// en un one-shot (`inbox drain --auto`, `capture`) se lo pide al daemon, que ya
+/// tiene E5 caliente, en vez de cargar 1,5 GB de modelo para una sola consulta.
+/// Dentro del daemon, y sin daemon, el camino es el local de siempre.
+///
+/// `None` = infra de búsqueda NO verificable (Qdrant caído, E5 sin embeber o
+/// vector cero, o Err de Qdrant). `Some(vec)` = la consulta se ejecutó (vec
+/// vacío = sin vecinos).
+pub fn search_dense_scored_checked(
+    query: &str,
+    k: u32,
+    project_id: Option<&str>,
+) -> Option<Vec<(String, f32)>> {
     // Gate healthz: infra caída → None (NO verificable, fail-closed) sin pagar
     // el embed. Mismo contrato que el Err de Qdrant más abajo.
     if !crate::qdrant::qdrant_healthy_cached() {
         return None;
     }
-    let vector = crate::qdrant::embed_e5(query, true).ok()?;
+    let vector = crate::daemon_client::embed_prefer_daemon(query).ok()?;
     if vector.iter().all(|&x| x == 0.0) {
         return None; // E5 stub / unavailable -> NO verificable
     }
@@ -392,13 +418,14 @@ pub fn search_dense_checked(query: &str, k: u32, project_id: Option<&str>) -> Op
     let hits = crate::qdrant::search_with_vector(COLLECTION, vector, k, Some(filter)).ok()?;
     Some(
         hits.into_iter()
-            .filter(|h| h.score >= JUDGE_NEIGHBOUR_FLOOR)
             .map(|h| {
-                h.payload
+                let id = h
+                    .payload
                     .get("canonical_id")
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
-                    .unwrap_or(h.id)
+                    .unwrap_or(h.id);
+                (id, h.score)
             })
             .collect(),
     )

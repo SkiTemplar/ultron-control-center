@@ -16,12 +16,40 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::Value;
 
 /// Espera máxima de conexión. Loopback: si no contesta ya, no está.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(300);
+
+/// Espera del `embed` remoto: el daemon ya tiene E5 caliente, pero puede estar
+/// sirviendo otra petición o recargando el modelo tras el release por
+/// inactividad (`ULTRON_MODEL_IDLE_MIN`). 8 s cubre esa recarga; agotarlo cae al
+/// camino local, que paga lo mismo pero en este proceso.
+const EMBED_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Dimensión del espacio E5-large. Una respuesta con otra longitud no es un
+/// vector de este índice: se descarta y se recalcula en local.
+const EMBED_DIM: usize = 1024;
+
+/// ¿Estamos DENTRO del proceso daemon? Lo marca `serve` al arrancar.
+static IN_DAEMON: AtomicBool = AtomicBool::new(false);
+
+/// Marca este proceso como el daemon. La llama `serve` una vez al arrancar,
+/// ANTES de atender peticiones: sin ella el daemon se pediría los embeddings a
+/// sí mismo por TCP (deadlock del hilo que atiende, o round trip inútil).
+pub fn mark_in_daemon() {
+    IN_DAEMON.store(true, Ordering::Relaxed);
+}
+
+/// ¿Este proceso es el daemon? Los caminos que prefieren el daemon lo consultan
+/// para no llamarse a sí mismos.
+#[must_use]
+pub fn is_in_daemon() -> bool {
+    IN_DAEMON.load(Ordering::Relaxed)
+}
 
 fn lockfile_path() -> PathBuf {
     dirs::home_dir()
@@ -122,6 +150,53 @@ pub fn recall(
     )
 }
 
+/// Vector E5 de `text` (lado QUERY, prefijo `query:`) pidiéndoselo al daemon
+/// cuando lo hay, en vez de cargar E5 en este proceso.
+///
+/// Contrato con el daemon (`serve.rs`):
+///   petición  `{"cmd":"embed","text":"..."}`  (token y transporte los pone
+///             [`request`])
+///   respuesta `{"vector":[f32; 1024]}`
+///
+/// Orden de resolución:
+///   1. `is_in_daemon()` → camino local de siempre (el daemon YA tiene E5; no se
+///      llama a sí mismo).
+///   2. daemon vivo y contesta un vector de 1024 dimensiones → ese vector.
+///   3. cualquier otra cosa (sin daemon, timeout, respuesta malformada) → camino
+///      local. Un daemon caído nunca convierte esto en un fallo.
+///
+/// Motivo (medido 2026-09-06): `ultron-memory inbox drain --auto` y `capture`
+/// cargaban E5 (~1,5 GB, ~3 s) en el one-shot para embeber UNA query, con el
+/// daemon vivo y el modelo caliente al lado.
+pub fn embed_prefer_daemon(text: &str) -> Result<Vec<f32>, String> {
+    if is_in_daemon() {
+        return crate::qdrant::embed_e5(text, true);
+    }
+    if let Some(vector) = remote_embed(text) {
+        return Ok(vector);
+    }
+    crate::qdrant::embed_e5(text, true)
+}
+
+/// Parseo del `{"vector":[...]}` del daemon. `None` si falta, no es un array de
+/// números, o no tiene la dimensión del índice.
+fn parse_embedding(resp: &Value) -> Option<Vec<f32>> {
+    let raw = resp.get("vector")?.as_array()?;
+    if raw.len() != EMBED_DIM {
+        return None;
+    }
+    raw.iter()
+        .map(|v| v.as_f64().map(|f| f as f32))
+        .collect::<Option<Vec<f32>>>()
+}
+
+/// Embedding por el daemon. `None` = no hay daemon, no contestó, o contestó algo
+/// que no es un vector de este índice.
+fn remote_embed(text: &str) -> Option<Vec<f32>> {
+    let resp = request("embed", serde_json::json!({ "text": text }), EMBED_TIMEOUT)?;
+    parse_embedding(&resp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,5 +234,41 @@ mod tests {
         // No se afirma Some/None (en esta maquina puede haber daemon vivo):
         // lo que se prueba es que la llamada termina sin panico ni error.
         let _ = resp;
+    }
+
+    #[test]
+    fn acepta_solo_vectores_de_la_dimension_del_indice() {
+        let ok = serde_json::json!({ "vector": vec![0.5_f64; EMBED_DIM] });
+        let parsed = parse_embedding(&ok).expect("un vector de 1024 debe parsearse");
+        assert_eq!(parsed.len(), EMBED_DIM);
+        assert!((parsed[0] - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn descarta_respuestas_que_no_son_un_vector_del_indice() {
+        // Caso negativo: si colaran, el k-NN buscaria con basura o con una
+        // dimension que Qdrant rechaza, en vez de caer al camino local.
+        assert_eq!(parse_embedding(&serde_json::json!({})), None);
+        assert_eq!(
+            parse_embedding(&serde_json::json!({ "vector": "no" })),
+            None
+        );
+        assert_eq!(
+            parse_embedding(&serde_json::json!({ "vector": vec![0.0_f64; 8] })),
+            None,
+            "dimension distinta de 1024"
+        );
+        let con_texto = serde_json::json!({ "vector": ["a", "b"] });
+        assert_eq!(parse_embedding(&con_texto), None);
+    }
+
+    #[test]
+    fn el_flag_de_daemon_arranca_apagado_y_se_marca() {
+        // Unico test que toca el flag global: sin marcar, un one-shot pide el
+        // embedding al daemon; marcado, el daemon usa su propio E5 y no se
+        // llama a si mismo por TCP.
+        assert!(!is_in_daemon(), "por defecto NO somos el daemon");
+        mark_in_daemon();
+        assert!(is_in_daemon());
     }
 }

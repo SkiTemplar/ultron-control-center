@@ -401,7 +401,9 @@ jobs:
       - name: Script selftests (memoria / captura / lifecycle)
         run: |
           node scripts/memory-bench.selftest.mjs
+          node scripts/memory-gc.selftest.mjs
           node scripts/posttoolfail-capture.selftest.mjs
+          node scripts/stop-compress-session.selftest.mjs
           node scripts/subagent-harvest.selftest.mjs
           node scripts/subagent-lifecycle.selftest.mjs
           node hooks/scripts/kanban-update-reminder.selftest.mjs
@@ -411,6 +413,7 @@ jobs:
         run: |
           node hooks/scripts/tests/test-freshness-gate.js
           node hooks/scripts/tests/test-resume-quality.js
+          node hooks/scripts/tests/test-orchestrate-recovery.js
       # Detector de texto IA: cobertura patron a patron y separacion sobre
       # documentos completos. Ambos harness existian desde el 2026-08-15 y no
       # los ejecutaba nadie, asi que una regresion del catalogo entraba sin

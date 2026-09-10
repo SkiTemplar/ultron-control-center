@@ -157,6 +157,10 @@ export type ProjectInfo = {
    *  theme used when a session is spawned in this project. `null` = neutral
    *  card and no theme override. */
   color?: string | null;
+  /** FRENTE D — comando para lanzar la app del proyecto (p. ej. `npm run
+   *  tauri dev`), ejecutado en una ventana de terminal nueva con cwd =
+   *  `path`. `null`/missing = el botón "Abrir app" se deshabilita. */
+  app_command?: string | null;
 };
 
 export type ProjectActionResult = {

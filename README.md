@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.7.1-555">
+  <img alt="version" src="https://img.shields.io/badge/version-15.8.0-555">
   <img alt="stack" src="https://img.shields.io/badge/Tauri_2-%2B_React_19-555">
   <img alt="backend" src="https://img.shields.io/badge/backend-Rust_2021-555">
   <img alt="memoria" src="https://img.shields.io/badge/memoria-SQLite_%2B_Qdrant-555">
@@ -26,7 +26,7 @@ Code: lo envuelve con estado persistente, inspeccionable y versionable.
 > datos personales (la informacion personal vive solo en ficheros locales
 > fuera de control de versiones).
 
-- **Version**: 2.7.1 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
+- **Version**: 15.8.0 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
 - **Plataforma**: Windows 11 (objetivo principal); Linux x86_64 compila pero el
   flujo end-to-end no esta verificado por el autor.
 - **Licencia**: MIT (ver [`LICENSE`](LICENSE)).
@@ -315,7 +315,7 @@ npm test       # vitest (frontend)
 - **Detector de texto IA** (apoyo TFG): hook PostToolUse que avisa cuando la
   prosa escrita "canta" a IA + Lab de patrones deterministas sobre el catalogo
   de investigacion; matcher con CLI y banco de casos. Senala, no reescribe.
-- **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,
+- **UI (Control Center, v15.8.0)**: barra lateral con Dashboard, Usage, AI Router,
   System (con sub-tabs de Hooks/Schedules), MCPs,
   Library (sub-tabs Skills/Agents/Rules/**Updates**), **Memory**, Notes,
   Learn, Sessions, Projects, Finance (solo build local con `VITE_FINANCE=1`),

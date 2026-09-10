@@ -11,8 +11,13 @@
 //      with the toggle ON, only a CLEAN fact clearing the BAND-A floor is — see
 //      `auto_approve::classify_band` (the secret/contradiction/duplicate gate holds).
 //
-// Fail-safe: if the router has no usable provider, it degrades to a cheap local
-// heuristic so the Stop hook never errors and a candidate is still proposed.
+// Fail-safe: if the router has no usable provider or extracts nothing, the
+// capture proposes NOTHING and says so in `strategy` (the old local heuristic
+// that proposed the raw transcript tail was retired on 2026-09-07). The Stop
+// hook never errors either way.
+// El informe (`CaptureReport`) devuelve los ids creados Y qué hecho hay detrás
+// de cada uno (`facts`), para que el hook Stop escriba su resumen de sesión sin
+// volver a extraer nada por su cuenta.
 // NOTHING here writes `memory_items` directly; the only writer stays MemoryService.
 
 use serde::Serialize;
@@ -29,10 +34,32 @@ const CAPTURE_ZONE: &str = "chat";
 /// Max facts proposed per session (keeps the inbox signal-dense).
 const MAX_FACTS: usize = 5;
 
+/// Un hecho que llegó al inbox, en el MISMO orden e índice que `created`.
+///
+/// El hook Stop (`stop-compress-session.js`) escribe `compact.json` con lo que
+/// la sesión dejó capturado, y hasta ahora el informe solo devolvía ids opacos:
+/// el hook repetía por su cuenta una extracción LLM del transcript para saber
+/// QUÉ se había guardado. Con tipo, título y origen aquí esa segunda llamada
+/// sobra. No lleva el cuerpo del hecho a propósito: el informe va a un log y el
+/// texto completo vive en el candidato, ya redactado por `create_candidate`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapturedFact {
+    /// `MemoryType` en snake_case, tal y como serializa en brain.db
+    /// (`decision`, `user_profile`, `codebase_fact`...).
+    pub kind: String,
+    /// Título propuesto del hecho (ya recortado a 120 caracteres en el parseo).
+    pub title: String,
+    /// Etiqueta de origen: `origin:user`, `origin:assistant` u `origin:unknown`.
+    pub origin: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CaptureReport {
     /// Candidate ids created in the inbox (awaiting human approval).
     pub created: Vec<String>,
+    /// Qué hechos hay detrás de esos ids (mismo orden). Vacío cuando no se
+    /// propuso nada: los descartados por `discard_reason` no aparecen.
+    pub facts: Vec<CapturedFact>,
     /// Whether the AI Router served the extraction (true) or we fell back to the
     /// local heuristic (false). When true, AI Router metrics were updated.
     pub router_used: bool,
@@ -40,6 +67,41 @@ pub struct CaptureReport {
     pub strategy: String,
     /// Non-fatal note (degradation reason / counts).
     pub note: String,
+}
+
+/// Quién afirmó el hecho en la sesión (2026-09-07, decidido por el usuario).
+///
+/// El extractor leía los turnos de los dos roles y una interpretación del
+/// asistente ("Astra lo interpreto como gpt-5.5 xhigh") entró como DECISIÓN
+/// del proyecto a los dos minutos de escribirse y volvió inyectada como
+/// memoria #1 en el prompt siguiente. Ahora cada hecho lleva su origen: lo
+/// que dijo o eligió el usuario puede promocionarse solo; lo que solo afirmó
+/// el asistente (o no se sabe) queda pendiente de validación humana.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FactOrigin {
+    User,
+    Assistant,
+    Unknown,
+}
+
+impl FactOrigin {
+    /// Parseo tolerante del quinto campo. Solo "user"/"usuario" cuenta como
+    /// origen del usuario; el resto cae a `Assistant` o `Unknown` (fail-closed).
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_lowercase().as_str() {
+            "user" | "usuario" => Self::User,
+            "assistant" | "asistente" | "ia" | "modelo" => Self::Assistant,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn as_tag(self) -> &'static str {
+        match self {
+            Self::User => "origin:user",
+            Self::Assistant => "origin:assistant",
+            Self::Unknown => "origin:unknown",
+        }
+    }
 }
 
 /// One extracted fact before it becomes a candidate.
@@ -50,6 +112,8 @@ struct Fact {
     /// Optional self-reported salience score parsed from the LLM line (0..1).
     /// `None` when the model omitted it or we fell back to the heuristic.
     llm_score: Option<f32>,
+    /// Quién afirmó el hecho (ver [`FactOrigin`]).
+    origin: FactOrigin,
 }
 
 /// Extract durable facts from `transcript` and propose them as candidates.
@@ -67,26 +131,33 @@ pub fn capture_session(
     if trimmed.len() < 40 {
         return CaptureReport {
             created: vec![],
+            facts: vec![],
             router_used: false,
             strategy: "skip".into(),
             note: "transcript too short".into(),
         };
     }
 
-    let (facts, router_used, strategy) =
+    // (2026-09-07, decidido por el usuario) Sin extracción no hay candidato.
+    // La "heurística" de antes proponía los últimos 300 caracteres crudos del
+    // transcript como session_summary; 231 de esos llegaron a active (100 en
+    // ultron, 93 en procedural-terrain) y salían en el pack como memoria.
+    // Un router vacío o caído se registra en la estrategia y no propone nada.
+    let (facts, router_used, strategy): (Vec<Fact>, bool, &str) =
         match crate::ai_router::route(CAPTURE_ZONE, &extraction_prompt(trimmed)) {
             Ok(resp) => {
                 let parsed = parse_facts(&resp);
                 if parsed.is_empty() {
-                    (heuristic_facts(trimmed), false, "router_empty->heuristic")
+                    (Vec::new(), true, "router_empty->skip")
                 } else {
                     (parsed, true, "router")
                 }
             }
-            Err(_) => (heuristic_facts(trimmed), false, "heuristic"),
+            Err(_) => (Vec::new(), false, "router_error->skip"),
         };
 
     let mut created = Vec::new();
+    let mut captured: Vec<CapturedFact> = Vec::new();
     let mut discards: Vec<Discard> = Vec::new();
     for f in facts.into_iter().take(MAX_FACTS) {
         let scope = scope_for_fact(f.kind, project.is_some());
@@ -109,10 +180,15 @@ pub fn capture_session(
             });
             continue;
         }
+        // Vista para el informe ANTES de consumir el fact (fact_to_candidate
+        // toma posesión); solo se anota si el candidato llega a existir, para
+        // que `facts[i]` describa siempre a `created[i]`.
+        let vista = captured_fact(&f);
         let c = fact_to_candidate(f, scope, fact_project, router_used, session_id);
         // create_candidate applies redaction + dedupe (content_hash / FTS).
         if let Ok(id) = MemoryService::create_candidate(&c) {
             created.push(id);
+            captured.push(vista);
         }
     }
     log_discards(&discards);
@@ -133,9 +209,20 @@ pub fn capture_session(
     };
     CaptureReport {
         created,
+        facts: captured,
         router_used,
         strategy: strategy.into(),
         note,
+    }
+}
+
+/// Vista de informe de un `Fact`: tipo en snake_case + título + etiqueta de
+/// origen. Pura -> unit-tested.
+fn captured_fact(f: &Fact) -> CapturedFact {
+    CapturedFact {
+        kind: f.kind.as_str().to_string(),
+        title: f.title.clone(),
+        origin: f.origin.as_tag().to_string(),
     }
 }
 
@@ -220,6 +307,14 @@ fn discard_reason(f: &Fact, importance: f32) -> Option<String> {
     if let Some((name, _)) = ECHO_RULES.iter().find(|(_, re)| re.is_match(&hay)) {
         return Some(format!("echo:{name}"));
     }
+    // (2026-09-08, criterio delegado por el usuario) Un `fact` o `task` que
+    // solo afirmó el asistente es eco de estado: 5 candidatos de un informe
+    // de situación entraron al inbox en un turno. Lo que ya registran kanban,
+    // doctor o git no merece validación humana. Las decisiones, restricciones,
+    // lecciones y preferencias del asistente siguen llegando como pending.
+    if f.origin == FactOrigin::Assistant && matches!(f.kind, MemoryType::Fact | MemoryType::Task) {
+        return Some("assistant_status_echo".to_string());
+    }
     if importance < MIN_IMPORTANCE {
         return Some(format!("low_importance:{importance:.2}"));
     }
@@ -284,6 +379,10 @@ fn fact_to_candidate(
     c.proposed_title = Some(f.title);
     c.proposed_summary = Some(f.body.clone());
     c.proposed_content = Some(f.body);
+    // Origen del hecho: lo lee `auto_approve::auto_disposition` para no
+    // promocionar solo lo que únicamente afirmó el asistente.
+    c.proposed_tags.push(f.origin.as_tag().to_string());
+    c.capture_source = Some("stop_capture".to_string());
     let project = project.map(str::trim).filter(|p| !p.is_empty());
     c.proposed_project_id = project.map(String::from);
     if let Some(p) = project {
@@ -314,12 +413,16 @@ fn extraction_prompt(transcript: &str) -> String {
          (decisiones tecnicas, preferencias del usuario, hechos del proyecto, restricciones, \
          o identidad/rol estable del usuario). \
          Ignora lo efimero. Una linea por hecho, formato exacto:\n\
-         TIPO | titulo corto | resumen de una frase | importancia\n\
+         TIPO | titulo corto | resumen de una frase | importancia | ORIGEN\n\
          donde TIPO es uno de: decision, preference, fact, constraint, task, user_profile; \
          usa user_profile SOLO para identidad/rol/forma-de-trabajar ESTABLE del usuario \
          (quien es, a que se dedica, como prefiere trabajar), no para gustos puntuales (eso es preference); \
-         e importancia es un numero entre 0 y 1 que refleja cuan importante y duradero \
-         es el hecho (las decisiones y restricciones suelen ser altas, los resumenes bajos).\n\
+         importancia es un numero entre 0 y 1 que refleja cuan importante y duradero \
+         es el hecho (las decisiones y restricciones suelen ser altas, los resumenes bajos); \
+         y ORIGEN es `user` si el hecho lo afirmo, eligio o confirmo el usuario en sus turnos \
+         (lineas que empiezan por `user:`), o `assistant` si solo lo dijo, propuso o interpreto \
+         el asistente (lineas `assistant:`). Una propuesta del asistente que el usuario no \
+         confirmo NO es una decision: marcala `assistant` o no la incluyas.\n\
          No incluyas secretos ni tokens. Si no hay nada relevante, responde NADA.\n\n\
          --- SESION ---\n{capped}\n--- FIN ---"
     )
@@ -334,22 +437,47 @@ fn parse_facts(resp: &str) -> Vec<Fact> {
         if line.eq_ignore_ascii_case("nada") || line.is_empty() {
             continue;
         }
-        // Accept BOTH the legacy 3-field form and the new 4-field form with a
-        // trailing importance score: TIPO | titulo | resumen [| score].
-        let parts: Vec<&str> = line.splitn(4, '|').map(str::trim).collect();
+        // Accept the legacy 3-field form, the 4-field form with a trailing
+        // importance score and the 5-field form with the origin:
+        // TIPO | titulo | resumen [| score [| origen]].
+        let parts: Vec<&str> = line.splitn(5, '|').map(str::trim).collect();
         if parts.len() < 3 || parts[1].is_empty() || parts[2].is_empty() {
+            continue;
+        }
+        if is_template_echo(parts[1]) || is_template_echo(parts[2]) {
             continue;
         }
         let kind = MemoryType::parse(&parts[0].to_lowercase()).unwrap_or(MemoryType::Fact);
         let llm_score = parts.get(3).and_then(|s| parse_score(s));
+        let origin = parts
+            .get(4)
+            .map(|s| FactOrigin::parse(s))
+            .unwrap_or(FactOrigin::Unknown);
         out.push(Fact {
             kind,
             title: parts[1].chars().take(120).collect(),
             body: parts[2].chars().take(400).collect(),
             llm_score,
+            origin,
         });
     }
     out
+}
+
+/// Marcadores del formato de `extraction_prompt` devueltos tal cual por el
+/// modelo ("titulo corto", "resumen de una frase"). Un candidato así entró al
+/// inbox como fact (23ceeae3, 2026-09-07); se descarta en el parseo.
+fn is_template_echo(field: &str) -> bool {
+    const TEMPLATE: &[&str] = &[
+        "titulo corto",
+        "título corto",
+        "resumen de una frase",
+        "tipo",
+        "importancia",
+        "origen",
+    ];
+    let norm = field.trim().to_lowercase();
+    TEMPLATE.contains(&norm.as_str())
 }
 
 /// Parse a tolerant 0..1 salience score from a model token (handles "0.8",
@@ -376,21 +504,6 @@ fn parse_score(raw: &str) -> Option<f32> {
     } else {
         None
     }
-}
-
-/// Local fallback when the router has no provider: propose ONE session-summary
-/// candidate from the transcript tail so capture never silently no-ops.
-fn heuristic_facts(transcript: &str) -> Vec<Fact> {
-    let tail: String = transcript
-        .chars()
-        .skip(transcript.chars().count().saturating_sub(300))
-        .collect();
-    vec![Fact {
-        kind: MemoryType::SessionSummary,
-        title: "Resumen de sesion (heuristico)".into(),
-        body: tail.replace('\n', " ").trim().to_string(),
-        llm_score: None,
-    }]
 }
 
 // ---------------------------------------------------------------------------

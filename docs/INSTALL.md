@@ -1,4 +1,4 @@
-# Installing ULTRON Control Center (app v2.7.1+ · core v15.5.x)
+# Installing ULTRON Control Center (app v15.8.0+ · core v15.7.x)
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
 that orchestrates Claude Code and Codex through their official CLIs.

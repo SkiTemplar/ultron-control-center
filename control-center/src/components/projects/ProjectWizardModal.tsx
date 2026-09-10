@@ -28,6 +28,9 @@ export interface ProjectWizardState {
   wDefaultShell: ProjectShell | "";
   wParentFolderOverride: string;
   wNotes: string;
+  /** FRENTE D — comando para lanzar la app del proyecto (p. ej. `npm run
+   *  tauri dev`), ejecutado en una terminal nueva con cwd = wPath. */
+  wAppCommand: string;
   wExecutables: ProjectExecutable[];
   creating: boolean;
   createError: string | null;
@@ -49,18 +52,19 @@ export interface ProjectWizardModalProps extends ProjectWizardState {
   setWDefaultShell: (v: ProjectShell | "") => void;
   setWParentFolderOverride: (v: string) => void;
   setWNotes: (v: string) => void;
+  setWAppCommand: (v: string) => void;
   setWExecutables: (updater: (prev: ProjectExecutable[]) => ProjectExecutable[]) => void;
 }
 
 export function ProjectWizardModal({
   editingId,
   wName, wPath, wTags, wIde, wColor, wDefaultProvider, wDefaultShell,
-  wParentFolderOverride, wNotes, wExecutables,
+  wParentFolderOverride, wNotes, wAppCommand, wExecutables,
   creating, createError, tagPool, wTagsParsed,
   onClose, onSave, onPickPath, onToggleTag,
   setWName, setWPath, setWTags, setWIde, setWColor,
   setWDefaultProvider, setWDefaultShell,
-  setWParentFolderOverride, setWNotes, setWExecutables,
+  setWParentFolderOverride, setWNotes, setWAppCommand, setWExecutables,
 }: ProjectWizardModalProps) {
   return (
     <div
@@ -428,6 +432,31 @@ export function ProjectWizardModal({
                 resize: "vertical",
                 minHeight: 72,
                 fontFamily: "var(--font-mono)",
+              }}
+            />
+          </div>
+
+          {/* App command — FRENTE D: botón "Abrir app" en la tarjeta */}
+          <div className="col-span-2">
+            <label
+              className="text-[10px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+              title="Comando que lanza la app del proyecto (p. ej. npm run tauri dev), ejecutado en una terminal nueva con cwd = la ruta del proyecto."
+            >
+              App command (optional)
+            </label>
+            <input
+              type="text"
+              value={wAppCommand}
+              onChange={(e) => setWAppCommand(e.target.value)}
+              placeholder="npm run tauri dev"
+              className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
+              style={{
+                background: "var(--color-surface-1)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                fontFamily: "var(--font-mono)",
+                outline: "none",
               }}
             />
           </div>

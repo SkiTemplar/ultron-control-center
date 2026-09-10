@@ -229,14 +229,17 @@ Because the `latest.json` URL points at
 GitHub always redirects to the most recent release. There is no manifest
 hosting service to maintain.
 
-> **Confirmado (ULTRON Control Center v2.7.1, 2026-06-05).** El auto-updater
-> sigue usando el mismo patrón `latest.json` descrito arriba; no cambió en
-> v2.7.1. La versión **v2.7.1** es la del producto Tauri (ULTRON Control
-> Center); el linaje de versiones `v15.x` que aparece en el resto de este
-> documento es el del *core* y su flujo de tags, que sigue vigente. Los
-> one-liners de bootstrap (`bootstrap.ps1` / `bootstrap.sh`) y el endpoint
-> `endpoints[0]` siguen siendo correctos; `SkiTemplar` es el placeholder de
-> owner descrito en §0.3 — sustitúyelo por el owner real del repo público
+> **Confirmado (ULTRON Control Center v2.7.1, 2026-06-05; versión unificada
+> desde 2026-09-10, `ebe751f`).** El auto-updater sigue usando el mismo
+> patrón `latest.json` descrito arriba; no cambió con la unificación de
+> versión. La distinción de esta nota (**v2.7.1** el producto Tauri frente al
+> linaje `v15.x` del *core*) ya **no aplica**: desde `ebe751f` el producto
+> Tauri usa una única versión `15.x` (`package.json`/`Cargo.toml`/
+> `tauri.conf.json`, hoy 15.8.0), un paso por delante del core (`pyproject.toml`,
+> hoy 15.7.0) — ver `docs/INTEGRATION.md`. Los one-liners de bootstrap
+> (`bootstrap.ps1` / `bootstrap.sh`) y el endpoint `endpoints[0]` siguen
+> siendo correctos; `SkiTemplar` es el placeholder de owner descrito en §0.3
+> — sustitúyelo por el owner real del repo público
 > antes de publicar.
 
 ---

@@ -86,6 +86,13 @@ pub struct ProjectInfo {
     /// theme the user has globally.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// FRENTE D — comando para lanzar la app del proyecto (p. ej. `npm run
+    /// tauri dev`) en una ventana de terminal nueva, con cwd = `path`. `None`
+    /// cuando el proyecto no tiene app configurada: el botón "Abrir app" del
+    /// front se deshabilita en ese caso en vez de invocar el comando a
+    /// ciegas (mandamiento 11 — nada de no-op silencioso).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_command: Option<String>,
 }
 
 /// v2.6.2 — single Quick Launch executable. `name` is the user-facing label;
@@ -143,6 +150,9 @@ pub(crate) struct RegEntry {
     pub(crate) executables: Option<Vec<ExecutableEntry>>,
     #[serde(default)]
     pub(crate) color: Option<String>,
+    /// FRENTE D — ver `ProjectInfo::app_command`.
+    #[serde(default)]
+    pub(crate) app_command: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -172,6 +182,8 @@ pub struct CreateProjectPayload {
     /// v2.7.2 — accent colour `#rrggbb` (optional). Invalid values are
     /// dropped by `normalise_color` instead of failing the create.
     pub color: Option<String>,
+    /// FRENTE D — ver `ProjectInfo::app_command` (optional).
+    pub app_command: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -210,6 +222,10 @@ pub struct UpdateProjectPayload {
     /// back to neutral and the session stops forcing a theme); an invalid
     /// hex is ignored so a typo can't wipe a good value.
     pub color: Option<String>,
+    /// FRENTE D — patch the app launch command. Empty string clears it
+    /// (the "Abrir app" button goes back to disabled); None leaves it
+    /// untouched, consistent with the rest of the patch fields.
+    pub app_command: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

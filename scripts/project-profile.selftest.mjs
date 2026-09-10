@@ -17,6 +17,11 @@
  *      y package.json.
  *   E) HEAD nuevo con perfil determinista -> se pide y se sube a llm.
  *   F) opt-out PROJECT_PROFILE_DISABLED=1 -> ni log.
+ *   G) daemon caido + PROJECT_PROFILE_RELAUNCH_FAKE con relaunched=true ->
+ *      perfil llm desde la respuesta del reintento simulado, log con
+ *      relaunched=true y relaunch_wait_ms numerico.
+ *   H) daemon caido + PROJECT_PROFILE_RELAUNCH_FAKE con relaunched=false ->
+ *      se conserva el perfil anterior, log con relaunched=false.
  *
  * Uso: node scripts/project-profile.selftest.mjs   (exit 0 = verde)
  */
@@ -35,6 +40,7 @@ const REGISTRY = join(TMPDIR, "projects.json");
 const LOG = join(TMPDIR, "log.jsonl");
 const REQ = join(TMPDIR, "request.jsonl");
 const FAKE = join(TMPDIR, "fake-response.json");
+const RELAUNCH = join(TMPDIR, "relaunch-fake.json");
 const PROJECT = "demo";
 const PROFILE = join(COCKPIT, PROJECT, "profile.json");
 const SECRET = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -202,6 +208,43 @@ console.log("F — opt-out");
 reset();
 fire({ PROJECT_PROFILE_DISABLED: "1" });
 A(!existsSync(LOG) && !existsSync(REQ), "ni log ni peticion", "hubo actividad");
+
+// ---------- G: daemon caido + relanzamiento simulado con exito ----------
+// La peticion inicial no responde (FAKE ausente); PROJECT_PROFILE_RELAUNCH_FAKE
+// saca al hook del "modo test" que salta el relanzamiento y sustituye por
+// completo el spawn+sondeo+reintento reales -> hermetico, sin tocar el daemon.
+console.log("G — daemon caido, relanzamiento simulado -> perfil desde el reintento");
+reset();
+writeFileSync(join(REPO, "NOTAS2.md"), "otro cambio\n", "utf8");
+git(["add", "."]);
+git(["commit", "-q", "-m", "docs: mas notas"]);
+const HEAD3 = git(["rev-parse", "--short", "HEAD"]);
+rmSync(FAKE, { force: true });
+writeFileSync(RELAUNCH, JSON.stringify({ relaunched: true, retry_response: PERFIL_OK }), "utf8");
+fire({ PROJECT_PROFILE_RELAUNCH_FAKE: RELAUNCH });
+{
+  const p = readProfile();
+  A(p && p.source === "llm" && p.head.sha === HEAD3, "perfil llm escrito tras el relanzamiento simulado", JSON.stringify(p && { s: p.source, h: p.head }));
+  const log = readJsonl(LOG);
+  A(log[0] && log[0].relaunched === true, "log: relanzamiento registrado (relaunched=true)", JSON.stringify(log[0]));
+  A(log[0] && typeof log[0].relaunch_wait_ms === "number", "log: relaunch_wait_ms numerico", JSON.stringify(log[0]));
+}
+rmSync(RELAUNCH, { force: true });
+
+// ---------- H: daemon caido + relanzamiento simulado sin exito ----------
+console.log("H — relanzamiento simulado fallido -> se conserva el perfil anterior");
+reset();
+rmSync(FAKE, { force: true });
+writeFileSync(RELAUNCH, JSON.stringify({ relaunched: false }), "utf8");
+// FORCE: el perfil de G quedo fresco (mismo HEAD, recien generado) y el gate
+// de frescura ni llegaria a preguntar al daemon.
+fire({ PROJECT_PROFILE_RELAUNCH_FAKE: RELAUNCH, PROJECT_PROFILE_FORCE: "1" });
+{
+  const log = readJsonl(LOG);
+  A(log[0] && log[0].relaunched === false, "log: relanzamiento fallido registrado", JSON.stringify(log[0]));
+  A(log[0] && log[0].written === "conservado", "perfil anterior conservado tras fallo de relanzamiento", JSON.stringify(log[0]));
+}
+rmSync(RELAUNCH, { force: true });
 
 rmSync(TMPDIR, { recursive: true, force: true });
 console.log(fail === 0 ? "\nproject-profile selftest: VERDE" : `\nproject-profile selftest: ${fail} FALLO(S)`);

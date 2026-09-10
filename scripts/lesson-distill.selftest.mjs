@@ -16,6 +16,11 @@
  *      -> 0 candidatos, sin lanzar.
  *   D) daemon caido (respuesta null) -> 'daemon no responde', 0 candidatos.
  *   E) opt-out LESSON_DISTILL_DISABLED=1 -> ni log.
+ *   F) daemon caido + LESSON_DISTILL_RELAUNCH_FAKE con relaunched=true ->
+ *      candidatos desde la respuesta del reintento simulado, log con
+ *      relaunched=true y relaunch_wait_ms numerico.
+ *   G) daemon caido + LESSON_DISTILL_RELAUNCH_FAKE con relaunched=false ->
+ *      'daemon no responde', 0 candidatos, log con relaunched=false.
  *
  * Uso: node scripts/lesson-distill.selftest.mjs   (exit 0 = verde)
  */
@@ -32,6 +37,7 @@ const LOG = join(TMPDIR, "log.jsonl");
 const REQ = join(TMPDIR, "request.jsonl");
 const CAND = join(TMPDIR, "candidates.jsonl");
 const FAKE = join(TMPDIR, "fake-response.json");
+const RELAUNCH = join(TMPDIR, "relaunch-fake.json");
 const TRANSCRIPT = join(TMPDIR, "transcript.jsonl");
 
 rmSync(TMPDIR, { recursive: true, force: true });
@@ -149,6 +155,46 @@ reset();
 writeFileSync(FAKE, JSON.stringify({ lessons: [{ symptom: "s", cause: "c", rule: "r" }] }));
 fire(BASE, { LESSON_DISTILL_DISABLED: "1" });
 A(readJsonl(LOG).length === 0 && readJsonl(CAND).length === 0, "LESSON_DISTILL_DISABLED=1 -> ni log ni candidatos", `${readJsonl(LOG).length}/${readJsonl(CAND).length}`);
+
+// ---------- F: daemon caido + relanzamiento simulado con exito ----------
+// La peticion inicial no responde (FAKE ausente); LESSON_DISTILL_RELAUNCH_FAKE
+// saca al hook del "modo test" que salta el relanzamiento y sustituye por
+// completo el spawn+sondeo+reintento reales -> hermetico, sin tocar el daemon.
+console.log("F — daemon caido, relanzamiento simulado -> candidatos del reintento");
+reset();
+rmSync(FAKE, { force: true });
+writeFileSync(
+  RELAUNCH,
+  JSON.stringify({
+    relaunched: true,
+    retry_response: { lessons: [{ symptom: "s2", cause: "c2", rule: "r2" }] },
+  }),
+  "utf8",
+);
+fire(BASE, { LESSON_DISTILL_RELAUNCH_FAKE: RELAUNCH });
+{
+  const log = readJsonl(LOG);
+  A(log[0] && log[0].relaunched === true, "log: relanzamiento registrado (relaunched=true)", JSON.stringify(log[0]));
+  A(log[0] && typeof log[0].relaunch_wait_ms === "number", "log: relaunch_wait_ms numerico", JSON.stringify(log[0]));
+  A(log[0] && log[0].lessons === 1 && log[0].proposed === 1, "1 leccion propuesta desde el reintento", JSON.stringify(log[0]));
+  const cands = readJsonl(CAND);
+  A(cands.length === 1 && cands[0].candidate.title === "[lesson] r2", "candidato viene de retry_response", JSON.stringify(cands));
+}
+rmSync(RELAUNCH, { force: true });
+
+// ---------- G: daemon caido + relanzamiento simulado sin exito ----------
+console.log("G — relanzamiento simulado fallido -> daemon no responde, sin candidatos");
+reset();
+rmSync(FAKE, { force: true });
+writeFileSync(RELAUNCH, JSON.stringify({ relaunched: false }), "utf8");
+fire(BASE, { LESSON_DISTILL_RELAUNCH_FAKE: RELAUNCH });
+{
+  const log = readJsonl(LOG);
+  A(log[0] && log[0].relaunched === false, "log: relanzamiento fallido registrado", JSON.stringify(log[0]));
+  A(log[0] && log[0].skipped === "daemon no responde", "log: daemon no responde tras fallo de relanzamiento", JSON.stringify(log[0]));
+  A(readJsonl(CAND).length === 0, "0 candidatos", `${readJsonl(CAND).length}`);
+}
+rmSync(RELAUNCH, { force: true });
 
 rmSync(TMPDIR, { recursive: true, force: true });
 console.log(fail === 0 ? "\nSELFTEST lesson-distill: VERDE" : `\nSELFTEST lesson-distill: ROJO (${fail} fallo/s)`);

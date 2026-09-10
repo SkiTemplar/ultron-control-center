@@ -212,11 +212,28 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 model: "openai/gpt-oss-120b".into(),
                 max_tokens: 1024,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
-                max_tokens: 1024,
-            }],
+            // 2026-09-07: la cuota de Groq es POR MODELO. Medido: 266 llamadas
+            // a `chat` en un dia (captura + juez de candidatos), el 120b en
+            // cooldown por 429 y Gemini con sus 20/dia agotadas -> la captura
+            // se quedaba sin proveedor. Dos modelos mas de Groq en medio, cada
+            // uno con su bucket, antes de gastar la cuota diaria de Gemini.
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "qwen/qwen3.6-27b".into(),
+                    max_tokens: 1024,
+                },
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "openai/gpt-oss-20b".into(),
+                    max_tokens: 1024,
+                },
+                ZoneAssignment {
+                    provider_id: "gemini".into(),
+                    model: "gemini-2.5-flash".into(),
+                    max_tokens: 1024,
+                },
+            ],
             system_prompt: None,
         },
         Zone {

@@ -27,6 +27,9 @@
 //   LESSON_DISTILL_REQUEST_OUT   escribe la peticion al daemon en vez de enviarla
 //   LESSON_DISTILL_FAKE_RESPONSE ruta a un JSON con la respuesta simulada del daemon
 //   LESSON_DISTILL_CANDIDATE_OUT escribe los candidatos a fichero en vez de al sidecar
+//   LESSON_DISTILL_RELAUNCH_FAKE ruta a un JSON que simula el ciclo de
+//                                 relanzamiento del daemon (relaunched, retry_response)
+//                                 sin tocar spawn/lockfile/red reales
 
 'use strict';
 
@@ -37,7 +40,7 @@ const { spawnSync } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
 const { parseTurns } = require('./lib/transcript-turns');
-const { findBinary, daemonRequest, projectIdFromCwd } = require('./lib/ultron-memory-cli');
+const { findBinary, daemonRequest, projectIdFromCwd, spawnDetached, readDaemonLock } = require('./lib/ultron-memory-cli');
 observe('lesson-distill');
 
 const HOME = os.homedir();
@@ -56,6 +59,17 @@ const DAEMON_TIMEOUT_MS = 12000;
 const SIDECAR_TIMEOUT_MS = 12000;
 const TITLE_MAX = 80;
 const SUMMARY_MAX = 220;
+// Relanzamiento del daemon si no responde (2026-09-10): un SessionEnd sin
+// daemon vivo moria en silencio (medido: casi siempre no-op). Si la peticion
+// inicial no responde, se levanta `ultron-memory serve` y se sondea el
+// lockfile hasta DAEMON_RELAUNCH_WAIT_MS, reintentando la peticion UNA vez.
+// Presupuesto: este hook tiene timeout=60s en ~/.claude/settings.json
+// (SessionEnd; subido de 30s el 2026-09-10 para dar margen al relanzamiento).
+// Peor caso = pre-proceso (~1,5s) + ask inicial (DAEMON_TIMEOUT_MS=12s) + esta
+// espera (25s) + RETRY_TIMEOUT_MS (12s) + cola (~0,5s) = 51s, margen ~9s.
+const DAEMON_RELAUNCH_POLL_MS = 1500;
+const DAEMON_RELAUNCH_WAIT_MS = 25000;
+const RETRY_TIMEOUT_MS = 12000;
 
 // FAIL-CLOSED: el digest sale de la maquina; sin redaccion real no se envia.
 let redactSecrets = null;
@@ -126,6 +140,52 @@ async function askDaemon(payload) {
   return daemonRequest(payload, DAEMON_TIMEOUT_MS);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * La peticion inicial no obtuvo respuesta: levanta el daemon y reintenta UNA
+ * vez. Devuelve { relaunched, waitMs, retryResp }. NO lanza nunca.
+ *
+ * Seam de test (LESSON_DISTILL_RELAUNCH_FAKE): ruta a un JSON
+ * { relaunched: bool, retry_response?: object } que sustituye por completo el
+ * spawn + sondeo + reintento reales — el selftest no toca el binario ni el
+ * puerto del daemon.
+ */
+async function relaunchAndRetry(payload) {
+  const fakePath = process.env.LESSON_DISTILL_RELAUNCH_FAKE;
+  if (fakePath) {
+    try {
+      const sim = JSON.parse(fs.readFileSync(fakePath, 'utf8'));
+      return {
+        relaunched: !!sim.relaunched,
+        waitMs: 0,
+        retryResp: sim.relaunched ? (sim.retry_response || null) : null,
+      };
+    } catch (_) {
+      return { relaunched: false, waitMs: 0, retryResp: null };
+    }
+  }
+
+  const startedAt = Date.now();
+  const spawned = spawnDetached(['serve']);
+  let relaunched = false;
+  if (spawned) {
+    const deadline = startedAt + DAEMON_RELAUNCH_WAIT_MS;
+    while (Date.now() < deadline) {
+      await sleep(DAEMON_RELAUNCH_POLL_MS);
+      if (readDaemonLock()) {
+        relaunched = true;
+        break;
+      }
+    }
+  }
+  const waitMs = Date.now() - startedAt;
+  const retryResp = relaunched ? await daemonRequest(payload, RETRY_TIMEOUT_MS) : null;
+  return { relaunched, waitMs, retryResp };
+}
+
 function propose(candidate, project) {
   if (process.env.LESSON_DISTILL_CANDIDATE_OUT) {
     appendJsonl(process.env.LESSON_DISTILL_CANDIDATE_OUT, { project, candidate });
@@ -190,7 +250,19 @@ async function main() {
     return appendJsonl(LOG_PATH, record);
   }
 
-  const resp = await askDaemon({ cmd: 'lesson_distill', prompt: digest, project });
+  // Modo test: con LESSON_DISTILL_FAKE_RESPONSE puesto (y sin optar al seam de
+  // relanzamiento) el "daemon" ya esta simulado por askDaemon; relanzar de
+  // verdad ahi rompería el hermetismo del selftest.
+  const testMode = !!process.env.LESSON_DISTILL_FAKE_RESPONSE && !process.env.LESSON_DISTILL_RELAUNCH_FAKE;
+
+  const payload = { cmd: 'lesson_distill', prompt: digest, project };
+  let resp = await askDaemon(payload);
+  if ((!resp || typeof resp !== 'object') && !testMode) {
+    const r = await relaunchAndRetry(payload);
+    record.relaunched = r.relaunched;
+    record.relaunch_wait_ms = r.waitMs;
+    if (r.retryResp && typeof r.retryResp === 'object') resp = r.retryResp;
+  }
   if (!resp || typeof resp !== 'object') {
     record.skipped = 'daemon no responde';
     record.ms = Date.now() - started;

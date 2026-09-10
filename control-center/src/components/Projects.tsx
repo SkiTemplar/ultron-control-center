@@ -98,6 +98,8 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [wDefaultShell, setWDefaultShell] = useState<ProjectShell | "">("");
   const [wParentFolderOverride, setWParentFolderOverride] = useState("");
   const [wNotes, setWNotes] = useState("");
+  // FRENTE D — comando para lanzar la app del proyecto (botón "Abrir app").
+  const [wAppCommand, setWAppCommand] = useState("");
   const [wExecutables, setWExecutables] = useState<ProjectExecutable[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -310,7 +312,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   function resetWizard() {
     setWName(""); setWPath(""); setWTags(""); setWIde(""); setWColor("");
     setWDefaultProvider("claude"); setWDefaultShell("");
-    setWParentFolderOverride(""); setWNotes(""); setWExecutables([]);
+    setWParentFolderOverride(""); setWNotes(""); setWAppCommand(""); setWExecutables([]);
     setEditingId(null); setCreateError(null);
   }
 
@@ -322,6 +324,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     setWDefaultShell((p.default_shell as ProjectShell | null | undefined) ?? "");
     setWParentFolderOverride(p.parent_folder_override ?? "");
     setWNotes(p.notes ?? "");
+    setWAppCommand(p.app_command ?? "");
     setWExecutables((p.executables ?? []).map((e) => ({ name: e.name, path: e.path })));
     setCreateError(null);
     setWizardOpen(true);
@@ -336,6 +339,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       const parentFolderTrimmed = wParentFolderOverride.trim();
       const notesTrimmed = wNotes.trim();
       const colorTrimmed = wColor.trim();
+      const appCommandTrimmed = wAppCommand.trim();
       if (editingId) {
         const cleanedExecs = wExecutables.map((e) => ({ name: e.name.trim(), path: e.path.trim() })).filter((e) => e.name && e.path);
         await invoke("update_project", {
@@ -343,7 +347,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           language: null, tags: tagList, defaultProvider: wDefaultProvider,
           defaultShell: wDefaultShell === "" ? "" : wDefaultShell,
           parentFolderOverride: parentFolderTrimmed, notes: notesTrimmed, executables: cleanedExecs,
-          color: colorTrimmed,
+          color: colorTrimmed, appCommand: appCommandTrimmed,
         });
         resetWizard(); setWizardOpen(false); await load();
       } else {
@@ -351,7 +355,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           name: wName, path: wPath, ide: idePayload || null, language: null,
           tags: tagList.length > 0 ? tagList : null, defaultProvider: wDefaultProvider,
           defaultShell: shellPayload, parentFolderOverride: parentFolderTrimmed || null, notes: notesTrimmed || null,
-          color: colorTrimmed || null,
+          color: colorTrimmed || null, appCommand: appCommandTrimmed || null,
         })) as CreateProjectResult;
         if (r.success) { resetWizard(); setWizardOpen(false); await load(); }
         else { setCreateError(r.message); }
@@ -519,12 +523,12 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         <ProjectWizardModal
           editingId={editingId} wName={wName} wPath={wPath} wTags={wTags} wIde={wIde} wColor={wColor}
           wDefaultProvider={wDefaultProvider} wDefaultShell={wDefaultShell}
-          wParentFolderOverride={wParentFolderOverride} wNotes={wNotes} wExecutables={wExecutables}
+          wParentFolderOverride={wParentFolderOverride} wNotes={wNotes} wAppCommand={wAppCommand} wExecutables={wExecutables}
           creating={creating} createError={createError} tagPool={tagPool} wTagsParsed={wTagsParsed}
           onClose={closeWizard} onSave={saveProject} onPickPath={pickWizardPath} onToggleTag={toggleWizardTag}
           setWName={setWName} setWPath={setWPath} setWTags={setWTags} setWIde={setWIde} setWColor={setWColor}
           setWDefaultProvider={setWDefaultProvider} setWDefaultShell={setWDefaultShell}
-          setWParentFolderOverride={setWParentFolderOverride} setWNotes={setWNotes}
+          setWParentFolderOverride={setWParentFolderOverride} setWNotes={setWNotes} setWAppCommand={setWAppCommand}
           setWExecutables={setWExecutables}
         />
       )}

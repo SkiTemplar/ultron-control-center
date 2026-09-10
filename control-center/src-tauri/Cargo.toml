@@ -1,6 +1,6 @@
 [package]
 name = "control-center"
-version = "2.7.1"
+version = "15.8.0"
 description = "ULTRON Control Center - desktop control panel for the ULTRON system"
 authors = ["Rodrigo Fernandez"]
 edition = "2021"

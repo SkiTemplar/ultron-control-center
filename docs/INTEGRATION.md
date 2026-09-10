@@ -10,7 +10,7 @@ Two distinct layers coexist inside it:
 | Layer | Root | Version | Technology |
 |-------|------|---------|------------|
 | Python Cockpit | `scripts/cockpit/` | 15.7.0 | Python 3.12, uv |
-| Control Center | `control-center/` | 2.7.1 | Tauri 2, React 19, Rust |
+| Control Center | `control-center/` | 15.8.0 | Tauri 2, React 19, Rust |
 
 ### Why two version numbers?
 
@@ -22,11 +22,13 @@ zones/providers JSON mirror, not the engine). Its version is tracked in `pyproje
 propagated to docs/badges via `scripts/cockpit/version_propagate.py`.
 
 Control Center is the **GUI shell** — a Tauri 2 desktop application that
-wraps the same runtime. It was rewritten to v2.0 in May 2026 and follows
-its own semantic version in `control-center/package.json`. The CI
-`version-drift` gate intentionally lets these two numbers diverge (that
-guard checks internal consistency within each layer, not cross-layer
-synchronisation).
+wraps the same runtime. It was rewritten to v2.0 in May 2026 and followed
+its own semantic version (`2.x`) in `control-center/package.json` until it
+was unified to the `15.x` line on 2026-09-10 (currently 15.8.0, one step
+ahead of the cockpit's 15.7.0). The CI `version-drift` gate intentionally
+lets these two numbers diverge (that guard checks internal consistency
+within each layer — `package.json`/`Cargo.toml`/`tauri.conf.json` for
+Control Center — not cross-layer synchronisation).
 
 ### Repo structure
 
@@ -44,7 +46,7 @@ synchronisation).
 │       ├── doctor_core.py       orchestration + CLI
 │       └── ...
 ├── control-center/
-│   ├── package.json             Control Center v2.7.1
+│   ├── package.json             Control Center v15.8.0
 │   ├── src/                     React 19 frontend
 │   └── src-tauri/               Rust/Tauri 2 backend
 ├── hooks/                       Claude Code lifecycle hooks

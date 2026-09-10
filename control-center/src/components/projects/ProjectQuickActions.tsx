@@ -29,6 +29,7 @@ import {
   CardIconFolder,
   CardIconIde,
   CardIconSpark,
+  CardIconTerminal,
 } from "./LauncherIcons";
 
 export type QuickActionsDensity = "compact" | "full";
@@ -110,6 +111,7 @@ export function ProjectQuickActions({
   showBatch = false,
 }: ProjectQuickActionsProps) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [appError, setAppError] = useState<string | null>(null);
 
   const provider: SessionProvider =
     (p.default_provider as SessionProvider | null | undefined) ?? "claude";
@@ -142,6 +144,23 @@ export function ProjectQuickActions({
     }
   }
 
+  // "Abrir app" — lanza project.app_command en una terminal nueva (backend
+  // revalida id/app_command/path; el frontend solo decide el estado disabled
+  // para no invocar a ciegas un comando que no existe — mandamiento 11).
+  const hasAppCommand = !!(p.app_command && p.app_command.trim());
+  async function handleOpenApp() {
+    if (busy || !hasAppCommand) return;
+    setBusy("app");
+    setAppError(null);
+    try {
+      await invoke("project_open_app", { id: p.id });
+    } catch (e) {
+      setAppError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleLaunchAll() {
     if (busy) return;
     setBusy("launch_all");
@@ -161,7 +180,8 @@ export function ProjectQuickActions({
   const launchableItems = (p.items ?? []).filter((it) => it.kind !== "folder");
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
       {/* Acciones base */}
       <ActionBtn
         onClick={handleFolder}
@@ -186,6 +206,18 @@ export function ProjectQuickActions({
         label={busy === "ai" ? "…" : badge.label}
         accent={badge.tint}
         Icon={CardIconSpark}
+        compact={compact}
+      />
+      <ActionBtn
+        onClick={handleOpenApp}
+        disabled={!hasAppCommand || busy === "app"}
+        title={
+          hasAppCommand
+            ? `Lanzar: ${p.app_command}`
+            : "Configura app_command para habilitar este botón"
+        }
+        label={busy === "app" ? "Lanzando…" : "Abrir app"}
+        Icon={CardIconTerminal}
         compact={compact}
       />
 
@@ -231,6 +263,17 @@ export function ProjectQuickActions({
           />
         );
       })}
+      </div>
+      {/* Error del botón "Abrir app" — en la tarjeta, nunca alert() */}
+      {appError && (
+        <div
+          className="truncate text-[10.5px]"
+          style={{ color: "var(--color-danger)" }}
+          title={appError}
+        >
+          {appError}
+        </div>
+      )}
     </div>
   );
 }

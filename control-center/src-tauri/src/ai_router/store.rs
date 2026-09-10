@@ -228,10 +228,16 @@ pub(crate) fn retire_gemini_cli(zones: &mut [Zone]) -> bool {
                 mutated = true;
             }
         }
+        // De-dup por (proveedor, modelo), NO por proveedor (2026-09-07): la
+        // cuota de Groq es por modelo, así que una cadena legítima lleva
+        // varios modelos del mismo proveedor. Con la clave antigua esta
+        // migración borraba en cada carga los fallbacks groq de la zona
+        // `chat` (verificado: zones.json revertido a los 40 s de editarlo).
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        seen.insert(z.primary.provider_id.clone());
+        seen.insert(format!("{}::{}", z.primary.provider_id, z.primary.model));
         let before = z.fallbacks.len();
-        z.fallbacks.retain(|f| seen.insert(f.provider_id.clone()));
+        z.fallbacks
+            .retain(|f| seen.insert(format!("{}::{}", f.provider_id, f.model)));
         if z.fallbacks.len() != before {
             mutated = true;
         }
@@ -277,4 +283,61 @@ pub(crate) fn mask_key(raw: &str) -> Option<String> {
         "*".repeat(trimmed.len() - 8),
         &trimmed[trimmed.len() - 4..]
     ))
+}
+
+#[cfg(test)]
+mod retire_tests {
+    use super::retire_gemini_cli;
+    use crate::ai_router::types::{Zone, ZoneAssignment};
+
+    fn asg(provider: &str, model: &str) -> ZoneAssignment {
+        ZoneAssignment {
+            provider_id: provider.into(),
+            model: model.into(),
+            max_tokens: 1024,
+        }
+    }
+
+    #[test]
+    fn keeps_several_models_of_the_same_provider_in_a_chain() {
+        // Caso del 2026-09-07: la cuota de Groq es por modelo, así que una
+        // cadena con tres modelos de Groq es legítima y no debe recortarse.
+        let mut zones = vec![Zone {
+            id: "chat".into(),
+            label: "chat".into(),
+            category: "chat".into(),
+            primary: asg("groq", "openai/gpt-oss-120b"),
+            fallbacks: vec![
+                asg("groq", "qwen/qwen3.6-27b"),
+                asg("groq", "openai/gpt-oss-20b"),
+                asg("gemini", "gemini-2.5-flash"),
+            ],
+            system_prompt: None,
+        }];
+        assert!(
+            !retire_gemini_cli(&mut zones),
+            "nada que migrar ni recortar"
+        );
+        assert_eq!(zones[0].fallbacks.len(), 3);
+    }
+
+    #[test]
+    fn drops_exact_duplicates_and_retires_gemini_cli() {
+        // Caso negativo: el mismo (proveedor, modelo) repetido sí se recorta, y
+        // gemini-cli se sustituye por gemini.
+        let mut zones = vec![Zone {
+            id: "x".into(),
+            label: "x".into(),
+            category: "chat".into(),
+            primary: asg("groq", "openai/gpt-oss-120b"),
+            fallbacks: vec![
+                asg("groq", "openai/gpt-oss-120b"),
+                asg("gemini-cli", "gemini-2.5-flash"),
+            ],
+            system_prompt: None,
+        }];
+        assert!(retire_gemini_cli(&mut zones));
+        assert_eq!(zones[0].fallbacks.len(), 1);
+        assert_eq!(zones[0].fallbacks[0].provider_id, "gemini");
+    }
 }

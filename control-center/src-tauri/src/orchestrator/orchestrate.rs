@@ -113,7 +113,15 @@ pub fn orchestrate(
         rebalance_delegates(pooled, intent, 5)
     };
     if delegate_agents.is_empty() && !meta_introspective {
-        if raw_hits_empty {
+        if !dense_enabled {
+            // Camino sparse (respaldo `--sparse` del hook, 2026-09-07): no se
+            // ha consultado el catálogo, así que "sin hits" no dice nada de
+            // Qdrant. Sin este guard cada respaldo lanzaba un reindex de
+            // fondo por un diagnóstico falso.
+            warnings.push(
+                "sparse: sin búsqueda semántica de agentes (solo reglas por intent)".to_string(),
+            );
+        } else if raw_hits_empty {
             // Auto-reparación (2026-08-23, decidido por el usuario): el catálogo
             // solo vive en Qdrant — a diferencia de las memorias, no tiene fuente
             // de verdad que reconstruirlo — y NADIE lo repuebla salvo a mano. Si

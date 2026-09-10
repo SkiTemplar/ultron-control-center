@@ -76,6 +76,7 @@ const os = require('os');
 // Reusa el transporte de memory-orchestrate en vez de re-spawnear Python por prompt.
 const { daemonRequest } = require('../../hooks/scripts/lib/ultron-memory-cli.js');
 const { isSystemTurnPrompt } = require('../../hooks/scripts/lib/system-turn.js');
+const { decide: decideLane } = require('../../hooks/scripts/lib/fast-lane.js');
 
 const HOME = os.homedir();
 
@@ -585,6 +586,16 @@ async function mainV3() {
     return;
   }
 
+  // Doble velocidad (2026-09-07): un ack o una continuacion corta no lleva
+  // skill que rutear — ni ranking v2 ni fallback semantico ni juez LLM. Solo
+  // lee el estado de la sesion; lo incrementa memory-orchestrate (el ultimo
+  // hook del grupo), asi que ambos ven el mismo conteo en el mismo turno.
+  const sessionIdV3 = payload.session_id || payload.sessionId || null;
+  if (decideLane({ prompt, sessionId: sessionIdV3 }).lane === 'fast') {
+    emitContextV3('');
+    return;
+  }
+
   // --- Step 1: Run v2 deterministic ranking (synchronous, < 50 ms) ---
   const ranked = filtrarPersonas(v2.rankCandidates(prompt), prompt);
   const top = ranked[0] || null;
@@ -659,10 +670,10 @@ async function mainV3() {
         const lazyRaceTimeout = new Promise(function (resolve) {
           lazyTimerHandle = setTimeout(function () { resolve(new Map()); }, lazyBudget);
         });
-        // BUGFIX (Kirkardo R7): pass the normalized prompt as the second arg.
         // v2.fetchLazySkillContent(candidates, promptNorm) needs promptNorm to
-        // run the ECC on-demand lookup (matchBestEccSkill). Calling it without
-        // promptNorm silently disabled all ECC lazy injection. Mirror v2.main():
+        // detect planning intent (promptHasStrongPlanningKeyword) for the
+        // PLANNING_LAZY_SKILLS allowlist — calling it without promptNorm
+        // silently disables that allowlist. Mirror v2.main():
         // normalize(prompt).slice(0, MAX_PROMPT_CHARS).
         const promptNorm = v2.normalize(prompt).slice(0, MAX_PROMPT_CHARS);
         const injected = await Promise.race([
@@ -781,6 +792,11 @@ function emitContextV3(text) {
       additionalContext: text || '',
     },
   };
+  // Pilar 1: contabiliza lo que este hook inyecta al CLI (era el segundo mayor
+  // inyector sin medir). v3 es el unico punto de emision en produccion: v2 solo
+  // emite por su cuenta si se ejecuta como script principal (require.main),
+  // caso que el manifest de hooks no registra — no hay doble conteo por prompt.
+  try { require('../../hooks/scripts/lib/token-meter').meterInjection('routing-dispatcher', text || ''); } catch {}
   // HOOKS-01: exit explicito tras vaciar stdout — timers internos de
   // fetchLazySkillContent / querySemanticSkills no deben mantener el proceso
   // vivo hasta su deadline. El callback de write garantiza el flush del

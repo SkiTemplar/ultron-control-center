@@ -33,6 +33,9 @@
 //   PROJECT_PROFILE_FAKE_RESPONSE  ruta a un JSON con la respuesta simulada del daemon
 //   PROJECT_PROFILE_FORCE          1 = regenera aunque el perfil este fresco
 //   PROJECT_PROFILE_MAX_AGE_DAYS   edad maxima del perfil LLM antes de regenerar
+//   PROJECT_PROFILE_RELAUNCH_FAKE  ruta a un JSON que simula el ciclo de
+//                                  relanzamiento del daemon (relaunched, retry_response)
+//                                  sin tocar spawn/lockfile/red reales
 
 'use strict';
 
@@ -41,7 +44,7 @@ const path = require('path');
 const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
-const { daemonRequest, projectIdFromCwd } = require('./lib/ultron-memory-cli');
+const { daemonRequest, projectIdFromCwd, spawnDetached, readDaemonLock } = require('./lib/ultron-memory-cli');
 const { gatherSources, perfilDeterminista } = require('./lib/project-sources');
 observe('project-profile');
 
@@ -52,6 +55,15 @@ const DEFAULT_MAX_AGE_DAYS = 14;
 const DAEMON_TIMEOUT_MS = 25000;
 const PROFILE_VERSION = 1;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+// Relanzamiento del daemon si no responde (2026-09-10): mismo patron que
+// lesson-distill.js. Presupuesto: este hook tiene timeout=75s en
+// ~/.claude/settings.json (SessionEnd; subido de 40s el 2026-09-10 para dar
+// margen al relanzamiento). Peor caso = pre-proceso (gatherSources con git,
+// ~2s) + ask inicial (DAEMON_TIMEOUT_MS=25s) + esta espera (25s) +
+// RETRY_TIMEOUT_MS (15s) + cola (~0,5s) = 67,5s, margen ~7s.
+const DAEMON_RELAUNCH_POLL_MS = 1500;
+const DAEMON_RELAUNCH_WAIT_MS = 25000;
+const RETRY_TIMEOUT_MS = 15000;
 
 // FAIL-CLOSED: las fuentes salen de la maquina; sin redaccion real no se envian.
 let redactSecrets = null;
@@ -147,6 +159,52 @@ async function askDaemon(payload) {
   return daemonRequest(payload, DAEMON_TIMEOUT_MS);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * La peticion inicial no obtuvo respuesta: levanta el daemon y reintenta UNA
+ * vez. Devuelve { relaunched, waitMs, retryResp }. NO lanza nunca.
+ *
+ * Seam de test (PROJECT_PROFILE_RELAUNCH_FAKE): ruta a un JSON
+ * { relaunched: bool, retry_response?: object } que sustituye por completo el
+ * spawn + sondeo + reintento reales — el selftest no toca el binario ni el
+ * puerto del daemon.
+ */
+async function relaunchAndRetry(payload) {
+  const fakePath = process.env.PROJECT_PROFILE_RELAUNCH_FAKE;
+  if (fakePath) {
+    try {
+      const sim = JSON.parse(fs.readFileSync(fakePath, 'utf8'));
+      return {
+        relaunched: !!sim.relaunched,
+        waitMs: 0,
+        retryResp: sim.relaunched ? (sim.retry_response || null) : null,
+      };
+    } catch (_) {
+      return { relaunched: false, waitMs: 0, retryResp: null };
+    }
+  }
+
+  const startedAt = Date.now();
+  const spawned = spawnDetached(['serve']);
+  let relaunched = false;
+  if (spawned) {
+    const deadline = startedAt + DAEMON_RELAUNCH_WAIT_MS;
+    while (Date.now() < deadline) {
+      await sleep(DAEMON_RELAUNCH_POLL_MS);
+      if (readDaemonLock()) {
+        relaunched = true;
+        break;
+      }
+    }
+  }
+  const waitMs = Date.now() - startedAt;
+  const retryResp = relaunched ? await daemonRequest(payload, RETRY_TIMEOUT_MS) : null;
+  return { relaunched, waitMs, retryResp };
+}
+
 async function main() {
   if (process.env.CLAUDE_NO_HOOKS === '1' || process.env.PROJECT_PROFILE_DISABLED === '1') return;
 
@@ -189,7 +247,19 @@ async function main() {
   const text = redactSecrets(sources.text);
   record.source_chars = text.length;
 
-  const resp = await askDaemon({ cmd: 'profile_distill', project, prompt: text });
+  // Modo test: con PROJECT_PROFILE_FAKE_RESPONSE puesto (y sin optar al seam
+  // de relanzamiento) el "daemon" ya esta simulado por askDaemon; relanzar de
+  // verdad ahi rompería el hermetismo del selftest.
+  const testMode = !!process.env.PROJECT_PROFILE_FAKE_RESPONSE && !process.env.PROJECT_PROFILE_RELAUNCH_FAKE;
+
+  const payload = { cmd: 'profile_distill', project, prompt: text };
+  let resp = await askDaemon(payload);
+  if ((!resp || typeof resp !== 'object') && !testMode) {
+    const r = await relaunchAndRetry(payload);
+    record.relaunched = r.relaunched;
+    record.relaunch_wait_ms = r.waitMs;
+    if (r.retryResp && typeof r.retryResp === 'object') resp = r.retryResp;
+  }
   const now = new Date().toISOString();
   const base = { version: PROFILE_VERSION, project, generated_at: now, head: sources.head, session_id: sessionId };
 

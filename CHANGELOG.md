@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [15.8.0] - 2026-09-10
+
 Sprint ultracode 2026-07-22: cierre del harness kirkardo (OVERALL 9.73 · CORE
 9.58 · 109/112 checks, partida 8.57/7.78). 13 commits (`30a2297..3608a32`).
 Bloque 2026-08 (commits `d9a3ce5..44056f4` + instalador): Personalities v1,
@@ -37,6 +39,87 @@ selección de componentes en los instaladores.
   registra líneas, palabras, cabeceras, listas, disculpas y preámbulos de cada
   respuesta en `logs/response-meter.jsonl`; el resume pinta la media, el % sobre
   el límite (12 líneas / 220 palabras) y la tendencia de las últimas 3 sesiones.
+- **MCP Accounts** (2026-08-17/18): varias cuentas por token de un mismo
+  servicio en Settings, con plantilla lista para GitHub (6c4518f, f107258).
+- **Memoria de ULTRON expuesta como servidor MCP** (2026-08-17): brain.db y
+  Qdrant consultables desde fuera del pipeline de hooks (279ee5d).
+- **Roster de delegación por proyecto** (2026-08-19/21): panel Plantilla en
+  `ProjectWorkspace` para componer y delegar tareas a agentes, gate de
+  `.env`, cierre de kanban con evidencia y tono por defecto; comando
+  `delegate_task_launch` fire-and-forget con estado en el log; tests
+  roundtrip de guardado/carga (fd456fe, 901edb1, 06c607a, 6418d52).
+- **Filtro "ocultar plugins apagados"** en la vista de hooks (7afc229).
+- **Routing de skills — juez LLM** (2026-08-24/09-01): juez de skills por LLM
+  con reparación selectiva del drift, cadena de 4 proveedores con prefiltro y
+  gate de intención en el dispatcher, banco A/B de precisión y telemetría de
+  calidad del dispatcher desde el log que sí se escribe (405630c, 7dc514a,
+  4c48211, 53f8d96).
+- **Hooks: guardrails pre y post** con selftest y entrada en el manifest
+  (804775f).
+- **Memoria: `touch_injected`** — telemetría de utilidad en la inyección de
+  items, y `agent_note` fuera del recall sin borrarlo del corpus (fbb48a6,
+  b546937).
+- **ULTRON 4 F1.1–F1.3: lecciones y harvest** (2026-09-02): grifo Q1a de
+  harvest de subagentes con fallback al transcript, tipo `lesson` destilado
+  al cerrar sesión vía el daemon, lecciones cross-project por síntoma en el
+  contexto de orquestación, drains `--auto` sin solape con dedupe de copias
+  exactas (6bdf39d, a674b32, c936d95, 8403200).
+- **Identidad de proyecto por repositorio** (2026-08-21/09-02): un solo
+  `project_id` alineado con el registro del cockpit; alta de proyectos y
+  garantía de CLAUDE.md + CodeGraph al abrir sesión; `ensure-project` señala
+  el kanban del proyecto (31c921f, 43fab88, 5f0bc2d).
+- **Orquestador: intent y catálogo** (2026-08-22): rescate del intent en
+  prompts conversacionales con auto-reparación del catálogo (36eb236).
+- **TFG: banco de medición del detector de texto IA** (f09ef24).
+- **Release**: script de sincronización con el espejo público, `sync-public`
+  (485657f).
+- **Deploy del sidecar automático** con resaltado exacto en el Lab del
+  Detector (091d9f8).
+- **Memoria: medir el recall sobre tráfico REAL**, no solo sobre el golden
+  (631dcbb).
+- **Memoria: subcomando `curate`** (bisturí per-item), umbral de purga
+  1.6→0.64 (d00ad2d).
+- **Tonos**: el tono `ultron` prohíbe explícitamente el diagnóstico en el
+  chat (df0c6a2).
+- **UI**: color por proyecto, alta de proyecto desde Home, detector de texto
+  IA v2 y routing real reflejado en la UI (091ba79).
+- **Skills**: vault lazy en `~/.claude/skills/_disabled/<name>/` (e94dd05).
+- **Memoria: F1.5 herramientas del golden v2 sobre prompts reales**, con
+  aviso de `expect_ids` deprecados o secretos en `golden-v2-compile`
+  (1eb53be, f757340).
+- **Memoria: re-rank del hot path por ruta** (todo intent salvo `general`)
+  (261e8e6).
+- **F1.7 archivo de memoria**: items movidos a tabla aparte
+  (`memory_items_archive`) y subcomando `archive` (89cfec8).
+- **Memoria: gate de origen en la captura**, log por petición del daemon y
+  floor de inyección (65cd468).
+- **Hooks: carril de doble velocidad en UserPromptSubmit** (fast-lane)
+  (76ef689).
+- **Hooks: gate progresivo de CodeGraph** — deniega `Grep`/`Read`/`grep` a
+  ciegas con la llamada exacta a usar (adb77db).
+- **Tools**: `home-reorg`, revisión asistida del árbol del home (31d54e8).
+- **Memoria: gate anti-duplicado en approve** + sweep por confianza y
+  `golden-remap` (c340b93).
+- **Infra: watchdog de Qdrant** cada 5 min con relanzamiento verificado; fuera
+  el force-kill (9e77ec4).
+- **Memoria: Retrieval Inspector cableado** — panel Memory → Inspector con
+  `recall_inspect` / `memory_reindex` registrados (bcafed4).
+- **System: panel Tasks cableado** — tareas programadas de ULTRON con
+  run/edit/delete (0526b18).
+- **Projects: editor de CLAUDE.md por proyecto** cableado (3483b5d).
+- **Workflows: historial de runs cableado** — escritor real en la delegación
+  y panel en el monitor (8dbab37).
+- **Modelos**: familia Claude 5 en el router, catálogos y fixtures
+  (`sonnet-5` / `opus-5` / `fable-5`) (4de4ba6).
+- **Vibe/statusline**: status por personalidad con spinner del pack aprobado;
+  mini-barras en las métricas y render genérico de límites de uso (2fd8613,
+  8caf1d7).
+- **Poom**: bootstrap de proyectos nuevos con identidad de color para el
+  home (7a2a69f).
+- **Tonos**: sección Custom Words en Library Tones — spinner y status
+  editables desde la app (d52acdf).
+- **Personalities**: ejemplos de voz few-shot y cláusula de reescritura en
+  la directiva de tono (90cd353).
 
 ### Changed
 - **Gate socrático por proyecto** (ULTRON 4, F4.3, Q5a): `socratic-gate` lee el
@@ -126,6 +209,34 @@ selección de componentes en los instaladores.
   waste 0.4→0.62, timeout del eval golden 120s→600s (23283be).
 - Tests de rules extraídos a `rules_tests.rs` (límite 800L) (3bca2ec).
 - Remediaciones cats 5/9/11 del audit 2026-07-20 en cockpit (935bc2a).
+- **Evals**: higiene de labels del golden — recall@8 0.783→0.823 con oráculo
+  honesto (64999eb).
+- **CI**: selftests de hooks/scripts añadidos al gate (a1ebbc5).
+- **Hooks**: `deny-secrets` portado de Python a Node, fuera `uv` del hot path
+  (868adfb).
+- **Memoria**: rerank selectivo en el hot path con poda por margen — medida
+  y descartada tras el experimento (b99673c).
+- **Hooks**: dieta de inyecciones por prompt — clase conversacional y
+  socrático condicional (8971389).
+- **Build**: `build-local` detectaba Finance por `finance.rs`; el módulo pasa
+  a `finance/` (2fe6ef0).
+- **Projects**: editar el proyecto Home y tema por fichero de settings
+  (571f3b5).
+- **Memoria: una sola copia de los modelos en RAM** (E5-large + cross-encoder)
+  y liberación por inactividad vía `ULTRON_MODEL_IDLE_MIN` (13034c5).
+- **Calidad**: ningún fichero de código supera las 800 líneas (7d7c2b1).
+- **Orquestador**: cross-encoder fuera del hot path del hook (12beb24).
+- **Cockpit**: proyecto ULTRON fusionado en un solo id, `~/.claude` excluido
+  del alta automática (95b04a6).
+- **Delegación**: id de log inyectable y campo `error` en
+  `DelegationLogEntry` (8cd60fd).
+- **Learn**: sustituye las piezas que documentaba y no existían (ad94324).
+- **Memoria**: reranker con `max_length` 256, concurrencia del daemon 4→2,
+  cross-encoder seleccionable; `RERANK_TOP_N` 48→24 y sin re-rank en
+  `general`/`continue`/`quick` (dirección contraria al ajuste anterior,
+  reconfirmada con medición nueva) (c81b19f, 767d9af).
+- **Hooks**: ahorro de tokens por prompt y en el arranque de sesión
+  (bd677e8, ebbee84).
 
 ### Fixed
 - **Ids de proyecto partidos** (2026-09-03): el registro de identidad del
@@ -150,6 +261,103 @@ selección de componentes en los instaladores.
   word-boundary (2209b0c).
 - `summarize_session_activity` async + resumen AI bajo demanda (privacidad:
   los transcripts no salen a Groq/Gemini sin gesto explícito) (11d6589).
+- **AI Router**: el proveedor groq apuntaba a un modelo retirado; zonas
+  repuntadas a los modelos que Groq sirve hoy; migración de zonas de-duplica
+  por (proveedor, modelo) en vez de por proveedor; zona chat con tres modelos
+  de Groq antes de caer a Gemini y throttle de la compresión de sesión
+  (51311e9, 9e4d6d9, ea6a729, d350e2d).
+- **Kanban**: el recordatorio resuelve el tablero por `projects.json`; el
+  tablero relee `kanban.json` al recuperar el foco y cada 15s (fe63bd0,
+  fee7013).
+- **Orquestación**: el pack cacheado ya no re-emite la directiva de otro
+  prompt; meta-tareas no delegables y Opus decidido por contenido; floor de
+  preferidos escalonado por su posición (fb3f6ac, 081ea98, 0b343cc).
+- **Detector de texto IA**: el catálogo se resuelve también desde el repo
+  (CI hermético) (e266af9).
+- **Harness**: el check 3.3 descarta líneas ERROR del logger de codex
+  (7b75b2d).
+- **Delegación / roster**: `list_delegations` colapsa por id y filtra por cwd
+  en backend, borrador por agente, mirror IPC único; sleep async en el poll
+  con `started_at` real y filas `running` huérfanas a `stale`; propuesta LLM
+  filtra slugs contra el catálogo real de agentes; `ANTHROPIC_API_KEY` ya no
+  secuestraba al claude hijo del PTY (f969c19, 4f8bb74, a04ce9c, 99c6311,
+  8781754).
+- **UI**: Dashboard y AI Router responsive en ventana estrecha; notificaciones
+  cuentan sobre lo no oculto y se pueden restaurar; enlaces externos abren en
+  el navegador del sistema (5f8befe, f72244c, 32222c7).
+- **Memoria**: un solo `project_id` por proyecto alineado con el cockpit;
+  servir varias sesiones a la vez sin estampida de cargas de E5; primer
+  prompt tras una pausa ya no entra sin recall; primer prompt con espera
+  larga al daemon y respaldo sparse sin E5; clasificador batch a
+  `gpt-oss-120b` con fail-fast en error sistémico; golden gs-0021 apuntaba a
+  un item deprecado sin gemelo activo; trust gate vaciaba el 66% de los
+  packs de recall; cross-encoder ya no se carga dentro del turno; `'qdrant'`
+  devolvía cero memorias por el corte del sparse fuerte; floor de confianza
+  0.83→0.81 medido sobre tráfico real; eval del golden etiquetado recuerda
+  con el proyecto de cada query; `golden-v2-ab` no tomaba el valor de
+  `--only` como ruta del golden; `rerank_hot` en la respuesta solo si el
+  cross-encoder estaba caliente y se aplicó; el audit de tráfico real deja
+  fuera los prompts del harness y separa los acks; el gate de origen también
+  cubre el auto-approve en la creación; la captura no propone nada cuando el
+  router no extrae hechos; la captura descarta ecos del asistente,
+  plantillas del prompt y falsos emails; daemon residente con recuperación
+  del `orchestrate` y captura por un solo camino (7fcc6bb, cc0cf0f, 5f015af,
+  2604a68, 3ecbd1a, 8834916, 5b259e8, fa1a553, e3b3df0, fe8d06a, 944e970,
+  1056a1b, 3a94a13, e7c20fd, a05341b, edf603f, ff42ca2, 14468b5).
+- **Hooks**: no capturar notas de subagente sin título derivable; registry
+  lazy dejaba de registrar skills de plugins apagados (78482dd, 21e5d05).
+- **Evals**: no contar como relevantes los tipos vetados en el recall
+  (1f0d9e1).
+- **Build**: deploy del sidecar sobrevive a los respawns de sesiones
+  concurrentes (7a84922).
+- **Rust**: `as_chunks` en el decodificador UTF-16 (clippy 1.98) (6bf4205).
+- **Release**: `sync-public` vuelca con `checkout-index` en vez de `tar`
+  (9c1057f).
+- **Hooks**: auditoría 2026-07-27 — 10 fixes en hooks JS y cockpit (9b3439f).
+- **Seguridad**: metacaracteres de `cmd.exe` rechazados y `spawn_blocking` en
+  comandos que pasan por `route()` (d63b1da).
+- **Backup**: snapshot consistente de `brain.db` vía `VACUUM INTO` +
+  retención (65c0860).
+- **Scripts**: `consistency_check` v4.1 — 20 falsos positivos a cero, checks
+  contra la realidad; escalada DLQ real vía upsert en `pending_actions.json`
+  (471f6bb, 76c9190).
+- **Routing**: el router deja de proponer agentes irrelevantes con
+  confianza 1.00; floor de abstención en delegates cuando no hay señal
+  (8918b13, 98dad78).
+- **Kanban**: `closeCompletedCards` cierra cards paraguas cubiertas por
+  varios commits (7090647).
+- **Hooks**: aviso explícito de memoria degradada en `memory-orchestrate`
+  (c9fabd9).
+- **Memoria**: fail-fast de Qdrant end-to-end, `orch_lock` acotado e
+  `infra_down` declarado explícitamente; calidad del resume sin métricas
+  memorizadas, sin eco de git, dedupe ES/EN y scratch cross-project fuera;
+  el doctor mide el oráculo etiquetado por el hot path (151f829, 580b5d7,
+  69d7f8e).
+- **Vibe/statusline**: quoting de `Start-Process` roto en el spawn,
+  rediseño sobrio de la statusline (3643c84).
+- **Spawn**: las sesiones spawneadas limpian los markers de entorno de
+  Claude Code (3149b32).
+- **Poom/vibe**: usage limpio en `ultron-new`, status rotatorios por tono,
+  spinner sin glitches (1c2dc48).
+- **Kanban**: lápidas para cards auto — un borrado deliberado ya no
+  resucita (125dcb2; el mecanismo se retiró después, ver Removed).
+- **Detector de texto IA**: filtro de ámbito — deja de gritar sobre Markdown
+  legítimo; un patrón entero estaba muerto en el hook y vivo en el Lab
+  (2373230, 00d4760).
+
+### Removed
+- **CLI**: retirado `eval-contradiction`, `main.rs` limpio y `Learn`
+  regenerada (984229a).
+- **Routing**: 3 skills fantasma fuera del dispatcher, `hooks/hooks/`
+  huérfano borrado (239a2ab).
+- **Higiene**: notas por-proyecto y CRUD manual de skills fuera (2 bloques
+  huérfanos resueltos por retirada); 5 comandos Tauri muertos y cadena
+  legacy de plugins v2.6 fuera; cadenas muertas de batches ad-hoc y hotkeys
+  del inbox fuera (b8a7e2e, b799a86, 7faa855).
+- **Projects**: retirada la sección Plantilla suelta de la UI, sustituida
+  por el panel de roster en `ProjectWorkspace` (3224cfe).
+- **Kanban**: fuera el mecanismo de lápidas; `cat21.1` mide contra el
+  selftest (030bc7f).
 
 <!-- v15.7.0 -->
 ## v15.7.0 — 2026-07-18 — Auditoría cerrada + memoria por proyectos

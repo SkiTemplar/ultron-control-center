@@ -22,6 +22,14 @@
 // para no propagar el desfase de reconcile). Upsert idempotente por id canonico.
 // Solo points status=active. FAIL-SAFE: loguea y sale 0 ante cualquier error.
 // Apuntar el MCP a este espejo en .claude.json (COLLECTION_NAME=ultron_mcp_mirror).
+//
+// THROTTLE (F6, 2026-09-10): un re-scan completo de la coleccion canonica
+// (2261 puntos, 1-1,8 s) en CADA Stop es trabajo repetido sin cota — 2340
+// re-scans medidos. Se acota via fichero de estado (.tmp/*-last.json con el
+// ts del ultimo run): dentro de MIRROR_SYNC_MIN_INTERVAL_MS el hook sale al
+// instante SIN escribir en el log (silencio = sin ruido; solo se loguea
+// cuando de verdad se trabaja). ULTRON_MIRROR_SYNC_FORCE=1 salta el throttle
+// (pruebas y el reconcile manual).
 
 'use strict';
 
@@ -36,6 +44,9 @@ const DST = process.env.ULTRON_MCP_MIRROR || 'ultron_mcp_mirror';
 const VECTOR_NAME = 'fast-multilingual-e5-large';
 const PAGE = 256;
 const LOG = path.join(os.homedir(), '.ultron', 'logs', 'qdrant-mirror-sync.jsonl');
+const TMP_DIR = path.join(os.homedir(), '.ultron', '.tmp');
+const STATE_FILE = path.join(TMP_DIR, 'qdrant-mirror-sync-last.json');
+const MIRROR_SYNC_MIN_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
@@ -122,7 +133,44 @@ async function pruneStale(activeIds) {
   return r && r.status >= 200 && r.status < 300 ? stale.length : 0;
 }
 
+/** Ultimo ts (ms epoch) de un run completo, o null si no hay estado / esta corrupto. */
+function readLastRunTs() {
+  try {
+    const raw = fs.readFileSync(STATE_FILE, 'utf8');
+    const ts = JSON.parse(raw).ts;
+    return typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Escritura atomica (tmp + rename) del ts del run que arranca. Best-effort. */
+function writeLastRunTs(ts) {
+  try {
+    fs.mkdirSync(TMP_DIR, { recursive: true });
+    const tmp = `${STATE_FILE}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ ts }), 'utf8');
+    fs.renameSync(tmp, STATE_FILE);
+  } catch {
+    /* el throttle es best-effort: un fallo de escritura no debe romper el hook */
+  }
+}
+
+/** true si el ultimo run fue hace menos de MIRROR_SYNC_MIN_INTERVAL_MS. */
+function isThrottled() {
+  if (process.env.ULTRON_MIRROR_SYNC_FORCE === '1') return false;
+  const last = readLastRunTs();
+  if (last == null) return false;
+  return Date.now() - last < MIRROR_SYNC_MIN_INTERVAL_MS;
+}
+
 async function main() {
+  // Throttle: dentro del intervalo, salida instantanea y SIN log (silencio =
+  // sin ruido). Se marca el intento (no el exito) antes de trabajar para que
+  // una racha de fallos tampoco reintente en caliente en cada Stop.
+  if (isThrottled()) { process.exitCode = 0; return; }
+  writeLastRunTs(Date.now());
+
   const started = Date.now();
   const ok = await ensureMirror();
   if (!ok) { log({ msg: 'ensure_failed' }); process.exitCode = 0; return; }

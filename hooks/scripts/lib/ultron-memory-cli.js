@@ -142,13 +142,33 @@ function runCli(args, opts) {
 function spawnDetached(args) {
   const bin = findBinary();
   if (!bin) return false;
+  // (2026-09-07) El daemon `serve` escribía su stderr a la nada: sin rastro de
+  // "modelos liberados por inactividad", del indexado de skills ni de ningún
+  // pánico. Ahora va en append a logs/memory-daemon.stderr.log; el resto de
+  // lanzamientos siguen mudos.
+  let stderr = 'ignore';
+  let fd = null;
+  if (args[0] === 'serve') {
+    try {
+      const dir = path.join(os.homedir(), '.ultron', 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+      fd = fs.openSync(path.join(dir, 'memory-daemon.stderr.log'), 'a');
+      stderr = fd;
+    } catch {
+      stderr = 'ignore';
+    }
+  }
   try {
-    const child = spawn(bin, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    const child = spawn(bin, args, { detached: true, stdio: ['ignore', 'ignore', stderr], windowsHide: true });
     child.on('error', () => { /* best effort */ });
     child.unref();
     return true;
   } catch {
     return false;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* el hijo ya tiene su copia del handle */ }
+    }
   }
 }
 

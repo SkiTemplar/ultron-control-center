@@ -107,6 +107,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                 };
                 let (mut approved, mut superseded, mut kept_unverified, mut failed) =
                     (0u32, 0u32, 0u32, 0u32);
+                let mut kept_non_user_origin = 0u32;
                 let (mut rej_secret, mut rej_dup, mut rej_conflict, mut rej_noise) =
                     (0u32, 0u32, 0u32, 0u32);
                 let mut already_decided = 0u32;
@@ -141,6 +142,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                             }
                         }
                         AutoDisposition::KeepUnverified => kept_unverified += 1,
+                        AutoDisposition::KeepNonUserOrigin => kept_non_user_origin += 1,
                         AutoDisposition::Reject(kind) => {
                             let (counter, reason): (&mut u32, String) = match kind {
                                 RejectKind::Secret => (
@@ -195,6 +197,7 @@ pub(crate) fn inbox_command(sub: &str, args: &[String]) -> Result<serde_json::Va
                     "rejected_contradiction": rej_conflict,
                     "rejected_noise": rej_noise,
                     "kept_unverified": kept_unverified,
+                    "kept_non_user_origin": kept_non_user_origin,
                     "already_decided": already_decided,
                     "failed": failed,
                 }));

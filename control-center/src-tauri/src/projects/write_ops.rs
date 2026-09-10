@@ -93,6 +93,12 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let app_command = p
+        .app_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     let mut new_entry = serde_json::json!({
         "id": id,
         "name": p.name.trim(),
@@ -119,6 +125,9 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
     }
     if let Some(c) = normalise_color(p.color.as_deref()) {
         new_entry["color"] = serde_json::Value::String(c);
+    }
+    if let Some(cmd) = app_command {
+        new_entry["app_command"] = serde_json::Value::String(cmd);
     }
     projects.push(new_entry);
 
@@ -279,6 +288,16 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
                 entry["color"] = serde_json::Value::Null;
             } else if let Some(hex) = normalise_color(Some(trimmed)) {
                 entry["color"] = serde_json::Value::String(hex);
+            }
+        }
+        // FRENTE D — patch del comando de la app. Vacío = borrarlo (el botón
+        // "Abrir app" vuelve a deshabilitado); ausente = no tocar.
+        if let Some(raw) = p.app_command.as_deref() {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                entry["app_command"] = serde_json::Value::Null;
+            } else {
+                entry["app_command"] = serde_json::Value::String(trimmed.to_string());
             }
         }
         if let Some(list) = p.executables.as_ref() {

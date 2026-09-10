@@ -133,10 +133,12 @@ pub fn detect_pii(text: &str) -> Vec<PiiHit> {
             // Require non-empty local, domain with a dot, and domain not starting
             // with a dot (guard against decorative "@" usage).
             if !local.is_empty()
+                && !local.contains('=')
                 && domain.contains('.')
                 && !domain.starts_with('.')
                 && !domain.ends_with('.')
                 && domain.len() >= 3
+                && has_alphabetic_tld(domain)
             {
                 // Strip trailing punctuation (comma, period, closing paren/bracket).
                 let trail = word_end
@@ -223,6 +225,21 @@ pub fn detect_pii(text: &str) -> Vec<PiiHit> {
         }
     }
     resolved
+}
+
+/// El último segmento del dominio (tras el último punto, sin puntuación de
+/// cierre) ha de ser alfabético y de al menos 2 letras. Sin esto,
+/// `recall@8=0.532` o `react@19.1.0` pasan por emails (falso positivo real
+/// del 2026-09-08 en la captura).
+fn has_alphabetic_tld(domain: &str) -> bool {
+    // El dominio útil termina en el primer carácter que no puede formar parte
+    // de un hostname (`"}` de un JSON, `:simbolo` de un path, coma final...).
+    let host_end = domain
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '.'))
+        .unwrap_or(domain.len());
+    let cleaned = domain[..host_end].trim_end_matches('.');
+    let tld = cleaned.rsplit('.').next().unwrap_or("");
+    tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 /// Return a copy of `text` with every detected PII replaced by its placeholder.
@@ -402,6 +419,28 @@ mod tests {
         assert_eq!(
             classify_sensitivity_with_pii("arquitectura de memoria ULTRON brain.db"),
             Sensitivity::Internal,
+        );
+    }
+
+    #[test]
+    fn metric_at_n_equals_value_is_not_an_email() {
+        // "recall@8=0.532" salió como [REDACTED_EMAIL] (candidato c2a4c2f4,
+        // 2026-09-08): el TLD ha de ser alfabético y el local sin '='.
+        for t in [
+            "oráculo recall@8=0.532 (hot path, sin rerank)",
+            "nDCG@10=0.65 y p@3=0.42",
+            "versión react@19.1.0 y vite@6.3.5",
+        ] {
+            assert!(!contains_pii(t), "falso positivo de email en: {t}");
+            assert_eq!(redact_pii(t), t);
+        }
+        assert!(
+            contains_pii("escribe a dev@example.com"),
+            "email real sigue cazado"
+        );
+        assert!(
+            contains_pii("dev@sub.example.co.uk,"),
+            "email con TLD compuesto"
         );
     }
 }

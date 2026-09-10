@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Card, ColumnRole, KanbanBoard, KanbanArchive, KanbanArchiveSummary } from "../../../types";
 import { INVESTIGAR_TAGS } from "./utils";
 
+const BOARD_REFRESH_MS = 15_000;
+
 export function useProjectBoard(projectId: string) {
   const [board, setBoard] = useState<KanbanBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,8 +24,26 @@ export function useProjectBoard(projectId: string) {
     }
   }, [projectId]);
 
+  // kanban.json lo escriben también los hooks y `scripts/kanban.mjs` desde
+  // fuera de la app: se relee al volver el foco, al hacerse visible la
+  // pestaña y cada REFRESH_MS mientras esté visible. Sin esto el tablero
+  // muestra la copia en memoria del primer montaje.
   useEffect(() => {
     void load();
+    const onFocus = () => void load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, BOARD_REFRESH_MS);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
   const moveCard = useCallback(

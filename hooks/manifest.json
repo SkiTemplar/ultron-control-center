@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-06",
+  "generated_at": "2026-09-10",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -46,7 +46,7 @@
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
       "async": true,
-      "checksum_sha256": "052b552df9f8648355e79ee01c2c7b6269a6731646ca1e56cd39ff14faed4679",
+      "checksum_sha256": "884bfce39f769dfc71ca63be45a3a2ca07ed7bd512e091575a6980dff8da1c71",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -114,7 +114,7 @@
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
       "async": true,
-      "checksum_sha256": "052b552df9f8648355e79ee01c2c7b6269a6731646ca1e56cd39ff14faed4679",
+      "checksum_sha256": "884bfce39f769dfc71ca63be45a3a2ca07ed7bd512e091575a6980dff8da1c71",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -169,7 +169,7 @@
       "script": "~/.ultron/hooks/scripts/codegraph-reminder.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "e90f40032adbb1ebd7e0601a1248ac37d496034cb2dd02744e8cfb6bd16aa8cd",
+      "checksum_sha256": "d1ba4633da4ef17acbfd73f3ebdda62de4371f71bdcba23330ab35571cf5ce83",
       "version": "1.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -219,9 +219,9 @@
       "matcher": "*",
       "command": "node ~/.ultron/hooks/scripts/lesson-distill.js",
       "script": "~/.ultron/hooks/scripts/lesson-distill.js",
-      "timeout_s": 30,
+      "timeout_s": 60,
       "async": true,
-      "checksum_sha256": "06d3d2170eff44f5c551ba0a2b6c02773914d50bbb0312297e2b1123bd3ceb33",
+      "checksum_sha256": "13b2ff3119c60a273c4994c8250f33d570e827069dbe10f931990d2cabddf7f1",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -243,9 +243,9 @@
       "matcher": "*",
       "command": "node ~/.ultron/hooks/scripts/project-profile.js",
       "script": "~/.ultron/hooks/scripts/project-profile.js",
-      "timeout_s": 40,
+      "timeout_s": 75,
       "async": true,
-      "checksum_sha256": "7292ac63a08a351f3a95ecd0fb096305d4be8d0468c9a074093300af68eae4dd",
+      "checksum_sha256": "52194a13ad898d020383ae2dc26bb90617b8e8cc214ea0de5635317753a1316d",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -281,6 +281,28 @@
       "description": "SessionEnd (async): metrica externa de ULTRON 4 (plan 12.1). Deja cockpit/projects/<id>/feedback-pending.json con minutos, turnos humanos y commits de la sesion que termina, para que el siguiente SessionStart en ese proyecto pregunte si ULTRON ayudo. Solo proyectos registrados que no son ultron y sesiones con >=3 turnos humanos; un pending sobreescrito sin respuesta se registra como sin_respuesta. No escribe memoria."
     },
     {
+      "id": "memory-gc",
+      "event": "SessionEnd",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/memory-gc.js",
+      "script": "~/.ultron/hooks/scripts/memory-gc.js",
+      "timeout_s": 120,
+      "async": true,
+      "checksum_sha256": "d479f4e2849e70ea9f63e65b9d036c94905ee45e485b60a400f5da7305b6b3d6",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS",
+        "MEMORY_GC_DISABLED",
+        "ULTRON_MEMORY_BIN",
+        "MEMORY_GC_STATE",
+        "MEMORY_GC_LOG"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": true,
+      "writer_path": "MemoryService",
+      "description": "Mantenimiento a 90 dias de brain.db (F1.8): como maximo una vez por semana lanza `ultron-memory gc --days 90`, con tres reglas — decaimiento a stale de los ACTIVE sin recall ni cambios, poda de los memory_events de items deprecated/rejected y poda de los eventos que ya no cuelgan de ningun item (memory_id NULL o item inexistente). Los eventos de items active/stale quedan intactos. Cadencia en .tmp/memory-gc-last.json, traza en logs/memory-gc.jsonl. El hook no toca brain.db: escribe el sidecar via MemoryService."
+    },
+    {
       "id": "ensure-qdrant",
       "event": "SessionStart",
       "matcher": "*",
@@ -304,7 +326,7 @@
       "script": "~/.ultron/hooks/scripts/ensure-codegraph.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "0093e57fe4fbc02f96e09966e2ce1373cbb55c6e454ac5667cab3ecf930a5aab",
+      "checksum_sha256": "922629cd38cb252a6bc974a07adb26e87d85777357010e04b9dbbc80f7326800",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -336,7 +358,7 @@
       "script": "~/.ultron/hooks/scripts/load-cross-project-memory.js",
       "timeout_s": 8,
       "async": false,
-      "checksum_sha256": "125b1fad8618d3cf64d505a1a6a8d2193dedc54e974917a2522c12ebc1dcb8a6",
+      "checksum_sha256": "c3e2528e27cdb2b6dd20acd33b335f558d75d17c5f8c5f648166d3f84af89091",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -418,20 +440,18 @@
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 60,
       "async": true,
-      "checksum_sha256": "928f8c4fd89884e26bdccee1572f8783586c92de2c7337faaa908995055c1d4e",
+      "checksum_sha256": "3bbe797b692bcffc50a07963d0d04e1abd3a3fa6ba3ac1506b343ab246f45425",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
         "STOP_COMPRESS_DISABLED",
-        "ANTHROPIC_API_KEY",
-        "GROQ_API_KEY",
         "QDRANT_URL",
         "ULTRON_EMBED_BIN"
       ],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Comprime la sesion a hechos y los propone como candidatos gobernados via ultron-memory capture (redaction + inbox con aprobacion humana). Upsert directo a Qdrant ultron_sessions RETIRADO en d3a16ff; sink decisions-pending.jsonl ERRADICADO en cat20.3 (sin consumidor)."
+      "description": "Comprime la sesion a hechos via el sidecar ultron-memory capture (extraccion por AI Router, redaction + inbox con aprobacion humana). Un solo camino de extraccion desde 2026-09-10; throttle por sesion y global."
     },
     {
       "id": "response-meter",
@@ -492,7 +512,7 @@
       "script": "~/.ultron/hooks/scripts/qdrant-mirror-sync.js",
       "timeout_s": 30,
       "async": true,
-      "checksum_sha256": "83a21c2bc850325058d65824bcd1e2858cb267a6cc1d6c2c2dc80c08f5e98645",
+      "checksum_sha256": "3ebfa5af00340a70b460cd84bbc3c4675cef07b0db4fe758c9649402ef98ff05",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -576,7 +596,7 @@
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "8d0c611b96f70632b6bd084d464b73d5e5bb368b7efe46818c8568aaf89d5c1e",
+      "checksum_sha256": "af7adbc772bbcfc70f6caf676592d4f2b44ad3eddc5aa03399f3561354cf5a87",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -624,7 +644,7 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 20,
       "async": false,
-      "checksum_sha256": "8976dfd26ed754c184d6c13eafc9c73338f61e665cffd58e16ee5b39ddb17ebf",
+      "checksum_sha256": "797500d988bbd2ad42ed71bc00cf63183e19c65f684e9dcc49c64a185c71604f",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

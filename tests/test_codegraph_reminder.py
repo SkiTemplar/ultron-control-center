@@ -17,6 +17,7 @@ session via a tmp marker) and the markers are cleaned up afterwards.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import uuid
@@ -32,19 +33,39 @@ ULTRON = str(REPO_ROOT)
 
 
 def _run_hook(tool_name: str, tool_input: dict, session_id: str | None = None,
-              cwd: str = ULTRON) -> tuple[str, str]:
+              cwd: str = ULTRON, env: dict | None = None,
+              transcript_path: str | None = None) -> tuple[str, str]:
     sid = session_id or f"test-{uuid.uuid4().hex}"
-    payload = json.dumps({
+    body = {
         "tool_name": tool_name,
         "tool_input": tool_input,
         "cwd": cwd,
         "session_id": sid,
-    })
+    }
+    if transcript_path:
+        body["transcript_path"] = transcript_path
+    payload = json.dumps(body)
+    run_env = {**os.environ, "ULTRON_CODEGRAPH_GATE": "deny", **(env or {})}
     r = subprocess.run(
         ["node", str(HOOK)],
-        input=payload, capture_output=True, text=True, timeout=20,
+        input=payload, capture_output=True, text=True, timeout=20, env=run_env,
     )
     return r.stdout, sid
+
+
+def _denied(stdout: str) -> str | None:
+    """Motivo del deny del gate, o None si la llamada pasa."""
+    s = (stdout or "").strip()
+    if not s:
+        return None
+    try:
+        out = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    hso = out.get("hookSpecificOutput", {}) or {}
+    if hso.get("permissionDecision") == "deny":
+        return hso.get("permissionDecisionReason") or ""
+    return None
 
 
 def _fired(stdout: str) -> bool:
@@ -82,9 +103,17 @@ def test_bash_find_fires():
     assert _fired(out)
 
 
-def test_bash_ls_fires():
-    out, _ = _run_hook("Bash", {"command": "ls -la cockpit/projects/"})
+def test_bash_ls_of_code_fires():
+    # Desde 2026-08-15 un comando pasivo (ls/cat/...) solo dispara con un
+    # argumento de CODIGO: listar cockpit/projects/ (datos de runtime) no es
+    # ubicar simbolos y el indice no lo cubre.
+    out, _ = _run_hook("Bash", {"command": "ls -la control-center/src-tauri/src/memory/*.rs"})
     assert _fired(out)
+
+
+def test_bash_ls_of_runtime_data_does_not_fire():
+    out, _ = _run_hook("Bash", {"command": "ls -la cockpit/projects/"})
+    assert not _fired(out)
 
 
 def test_bash_grep_fires():
@@ -133,3 +162,72 @@ def test_once_per_session():
     out2, _ = _run_hook("Glob", {"path": ULTRON}, session_id=sid)
     assert _fired(out1)
     assert not _fired(out2)
+
+
+# --- gate progresivo (2026-09-07): deny con la llamada exacta -----------------
+
+CODE_FILE = ULTRON + "/control-center/src-tauri/src/lib.rs"
+
+
+def _burn_free_explores(sid: str) -> None:
+    """Consume el margen GATE_FREE (3) de exploraciones a ciegas sin codegraph."""
+    for _ in range(3):
+        out, _ = _run_hook("Read", {"file_path": CODE_FILE}, session_id=sid)
+        assert _denied(out) is None
+
+
+def test_gate_denies_symbol_grep_after_free_explores():
+    sid = f"test-{uuid.uuid4().hex}"
+    _burn_free_explores(sid)
+    out, _ = _run_hook("Grep", {"pattern": "orchestrate_prompt", "path": ULTRON}, session_id=sid)
+    reason = _denied(out)
+    assert reason is not None
+    assert 'codegraph_search "orchestrate_prompt"' in reason
+
+
+def test_gate_denies_full_read_but_allows_ranged_read():
+    sid = f"test-{uuid.uuid4().hex}"
+    _burn_free_explores(sid)
+    full, _ = _run_hook("Read", {"file_path": CODE_FILE}, session_id=sid)
+    assert _denied(full) is not None and "codegraph_explore" in _denied(full)
+    ranged, _ = _run_hook("Read", {"file_path": CODE_FILE, "offset": 10, "limit": 40}, session_id=sid)
+    assert _denied(ranged) is None
+
+
+def test_gate_denies_bash_grep_symbol_but_not_free_text():
+    sid = f"test-{uuid.uuid4().hex}"
+    _burn_free_explores(sid)
+    sym, _ = _run_hook("Bash", {"command": "grep -rn assemble_pack control-center/src"}, session_id=sid)
+    assert _denied(sym) is not None
+    free, _ = _run_hook("Bash", {"command": "grep -rn 'pack diversity threshold' control-center/src"}, session_id=sid)
+    assert _denied(free) is None
+
+
+def test_gate_never_denies_glob_or_regex_grep():
+    sid = f"test-{uuid.uuid4().hex}"
+    _burn_free_explores(sid)
+    glob, _ = _run_hook("Glob", {"pattern": "**/*.rs", "path": ULTRON}, session_id=sid)
+    assert _denied(glob) is None
+    regex, _ = _run_hook("Grep", {"pattern": "fn \w+_pack\(", "path": ULTRON}, session_id=sid)
+    assert _denied(regex) is None
+
+
+def test_gate_resets_after_codegraph_use(tmp_path):
+    sid = f"test-{uuid.uuid4().hex}"
+    _burn_free_explores(sid)
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(
+        '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+        '"name":"mcp__codegraph__codegraph_search","input":{}}]}}\n'
+    )
+    out, _ = _run_hook("Grep", {"pattern": "orchestrate_prompt", "path": ULTRON}, session_id=sid,
+                       transcript_path=str(transcript))
+    assert _denied(out) is None
+
+
+def test_gate_nudge_mode_never_denies():
+    sid = f"test-{uuid.uuid4().hex}"
+    for _ in range(5):
+        out, _ = _run_hook("Grep", {"pattern": "orchestrate_prompt", "path": ULTRON}, session_id=sid,
+                           env={"ULTRON_CODEGRAPH_GATE": "nudge"})
+        assert _denied(out) is None

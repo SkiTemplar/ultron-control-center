@@ -25,6 +25,7 @@
 pub(crate) mod candidates;
 pub(crate) mod deprecation;
 pub(crate) mod events;
+pub(crate) mod gc;
 pub(crate) mod items;
 pub(crate) mod row_mapping;
 pub(crate) mod schema;
@@ -48,6 +49,12 @@ pub use items::{
 };
 
 pub use events::{insert_event, list_events_for};
+
+// Mantenimiento a 90 dias (F1.8): SQL puro. Lo orquesta `MemoryService::gc`.
+pub use gc::{
+    db_size_bytes, freelist_bytes, prune_events, select_decayed_active_ids, vacuum,
+    EventPruneCounts,
+};
 
 pub use candidates::{
     count_candidates_pending, find_candidate_ids_by_prefix, get_candidate, insert_candidate,

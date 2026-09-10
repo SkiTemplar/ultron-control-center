@@ -139,6 +139,76 @@ function getStdin() {
 // exploraciones sin uso de codegraph intermedio (el uso resetea el contador).
 const RENUDGE_EVERY = 10;
 
+// Gate progresivo (2026-09-07, decidido por el usuario; patron tomado de
+// nesaminua/claude-code-lsp-enforcement-kit): el nudge solo no bastaba — el
+// modelo lo leia y seguia con grep/Read (medido: 0 usos de CodeGraph fuera de
+// ULTRON, audit 2026-09-04). Tras GATE_FREE exploraciones a ciegas sin una
+// sola llamada mcp__codegraph__* en la sesion, las siguientes que el indice
+// resuelve (Grep de un simbolo, Read ENTERO de un fichero de codigo, grep/rg/
+// find de codigo en Bash) se DENIEGAN con la llamada exacta que las sustituye.
+// Cualquier uso de codegraph reinicia el contador. Salidas de emergencia que
+// nunca se bloquean: Read con offset/limit (lectura quirurgica), Glob, ficheros
+// de datos, proyectos sin indice, y ULTRON_CODEGRAPH_GATE=nudge|off.
+const GATE_FREE = 3;
+const GATE_MODES = new Set(['deny', 'nudge', 'off']);
+function gateMode() {
+  const v = String(process.env.ULTRON_CODEGRAPH_GATE || 'deny').trim().toLowerCase();
+  return GATE_MODES.has(v) ? v : 'deny';
+}
+
+// Patron de Grep que es un SIMBOLO (identificador, ruta de modulo, metodo): lo
+// que codegraph_search resuelve directo. Una regex real o una frase con
+// espacios no se bloquea (el indice no busca texto libre).
+function isSymbolPattern(pattern) {
+  const p = String(pattern || '').trim();
+  if (!p || p.length < 3 || p.length > 80) return false;
+  return /^[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.|->|#)[A-Za-z_][A-Za-z0-9_]*)*$/.test(p);
+}
+
+// Primer patron "de simbolo" de un grep/rg en Bash, si lo hay.
+function bashSearchPattern(command) {
+  const m = String(command || '').match(/\b(?:grep|rg)\b((?:\s+-{1,2}[A-Za-z-]+(?:=\S+)?)*)\s+(['"]?)([^'"\s|]+)\2/);
+  return m ? m[3] : '';
+}
+
+/**
+ * Decision pura del gate para una exploracion que YA se sabe aplicable.
+ * Devuelve null (dejar pasar / solo nudge) o el motivo del deny.
+ */
+function gateDecision({ tool, toolInput, explores, mode }) {
+  if (mode !== 'deny' || explores <= GATE_FREE) return null;
+  const ti = toolInput || {};
+  if (tool === 'Grep') {
+    if (!isSymbolPattern(ti.pattern)) return null;
+    return (
+      `[ULTRON / CodeGraph] Grep "${ti.pattern}" DENEGADO: ${explores} exploraciones a ciegas ` +
+      `seguidas sin usar el indice. Sustituyelo por codegraph_search "${ti.pattern}" ` +
+      `(ubicacion) o codegraph_explore "${ti.pattern}" (codigo + callers en una llamada). ` +
+      'Grep vuelve a estar permitido en cuanto uses codegraph una vez; una regex o texto libre no se bloquea.'
+    );
+  }
+  if (tool === 'Read') {
+    if (Number.isFinite(ti.offset) || Number.isFinite(ti.limit)) return null; // lectura quirurgica
+    const name = path.basename(String(ti.file_path || ''));
+    return (
+      `[ULTRON / CodeGraph] Read ENTERO de ${name} DENEGADO: ${explores} exploraciones a ciegas ` +
+      `seguidas sin usar el indice. Usa codegraph_explore "${name}" (devuelve la fuente de los ` +
+      'simbolos relevantes con numeros de linea) o, si necesitas un tramo concreto, Read con ' +
+      'offset y limit. Read completo vuelve a estar permitido en cuanto uses codegraph una vez.'
+    );
+  }
+  if (tool === 'Bash') {
+    const pat = bashSearchPattern(ti.command);
+    if (!isSymbolPattern(pat)) return null;
+    return (
+      `[ULTRON / CodeGraph] grep/rg "${pat}" en Bash DENEGADO: ${explores} exploraciones a ciegas ` +
+      `seguidas sin usar el indice. Sustituyelo por codegraph_search "${pat}" o codegraph_explore "${pat}". ` +
+      'Vuelve a estar permitido en cuanto uses codegraph una vez.'
+    );
+  }
+  return null;
+}
+
 // Limpieza de markers de sesiones pasadas (>48h) — evita acumulacion en %TEMP%
 // (HOOKS-JS-08; mismo patron que socratic-gate.js, adaptado al prefijo local).
 function sweepOldMarkers(tmpdir) {
@@ -267,6 +337,23 @@ function handle(raw) {
   } catch (_) {
     // si no podemos persistir, seguimos: mejor recordar de mas que romper
   }
+  // Gate: pasado el margen, la exploracion que el indice resuelve se deniega
+  // con la llamada exacta. Se evalua ANTES del nudge (una respuesta por hook).
+  const denyReason = gateDecision({
+    tool,
+    toolInput: ti,
+    explores: state.explores,
+    mode: gateMode(),
+  });
+  if (denyReason) {
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: denyReason,
+      },
+    });
+  }
   if (!shouldNudge) return;
 
   const msg =
@@ -309,5 +396,12 @@ if (require.main === module) {
     }
   })();
 } else {
-  module.exports = { isBlindCodeExploration, classifyArgs };
+  module.exports = {
+    isBlindCodeExploration,
+    classifyArgs,
+    isSymbolPattern,
+    bashSearchPattern,
+    gateDecision,
+    GATE_FREE,
+  };
 }

@@ -63,9 +63,11 @@ if (-not (Test-Path $launcher)) {
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher | Out-Null
 
 # Verificacion post-launch REAL (el fire-and-forget ciego era parte del bug):
-# hasta ~30s de margen para el warm-up del binario.
+# hasta ~90s de margen para el warm-up del binario (30s se quedaba corto:
+# 78% de los relanzamientos llegaban still_down con ese margen, frente 5
+# 2026-09-10 - ver logs/qdrant-launch.jsonl para el diagnostico del launcher).
 $recovered = $false
-for ($i = 0; $i -lt 10; $i++) {
+for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 3
     if (Test-Healthz -TimeoutSec 2) { $recovered = $true; break }
 }
@@ -73,6 +75,8 @@ if ($recovered) {
     Write-Event -EventName 'recovered' -Detail ("healthz OK tras relaunch (~" + (($i + 1) * 3) + "s)")
     exit 0
 } else {
-    Write-Event -EventName 'still_down' -Detail 'healthz sigue sin responder tras relaunch + 30s'
+    $procAlive = [bool](Get-Process -Name 'qdrant' -ErrorAction SilentlyContinue)
+    $portOpen  = [bool](Get-NetTCPConnection -State Listen -LocalPort 6333 -ErrorAction SilentlyContinue)
+    Write-Event -EventName 'still_down' -Detail ("healthz sigue sin responder tras relaunch + 90s (proceso_vivo=$procAlive puerto_escucha=$portOpen)")
     exit 2
 }

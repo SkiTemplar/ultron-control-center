@@ -27,6 +27,8 @@
 //!   (edge — RETIRADO 2026-07-02: codegraph interno erradicado, mand.12)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
+//!   ultron-memory gc [--days 90] [--dry-run]    # mantenimiento: decaimiento de ACTIVE sin recall +
+//!                                               # poda del log (items muertos, eventos sin item y huerfanos)
 //!   ultron-memory dedupe [--dry-run] [--reason R]      # deprecar copias exactas de ACTIVE (sobrevive 1 por grupo)
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
@@ -111,6 +113,20 @@ fn run() -> Result<serde_json::Value, String> {
         "resume" => to_json(ul::commands::memory::session_resume::session_resume_inner(project)?),
         "orchestrate" => {
             let prompt = positional(&args)?;
+            // `--sparse` (2026-09-07): respaldo del hook cuando el daemon YA no
+            // ha contestado. Ni vuelve a esperarle (con el daemon vivo pero
+            // lento, la espera de 30 s de abajo se comia entero el cap de 6 s
+            // del hook y el "respaldo" nunca resolvia nada: asi entro sin
+            // memoria el primer prompt del 2026-09-07) ni carga E5 (1,5 GB
+            // compitiendo por CPU con el daemon que se esta recuperando):
+            // FTS5 + reglas, en menos de un segundo.
+            if has_flag(&args, "--sparse") {
+                return to_json(ul::orchestrator::orchestrate(
+                    &prompt,
+                    project.as_deref(),
+                    false,
+                ));
+            }
             // Si el daemon vive, que responda EL: tiene E5 caliente y este
             // proceso no llega a cargar el modelo. Medido el 2026-08-15: un
             // one-shot que carga E5 pica en 1,7 GB, y 3,2 GB si ademas entra el
@@ -591,6 +607,27 @@ fn run() -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?;
             to_json(res)
         }
+        // Mantenimiento a 90 dias de brain.db (F1.8, 2026-09-11). Tres reglas,
+        // todas con la misma ventana --days:
+        //   1. ACTIVE sin recall (last_accessed_at) ni cambios -> Stale.
+        //   2. memory_events de items deprecated/rejected -> borrados.
+        //   3. memory_events sin item: memory_id NULL (telemetria de recall) o
+        //      apuntando a un id que ya no existe (archivado/forget) -> borrados.
+        // Los eventos de items active/stale quedan intactos. Compacta con VACUUM
+        // solo si el ahorro estimado supera 10 MB. --dry-run no escribe nada.
+        // La salida trae el total y el desglose en events_deleted_by_rule.
+        //   ultron-memory gc [--days 90] [--dry-run]
+        "gc" => {
+            reject_unknown_flags(&args, &["--days", "--dry-run"])?;
+            let days: i64 = flag_value(&args, "--days")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(ul::memory::service::DEFAULT_GC_DAYS);
+            let dry = has_flag(&args, "--dry-run");
+            to_json(
+                ul::memory::MemoryService::gc(days, dry, ul::memory::Actor::System)
+                    .map_err(|e| e.to_string())?,
+            )
+        }
         // Sweep por confianza (audit 2026-08-09): deprecar ACTIVE con confidence
         // < --below (default 0.55, el umbral de ruido de banda C) EXCLUYENDO
         // golden positives (el oráculo no se canibaliza), pinned y user-validated.
@@ -739,7 +776,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

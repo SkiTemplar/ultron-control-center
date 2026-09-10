@@ -10,6 +10,16 @@
     },
     "fallbacks": [
       {
+        "provider_id": "groq",
+        "model": "qwen/qwen3.6-27b",
+        "max_tokens": 1024
+      },
+      {
+        "provider_id": "groq",
+        "model": "openai/gpt-oss-20b",
+        "max_tokens": 1024
+      },
+      {
         "provider_id": "gemini",
         "model": "gemini-2.5-flash",
         "max_tokens": 1024

@@ -21,7 +21,10 @@ use super::redaction;
 use super::MemoryItem;
 
 mod candidates;
+mod gc;
 mod mutations;
+
+pub use gc::{DEFAULT_GC_DAYS, VACUUM_MIN_BYTES};
 
 #[cfg(test)]
 mod tests;
@@ -88,8 +91,10 @@ pub struct BackfillDeprecationsResult {
 /// Result of [`MemoryService::mark_stale_aged`]: how many ACTIVE items matched
 /// the age cutoff and how many were transitioned to `Status::Stale`. Honest
 /// scope (mand. 13): "stale" = "not MODIFIED in N days" (`updated_at`), NOT
-/// "unused / no recall-hit" — `last_accessed_at` is not written on the read path
-/// today. Each transition goes through the proven `set_status` path (FTS5 +
+/// "unused / no recall-hit". El barrido por recall es otro: [`MemoryService::gc`]
+/// (F1.8), que si mira `last_accessed_at` — columna que el recall unificado
+/// escribe via `touch_injected` desde el 2026-08-28.
+/// Each transition goes through the proven `set_status` path (FTS5 +
 /// Qdrant + event log stay consistent) and is reversible (`Restored`).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StaleSweepResult {
@@ -97,6 +102,30 @@ pub struct StaleSweepResult {
     pub matched: usize,
     pub staled: usize,
     pub dry_run: bool,
+    pub failed: Vec<(String, String)>,
+}
+
+/// Resultado de [`MemoryService::gc`] — mantenimiento a 90 dias (F1.8,
+/// 2026-09-11). `stale_marked` = items ACTIVE decaidos por falta de recall y de
+/// cambios; `events_deleted` = filas podadas de `memory_events`, con su
+/// desglose por motivo en `events_deleted_by_rule` (items muertos / eventos sin
+/// `memory_id` / eventos huerfanos). Los bytes salen de `page_count *
+/// page_size`; `freelist_bytes` es el ahorro que devolveria un VACUUM y
+/// `vacuum_skipped` explica por que no se compacto (umbral, dry-run o base
+/// bloqueada) en vez de dejar un `vacuumed: false` mudo.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GcResult {
+    pub days: i64,
+    pub stale_marked: usize,
+    pub events_deleted: usize,
+    pub events_deleted_by_rule: super::sqlite_store::EventPruneCounts,
+    pub bytes_before: i64,
+    pub bytes_after: i64,
+    pub freelist_bytes: i64,
+    pub vacuumed: bool,
+    pub vacuum_skipped: Option<String>,
+    pub dry_run: bool,
+    /// (id, error) por item que no se pudo marcar; no aborta el lote.
     pub failed: Vec<(String, String)>,
 }
 

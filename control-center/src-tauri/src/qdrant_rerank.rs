@@ -29,9 +29,56 @@ pub(super) static RERANKER: OnceCell<std::sync::RwLock<Option<fastembed::TextRer
 /// call fails. The caller in `engine.rs` **must** fall back to the existing
 /// order on `Err` and never propagate the error — recall must continue even
 /// if the re-ranker is unavailable.
+/// Tope de tokens por par (query, documento) del cross-encoder.
+///
+/// 512 (default de fastembed) -> 256 (2026-09-07, decidido por el usuario tras
+/// medir): los documentos son resúmenes de memoria de 50-100 tokens y el
+/// prompt se recorta antes, así que 256 no trunca nada útil, y las arenas de
+/// activación de ONNX crecen con la longitud máxima (medido: +290 MB tras 20
+/// orchestrates largos y +550 MB con 4 concurrentes, con 512).
+/// `ULTRON_RERANK_MAX_LEN` lo cambia sin recompilar (solo se lee al cargar).
+#[cfg(feature = "qdrant")]
+const RERANK_MAX_LENGTH_DEFAULT: usize = 256;
+
+#[cfg(feature = "qdrant")]
+fn reranker_max_length() -> usize {
+    std::env::var("ULTRON_RERANK_MAX_LEN")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n >= 64)
+        .unwrap_or(RERANK_MAX_LENGTH_DEFAULT)
+}
+
+/// Cross-encoder a cargar. `ULTRON_RERANKER_MODEL` = `bge-m3` (default,
+/// BGERerankerV2M3, ~1,8 GB residentes) o `jina-v2` (JINA v2 base multilingüe,
+/// más pequeño). Solo se lee al cargar el modelo: para un A/B se lanza el
+/// `eval` en un proceso nuevo con la variable puesta (el daemon vivo no la ve).
+#[cfg(feature = "qdrant")]
+fn reranker_model() -> (fastembed::RerankerModel, &'static str) {
+    use fastembed::RerankerModel;
+    match std::env::var("ULTRON_RERANKER_MODEL")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "jina-v2" | "jina" => (
+            RerankerModel::JINARerankerV2BaseMultiligual,
+            "JINARerankerV2BaseMultilingual",
+        ),
+        _ => (RerankerModel::BGERerankerV2M3, "BGERerankerV2M3"),
+    }
+}
+
+/// Identificador del cross-encoder activo (para telemetría y evals).
+#[cfg(feature = "qdrant")]
+pub fn reranker_model_id() -> &'static str {
+    reranker_model().1
+}
+
 #[cfg(feature = "qdrant")]
 pub fn rerank_pairs(query: &str, docs: &[(String, String)]) -> Result<Vec<(String, f32)>, String> {
-    use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
+    use fastembed::{RerankInitOptions, TextRerank};
 
     if docs.is_empty() {
         return Ok(Vec::new());
@@ -46,12 +93,14 @@ pub fn rerank_pairs(query: &str, docs: &[(String, String)]) -> Result<Vec<(Strin
                 .write()
                 .map_err(|_| "reranker lock poisoned".to_string())?;
             if guard.is_none() {
+                let (model_name, model_id) = reranker_model();
                 let model = TextRerank::try_new(
-                    RerankInitOptions::new(RerankerModel::BGERerankerV2M3)
+                    RerankInitOptions::new(model_name)
+                        .with_max_length(reranker_max_length())
                         .with_cache_dir(fastembed_cache_dir())
                         .with_show_download_progress(false),
                 )
-                .map_err(|e| format!("reranker init (BGERerankerV2M3): {e}"))?;
+                .map_err(|e| format!("reranker init ({model_id}): {e}"))?;
                 *guard = Some(model);
             }
         }
@@ -133,6 +182,10 @@ pub fn reranker_is_warm() -> bool {
 #[cfg(not(feature = "qdrant"))]
 pub fn spawn_reranker_warmup() -> bool {
     false
+}
+#[cfg(not(feature = "qdrant"))]
+pub fn reranker_model_id() -> &'static str {
+    "none"
 }
 
 /// Force `BGERerankerV2M3` to initialise (downloading ~1 GB on first use) by

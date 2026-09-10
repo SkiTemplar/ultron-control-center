@@ -165,7 +165,7 @@ register — the installer surfaces this but does not force the reboot.
 > [!NOTE]
 > This reboot notice is legacy: it only fires on a truly fresh box where the
 > MSVC Build Tools were just laid down. If `rustc`/`link.exe` already work in a
-> new shell, ignore it. The app (v2.7.1+) does not require a reboot at runtime.
+> new shell, ignore it. The app (v15.8.0+) does not require a reboot at runtime.
 
 ### 4. Qdrant (native Windows binary, no Docker)
 

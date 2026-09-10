@@ -1648,9 +1648,12 @@ cat(8, "UI funcional (cableada)", [
     desc: "invoke<->generate_handler!: 0 comandos invocados sin registrar (botones no-op), modulo finance",
     auto: true,
     check() {
-      const libPath = join(CC_TAURI, "lib.rs");
+      // El bloque generate_handler! vive en handlers.rs desde el 2026-08-16
+      // (cat7.3: lib.rs superaba las 800 lineas). Medirlo en lib.rs daba rojo
+      // del medidor, no del sistema (audit 2026-09-04).
+      const libPath = join(CC_TAURI, "handlers.rs");
       if (!fileExists(libPath) || !fileExists(CC_SRC)) {
-        return { pass: false, detail: "no medible: falta lib.rs o control-center/src" };
+        return { pass: false, detail: "no medible: falta handlers.rs o control-center/src" };
       }
       // Invocados: invoke("x") / invoke<T>("x") -- primer string literal. Saltamos
       // lineas de comentario (JSDoc/line): un invoke("x") dentro de /** ... */ NO es
@@ -1668,10 +1671,12 @@ cat(8, "UI funcional (cableada)", [
       // Registrados: bloque generate_handler![ ... ] de lib.rs. Cada linea
       // `modulo::sub::nombre,` aporta la ULTIMA componente como nombre de comando.
       // Las lineas finance van precedidas de `#[cfg(feature = "finance")]`.
+      // En handlers.rs el bloque cierra con "]" a solas en su linea (fn all()).
       const lib = readFileSync(libPath, "utf8");
       const gs = lib.indexOf("generate_handler![");
-      const ge = gs >= 0 ? lib.indexOf("])", gs) : -1;
-      if (gs < 0 || ge < 0) return { pass: false, detail: "no medible: generate_handler! no encontrado en lib.rs" };
+      const geRel = gs >= 0 ? lib.slice(gs).search(/\r?\n\s*\]\s*\r?\n/) : -1;
+      const ge = geRel >= 0 ? gs + geRel : -1;
+      if (gs < 0 || ge < 0) return { pass: false, detail: "no medible: generate_handler! no encontrado en handlers.rs" };
       const registered = new Set();
       const financeReg = new Set();
       let gate = false;
@@ -2010,16 +2015,17 @@ cat(10, "Union del sistema (e2e)", [
   },
   {
     id: "10.2",
-    desc: ">= 90% comandos en lib.rs tienen caller en frontend",
+    desc: ">= 90% comandos registrados en handlers.rs tienen caller en frontend",
     auto: true,
     check() {
-      const libRs = join(CC_TAURI, "lib.rs");
-      if (!fileExists(libRs)) return { pass: false, detail: "lib.rs no encontrado" };
+      // generate_handler! vive en handlers.rs (fn all()) desde el 2026-08-16.
+      const libRs = join(CC_TAURI, "handlers.rs");
+      if (!fileExists(libRs)) return { pass: false, detail: "handlers.rs no encontrado" };
       const content = readFileSync(libRs, "utf8");
       // Extrae nombres de comandos del invoke_handler![ ... ]
       // Formato: "  commands::module::function_name,"
-      const handlerBlock = content.match(/\.invoke_handler\(tauri::generate_handler!\[([\s\S]*?)\]\)/);
-      if (!handlerBlock) return { pass: false, detail: "no se encontro invoke_handler block" };
+      const handlerBlock = content.match(/tauri::generate_handler!\[([\s\S]*?)\r?\n\s*\]\s*\r?\n/);
+      if (!handlerBlock) return { pass: false, detail: "no se encontro el bloque generate_handler! en handlers.rs" };
       const handlers = handlerBlock[1]
         .split("\n")
         .map((l) => l.trim().replace(/,$/, "").replace(/\/\/.*$/, "").trim())
@@ -2200,8 +2206,11 @@ cat(11, "Plugins y MCPs", [
     check() {
       const s = readJSON(SETTINGS_JSON);
       if (!s) return { pass: false, detail: "settings.json no encontrado" };
+      // Clave ausente = plugin no instalado/desactivado (audit 2026-09-04: el
+      // medidor exigia enabled=false literal y daba rojo con la clave ausente).
       const eccEnabled = s.enabledPlugins?.["ecc@ecc"];
-      return { pass: eccEnabled === false, detail: `ecc@ecc enabled=${eccEnabled}` };
+      const off = eccEnabled === false || eccEnabled === undefined;
+      return { pass: off, detail: `ecc@ecc enabled=${eccEnabled === undefined ? "(ausente)" : eccEnabled}` };
     },
   },
   {

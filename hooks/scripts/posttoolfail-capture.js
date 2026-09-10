@@ -59,14 +59,45 @@ const GENERIC_ONLY_RE = /^tool (reported is_error|status=error|success=false|exi
 const PROBE_CMD_RE =
   /^\s*(?:ls|dir|stat|test|cmp|which|command\s+-v|type|Test-Path|Get-Item|Get-ChildItem)\b/i;
 const MAX_CANDIDATES_PER_SESSION = 3;
+// Los marcadores de cap (%TEMP%/ultron-ptf-count-<session>) nunca se borraban
+// -> crecimiento sin cota, una entrada por sesion historica (F6, 2026-09-10).
+const MARKER_MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48h
+const MARKER_PREFIX = 'ultron-ptf-count-';
+
+let markersPurged = false;
+
+// Purga best-effort de marcadores con mtime > 48h. Tolerante a errores (un
+// fallo de listado/borrado nunca debe romper el hook); como maximo una vez
+// por ejecucion del proceso.
+function purgeStaleMarkers() {
+  if (markersPurged) return;
+  markersPurged = true;
+  try {
+    const dir = os.tmpdir();
+    const now = Date.now();
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith(MARKER_PREFIX)) continue;
+      const p = path.join(dir, name);
+      try {
+        const st = fs.statSync(p);
+        if (now - st.mtimeMs > MARKER_MAX_AGE_MS) fs.unlinkSync(p);
+      } catch (_) {
+        // fichero en carrera con otra sesion / ya borrado -> ignorar.
+      }
+    }
+  } catch (_) {
+    // purga best-effort: nunca romper el hook.
+  }
+}
 
 // true si se alcanza el cap de esta sesion (best-effort via contador en tmp;
 // cualquier fallo de IO => sin cap, mejor capturar de mas que romper el hook).
 function sessionCapReached(sessionId) {
+  purgeStaleMarkers();
   if (!sessionId) return false;
   try {
     const safe = String(sessionId).replace(/[^A-Za-z0-9_-]/g, '');
-    const p = path.join(os.tmpdir(), `ultron-ptf-count-${safe}`);
+    const p = path.join(os.tmpdir(), `${MARKER_PREFIX}${safe}`);
     let count = 0;
     try { count = parseInt(fs.readFileSync(p, 'utf8'), 10) || 0; } catch (_) {}
     if (count >= MAX_CANDIDATES_PER_SESSION) return true;

@@ -32,10 +32,15 @@ const LOG_PATH = path.join(HOME, '.claude', 'logs', 'load-cross-project-memory.j
 // ~18k bootstrap context to ~3-6k on typical sessions. Projects sharing >=2
 // path segments with the active cwd are considered "near" and get full body;
 // the rest only appear in the index (1 line per project).
-const MAX_PROJECTS_INDEXED = 8;
-const MAX_FULL_BODY_PROJECTS = 3;
-const MAX_BODY_CHARS = 1500;
-const MAX_TOTAL_CONTEXT_CHARS = 3000;
+// (2026-09-10): medido con token-meter, promedio real 2125 chars/sesion (tope
+// de 3000 rozado). Tope total 1500 y 2 proyectos con cuerpo. El indice de 8
+// proyectos solo ocupaba ~1176 chars (medido reconstruyendo el preambulo), asi
+// que se baja a 4 proyectos indexados y cuerpos de 600 chars para que el
+// presupuesto lo gaste la memoria util y no la lista.
+const MAX_PROJECTS_INDEXED = 4;
+const MAX_FULL_BODY_PROJECTS = 2;
+const MAX_BODY_CHARS = 600;
+const MAX_TOTAL_CONTEXT_CHARS = 1500;
 const ACTIVITY_WINDOW_DAYS = 60;
 const MIN_SIMILARITY_FOR_BODY = 2;
 

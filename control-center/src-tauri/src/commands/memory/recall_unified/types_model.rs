@@ -23,7 +23,15 @@ pub(super) const FANOUT_K_QUALITY: usize = 60;
 /// decisiones" class of irrelevant hits). dense-backed hits (any dense rank) and
 /// sparse-TOP hits (rank < cutoff) always pass. Calibrated against the golden
 /// eval: must not drop recall@8 (baseline 0.868) while cutting context_waste.
-pub(super) const SPARSE_TAIL_CUTOFF: usize = 15;
+///
+/// 15 -> 3 (2026-09-07, decidido por el usuario tras medir): con el cutoff en
+/// 15 el 52 % de lo inyectado en 40 prompts reales (90 de 174 entradas) eran
+/// hits solo-BM25 que E5 no rankeó — 67 de ellos "decisiones" de cola léxica
+/// ("El plan Tienda…" para un prompt sobre el daemon). E5 da cosenos planos
+/// (0,80-0,89 en todo el pack), así que el respaldo denso es binario, no un
+/// umbral: sin él solo pasan los 3 primeros de BM25 (coincidencia léxica
+/// fuerte). Un pack más corto es el objetivo, no un efecto secundario.
+pub(super) const SPARSE_TAIL_CUTOFF: usize = 3;
 
 /// Down-rank de items AMBIENTE (project_id=NULL) bajo filtro de proyecto
 /// (2026-07-13). La regla ambiente (pack.rs) mantiene el corpus NULL VISIBLE en

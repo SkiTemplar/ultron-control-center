@@ -9,10 +9,17 @@
  * Flow:
  *   1. Read the transcript JSONL path from stdin payload (field: transcript_path).
  *   2. Parse last N turns (MAX_TURNS = 60) from the JSONL.
- *   3. Invoke Haiku 4.5 (Anthropic) / Groq to extract 3-5 structured facts.
- *      Falls back to rule-based extraction when no API key is available.
- *   4. Propose the captured facts as governed candidates via the
- *      `ultron-memory capture` sidecar (redaction + human-approved inbox).
+ *   3. Propone los hechos extraidos como candidatos gobernados via el UNICO
+ *      camino de extraccion: el sidecar `ultron-memory capture` (AI Router con
+ *      cadena primary->fallback y las keys del usuario, redaccion, dedupe,
+ *      inbox con aprobacion humana). Este script ya NO llama a ningun proveedor
+ *      cloud por su cuenta — decidido por el usuario 2026-09-10: la llamada
+ *      directa (Groq sin fallback) estaba DUPLICADA con la del sidecar y
+ *      fallaba el 51% de las veces (218/426, HTTP 429) sin aportar nada que el
+ *      sidecar no hiciera ya mejor.
+ *   4. Escribe cockpit/projects/{projectId}/sessions/{session_id}/compact.json
+ *      a partir del informe del sidecar (decisions/next/bugs mapeados por
+ *      `kind` — ver el comentario de `writeCompact`).
  *   5. Exits 0 always — hook failures must never interrupt user workflow.
  *
  * NOTE: the legacy upsert to the RETIRED Qdrant `ultron_sessions` collection
@@ -21,8 +28,12 @@
  * helpers were deleted (2026-06-22).
  *
  * Configuration via env vars:
- *   ANTHROPIC_API_KEY / GROQ_API_KEY — for AI extraction; falls back to heuristic
- *   STOP_COMPRESS_DISABLED=1  — opt-out
+ *   STOP_COMPRESS_DISABLED=1 / CLAUDE_NO_HOOKS=1 — opt-out
+ *   ULTRON_MEMORY_BIN — override del binario del sidecar (tests/selftest)
+ *
+ * No hay ANTHROPIC_API_KEY ni GROQ_API_KEY aqui: las keys las gestiona el AI
+ * Router dentro del binario `ultron-memory` (ver control-center/src-tauri/src/
+ * ai_router/), no este script.
  */
 
 'use strict';
@@ -31,8 +42,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync, spawn, spawnSync } = require('child_process');
-const https = require('https');
-const http = require('http');
 const crypto = require('crypto');
 
 // ---------------------------------------------------------------------------
@@ -49,7 +58,7 @@ observe('stop-compress-session');
 // ---------------------------------------------------------------------------
 // Shared security helpers — lib/security-helpers.js (extraidos del antiguo
 // mem0-sync.js, borrado 2026-06-08; el require roto degradaba a stubs y
-// desactivaba la extraccion AI para siempre — fix Kirkardo Pass1 C5).
+// desactivaba la captura AI para siempre — fix Kirkardo Pass1 C5).
 // Fallback gracioso: si el require falla, stubs + fail-closed (sin egress).
 // ---------------------------------------------------------------------------
 
@@ -57,9 +66,9 @@ let redactSecrets = (s) => String(s == null ? '' : s);
 let loadOptOut = () => ({ projects: [], cwd_patterns: [] });
 let isOptedOut = () => false;
 let detectProjectName = (cwd) => path.basename(cwd || process.cwd() || 'unknown');
-// FAIL-CLOSED: only true once the real security helpers loaded. When false we
-// must NOT send anything to the cloud LLM (would post unredacted text + skip
-// project opt-out). The local Qdrant write still happens (no egress).
+// FAIL-CLOSED: only true once the real security helpers loaded. When false the
+// transcript must NOT leave the machine — la captura via el sidecar (que manda
+// el transcript al AI Router) se salta entera (ver 'capture_skipped_no_redaction').
 let securityHelpersLoaded = false;
 
 try {
@@ -142,6 +151,100 @@ function parseTurns(jsonlPath) {
 }
 
 // ---------------------------------------------------------------------------
+// Throttle por sesion
+// ---------------------------------------------------------------------------
+
+const CAPTURE_MIN_USER_TURNS = 3;
+const CAPTURE_MIN_INTERVAL_MS = 10 * 60 * 1000;
+
+function throttlePath(sessionId) {
+  const safe = String(sessionId || 'nosession').replace(/[^A-Za-z0-9_-]/g, '-');
+  return path.join(HOME, '.ultron', '.tmp', `stop-compress-${safe}.json`);
+}
+
+function readThrottleState(sessionId) {
+  try {
+    const o = JSON.parse(fs.readFileSync(throttlePath(sessionId), 'utf8'));
+    return { user_turns: Number(o.user_turns) || 0, ts: Number(o.ts) || 0 };
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeThrottleState(sessionId, state) {
+  try {
+    const p = throttlePath(sessionId);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const tmp = `${p}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(state));
+    fs.renameSync(tmp, p);
+  } catch (_) {
+    /* best-effort: sin estado se comprime como siempre */
+  }
+}
+
+/**
+ * true = saltar esta pasada. Pura. Se comprime cuando han entrado al menos
+ * CAPTURE_MIN_USER_TURNS turnos del usuario desde la ultima pasada O han
+ * pasado CAPTURE_MIN_INTERVAL_MS; la primera pasada de la sesion nunca se salta.
+ */
+function shouldThrottle(last, userTurns, now) {
+  if (!last) return false;
+  const enoughTurns = userTurns - last.user_turns >= CAPTURE_MIN_USER_TURNS;
+  const enoughTime = now - last.ts >= CAPTURE_MIN_INTERVAL_MS;
+  return !(enoughTurns || enoughTime);
+}
+
+// ---------------------------------------------------------------------------
+// Throttle GLOBAL (decidido 2026-09-10)
+//
+// El throttle por sesion no cubre el caso de VARIAS sesiones abiertas a la vez:
+// cada una respeta su propio limite, pero la primera pasada de cada sesion
+// nunca se salta, asi que N sesiones concurrentes pueden disparar N capturas
+// (N llamadas al AI Router) en la misma ventana y agotar la cuota compartida
+// entre todas. Este throttle es independiente del de sesion — fichero propio
+// (.tmp/stop-compress-global.json) — y gatea SOLO el intento de captura (la
+// llamada al sidecar, que es la que hace egress); compact.json se sigue
+// escribiendo siempre que haya proyecto, con los hechos que hubiera de una
+// captura anterior o vacios si no los hay.
+// ---------------------------------------------------------------------------
+
+const CAPTURE_GLOBAL_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+function globalThrottlePath() {
+  return path.join(HOME, '.ultron', '.tmp', 'stop-compress-global.json');
+}
+
+function readGlobalThrottleState() {
+  try {
+    const o = JSON.parse(fs.readFileSync(globalThrottlePath(), 'utf8'));
+    return { ts: Number(o.ts) || 0 };
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeGlobalThrottleState(state) {
+  try {
+    const p = globalThrottlePath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const tmp = `${p}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(state));
+    fs.renameSync(tmp, p);
+  } catch (_) {
+    /* best-effort: sin estado, el proximo intento no vera esta captura */
+  }
+}
+
+/**
+ * true = saltar el intento de captura (dentro de la ventana global). Pura.
+ */
+function shouldThrottleGlobal(last, now) {
+  if (!last) return false;
+  return now - last.ts < CAPTURE_GLOBAL_MIN_INTERVAL_MS;
+}
+
+// ---------------------------------------------------------------------------
 // Git head SHA (best-effort)
 // ---------------------------------------------------------------------------
 
@@ -152,179 +255,6 @@ function gitHeadSha(cwd) {
     }).trim();
   } catch (_) { return ''; }
 }
-
-// ---------------------------------------------------------------------------
-// HTTP helper (no external deps)
-// ---------------------------------------------------------------------------
-
-function httpRequest(urlStr, options, body) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(urlStr);
-    const lib = url.protocol === 'https:' ? https : http;
-    const req = lib.request({
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname + url.search,
-      method: options.method || 'GET',
-      headers: options.headers || {},
-    }, res => {
-      const chunks = [];
-      res.on('data', d => chunks.push(d));
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        body: Buffer.concat(chunks).toString('utf8'),
-      }));
-    });
-    req.on('error', reject);
-    if (options.timeout) req.setTimeout(options.timeout, () => req.destroy(new Error('timeout')));
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Anthropic Haiku extraction
-// ---------------------------------------------------------------------------
-
-const EXTRACTION_PROMPT = `You are a technical memory assistant. Given a conversation transcript, extract 3 to 5 key facts worth remembering for future sessions.
-
-Return ONLY valid JSON with this exact shape:
-{"facts":[{"text":"<concise fact>","kind":"decision|bug|feature|todo|file|context","importance":0.0-1.0}]}
-
-Rules:
-- "text": one sentence, max 120 chars, in the same language as the conversation
-- "kind": one of decision, bug, feature, todo, file
-- "importance": float 0-1 (1 = critical architectural decision, 0.1 = minor note)
-- For "decision" facts, set importance >= 0.7 — an architectural/design/tooling
-  choice ("we decided X over Y", "we'll use Z") is always worth remembering
-- Do NOT describe what the project is: that is covered elsewhere. Only
-  per-session work.
-- Return between 3 and 5 facts
-- Focus on decisions made, bugs fixed, files changed and todos left
-
-Transcript (last turns):
-`;
-
-async function extractFactsWithAI(turns) {
-  // Redact secrets from every turn BEFORE sending to ANY provider.
-  // The transcript leaves the machine here — this is the critical boundary.
-  const transcript = turns
-    .map(t => `[${t.role}]: ${redactSecrets(t.text)}`)
-    .join('\n')
-    .slice(0, 6000);
-  const content = EXTRACTION_PROMPT + transcript;
-
-  // Proveedor preferente: Groq (free tier, OpenAI-compat) — la suscripcion
-  // Anthropic directa suele no tener saldo (400 credit balance too low). Si no
-  // hay GROQ_API_KEY, cae a Anthropic; si tampoco, devuelve null (heuristico).
-  // fix 2026-05-30: antes solo usaba Anthropic y fallaba por saldo.
-  const groqKey = process.env.GROQ_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-
-  async function tryGroq() {
-    const body = JSON.stringify({
-      model: 'openai/gpt-oss-20b',
-      max_tokens: 512,
-      messages: [{ role: 'user', content }],
-    });
-    const res = await httpRequest('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      timeout: 20000,
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
-    }, body);
-    if (res.status !== 200) {
-      safeLog({ level: 'warn', msg: 'groq_non200', status: res.status, body: res.body.slice(0, 200) });
-      return null;
-    }
-    return JSON.parse(res.body)?.choices?.[0]?.message?.content || '';
-  }
-
-  async function tryAnthropic() {
-    const body = JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      messages: [{ role: 'user', content }],
-    });
-    const res = await httpRequest('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      timeout: 20000,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-    }, body);
-    if (res.status !== 200) {
-      safeLog({ level: 'warn', msg: 'anthropic_non200', status: res.status, body: res.body.slice(0, 200) });
-      return null;
-    }
-    return JSON.parse(res.body)?.content?.[0]?.text || '';
-  }
-
-  try {
-    let text = null;
-    if (groqKey) text = await tryGroq();
-    if (text == null && anthropicKey) text = await tryAnthropic();
-    if (text == null) return null;
-
-    // Extract JSON block — model may wrap it in markdown fences.
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const facts = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(facts.facts)) return null;
-    return facts.facts;
-  } catch (e) {
-    safeLog({ level: 'error', msg: 'ai_extract_failed', error: String(e && e.message) });
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Heuristic fact extraction (fallback when no API key)
-// ---------------------------------------------------------------------------
-
-function extractFactsHeuristic(turns) {
-  const facts = [];
-  const seen = new Set();
-
-  for (const turn of turns.slice(-20)) {
-    // Redact secrets before storing — these texts land in Qdrant payloads.
-    const safeText = redactSecrets(turn.text);
-    const lower = safeText.toLowerCase();
-    let kind = 'feature';
-    let importance = 0.4;
-
-    if (lower.includes('bug') || lower.includes('error') || lower.includes('fix')) {
-      kind = 'bug'; importance = 0.7;
-    } else if (lower.includes('todo') || lower.includes('pendiente') || lower.includes('falta')) {
-      kind = 'todo'; importance = 0.6;
-    } else if (lower.match(/decidimos|decision|vamos a|usaremos|implementamos/)) {
-      kind = 'decision'; importance = 0.8;
-    } else if (lower.match(/\.rs|\.ts|\.js|\.py|\.json|archivo|file|created|wrote/)) {
-      kind = 'file'; importance = 0.5;
-    }
-
-    const key = safeText.slice(0, 60).toLowerCase().replace(/\s+/g, ' ');
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    facts.push({
-      text: safeText.slice(0, 120),
-      kind,
-      importance,
-    });
-
-    if (facts.length >= 5) break;
-  }
-
-  // Ensure at least one fact exists.
-  if (facts.length === 0) {
-    facts.push({ text: 'Session completed (no extractable facts)', kind: 'feature', importance: 0.1 });
-  }
-
-  return facts;
-}
-
 
 // ---------------------------------------------------------------------------
 // Project name heuristic
@@ -409,13 +339,110 @@ function resolveProjectId(cwd) {
 // el perfil de proyecto (hook SessionEnd project-profile -> profile.json).
 
 // ---------------------------------------------------------------------------
+// Captura via el sidecar `ultron-memory capture` (UNICO camino, 2026-09-10)
+//
+// Antes este hook extraia hechos por su cuenta (llamada directa a Groq/
+// Anthropic, sin fallback) Y le pasaba el transcript al sidecar, que vuelve a
+// extraer via el AI Router (cadena primary->fallback + keys del usuario) y
+// propone candidatos gobernados. Las dos extracciones estaban DUPLICADAS; la
+// de aqui fallaba el 51% de las veces (218/426, HTTP 429) sin fallback y no
+// aportaba nada que el sidecar no hiciera ya mejor. Decision del usuario:
+// un solo camino, el del sidecar — este script ya no extrae nada, solo manda
+// el transcript (redactado turno a turno) y lee lo que el sidecar propuso.
+// ---------------------------------------------------------------------------
+
+/**
+ * Intenta una pasada de captura contra el sidecar. Es el UNICO punto de
+ * egress del hook — el transcript (ya redactado) sale de la maquina aqui.
+ * Fail-safe: cualquier fallo (spawn, timeout, JSON invalido) devuelve
+ * report=null; nunca lanza hacia main().
+ * @returns {object|null} el CaptureReport parseado, o null.
+ */
+function attemptCapture(memBin, turns, projectId, sessionId) {
+  try {
+    const transcriptText = turns
+      .map((t) => `${t.role || ''}: ${redactSecrets(t.text || '')}`)
+      .join('\n')
+      .slice(-8000);
+    // Provenance episódica: --session estampa source_session_id en cada
+    // candidate que la captura proponga (verificable via `provenance --id`).
+    // Sin projectId (cwd sin proyecto) se captura SIN --project: ambiente.
+    const captureArgs = ['capture'];
+    if (projectId) captureArgs.push('--project', projectId);
+    if (sessionId) captureArgs.push('--session', String(sessionId));
+    const cap = spawnSync(memBin, captureArgs, {
+      input: transcriptText,
+      encoding: 'utf8',
+      timeout: 25000,
+      maxBuffer: 1024 * 1024,
+    });
+    safeLog({
+      level: 'info',
+      msg: 'memory_capture',
+      sessionId,
+      code: cap.status,
+      out: (cap.stdout || '').slice(0, 200),
+    });
+
+    let report = null;
+    if (cap.status === 0 && cap.stdout) {
+      try {
+        report = JSON.parse(cap.stdout);
+      } catch (e) {
+        safeLog({
+          level: 'warn',
+          msg: 'capture_report_unparseable',
+          sessionId,
+          error: String(e && e.message),
+        });
+      }
+    }
+
+    // (2026-07-13) Inbox 100% autonomo (decision del usuario): drena el stock
+    // justo despues de capturar, detached fire-and-forget — la re-verificacion
+    // (juez de contradiccion + dedup, con E5 en proceso) tarda segundos por
+    // lote y NO debe bloquear el Stop. La politica vive en el binario
+    // (`inbox drain --auto`): re-verifica los unjudged, aprueba bandas A/B,
+    // rechaza secret/duplicado/conflicto/ruido con razon auditable. Sin esto
+    // los candidatos `unjudged` (E5 frio agotaba el budget 4.5s del juez en
+    // el one-shot de captura) se acumulaban pending para siempre.
+    try {
+      const drain = spawn(memBin, ['inbox', 'drain', '--auto'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      drain.unref();
+      safeLog({ level: 'info', msg: 'inbox_drain_auto_spawned', sessionId });
+    } catch (e2) {
+      safeLog({
+        level: 'warn',
+        msg: 'inbox_drain_auto_failed',
+        sessionId,
+        error: String(e2 && e2.message),
+      });
+    }
+
+    return report;
+  } catch (e) {
+    safeLog({
+      level: 'warn',
+      msg: 'memory_capture_failed',
+      sessionId,
+      error: String(e && e.message),
+    });
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // cat17.1 — Structured compact output (>=4 of 8 outputs)
 // Writes cockpit/projects/{projectId}/sessions/{session_id}/compact.json with:
 //   human    — prose summary for humans
 //   machine  — counters/metrics object for tooling
-//   decisions — list of decision-kind facts extracted from the session
-//   next     — list of todo-kind facts as next steps
-//   bugs     — list of bug-kind facts (if any)
+//   decisions — list of decision-kind facts del informe del sidecar
+//   next     — list of task-kind facts as next steps
+//   bugs     — list of lesson-kind facts (si el sidecar propuso alguna)
 //   arch_delta — recent git commits during the session window (best-effort)
 //
 // Fail-safe: any error is logged and swallowed. Never throws into main().
@@ -435,7 +462,28 @@ function gitLogRecent(cwd, maxCommits) {
   }
 }
 
-function writeCompact(projectId, sessionId, cwd, turns, facts, date) {
+/**
+ * `facts` es el array `facts` del CaptureReport del sidecar (ver
+ * control-center/src-tauri/src/memory/capture.rs — CapturedFact): cada
+ * elemento es { kind, title, origin }, donde `kind` es el MemoryType en
+ * snake_case tal y como serializa en brain.db (ver
+ * control-center/src-tauri/src/memory/model.rs) y `origin` es una de
+ * "origin:user" / "origin:assistant" / "origin:unknown".
+ *
+ * Mapeo kind -> seccion de compact.json:
+ *   decision -> decisions
+ *   task     -> next        (unico kind de "pendiente" en MemoryType; no
+ *                             existe "todo" como valor real del enum)
+ *   lesson   -> bugs        (MemoryType no tiene kind "bug"; lesson —
+ *                             sintoma+causa+regla de un fallo cerrado en la
+ *                             sesion — es lo mas cercano que produce el
+ *                             extractor)
+ * El resto de kinds (preference, fact, constraint, codebase_fact, skill,
+ * agent_note, session_summary, error_resolution, architecture, user_profile)
+ * no aparece en ninguna de las tres listas: compact.json es un resumen
+ * operativo de la sesion, no un espejo completo de brain.db.
+ */
+function writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date) {
   try {
     const sessionDir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId, 'sessions', sessionId);
     fs.mkdirSync(sessionDir, { recursive: true });
@@ -457,24 +505,23 @@ function writeCompact(projectId, sessionId, cwd, turns, facts, date) {
       turns_user: userTurns,
       turns_assistant: assistantTurns,
       facts_extracted: (facts || []).length,
+      ai_used: !!aiUsed,
       sha_head: gitHeadSha(cwd) || null,
       generated_at: new Date().toISOString(),
     };
 
-    // decisions: reutiliza los mismos facts filtrados por kind=decision
+    // decisions / next / bugs: mapeo por kind (ver comentario de la funcion).
     const decisions = (facts || [])
-      .filter(f => f && f.kind === 'decision' && f.text)
-      .map(f => ({ text: f.text.slice(0, 120), importance: f.importance || 0 }));
+      .filter(f => f && f.kind === 'decision' && f.title)
+      .map(f => ({ text: String(f.title).slice(0, 120), origin: f.origin || 'origin:unknown' }));
 
-    // next: todos como próximos pasos
     const next = (facts || [])
-      .filter(f => f && f.kind === 'todo' && f.text)
-      .map(f => f.text.slice(0, 120));
+      .filter(f => f && f.kind === 'task' && f.title)
+      .map(f => String(f.title).slice(0, 120));
 
-    // bugs: bugs detectados
     const bugs = (facts || [])
-      .filter(f => f && f.kind === 'bug' && f.text)
-      .map(f => ({ text: f.text.slice(0, 120), importance: f.importance || 0 }));
+      .filter(f => f && f.kind === 'lesson' && f.title)
+      .map(f => ({ text: String(f.title).slice(0, 120), origin: f.origin || 'origin:unknown' }));
 
     // arch_delta: últimos commits de la sesión (best-effort, max 10)
     const arch_delta = gitLogRecent(cwd, 10);
@@ -527,7 +574,6 @@ async function main() {
     return;
   }
   const date = new Date().toISOString().slice(0, 10);
-  const sha = gitHeadSha(cwd);
 
   safeLog({ level: 'info', msg: 'start', sessionId, project, transcriptPath: transcriptPath || '(none)' });
 
@@ -538,97 +584,56 @@ async function main() {
     return;
   }
 
-  // Extract facts. FAIL-CLOSED: only call the cloud LLM (extractFactsWithAI ->
-  // POST to api.anthropic.com) when the redaction/opt-out helpers loaded.
-  // Otherwise stay fully local (heuristic -> Qdrant only, no egress).
-  let facts = securityHelpersLoaded ? await extractFactsWithAI(turns) : null;
-  const usedAI = facts !== null;
-  if (!facts) {
-    if (!securityHelpersLoaded) {
-      safeLog({ level: 'warn', msg: 'security_helpers_unavailable_local_only', sessionId });
-    }
-    facts = extractFactsHeuristic(turns);
+  // Throttle por sesion (2026-09-07, decidido por el usuario): Stop se dispara
+  // en cada turno del asistente. Una sesion se comprime como mucho una vez
+  // cada CAPTURE_MIN_USER_TURNS turnos del usuario o cada
+  // CAPTURE_MIN_INTERVAL_MS, lo que antes se cumpla; la primera pasada nunca
+  // se salta.
+  const userTurns = turns.filter((t) => t.role === 'user').length;
+  const throttle = readThrottleState(sessionId);
+  if (shouldThrottle(throttle, userTurns, Date.now())) {
+    safeLog({ level: 'info', msg: 'throttled', sessionId, userTurns, last: throttle });
+    return;
   }
-
-  safeLog({ level: 'info', msg: 'facts_extracted', count: facts.length, usedAI, sessionId });
+  writeThrottleState(sessionId, { user_turns: userTurns, ts: Date.now() });
 
   const projectId = resolveProjectId(cwd);
 
-  // projectId=null (cwd sin proyecto: home, dir generico) -> nada de escribir
-  // en cockpit/projects/<null>/ ni de estampar un proyecto inventado; la
-  // captura de abajo va SIN --project (candidato ambiente, down-rankeado).
-  if (projectId) {
-    // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
-    writeCompact(projectId, sessionId, cwd, turns, facts, date);
-  }
-
-  // OLA write-path (2026-06-04): propose GOVERNED memory candidates via the
-  // `ultron-memory capture` sidecar. The sidecar re-runs extraction through the
-  // AI Router (which populates router telemetry with the user's keys) and applies
-  // redaction inside create_candidate, landing candidates in the governed inbox
-  // for human approval (never auto-promoted). Aditive + fail-safe: a sidecar
-  // failure never breaks the Stop hook. NOTE: extraction currently runs twice
-  // (here via the router + extractFactsWithAI above) — unify in a follow-up.
-  try {
+  // Captura via el sidecar (unico camino, ver comentario mas arriba). El
+  // throttle GLOBAL gatea solo el intento de captura (el egress): la primera
+  // pasada de una sesion nueva SIGUE respetandolo, que es justo lo que ahorra
+  // cuota cuando hay varias sesiones concurrentes.
+  let report = null;
+  const nowMs = Date.now();
+  const globalThrottle = readGlobalThrottleState();
+  if (shouldThrottleGlobal(globalThrottle, nowMs)) {
+    safeLog({ level: 'info', msg: 'throttled_global', sessionId, lastGlobalTs: globalThrottle.ts });
+  } else if (!securityHelpersLoaded) {
+    // FAIL-CLOSED: sin redaccion verificada, el transcript no sale de la
+    // maquina — la captura (que lo manda al AI Router) se salta entera.
+    safeLog({ level: 'warn', msg: 'capture_skipped_no_redaction', sessionId });
+  } else {
     // HOOKS-JS-07: resolucion compartida del sidecar (env var + candidatos
     // release/debug) en vez del path hardcodeado a ~/.ultron/bin.
     const memBin = findBinary();
     if (memBin) {
-      const transcriptText = turns
-        .map((t) => (typeof t === 'string' ? t : `${t.role || ''}: ${t.text || t.content || ''}`))
-        .join('\n')
-        .slice(-8000);
-      // Provenance episódica: --session estampa source_session_id en cada
-      // candidate que la captura proponga (verificable via `provenance --id`).
-      // Sin projectId (cwd sin proyecto) se captura SIN --project: ambiente.
-      const captureArgs = ['capture'];
-      if (projectId) captureArgs.push('--project', projectId);
-      if (sessionId) captureArgs.push('--session', String(sessionId));
-      const cap = spawnSync(memBin, captureArgs, {
-        input: transcriptText,
-        encoding: 'utf8',
-        timeout: 25000,
-        maxBuffer: 1024 * 1024,
-      });
-      safeLog({
-        level: 'info',
-        msg: 'memory_capture',
-        sessionId,
-        code: cap.status,
-        out: (cap.stdout || '').slice(0, 200),
-      });
-      // (2026-07-13) Inbox 100% autonomo (decision del usuario): drena el stock
-      // justo despues de capturar, detached fire-and-forget — la re-verificacion
-      // (juez de contradiccion + dedup, con E5 en proceso) tarda segundos por
-      // lote y NO debe bloquear el Stop. La politica vive en el binario
-      // (`inbox drain --auto`): re-verifica los unjudged, aprueba bandas A/B,
-      // rechaza secret/duplicado/conflicto/ruido con razon auditable. Sin esto
-      // los candidatos `unjudged` (E5 frio agotaba el budget 4.5s del juez en
-      // el one-shot de captura) se acumulaban pending para siempre.
-      try {
-        const drain = spawn(memBin, ['inbox', 'drain', '--auto'], {
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: true,
-        });
-        drain.unref();
-        safeLog({ level: 'info', msg: 'inbox_drain_auto_spawned', sessionId });
-      } catch (e2) {
-        safeLog({
-          level: 'warn',
-          msg: 'inbox_drain_auto_failed',
-          sessionId,
-          error: String(e2 && e2.message),
-        });
-      }
+      writeGlobalThrottleState({ ts: nowMs });
+      report = attemptCapture(memBin, turns, projectId, sessionId);
+    } else {
+      safeLog({ level: 'warn', msg: 'memory_bin_not_found', sessionId });
     }
-  } catch (e) {
-    safeLog({
-      level: 'warn',
-      msg: 'memory_capture_failed',
-      sessionId,
-      error: String(e && e.message),
-    });
+  }
+
+  const facts = (report && Array.isArray(report.facts)) ? report.facts : [];
+  const aiUsed = !!(report && report.router_used);
+  safeLog({ level: 'info', msg: 'facts_extracted', count: facts.length, aiUsed, sessionId });
+
+  // projectId=null (cwd sin proyecto: home, dir generico) -> nada de escribir
+  // en cockpit/projects/<null>/ ni de estampar un proyecto inventado; la
+  // captura de arriba ya fue SIN --project (candidato ambiente, down-rankeado).
+  if (projectId) {
+    // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
+    writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date);
   }
 
   // OLA A/B (2026-06-04): the legacy upsert to the RETIRED Qdrant `ultron_sessions`
@@ -642,7 +647,7 @@ async function main() {
   safeLog({
     level: 'info',
     msg: 'session_compressed',
-    note: 'ultron_sessions upsert retired (SoT = brain.db); decisions captured',
+    note: 'ultron_sessions upsert retired (SoT = brain.db); decisions captured via sidecar',
     count: facts.length,
     sessionId,
     project,
@@ -650,7 +655,7 @@ async function main() {
 }
 
 // Solo corre el hook cuando se invoca directamente; al importarse (tests) expone
-// las funciones puras sin disparar la compactacion ni la llamada al LLM.
+// las funciones puras sin disparar la compactacion ni la llamada al sidecar.
 if (require.main === module) {
   main().catch(err => {
     safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
@@ -659,5 +664,12 @@ if (require.main === module) {
   });
   process.exitCode = 0;
 } else {
-  module.exports = { resolveProjectId };
+  module.exports = {
+    resolveProjectId,
+    shouldThrottle,
+    shouldThrottleGlobal,
+    CAPTURE_MIN_USER_TURNS,
+    CAPTURE_MIN_INTERVAL_MS,
+    CAPTURE_GLOBAL_MIN_INTERVAL_MS,
+  };
 }

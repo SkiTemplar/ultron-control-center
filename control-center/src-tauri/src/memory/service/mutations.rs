@@ -426,8 +426,9 @@ impl MemoryService {
     /// bespoke sync logic.
     ///
     /// Honest scope (mand. 13): "stale" here = "not MODIFIED in N days"
-    /// (`updated_at`), NOT "unused / no recall-hit" — `last_accessed_at` is never
-    /// written on the read path today. Pinned and user-validated items are
+    /// (`updated_at`), NOT "unused / no recall-hit". Quien cruza ambas señales es
+    /// [`MemoryService::gc`] (F1.8), que ademas exige `last_accessed_at` fuera de
+    /// la ventana. Pinned and user-validated items are
     /// protected (never staled). Reversible: `set_status(id, Active)` emits a
     /// `Restored` event. `dry_run` only counts (mutates nothing).
     pub fn mark_stale_aged(

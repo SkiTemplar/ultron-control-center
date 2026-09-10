@@ -118,3 +118,22 @@ fn materialise_home_entry_crea_la_entrada_real_del_home() {
     assert!(entry.get("color").is_none(), "no debe nacer con color");
     assert!(entry.get("notes").is_none(), "no debe nacer con notas");
 }
+
+#[test]
+fn validate_app_command_accepts_normal_commands() {
+    use super::launch::validate_app_command;
+
+    assert!(validate_app_command("npm run tauri dev").is_ok());
+    // A diferencia de path_ps_safe, "../" no se rechaza: app_command es una
+    // linea de comando arbitraria, no una ruta.
+    assert!(validate_app_command("cd ../scripts && ./run.sh").is_ok());
+}
+
+#[test]
+fn validate_app_command_rejects_empty_and_control_chars() {
+    use super::launch::validate_app_command;
+
+    assert!(validate_app_command("").is_err());
+    assert!(validate_app_command("npm run dev\0").is_err());
+    assert!(validate_app_command("npm run dev\n--bad").is_err());
+}

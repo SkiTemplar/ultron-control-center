@@ -33,8 +33,8 @@ const os = require('os');
 const HOME = os.homedir();
 // CI/test override (casilla 2.5b): when ULTRON_ROUTING_FIXTURES points at a
 // fixtures tree, every candidate-discovery root resolves under it — so the
-// acc@3 harness is deterministic in CI, where ~/.claude/skills and the ECC
-// cache don't exist. UNSET in production => paths are byte-identical to before.
+// acc@3 harness is deterministic in CI, where ~/.claude/skills doesn't exist.
+// UNSET in production => paths are byte-identical to before.
 const _FIX = process.env.ULTRON_ROUTING_FIXTURES || '';
 function _routeRoot(sub, realPath) {
   return _FIX ? path.join(_FIX, sub) : realPath;
@@ -55,32 +55,6 @@ try {
   if (require.main === module) _hookObs.observe('routing-dispatcher.v2');
   _logHookError = _hookObs.logHookError;
 } catch { /* observability is optional; never break the hot path */ }
-
-// ---------------------------------------------------------------------------
-// ECC plugin path (Option B: separate index, no contamination of main ranking)
-// ---------------------------------------------------------------------------
-
-/**
- * Root of the ECC plugin skills.  apply-lazy-ecc.ps1 renames each skill
- * FOLDER to <name>.disabled, leaving SKILL.md intact inside it.
- *
- * The version segment ("2.0.0-rc.1") is discovered at runtime so the code
- * survives a plugin update.  If the cache root does not exist the ECC
- * subsystem degrades silently.
- */
-const ECC_CACHE_ROOT = _routeRoot('ecc', path.join(HOME, '.claude', 'plugins', 'cache', 'ecc', 'ecc'));
-
-/**
- * Minimum raw score (sum of W_TRIGGER/W_STRONG/W_CONTEXT hits) that an ECC
- * candidate must reach to trigger re-injection.  Intentionally lower than the
- * main HIGH_THRESHOLD (which maps 100 -> 1.0) because ECC entries are scored
- * against description words only (no curated strong[] lists).
- *
- * 70 raw  ~  one strong-level hit (W_STRONG=60) + one context hit (W_CONTEXT=25)
- *         or  two context hits + one trigger hit on the skill name itself.
- * This prevents single-word false positives while still allowing precise matches.
- */
-const ECC_MATCH_MIN_RAW = 70;
 
 const MAX_PROMPT_CHARS = 4000;
 const HIGH_THRESHOLD = 0.80;
@@ -173,19 +147,6 @@ let _invocationCounter = 0;
 let _registryCache = null;
 
 /**
- * ECC skill index cache (Option B).
- * Loaded once per process by scanEccSkills().
- * null  = not yet loaded
- * Map   = loaded (may be empty if ECC cache missing or I/O error)
- *
- * Each entry: { skillPath: string, tokens: { triggers, strong, context } }
- * Key: normalized skill name (e.g. "accessibility", "autonomous-loops")
- *
- * @type {Map<string, {skillPath: string, tokens: {triggers: string[], strong: string[], context: string[]}}>|null}
- */
-let _eccIndexCache = null;
-
-/**
  * SKILL.md content cache (cat9.4 — lazy, module-lifetime).
  *
  * Maps absolute SKILL.md path -> file content string so that repeated reads
@@ -198,38 +159,6 @@ let _eccIndexCache = null;
  * @type {Map<string, string>}
  */
 const _skillMdCache = new Map();
-
-// ---------------------------------------------------------------------------
-// ECC-specific stop-word list (extended from the workspace stop-word list)
-// ---------------------------------------------------------------------------
-
-/**
- * Stop words for ECC token extraction.
- * Broader than the workspace list because ECC descriptions use more generic prose.
- * @type {Set<string>}
- */
-const ECC_STOP_WORDS = new Set([
-  'para', 'cuando', 'desde', 'sobre', 'entre', 'hasta', 'under', 'about',
-  'with', 'this', 'that', 'from', 'skill', 'ultron', 'activate', 'always',
-  'using', 'based', 'their', 'which', 'where', 'should', 'other', 'these',
-  'those', 'there', 'after', 'before', 'without', 'within', 'across', 'into',
-  'when', 'your', 'will', 'have', 'been', 'more', 'such', 'also', 'each',
-  'and', 'for', 'the', 'are', 'can', 'its', 'not', 'all', 'any', 'use',
-  'used', 'user', 'asks', 'needs', 'want', 'wants', 'need', 'make', 'help',
-]);
-
-/**
- * Planning-methodology bigrams (iter-10 FASE 7) promoted to strong[] when an
- * ECC skill's "When to Use" section uses this explicit planning vocabulary.
- * Normalized (lowercase, no diacritics) so comparison against whenNorm is direct.
- */
-const PLANNING_METHODOLOGY_BIGRAMS = [
-  'requirements analysis',
-  'architecture decision',
-  'spec driven',
-  'phase breakdown',
-  'risk assessment',
-];
 
 // ---------------------------------------------------------------------------
 // PERSONAS (Layer 1) — unchanged from v1
@@ -770,139 +699,6 @@ function parseSkillMdTokens(skillMdContent, dirName) {
 }
 
 /**
- * Enhanced token extractor for ECC plugin skills.
- *
- * ECC SKILL.md files have only `name`, `description`, and `origin` in their
- * front-matter — no `triggers`, `strong`, or `keywords` fields.  The generic
- * parseSkillMdTokens() only pulls ≤8 context words from the description, which
- * yields scores of 25 at best and makes ECC skills un-matchable at ECC_MATCH_MIN_RAW=70.
- *
- * This function extracts richer signals:
- *
- *   strong[]: bigrams of meaningful adjacent words from the description (primary
- *             activation signal — purpose-written, concise) PLUS bigrams from the
- *             "When to Use" section (explicit activation language).  Also includes
- *             individual long words (>=6 chars) from the description.
- *             Cap: 24 entries.
- *
- *   context[]: shorter individual meaningful words (>=4 chars) from "When to Use"
- *              that are not already in strong[].  Cap: 12 entries.
- *
- *   triggers[]: the normalized skill name (e.g. "autonomous-loops") plus its
- *               space-separated variant ("autonomous loops").
- *
- * With this extractor a prompt like "make an autonomous claude code loop" hits
- * strong:"autonomous claude" (W_STRONG=60) and strong:"claude code" (W_STRONG=60)
- * for a raw score of 120, well above ECC_MATCH_MIN_RAW=70.
- *
- * The ECC index is consulted ONLY from matchBestEccSkill() — it never enters
- * rankCandidates() and cannot affect the main routing ranking.
- *
- * Always returns a valid object — never throws.
- *
- * @param {string} skillMdContent  Raw SKILL.md text.
- * @param {string} skillName       Canonical skill name (folder name with .disabled stripped).
- * @returns {{ id: string, _rawName: string, triggers: string[], strong: string[], context: string[] }}
- */
-function parseEccSkillTokens(skillMdContent, skillName) {
-  let description = '';
-  let whenToUse = '';
-
-  try {
-    const fmMatch = skillMdContent.match(/^---\s*\n([\s\S]*?)\n---/);
-    if (fmMatch) {
-      const descMatch = fmMatch[1].match(/^description:\s*["']?([\s\S]*?)["']?\s*(?=\n\w|\n---|$)/m);
-      if (descMatch) description = descMatch[1].replace(/\n/g, ' ').trim();
-    }
-    // "When to Use" section: explicit activation language — highest signal density
-    const whenMatch = skillMdContent.match(/##\s*When to Use\s*\n([\s\S]*?)(?=\n##|$)/i);
-    if (whenMatch) {
-      whenToUse = whenMatch[1]
-        .replace(/^[-*]\s*/gm, ' ')
-        .replace(/\n/g, ' ')
-        .trim()
-        .slice(0, 800);
-    }
-    // Fallback: if no description, grab first prose sentence from body
-    if (!description) {
-      const bodyMatch = skillMdContent.replace(/^---[\s\S]*?---/, '').match(/[A-Za-z].{20,}/);
-      if (bodyMatch) description = bodyMatch[0].slice(0, 200);
-    }
-  } catch (_) {
-    // leave description='', whenToUse=''
-  }
-
-  const idNorm = normalize(skillName);
-  const triggers = [idNorm];
-  if (idNorm.includes('-')) triggers.push(idNorm.replace(/-/g, ' '));
-
-  // --- strong[]: bigrams + long words from description, then bigrams from When-to-Use ---
-  const strong = [];
-  const seenStrong = new Set();
-
-  function addStrong(token) {
-    if (!seenStrong.has(token) && strong.length < 24) {
-      seenStrong.add(token);
-      strong.push(token);
-    }
-  }
-
-  // Description bigrams
-  const descNorm = normalize(description);
-  const descWords = descNorm.match(/[a-z][a-z0-9-]{2,}/g) || [];
-  for (let i = 0; i < descWords.length - 1; i++) {
-    const a = descWords[i];
-    const b = descWords[i + 1];
-    if (!ECC_STOP_WORDS.has(a) && !ECC_STOP_WORDS.has(b)) {
-      addStrong(a + ' ' + b);
-    }
-  }
-  // Description long single words (>=6 chars)
-  for (const w of descWords) {
-    if (w.length >= 6 && !ECC_STOP_WORDS.has(w)) addStrong(w);
-  }
-
-  // When-to-Use bigrams (high signal: explicit activation phrasing)
-  const whenNorm = normalize(whenToUse);
-  const whenWords = whenNorm.match(/[a-z][a-z0-9-]{2,}/g) || [];
-  for (let i = 0; i < whenWords.length - 1; i++) {
-    const a = whenWords[i];
-    const b = whenWords[i + 1];
-    if (!ECC_STOP_WORDS.has(a) && !ECC_STOP_WORDS.has(b)) {
-      addStrong(a + ' ' + b);
-    }
-  }
-
-  // Planning-methodology bigrams (iter-10 FASE 7): if the When-to-Use section
-  // mentions an explicit planning methodology phrase, promote it to strong[] so
-  // planning ECC skills activate on prompts using that vocabulary.
-  for (const phrase of PLANNING_METHODOLOGY_BIGRAMS) {
-    if (whenNorm.includes(phrase)) addStrong(phrase);
-  }
-
-  // --- context[]: shorter words (>=4 chars) from When-to-Use not already in strong[] ---
-  const context = [];
-  const seenCtx = new Set(seenStrong);
-  const ctxRe = /[a-z][a-z0-9]{3,}/g;
-  let m;
-  while ((m = ctxRe.exec(whenNorm)) !== null) {
-    const w = m[0];
-    if (!ECC_STOP_WORDS.has(w) && !seenCtx.has(w) && context.length < 12) {
-      seenCtx.add(w);
-      context.push(w);
-    }
-  }
-
-  return {
-    id: idNorm,
-    _rawName: skillName,
-    triggers,
-    strong,
-    context,
-  };
-}
-
-/**
  * Scan ~/.ultron/skills/ for subdirs that contain SKILL.md and convert each
  * into a plugin-kind candidate.
  *
@@ -1131,259 +927,6 @@ function buildMediumContext(top, second) {
 }
 
 // ---------------------------------------------------------------------------
-// ECC on-demand index (Option B) — separate from main ranking
-// ---------------------------------------------------------------------------
-
-/**
- * Discover the versioned ECC skills directory.
- *
- * Looks for the first sub-directory of ECC_CACHE_ROOT that contains a
- * "skills" sub-folder.  This makes the code resilient to version bumps
- * (e.g. "2.0.0-rc.1" -> "2.0.0-rc.2").
- *
- * Returns null if ECC_CACHE_ROOT does not exist or has no valid version dir.
- *
- * @returns {string|null}
- */
-function resolveEccSkillsDir() {
-  try {
-    if (!fs.existsSync(ECC_CACHE_ROOT)) return null;
-    const versionDirs = fs.readdirSync(ECC_CACHE_ROOT, { withFileTypes: true });
-    for (const vdir of versionDirs) {
-      if (!vdir.isDirectory()) continue;
-      const candidate = path.join(ECC_CACHE_ROOT, vdir.name, 'skills');
-      if (fs.existsSync(candidate)) return candidate;
-    }
-  } catch (_) {
-    // ECC_CACHE_ROOT unreadable — degrade gracefully
-  }
-  return null;
-}
-
-/**
- * Scan the ECC skills directory and build a lightweight index.
- *
- * Handles two layouts produced by apply-lazy-ecc.ps1:
- *   Active:   skills/<name>/SKILL.md             (folder not yet disabled)
- *   Disabled: skills/<name>.disabled/SKILL.md    (folder renamed by the script)
- *
- * The skill name is derived by stripping the ".disabled" suffix from the
- * folder name so both forms are indexed under the same normalized key.
- *
- * Scoring tokens are extracted via parseEccSkillTokens() (NOT the generic
- * parseSkillMdTokens) so ECC entries get richer strong[] signals derived from
- * their description bigrams and "When to Use" sections.
- *
- * Result is cached in _eccIndexCache for the process lifetime.
- * Returns an empty Map on any error — never throws.
- *
- * DISK CACHE: On cold runs, after scanning, writes a JSON cache to
- * ~/.ultron/cockpit/skill-lazy/.ecc-index-cache.json. Subsequent process
- * invocations stat-walk the ECC directory (cheap), compare
- * {count, maxMtimeMs}, and skip the read+parse when the signature matches.
- * FAIL-SAFE: any cache error (missing, corrupt, I/O, unexpected shape) falls
- * back silently to the full re-scan — the cache is pure optimisation.
- *
- * @returns {Map<string, {skillPath: string, tokens: {triggers: string[], strong: string[], context: string[]}}>}
- */
-
-const ECC_DISK_CACHE_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', '.ecc-index-cache.json');
-
-/**
- * Build the invalidation signature for a given skills directory by stat-walking
- * its SKILL.md files. Uses statSync (no readFile) — cheap I/O.
- *
- * @param {string} skillsDir  Absolute path to the ECC skills directory.
- * @returns {{ count: number, maxMtimeMs: number }|null}  null if the dir is unreadable.
- */
-function _buildEccSignature(skillsDir) {
-  try {
-    const dirEntries = fs.readdirSync(skillsDir, { withFileTypes: true });
-    let count = 0;
-    let maxMtimeMs = 0;
-    for (const entry of dirEntries) {
-      if (!entry.isDirectory()) continue;
-      const skillPath = path.join(skillsDir, entry.name, 'SKILL.md');
-      try {
-        const st = fs.statSync(skillPath);
-        count++;
-        if (st.mtimeMs > maxMtimeMs) maxMtimeMs = st.mtimeMs;
-      } catch (_) {
-        // SKILL.md missing in this folder — skip
-      }
-    }
-    return { count, maxMtimeMs };
-  } catch (_) {
-    return null;
-  }
-}
-
-function scanEccSkills() {
-  if (_eccIndexCache !== null) return _eccIndexCache;
-
-  _eccIndexCache = new Map();
-
-  const skillsDir = resolveEccSkillsDir();
-  if (!skillsDir) {
-    safeLog({ level: 'info', msg: 'ecc_index_skipped', reason: 'cache_not_found' });
-    return _eccIndexCache;
-  }
-
-  // ---- DISK CACHE: try warm path first ----------------------------------------
-  try {
-    const currentSig = _buildEccSignature(skillsDir);
-    if (currentSig !== null) {
-      let cacheHit = false;
-      try {
-        const raw = fs.readFileSync(ECC_DISK_CACHE_PATH, 'utf8');
-        const cached = JSON.parse(raw);
-        const { signature, entries } = cached;
-        if (
-          signature &&
-          typeof signature.count === 'number' &&
-          typeof signature.maxMtimeMs === 'number' &&
-          signature.count === currentSig.count &&
-          signature.maxMtimeMs === currentSig.maxMtimeMs &&
-          Array.isArray(entries)
-        ) {
-          for (const [key, value] of entries) {
-            _eccIndexCache.set(key, value);
-          }
-          cacheHit = true;
-          safeLog({ level: 'info', msg: 'ecc_index_from_disk_cache', count: _eccIndexCache.size });
-        }
-      } catch (_) {
-        // cache absent, corrupt, or unexpected shape — fall through to re-scan
-      }
-
-      if (cacheHit) return _eccIndexCache;
-    }
-  } catch (_) {
-    // any unexpected error in the cache fast-path — fall through to re-scan
-  }
-  // ---- END DISK CACHE fast path ------------------------------------------------
-
-  let scanned = 0;
-  let indexed = 0;
-
-  try {
-    const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-
-      scanned++;
-
-      // Derive the canonical skill name (strip ".disabled" suffix if present)
-      const folderName = entry.name;
-      const skillName = folderName.endsWith('.disabled')
-        ? folderName.slice(0, -'.disabled'.length)
-        : folderName;
-
-      const skillPath = path.join(skillsDir, folderName, 'SKILL.md');
-      if (!fs.existsSync(skillPath)) continue;
-
-      let content = '';
-      try {
-        content = fs.readFileSync(skillPath, 'utf8');
-      } catch (_) {
-        // unreadable — use folder name as fallback
-      }
-
-      const tokens = parseEccSkillTokens(content, skillName);
-
-      _eccIndexCache.set(normalize(skillName), {
-        skillPath,
-        tokens,
-      });
-      indexed++;
-    }
-  } catch (_err) {
-    safeLog({ level: 'warn', msg: 'ecc_index_scan_error', error: String(_err && _err.message) });
-  }
-
-  safeLog({
-    level: 'info',
-    msg: 'ecc_index_built',
-    scanned,
-    indexed,
-    skills_dir: skillsDir,
-  });
-
-  // ---- DISK CACHE: persist to disk for next run (best-effort, never throws) ----
-  try {
-    const sigToWrite = _buildEccSignature(skillsDir);
-    if (sigToWrite !== null) {
-      const cachePayload = JSON.stringify({
-        signature: sigToWrite,
-        entries: Array.from(_eccIndexCache.entries()),
-      });
-      fs.writeFileSync(ECC_DISK_CACHE_PATH, cachePayload, 'utf8');
-      safeLog({ level: 'info', msg: 'ecc_index_cache_written', path: ECC_DISK_CACHE_PATH });
-    }
-  } catch (_) {
-    // write failure is non-fatal — cache will be rebuilt on the next run
-  }
-  // ---- END DISK CACHE write ----------------------------------------------------
-
-  return _eccIndexCache;
-}
-
-/**
- * Find the best-matching ECC skill for a given prompt.
- *
- * Uses the same scoreEntry() logic as the main ranker but operates on the
- * separate ECC index — ECC candidates never enter rankCandidates() and
- * therefore cannot inflate or displace the main routing results.
- *
- * Only returns a result when the raw score meets ECC_MATCH_MIN_RAW, which
- * requires at minimum a meaningful combination of token hits (not a single
- * stray context word).
- *
- * @param {string} promptNorm  Already-normalized prompt (output of normalize()).
- * @returns {{ id: string, skillPath: string, score: number }|null}
- */
-/**
- * Pattern identifying ECC planning/orchestration skills that qualify for the
- * lowered re-injection threshold (iter-10 FASE 7).
- *
- * "architecture" suelto NO califica: arrastraba `hexagonal-architecture` (patrón
- * de IMPLEMENTACIÓN, no planning) al floor rebajado de 50, donde verbos genéricos
- * de un prompt TDD lo cruzaban (score 60) -> falso positivo ECC (cat4.2). Solo
- * `architecture-decision`/ADR son planning real.
- */
-const ECC_PLANNING_ID_RE = /plan|spec|prd|design|architecture-decision|adr/i;
-
-/**
- * Lowered raw-score floor applied ONLY to ECC skills whose id matches
- * ECC_PLANNING_ID_RE. The global ECC_MATCH_MIN_RAW (70) stays intact so the
- * ~230 non-planning ECC skills cannot leak in at a lower bar.
- */
-const ECC_PLANNING_MATCH_MIN_RAW = 50;
-
-function matchBestEccSkill(promptNorm) {
-  const index = scanEccSkills();
-  if (index.size === 0) return null;
-
-  let best = null;
-  let bestScore = 0;
-  let bestIsPlanning = false;
-
-  for (const [normId, entry] of index) {
-    const { score } = scoreEntry(promptNorm, entry.tokens);
-    if (score > bestScore) {
-      bestScore = score;
-      bestIsPlanning = ECC_PLANNING_ID_RE.test(normId);
-      best = { id: normId, skillPath: entry.skillPath, score };
-    }
-  }
-
-  // Conditional floor: planning ECC skills clear at 50, everything else at 70.
-  const floor = bestIsPlanning ? ECC_PLANNING_MATCH_MIN_RAW : ECC_MATCH_MIN_RAW;
-  if (!best || bestScore < floor) return null;
-  return best;
-}
-
-// ---------------------------------------------------------------------------
 // v2: Lazy skill injection helpers
 // ---------------------------------------------------------------------------
 
@@ -1603,16 +1146,12 @@ function readWithTimeout(filePath, timeoutMs) {
  * Attempt to load SKILL.md content for a set of candidates in parallel,
  * respecting cooldown and lazy_loadable flags.
  *
- * Option B — ECC re-injection: when the main top candidate has HIGH confidence
- * AND a matching ECC skill is found (score >= ECC_MATCH_MIN_RAW), that ECC
- * skill's SKILL.md is also read and appended.  ECC candidates never enter the
- * main ranking pool — they are consulted only here, after the winner is known.
- *
  * Returns a Map<skillId, string> with only the skills successfully read.
  * Skills that fail, time out, or are on cooldown are absent from the map.
  *
  * @param {Array<{id: string, confidence: number, kind: string}>} candidates
- * @param {string} [promptNorm]  Already-normalized prompt, used for ECC lookup.
+ * @param {string} [promptNorm]  Already-normalized prompt, used to detect
+ *   planning intent for the PLANNING_LAZY_SKILLS allowlist below.
  * @returns {Promise<Map<string, string>>}
  */
 async function fetchLazySkillContent(candidates, promptNorm) {
@@ -1639,8 +1178,7 @@ async function fetchLazySkillContent(candidates, promptNorm) {
   });
 
   // Cap por confianza: ordena desc y recorta la cola. El corte se LOGUEA (mandamiento
-  // 11: nunca silencioso) para poder auditar que se dejo fuera. El ECC re-injection de
-  // abajo es +1 condicional aparte (top confidence >=0.80, 1 solo), no entra en el cap.
+  // 11: nunca silencioso) para poder auditar que se dejo fuera.
   eligible.sort(function (a, b) { return b.confidence - a.confidence; });
   if (eligible.length > MAX_LAZY_INJECTIONS) {
     const droppedByCap = eligible.slice(MAX_LAZY_INJECTIONS);
@@ -1655,25 +1193,7 @@ async function fetchLazySkillContent(candidates, promptNorm) {
     });
   }
 
-  // --- Option B: ECC on-demand re-injection ---
-  // Only attempted when the main top candidate is HIGH confidence and a
-  // normalised prompt is available.  The ECC index is consulted on its own
-  // separate path — it does not affect eligible[] above.
-  let eccCandidate = null;
-  const topCandidate = candidates[0] || null;
-  if (
-    promptNorm &&
-    topCandidate &&
-    topCandidate.confidence >= HIGH_THRESHOLD
-  ) {
-    try {
-      eccCandidate = matchBestEccSkill(promptNorm);
-    } catch (_) {
-      // ECC lookup failure is always silent
-    }
-  }
-
-  if (eligible.length === 0 && !eccCandidate) {
+  if (eligible.length === 0) {
     // Still log the attempt so compute-metrics.py can track injection_rate = 0 cases
     safeLog({
       level: 'info',
@@ -1681,7 +1201,6 @@ async function fetchLazySkillContent(candidates, promptNorm) {
       candidates: candidates.length,
       eligible: eligible.length,
       injected: 0,
-      ecc_candidate: null,
     });
     return result;
   }
@@ -1698,22 +1217,6 @@ async function fetchLazySkillContent(candidates, promptNorm) {
     if (content !== null) _skillMdCache.set(skillPath, content);
     return { id: c.id, content };
   });
-
-  // Append ECC read if a candidate was found and is not cooling down
-  if (eccCandidate && !isCoolingDown('ecc:' + eccCandidate.id)) {
-    reads.push(
-      (function () {
-        const eccPath = eccCandidate.skillPath;
-        if (_skillMdCache.has(eccPath)) {
-          return Promise.resolve({ id: 'ecc:' + eccCandidate.id, content: _skillMdCache.get(eccPath) });
-        }
-        return readWithTimeout(eccPath, LAZY_READ_TIMEOUT_MS).then(function (content) {
-          if (content !== null) _skillMdCache.set(eccPath, content);
-          return { id: 'ecc:' + eccCandidate.id, content };
-        });
-      })()
-    );
-  }
 
   const settled = await Promise.all(reads);
 
@@ -1732,8 +1235,6 @@ async function fetchLazySkillContent(candidates, promptNorm) {
     eligible: eligible.length,
     injected: result.size,
     injected_ids: Array.from(result.keys()),
-    ecc_candidate: eccCandidate ? eccCandidate.id : null,
-    ecc_score: eccCandidate ? eccCandidate.score : null,
   });
 
   return result;
@@ -1742,9 +1243,9 @@ async function fetchLazySkillContent(candidates, promptNorm) {
 /**
  * Presupuesto TOTAL de caracteres de contenido SKILL.md inyectado por prompt.
  * El cap de MAX_LAZY_INJECTIONS solo limita el NÚMERO de skills, no su tamaño:
- * un único SKILL.md grande (rust-patterns ~13.7k, ecc:django-security ~16.4k)
- * reventaba el additionalContext (cat4.6, techo 12k). La inyección lazy existe
- * para AHORRAR contexto, no para volcar 16k de golpe -> se trunca con marcador.
+ * un único SKILL.md grande (rust-patterns ~13.7k) reventaba el
+ * additionalContext (cat4.6, techo 12k). La inyección lazy existe para
+ * AHORRAR contexto, no para volcar 16k de golpe -> se trunca con marcador.
  */
 const INJECT_CHAR_BUDGET = 6000;
 
@@ -1757,9 +1258,9 @@ function buildInjectionBlock(injectedSkills) {
   if (injectedSkills.size === 0) return '';
 
   const parts = [];
-  // Dedup por CONTENIDO (Pass3 2026-06-10): el candidato ECC puede entrar con
-  // un id distinto pero el MISMO SKILL.md que la via eligible -> ~1.4k tokens
-  // duplicados por prompt. El Map dedup por id no lo caza; esto si.
+  // Dedup por CONTENIDO (Pass3 2026-06-10): dos ids distintos pueden apuntar
+  // al mismo SKILL.md (alias de registro) -> tokens duplicados por prompt.
+  // El Map dedup por id no lo caza; esto si.
   const seenContent = new Set();
   let used = 0;
   for (const [skillId, content] of injectedSkills) {
@@ -1856,8 +1357,9 @@ async function main() {
     return emitContext('');
   }
 
-  // v2: attempt lazy skill injection when top candidate scores >= threshold
-  // Pass promptNorm so fetchLazySkillContent can run the ECC on-demand lookup.
+  // v2: attempt lazy skill injection when top candidate scores >= threshold.
+  // Pass promptNorm so fetchLazySkillContent can detect planning intent for
+  // the PLANNING_LAZY_SKILLS allowlist.
   const promptNorm = normalize(prompt).slice(0, MAX_PROMPT_CHARS);
   if (top.confidence >= LAZY_SCORE_THRESHOLD) {
     try {
@@ -1911,17 +1413,11 @@ module.exports = {
   scanUltronSkills,
   scanProjectRosters,
   parseSkillMdTokens,
-  parseEccSkillTokens,
-  // ECC on-demand index (Option B)
-  resolveEccSkillsDir,
-  scanEccSkills,
-  matchBestEccSkill,
   // expose internals for test isolation
   _injectionHistory,
   _skillMdCache,
   _resetInvocationCounter: function () { _invocationCounter = 0; },
   _resetWorkspaceCache: function () { _workspaceCandidatesCache = null; },
-  _resetEccIndexCache: function () { _eccIndexCache = null; },
   _resetSkillMdCache: function () { _skillMdCache.clear(); },
   // Advance the process-wide invocation counter. Callers that reuse v2's
   // lazy-injection machinery WITHOUT going through v2.main() (e.g. v3.mainV3)

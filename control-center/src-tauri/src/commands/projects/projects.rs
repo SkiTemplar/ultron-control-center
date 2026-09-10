@@ -45,6 +45,8 @@ pub async fn create_project(
     notes: Option<String>,
     // v2.7.2 — accent colour `#rrggbb`. None / invalid = no colour.
     color: Option<String>,
+    // FRENTE D — comando para lanzar la app del proyecto (optional).
+    app_command: Option<String>,
 ) -> Result<projects::CreateProjectResult, String> {
     // F2: route through *_with_emit so project.created notifications fire
     projects::create_project_inner_with_emit(
@@ -60,6 +62,7 @@ pub async fn create_project(
             parent_folder_override,
             notes,
             color,
+            app_command,
         },
     )
 }
@@ -83,6 +86,8 @@ pub async fn update_project(
     executables: Option<Vec<projects::ExecutableEntry>>,
     // v2.7.2 — patch the accent colour. "" clears it, invalid hex is ignored.
     color: Option<String>,
+    // FRENTE D — patch del comando de la app. "" lo borra, None no lo toca.
+    app_command: Option<String>,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::update_project_inner(projects::UpdateProjectPayload {
         id,
@@ -97,7 +102,17 @@ pub async fn update_project(
         notes,
         executables,
         color,
+        app_command,
     })
+}
+
+/// FRENTE D — lanza `app_command` en una ventana de terminal nueva con cwd =
+/// la ruta del proyecto. El botón del front se deshabilita cuando el
+/// proyecto no tiene `app_command`; este comando revalida todo server-side
+/// de forma independiente (mandamiento 11 — nunca un no-op silencioso).
+#[tauri::command]
+pub async fn project_open_app(id: String) -> Result<projects::ProjectActionResult, String> {
+    projects::project_open_app_inner(id).await
 }
 
 /// v2.6.2 — spawn a Quick Launch executable. Validated server-side via the

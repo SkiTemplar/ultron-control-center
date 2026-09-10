@@ -206,3 +206,46 @@ describe("ProjectQuickActions — AI (spawn_session) action", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// (5) "Abrir app" button — FRENTE D (project_open_app)
+// ---------------------------------------------------------------------------
+
+describe("ProjectQuickActions — Abrir app action", () => {
+  it("is disabled with a 'configure app_command' tooltip when app_command is unset", () => {
+    renderActions({ app_command: null });
+    const btn = screen.getByText("Abrir app").closest("button");
+    expect(btn).toHaveProperty("disabled", true);
+    expect(btn?.getAttribute("title")).toMatch(/Configura app_command/);
+  });
+
+  it("is disabled when app_command is only whitespace", () => {
+    renderActions({ app_command: "   " });
+    const btn = screen.getByText("Abrir app").closest("button");
+    expect(btn).toHaveProperty("disabled", true);
+  });
+
+  it("invokes project_open_app with {id} when app_command is set", async () => {
+    renderActions({ app_command: "npm run tauri dev" });
+    const btn = screen.getByText("Abrir app").closest("button");
+    expect(btn).toHaveProperty("disabled", false);
+    fireEvent.click(screen.getByText("Abrir app"));
+    await waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("project_open_app", {
+        id: BASE_PROJECT.id,
+      });
+    });
+  });
+
+  it("shows the backend error inline (not alert()) when the launch fails", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "project_open_app") return Promise.reject("project path does not exist: X");
+      return Promise.resolve(null);
+    });
+    renderActions({ app_command: "npm run tauri dev" });
+    fireEvent.click(screen.getByText("Abrir app"));
+    await waitFor(() => {
+      expect(screen.getByText(/project path does not exist/)).toBeTruthy();
+    });
+  });
+});

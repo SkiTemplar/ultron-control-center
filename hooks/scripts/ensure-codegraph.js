@@ -30,6 +30,10 @@ const ULTRON = path.join(os.homedir(), '.ultron');
 const CG_DIR = path.join(ULTRON, '.codegraph');
 const PID_FILE = path.join(CG_DIR, 'daemon.pid');
 const LOG_FILE = path.join(CG_DIR, 'daemon.log');
+// Rotacion acotada (mismo criterio que lib/jsonl-log.js: 1 MiB, generacion
+// unica .1). LOG_FILE se abre en 'a' y lo alimenta el daemon detached durante
+// horas -> sin esto crece sin cota (F6, 2026-09-10).
+const LOG_MAX_BYTES = 1 * 1024 * 1024;
 // Shim npm global de codegraph. En Windows los wrappers sh/.cmd no son
 // spawneables directos (hardening CVE-2024-27980 de Node moderno), asi que se
 // invoca su entry real (npm-shim.js) con el node de este hook — es exactamente
@@ -60,6 +64,17 @@ function isAlive(pid) {
   }
 }
 
+/** Rota LOG_FILE -> LOG_FILE.1 (pisando el anterior) si supera LOG_MAX_BYTES. */
+function rotateLogIfNeeded() {
+  try {
+    const st = fs.statSync(LOG_FILE);
+    if (st.size < LOG_MAX_BYTES) return;
+    fs.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+  } catch (_) {
+    // fichero ausente o rename en carrera -> nada que rotar.
+  }
+}
+
 function main() {
   const pid = daemonPid();
   if (pid && isAlive(pid)) {
@@ -75,6 +90,7 @@ function main() {
   let logFd = null;
   let stdio = 'ignore';
   try {
+    rotateLogIfNeeded();
     logFd = fs.openSync(LOG_FILE, 'a');
     stdio = ['ignore', logFd, logFd];
   } catch (_) {

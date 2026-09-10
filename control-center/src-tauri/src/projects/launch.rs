@@ -147,6 +147,132 @@ pub async fn open_project_inner(
     })
 }
 
+/// FRENTE D — lanza el `app_command` configurado en el proyecto (p. ej.
+/// `npm run tauri dev`) en una ventana de terminal nueva, con cwd = la ruta
+/// del proyecto. El botón del front se deshabilita cuando `app_command` está
+/// vacío, pero esta función revalida todo desde disco de forma independiente
+/// — nunca confía en que el front mandó el estado correcto.
+pub async fn project_open_app_inner(id: String) -> Result<ProjectActionResult, String> {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(format!("invalid project id '{}'", id));
+    }
+    let registry = registry_path().ok_or_else(|| "no HOME".to_string())?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let entry = root
+        .get("projects")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| {
+            arr.iter()
+                .find(|p| p.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        })
+        .ok_or_else(|| format!("project '{}' not found", id))?;
+
+    let name = entry
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(id.as_str());
+    let app_command = entry
+        .get("app_command")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("project '{}' has no app_command configured", id))?;
+    validate_app_command(app_command)?;
+    let path = entry
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if path.is_empty() {
+        return Err(format!("project '{}' has no path configured", id));
+    }
+    path_ps_safe(&path)?;
+    let cwd = std::path::Path::new(&path);
+    if !cwd.is_dir() {
+        return Err(format!("project path does not exist: {}", path));
+    }
+
+    spawn_app_command(name, app_command, cwd)?;
+    Ok(ProjectActionResult {
+        success: true,
+        stdout: format!("launched app_command for '{}' in {}", id, path),
+        stderr: String::new(),
+        exit_code: Some(0),
+    })
+}
+
+/// Solo caracteres de control se rechazan aquí — a diferencia de un `path`,
+/// `app_command` es intencionalmente una línea de comando arbitraria (p. ej.
+/// `npm run dev && echo done`), así que no aplicamos el filtro de
+/// path-traversal de `path_ps_safe`.
+pub(crate) fn validate_app_command(cmd: &str) -> Result<(), String> {
+    if cmd.is_empty() {
+        return Err("app_command is empty".into());
+    }
+    if cmd.chars().any(|c| c.is_control()) {
+        return Err("app_command contains control characters".into());
+    }
+    Ok(())
+}
+
+/// Windows: `cmd /c start "ULTRON <nombre>" cmd /k <app_command>` — abre una
+/// ventana de consola nueva y visible (a diferencia del resto de spawns de
+/// este módulo, que usan CREATE_NO_WINDOW porque la app Tauri no tiene
+/// consola). Cada elemento va como argv separado — `Command::args` en
+/// Windows escapa cada uno por su cuenta, así que `app_command` nunca se
+/// concatena a ciegas en una cadena de shell.
+#[cfg(windows)]
+fn spawn_app_command(name: &str, app_command: &str, cwd: &std::path::Path) -> Result<(), String> {
+    let title = format!("ULTRON {}", name);
+    let mut cmd = std::process::Command::new("cmd");
+    cmd.args(["/C", "start", &title, "cmd", "/K", app_command]);
+    cmd.current_dir(cwd);
+    cmd.spawn()
+        .map_err(|e| format!("spawn app_command: {}", e))?;
+    Ok(())
+}
+
+/// macOS: abre Terminal.app y le pide que corra `cd <cwd> && <app_command>`.
+#[cfg(target_os = "macos")]
+fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> Result<(), String> {
+    let cwd_str = cwd
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let escaped_cmd = app_command.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "tell application \"Terminal\" to do script \"cd {} && {}\"",
+        cwd_str, escaped_cmd
+    );
+    std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .spawn()
+        .map_err(|e| format!("spawn app_command: {}", e))?;
+    Ok(())
+}
+
+/// Linux: delega en el emulador de terminal por defecto del sistema
+/// (`x-terminal-emulator`, el alias de Debian/Ubuntu para el terminal
+/// preferido del usuario).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> Result<(), String> {
+    std::process::Command::new("x-terminal-emulator")
+        .arg("-e")
+        .arg(app_command)
+        .current_dir(cwd)
+        .spawn()
+        .map_err(|e| format!("spawn app_command: {}", e))?;
+    Ok(())
+}
+
 /// Spawn a Quick Launch executable. We validate the same security envelope as
 /// the `exe` launcher chip (`path_ps_safe`) and prefer a direct
 /// `Command::new(path)` spawn for `.exe` so we never enter a shell.

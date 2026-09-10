@@ -64,6 +64,12 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                 .filter(|e| !e.name.trim().is_empty() && !e.path.trim().is_empty())
                 .collect::<Vec<_>>()
         });
+        let app_command = p
+            .app_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
@@ -81,6 +87,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             notes,
             executables,
             color: normalise_color(p.color.as_deref()),
+            app_command,
         });
     }
     // v2.x: synthesise a "Home" entry pointing at the user's home directory
@@ -127,6 +134,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                 notes: None,
                 executables: None,
                 color: None,
+                app_command: None,
             });
         }
     }
