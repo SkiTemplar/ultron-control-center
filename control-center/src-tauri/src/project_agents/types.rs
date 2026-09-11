@@ -37,34 +37,3 @@ pub struct AgentRosterProposal {
 pub struct AgentRosterFile {
     pub entries: Vec<RosterEntry>,
 }
-
-/// Result of writing a sub-agent invocation into an active PTY.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InvokeResult {
-    /// PTY session id the command was written to.
-    pub pty_id: String,
-    /// true if the write succeeded.
-    pub sent: bool,
-}
-
-// ---------------------------------------------------------------------------
-// Skill roster types (mirror of agent roster)
-// ---------------------------------------------------------------------------
-
-/// One skill the AI recommends activating for the project.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillRosterEntry {
-    pub name: String,
-    pub reason: String,
-    /// Tags surfaced from the skill's frontmatter (informational for the UI).
-    pub tags: Vec<String>,
-}
-
-/// Full AI proposal for the project's skill set, returned to the frontend
-/// confirmation modal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillRosterProposal {
-    pub recommended: Vec<SkillRosterEntry>,
-    /// Stack tokens used to produce the recommendation.
-    pub detected_stack: Vec<String>,
-}

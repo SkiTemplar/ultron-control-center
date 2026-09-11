@@ -1,0 +1,10 @@
+{
+  "name": "ultron-memory",
+  "displayName": "ULTRON Memory",
+  "version": "1.0.0",
+  "description": "Expone la memoria personal de ULTRON (brain.db + Qdrant, recall hibrido BM25+E5) como servidor MCP local de solo lectura, para chat, Claude Desktop y Claude Cowork en sesiones locales.",
+  "author": {
+    "name": "ULTRON"
+  },
+  "keywords": ["memoria", "ultron", "mcp", "recall"]
+}

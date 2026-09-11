@@ -639,29 +639,6 @@ pub fn reset_button_prompt_inner(key: String) -> Result<ButtonPrompt, String> {
     update_button_prompt_inner(key, String::new())
 }
 
-/// Resolve a single key with `{var}`-style substitution. Used by future
-/// migrations that move prompt resolution into the backend (today the
-/// frontend does it via `src/lib/button-prompts.ts`).
-/// The `get_button_prompt` Tauri command was removed in cat10 (2026-06-19).
-#[allow(dead_code)]
-pub fn get_button_prompt_inner(
-    key: String,
-    vars: BTreeMap<String, String>,
-) -> Result<String, String> {
-    let catalog = build_catalog();
-    let entry = catalog
-        .buttons
-        .into_iter()
-        .find(|b| b.key == key)
-        .ok_or_else(|| format!("unknown button key: {}", key))?;
-    let mut out = entry.prompt;
-    for (k, v) in &vars {
-        let placeholder = format!("{{{}}}", k);
-        out = out.replace(&placeholder, v);
-    }
-    Ok(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

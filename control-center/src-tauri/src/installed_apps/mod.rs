@@ -26,7 +26,6 @@
 //     explorer.exe.
 //
 // Sub-modules:
-//   bloatware  — Appx/bloatware query and Remove-AppxPackage commands
 //   cache      — disk cache with 1-hour TTL
 //   commands   — list, open-folder, and standard-uninstall inner fns
 //   inventory  — PowerShell inventory script + scan_apps
@@ -34,7 +33,6 @@
 //   tests      — unit tests
 //   types      — public data types (InstalledApp, InstalledAppsReport, …)
 
-pub(super) mod bloatware;
 pub(super) mod cache;
 pub(super) mod commands;
 pub(super) mod inventory;

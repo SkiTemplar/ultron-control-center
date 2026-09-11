@@ -9,27 +9,53 @@ use crate::ai_router::store::looks_like_placeholder;
 
 #[test]
 fn codex_cli_uses_exec_subcommand_not_dash_p() {
-    let codex = cli_invocation_args(true, "hello world", "gpt-5");
+    // The prompt itself does NOT travel via argv for codex anymore (KIRKARDO
+    // HIGH fix, 2026-09-11) — it goes through stdin (call_cli pipes it), so
+    // argv[1] is always the literal "-" placeholder regardless of `prompt`'s
+    // content. See call_cli_codex_preserves_a_prompt_with_shell_metacharacters_via_stdin
+    // in retry.rs for the stdin round-trip coverage.
+    let codex = cli_invocation_args(true, "hello world", "gpt-5.6-terra");
     assert_eq!(codex[0], "exec", "codex must use the exec subcommand");
     assert_eq!(
-        codex[1], "hello world",
-        "prompt must be positional for codex"
+        codex[1], "-",
+        "codex reads the prompt from stdin via the '-' placeholder, not argv"
     );
     assert!(
         !codex.contains(&"-p"),
         "codex must NOT receive -p (it means --profile)"
     );
     assert!(
-        !codex.contains(&"--model"),
-        "codex rejects explicit models on a ChatGPT account"
+        !codex.contains(&"hello world"),
+        "the prompt must never appear on argv for codex; got: {:?}",
+        codex
+    );
+    // `--model` IS a valid `codex exec` flag (verified 2026-09-11 via
+    // `codex exec --help`); before that fix the zone's model never reached
+    // the CLI at all (KIRKARDO wiring bug — see cli_invocation_args doc).
+    assert!(
+        codex.contains(&"--model") && codex.contains(&"gpt-5.6-terra"),
+        "codex must receive the ZoneAssignment model via --model; got: {:?}",
+        codex
     );
     assert!(codex.contains(&"--sandbox") && codex.contains(&"read-only"));
 
-    let gemini = cli_invocation_args(false, "hello world", "gemini-2.5-flash");
+    let gemini = cli_invocation_args(false, "hello world", "gemini-3.8-flash");
     assert_eq!(gemini[0], "-p", "gemini uses -p for the prompt");
     assert_eq!(gemini[1], "hello world");
-    assert!(gemini.contains(&"--model") && gemini.contains(&"gemini-2.5-flash"));
+    assert!(gemini.contains(&"--model") && gemini.contains(&"gemini-3.8-flash"));
     assert!(!gemini.contains(&"exec"), "gemini has no exec subcommand");
+}
+
+#[test]
+fn codex_cli_omits_model_flag_when_model_is_empty() {
+    // Guard: an empty model (e.g. a misconfigured ZoneAssignment) must not
+    // produce `codex exec ... --model ""` — that would break the call.
+    let codex = cli_invocation_args(true, "hello world", "");
+    assert!(
+        !codex.contains(&"--model"),
+        "an empty model must not emit --model; got: {:?}",
+        codex
+    );
 }
 
 #[test]

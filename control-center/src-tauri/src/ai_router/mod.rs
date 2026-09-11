@@ -10,7 +10,7 @@
 //   seed.rs      — Seed data (seed_providers, seed_zones)
 //   store.rs     — File I/O, CLI cache, load/save helpers, key-status helpers
 //   health.rs    — Health-check cache (30s TTL) + HTTP client
-//   exec.rs      — Retry/backoff, CLI invocation, sanitize_for_cmd, call_cli
+//   exec.rs      — Retry/backoff, CLI invocation (direct spawn, stdin for codex), call_cli
 //   providers.rs — Per-provider HTTP wrappers, try_assignment_call, metrics,
 //                  bump_metrics, apply_metric_sample, route, primary_model_for_zone
 //   tests.rs     — 46 unit tests (cfg(test) only)

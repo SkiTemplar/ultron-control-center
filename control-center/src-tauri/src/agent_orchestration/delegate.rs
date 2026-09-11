@@ -395,15 +395,6 @@ pub async fn delegate_task_inner_logged(
     }
 }
 
-/// Compatibility wrapper: same contract as before the `log_id` refactor —
-/// the delegation log entry keeps its auto-generated id.
-pub async fn delegate_task_inner(
-    app: &tauri::AppHandle,
-    req: DelegateRequest,
-) -> Result<DelegateTaskResult, String> {
-    delegate_task_inner_logged(app, req, None).await
-}
-
 /// Fire-and-forget: validates, appends a "running" log entry and launches
 /// `delegate_task_inner_logged` in the background with the SAME log id, so the
 /// final entry (done/timeout) collapses onto the running one in

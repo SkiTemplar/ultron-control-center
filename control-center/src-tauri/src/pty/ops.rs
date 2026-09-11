@@ -1,4 +1,4 @@
-// pty/ops.rs — Session lifecycle operations: spawn, write, kill, capture, list.
+// pty/ops.rs — Session lifecycle operations: spawn, write, kill, capture.
 
 use base64::Engine;
 use portable_pty::{native_pty_system, PtySize};
@@ -8,9 +8,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use super::registry::{new_ulid, now_iso, registry};
 use super::spawn::{build_command, log_pty_failure, resolve_cwd};
-use super::types::{
-    CaptureResult, PtySession, PtySessionSummary, PtyStatus, PTY_REPLAY_BUFFER_MAX,
-};
+use super::types::{CaptureResult, PtySession, PtyStatus, PTY_REPLAY_BUFFER_MAX};
 
 pub fn spawn_inner<R: Runtime>(
     app: AppHandle<R>,
@@ -274,14 +272,4 @@ pub fn capture_output_inner(
         new_offset: buf.len(),
         session_status: Some(s.status.clone()),
     })
-}
-
-pub fn list_inner(project_id: String) -> Result<Vec<PtySessionSummary>, String> {
-    let reg = registry().lock().map_err(|e| e.to_string())?;
-    let out: Vec<PtySessionSummary> = reg
-        .values()
-        .filter(|s| s.project_id == project_id)
-        .map(|s| s.summary())
-        .collect();
-    Ok(out)
 }

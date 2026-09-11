@@ -1,0 +1,1311 @@
+{
+  "_captured": "2026-09-11 desde https://api.openalex.org/works?search=synthetic%20data%20sim-to-real%20object%20detection%20drones&per-page=5 (los 3 primeros resultados son reales, campos recortados a los que usa normalize.js, incluye relevance_score y abstract_inverted_index reales). El 4o resultado (W4306500693, preprint sin DOI) es sintetico, anadido a mano para cubrir el caso preprint/sin-DOI + dedupe por titulo+anio en los tests.",
+  "meta": {
+    "count": 1826,
+    "page": 1,
+    "per_page": 5
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W2972006294",
+      "doi": "https://doi.org/10.1109/access.2019.2939201",
+      "display_name": "A Survey of Deep Learning-Based Object Detection",
+      "publication_year": 2019,
+      "ids": {
+        "openalex": "https://openalex.org/W2972006294",
+        "doi": "https://doi.org/10.1109/access.2019.2939201",
+        "mag": "2972006294"
+      },
+      "relevance_score": 554.49817,
+      "primary_location": {
+        "landing_page_url": "https://doi.org/10.1109/access.2019.2939201",
+        "pdf_url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08825470.pdf",
+        "source": {
+          "display_name": "IEEE Access"
+        }
+      },
+      "type": "article",
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold",
+        "oa_url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08825470.pdf",
+        "any_repository_has_fulltext": true
+      },
+      "best_oa_location": {
+        "pdf_url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08825470.pdf",
+        "landing_page_url": "https://doi.org/10.1109/access.2019.2939201",
+        "license": "cc-by"
+      },
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Licheng Jiao"
+          }
+        },
+        {
+          "author": {
+            "display_name": "Fan Zhang"
+          }
+        },
+        {
+          "author": {
+            "display_name": "Fang Liu"
+          }
+        }
+      ],
+      "cited_by_count": 1321,
+      "is_retracted": false,
+      "abstract_inverted_index": {
+        "Object": [
+          0
+        ],
+        "detection": [
+          1,
+          53,
+          74,
+          89,
+          111,
+          136,
+          150
+        ],
+        "is": [
+          2
+        ],
+        "one": [
+          3
+        ],
+        "of": [
+          4,
+          11,
+          34,
+          37,
+          40,
+          48,
+          57,
+          72,
+          86,
+          106,
+          109,
+          134,
+          146,
+          164
+        ],
+        "the": [
+          5,
+          32,
+          45,
+          55,
+          68,
+          84,
+          93,
+          118,
+          126,
+          144,
+          170
+        ],
+        "most": [
+          6
+        ],
+        "important": [
+          7
+        ],
+        "and": [
+          8,
+          28,
+          77,
+          91,
+          99,
+          120,
+          128,
+          156,
+          159,
+          173
+        ],
+        "challenging": [
+          9
+        ],
+        "branches": [
+          10,
+          133
+        ],
+        "computer": [
+          12
+        ],
+        "vision,": [
+          13
+        ],
+        "which": [
+          14
+        ],
+        "has": [
+          15,
+          60
+        ],
+        "been": [
+          16,
+          61
+        ],
+        "widely": [
+          17
+        ],
+        "applied": [
+          18
+        ],
+        "in": [
+          19,
+          79,
+          113
+        ],
+        "people’s": [
+          20
+        ],
+        "life,": [
+          21
+        ],
+        "such": [
+          22
+        ],
+        "as": [
+          23,
+          139
+        ],
+        "monitoring": [
+          24
+        ],
+        "security,": [
+          25
+        ],
+        "autonomous": [
+          26
+        ],
+        "driving": [
+          27
+        ],
+        "so": [
+          29
+        ],
+        "on,": [
+          30
+        ],
+        "with": [
+          31
+        ],
+        "purpose": [
+          33
+        ],
+        "locating": [
+          35
+        ],
+        "instances": [
+          36
+        ],
+        "semantic": [
+          38
+        ],
+        "objects": [
+          39
+        ],
+        "a": [
+          41,
+          103,
+          107,
+          114,
+          162
+        ],
+        "certain": [
+          42
+        ],
+        "class.": [
+          43
+        ],
+        "With": [
+          44
+        ],
+        "rapid": [
+          46
+        ],
+        "development": [
+          47,
+          70,
+          165
+        ],
+        "deep": [
+          49
+        ],
+        "learning": [
+          50
+        ],
+        "algorithms": [
+          51,
+          172
+        ],
+        "for": [
+          52
+        ],
+        "tasks,": [
+          54
+        ],
+        "performance": [
+          56
+        ],
+        "object": [
+          58,
+          73,
+          110,
+          135,
+          149
+        ],
+        "detectors": [
+          59
+        ],
+        "greatly": [
+          62
+        ],
+        "improved.": [
+          63
+        ],
+        "In": [
+          64
+        ],
+        "order": [
+          65
+        ],
+        "to": [
+          66,
+          152,
+          167
+        ],
+        "understand": [
+          67
+        ],
+        "main": [
+          69
+        ],
+        "status": [
+          71
+        ],
+        "pipeline": [
+          75
+        ],
+        "thoroughly": [
+          76
+        ],
+        "deeply,": [
+          78
+        ],
+        "this": [
+          80
+        ],
+        "survey,": [
+          81
+        ],
+        "we": [
+          82,
+          101,
+          124,
+          142
+        ],
+        "analyze": [
+          83
+        ],
+        "methods": [
+          85,
+          112,
+          151
+        ],
+        "existing": [
+          87
+        ],
+        "typical": [
+          88
+        ],
+        "models": [
+          90
+        ],
+        "describe": [
+          92
+        ],
+        "benchmark": [
+          94
+        ],
+        "datasets": [
+          95
+        ],
+        "at": [
+          96
+        ],
+        "first.": [
+          97
+        ],
+        "Afterwards": [
+          98
+        ],
+        "primarily,": [
+          100
+        ],
+        "provide": [
+          102
+        ],
+        "comprehensive": [
+          104
+        ],
+        "overview": [
+          105
+        ],
+        "variety": [
+          108
+        ],
+        "systematic": [
+          115
+        ],
+        "manner,": [
+          116
+        ],
+        "covering": [
+          117
+        ],
+        "one-stage": [
+          119
+        ],
+        "two-stage": [
+          121
+        ],
+        "detectors.": [
+          122
+        ],
+        "Moreover,": [
+          123
+        ],
+        "list": [
+          125
+        ],
+        "traditional": [
+          127
+        ],
+        "new": [
+          129
+        ],
+        "applications.": [
+          130
+        ],
+        "Some": [
+          131
+        ],
+        "representative": [
+          132
+        ],
+        "are": [
+          137
+        ],
+        "analyzed": [
+          138
+        ],
+        "well.": [
+          140
+        ],
+        "Finally,": [
+          141
+        ],
+        "discuss": [
+          143
+        ],
+        "architecture": [
+          145
+        ],
+        "exploiting": [
+          147
+        ],
+        "these": [
+          148
+        ],
+        "build": [
+          153
+        ],
+        "an": [
+          154
+        ],
+        "effective": [
+          155
+        ],
+        "efficient": [
+          157
+        ],
+        "system": [
+          158
+        ],
+        "point": [
+          160
+        ],
+        "out": [
+          161
+        ],
+        "set": [
+          163
+        ],
+        "trends": [
+          166
+        ],
+        "better": [
+          168
+        ],
+        "follow": [
+          169
+        ],
+        "state-of-the-art": [
+          171
+        ],
+        "further": [
+          174
+        ],
+        "research.": [
+          175
+        ]
+      }
+    },
+    {
+      "id": "https://openalex.org/W2976792973",
+      "doi": "https://doi.org/10.1109/access.2019.2942944",
+      "display_name": "Machine Learning-Based Drone Detection and Classification: State-of-the-Art in Research",
+      "publication_year": 2019,
+      "ids": {
+        "openalex": "https://openalex.org/W2976792973",
+        "doi": "https://doi.org/10.1109/access.2019.2942944",
+        "mag": "2976792973"
+      },
+      "relevance_score": 369.24338,
+      "primary_location": {
+        "landing_page_url": "https://doi.org/10.1109/access.2019.2942944",
+        "pdf_url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08846214.pdf",
+        "source": {
+          "display_name": "IEEE Access"
+        }
+      },
+      "type": "article",
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold",
+        "oa_url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08846214.pdf",
+        "any_repository_has_fulltext": true
+      },
+      "best_oa_location": {
+        "pdf_url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08846214.pdf",
+        "landing_page_url": "https://doi.org/10.1109/access.2019.2942944",
+        "license": "cc-by"
+      },
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Bilal Taha"
+          }
+        },
+        {
+          "author": {
+            "display_name": "Abdulhadi Shoufan"
+          }
+        }
+      ],
+      "cited_by_count": 376,
+      "is_retracted": false,
+      "abstract_inverted_index": {
+        "This": [
+          0,
+          20
+        ],
+        "paper": [
+          1
+        ],
+        "presents": [
+          2
+        ],
+        "a": [
+          3
+        ],
+        "comprehensive": [
+          4
+        ],
+        "review": [
+          5
+        ],
+        "of": [
+          6,
+          35,
+          60,
+          68,
+          81,
+          104
+        ],
+        "current": [
+          7
+        ],
+        "literature": [
+          8
+        ],
+        "on": [
+          9
+        ],
+        "drone": [
+          10,
+          105
+        ],
+        "detection": [
+          11,
+          106
+        ],
+        "and": [
+          12,
+          37,
+          40,
+          53,
+          87,
+          107
+        ],
+        "classification": [
+          13,
+          67,
+          108
+        ],
+        "using": [
+          14
+        ],
+        "machine": [
+          15,
+          65
+        ],
+        "learning": [
+          16
+        ],
+        "with": [
+          17,
+          74
+        ],
+        "different": [
+          18,
+          91,
+          122
+        ],
+        "modalities.": [
+          19
+        ],
+        "research": [
+          21,
+          84
+        ],
+        "area": [
+          22
+        ],
+        "has": [
+          23
+        ],
+        "emerged": [
+          24
+        ],
+        "in": [
+          25,
+          120
+        ],
+        "the": [
+          26,
+          32,
+          41,
+          82,
+          88,
+          102
+        ],
+        "last": [
+          27
+        ],
+        "few": [
+          28
+        ],
+        "years": [
+          29
+        ],
+        "due": [
+          30
+        ],
+        "to": [
+          31,
+          44,
+          71
+        ],
+        "rapid": [
+          33
+        ],
+        "development": [
+          34
+        ],
+        "commercial": [
+          36
+        ],
+        "recreational": [
+          38
+        ],
+        "drones": [
+          39,
+          69
+        ],
+        "associated": [
+          42
+        ],
+        "risk": [
+          43
+        ],
+        "airspace": [
+          45
+        ],
+        "safety.": [
+          46
+        ],
+        "Addressed": [
+          47
+        ],
+        "technologies": [
+          48
+        ],
+        "encompass": [
+          49
+        ],
+        "radar,": [
+          50
+        ],
+        "visual,": [
+          51
+        ],
+        "acoustic,": [
+          52
+        ],
+        "radio-frequency": [
+          54
+        ],
+        "sensing": [
+          55
+        ],
+        "systems.": [
+          56
+        ],
+        "The": [
+          57
+        ],
+        "general": [
+          58,
+          98
+        ],
+        "finding": [
+          59
+        ],
+        "this": [
+          61
+        ],
+        "study": [
+          62
+        ],
+        "demonstrates": [
+          63
+        ],
+        "that": [
+          64
+        ],
+        "learning-based": [
+          66
+        ],
+        "seems": [
+          70
+        ],
+        "be": [
+          72,
+          95
+        ],
+        "promising": [
+          73
+        ],
+        "many": [
+          75
+        ],
+        "successful": [
+          76
+        ],
+        "individual": [
+          77
+        ],
+        "contributions.": [
+          78
+        ],
+        "However,": [
+          79
+        ],
+        "most": [
+          80
+        ],
+        "performed": [
+          83
+        ],
+        "is": [
+          85,
+          109
+        ],
+        "experimental": [
+          86
+        ],
+        "outcomes": [
+          89
+        ],
+        "from": [
+          90
+        ],
+        "papers": [
+          92
+        ],
+        "can": [
+          93
+        ],
+        "hardly": [
+          94
+        ],
+        "compared.": [
+          96
+        ],
+        "A": [
+          97
+        ],
+        "requirement-driven": [
+          99
+        ],
+        "specification": [
+          100
+        ],
+        "for": [
+          101
+        ],
+        "problem": [
+          103
+        ],
+        "still": [
+          110
+        ],
+        "missing": [
+          111
+        ],
+        "as": [
+          112,
+          114
+        ],
+        "well": [
+          113
+        ],
+        "reference": [
+          115
+        ],
+        "datasets": [
+          116
+        ],
+        "which": [
+          117
+        ],
+        "would": [
+          118
+        ],
+        "help": [
+          119
+        ],
+        "evaluating": [
+          121
+        ],
+        "solutions.": [
+          123
+        ]
+      }
+    },
+    {
+      "id": "https://openalex.org/W2982095652",
+      "doi": "https://doi.org/10.1109/tro.2019.2942989",
+      "display_name": "Deep Drone Racing: From Simulation to Reality With Domain Randomization",
+      "publication_year": 2019,
+      "ids": {
+        "openalex": "https://openalex.org/W2982095652",
+        "doi": "https://doi.org/10.1109/tro.2019.2942989",
+        "mag": "2982095652"
+      },
+      "relevance_score": 275.15607,
+      "primary_location": {
+        "landing_page_url": "https://doi.org/10.1109/tro.2019.2942989",
+        "pdf_url": "https://ieeexplore.ieee.org/ielx7/8860/8984601/08877728.pdf",
+        "source": {
+          "display_name": "IEEE Transactions on Robotics"
+        }
+      },
+      "type": "article",
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "bronze",
+        "oa_url": "https://ieeexplore.ieee.org/ielx7/8860/8984601/08877728.pdf",
+        "any_repository_has_fulltext": true
+      },
+      "best_oa_location": {
+        "pdf_url": "https://ieeexplore.ieee.org/ielx7/8860/8984601/08877728.pdf",
+        "landing_page_url": "https://doi.org/10.1109/tro.2019.2942989",
+        "license": null
+      },
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Antonio Loquercio"
+          }
+        },
+        {
+          "author": {
+            "display_name": "Elia Kaufmann"
+          }
+        },
+        {
+          "author": {
+            "display_name": "René Ranftl"
+          }
+        }
+      ],
+      "cited_by_count": 277,
+      "is_retracted": false,
+      "abstract_inverted_index": {
+        "Dynamically": [
+          0
+        ],
+        "changing": [
+          1
+        ],
+        "environments,": [
+          2
+        ],
+        "unreliable": [
+          3
+        ],
+        "state": [
+          4,
+          168
+        ],
+        "estimation,": [
+          5
+        ],
+        "and": [
+          6,
+          64,
+          84,
+          92,
+          118,
+          149,
+          157,
+          162
+        ],
+        "operation": [
+          7
+        ],
+        "under": [
+          8
+        ],
+        "severe": [
+          9
+        ],
+        "resource": [
+          10
+        ],
+        "constraints": [
+          11
+        ],
+        "are": [
+          12
+        ],
+        "fundamental": [
+          13
+        ],
+        "challenges": [
+          14,
+          26
+        ],
+        "that": [
+          15
+        ],
+        "limit": [
+          16
+        ],
+        "the": [
+          17,
+          28,
+          58,
+          68,
+          122,
+          130,
+          138,
+          147,
+          167,
+          170
+        ],
+        "deployment": [
+          18
+        ],
+        "of": [
+          19,
+          30,
+          60,
+          71,
+          103,
+          116,
+          124,
+          140,
+          151,
+          169
+        ],
+        "small": [
+          20
+        ],
+        "autonomous": [
+          21
+        ],
+        "drones.": [
+          22
+        ],
+        "We": [
+          23,
+          52,
+          144
+        ],
+        "address": [
+          24
+        ],
+        "these": [
+          25
+        ],
+        "in": [
+          27,
+          35,
+          90,
+          155
+        ],
+        "context": [
+          29
+        ],
+        "autonomous,": [
+          31
+        ],
+        "vision-based": [
+          32
+        ],
+        "drone": [
+          33,
+          40,
+          142
+        ],
+        "racing": [
+          34,
+          39
+        ],
+        "dynamic": [
+          36
+        ],
+        "environments.": [
+          37
+        ],
+        "A": [
+          38
+        ],
+        "must": [
+          41
+        ],
+        "traverse": [
+          42
+        ],
+        "a": [
+          43,
+          61,
+          72,
+          95,
+          159
+        ],
+        "track": [
+          44
+        ],
+        "with": [
+          45,
+          67
+        ],
+        "possibly": [
+          46
+        ],
+        "moving": [
+          47
+        ],
+        "gates": [
+          48
+        ],
+        "at": [
+          49
+        ],
+        "high": [
+          50
+        ],
+        "speed.": [
+          51
+        ],
+        "enable": [
+          53
+        ],
+        "this": [
+          54
+        ],
+        "functionality": [
+          55
+        ],
+        "by": [
+          56
+        ],
+        "combining": [
+          57
+        ],
+        "performance": [
+          59
+        ],
+        "state-of-the-art": [
+          62
+        ],
+        "planning": [
+          63
+        ],
+        "control": [
+          65
+        ],
+        "system": [
+          66,
+          79,
+          112
+        ],
+        "perceptual": [
+          69
+        ],
+        "awareness": [
+          70
+        ],
+        "convolutional": [
+          73
+        ],
+        "neural": [
+          74
+        ],
+        "network.": [
+          75
+        ],
+        "The": [
+          76,
+          101
+        ],
+        "resulting": [
+          77
+        ],
+        "modular": [
+          78
+        ],
+        "is": [
+          80,
+          88,
+          129
+        ],
+        "both": [
+          81,
+          154
+        ],
+        "platform": [
+          82
+        ],
+        "independent": [
+          83
+        ],
+        "domain": [
+          85,
+          108
+        ],
+        "independent:": [
+          86
+        ],
+        "it": [
+          87
+        ],
+        "trained": [
+          89
+        ],
+        "simulation": [
+          91,
+          156
+        ],
+        "deployed": [
+          93
+        ],
+        "on": [
+          94,
+          137,
+          158
+        ],
+        "physical": [
+          96,
+          160
+        ],
+        "quadrotor": [
+          97
+        ],
+        "without": [
+          98
+        ],
+        "any": [
+          99
+        ],
+        "fine-tuning.": [
+          100
+        ],
+        "abundance": [
+          102
+        ],
+        "simulated": [
+          104
+        ],
+        "data,": [
+          105
+        ],
+        "generated": [
+          106
+        ],
+        "via": [
+          107
+        ],
+        "randomization,": [
+          109
+        ],
+        "makes": [
+          110
+        ],
+        "our": [
+          111,
+          125,
+          127,
+          152
+        ],
+        "robust": [
+          113
+        ],
+        "to": [
+          114,
+          132
+        ],
+        "changes": [
+          115
+        ],
+        "illumination": [
+          117
+        ],
+        "gate": [
+          119
+        ],
+        "appearance.": [
+          120
+        ],
+        "To": [
+          121
+        ],
+        "best": [
+          123
+        ],
+        "knowledge,": [
+          126
+        ],
+        "approach": [
+          128
+        ],
+        "first": [
+          131
+        ],
+        "demonstrate": [
+          133
+        ],
+        "zero-shot": [
+          134
+        ],
+        "sim-to-real": [
+          135
+        ],
+        "transfer": [
+          136
+        ],
+        "task": [
+          139
+        ],
+        "agile": [
+          141
+        ],
+        "flight.": [
+          143
+        ],
+        "extensively": [
+          145
+        ],
+        "test": [
+          146
+        ],
+        "precision": [
+          148
+        ],
+        "robustness": [
+          150
+        ],
+        "system,": [
+          153
+        ],
+        "platform,": [
+          161
+        ],
+        "show": [
+          163
+        ],
+        "significant": [
+          164
+        ],
+        "improvements": [
+          165
+        ],
+        "over": [
+          166
+        ],
+        "art.": [
+          171
+        ]
+      }
+    },
+    {
+      "id": "https://openalex.org/W4306500693",
+      "doi": null,
+      "display_name": "Sim-to-Real Transfer for Drone Object Detection: a Preprint Study",
+      "publication_year": 2022,
+      "relevance_score": 120.5,
+      "ids": {
+        "openalex": "https://openalex.org/W4306500693",
+        "doi": null
+      },
+      "primary_location": {
+        "landing_page_url": "https://arxiv.org/abs/2201.00001",
+        "pdf_url": null,
+        "source": {
+          "display_name": "arXiv (Cornell University)"
+        }
+      },
+      "type": "preprint",
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": null
+      },
+      "best_oa_location": null,
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Jane Researcher"
+          }
+        }
+      ],
+      "cited_by_count": 3,
+      "is_retracted": false
+    }
+  ]
+}

@@ -1,8 +1,6 @@
 // installed_apps/tests.rs — unit tests for the installed-apps domain.
 
 #[cfg(all(test, target_os = "windows"))]
-use super::bloatware::is_valid_appx_pattern;
-#[cfg(all(test, target_os = "windows"))]
 use super::ps_util::ps_single_quote_escape;
 
 /// Replays the provider whitelist gate from `uninstall_app_inner` —
@@ -53,40 +51,4 @@ fn ps_single_quote_escape_doubles_quotes() {
     );
     assert_eq!(ps_single_quote_escape("$var"), "$var");
     assert_eq!(ps_single_quote_escape("`backtick`"), "`backtick`");
-}
-
-#[cfg(all(test, target_os = "windows"))]
-#[test]
-fn appx_pattern_accepts_valid_family_names() {
-    for ok in [
-        "Microsoft.XboxApp",
-        "Microsoft.XboxGamingOverlay*",
-        "king.com.CandyCrushSaga",
-        "Microsoft.Windows.Photos",
-        "*Xbox*",
-        "A.B-C_D",
-    ] {
-        assert!(is_valid_appx_pattern(ok), "expected '{}' to be valid", ok);
-    }
-}
-
-#[cfg(all(test, target_os = "windows"))]
-#[test]
-fn appx_pattern_rejects_injection_attempts() {
-    for bad in [
-        "",
-        "Microsoft.XboxApp; Remove-Item C:\\",
-        "Microsoft.XboxApp'; bad",
-        "Microsoft.XboxApp $(rm)",
-        "Microsoft.XboxApp`whoami",
-        "with spaces",
-        "with/slash",
-        "with\\backslash",
-    ] {
-        assert!(
-            !is_valid_appx_pattern(bad),
-            "expected '{}' to be rejected",
-            bad
-        );
-    }
 }

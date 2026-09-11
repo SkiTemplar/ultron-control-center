@@ -18,6 +18,9 @@ multimodel/
 quarantine/
 skill_cache/
 
+# === Sesiones de investigacion (TFG): papers/PDFs/refs.bib del usuario, nunca al repo ===
+/research/
+
 # === CodeGraph (colbymchenry) — local AST index, never commit ===
 .codegraph/
 
@@ -488,3 +491,14 @@ benchmarks/skill-routing-ab/votes.json
 
 # Golden v2 (F1.5): prompts reales y resúmenes de memoria — local, nunca al repo ni al espejo
 cockpit/memory-rework/evals/golden-v2/
+
+# Paquete del plugin de Cowork: artefacto de build, se regenera desde plugins/ultron-memory-cowork/
+plugins/*.zip
+
+# Perfil de escritura destilado: contenido personal, repo publico
+docs/research/perfil-escritura/
+
+# Artefactos de tsc -b en control-center (el fuente es vite.config.ts)
+control-center/*.tsbuildinfo
+control-center/vite.config.js
+control-center/vite.config.d.ts

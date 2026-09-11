@@ -15,21 +15,20 @@ pub enum PtyStatus {
     Killed,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PtySessionSummary {
-    pub id: String,
-    pub project_id: String,
-    pub card_id: Option<String>,
-    pub provider: String,
-    pub started_at: String,
-    pub status: PtyStatus,
-}
-
 pub struct PtySession {
+    /// Session identity. Retenido aunque `.summary()` (su único lector) se
+    /// retiró junto a `pty::list_inner` (cat cleanup 2026-09-11, sin
+    /// consumidor tras borrar `project_invoke_agent_from_session`) — sigue
+    /// siendo la clave conceptual de la sesión en el registro.
+    #[allow(dead_code)]
     pub id: String,
+    #[allow(dead_code)]
     pub project_id: String,
+    #[allow(dead_code)]
     pub card_id: Option<String>,
+    #[allow(dead_code)]
     pub provider: String,
+    #[allow(dead_code)]
     pub started_at: String,
     pub status: PtyStatus,
     /// Master handle. Nunca se lee tras el spawn (el resize del terminal
@@ -55,19 +54,6 @@ pub struct PtySession {
 
 /// Maximum size of the per-session output ring buffer (256 KiB).
 pub const PTY_REPLAY_BUFFER_MAX: usize = 256 * 1024;
-
-impl PtySession {
-    pub fn summary(&self) -> PtySessionSummary {
-        PtySessionSummary {
-            id: self.id.clone(),
-            project_id: self.project_id.clone(),
-            card_id: self.card_id.clone(),
-            provider: self.provider.clone(),
-            started_at: self.started_at.clone(),
-            status: self.status.clone(),
-        }
-    }
-}
 
 /// Result of a [`super::ops::capture_output_inner`] call.
 #[derive(Debug, Serialize, Deserialize)]

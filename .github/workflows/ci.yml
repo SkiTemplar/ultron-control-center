@@ -414,6 +414,8 @@ jobs:
           node hooks/scripts/tests/test-freshness-gate.js
           node hooks/scripts/tests/test-resume-quality.js
           node hooks/scripts/tests/test-orchestrate-recovery.js
+          node hooks/scripts/tests/test-session-digest.js
+          node hooks/scripts/tests/test-session-summarize-previous.js
       # Detector de texto IA: cobertura patron a patron y separacion sobre
       # documentos completos. Ambos harness existian desde el 2026-08-15 y no
       # los ejecutaba nadie, asi que una regresion del catalogo entraba sin

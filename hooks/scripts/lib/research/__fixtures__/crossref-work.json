@@ -1,0 +1,16 @@
+{
+  "_captured": "2026-09-11 desde https://api.crossref.org/works/10.1109/ACCESS.2019.2939201 (message recortado)",
+  "status": "ok",
+  "message-type": "work",
+  "message": {
+    "DOI": "10.1109/access.2019.2939201",
+    "type": "journal-article",
+    "title": ["A Survey of Deep Learning-Based Object Detection"],
+    "container-title": ["IEEE Access"],
+    "author": [
+      { "given": "Licheng", "family": "Jiao", "sequence": "first" },
+      { "given": "Fan", "family": "Zhang", "sequence": "additional" }
+    ],
+    "published": { "date-parts": [[2019]] }
+  }
+}

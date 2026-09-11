@@ -10,7 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const { runCli, projectIdFromCwd, findBinary, spawnDetached } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
 // ULTRON 4 12.1: lineas de feedback de sesion (lib/session-feedback).
@@ -19,6 +19,13 @@ const { renderResumeLines: renderFeedbackLines } = require('./lib/session-feedba
 const { renderResumeLine: renderMeterLine } = require('./lib/response-meter');
 // ULTRON 4 8.1: resumen del indice CodeGraph del proyecto (lib/codegraph-summary).
 const codegraphSummary = require('./lib/codegraph-summary');
+// F-resume (2026-09-11): resumen de la sesion ANTERIOR del proyecto. Puro
+// (lib/last-session.js) mas las funciones de seleccion de session-summarize-
+// previous.js, que se pueden requerir aqui porque solo definen funciones —
+// su trabajo real vive dentro de main(), guardado tras require.main===module.
+const lastSession = require('./lib/last-session');
+const sessionSummaryDelivery = require('./lib/session-summary-delivery');
+const sessionSummarizer = require('./session-summarize-previous');
 observe('memory-session-resume');
 
 // HOOKS-04 (auditoria 2026-07-16): calentar el daemon de memoria DESDE
@@ -222,6 +229,70 @@ function readHead(cwd) {
   }
 }
 
+const SUMMARIZE_SCRIPT = path.join(__dirname, 'session-summarize-previous.js');
+
+/**
+ * Lanza session-summarize-previous.js totalmente desacoplado: SessionStart no
+ * puede esperar los 20-40s que tarda `claude -p`. Mismo patron que
+ * spawnDetached() de lib/ultron-memory-cli.js (stderr a fichero, unref, fd
+ * cerrado justo despues del spawn -- el hijo ya tiene su copia del handle).
+ * Fail-safe: cualquier error se traga, el resume sigue igual sin el resumidor.
+ */
+function launchSessionSummarizer(cwd, sessionId) {
+  let fd = null;
+  try {
+    const dir = path.join(os.homedir(), '.ultron', 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    fd = fs.openSync(path.join(dir, 'session-summary.stderr.log'), 'a');
+    const child = spawn(
+      process.execPath,
+      [SUMMARIZE_SCRIPT, '--cwd', cwd, '--session', sessionId],
+      { detached: true, stdio: ['ignore', 'ignore', fd], windowsHide: true }
+    );
+    child.on('error', () => { /* best effort */ });
+    child.unref();
+  } catch {
+    /* fail-safe: el resume sigue igual sin el resumidor */
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* el hijo ya tiene su copia del handle */ }
+    }
+  }
+}
+
+/**
+ * Bloque `last_session` (2026-09-11): el resumen de la sesion ANTERIOR del
+ * proyecto (fichero por sesion, nunca brain.db -- decision del usuario). Si
+ * ya existe se inyecta entero (acotado); si HAY UNA CANDIDATA BARATA (stat/
+ * mtime, revision de codigo 2026-09-11: SessionStart NUNCA lee contenido de
+ * transcripts -- eso vive en selectPreviousSession(), dentro del proceso
+ * desacoplado) se lanza el resumidor en segundo plano (claude -p, ~20-40s) y
+ * se avisa de que llegara en el primer prompt (memory-orchestrate.js lo
+ * entrega alli si SessionStart no llego a tiempo -- ver
+ * lib/session-summary-delivery.js). Fail-safe: cualquier error deja el resume
+ * sin este bloque, nunca lo rompe.
+ */
+function computeLastSessionLines({ cwd, sessionId, transcriptPath, project }) {
+  const out = [];
+  try {
+    const summary = lastSession.latestSummary(project, sessionId);
+    if (summary) out.push(...lastSession.renderLastSessionLines(summary));
+    if (!project || !sessionId) return out;
+    const transcriptsDir = sessionSummarizer.transcriptsDirFor(cwd, transcriptPath);
+    const cheapCandidate = sessionSummarizer.hasCheapPendingCandidate({ transcriptsDir, currentSessionId: sessionId, projectId: project });
+    if (cheapCandidate) {
+      sessionSummaryDelivery.writePending(sessionId);
+      launchSessionSummarizer(cwd, sessionId);
+      out.push(
+        'last_session_pending: hay una sesion anterior sin resumir todavia -- se esta generando en segundo plano (claude -p) y llegara inyectada en el primer prompt de esta sesion.'
+      );
+    }
+  } catch {
+    /* fail-safe: el resume sigue sin el bloque last_session */
+  }
+  return out;
+}
+
 function render(r, profileDoc, opts = {}) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
   // Directiva de arranque (audit 2026-06-25): inyectabamos datos sin NINGUNA
@@ -280,16 +351,23 @@ function render(r, profileDoc, opts = {}) {
   if (opts.meterLine) out.push(opts.meterLine);
   // CodeGraph (8.1, pilar 2): tamano, zonas y hubs del indice, con la orden de consultarlo.
   for (const line of (Array.isArray(opts.codegraphLines) ? opts.codegraphLines : [])) out.push(line);
+  // F-resume: resumen de la sesion anterior (si ya existe) y/o aviso de que
+  // esta generandose en segundo plano y llegara en el primer prompt.
+  for (const line of (Array.isArray(opts.lastSessionLines) ? opts.lastSessionLines : [])) out.push(line);
   out.push('</ultron-memory-resume>');
   return out.join('\n');
 }
 
 function main() {
   let cwd = process.cwd();
+  let sessionId = null;
+  let transcriptPath = null;
   try {
     const raw = fs.readFileSync(0, 'utf8');
     const inp = JSON.parse(raw || '{}');
     if (inp.cwd) cwd = inp.cwd;
+    sessionId = inp.session_id || inp.sessionId || null;
+    transcriptPath = inp.transcript_path || inp.transcriptPath || null;
   } catch {
     /* no stdin / bad json — use process cwd */
   }
@@ -325,12 +403,13 @@ function main() {
   try { meterLine = renderMeterLine(); } catch { /* sin medidor */ }
   let codegraphLines = [];
   try { codegraphLines = codegraphSummary.renderLines(codegraphSummary.summarize(cwd)); } catch { /* sin indice */ }
-  if (!resume && !profileDoc && !harnessNote && !head && !feedbackLines.length && !codegraphLines.length) {
+  const lastSessionLines = computeLastSessionLines({ cwd, sessionId, transcriptPath, project });
+  if (!resume && !profileDoc && !harnessNote && !head && !feedbackLines.length && !codegraphLines.length && !lastSessionLines.length) {
     emit(l0);
     return;
   }
   const headSha = (head.match(/@ ([0-9a-f]+) --/) || [])[1] || null;
-  emit(render(resume, profileDoc, { harnessNote, head, headSha, degraded: resume === null, feedbackLines, meterLine, codegraphLines }) + l0);
+  emit(render(resume, profileDoc, { harnessNote, head, headSha, degraded: resume === null, feedbackLines, meterLine, codegraphLines, lastSessionLines }) + l0);
 }
 
 // Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script

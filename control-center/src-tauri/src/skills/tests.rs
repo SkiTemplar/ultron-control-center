@@ -1,7 +1,6 @@
 // skills/tests.rs — Unit tests for the skills domain.
 
 use super::crud::validate_slug;
-use super::hash::{format_ymd_local, sha1_of_file};
 use super::origin::skills_bulk_toggle_inner;
 use super::types::{RegistryRoot, SkillInfo};
 
@@ -21,36 +20,6 @@ fn validate_slug_lower_kebab_only() {
     assert!(validate_slug("foo/bar").is_err(), "slash rejected");
     // First char must be [a-z0-9] — leading hyphen forbidden
     assert!(validate_slug("-foo").is_err(), "leading hyphen rejected");
-}
-
-#[test]
-fn sha1_of_file_matches_known_string() {
-    // Known: SHA1("abc") = a9993e364706816aba3e25717850c26c9cd0d89d
-    let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-    std::fs::write(tmp.path(), b"abc").expect("write");
-    let hex = sha1_of_file(tmp.path()).expect("sha1 ok");
-    assert_eq!(hex, "a9993e364706816aba3e25717850c26c9cd0d89d");
-}
-
-#[test]
-fn sha1_of_empty_file_matches_known_string() {
-    // SHA1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709
-    let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-    std::fs::write(tmp.path(), b"").expect("write");
-    let hex = sha1_of_file(tmp.path()).expect("sha1 ok");
-    assert_eq!(hex, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-}
-
-#[test]
-fn format_ymd_local_renders_yyyy_mm_dd() {
-    // 2026-05-17 00:00:00 UTC = 1778976000 (unix seconds)
-    assert_eq!(format_ymd_local(1778976000), "2026-05-17");
-
-    // Epoch
-    assert_eq!(format_ymd_local(0), "1970-01-01");
-
-    // 2024-02-29 (leap day) 00:00 UTC = 1709164800
-    assert_eq!(format_ymd_local(1709164800), "2024-02-29");
 }
 
 // -----------------------------------------------------------------------

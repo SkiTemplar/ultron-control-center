@@ -47,29 +47,3 @@ pub struct UninstallResult {
     pub exit_code: Option<i32>,
     pub command: String,
 }
-
-// Retained for future re-wiring; Tauri wrappers removed in cat10 (2026-06-19).
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Clone)]
-pub struct AppxQueryResult {
-    /// True when at least one Appx package matched the pattern. The UI uses
-    /// this to switch the row state between "Installed" and "Not present".
-    pub installed: bool,
-    /// Resolved package full names that matched, useful for diagnostics.
-    /// Empty when `installed` is false.
-    pub matches: Vec<String>,
-}
-
-// Retained for future re-wiring; Tauri wrappers removed in cat10 (2026-06-19).
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Clone)]
-pub struct BloatwareUninstallResult {
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: Option<i32>,
-    pub command: String,
-    /// Best-effort package full names we attempted to remove. Empty when
-    /// the pattern matched nothing on this host.
-    pub removed: Vec<String>,
-}

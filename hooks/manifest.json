@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-10",
+  "generated_at": "2026-09-11",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -390,7 +390,7 @@
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
       "async": false,
-      "checksum_sha256": "84622e6f9c2c20d764258028664be73e01e529ea4f6b296c03ab80a54dea6330",
+      "checksum_sha256": "dd33b73e48fd8c37c050b7a9a836f101df54861f086e717ff2c138f53a61dbcc",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -398,7 +398,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Resume acotado (workflows activos, tareas abiertas, decisiones, pinned, next action) leido del SoT via 'ultron-memory resume'. SOLO LECTURA del sidecar; no escribe."
+      "description": "Resume acotado (workflows activos, tareas abiertas, decisiones, pinned, next action) leido del SoT via 'ultron-memory resume'. SOLO LECTURA del sidecar; no escribe. Ademas inyecta el summary.md de la sesion ANTERIOR del proyecto (fichero por sesion, no brain.db) y, si aun no existe, lanza session-summarize-previous.js ('claude -p' Sonnet, desacoplado) para generarlo."
     },
     {
       "id": "project-roster-context",
@@ -628,7 +628,7 @@
       "script": "~/.ultron/hooks/scripts/save-user-prompt.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "d413391ce9ad1332f5c896800e426bf61095775b082e4df44e01c9b6e68ea701",
+      "checksum_sha256": "958cfaaa6ecd7e6485371c4fe819b34004253b83bd18d7881946e023854a5280",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -644,7 +644,7 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 20,
       "async": false,
-      "checksum_sha256": "797500d988bbd2ad42ed71bc00cf63183e19c65f684e9dcc49c64a185c71604f",
+      "checksum_sha256": "ab9cb0e226d4efc746948ce1759f99f51d1651ac0418aa95cd772f8eb1767975",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -652,7 +652,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Enruta el prompt por el orquestador canonico ('ultron-memory orchestrate'): intent -> workflow -> agentes a delegar -> memorias relevantes, como additionalContext. SOLO LECTURA del sidecar."
+      "description": "Enruta el prompt por el orquestador canonico ('ultron-memory orchestrate'): intent -> workflow -> agentes a delegar -> memorias relevantes, como additionalContext. SOLO LECTURA del sidecar. Ademas entrega, una sola vez por sesion, el resumen de la sesion anterior si SessionStart no llego a tiempo (lib/session-summary-delivery.js)."
     },
     {
       "id": "session-feedback-capture",

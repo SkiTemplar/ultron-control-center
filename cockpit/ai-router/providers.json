@@ -54,9 +54,9 @@
     "kind": "cloud",
     "key_env_var": "GEMINI_API_KEY",
     "base_url": "https://generativelanguage.googleapis.com",
-    "default_model": "gemini-2.5-flash",
+    "default_model": "gemini-3.8-flash",
     "models": [
-      "gemini-2.5-flash",
+      "gemini-3.8-flash",
       "gemini-2.5-pro"
     ]
   },
@@ -122,7 +122,7 @@
   },
   {
     "id": "codex-cli",
-    "name": "OpenAI Codex CLI (gpt-5 via OAuth)",
+    "name": "OpenAI Codex CLI (gpt-5.6-terra via OAuth)",
     "cost_per_mtok": 0,
     "supports": [
       "light",
@@ -133,9 +133,11 @@
     "kind": "cli",
     "key_env_var": "",
     "base_url": "",
-    "default_model": "gpt-5",
+    "default_model": "gpt-5.6-terra",
     "models": [
-      "gpt-5"
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "gpt-6-astra"
     ],
     "cli_command": "codex"
   },

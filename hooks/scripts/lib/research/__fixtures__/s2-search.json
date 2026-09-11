@@ -1,0 +1,31 @@
+{
+  "_captured": "2026-09-11: el endpoint /paper/search satura con 429 en el pool sin clave (ver semantic-scholar.js). Este fixture usa la MISMA forma de objeto confirmada con una llamada real que si respondio 200 (GET /graph/v1/paper/DOI:10.1109/ACCESS.2019.2939201?fields=title,year,authors,venue,externalIds,citationCount,openAccessPdf,publicationTypes), que es identica a un elemento de data[] en /paper/search segun la Graph API.",
+  "total": 2,
+  "data": [
+    {
+      "paperId": "dfbeb3ca7a01fe80c49b76baa50bf092f71eef4a",
+      "externalIds": { "DOI": "10.1109/ACCESS.2019.2939201", "ArXiv": "1907.09408" },
+      "title": "A Survey of Deep Learning-Based Object Detection",
+      "venue": "IEEE Access",
+      "year": 2019,
+      "citationCount": 1163,
+      "openAccessPdf": { "url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08825470.pdf", "status": "GOLD", "license": "CCBY" },
+      "publicationTypes": ["JournalArticle", "Review"],
+      "authors": [
+        { "authorId": "144125122", "name": "L. Jiao" },
+        { "authorId": "70450696", "name": "Fan Zhang" }
+      ]
+    },
+    {
+      "paperId": "sintetico0000000000000000000000000000000",
+      "externalIds": { "DOI": null },
+      "title": "Sim-to-Real Transfer for Drone Object Detection: a Preprint Study",
+      "venue": "arXiv.org",
+      "year": 2022,
+      "citationCount": 2,
+      "openAccessPdf": null,
+      "publicationTypes": null,
+      "authors": [{ "authorId": "999", "name": "Jane Researcher" }]
+    }
+  ]
+}

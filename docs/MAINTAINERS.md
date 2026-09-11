@@ -51,6 +51,20 @@ the cheap, reversible step that makes the future move safe.
 | `scripts/persona-benchmark-runner.py` | Parses `references/persona-benchmarks.md`, reports coverage + structural validation. Run before any persona-set release. Stage 2 (LLM-as-judge) is future work. | `uv run python scripts/persona-benchmark-runner.py [--persona <slug>] [--validate-only]` |
 | `scripts/routing-test-runner.py` | Regression harness for FAST PATH Layer 1 + tiebreaks (T-01..T-16, T-34, T-35). Run after every `config/intent-rules.yaml` edit. | `uv run python scripts/routing-test-runner.py [--verbose]` |
 
+## Memory eval & webponize tooling
+
+These four scripts do not carry the `# === maintainer-only ===` marker (they
+postdate that sweep) but have no Control Center / hook / CI caller either —
+manual invocation only. Verified working as of 2026-09-11 (read end-to-end,
+their runtime dependencies confirmed on disk).
+
+| Tool | Purpose | Invocation |
+|---|---|---|
+| `scripts/golden-v2-ab.mjs` | A/B del reranker cross-encoder de memoria (F1.5): corre `ultron-memory.exe eval --golden <path>` dos veces (`ULTRON_RERANK=0` y `=1`) y compara recall@8/precision/MRR/nDCG/context_waste lado a lado. Avisa en vez de declarar empate si ambas pasadas dan métricas idénticas (señal de que el daemon leyó el flag al arrancar y no en la petición). | `node scripts/golden-v2-ab.mjs [ruta-golden] [--only 0\|1]` |
+| `scripts/golden-v2-pool.mjs` | Genera el pool de candidatos para el golden set v2 de recall, a partir de prompts REALES de `~/.claude/logs/orchestrate.jsonl` (no queries escritas a mano). Muestrea N prompts elegibles, pide recall sin reranker (in-project + cross-project) al daemon, y escribe `pool.json` (máquina) + `labeling.md` (para etiquetado manual). Paso previo a `golden-v2-compile.mjs` (existe, no auditado en esta pasada). | `node scripts/golden-v2-pool.mjs [--n 30] [--k 10] [--kx 4] [--days 30]` |
+| `scripts/new-web.mjs` | Scaffold de un proyecto-web del pipeline `webponize`: crea `cockpit/projects/web-<slug>/` (kanban.json + `site/`, `variants/b/`, `variants/c/` con placeholders), registra el proyecto en `cockpit/projects.json` y crea la card en el pipeline vía `scripts/kanban.mjs`. Siguiente paso manual: `scripts/deploy-variants.mjs`. | `node scripts/new-web.mjs <slug> "<Negocio>" [--tipo <sector>] [--maps <url>] [--tier front\|front+backend]` |
+| `scripts/tricolon-bench.js` | Banco de regresión para el patrón "regla de tres" (tricolon) del catálogo de detección de texto-IA (`docs/research/patrones-texto-ia.json`): mide el regex del catálogo (o uno pasado por argumento) contra casos positivos/negativos etiquetados a mano, usando el mismo compilador que producción (`hooks/scripts/lib/ai-text-detector.js`) para no medir una regex que no es la que corre. Avisa si la regex usa lookaround (la crate `regex` de Rust no lo soporta — divergencia muda entre el hook JS y el Lab Rust). | `node scripts/tricolon-bench.js ['<regex-candidata>']` |
+
 ## Standalone bootstrap / scaffolders
 
 These scripts have **no runtime caller** — they exist for manual one-off invocations during fresh-machine bootstrap, vault setup, or skill-catalog rebuilds. All four carry the `# === maintainer-only ===` marker.

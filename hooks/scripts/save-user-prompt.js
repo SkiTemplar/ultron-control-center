@@ -12,10 +12,14 @@
  * con etiquetas las frases con keywords críticos (recuerda, objetivo,
  * importante, siempre, nunca, no quiero, no me gusta).
  *
- * El inbox se procesa después (manualmente o via skill consolidate-memory)
- * para extraer lessons y promoverlas a MEMORY.md.
+ * El inbox se procesa después via benchmarks/skill-routing-ab/extract.mjs
+ * (consumidor real hoy), que lo usa como fuente de prompts reales para el
+ * golden set de routing.
  *
  * Path: ~/.claude/memory/inbox/<YYYY-MM-DD>.md
+ *
+ * Retención: ficheros de más de 90 días se borran (como mucho una vez al
+ * día, vía marcador `.last-prune`) para no acumular inbox sin límite.
  *
  * Fail-safe: cualquier error → exit(0). Nunca bloquea el envío.
  */
@@ -32,6 +36,8 @@ const LOG_PATH = path.join(HOME, '.claude', 'logs', 'save-user-prompt.jsonl');
 
 const MIN_PROMPT_CHARS = 30;
 const MAX_PROMPT_CHARS = 4000;
+const PRUNE_MAX_AGE_DAYS = 90;
+const PRUNE_MARKER = '.last-prune';
 
 const KEYWORDS = [
   'recuerda', 'recordar', 'objetivo', 'goal',
@@ -71,12 +77,63 @@ function readStdinSafe() {
   }
 }
 
-function todayStamp() {
-  const d = new Date();
+function ymd(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return y + '-' + m + '-' + day;
+}
+
+function todayStamp() {
+  return ymd(new Date());
+}
+
+/**
+ * Borra ficheros `<YYYY-MM-DD>.md` de `dir` con más de `PRUNE_MAX_AGE_DAYS`
+ * días de antigüedad. Barato: como mucho una vez al día, vía marcador
+ * `.last-prune` (guarda la fecha de la última pasada). Fail-safe: cualquier
+ * error se atrapa y se reporta en `skipped`, nunca lanza.
+ *
+ * @param {string} dir
+ * @param {Date} [now]
+ * @returns {{ pruned: string[], skipped: string|null }}
+ */
+function pruneOldInboxEntries(dir, now) {
+  now = now || new Date();
+  try {
+    if (!fs.existsSync(dir)) {
+      return { pruned: [], skipped: 'no_dir' };
+    }
+    const markerPath = path.join(dir, PRUNE_MARKER);
+    const todayStr = ymd(now);
+    let last = '';
+    try {
+      last = fs.readFileSync(markerPath, 'utf8').trim();
+    } catch (_) {
+      /* no marker yet — proceed */
+    }
+    if (last === todayStr) {
+      return { pruned: [], skipped: 'already_pruned_today' };
+    }
+
+    const cutoffMs = now.getTime() - PRUNE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    const pruned = [];
+    for (const name of fs.readdirSync(dir)) {
+      const m = /^(\d{4}-\d{2}-\d{2})\.md$/.exec(name);
+      if (!m) continue;
+      const fileDate = new Date(m[1] + 'T00:00:00');
+      if (Number.isNaN(fileDate.getTime())) continue;
+      if (fileDate.getTime() < cutoffMs) {
+        fs.unlinkSync(path.join(dir, name));
+        pruned.push(name);
+      }
+    }
+
+    fs.writeFileSync(markerPath, todayStr, 'utf8');
+    return { pruned, skipped: null };
+  } catch (err) {
+    return { pruned: [], skipped: 'error:' + String(err && err.message) };
+  }
 }
 
 function hhmm() {
@@ -170,19 +227,28 @@ function main() {
     safeLog({ level: 'error', msg: 'write_failed', error: String(err && err.message) });
   }
 
+  const prune = pruneOldInboxEntries(INBOX_DIR);
+  if (prune.pruned.length > 0) {
+    safeLog({ level: 'info', msg: 'pruned', files: prune.pruned });
+  }
+
   emitPayload();
 }
 
-try {
-  main();
-} catch (err) {
-  safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
-  logHookError('save-user-prompt', err);
+if (require.main === module) {
   try {
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'UserPromptSubmit' },
-    }));
-  } catch (_) {}
-}
+    main();
+  } catch (err) {
+    safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+    logHookError('save-user-prompt', err);
+    try {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit' },
+      }));
+    } catch (_) {}
+  }
 
-process.exitCode = 0;
+  process.exitCode = 0;
+} else {
+  module.exports = { pruneOldInboxEntries, detectKeywords, PRUNE_MAX_AGE_DAYS };
+}

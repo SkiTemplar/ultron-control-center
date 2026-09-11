@@ -64,6 +64,15 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "OPENAI_API_KEY".into(),
             base_url: "https://api.openai.com".into(),
+            // (2026-09-11, corregido tras revisión) este provider es Cloud vía
+            // OPENAI_API_KEY — la API HTTP real de OpenAI, DISTINTA de la
+            // suscripción ChatGPT que usa 'codex-cli'. terra/sol/astra son alias
+            // internos de la app ChatGPT, NO ids validos en la API publica de
+            // OpenAI, así que NO se tocan aquí (una versión anterior de este
+            // cambio los aplicó también a este provider por error; revertido).
+            // Sigue en gpt-5 porque no hay evidencia de un id real de API
+            // vigente para reemplazarlo, y hoy está deshabilitado por falta de
+            // key (compute_key_status -> Missing) — sin efecto funcional.
             default_model: "gpt-5".into(),
             models: vec!["gpt-5".into(), "gpt-4o".into(), "gpt-4o-mini".into()],
             cli_command: None,
@@ -83,8 +92,11 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "GEMINI_API_KEY".into(),
             base_url: "https://generativelanguage.googleapis.com".into(),
-            default_model: "gemini-2.5-flash".into(),
-            models: vec!["gemini-2.5-flash".into(), "gemini-2.5-pro".into()],
+            // (2026-09-11) gemini-3.8-flash verificado vivo contra v1beta/models
+            // y generateContent (thinkingConfig.thinkingBudget:0 sigue OK); gemini-2.5-pro
+            // se deja porque sigue listado en v1beta/models.
+            default_model: "gemini-3.8-flash".into(),
+            models: vec!["gemini-3.8-flash".into(), "gemini-2.5-pro".into()],
             cli_command: None,
         },
         Provider {
@@ -152,7 +164,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
         // ----------------------------------------------------------------
         Provider {
             id: "codex-cli".into(),
-            name: "OpenAI Codex CLI (gpt-5 via OAuth)".into(),
+            name: "OpenAI Codex CLI (gpt-5.6-terra via OAuth)".into(),
             cost_per_mtok: 0.0,
             supports: vec![
                 ProviderClass::Light,
@@ -164,8 +176,23 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cli,
             key_env_var: String::new(),
             base_url: String::new(),
-            default_model: "gpt-5".into(),
-            models: vec!["gpt-5".into()],
+            // (2026-09-11) Decisión del usuario: 3 modelos de suscripcion ChatGPT
+            // verificados vivos hoy vía `codex exec -m <modelo> "Responde solo: OK"`:
+            // terra (tareas basicas, default de ~/.codex/config.toml), sol
+            // (equivalente a Opus, trabajo serio), astra (equivalente a Fable, lo
+            // mas complejo, cuota limitada). cli_invocation_args() ahora SI pasa
+            // `-m/--model` (bug de cableado corregido en exec.rs 2026-09-11: antes
+            // el modelo de la ZoneAssignment nunca llegaba al CLI — ni siquiera
+            // hasta call_cli, que ignoraba su parametro de llamada y siempre leía
+            // provider.default_model — así que cada llamada usaba mudamente lo que
+            // dijera config.toml). Sol y Astra se piden por invocacion explicita
+            // (ZoneAssignment.model, p.ej. code-review usa sol).
+            default_model: "gpt-5.6-terra".into(),
+            models: vec![
+                "gpt-5.6-terra".into(),
+                "gpt-5.6-sol".into(),
+                "gpt-6-astra".into(),
+            ],
             cli_command: Some("codex".into()),
         },
         Provider {
@@ -197,10 +224,11 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
     // groq-first. gemini-cli was RETIRED from every chain on 2026-06-19: Google
     // dropped free-tier OAuth for individuals (runtime: IneligibleTierError —
     // "migrate to the Antigravity suite"), so the CLI no longer authenticates.
-    // The cloud 'gemini' provider (gemini-2.5-flash via GEMINI_API_KEY) replaces
-    // it as the general fallback and as research-web's primary (web grounding
-    // groq lacks). gemini-cli stays DEFINED in seed_providers in case the tier is
-    // restored. 'code-fast-local' stays on Ollama (offline by design).
+    // The cloud 'gemini' provider (gemini-3.8-flash via GEMINI_API_KEY, migrado
+    // desde gemini-2.5-flash el 2026-09-11) replaces it as the general fallback
+    // and as research-web's primary (web grounding groq lacks). gemini-cli
+    // stays DEFINED in seed_providers in case the tier is restored.
+    // 'code-fast-local' stays on Ollama (offline by design).
     vec![
         Zone {
             id: "chat".into(),
@@ -230,7 +258,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 },
                 ZoneAssignment {
                     provider_id: "gemini".into(),
-                    model: "gemini-2.5-flash".into(),
+                    model: "gemini-3.8-flash".into(),
                     max_tokens: 1024,
                 },
             ],
@@ -251,11 +279,15 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             },
             fallbacks: vec![
                 ZoneAssignment {
+                    // (2026-09-11) code-edit = tareas basicas de codigo -> terra.
                     provider_id: "codex-cli".into(),
-                    model: "gpt-5".into(),
+                    model: "gpt-5.6-terra".into(),
                     max_tokens: 4096,
                 },
                 ZoneAssignment {
+                    // El 'codex' cloud (OPENAI_API_KEY) conserva su id de API
+                    // real (gpt-5); terra/sol/astra son alias de suscripción
+                    // ChatGPT, exclusivos de 'codex-cli' (ver ese provider).
                     provider_id: "codex".into(),
                     model: "gpt-5".into(),
                     max_tokens: 4096,
@@ -284,13 +316,14 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             },
             fallbacks: vec![
                 ZoneAssignment {
+                    // (2026-09-11) code-review = trabajo serio -> sol (~Opus).
                     provider_id: "codex-cli".into(),
-                    model: "gpt-5".into(),
+                    model: "gpt-5.6-sol".into(),
                     max_tokens: 2048,
                 },
                 ZoneAssignment {
                     provider_id: "gemini".into(),
-                    model: "gemini-2.5-flash".into(),
+                    model: "gemini-3.8-flash".into(),
                     max_tokens: 2048,
                 },
             ],
@@ -305,7 +338,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // cloud (mismo modelo, grounding via GEMINI_API_KEY), fallback groq.
             primary: ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
+                model: "gemini-3.8-flash".into(),
                 max_tokens: 4096,
             },
             fallbacks: vec![ZoneAssignment {
@@ -335,7 +368,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // gemini-cli retirado 2026-06-19 (muerto); queda gemini cloud.
             fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
+                model: "gemini-3.8-flash".into(),
                 max_tokens: 1024,
             }],
             system_prompt: None,
@@ -352,7 +385,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             },
             fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
+                model: "gemini-3.8-flash".into(),
                 max_tokens: 256,
             }],
             system_prompt: Some(
@@ -386,7 +419,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             },
             fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
+                model: "gemini-3.8-flash".into(),
                 max_tokens: 512,
             }],
             system_prompt: None,
@@ -405,7 +438,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             fallbacks: vec![
                 ZoneAssignment {
                     provider_id: "gemini".into(),
-                    model: "gemini-2.5-flash".into(),
+                    model: "gemini-3.8-flash".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {

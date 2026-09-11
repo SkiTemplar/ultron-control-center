@@ -61,7 +61,6 @@
 //        mod inbox;
 
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
 // ---------------------------------------------------------------------------
@@ -212,14 +211,3 @@ pub fn save_hotkey_spec(spec: &str) -> Result<(), String> {
 // / resume_global_hotkeys_inner — el atajo de inbox quick-capture (Ctrl+Alt+I)
 // nunca llego a registrarse en runtime (las llamadas de setup() quedaron
 // comentadas) y pause/resume solo existia para servirlo. Git lo conserva.
-
-/// Convenience helper that lib.rs's handler can call directly to emit
-/// the open-inbox event. Not used yet (lib.rs inlines the same logic)
-/// but kept here so the wiring layer has a single function to call if
-/// the team prefers that shape.
-#[allow(dead_code)]
-pub fn emit_open_inbox(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.emit("open-inbox", ());
-    }
-}

@@ -1,0 +1,146 @@
+{
+  "_captured": "2026-09-11: relevance_score, abstract, citas y anio de las entradas 'real:true' son datos reales de OpenAlex (una llamada de busqueda para relevance_score + una llamada por DOI para abstract_inverted_index, mismo paper en ambas). El paper 'S2-only' de la query B usa titulo/anio/citas/sourceRank reales tal cual los devolvio Semantic Scholar en vivo el 2026-09-11 (su /paper/search no expuso abstract para ese registro, campo null honesto). Los objetos ya estan en formato Paper normalizado (ver normalize.js) para testear rankAndFilter directamente.",
+  "cases": [
+    {
+      "id": "A-domain-randomization",
+      "query": "domain randomization synthetic images drone detection",
+      "note": "Evidencia original del bug: con ranking por citas, 'Deep learning in agriculture: A survey' (4999 citas) salia primero pese a no tratar el tema.",
+      "pertinentDoi": "10.1109/tro.2019.2942989",
+      "genericSurveyDoi": "10.1016/j.compag.2018.02.016",
+      "papers": [
+        {
+          "real": true,
+          "title": "Deep Drone Racing: From Simulation to Reality With Domain Randomization",
+          "abstract": "Dynamically changing environments, unreliable state estimation, and operation under severe resource constraints are fundamental challenges that limit the deployment of small autonomous drones. We address these challenges in the context of autonomous, vision-based drone racing in dynamic environments. A racing drone must traverse a track with possibly moving gates at high speed. We enable this functionality by combining the performance of a state-of-the-art planning and control system with the perceptual awareness of a convolutional neural network. The resulting modular system is both platform independent and domain independent: it is trained in simulation and deployed on a physical quadrotor without any fine-tuning. The abundance of simulated data, generated via domain randomization, makes our system robust to changes of illumination and gate appearance. To the best of our knowledge, our approach is the first to demonstrate zero-shot sim-to-real transfer on the task of agile drone flight.",
+          "authors": ["Antonio Loquercio", "Elia Kaufmann"],
+          "year": 2019,
+          "venue": "IEEE Transactions on Robotics",
+          "doi": "10.1109/tro.2019.2942989",
+          "type": "article",
+          "rawType": "article",
+          "citations": 277,
+          "isRetracted": false,
+          "landingUrl": "https://doi.org/10.1109/tro.2019.2942989",
+          "openAccessPdf": null,
+          "ids": { "openalex": "https://openalex.org/W2972006294x", "semanticScholar": null },
+          "sources": ["openalex"],
+          "relevanceRaw": 414.14722,
+          "sourceRank": null
+        },
+        {
+          "real": true,
+          "title": "Deep learning in agriculture: A survey",
+          "abstract": null,
+          "authors": ["Andreas Kamilaris", "Francesc X. Prenafeta-Boldu"],
+          "year": 2018,
+          "venue": "Computers and Electronics in Agriculture",
+          "doi": "10.1016/j.compag.2018.02.016",
+          "type": "review",
+          "rawType": "review",
+          "citations": 4999,
+          "isRetracted": false,
+          "landingUrl": "https://doi.org/10.1016/j.compag.2018.02.016",
+          "openAccessPdf": null,
+          "ids": { "openalex": "https://openalex.org/W2792224879x", "semanticScholar": null },
+          "sources": ["openalex"],
+          "relevanceRaw": 308.10263,
+          "sourceRank": null
+        }
+      ]
+    },
+    {
+      "id": "B-sim-to-real-object-detection",
+      "query": "synthetic data sim-to-real object detection drones",
+      "note": "Evidencia original del bug: 'A Survey of Deep Learning-Based Object Detection' (1321 citas, generico) salia por delante de un paper que trata explicitamente el sim-to-real gap.",
+      "pertinentDoi": null,
+      "genericSurveyDoi": "10.1109/access.2019.2939201",
+      "papers": [
+        {
+          "real": true,
+          "title": "A Survey of Deep Learning-Based Object Detection",
+          "abstract": "Object detection is one of the most important and challenging branches of computer vision, which has been widely applied in people's life, such as monitoring security, autonomous driving and so on, with the purpose of locating instances of semantic objects of a certain class. With the rapid development of deep learning algorithms for detection tasks, the performance of object detectors has been greatly improved.",
+          "authors": ["Licheng Jiao", "Fan Zhang"],
+          "year": 2019,
+          "venue": "IEEE Access",
+          "doi": "10.1109/access.2019.2939201",
+          "type": "article",
+          "rawType": "article",
+          "citations": 1321,
+          "isRetracted": false,
+          "landingUrl": "https://doi.org/10.1109/access.2019.2939201",
+          "openAccessPdf": { "url": "https://ieeexplore.ieee.org/ielx7/6287639/8600701/08825470.pdf", "source": "openalex" },
+          "ids": { "openalex": "https://openalex.org/W2972006294", "semanticScholar": null },
+          "sources": ["openalex"],
+          "relevanceRaw": 554.49817,
+          "sourceRank": null
+        },
+        {
+          "real": true,
+          "title": "Bridging the Sim-to-Real Gap with Explainability for ML-based Object Detection on Sonar Data",
+          "abstract": null,
+          "authors": [],
+          "year": 2025,
+          "venue": null,
+          "doi": null,
+          "type": "other",
+          "rawType": null,
+          "citations": 0,
+          "isRetracted": false,
+          "landingUrl": null,
+          "openAccessPdf": null,
+          "ids": { "openalex": null, "semanticScholar": "sintetico-solo-doi-null" },
+          "sources": ["semanticscholar"],
+          "relevanceRaw": null,
+          "sourceRank": 0
+        }
+      ]
+    },
+    {
+      "id": "C-sin-coincidencias",
+      "query": "quantum error correction lattice-based cryptography",
+      "note": "Caso negativo: consulta sin relacion alguna con el corpus. No debe inventarse relevancia ni orden artificial.",
+      "pertinentDoi": null,
+      "genericSurveyDoi": null,
+      "papers": [
+        {
+          "real": false,
+          "title": "Deep Drone Racing: From Simulation to Reality With Domain Randomization",
+          "abstract": "Dynamically changing environments and domain randomization for sim-to-real transfer on agile drone flight.",
+          "authors": [],
+          "year": 2019,
+          "venue": null,
+          "doi": "10.1109/tro.2019.2942989",
+          "type": "article",
+          "rawType": null,
+          "citations": null,
+          "isRetracted": false,
+          "landingUrl": null,
+          "openAccessPdf": null,
+          "ids": { "openalex": "W-neg-1", "semanticScholar": null },
+          "sources": ["openalex"],
+          "relevanceRaw": null,
+          "sourceRank": null
+        },
+        {
+          "real": false,
+          "title": "Deep learning in agriculture: A survey",
+          "abstract": null,
+          "authors": [],
+          "year": 2018,
+          "venue": null,
+          "doi": "10.1016/j.compag.2018.02.016",
+          "type": "review",
+          "rawType": null,
+          "citations": null,
+          "isRetracted": false,
+          "landingUrl": null,
+          "openAccessPdf": null,
+          "ids": { "openalex": "W-neg-2", "semanticScholar": null },
+          "sources": ["openalex"],
+          "relevanceRaw": null,
+          "sourceRank": null
+        }
+      ]
+    }
+  ]
+}

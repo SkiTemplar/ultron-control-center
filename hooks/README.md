@@ -61,36 +61,14 @@ Verificar el checksum de un hook:
 node -e "const fs=require('fs'),c=require('crypto');console.log(c.createHash('sha256').update(fs.readFileSync('scripts/stop-compress-session.js')).digest('hex'))"
 ```
 
-## Circuit-breaker + runner comun
+## Fail-safe y observabilidad
 
-`scripts/lib/hook-runner.js` es el wrapper comun (solo stdlib Node, sin
-dependencias externas). Envuelve el cuerpo de cualquier hook y aporta:
-
-1. **Circuit-breaker** persistido en
-   `~/.ultron/cockpit/hooks/breaker-state.json`:
-   - Tras **5 fallos** en una ventana de **10 min** el breaker se **ABRE** y
-     el hook se salta (`no_op`).
-   - Tras un **cooldown de 15 min** pasa a **half-open** y permite UNA prueba.
-     Si la prueba va bien -> `closed`; si falla -> vuelve a `open`.
-2. **Fail-safe**: un `try/catch` duro garantiza que un hook que peta **nunca**
-   rompa la sesion (siempre `exit 0`). El callback `onSkip` deja emitir el
-   payload neutro (p.ej. `additionalContext` vacio).
-3. **Logging** estructurado JSONL por hook en
-   `~/.ultron/cockpit/hooks/logs/<id>.jsonl` (un objeto por invocacion:
-   `ts`, `event`, `reason`, `duration_ms`, ...).
-4. **Guardrail de SoT**: si un hook se declara `writes_memory:true` con un
-   `writer_path` prohibido (`qdrant_direct`/`mem0`), el runner lo **bloquea**
-   (fail-closed) y lo registra, sin romper la sesion.
-
-Uso minimo desde un hook:
-
-```js
-const { runHook } = require('./lib/hook-runner');
-runHook('memory-orchestrate', async () => {
-  // ... cuerpo del hook ...
-}, { onSkip: () => emit('') }) // emite contexto vacio si el breaker abre / peta
-  .finally(() => { process.exitCode = 0; });
-```
+No hay un runner común: `scripts/lib/hook-runner.js` (circuit-breaker +
+logging por hook) se retiró el 2026-09-11 porque ningún hook llegó a usarlo.
+Cada hook aplica su propio fail-safe: `try/catch` en el nivel superior,
+`process.exitCode = 0` para no romper nunca la sesión, y rastro de fallos con
+`logHookError` de `scripts/lib/hook-obs.js` (`hook-errors.jsonl`). La duración
+se registra con `observe()` del mismo módulo.
 
 ## Inventario de hooks VIVOS (settings.json, 2026-06-04 HEAD f936a66)
 

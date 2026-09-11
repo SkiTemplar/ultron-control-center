@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ultron-memory": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/mcp-memory-server.mjs"],
+      "env": {}
+    }
+  }
+}

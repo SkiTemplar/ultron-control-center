@@ -14,6 +14,10 @@ const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
 const { detectForPrompt, loadPersonality } = require('./lib/tone-detect');
+// F-resume (2026-09-11): entrega diferida del resumen de la sesion anterior si
+// SessionStart no llego a tiempo (ver lib/session-summary-delivery.js).
+const lastSession = require('./lib/last-session');
+const sessionSummaryDelivery = require('./lib/session-summary-delivery');
 observe('memory-orchestrate');
 
 // Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
@@ -202,8 +206,17 @@ function logFastLane({ sessionId, project, prompt, lane, elapsedMs }) {
   }
 }
 
+// F-resume: bloque del resumen de la sesion anterior, resuelto UNA vez por
+// sesion en main() ANTES de cualquier salida temprana. Vive fuera de emit()
+// para que TODO camino de salida de este hook (fast-lane, turno de sistema,
+// prompt vacio, degradado, normal) lo entregue por igual — es el unico punto
+// por el que pasan todas las llamadas a emit(), asi que ningun early-return
+// puede tragarselo en silencio.
+let pendingDeliveryBlock = '';
+
 function emit(additionalContext) {
-  const ctx = additionalContext || '';
+  const prefix = pendingDeliveryBlock ? pendingDeliveryBlock + '\n' : '';
+  const ctx = prefix + (additionalContext || '');
   // Pilar 1: contabiliza lo que este hook inyecta al CLI (antes a ciegas).
   try { require('./lib/token-meter').meterInjection('memory-orchestrate', ctx); } catch {}
   process.stdout.write(
@@ -485,6 +498,26 @@ async function main() {
   } catch {
     /* no stdin / bad json */
   }
+  const project = projectIdFromCwd(cwd);
+  // F-resume: si SessionStart dejo un resumen pendiente (session-summary-
+  // delivery) para ESTA sesion, se resuelve aqui, antes de cualquier salida
+  // temprana. emit() lo antepone siempre (ver arriba); coste tras resolverse:
+  // un solo fs.existsSync por prompt.
+  if (sessionId) {
+    try {
+      // sinceMs = inicio de la espera: un summary.md mas viejo que eso ya
+      // existia antes del pending y no es el que genero ESTE resumidor.
+      const delivered = sessionSummaryDelivery.resolveDelivery(sessionId, (sinceMs) =>
+        lastSession.latestSummary(project, sessionId, { sinceMs })
+      );
+      // renderLastSessionLines() ya envuelve el contenido en su propia
+      // etiqueta trust="session-summary" (lo escribio un modelo, no el
+      // sistema) -- ningun wrapper adicional aqui.
+      if (delivered) pendingDeliveryBlock = lastSession.renderLastSessionLines(delivered).join('\n');
+    } catch {
+      /* fail-safe: el prompt sigue igual sin la entrega diferida */
+    }
+  }
   if (!prompt.trim()) {
     emit('');
     return;
@@ -495,7 +528,6 @@ async function main() {
     emit('');
     return;
   }
-  const project = projectIdFromCwd(cwd);
 
   // Doble velocidad (2026-09-07, decidido por el usuario): un ack o una
   // continuacion corta no paga el orchestrate (recall + routing + tono). El

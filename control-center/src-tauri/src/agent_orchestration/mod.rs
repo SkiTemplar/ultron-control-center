@@ -1,17 +1,14 @@
 // agent_orchestration/mod.rs — Agent orchestration module.
 //
-// New surface introduced by the Agents tab redesign ("plantilla de empleados"):
+// Surface introduced by the Agents tab redesign ("plantilla de empleados"):
 //
-//   - `delegate_task_to_agent` spawns a new Claude session with the given
-//     agent slug as the subagent directive. Optionally requests a cheaper
-//     model when the caller flags the work as low-cost.
+//   - `delegate_task_launch` (fire-and-forget) spawns a new Claude session
+//     with the given agent slug as the subagent directive and returns
+//     immediately; status is polled via `list_delegations`.
 //   - `list_workflows` returns the preconfigured workflow sequences from
 //     `~/.claude/skills/ultron/references/skill-alignments.md`. We hard-code
 //     the canonical seven so the UI works even when the user has the skill
 //     vaulted or modified.
-//   - `list_active_hooks` is a thin proxy over `hooks_admin::list_hooks_inner`
-//     so the Agents > Automations sub-tab can render hooks alongside the
-//     workflow + delegate panes without reaching into the Settings tab API.
 //
 // The module is intentionally split by concern — the heavy lifting (spawn,
 // hooks listing) lives in `sessions` and `hooks_admin`. We just provide the
@@ -39,10 +36,7 @@ mod tests;
 // Public re-exports — preserve the original flat API of agent_orchestration
 // ---------------------------------------------------------------------------
 
-pub use delegate::delegate_task_inner;
 pub use delegate::delegate_task_launch_inner;
 pub use delegation_log::list_delegations_inner;
-pub use types::{
-    DelegateRequest, DelegateTaskResult, DelegationLogEntry, WorkflowDefinition, WorkflowStep,
-};
+pub use types::{DelegateRequest, DelegationLogEntry, WorkflowDefinition, WorkflowStep};
 pub use workflows::list_workflows_inner;

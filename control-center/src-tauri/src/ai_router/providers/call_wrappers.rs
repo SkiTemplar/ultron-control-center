@@ -244,9 +244,11 @@ pub(crate) fn call_gemini(
     );
     let mut body = serde_json::json!({
         "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
-        // thinkingBudget:0 disables the "thinking" phase on gemini-2.5-flash so
-        // the model actually writes output tokens instead of burning the entire
-        // budget on hidden reasoning and returning an empty candidates[].content.
+        // thinkingBudget:0 disables the "thinking" phase on Gemini flash models
+        // (verified on gemini-2.5-flash and, again, on gemini-3.8-flash on
+        // 2026-09-11) so the model actually writes output tokens instead of
+        // burning the entire budget on hidden reasoning and returning an empty
+        // candidates[].content.
         "generationConfig": {
             "maxOutputTokens": clamp_max_tokens(max_tokens, 1024),
             "thinkingConfig": { "thinkingBudget": 0 }
@@ -421,7 +423,7 @@ pub(crate) fn try_assignment_call(
                     FailReason::Error,
                 ));
             }
-            return call_cli(&provider, prompt).map(|co| (co, 0));
+            return call_cli(&provider, prompt, &assignment.model).map(|co| (co, 0));
         }
         ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
             match std::env::var(&provider.key_env_var) {

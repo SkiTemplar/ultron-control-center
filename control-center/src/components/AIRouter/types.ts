@@ -194,7 +194,7 @@ export const DEFAULT_ZONES: Zone[] = [
     category: "usage",
 
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "gemini", model: "gemini-2.5-flash", max_tokens: 0 }],
+    fallbacks: [{ provider_id: "gemini", model: "gemini-3.8-flash", max_tokens: 0 }],
   },
   {
     id: "usage.analyse",
@@ -202,7 +202,7 @@ export const DEFAULT_ZONES: Zone[] = [
     category: "usage",
 
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
+    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
   },
   {
     id: "memory.consolidate",
@@ -226,7 +226,7 @@ export const DEFAULT_ZONES: Zone[] = [
     category: "notifications",
 
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
+    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
   },
   {
     id: "notifications.fix_all",
@@ -234,7 +234,7 @@ export const DEFAULT_ZONES: Zone[] = [
     category: "notifications",
 
     primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
+    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
   },
   {
     id: "plans.sprint_ai",
@@ -266,7 +266,7 @@ export const DEFAULT_ZONES: Zone[] = [
     category: "code",
 
     primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
+    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
   },
   {
     id: "system.diagnose",
@@ -274,6 +274,6 @@ export const DEFAULT_ZONES: Zone[] = [
     category: "system",
 
     primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5.5", max_tokens: 0 }],
+    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
   },
 ];

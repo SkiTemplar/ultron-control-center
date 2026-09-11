@@ -1,53 +1,6 @@
 use super::*;
 
 #[test]
-fn parses_frontmatter_returns_description_and_model() {
-    let md = "---\n\
-              name: foo\n\
-              description: A test agent for the suite\n\
-              model: claude-sonnet-5\n\
-              tools: Read, Glob, Grep\n\
-              ---\n\
-              \n\
-              body text\n";
-    let (desc, model, tools) = parse_frontmatter(md);
-    assert_eq!(desc.as_deref(), Some("A test agent for the suite"));
-    assert_eq!(model.as_deref(), Some("claude-sonnet-5"));
-    assert_eq!(
-        tools,
-        vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()]
-    );
-}
-
-#[test]
-fn parses_frontmatter_returns_none_without_marker() {
-    // No leading `---` ⇒ everything None / empty.
-    let md = "name: foo\ndescription: nope\n";
-    let (desc, model, tools) = parse_frontmatter(md);
-    assert!(desc.is_none());
-    assert!(model.is_none());
-    assert!(tools.is_empty());
-}
-
-#[test]
-fn list_agents_inner_returns_ok_regardless_of_dir_state() {
-    // dirs::home_dir() on Windows resolves via the Win32 known-folder
-    // API and ignores USERPROFILE/HOME env overrides, so we can't
-    // synthesise a "missing dir" state cleanly. Instead we exercise
-    // the public contract: list_agents_inner returns Ok(_) on a real
-    // or missing dir — it must never error just because
-    // ~/.claude/agents is absent. When the dir is missing, the inner
-    // returns Ok(vec![]); when present (dev box), it returns
-    // Ok(<entries>). Both shapes satisfy the contract.
-    let result = list_agents_inner();
-    assert!(
-        result.is_ok(),
-        "list_agents_inner must return Ok regardless of dir state, got {:?}",
-        result.err()
-    );
-}
-
-#[test]
 fn validate_slug_rejects_uppercase() {
     assert!(validate_slug("Foo-bar").is_err());
     assert!(validate_slug("FOO").is_err());

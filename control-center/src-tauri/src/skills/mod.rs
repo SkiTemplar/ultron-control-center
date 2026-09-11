@@ -22,7 +22,6 @@
 //   origin   — Origin-aware listing, toggle, and bulk-toggle
 
 pub(crate) mod crud;
-pub(crate) mod hash;
 pub(crate) mod origin;
 pub(crate) mod registry;
 #[cfg(test)]
@@ -40,11 +39,3 @@ pub use origin::{
 };
 pub use registry::list_skills_inner;
 pub use types::{BulkToggleResult, SkillEntry, SkillInfo, SkillUpdateResult};
-// SkillOrigin dejó de re-exportarse plano (2026-07-04): su último consumidor externo
-// de producción (commands/memory/memory_graph.rs) se borró; los tests usan types::.
-#[cfg(test)]
-pub(crate) use types::SkillOrigin;
-
-// hash items (format_ymd_local / sha1_of_file / Sha1Engine) were pub(crate) in the
-// original monolithic file. They are only used inside the skills module itself;
-// no external crate path references them, so no re-export is needed.

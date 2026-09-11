@@ -166,24 +166,6 @@ export type UninstallAppResult = {
   command: string;
 };
 
-// Bloatware sub-tab (System → Bloatware). Pre-curated list of Windows Appx
-// packages most users want to remove. The backend exposes:
-//   - appx_query(pattern)              → is the package installed?
-//   - uninstall_bloatware_app(pattern) → Remove-AppxPackage
-export type AppxQueryResult = {
-  installed: boolean;
-  matches: string[];
-};
-
-export type BloatwareUninstallResult = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exit_code: number | null;
-  command: string;
-  removed: string[];
-};
-
 // ---------------------------------------------------------------------------
 // Turn Off (System → Turn Off): apagado programado via shutdown.exe.
 // El backend (src-tauri/src/turn_off.rs) es la única fuente de verdad del

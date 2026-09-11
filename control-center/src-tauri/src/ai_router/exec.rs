@@ -3,10 +3,10 @@
 // Contains:
 //   - xorshift64 PRNG for jitter
 //   - retry_delay_ms / with_retry
-//   - sanitize_for_cmd (Windows shell sanitizer)
+//   - resolve_windows_cli_program (Windows .cmd/.bat resolution, no cmd /C)
 //   - cli_invocation_args (codex vs gemini flag divergence)
 //   - cli_timeout
-//   - run_with_timeout
+//   - run_with_timeout (stdin piping for the codex prompt)
 //   - call_cli
 
 use std::process::Stdio;
@@ -100,27 +100,54 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// CLI sanitizer (Windows cmd.exe shell-injection prevention)
+// Windows .cmd/.bat resolution — avoids the cmd.exe /C shell entirely
 // ---------------------------------------------------------------------------
+//
+// HISTORY (KIRKARDO HIGH fix, 2026-09-11): this module used to build ONE
+// shell string and run it via `cmd /C <string>`, because `Command::new("codex")`
+// fails with NotFound on Windows — npm installs its CLIs as `<name>.cmd`
+// shims, and Rust's `Command` does NOT do the PATHEXT-style extension search
+// a real shell performs (verified empirically). To make that string safe it
+// tried to neuter cmd.exe metacharacters (`sanitize_for_cmd`, replacing
+// `&|<>^%()!"` with `_`), which was BOTH incomplete (cmd.exe re-parses the
+// whole reconstructed line with its own quoting rules, which don't nest
+// safely with the outer Rust-level escaping no matter how careful the
+// caller is — this is a well-known, structural cmd.exe hazard, not a bug in
+// any one sanitizer) AND destructive for legitimate content (a real prompt
+// with a colon, an ampersand, or an accented word got silently mangled
+// before the CLI ever saw it).
+//
+// The fix removes the shell layer instead of trying to escape around it:
+// resolve the CLI's real `.cmd`/`.exe`/`.bat` path and `Command::new` it
+// DIRECTLY (verified empirically to preserve `&|<>^%"'` and UTF-8 accents
+// byte-for-byte — Rust's own .bat/.cmd spawn path applies correct Windows
+// argv escaping, and only hard-rejects a literal embedded `"` as a security
+// guard). Codex additionally reads the prompt from stdin (`codex exec -`)
+// instead of argv, which sidesteps that remaining edge case for the one
+// argument that carries genuinely arbitrary content.
 
-/// Replace every cmd.exe meta-character with `_` and backslashes with `/`.
-///
-/// On Windows, npm `.cmd` shims must be run via `cmd /C`. This sanitizer
-/// prevents shell injection by neutering `& | < > ^ % ( ) ! "` and `\`
-/// before the prompt is embedded in the shell string.
-/// (KIRKARDO R11.1 CVE + F1 2026-06-10 backslash root-cause fix).
-pub fn sanitize_for_cmd(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '&' | '|' | '<' | '>' | '^' | '%' | '(' | ')' | '!' | '"' => out.push('_'),
-            '\\' => out.push('/'),
-            '\r' | '\n' | '\t' => out.push(' '),
-            c if (c as u32) < 0x20 => out.push(' '),
-            c => out.push(c),
+/// Resolve the Windows executable to spawn for a CLI provider's bare command
+/// name (e.g. `"codex"` -> `"codex.cmd"`). Probes `where <candidate>` for
+/// each extension in priority order and returns the first PATH hit; falls
+/// back to the bare name unchanged if none of the extended variants exist
+/// (so a literal extensionless PATH entry, e.g. a `.com`, keeps working).
+#[cfg(target_os = "windows")]
+pub(crate) fn resolve_windows_cli_program(cmd: &str) -> String {
+    for ext in ["cmd", "exe", "bat"] {
+        let candidate = format!("{cmd}.{ext}");
+        let found = std::process::Command::new("where")
+            .arg(&candidate)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if found {
+            return candidate;
         }
     }
-    out
+    cmd.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -129,9 +156,29 @@ pub fn sanitize_for_cmd(s: &str) -> String {
 
 /// Argument vector for a CLI provider's non-interactive invocation.
 ///
-/// Codex uses the `exec` subcommand with a POSITIONAL prompt and no `--model`
-/// (the ChatGPT account picks the model; passing `--model` is rejected).
-/// Gemini uses `-p <prompt> --model <model>`.
+/// Codex uses the `exec` subcommand. The prompt is READ FROM STDIN — the
+/// literal `-` positional tells `codex exec` to do that (confirmed via
+/// `codex exec --help`: "If not provided as an argument (or if `-` is used),
+/// instructions are read from stdin"). The caller (`call_cli`) is
+/// responsible for actually piping the prompt bytes; this function only
+/// builds argv and therefore ignores its `prompt` parameter for the codex
+/// branch — arbitrary prompt content never has to survive ANY argv/shell
+/// escaping this way, on any platform (KIRKARDO HIGH fix, 2026-09-11).
+///
+/// `--model`/`-m` IS a valid `codex exec` flag (confirmed 2026-09-11 via
+/// `codex exec --help`: `-m, --model <MODEL>  Model the agent should use`) —
+/// an older comment here claiming it was rejected was stale and caused a
+/// separate wiring bug: the ZoneAssignment's model never reached the CLI, so
+/// every codex-cli call silently used whatever `~/.codex/config.toml` had,
+/// regardless of the zone (code-edit/code-review/etc). We now append
+/// `--model <model>` when the caller supplies a non-empty one, so per-zone
+/// model routing (terra/sol/astra) actually takes effect (KIRKARDO fix,
+/// 2026-09-11).
+///
+/// Gemini has no documented pure-stdin equivalent for its primary prompt
+/// (`-p/--prompt`'s own `--help` text: "Appended to input on stdin (if
+/// any)" — stdin only ADDS to `-p`, it doesn't replace it), so it stays on
+/// argv: `-p <prompt> --model <model>`.
 /// (KIRKARDO AI-Routing fix, 2026-06-07)
 pub(crate) fn cli_invocation_args<'a>(
     is_codex: bool,
@@ -139,13 +186,19 @@ pub(crate) fn cli_invocation_args<'a>(
     model: &'a str,
 ) -> Vec<&'a str> {
     if is_codex {
-        vec![
+        let _ = prompt; // prompt travels via stdin, not argv — see call_cli
+        let mut args = vec![
             "exec",
-            prompt,
+            "-",
             "--sandbox",
             "read-only",
             "--skip-git-repo-check",
-        ]
+        ];
+        if !model.trim().is_empty() {
+            args.push("--model");
+            args.push(model);
+        }
+        args
     } else {
         vec!["-p", prompt, "--model", model]
     }
@@ -164,20 +217,42 @@ pub(crate) fn cli_timeout() -> Duration {
 
 /// Run a prepared `Command` with piped stdio and a wall-clock timeout.
 ///
+/// `stdin_input`, when `Some`, is written to the child's stdin on a
+/// background thread and the handle is then dropped to close the pipe (EOF)
+/// — `codex exec -` blocks reading stdin until EOF, so writing synchronously
+/// before draining stdout/stderr would deadlock once the prompt exceeds the
+/// OS pipe buffer. `None` keeps stdin closed (`Stdio::null()`), as before.
+///
 /// stdout/stderr are drained on background threads (so a chatty child can
 /// never deadlock on a full pipe), and on timeout the child is killed and an
 /// `ErrorKind::TimedOut` error returned.
 pub(crate) fn run_with_timeout(
     mut cmd: std::process::Command,
     timeout: Duration,
+    stdin_input: Option<&str>,
 ) -> std::io::Result<std::process::Output> {
-    use std::io::Read;
+    use std::io::{Read, Write};
 
+    let stdin_mode = if stdin_input.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    };
     let mut child = cmd
-        .stdin(Stdio::null())
+        .stdin(stdin_mode)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+
+    if let Some(input) = stdin_input {
+        if let Some(mut stdin) = child.stdin.take() {
+            let payload = input.as_bytes().to_vec();
+            std::thread::spawn(move || {
+                let _ = stdin.write_all(&payload);
+                // `stdin` drops here, closing the pipe so the child sees EOF.
+            });
+        }
+    }
 
     let mut stdout_pipe = child.stdout.take();
     let mut stderr_pipe = child.stderr.take();
@@ -226,12 +301,24 @@ pub(crate) fn run_with_timeout(
 /// Invoke a CLI provider synchronously and return its stdout on success.
 /// CLI providers do not expose token counters, so usage stays at zero.
 ///
-/// Codex-cli protocol requirement: `--sandbox read-only` is always appended
-/// for the `codex-cli` provider (id == "codex-cli" or cli_command == "codex").
-/// Gemini CLI does not support that flag and is left unchanged.
+/// `model` is the caller's ZoneAssignment model (falls back to the provider's
+/// `default_model` upstream in `try_assignment_call` only if the caller wants
+/// that) — NOT re-derived from `provider.default_model` here. Before
+/// 2026-09-11 this function ignored its caller entirely and always used
+/// `provider.default_model`, so a zone-specific model (e.g. code-review's
+/// gpt-5.6-sol vs code-edit's gpt-5.6-terra) never reached the CLI call
+/// (KIRKARDO wiring fix, 2026-09-11).
+///
+/// Spawns the resolved CLI program DIRECTLY (no `cmd /C` shell layer on any
+/// platform — see the module-level HISTORY comment above
+/// `resolve_windows_cli_program`). Codex-cli protocol requirement:
+/// `--sandbox read-only` is always appended for the `codex-cli` provider
+/// (id == "codex-cli" or cli_command == "codex"). Gemini CLI does not
+/// support that flag and is left unchanged.
 pub(crate) fn call_cli(
     provider: &Provider,
     prompt: &str,
+    model: &str,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let cmd = provider.cli_command.as_deref().ok_or_else(|| {
         (
@@ -240,75 +327,35 @@ pub(crate) fn call_cli(
         )
     })?;
 
-    let model = provider.default_model.as_str();
     let is_codex = provider.id == "codex-cli" || provider.cli_command.as_deref() == Some("codex");
+    let args = cli_invocation_args(is_codex, prompt, model);
 
-    // SAFETY: all strings are owned by the caller; no raw pointers.
     #[cfg(target_os = "windows")]
-    let output = {
-        // On Windows, npm `.cmd` shims must be invoked via `cmd /C`. Cmd.exe
-        // interprets `& | < > ^ %` as meta-characters, so a prompt containing
-        // `& calc` would execute `calc.exe` (KIRKARDO R11.1 CVE). We sanitise
-        // the prompt by replacing every cmd-meta char with `_` BEFORE building
-        // the shell string. Inner double-quotes are also stripped — npm CLIs
-        // tolerate single-quoted prompts but cmd.exe quoting of nested quotes
-        // is hostile, so the safest path is to neuter them entirely.
-        // Newlines collapse to spaces because /C accepts a single line.
-        //
-        // F1 2026-06-10 (root cause de gemini-cli 164/0): '\\' tampoco era
-        // neutralizado — un backslash antes de la comilla de cierre escapaba
-        // el quoting y el resto del prompt se parseaba como ARGUMENTOS del CLI
-        // (runtime: "Unknown arguments: repo, limit, log-failed..."). Los
-        // backslashes se convierten a '/' (los paths Windows siguen legibles).
-        let safe_prompt = sanitize_for_cmd(prompt);
-        let safe_cmd = sanitize_for_cmd(cmd);
-        let safe_model = sanitize_for_cmd(model);
-        let parts = cli_invocation_args(is_codex, &safe_prompt, &safe_model);
-        let joined = parts
-            .iter()
-            .enumerate()
-            .map(|(i, tok)| {
-                if i == 1 {
-                    format!("\"{tok}\"")
-                } else {
-                    (*tok).to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        let shell_arg = format!("{safe_cmd} {joined}");
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", &shell_arg]);
-        run_with_timeout(command, cli_timeout()).map_err(|e| {
-            let reason = if e.kind() == std::io::ErrorKind::TimedOut {
-                FailReason::Timeout
-            } else {
-                FailReason::Error
-            };
-            (format!("cmd /C {cmd}: {e}"), reason)
-        })?
-    };
-
+    let program = resolve_windows_cli_program(cmd);
     #[cfg(not(target_os = "windows"))]
-    let output = {
-        let args = cli_invocation_args(is_codex, prompt, model);
-        let mut command = std::process::Command::new(cmd);
-        command.args(&args);
-        run_with_timeout(command, cli_timeout()).map_err(|e| {
-            let reason = if e.kind() == std::io::ErrorKind::TimedOut {
-                FailReason::Timeout
-            } else {
-                FailReason::Error
-            };
-            (format!("{cmd}: {e}"), reason)
-        })?
-    };
+    let program = cmd.to_string();
+
+    let mut command = std::process::Command::new(&program);
+    command.args(&args);
+
+    // Codex reads the prompt from stdin (see cli_invocation_args's doc);
+    // every other CLI provider still carries it on argv.
+    let stdin_input = if is_codex { Some(prompt) } else { None };
+
+    let output = run_with_timeout(command, cli_timeout(), stdin_input).map_err(|e| {
+        let reason = if e.kind() == std::io::ErrorKind::TimedOut {
+            FailReason::Timeout
+        } else {
+            FailReason::Error
+        };
+        (format!("{program}: {e}"), reason)
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err((
             format!(
-                "{cmd} exited {}: {}",
+                "{program} exited {}: {}",
                 output.status,
                 super::providers::truncate(stderr.trim(), 300)
             ),
@@ -318,7 +365,7 @@ pub(crate) fn call_cli(
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if stdout.trim().is_empty() {
-        return Err((format!("{cmd} produced no output"), FailReason::Error));
+        return Err((format!("{program} produced no output"), FailReason::Error));
     }
     Ok(CallOutcome {
         text: stdout,
