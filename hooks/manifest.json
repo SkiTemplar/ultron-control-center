@@ -98,7 +98,7 @@
       "script": "~/.ultron/hooks/scripts/run-project-tests.js",
       "timeout_s": 10,
       "async": true,
-      "checksum_sha256": "f226c3a6db54a58babca820293bdf192629e1e900db71ba2b85cd21c6e200d77",
+      "checksum_sha256": "dc5185591518483d160060c454ff7d145b4297a3cc47ba8432b039c97793d4b1",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

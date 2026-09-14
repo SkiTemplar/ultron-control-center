@@ -92,6 +92,19 @@ pub fn archive_item(
     }
 }
 
+/// Si `id` ya está en `memory_items_archive` (archivado en una corrida
+/// anterior, por cualquier camino). Crea la tabla si aún no existe — un
+/// archivo vacío responde `false`, no un error.
+pub fn archive_contains(conn: &Connection, id: &str) -> Result<bool, MemoryError> {
+    ensure_archive_table(conn)?;
+    conn.query_row(
+        &format!("SELECT EXISTS(SELECT 1 FROM {ARCHIVE_TABLE} WHERE id = ?1)"),
+        params![id],
+        |r| r.get::<_, bool>(0),
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_contains: {e}")))
+}
+
 /// Filas archivadas (total, o solo de un tipo).
 pub fn count_archived(conn: &Connection, kind: Option<&str>) -> i64 {
     if ensure_archive_table(conn).is_err() {

@@ -21,6 +21,7 @@ use super::redaction;
 use super::MemoryItem;
 
 mod candidates;
+mod deprecations;
 mod gc;
 mod mutations;
 
@@ -112,7 +113,9 @@ pub struct StaleSweepResult {
 /// `memory_id` / eventos huerfanos). Los bytes salen de `page_count *
 /// page_size`; `freelist_bytes` es el ahorro que devolveria un VACUUM y
 /// `vacuum_skipped` explica por que no se compacto (umbral, dry-run o base
-/// bloqueada) en vez de dejar un `vacuumed: false` mudo.
+/// bloqueada) en vez de dejar un `vacuumed: false` mudo. `deprecation_deadlines`
+/// (2026-09-14) es el cierre de `deprecation_entries` vencidas — mismo
+/// `dry_run` que el resto del `gc` — via [`MemoryService::apply_deprecation_deadlines`].
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct GcResult {
     pub days: i64,
@@ -127,6 +130,7 @@ pub struct GcResult {
     pub dry_run: bool,
     /// (id, error) por item que no se pudo marcar; no aborta el lote.
     pub failed: Vec<(String, String)>,
+    pub deprecation_deadlines: ApplyDeprecationDeadlinesResult,
 }
 
 /// Result of [`MemoryService::sweep_low_confidence`] (audit 2026-08-09): the
@@ -202,5 +206,40 @@ pub struct ArchiveResult {
     pub dry_run: bool,
     pub archived_total: i64,
     /// (id, error) por item que no se pudo archivar; no aborta el lote.
+    pub failed: Vec<(String, String)>,
+}
+
+/// Resultado de [`MemoryService::apply_deprecation_deadlines`] (kanban:
+/// "ultron-memory doctor: 478 deprecation_deadlines vencidos", decisión
+/// 2026-09-14: archivar, no purgar). Cierra cada entrada VENCIDA y no cerrada
+/// de `deprecation_entries`:
+///   - el item sigue en `memory_items` con `status=deprecated` -> se archiva
+///     por el mismo camino que [`MemoryService::archive_by_type`]
+///     (`archive_one`) y la entrada pasa a `state='archived'` (`archived`);
+///   - el item no está ni en `memory_items` ni en el archivo -> no hay nada
+///     que archivar; la entrada pasa a `state='deleted'` sin tocar memoria
+///     (`missing_closed`);
+///   - el item ya estaba en `memory_items_archive` (una corrida anterior, o
+///     `archive_by_type` lo archivó por otra vía) -> la entrada pasa a
+///     `state='archived'` sin volver a escribir memoria (cuenta en `archived`);
+///   - el item existe pero YA NO está `deprecated` (p.ej. se restauró a
+///     `active` tras el deadline) -> se deja intacta en `skipped`, con el
+///     motivo en `skipped_reasons`: cerrar el ledger ahí sería más agresivo
+///     que lo que pidió el usuario (archivar lo deprecado, no lo vivo).
+///
+/// Nunca borra un `MemoryItem`. `dry_run` no escribe nada (ni memoria ni
+/// ledger) y solo cuenta lo que haría. Ejecutarlo dos veces seguidas es
+/// idempotente: la segunda vez `examined` es 0 porque ya no quedan entradas
+/// vencidas sin cerrar.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ApplyDeprecationDeadlinesResult {
+    pub examined: usize,
+    pub archived: usize,
+    pub missing_closed: usize,
+    pub skipped: usize,
+    pub dry_run: bool,
+    /// (entry_id, motivo) por entrada vencida que se dejó sin cerrar.
+    pub skipped_reasons: Vec<(String, String)>,
+    /// (item_id, error) por item cuyo archivado falló (Qdrant/SQL); no aborta el lote.
     pub failed: Vec<(String, String)>,
 }

@@ -257,6 +257,31 @@ impl MemoryService {
         })
     }
 
+    /// Archiva UN item ya cargado: Qdrant primero (si el punto no se puede
+    /// quitar, el item se queda — un archivo parcial es peor que uno
+    /// pospuesto), luego la fila a `memory_items_archive`, luego el evento de
+    /// auditoría. Extraído de `archive_by_type` (F1.7) para que otros
+    /// llamadores por-id (p.ej. `apply_deprecation_deadlines`, que recorre
+    /// `deprecation_entries` en vez de un `SELECT` por tipo) reutilicen el
+    /// mismo orden Qdrant-antes-que-SQL en vez de duplicarlo.
+    pub(super) fn archive_one(
+        conn: &rusqlite::Connection,
+        item: &MemoryItem,
+        now: i64,
+        reason: &str,
+        actor: Actor,
+    ) -> Result<(), MemoryError> {
+        let before = serde_json::to_string(item).unwrap_or_default();
+        super::super::qdrant_index::remove_item(&item.id)
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("qdrant: {e}")))?;
+        store::archive_item(conn, &item.id, now, reason)?;
+        let ev = MemoryEvent::new(EventType::Updated, Some(item.id.clone()), actor)
+            .with_reason(reason.to_string())
+            .with_before(before);
+        let _ = store::insert_event(conn, &ev);
+        Ok(())
+    }
+
     /// F1.7 (Q8b, decidido 2026-08-29): mover a `memory_items_archive` los
     /// ACTIVE de `kind` creados hace más de `older_than_days`. Salen del
     /// retriever, de FTS5 (trigger `memory_items_ad`), de Qdrant
@@ -299,19 +324,8 @@ impl MemoryService {
             return Ok(res);
         }
         for it in items {
-            let before = serde_json::to_string(&it).unwrap_or_default();
-            if let Err(e) = super::super::qdrant_index::remove_item(&it.id) {
-                res.failed.push((it.id.clone(), format!("qdrant: {e}")));
-                continue;
-            }
-            match store::archive_item(&conn, &it.id, now, &reason) {
-                Ok(()) => {
-                    res.archived += 1;
-                    let ev = MemoryEvent::new(EventType::Updated, Some(it.id.clone()), actor)
-                        .with_reason(reason.clone())
-                        .with_before(before);
-                    let _ = store::insert_event(&conn, &ev);
-                }
+            match Self::archive_one(&conn, &it, now, &reason, actor) {
+                Ok(()) => res.archived += 1,
                 Err(e) => res.failed.push((it.id.clone(), e.to_string())),
             }
         }

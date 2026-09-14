@@ -14,8 +14,7 @@
 // Recent delegations strip: conectado a list_delegations (polling 30s + evento
 // workflow:delegated). Es una vista READ-ONLY de las delegaciones que dispara el
 // kanban (kanban_dispatch_card); NO hay botón "Asignar tarea" manual en esta vista
-// (delegate_task_launch no está cableado a la UI — pendiente de decisión: cablear
-// un modal de delegación manual o des-registrar el comando).
+// (el comando delegate_task_launch se retiró el 2026-09-14 por no tener consumidor).
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";

@@ -46,6 +46,7 @@ impl MemoryService {
 
         if dry_run {
             let por_regla = store::prune_events(&conn, cutoff_ms, true)?;
+            let deprecation_deadlines = Self::apply_deprecation_deadlines(true, actor)?;
             return Ok(GcResult {
                 days,
                 stale_marked: candidatos.len(),
@@ -58,6 +59,7 @@ impl MemoryService {
                 vacuum_skipped: Some("dry-run".to_string()),
                 dry_run: true,
                 failed: Vec::new(),
+                deprecation_deadlines,
             });
         }
 
@@ -76,6 +78,11 @@ impl MemoryService {
 
         // Reglas 2 y 3.
         let por_regla = store::prune_events(&conn, cutoff_ms, false)?;
+
+        // Paso adicional (2026-09-14): cierra las entradas vencidas de
+        // `deprecation_entries` (kanban: 478 deadlines vencidos) con el mismo
+        // `dry_run` que el resto del gc. Ver `apply_deprecation_deadlines`.
+        let deprecation_deadlines = Self::apply_deprecation_deadlines(false, actor)?;
 
         // Compactacion condicionada al ahorro real.
         let freelist = store::freelist_bytes(&conn)?;
@@ -106,6 +113,7 @@ impl MemoryService {
             vacuum_skipped,
             dry_run: false,
             failed,
+            deprecation_deadlines,
         })
     }
 }

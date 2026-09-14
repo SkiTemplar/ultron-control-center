@@ -1,0 +1,12 @@
+{
+  "_captured": "sintetico 2026-09-14: work de OpenAlex usado como seed del fallback de bola de nieve (S2 no conoce el DOI). referenced_works son solo IDs; getWorksByIds() trae los metadatos completos.",
+  "id": "https://openalex.org/Wseed0001",
+  "doi": "https://doi.org/10.9001/s2-unknown",
+  "display_name": "Seed Paper Unknown To Semantic Scholar",
+  "publication_year": 2020,
+  "cited_by_count": 30,
+  "type": "article",
+  "open_access": { "is_oa": false },
+  "authorships": [],
+  "referenced_works": ["https://openalex.org/Wref1", "https://openalex.org/Wref2"]
+}

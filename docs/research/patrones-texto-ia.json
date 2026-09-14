@@ -2,6 +2,7 @@
   "patrones": [
     {
       "nombre": "Vocabulario 'delve' y oleadas léxicas de IA (base inglesa)",
+      "idioma": "*",
       "descripcion": "Verbos/adjetivos que los LLM sobreusan muy por encima de su frecuencia natural, confirmado por estudios de corpus (Kobak et al., 14,2M abstracts PubMed; Juzek&Ward, COLING 2025, 21 'palabras focales'). La lista no es estática: cambia por oleada temporal (2023-med.2024: delve/boast/crucial/intricate/pivotal/tapestry/testament/underscore/vibrant; med.2024-2025: align with/enhance/fostering/highlighting/showcasing).",
       "ejemplo_en": "This delves into the intricate landscape of...",
       "ejemplo_es": "En TFG traducidos/asistidos aparece como calco: 'profundizar/ahondar en el intrincado panorama de...', 'desempeña un papel crucial/pivotal en...'",
@@ -97,6 +98,7 @@
     },
     {
       "nombre": "Vocabulario IA sobreusado en español",
+      "idioma": "es",
       "descripcion": "Palabras con ratio de sobrerrepresentación extremo en texto generado por IA en español, según análisis de corpus de Natzir Turrado (360M tokens, dato vía fuente secundaria no verificada contra paper primario) y catálogos editoriales (Genbeta, Infobae).",
       "ejemplo_es": "'Es crucial destacar los desafíos que exploraremos en este análisis...'",
       "senal_deteccion": "'crucial' reportado hasta ~6.413x más frecuente en texto IA que en equivalente humano; 'desafíos'/'exploraremos' ~2.000x (cifras de prensa tecnológica, no de paper académico revisado).",
@@ -176,6 +178,7 @@
     },
     {
       "nombre": "Énfasis indebido en significado/legado",
+      "idioma": "*",
       "descripcion": "Frases que inflan la importancia de algo sin argumento concreto que lo sostenga (categoría central de WP:AISIGNS).",
       "ejemplo_en": "stands as a testament to, marks a pivotal moment, leaves an indelible mark",
       "ejemplo_es": "'Esto supone un hito fundamental que deja una huella imborrable en el campo de estudio'",
@@ -225,6 +228,7 @@
     },
     {
       "nombre": "Análisis superficial en gerundio",
+      "idioma": "*",
       "descripcion": "Cierre de frase en gerundio que añade una opinión no atribuida ni argumentada, típico de la salida de LLM.",
       "ejemplo_en": "...creating a lively community, highlighting their significance",
       "ejemplo_es": "'...destacando así la importancia del fenómeno', 'subrayando su relevancia para el sector'",
@@ -244,6 +248,7 @@
     },
     {
       "nombre": "Lenguaje promocional/publicitario",
+      "idioma": "*",
       "descripcion": "Adjetivación de guía turística o marketing aplicada a un objeto de análisis académico.",
       "ejemplo_en": "boasts a vibrant, groundbreaking approach nestled within...",
       "ejemplo_es": "'cuenta con un enfoque vibrante e innovador, enclavado en un ecosistema dinámico'",
@@ -298,6 +303,7 @@
     },
     {
       "nombre": "Atribuciones vagas sin fuente",
+      "idioma": "*",
       "descripcion": "Se invoca una autoridad genérica sin nombrarla, para dar apariencia de respaldo externo.",
       "ejemplo_en": "Industry reports suggest..., Observers have cited...",
       "ejemplo_es": "'Diversos informes del sector señalan...', 'Algunos expertos argumentan que...'",
@@ -382,6 +388,7 @@
     },
     {
       "nombre": "Fórmula de cierre rígida",
+      "idioma": "*",
       "descripcion": "Estructura de conclusión mecánica: elogio + lista de retos + apartado de 'perspectivas futuras' especulativas y vagas.",
       "ejemplo_en": "Despite its achievements, X faces several challenges. Future Outlook: ...",
       "ejemplo_es": "'A pesar de sus logros, X enfrenta varios desafíos. De cara al futuro, será clave...'",
@@ -441,6 +448,7 @@
     },
     {
       "nombre": "Evitación de la cópula simple ('es/son')",
+      "idioma": "*",
       "descripcion": "Sustitución sistemática del verbo 'ser' por verbos más rebuscados para sonar elaborado ('avoidance of basic copulatives', WP:AISIGNS).",
       "ejemplo_en": "serves as, stands as, functions as, represents",
       "ejemplo_es": "'se erige como', 'funciona como', 'constituye' usados en vez de 'es' sin necesidad real",
@@ -525,6 +533,7 @@
     },
     {
       "nombre": "Paralelismo negativo 'no solo X, sino también Y'",
+      "idioma": "*",
       "descripcion": "Contraste que aparenta corregir una idea errónea que nadie había planteado.",
       "ejemplo_en": "not only a technical solution, but also a methodological contribution",
       "ejemplo_es": "'no solo constituye una mejora técnica, sino también una aportación metodológica'",
@@ -544,6 +553,7 @@
     },
     {
       "nombre": "Paralelismo negativo total 'no es X, sino Y'",
+      "idioma": "*",
       "descripcion": "Negación completa de una característica antes de afirmar la real, sin que el lector esperara la negada.",
       "ejemplo_en": "not a mirror but a portal",
       "ejemplo_es": "'no es un simple resumen, sino un análisis crítico', usado sin que hiciera falta descartar primero la opción negada",
@@ -563,6 +573,7 @@
     },
     {
       "nombre": "'X en lugar de Y' (variante invertida)",
+      "idioma": "*",
       "descripcion": "Variante del paralelismo negativo frecuente en salidas de Grok; se traduce al español de forma igual de mecánica.",
       "ejemplo_en": "prioritizing empirical consolidation rather than ideological purity",
       "ejemplo_es": "'priorizando la consolidación empírica en lugar de la pureza ideológica'",
@@ -597,6 +608,7 @@
     },
     {
       "nombre": "Regla de tres (tricolon) obsesiva",
+      "idioma": "es",
       "descripcion": "Tríadas de adjetivos o frases cortas aplicadas mecánicamente para simular exhaustividad, incluso cuando el contenido no encaja en tres.",
       "ejemplo_en": "clear, concise, and actionable",
       "ejemplo_es": "'claro, conciso y eficaz' repetido como estructura fija en cada enumeración del TFG",
@@ -613,6 +625,7 @@
     },
     {
       "nombre": "Variación léxica forzada (elegant variation)",
+      "idioma": "es",
       "descripcion": "Sustituir el mismo referente por sinónimos artificiales en vez de repetirlo, por el penalizador de repetición de los LLM.",
       "ejemplo_es": "Llamar al mismo concepto sucesivamente 'el sistema', 'la plataforma', 'la herramienta', 'el software' en el mismo párrafo sin razón",
       "correccion": "Repetir el mismo término cuando es lo natural y no genera ambigüedad; el español académico tolera bien la repetición precisa de un término técnico.",
@@ -626,6 +639,7 @@
     },
     {
       "nombre": "Artefactos de markup sin adaptar al formato destino",
+      "idioma": "*",
       "descripcion": "Restos de sintaxis Markdown u otros artefactos de copiar-pegar directo desde el chatbot, sin adaptar al procesador de texto o LaTeX del TFG. WP:AISIGNS cataloga además huellas forenses casi inequívocas por herramienta (ChatGPT: 'oaicite'/'contentReference'; Gemini: '[cite: 1]'; Grok: 'grok_card').",
       "ejemplo_en": "**bold** sin convertir, [link](url) sin convertir",
       "ejemplo_es": "Asteriscos dobles sueltos en el documento final, numeración de listas rota, corchetes de cita tipo '[cite: 1]' pegados por accidente",
@@ -665,6 +679,7 @@
     },
     {
       "nombre": "Encabezados genéricos repetidos en Title Case",
+      "idioma": "*",
       "descripcion": "Títulos de sección intercambiables entre cualquier tema, con mayúscula inicial en cada palabra (convención inglesa).",
       "ejemplo_en": "Challenges and Future Prospects, Sustainable Development and Environmental Law",
       "ejemplo_es": "'Retos y Perspectivas de Futuro', 'Marco Teórico y Estado del Arte' aplicados como plantilla intercambiable, sin adaptar al contenido específico del capítulo",
@@ -684,6 +699,7 @@
     },
     {
       "nombre": "Guion largo (em dash) sobreusado",
+      "idioma": "*",
       "descripcion": "Uso desproporcionado del guion largo '—' donde el español usaría coma, paréntesis o dos puntos; señal tan notoria que OpenAI añadió control de usuario para suprimirla.",
       "ejemplo_es": "'El resultado —que era el esperado— confirma la hipótesis —planteada en el capítulo 2— del estudio'",
       "correccion": "Usar coma, paréntesis o punto y seguido según el registro académico español; reservar el guion largo para incisos puntuales, no como muletilla de puntuación en cada frase.",
@@ -697,6 +713,7 @@
     },
     {
       "nombre": "Falsos rangos sin detalle real",
+      "idioma": "*",
       "descripcion": "'Desde X hasta Y' usado para aparentar exhaustividad sin desarrollar ninguno de los elementos intermedios.",
       "ejemplo_en": "ranging from basic implementations to advanced techniques",
       "ejemplo_es": "'abarca desde implementaciones básicas hasta técnicas avanzadas', sin especificar ninguna de las dos",
@@ -716,6 +733,7 @@
     },
     {
       "nombre": "Inserciones editoriales / contrastes forzados",
+      "idioma": "*",
       "descripcion": "El texto opina sobre qué es relevante sin que se le haya pedido, o fuerza un contraste artificial para dar sensación de matiz.",
       "ejemplo_en": "It's important to note that..., It's not just about X, it's about Y",
       "ejemplo_es": "'Es importante tener en cuenta que...', 'Cabe destacar que...', 'Vale la pena señalar que...'",
@@ -780,6 +798,7 @@
     },
     {
       "nombre": "Throat-clearing openers (aperturas genéricas)",
+      "idioma": "*",
       "descripcion": "Frases de apertura de párrafo o sección que no aportan información, solo preceden a la idea real.",
       "ejemplo_en": "In today's fast-paced world...",
       "ejemplo_es": "'En el mundo actual...', 'En la sociedad actual, cada vez más...'",
@@ -844,6 +863,7 @@
     },
     {
       "nombre": "Gerundio calcado del inglés (español)",
+      "idioma": "es",
       "descripcion": "Uso del gerundio con valor de simultaneidad que no existe en español, calco de estructuras -ing inglesas.",
       "ejemplo_es": "'Analizando los datos, se concluye que...' en vez de 'Al analizar los datos, se concluye que...' o 'Tras analizar los datos...'",
       "correccion": "Sustituir por 'al + infinitivo', 'tras + infinitivo' o una subordinada causal/temporal explícita.",
@@ -857,6 +877,7 @@
     },
     {
       "nombre": "Mayúsculas tipo inglés en títulos (español)",
+      "idioma": "es",
       "descripcion": "Aplicar mayúscula a cada palabra principal del título, siguiendo la convención inglesa de Title Case, en vez de la norma ortográfica española.",
       "ejemplo_es": "'Análisis Comparativo De Los Modelos De Detección' en vez de 'Análisis comparativo de los modelos de detección'",
       "correccion": "Solo mayúscula inicial de la frase y nombres propios, según la ortografía española.",
@@ -870,6 +891,7 @@
     },
     {
       "nombre": "'Español neutro' sin diatopismos",
+      "idioma": "es",
       "descripcion": "El texto evita marcas regionales y usa vocabulario panhispánico 'neutro' en vez del propio del español de España, por el sesgo del corpus de entrenamiento del modelo.",
       "ejemplo_es": "'computadora' en vez de 'ordenador'; ausencia de giros o expresiones propias del español de España que un estudiante usaría de forma natural",
       "correccion": "Usar el léxico propio de la variedad de español del autor (ordenador, móvil, coger, etc.) sin 'corregirlo' hacia lo neutro.",
@@ -883,6 +905,7 @@
     },
     {
       "nombre": "Hedging uniforme y excesivo",
+      "idioma": "es",
       "descripcion": "Matizar todas las frases por igual con 'podría', 'parece', 'en cierta medida', en vez de reservar la matización a donde hay incertidumbre real.",
       "ejemplo_es": "'Esto podría sugerir, en cierta medida, que el modelo parece funcionar razonablemente bien'",
       "correccion": "Afirmar sin matiz los hechos verificados ('el modelo obtiene un F1 de 0.94') y reservar el hedge para la interpretación incierta, solo cuando de verdad hay incertidumbre.",
@@ -896,6 +919,7 @@
     },
     {
       "nombre": "Monotonía de longitud de frase (baja burstiness)",
+      "idioma": "*",
       "descripcion": "Oraciones de longitud y estructura casi idéntica a lo largo de todo el texto, ritmo predecible al leer en voz alta. Correlato sintáctico medible del texto IA (burstiness humana 0.6-1.2 vs. 0.2-0.4 en GPT, como orden de magnitud orientativo, no prueba aislada).",
       "ejemplo_es": "Un párrafo entero de frases de 18-22 palabras, todas con estructura sujeto-verbo-complemento sin variación",
       "correccion": "Alternar deliberadamente frases cortas de impacto con frases largas de desarrollo; leer el párrafo en voz alta para detectar la monotonía.",
@@ -909,6 +933,7 @@
     },
     {
       "nombre": "Razonamiento excesivamente equilibrado y relleno sin contenido",
+      "idioma": "*",
       "descripcion": "Presentar 'por un lado / por otro lado' en cada argumento aunque el contexto no lo requiera, y párrafos de pulido superficial que no aportan información nueva (filler / 'surface polish with nothing underneath').",
       "ejemplo_es": "'Por un lado, esta técnica presenta ventajas; por otro lado, también tiene limitaciones' repetido como estructura fija en cada apartado, incluso cuando el propio TFG ya se ha posicionado",
       "correccion": "Comprometerse con la conclusión que los datos del TFG respaldan; eliminar todo párrafo que se pueda resumir en una frase sin pérdida real de información.",
@@ -932,6 +957,7 @@
     },
     {
       "nombre": "Puntuación pobre con frases encadenadas",
+      "idioma": "*",
       "descripcion": "Medido por el informe de The Economist (2026) sobre estilo de LLM: los modelos usan MENOS punto y coma, paréntesis y dos puntos que un escritor humano, y compensan encadenando cláusulas largas con \"y\". Es señal de documento completo, no de frase suelta: solo se evalúa a partir de 120 palabras.",
       "ejemplo_es": "Párrafos de 25+ palabras de media sin un solo punto y coma, paréntesis ni dos puntos en toda la página.",
       "senal_deteccion": "Cero signos de puntuación intermedia (; : parentesis) en 120+ palabras y longitud media de frase >= 20 palabras.",
@@ -946,6 +972,7 @@
     },
     {
       "nombre": "Densidad de conectores de manual",
+      "idioma": "es",
       "descripcion": "El LLM articula cada frase con un conector explícito (\"además\", \"asimismo\", \"sin embargo\", \"por lo tanto\"), a un ritmo muy superior al de la prosa humana, que encadena por sentido y no por marcador.",
       "ejemplo_es": "Además, el sistema mejora el rendimiento. Sin embargo, presenta limitaciones. Por lo tanto, conviene evaluarlo. Asimismo, cabe destacar su coste.",
       "senal_deteccion": "Un conector formal cada <=35 palabras, con 3 o mas conectores y 80+ palabras de texto.",
@@ -960,6 +987,7 @@
     },
     {
       "nombre": "Uniformidad de párrafos",
+      "idioma": "*",
       "descripcion": "Los párrafos salen calibrados al mismo tamaño porque el modelo reparte el contenido en bloques equivalentes. Un texto humano alterna párrafos de una línea con otros largos según lo que tenga que decir.",
       "ejemplo_es": "Cinco párrafos seguidos de 60-65 palabras cada uno.",
       "senal_deteccion": "Coeficiente de variación de longitud de párrafo < 0.20 con 3+ párrafos de 25+ palabras.",
@@ -974,6 +1002,7 @@
     },
     {
       "nombre": "Verbos promocionales de acción (español)",
+      "idioma": "*",
       "descripcion": "Calco directo del registro de marketing anglosajón que los modelos arrastran del entrenamiento: imperativos grandilocuentes que prometen transformación (\"sumérgete\", \"desbloquea\", \"desata\", \"eleva\"). En un TFG no aparecen nunca de forma natural.",
       "ejemplo_es": "Sumérgete en el fascinante mundo de la IA y desbloquea todo su potencial.",
       "senal_deteccion": "Presencia de estos verbos en registro académico o técnico.",
@@ -1008,6 +1037,7 @@
     },
     {
       "nombre": "Pasiva perifrástica anglicada",
+      "idioma": "es",
       "descripcion": "El español prefiere la pasiva refleja (\"se utiliza\") o la activa; el modelo calca la pasiva perifrástica inglesa (\"is used by\") como \"es utilizado por\", \"puede ser considerado\", \"fue diseñado para\".",
       "ejemplo_es": "El algoritmo puede ser utilizado para clasificar documentos y es considerado como el estándar del sector.",
       "senal_deteccion": "Perífrasis \"ser/poder ser + participio\" en cadena, y \"considerado como\" (redundante en español).",
@@ -1027,6 +1057,7 @@
     },
     {
       "nombre": "Anuncio de estructura / eco del encargo",
+      "idioma": "*",
       "descripcion": "El modelo devuelve el enunciado antes de responder y anuncia lo que va a hacer (\"En este artículo exploraremos...\", \"A continuación se presentan...\"). Es un residuo de seguir instrucciones, no una necesidad del texto.",
       "ejemplo_es": "En este trabajo se explorará en profundidad el papel de la inteligencia artificial. A continuación, se presentan los principales hallazgos.",
       "senal_deteccion": "Fórmulas de anuncio en apertura de sección.",

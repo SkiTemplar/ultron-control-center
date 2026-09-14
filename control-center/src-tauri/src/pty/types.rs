@@ -36,13 +36,16 @@ pub struct PtySession {
     /// se cierra y el proceso hijo pierde su terminal. NO quitar.
     #[allow(dead_code)]
     pub master: Box<dyn MasterPty + Send>,
+    /// Write half of the PTY. `capture_output_inner`'s only reader
+    /// (`write_inner`) was retired 2026-09-14 alongside
+    /// `agent_orchestration::delegate` (kanban "comandos huérfanos"); kept
+    /// like `master` above — dropping it would close the child's stdin.
+    #[allow(dead_code)]
     pub writer: Box<dyn Write + Send>,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
     /// Ring buffer of raw output bytes captured by the reader thread.
-    ///
-    /// The reader thread appends every chunk here; `capture_output_inner`
-    /// (delegate polling) reads windows of it by offset. Capped at 256 KiB
-    /// to bound memory; older bytes are dropped from the front when full.
+    /// Capped at 256 KiB to bound memory; older bytes are dropped from the
+    /// front when full.
     pub output_buffer: Vec<u8>,
     /// Live-emission flag. While false the reader thread captures bytes
     /// into `output_buffer` but does NOT emit `pty:data:<id>` events.
@@ -55,14 +58,7 @@ pub struct PtySession {
 /// Maximum size of the per-session output ring buffer (256 KiB).
 pub const PTY_REPLAY_BUFFER_MAX: usize = 256 * 1024;
 
-/// Result of a [`super::ops::capture_output_inner`] call.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CaptureResult {
-    /// Base64-encoded raw PTY bytes from `since_offset` to `new_offset`.
-    /// Empty string when there are no new bytes.
-    pub data_b64: String,
-    /// The new offset to pass as `since_offset` on the next poll.
-    pub new_offset: usize,
-    /// Current session status; `None` when the session is unknown.
-    pub session_status: Option<PtyStatus>,
-}
+// `CaptureResult` (return type of the retired `capture_output_inner`) was
+// removed 2026-09-14 alongside `agent_orchestration::delegate` (kanban
+// "comandos huérfanos"). Recoverable from git history if the feature gets
+// wired to a UI later.

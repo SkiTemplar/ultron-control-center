@@ -1,12 +1,14 @@
 'use strict';
 
 /**
- * lib/research/crossref.js — metadatos de DOI y BibTeX oficial. Crossref NO
- * se usa como buscador (decision del usuario): solo para (a) confirmar que
- * un DOI existe y traer sus metadatos canonicos, y (b) generar BibTeX real
- * via negociacion de contenido de doi.org (Accept: application/x-bibtex),
- * que resuelve contra la agencia de registro correcta (Crossref, DataCite...)
- * sin que la IA redacte el BibTeX.
+ * lib/research/crossref.js — metadatos de DOI, BibTeX oficial y estado de
+ * retraccion. Crossref NO se usa como buscador (decision del usuario): solo
+ * para (a) confirmar que un DOI existe y traer sus metadatos canonicos, (b)
+ * generar BibTeX real via negociacion de contenido de doi.org (Accept:
+ * application/x-bibtex), que resuelve contra la agencia de registro correcta
+ * (Crossref, DataCite...) sin que la IA redacte el BibTeX, y (c) desde F2
+ * (2026-09-14) leer las notices de retraccion (integra Retraction Watch desde
+ * 2023-09) -- ver retraction.js para la combinacion con OpenAlex.
  * Endpoints confirmados contra la API real el 2026-09-11:
  *   GET https://api.crossref.org/works/<doi>            (JSON, 404 limpio)
  *   GET https://doi.org/<doi>  Accept: application/x-bibtex (texto BibTeX)
@@ -14,6 +16,7 @@
 
 const { request } = require('./http');
 const { NotFoundError, HttpError } = require('./errors');
+const { normalizeDoi } = require('./normalize');
 
 const API_BASE = 'https://api.crossref.org/works';
 const NAMESPACE = 'crossref';
@@ -61,4 +64,38 @@ async function getBibtex(doi) {
   return body.trim();
 }
 
-module.exports = { getWorkByDoi, getBibtex };
+/** ISO yyyy-mm-dd desde un date-parts de Crossref ([anio, mes, dia], mes/dia opcionales), o null. */
+function datePartsToIso(parts) {
+  const [y, m, d] = parts ?? [];
+  if (!y) return null;
+  return `${y}-${String(m ?? 1).padStart(2, '0')}-${String(d ?? 1).padStart(2, '0')}`;
+}
+
+/**
+ * Notices de tipo retraction en un work de Crossref (integra Retraction
+ * Watch desde 2023-09, ver plans/2026-09-14-buscador-papers-f2-opciones.md).
+ * La relacion aparece en `update-to` cuando se consulta el DOI de la NOTICE
+ * (apunta al trabajo original) y en `updated-by` cuando se consulta el DOI
+ * del trabajo ORIGINAL (campo inverso que calcula la propia API). Se
+ * comprueban ambos para no depender de que lado del DOI llega el usuario.
+ */
+function extractRetractionNotices(work) {
+  const candidates = [...(work?.['updated-by'] ?? []), ...(work?.['update-to'] ?? [])];
+  return candidates
+    .filter((n) => n?.type === 'retraction')
+    .map((n) => ({
+      doi: normalizeDoi(n.DOI ?? null),
+      source: n.source ?? 'crossref',
+      label: n.label ?? null,
+      date: datePartsToIso(n.updated?.['date-parts']?.[0]),
+    }));
+}
+
+/** Estado de retraccion segun Crossref para un DOI. Lanza NotFoundError si Crossref no lo conoce. */
+async function getRetractionStatus(doi) {
+  const work = await getWorkByDoi(doi);
+  const notices = extractRetractionNotices(work);
+  return { isRetracted: notices.length > 0, notices };
+}
+
+module.exports = { getWorkByDoi, getBibtex, getRetractionStatus, extractRetractionNotices };

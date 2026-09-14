@@ -30,6 +30,7 @@
 //!   ultron-memory gc [--days 90] [--dry-run]    # mantenimiento: decaimiento de ACTIVE sin recall +
 //!                                               # poda del log (items muertos, eventos sin item y huerfanos)
 //!   ultron-memory dedupe [--dry-run] [--reason R]      # deprecar copias exactas de ACTIVE (sobrevive 1 por grupo)
+//!   ultron-memory deprecations apply [--dry-run]  # cierra deadlines vencidos de deprecation_entries (archiva o marca deleted)
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
 
@@ -670,6 +671,31 @@ fn run() -> Result<serde_json::Value, String> {
             )
         }
         "golden-remap" => Ok(ul::memory::evals::golden_remap_report()),
+        // Cierra las entradas VENCIDAS y no cerradas de `deprecation_entries`
+        // (kanban: "ultron-memory doctor: 478 deprecation_deadlines vencidos";
+        // decisión 2026-09-14: archivar, no purgar). Si el item sigue
+        // `deprecated` en `memory_items` lo archiva por el mismo camino que
+        // `archive` (Qdrant + memory_items_archive + evento); si ya no existe
+        // en ningún lado la entrada pasa a `state='deleted'` sin tocar
+        // memoria. `--dry-run` solo cuenta. Se ejecuta también dentro de `gc`.
+        //   ultron-memory deprecations apply [--dry-run]
+        "deprecations" => {
+            let sub = args.get(2).map(String::as_str).unwrap_or("");
+            match sub {
+                "apply" => {
+                    reject_unknown_flags(&args, &["--dry-run"])?;
+                    let dry = has_flag(&args, "--dry-run");
+                    to_json(
+                        ul::memory::MemoryService::apply_deprecation_deadlines(
+                            dry,
+                            ul::memory::Actor::System,
+                        )
+                        .map_err(|e| e.to_string())?,
+                    )
+                }
+                other => Err(format!("unknown deprecations subcommand '{other}'")),
+            }
+        }
         // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
         // orchestration drops from ~3.5s (cold model load every spawn) to sub-second.
         // `run_daemon` blocks forever serving requests, OR returns immediately with
@@ -776,7 +802,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

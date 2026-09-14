@@ -1,0 +1,21 @@
+{
+  "_captured": "sintetico 2026-09-14: forma real de /works/{doi} de Crossref con notice de retraccion declarada por el propio editor (source: publisher). Ver plans/2026-09-14-buscador-papers-f2-opciones.md.",
+  "status": "ok",
+  "message-type": "work",
+  "message": {
+    "DOI": "10.9100/retracted-publisher",
+    "type": "journal-article",
+    "title": ["A Retracted Study (Publisher Notice)"],
+    "container-title": ["Journal of Synthetic Examples"],
+    "published": { "date-parts": [[2020]] },
+    "updated-by": [
+      {
+        "DOI": "10.9100/retraction-notice-1",
+        "type": "retraction",
+        "source": "publisher",
+        "label": "Retraction",
+        "updated": { "date-parts": [[2024, 3, 15]] }
+      }
+    ]
+  }
+}

@@ -19,6 +19,7 @@ const require = createRequire(import.meta.url);
 const {
   scan,
   computeVerdict,
+  detectarIdioma,
   MIN_WORDS,
   DENSITY_THRESHOLD,
   DENSITY_BAND,
@@ -80,6 +81,68 @@ for (const caso of rolCasos) {
 const tricolon = catalogo.find((p) => p.nombre === 'Regla de tres (tricolon) obsesiva');
 A(!!tricolon, 'catalogo: existe el patron tricolon', 'no encontrado');
 A(tricolon && tricolon.rol === 'aviso', 'catalogo: tricolon tiene rol "aviso"', JSON.stringify(tricolon && tricolon.rol));
+
+// --- Filtro por idioma (campo "idioma" del catalogo, 2026-09-14) -----------
+// Catalogo sintetico con los tres casos: patron "es", patron "*" y patron SIN
+// campo "idioma" (compatibilidad con catalogos viejos, debe tratarse como "*").
+const MARCADOR = 'marcadorxyzunico';
+const catalogoIdioma = [
+  {
+    nombre: 'Patron solo espanol',
+    idioma: 'es',
+    senales_ejecutables: [{ tipo: 'lexico', valor: MARCADOR }],
+  },
+  {
+    nombre: 'Patron independiente de idioma',
+    idioma: '*',
+    senales_ejecutables: [{ tipo: 'lexico', valor: MARCADOR }],
+  },
+  {
+    nombre: 'Patron sin campo idioma',
+    senales_ejecutables: [{ tipo: 'lexico', valor: MARCADOR }],
+  },
+];
+const TEXTO_CON_MARCADOR = `This is a sample sentence that contains the ${MARCADOR} token for testing.`;
+
+// (a) patron "es" NO puntua sobre texto forzado a ingles, aunque el termino
+// literal este presente.
+{
+  const r = scan(TEXTO_CON_MARCADOR, catalogoIdioma, { idioma: 'en' });
+  const deEste = r.matches.filter((m) => m.pattern === 'Patron solo espanol');
+  A(deEste.length === 0, 'idioma: patron "es" no dispara sobre texto en ingles', JSON.stringify(deEste));
+}
+
+// (b) patron "*" SI puntua en ambos idiomas.
+{
+  const rEs = scan(TEXTO_CON_MARCADOR, catalogoIdioma, { idioma: 'es' });
+  const rEn = scan(TEXTO_CON_MARCADOR, catalogoIdioma, { idioma: 'en' });
+  const hitEs = rEs.matches.some((m) => m.pattern === 'Patron independiente de idioma');
+  const hitEn = rEn.matches.some((m) => m.pattern === 'Patron independiente de idioma');
+  A(hitEs && hitEn, 'idioma: patron "*" dispara en es Y en en', `es=${hitEs} en=${hitEn}`);
+}
+
+// (c) patron SIN campo "idioma" sigue funcionando en cualquier idioma
+// (compatibilidad: se trata como "*").
+{
+  const rEs = scan(TEXTO_CON_MARCADOR, catalogoIdioma, { idioma: 'es' });
+  const rEn = scan(TEXTO_CON_MARCADOR, catalogoIdioma, { idioma: 'en' });
+  const hitEs = rEs.matches.some((m) => m.pattern === 'Patron sin campo idioma');
+  const hitEn = rEn.matches.some((m) => m.pattern === 'Patron sin campo idioma');
+  A(hitEs && hitEn, 'idioma: patron sin campo "idioma" dispara igual (compat = "*")', `es=${hitEs} en=${hitEn}`);
+}
+
+// (d) deteccion de idioma: positivo en cada idioma y caso NEGATIVO (texto sin
+// evidencia de ninguno de los dos cae al default "es", no se inventa "en").
+{
+  const es = detectarIdioma('El sistema analiza los datos y presenta los resultados de la investigación en el capítulo siguiente.');
+  A(es === 'es', 'detectarIdioma: texto en español -> "es"', `obtenido=${es}`);
+
+  const en = detectarIdioma('The system analyzes the data and presents the results of the research in the following chapter.');
+  A(en === 'en', 'detectarIdioma: texto en ingles -> "en"', `obtenido=${en}`);
+
+  const negativo = detectarIdioma('Qdrant E5-large RRF FTS5 CPU GPU JSON');
+  A(negativo === 'es', 'detectarIdioma NEGATIVO: sin stopwords reconocibles cae al default "es", no a "en"', `obtenido=${negativo}`);
+}
 
 console.log(fail === 0 ? '\nSELFTEST ai-text-detector: VERDE' : `\nSELFTEST ai-text-detector: ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);

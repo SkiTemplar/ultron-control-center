@@ -1,0 +1,12 @@
+{
+  "_captured": "sintetico 2026-09-14: work de Crossref normal, sin update-to/updated-by (caso negativo de retraccion).",
+  "status": "ok",
+  "message-type": "work",
+  "message": {
+    "DOI": "10.9102/clean-paper",
+    "type": "journal-article",
+    "title": ["A Perfectly Fine Paper"],
+    "container-title": ["Journal of Synthetic Examples"],
+    "published": { "date-parts": [[2021]] }
+  }
+}

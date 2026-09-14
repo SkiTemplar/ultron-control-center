@@ -128,4 +128,46 @@ async function writeBib(id) {
   return { file: bibFile, count: entries.length, warnings };
 }
 
-module.exports = { researchRoot, listSessions, newSession, resolveSession, readPapers, addPaper, writeBib, slugify };
+function snowballFilePath(id) {
+  return path.join(resolveSession(id).dir, 'snowball.json');
+}
+
+/** Lee snowball.json de una sesion: objeto {`${seedDoi}:${direction}`: entrada} (vacio si no existe todavia). */
+function readSnowball(id) {
+  try {
+    return JSON.parse(fs.readFileSync(snowballFilePath(id), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Guarda (o sustituye) el resultado de una bola de nieve para seedDoi+direction
+ * en snowball.json. Volver a ejecutar el MISMO seed+direction sustituye esa
+ * entrada (no duplica); un seed o direction distinto anade una entrada nueva
+ * junto a las que ya hubiera. Escritura atomica, igual que papers.json.
+ */
+function saveSnowball(id, { seedDoi, direction, candidates }) {
+  const data = readSnowball(id);
+  const key = `${seedDoi}:${direction}`;
+  const entry = { seedDoi, direction, generatedAt: new Date().toISOString(), candidates };
+  data[key] = entry;
+  const file = snowballFilePath(id);
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+  return entry;
+}
+
+module.exports = {
+  researchRoot,
+  listSessions,
+  newSession,
+  resolveSession,
+  readPapers,
+  addPaper,
+  writeBib,
+  slugify,
+  readSnowball,
+  saveSnowball,
+};

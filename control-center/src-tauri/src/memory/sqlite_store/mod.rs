@@ -38,7 +38,9 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 mod archive;
-pub use archive::{archive_item, count_archived, ensure_archive_table, ARCHIVE_TABLE};
+pub use archive::{
+    archive_contains, archive_item, count_archived, ensure_archive_table, ARCHIVE_TABLE,
+};
 pub use schema::{apply_schema, open_conn};
 
 pub use items::{
@@ -65,4 +67,7 @@ pub use store_impl::{import_kg_jsonl, SqliteStore};
 
 // Ledger vivo de deprecaciones (cat21.4): escritor único + helper de timestamp.
 // `pub(crate)` porque solo MemoryService (mismo crate) escribe aquí.
-pub(crate) use deprecation::{insert_deprecation_entry, millis_to_iso_utc, DeprecationEntryInput};
+pub(crate) use deprecation::{
+    insert_deprecation_entry, millis_to_iso_utc, select_overdue_deprecation_entries,
+    update_deprecation_entry_state, DeprecationEntryInput,
+};

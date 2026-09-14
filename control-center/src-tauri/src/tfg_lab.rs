@@ -110,6 +110,10 @@ struct ReglaCompilada {
     /// "senal" (cuenta para la densidad) o "aviso" (solo se lista). Vive en
     /// el patrón, no en la señal suelta: ver `compilar_reglas`.
     rol: &'static str,
+    /// "es"/"en" restringe la regla a ese idioma del texto; "*" (o ausente en
+    /// el catálogo, compatibilidad) la deja correr siempre. Vive en el
+    /// patrón, igual que `rol`. Ver `detectar_con_catalogo` para el filtrado.
+    idioma: String,
 }
 
 enum Motor {
@@ -158,6 +162,53 @@ fn acento_insensible(fuente: &str) -> String {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Detección de idioma del texto (campo "idioma" del catálogo, 2026-09-14)
+// ---------------------------------------------------------------------------
+
+/// Ratio de stopwords ES vs EN. Heurística deliberadamente simple (sin crate
+/// nueva): decide qué subconjunto de `senales_ejecutables` marcadas
+/// "es"/"en"/"*" tiene sentido ejecutar sobre ESTE texto, no un detector de
+/// idioma de propósito general (no reconoce mezcla real ni terceros idiomas).
+/// Con texto corto o sin stopwords reconocibles cae a "es": el catálogo nació
+/// pensando en TFG en español y ese es el sesgo más seguro sin evidencia
+/// clara. Gemelo EXACTO de `detectarIdioma` en
+/// `hooks/scripts/lib/ai-text-detector.js` (mismas listas de stopwords).
+const STOPWORDS_ES: &[&str] = &[
+    "el", "la", "los", "las", "de", "del", "en", "y", "a", "que", "un", "una", "unos", "unas",
+    "es", "son", "por", "para", "con", "no", "se", "su", "sus", "como", "más", "mas", "pero",
+    "este", "esta", "estos", "estas", "al", "lo", "le", "les", "muy", "también", "tambien",
+    "entre", "sobre", "sin", "ya", "o", "porque", "cuando", "donde", "sí", "si", "nos", "ha",
+    "han",
+];
+const STOPWORDS_EN: &[&str] = &[
+    "the", "of", "and", "a", "to", "in", "is", "are", "that", "for", "on", "with", "as", "this",
+    "it", "by", "an", "be", "was", "were", "from", "or", "but", "not", "have", "has", "at",
+    "their", "which", "these", "those", "its", "we", "you", "they", "been", "can", "will", "into",
+];
+
+/// Devuelve "es" o "en". Empate o sin evidencia -> "es" (ver comentario de arriba).
+fn detectar_idioma(texto: &str) -> &'static str {
+    let minusculas = texto.to_lowercase();
+    let mut es = 0usize;
+    let mut en = 0usize;
+    for token in minusculas.split(|c: char| !c.is_alphabetic()) {
+        if token.is_empty() {
+            continue;
+        }
+        if STOPWORDS_ES.contains(&token) {
+            es += 1;
+        } else if STOPWORDS_EN.contains(&token) {
+            en += 1;
+        }
+    }
+    if en > es {
+        "en"
+    } else {
+        "es"
+    }
+}
+
 fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
     let mut reglas = Vec::new();
     for (patron_idx, patron) in patrones.iter().enumerate() {
@@ -174,6 +225,14 @@ fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
         } else {
             "senal"
         };
+        // "idioma" vive igual en el patrón entero (no señal a señal). Ausente
+        // en el catálogo -> "*" (compatibilidad con catálogos sin el campo).
+        // Gemelo de la lectura en `compileRules` de ai-text-detector.js.
+        let idioma = patron
+            .get("idioma")
+            .and_then(|v| v.as_str())
+            .unwrap_or("*")
+            .to_string();
         for senal in senales {
             let tipo = senal.get("tipo").and_then(|v| v.as_str()).unwrap_or("");
             let valor = senal.get("valor").and_then(|v| v.as_str()).unwrap_or("");
@@ -205,6 +264,7 @@ fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
                             etiqueta: format!("heuristica:{valor}"),
                             motor: Motor::Heuristica(valor.to_string()),
                             rol,
+                            idioma: idioma.clone(),
                         });
                     }
                     continue;
@@ -218,6 +278,7 @@ fn compilar_reglas(patrones: &[serde_json::Value]) -> Vec<ReglaCompilada> {
                     etiqueta,
                     motor: Motor::Regex(re),
                     rol,
+                    idioma: idioma.clone(),
                 });
             }
         }
@@ -248,17 +309,28 @@ fn detectar_con_catalogo(catalogo: &serde_json::Value, texto: &str) -> TfgReport
         .and_then(|v| v.as_array())
         .unwrap_or(&vacio);
 
+    // Idioma del texto: solo corren (y cuentan como escaneados) los patrones
+    // cuyo campo "idioma" es "*"/ausente o coincide con este. Gemelo de la
+    // misma regla en `scan()` de ai-text-detector.js.
+    let idioma_texto = detectar_idioma(texto);
+
     let total_patterns_scanned = patrones
         .iter()
         .filter(|p| {
-            p.get("senales_ejecutables")
+            let tiene_senales = p
+                .get("senales_ejecutables")
                 .and_then(|v| v.as_array())
                 .map(|a| !a.is_empty())
-                .unwrap_or(false)
+                .unwrap_or(false);
+            let idioma_patron = p.get("idioma").and_then(|v| v.as_str()).unwrap_or("*");
+            tiene_senales && (idioma_patron == "*" || idioma_patron == idioma_texto)
         })
         .count();
 
-    let reglas = compilar_reglas(patrones);
+    let reglas: Vec<ReglaCompilada> = compilar_reglas(patrones)
+        .into_iter()
+        .filter(|r| r.idioma == "*" || r.idioma == idioma_texto)
+        .collect();
 
     let mut matches: Vec<TfgMatch> = Vec::new();
     let mut patron_con_match = vec![false; patrones.len()];
@@ -481,6 +553,124 @@ mod tests {
         assert!(informe.matches.is_empty());
         assert_eq!(informe.patterns_hit, 0);
         assert_eq!(informe.total_patterns_scanned, 1);
+    }
+
+    // --- Filtro por idioma (campo "idioma" del catalogo, 2026-09-14) -------
+
+    const MARCADOR: &str = "marcadorxyzunico";
+
+    fn catalogo_idioma() -> serde_json::Value {
+        serde_json::json!({
+            "patrones": [
+                {
+                    "nombre": "Patron solo espanol",
+                    "idioma": "es",
+                    "senales_ejecutables": [
+                        { "tipo": "lexico", "valor": MARCADOR }
+                    ]
+                },
+                {
+                    "nombre": "Patron independiente de idioma",
+                    "idioma": "*",
+                    "senales_ejecutables": [
+                        { "tipo": "lexico", "valor": MARCADOR }
+                    ]
+                },
+                {
+                    "nombre": "Patron sin campo idioma",
+                    "senales_ejecutables": [
+                        { "tipo": "lexico", "valor": MARCADOR }
+                    ]
+                }
+            ]
+        })
+    }
+
+    /// Texto genuinamente inglés (para que `detectar_idioma` lo clasifique
+    /// como "en" de verdad, no solo por opts forzados: aquí no hay overrides).
+    fn texto_ingles_con_marcador() -> String {
+        format!(
+            "This is a sample sentence that contains the {MARCADOR} token for testing purposes in this document."
+        )
+    }
+
+    #[test]
+    fn idioma_patron_es_no_dispara_sobre_texto_en_ingles() {
+        let catalogo = catalogo_idioma();
+        let informe = detectar_con_catalogo(&catalogo, &texto_ingles_con_marcador());
+        let del_patron: Vec<_> = informe
+            .matches
+            .iter()
+            .filter(|m| m.pattern == "Patron solo espanol")
+            .collect();
+        assert!(
+            del_patron.is_empty(),
+            "el patron 'es' no debe disparar sobre texto en ingles: {del_patron:?}"
+        );
+    }
+
+    #[test]
+    fn idioma_patron_comodin_dispara_en_ambos_idiomas() {
+        let catalogo = catalogo_idioma();
+        let texto_es = format!(
+            "Este es un texto de prueba que contiene el marcador {MARCADOR} para verificar."
+        );
+        let informe_es = detectar_con_catalogo(&catalogo, &texto_es);
+        let informe_en = detectar_con_catalogo(&catalogo, &texto_ingles_con_marcador());
+        let hit_es = informe_es
+            .matches
+            .iter()
+            .any(|m| m.pattern == "Patron independiente de idioma");
+        let hit_en = informe_en
+            .matches
+            .iter()
+            .any(|m| m.pattern == "Patron independiente de idioma");
+        assert!(
+            hit_es && hit_en,
+            "el patron '*' debe disparar en es Y en en (es={hit_es} en={hit_en})"
+        );
+    }
+
+    #[test]
+    fn idioma_patron_sin_campo_se_trata_como_comodin() {
+        let catalogo = catalogo_idioma();
+        let texto_es = format!(
+            "Este es un texto de prueba que contiene el marcador {MARCADOR} para verificar."
+        );
+        let informe_es = detectar_con_catalogo(&catalogo, &texto_es);
+        let informe_en = detectar_con_catalogo(&catalogo, &texto_ingles_con_marcador());
+        let hit_es = informe_es
+            .matches
+            .iter()
+            .any(|m| m.pattern == "Patron sin campo idioma");
+        let hit_en = informe_en
+            .matches
+            .iter()
+            .any(|m| m.pattern == "Patron sin campo idioma");
+        assert!(
+            hit_es && hit_en,
+            "un patron sin campo 'idioma' debe comportarse como '*' (compatibilidad): es={hit_es} en={hit_en}"
+        );
+    }
+
+    #[test]
+    fn detectar_idioma_positivo_es_y_en() {
+        let es = detectar_idioma(
+            "El sistema analiza los datos y presenta los resultados de la investigación en el capítulo siguiente.",
+        );
+        assert_eq!(es, "es");
+        let en = detectar_idioma(
+            "The system analyzes the data and presents the results of the research in the following chapter.",
+        );
+        assert_eq!(en, "en");
+    }
+
+    /// Caso NEGATIVO: sin stopwords reconocibles de ningún idioma, cae al
+    /// default "es" y NO se inventa "en" por defecto.
+    #[test]
+    fn detectar_idioma_negativo_sin_evidencia_cae_a_es() {
+        let sin_evidencia = detectar_idioma("Qdrant E5-large RRF FTS5 CPU GPU JSON");
+        assert_eq!(sin_evidencia, "es");
     }
 
     #[test]

@@ -148,4 +148,43 @@ async function getWorkByDoi(doi) {
   }
 }
 
-module.exports = { searchWorks, searchWorksMulti, getWorkByDoi, buildSearchVariants, extractPhrases };
+/**
+ * IDs de OpenAlex referenciados por un DOI (bola de nieve backward, un solo
+ * nivel: `referenced_works` del propio work, sin seguir la cadena). Solo
+ * trae IDs -- usar getWorksByIds() para los metadatos completos.
+ */
+async function getReferencedWorkIds(doi, { limit = 25 } = {}) {
+  const work = await getWorkByDoi(doi);
+  return (work.referenced_works ?? []).slice(0, Math.max(1, limit));
+}
+
+/** Works completos para un lote de IDs de OpenAlex, en una sola peticion (filter=openalex_id:ID1|ID2|...). */
+async function getWorksByIds(ids) {
+  if (!ids.length) return [];
+  const params = authParams();
+  params.set('filter', `openalex_id:${ids.join('|')}`);
+  params.set('per-page', String(Math.min(100, ids.length)));
+  const { body } = await request(`${BASE}?${params.toString()}`, { namespace: NAMESPACE, minIntervalMs: MIN_INTERVAL_MS });
+  return body.results ?? [];
+}
+
+/** Works que citan el DOI dado (bola de nieve forward, una sola pagina). */
+async function getCitingWorks(doi, { limit = 25 } = {}) {
+  const work = await getWorkByDoi(doi);
+  const params = authParams();
+  params.set('filter', `cites:${work.id}`);
+  params.set('per-page', String(Math.max(1, Math.min(100, limit))));
+  const { body } = await request(`${BASE}?${params.toString()}`, { namespace: NAMESPACE, minIntervalMs: MIN_INTERVAL_MS });
+  return body.results ?? [];
+}
+
+module.exports = {
+  searchWorks,
+  searchWorksMulti,
+  getWorkByDoi,
+  buildSearchVariants,
+  extractPhrases,
+  getReferencedWorkIds,
+  getWorksByIds,
+  getCitingWorks,
+};

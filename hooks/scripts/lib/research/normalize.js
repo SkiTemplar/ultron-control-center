@@ -6,8 +6,14 @@
  * deduplicar y ordenar sin conocer de donde vino cada resultado.
  *
  * Modelo Paper: { title, abstract, authors[], year, venue, doi, type,
- * rawType, citations, isRetracted, landingUrl, openAccessPdf{url,source}|null,
- * ids{openalex,semanticScholar}, sources[], relevanceRaw, sourceRank }.
+ * rawType, citations, isRetracted, retraction, landingUrl,
+ * openAccessPdf{url,source}|null, ids{openalex,semanticScholar}, sources[],
+ * relevanceRaw, sourceRank }. `isRetracted`/`retraction` nacen del flag propio
+ * de cada fuente (is_retracted de OpenAlex; Semantic Scholar no lo expone,
+ * asi que llega false/null) y solo reflejan el dato REAL combinado
+ * (Crossref+OpenAlex) tras pasar por attachRetraction() -- ver retraction.js
+ * y resolve.js, usados cuando se consulta un DOI en concreto (research_add /
+ * research_check_retraction), no en cada resultado de una busqueda masiva.
  * `type` es siempre uno de: 'article' | 'preprint' | 'review' | 'other'.
  * relevanceRaw/sourceRank son las senales de relevancia que trae cada fuente
  * (ver merge.js rankAndFilter): OpenAlex devuelve un relevance_score de
@@ -74,6 +80,7 @@ function normalizeOpenAlexWork(work) {
     rawType,
     citations: work.cited_by_count ?? null,
     isRetracted: Boolean(work.is_retracted),
+    retraction: null,
     landingUrl: work.primary_location?.landing_page_url ?? work.id ?? null,
     openAccessPdf: pdfUrl ? { url: pdfUrl, source: 'openalex' } : null,
     ids: { openalex: work.id ?? null, semanticScholar: null },
@@ -97,7 +104,8 @@ function normalizeS2Paper(paper, { rank = null } = {}) {
     type,
     rawType,
     citations: paper.citationCount ?? null,
-    isRetracted: false, // Semantic Scholar no expone retraction; se fia de OpenAlex cuando hay match
+    isRetracted: false, // Semantic Scholar no expone retraction; se sustituye por el dato real via attachRetraction()
+    retraction: null,
     landingUrl: paper.externalIds?.DOI ? `https://doi.org/${paper.externalIds.DOI}` : null,
     openAccessPdf: pdfUrl ? { url: pdfUrl, source: 'semanticscholar' } : null,
     ids: { openalex: null, semanticScholar: paper.paperId ?? null },
@@ -107,4 +115,9 @@ function normalizeS2Paper(paper, { rank = null } = {}) {
   };
 }
 
-module.exports = { normalizeOpenAlexWork, normalizeS2Paper, normalizeDoi, reconstructAbstract };
+/** Fusiona un resultado de checkRetraction() (ver retraction.js) en un Paper normalizado. */
+function attachRetraction(paper, retraction) {
+  return { ...paper, isRetracted: retraction.isRetracted, retraction };
+}
+
+module.exports = { normalizeOpenAlexWork, normalizeS2Paper, normalizeDoi, reconstructAbstract, attachRetraction };

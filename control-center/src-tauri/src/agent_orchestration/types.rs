@@ -2,46 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Outcome of a fully-resolved `delegate_task_inner` call.
-///
-/// Unlike `SpawnResult` (which only confirms the process launched), this
-/// struct carries the captured PTY output so the orchestrator can use it
-/// as input for the next pipeline step.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DelegateTaskResult {
-    /// Plain-text output produced by the agent.  ANSI escape codes are
-    /// stripped; the string is valid UTF-8 (lossy conversion applied).
-    pub output: String,
-    /// Exit code reported by the PTY child, or `None` when the session was
-    /// killed (timeout / explicit kill).
-    pub exit_code: Option<i32>,
-    /// Wall-clock duration of the delegation in milliseconds.
-    pub duration_ms: u64,
-    /// `true` when the agent emitted `[AGENT TASK COMPLETE]` before the
-    /// timeout elapsed.  `false` on timeout or forced kill.
-    pub completed_normally: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DelegateRequest {
-    pub agent: String,
-    pub task: String,
-    /// Cheap-model hint from the UI checkbox. Currently recorded in the
-    /// delegation log (`cheap_model_requested`) but NOT applied to the
-    /// spawned CLI — see `resolve_cheap_model` in `delegate.rs`.
-    #[serde(default)]
-    pub use_cheap_model: bool,
-    #[serde(default)]
-    pub cwd: Option<String>,
-    /// Override the default 300-second poll timeout. `None` or `0` use
-    /// `DEFAULT_DELEGATE_TIMEOUT_SECS`. Maximum clamped to 3600 s (1 hour).
-    #[serde(default)]
-    pub timeout_secs: Option<u64>,
-    /// Project id forwarded to `pty::spawn_inner` for session registry
-    /// grouping. Falls back to `"orchestrator"` when absent.
-    #[serde(default)]
-    pub project_id: Option<String>,
-}
+// `DelegateTaskResult` and `DelegateRequest` (fire-and-forget task delegation
+// payloads) were retired alongside `agent_orchestration::delegate` (2026-09-14,
+// kanban "comandos huérfanos" — zero frontend callers). Recoverable from git
+// history if the feature gets wired to a UI later.
 
 #[derive(Debug, Serialize)]
 pub struct WorkflowStep {

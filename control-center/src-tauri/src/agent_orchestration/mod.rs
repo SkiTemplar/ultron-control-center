@@ -2,9 +2,8 @@
 //
 // Surface introduced by the Agents tab redesign ("plantilla de empleados"):
 //
-//   - `delegate_task_launch` (fire-and-forget) spawns a new Claude session
-//     with the given agent slug as the subagent directive and returns
-//     immediately; status is polled via `list_delegations`.
+//   - `list_delegations` reads the delegation log written by the kanban
+//     dispatcher (`kanban_dispatch_card`).
 //   - `list_workflows` returns the preconfigured workflow sequences from
 //     `~/.claude/skills/ultron/references/skill-alignments.md`. We hard-code
 //     the canonical seven so the UI works even when the user has the skill
@@ -15,15 +14,16 @@
 // agent-centric framing the new UI needs.
 //
 // Sub-modules:
-//   provider_router  — multi-IA PTY dispatch (O(1), no network)
 //   types            — shared data structures
-//   delegation_log   — append-only JSONL delegation log
+//   delegation_log   — append-only JSONL delegation log (read side)
 //   workflows        — built-in workflow definitions
-//   delegate         — core delegation logic (sync + fire-and-forget)
+//
+// `delegate` and `provider_router` (fire-and-forget task delegation + multi-IA
+// PTY dispatch) were retired here (2026-09-14, kanban "comandos huérfanos"):
+// their only caller, the `delegate_task_launch` Tauri command, had zero
+// `invoke()` consumers in the frontend. Recoverable from git history if the
+// feature gets wired to a UI later.
 
-pub mod provider_router;
-
-pub(crate) mod delegate;
 pub(crate) mod delegation_log;
 pub(crate) mod types;
 pub(crate) mod usage;
@@ -36,7 +36,6 @@ mod tests;
 // Public re-exports — preserve the original flat API of agent_orchestration
 // ---------------------------------------------------------------------------
 
-pub use delegate::delegate_task_launch_inner;
 pub use delegation_log::list_delegations_inner;
-pub use types::{DelegateRequest, DelegationLogEntry, WorkflowDefinition, WorkflowStep};
+pub use types::{DelegationLogEntry, WorkflowDefinition, WorkflowStep};
 pub use workflows::list_workflows_inner;

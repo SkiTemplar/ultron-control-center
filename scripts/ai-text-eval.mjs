@@ -41,13 +41,13 @@
  * ahi son sintaxis legitima y no artefactos. Guarda cada muestra con la
  * extension del destino real donde ese texto viviria.
  *
- * Idioma (2026-09-14): el catalogo (docs/research/patrones-texto-ia.json) NO
- * trae un campo "idioma" por patron — todos sus `senales_ejecutables` se
- * ejecutan siempre, sin distincion de idioma del documento. Este script NO
- * inventa esa distincion: si algun dia el catalogo la incorpora, se filtra
- * sola (ver CATALOGO_TIENE_IDIOMA mas abajo); mientras tanto mide igual sobre
- * todo el corpus y el informe en ingles deja a la vista que patrones —
- * mayoritariamente redactados en espanol— disparan como ruido sobre humano-en.
+ * Idioma (2026-09-14): el catalogo (docs/research/patrones-texto-ia.json)
+ * declara un campo "idioma" por patron ("es"/"en"/"*"). `scan()` (en
+ * ai-text-detector.js) solo ejecuta las senales_ejecutables de un patron
+ * cuyo idioma coincide con el del documento o es "*" (independiente de
+ * idioma). Este script le pasa el idioma real del documento (la carpeta del
+ * corpus ya lo fija) en vez de dejar que `scan` lo adivine, para medir el
+ * filtro sin la incertidumbre añadida de la heuristica de deteccion.
  *
  * Uso:
  *   node scripts/ai-text-eval.mjs                     # espanol (default, cifra historica)
@@ -143,22 +143,22 @@ const ROL_POR_PATRON = new Map(
   ])
 );
 
-/** El catalogo declara idioma por patron? Hoy (2026-09-14) NO: se deja a la
- * vista en vez de fingir que si existe una distincion que no esta escrita. */
+/** El catalogo declara idioma por patron? Desde 2026-09-14 SI (campo "idioma"
+ * en cada patron: "es"/"en"/"*"). Se deja el check en vez de asumirlo para que
+ * un catalogo viejo (sin el campo) siga midiendo sin romperse. */
 const PATRONES_RAW = Array.isArray(CATALOGO) ? CATALOGO : CATALOGO.patrones || CATALOGO.patterns || [];
 const CATALOGO_TIENE_IDIOMA = PATRONES_RAW.some((p) => p && typeof p.idioma !== 'undefined');
 
-/** Si el catalogo algun dia trae "idioma", filtra al idioma del doc + comunes.
- * Mientras no lo traiga, devuelve el catalogo entero sin recortar nada. */
-function catalogoParaIdioma(lang) {
-  if (!CATALOGO_TIENE_IDIOMA) return CATALOGO;
-  return PATRONES_RAW.filter((p) => !p.idioma || p.idioma === lang || p.idioma === 'comun' || p.idioma === 'all');
-}
-
-/** Ejecuta el detector con la misma semantica que el hook y el CLI. */
+/** Ejecuta el detector con la misma semantica que el hook y el CLI. El filtro
+ * de idioma vive DENTRO de `scan` (ver detectarIdioma/idioma en
+ * ai-text-detector.js): aqui se le pasa `opts.idioma = doc.lang` porque el
+ * corpus ya trae el idioma real de cada documento por la carpeta en la que
+ * vive (ia/humano vs ia-en/humano-en) — mas fiable que re-detectarlo desde el
+ * propio texto, que es lo que hace el hook en produccion cuando no lo sabe. */
 function analizar(doc) {
-  const res = scan(doc.texto, catalogoParaIdioma(doc.lang), {
+  const res = scan(doc.texto, CATALOGO, {
     skipPatterns: doc.ext === '.md' ? MARKDOWN_NATIVE_PATTERNS : [],
+    idioma: doc.lang,
   });
   const matches = res?.matches || res?.senales || [];
   const porPatron = new Map();
@@ -357,7 +357,7 @@ function imprimirInforme(rep) {
   if (rep.etiqueta !== 'es') {
     const ruido = rep.patrones.filter((f) => f.docsHum > 0);
     if (ruido.length) {
-      console.log(`\n--- Patrones que disparan en humano-${rep.etiqueta === 'all' ? '*' : rep.etiqueta} (candidatos a ruido, catalogo sin distincion de idioma) ---`);
+      console.log(`\n--- Patrones que disparan en humano-${rep.etiqueta === 'all' ? '*' : rep.etiqueta} (falsos positivos; con filtro de idioma, deberian ser sobre todo patrones "*") ---`);
       for (const f of ruido) console.log(`   · ${f.patron.slice(0, 60)} — ${f.docsHum} doc(s) humano`);
     }
   }

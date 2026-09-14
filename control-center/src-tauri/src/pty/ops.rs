@@ -2,13 +2,13 @@
 
 use base64::Engine;
 use portable_pty::{native_pty_system, PtySize};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::thread;
 use tauri::{AppHandle, Emitter, Runtime};
 
 use super::registry::{new_ulid, now_iso, registry};
 use super::spawn::{build_command, log_pty_failure, resolve_cwd};
-use super::types::{CaptureResult, PtySession, PtyStatus, PTY_REPLAY_BUFFER_MAX};
+use super::types::{PtySession, PtyStatus, PTY_REPLAY_BUFFER_MAX};
 
 pub fn spawn_inner<R: Runtime>(
     app: AppHandle<R>,
@@ -206,70 +206,8 @@ pub(super) fn should_notify_session_error(exit_code: i32, enabled: bool) -> bool
     enabled && exit_code > 0
 }
 
-pub fn write_inner(session_id: String, data_b64: String) -> Result<(), String> {
-    let engine = base64::engine::general_purpose::STANDARD;
-    let bytes = engine
-        .decode(data_b64.as_bytes())
-        .map_err(|e| format!("base64 decode: {e}"))?;
-    let mut reg = registry().lock().map_err(|e| e.to_string())?;
-    let s = reg
-        .get_mut(&session_id)
-        .ok_or_else(|| format!("session {session_id} not found"))?;
-    s.writer
-        .write_all(&bytes)
-        .map_err(|e| format!("write: {e}"))?;
-    Ok(())
-}
-
-pub fn kill_inner(session_id: String) -> Result<(), String> {
-    let mut reg = registry().lock().map_err(|e| e.to_string())?;
-    let s = reg
-        .get_mut(&session_id)
-        .ok_or_else(|| format!("session {session_id} not found"))?;
-    let _ = s.child.kill();
-    s.status = PtyStatus::Killed;
-    Ok(())
-}
-
-/// Return raw output bytes from `since_offset` to the current end of the
-/// session's `output_buffer`, base64-encoded.
-///
-/// This is the deterministic polling primitive for `delegate_task_inner`:
-/// the caller snapshots the current buffer length, spawns the PTY, then
-/// periodically calls this function with the previous snapshot as
-/// `since_offset`. This gives a strictly monotone window of new bytes
-/// without locking the whole session for the duration of the agent run.
-///
-/// Behaviour:
-/// - `since_offset == 0` → return the full buffer (initial poll or replay).
-/// - `since_offset >= buffer.len()` → return an empty string (no new bytes).
-/// - Unknown session → return an empty string (already exited / pruned).
-///
-/// The returned string is base64-encoded raw PTY output (including ANSI
-/// escape codes). Callers that need plain text should strip ANSI sequences
-/// before inspecting the content.
-pub fn capture_output_inner(
-    session_id: &str,
-    since_offset: usize,
-) -> Result<CaptureResult, String> {
-    let reg = registry().lock().map_err(|e| e.to_string())?;
-    let s = match reg.get(session_id) {
-        Some(s) => s,
-        None => {
-            return Ok(CaptureResult {
-                data_b64: String::new(),
-                new_offset: since_offset,
-                session_status: None,
-            })
-        }
-    };
-    let buf = &s.output_buffer;
-    let start = since_offset.min(buf.len());
-    let slice = &buf[start..];
-    let engine = base64::engine::general_purpose::STANDARD;
-    Ok(CaptureResult {
-        data_b64: engine.encode(slice),
-        new_offset: buf.len(),
-        session_status: Some(s.status.clone()),
-    })
-}
+// `write_inner` / `kill_inner` / `capture_output_inner` (write/kill-by-id +
+// offset-based output capture) were retired 2026-09-14 alongside
+// `agent_orchestration::delegate`, their only caller (kanban "comandos
+// huérfanos"). Recoverable from git history if the feature gets wired to a
+// UI later.

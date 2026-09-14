@@ -18,10 +18,6 @@
 const readline = require('node:readline');
 const path = require('node:path');
 const research = require(path.join(__dirname, 'lib', 'research', 'index.js'));
-const { normalizeOpenAlexWork, normalizeS2Paper } = require(path.join(__dirname, 'lib', 'research', 'normalize.js'));
-const openalex = require(path.join(__dirname, 'lib', 'research', 'openalex.js'));
-const semanticScholar = require(path.join(__dirname, 'lib', 'research', 'semantic-scholar.js'));
-const { NotFoundError } = require(path.join(__dirname, 'lib', 'research', 'errors.js'));
 
 const SERVER_INFO = { name: 'research', version: '1.0.0' };
 const PROTOCOL_VERSION = '2024-11-05';
@@ -84,16 +80,30 @@ const TOOLS = [
     description: 'Lista las sesiones de investigacion existentes.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'research_check_retraction',
+    description: 'Comprueba si un DOI esta retractado, combinando Crossref (integra Retraction Watch desde 2023) con el flag is_retracted de OpenAlex.',
+    inputSchema: {
+      type: 'object',
+      properties: { doi: { type: 'string' } },
+      required: ['doi'],
+    },
+  },
+  {
+    name: 'research_snowball',
+    description: 'Bola de nieve acotada a un nivel: referencias (backward), citas (forward) o ambas de un DOI, via Semantic Scholar con fallback a OpenAlex. Guarda los candidatos en snowball.json de la sesion; no promueve nada a papers.json (usar research_add para eso).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        doi: { type: 'string' },
+        direction: { type: 'string', enum: ['backward', 'forward', 'both'], description: 'Default: both' },
+        limit: { type: 'number', description: 'Maximo de candidatos por direccion (default 25, maximo 100)' },
+      },
+      required: ['sessionId', 'doi'],
+    },
+  },
 ];
-
-async function fetchPaperByDoi(doi) {
-  try {
-    return normalizeOpenAlexWork(await openalex.getWorkByDoi(doi));
-  } catch (e) {
-    if (!(e instanceof NotFoundError)) throw e;
-  }
-  return normalizeS2Paper(await semanticScholar.getPaperByDoi(doi));
-}
 
 async function callTool(name, args) {
   switch (name) {
@@ -117,7 +127,7 @@ async function callTool(name, args) {
       const sessionId = String(args?.sessionId ?? '').trim();
       const doi = String(args?.doi ?? '').trim();
       if (!sessionId || !doi) throw new Error('sessionId y doi son obligatorios');
-      const paper = await fetchPaperByDoi(doi);
+      const paper = await research.resolvePaperByDoi(doi);
       const paperCount = research.addPaper(sessionId, paper);
       return { session: sessionId, paperCount, added: paper.title };
     }
@@ -133,6 +143,17 @@ async function callTool(name, args) {
     }
     case 'research_session_list':
       return research.listSessions();
+    case 'research_check_retraction': {
+      const doi = String(args?.doi ?? '').trim();
+      if (!doi) throw new Error('doi vacio');
+      return research.checkRetraction(doi);
+    }
+    case 'research_snowball': {
+      const sessionId = String(args?.sessionId ?? '').trim();
+      const doi = String(args?.doi ?? '').trim();
+      if (!sessionId || !doi) throw new Error('sessionId y doi son obligatorios');
+      return research.snowball(sessionId, doi, { direction: args?.direction ?? 'both', limit: args?.limit });
+    }
     default:
       throw new Error(`tool desconocida: ${name}`);
   }

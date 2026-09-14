@@ -187,6 +187,26 @@ A(det({ "package.json": JSON.stringify({ scripts: { test: "vitest run" } }), "pn
 A(det({ "package.json": JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }) }) === null, "caso8 (NEGATIVO): placeholder npm -> null", "");
 A(det({ "README.md": "nada" }) === null, "caso8 (NEGATIVO): sin manifiesto -> null", "");
 
+// Caso 9: worktree enlazado de git (.git es un FICHERO "gitdir: ...") -> no se
+// lanzan tests. Bug 2026-09-14: los subagentes en worktree comparten id de
+// proyecto con el checkout principal, corrian sin node_modules
+// (ERR_MODULE_NOT_FOUND) y su resultado pisaba el del principal (falso rojo).
+const WT_DIR = join(FIXTURE, "wt");
+mkdirSync(join(WT_DIR, "src"), { recursive: true });
+writeFileSync(join(WT_DIR, ".git"), "gitdir: C:/repo/.git/worktrees/wt\n");
+writeFileSync(join(WT_DIR, "src", "a.ts"), "export const a = 1;\n");
+writeFileSync(join(WT_DIR, "package.json"), JSON.stringify({ scripts: { test: "node -e process.exit(1)" } }));
+A(lib.isGitWorktree(WT_DIR) === true, "caso9: .git como fichero -> worktree", "");
+A(lib.isGitWorktree(PROJ_DIR) === false, "caso9 (NEGATIVO): sin .git -> no es worktree", "");
+mkdirSync(join(FIXTURE, "main-repo", ".git"), { recursive: true });
+A(lib.isGitWorktree(join(FIXTURE, "main-repo")) === false, "caso9 (NEGATIVO): .git como carpeta -> checkout principal", "");
+const resBefore9 = JSON.stringify(readResult());
+const stateBefore9 = JSON.stringify(readState());
+r = fire(TRIGGER, { tool_name: "Edit", tool_input: { file_path: join(WT_DIR, "src", "a.ts") }, cwd: WT_DIR, session_id: "s9" });
+spawnSync("node", ["-e", "setTimeout(()=>{},1500)"]);
+A(r.status === 0 && JSON.stringify(readResult()) === resBefore9 && JSON.stringify(readState()) === stateBefore9,
+  "caso9: editar dentro de un worktree no lanza runner ni toca estado/resultado", `status=${r.status} res=${JSON.stringify(readResult())}`);
+
 // ---------------------------------------------------------------------------
 // Espera a que no quede ningun runner con el lock antes de borrar el fixture
 // (un comando en marcha mantiene el cwd abierto en Windows -> EPERM).

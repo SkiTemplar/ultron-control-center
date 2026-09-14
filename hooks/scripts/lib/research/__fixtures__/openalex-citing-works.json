@@ -1,0 +1,15 @@
+{
+  "_captured": "sintetico 2026-09-14: respuesta de GET /works?filter=cites:<id> (fallback forward de la bola de nieve).",
+  "results": [
+    {
+      "id": "https://openalex.org/Wciting1",
+      "doi": "https://doi.org/10.9001/oa-citing-1",
+      "display_name": "OpenAlex Fallback Citing 1",
+      "publication_year": 2023,
+      "cited_by_count": 2,
+      "type": "article",
+      "open_access": { "is_oa": false },
+      "authorships": []
+    }
+  ]
+}

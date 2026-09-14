@@ -165,6 +165,45 @@ function acentoInsensible(src) {
   return out;
 }
 
+/**
+ * Detección de idioma del texto de entrada (heurística de ratio de
+ * stopwords, sin dependencias nuevas). Objetivo único: decidir qué
+ * subconjunto de `senales_ejecutables` marcadas "es"/"en"/"*" en el catálogo
+ * tiene sentido ejecutar sobre ESTE texto (ver campo "idioma" del catálogo,
+ * añadido 2026-09-14). NO es un detector de idioma de propósito general: no
+ * reconoce mezcla real de idiomas ni terceros idiomas, y con texto corto o
+ * sin stopwords reconocibles cae a "es" — el catálogo nació pensando en TFG
+ * en español y ese es el sesgo más seguro cuando no hay evidencia clara (más
+ * vale ejecutar de más un patrón "es" sobre un texto ambiguo que dejar de
+ * ejecutarlo sobre un TFG real). Gemelo de `detectar_idioma` en tfg_lab.rs.
+ */
+const STOPWORDS_ES = new Set([
+  'el', 'la', 'los', 'las', 'de', 'del', 'en', 'y', 'a', 'que', 'un', 'una',
+  'unos', 'unas', 'es', 'son', 'por', 'para', 'con', 'no', 'se', 'su', 'sus',
+  'como', 'más', 'mas', 'pero', 'este', 'esta', 'estos', 'estas', 'al', 'lo',
+  'le', 'les', 'muy', 'también', 'tambien', 'entre', 'sobre', 'sin', 'ya',
+  'o', 'porque', 'cuando', 'donde', 'sí', 'si', 'nos', 'una', 'ha', 'han',
+]);
+const STOPWORDS_EN = new Set([
+  'the', 'of', 'and', 'a', 'to', 'in', 'is', 'are', 'that', 'for', 'on',
+  'with', 'as', 'this', 'it', 'by', 'an', 'be', 'was', 'were', 'from', 'or',
+  'but', 'not', 'have', 'has', 'at', 'their', 'which', 'these', 'those',
+  'its', 'we', 'you', 'they', 'been', 'can', 'will', 'into',
+]);
+
+/** Ratio de stopwords ES vs EN sobre las palabras del texto. Empate o sin
+ * evidencia -> "es" (ver comentario de arriba). */
+function detectarIdioma(text) {
+  const tokens = String(text || '').toLowerCase().match(/\p{L}+/gu) || [];
+  let es = 0;
+  let en = 0;
+  for (const t of tokens) {
+    if (STOPWORDS_ES.has(t)) es += 1;
+    else if (STOPWORDS_EN.has(t)) en += 1;
+  }
+  return en > es ? 'en' : 'es';
+}
+
 /** Compila las senales_ejecutables del catálogo. Una vez por escaneo. */
 function compileRules(patrones) {
   const rules = [];
@@ -176,6 +215,10 @@ function compileRules(patrones) {
     // UNA vez que un patrón entero es contextual (p. ej. tricolon), no señal
     // a señal. Por defecto "senal" (cuenta para la densidad del veredicto).
     const rol = (patron && patron.rol) === 'aviso' ? 'aviso' : 'senal';
+    // "idioma" vive igual en el patrón entero: "es"/"en" restringe la señal a
+    // ese idioma del texto, "*" (o ausente, compatibilidad con catálogos
+    // viejos) la deja correr siempre. Ver scan() para el filtrado real.
+    const idioma = (patron && patron.idioma) || '*';
     for (const senal of senales) {
       const tipo = (senal && senal.tipo) || '';
       const valor = (senal && senal.valor) || '';
@@ -203,6 +246,7 @@ function compileRules(patrones) {
           label: `heuristica:${valor}`,
           heuristic: valor,
           rol,
+          idioma,
         });
         continue;
       } else {
@@ -216,6 +260,7 @@ function compileRules(patrones) {
           label,
           re,
           rol,
+          idioma,
         });
       }
     }
@@ -248,12 +293,20 @@ function patternKey(name) {
  * `opts.minWords`/`opts.densityThreshold`/`opts.densityBand` pasan a
  * `computeVerdict` (overrides puntuales; ver esa función para los valores por
  * defecto y de dónde salen).
+ *
+ * `opts.idioma` fuerza el idioma del texto ("es"/"en") en vez de detectarlo
+ * con `detectarIdioma` (uso: tests y bancos de medición que ya conocen el
+ * idioma real del corpus). Solo corren las señales cuyo patrón declara
+ * `idioma ∈ {idiomaTexto, "*"}`; las de otro idioma se descartan igual que un
+ * `skipPatterns`, ANTES de contar `total_patterns_scanned`.
  */
 function scan(text, patrones, opts) {
   const src = String(text || '');
   const cat = patrones || loadCatalog();
   const skip = ((opts && opts.skipPatterns) || []).map(patternKey).filter(Boolean);
+  const idiomaTexto = (opts && opts.idioma) || detectarIdioma(src);
   let rules = compileRules(cat);
+  rules = rules.filter((r) => r.idioma === '*' || r.idioma === idiomaTexto);
   if (skip.length) {
     rules = rules.filter((r) => !skip.some((s) => patternKey(r.pattern).includes(s)));
   }
@@ -318,6 +371,7 @@ function scan(text, patrones, opts) {
     density_per_100w,
     veredicto,
     motivo_no_concluyente,
+    idioma_detectado: idiomaTexto,
   };
 }
 
@@ -330,6 +384,7 @@ module.exports = {
   compileRules,
   scan,
   patternKey,
+  detectarIdioma,
   MARKDOWN_NATIVE_PATTERNS,
   CATALOG_PATH,
   computeVerdict,

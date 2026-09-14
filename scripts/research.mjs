@@ -18,6 +18,8 @@
  *   node scripts/research.mjs bib <sessionId>
  *   node scripts/research.mjs session new "<tema>"
  *   node scripts/research.mjs session list
+ *   node scripts/research.mjs check-retraction <doi>
+ *   node scripts/research.mjs snowball <sessionId> <doi> [--direction backward|forward|both] [--limit N]
  */
 
 import { createRequire } from 'node:module';
@@ -27,10 +29,6 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const research = require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'index.js'));
-const { normalizeOpenAlexWork, normalizeS2Paper } = require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'normalize.js'));
-const openalex = require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'openalex.js'));
-const semanticScholar = require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'semantic-scholar.js'));
-const { NotFoundError } = require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'errors.js'));
 
 function fail(msg) {
   console.error(`[research] ${msg}`);
@@ -67,16 +65,6 @@ async function cmdSearch(positional, flags) {
   console.log(JSON.stringify({ query, total: results.length, totalBeforeFilter, results }, null, 2));
 }
 
-/** Resuelve el Paper normalizado de un DOI probando OpenAlex y luego Semantic Scholar. */
-async function fetchPaperByDoi(doi) {
-  try {
-    return normalizeOpenAlexWork(await openalex.getWorkByDoi(doi));
-  } catch (e) {
-    if (!(e instanceof NotFoundError)) throw e;
-  }
-  return normalizeS2Paper(await semanticScholar.getPaperByDoi(doi));
-}
-
 async function cmdAccess(positional, flags) {
   const doi = positional[0];
   if (!doi) fail('falta el doi: research.mjs access <doi>');
@@ -93,9 +81,26 @@ async function cmdAccess(positional, flags) {
 async function cmdAdd(positional) {
   const [sessionId, doi] = positional;
   if (!sessionId || !doi) fail('uso: research.mjs add <sessionId> <doi>');
-  const paper = await fetchPaperByDoi(doi);
+  const paper = await research.resolvePaperByDoi(doi);
   const count = research.addPaper(sessionId, paper);
   console.log(JSON.stringify({ session: sessionId, paperCount: count, added: paper.title }, null, 2));
+}
+
+async function cmdCheckRetraction(positional) {
+  const [doi] = positional;
+  if (!doi) fail('uso: research.mjs check-retraction <doi>');
+  console.log(JSON.stringify(await research.checkRetraction(doi), null, 2));
+}
+
+async function cmdSnowball(positional, flags) {
+  const [sessionId, doi] = positional;
+  if (!sessionId || !doi) fail('uso: research.mjs snowball <sessionId> <doi> [--direction backward|forward|both] [--limit N]');
+  const result = await research.snowball(sessionId, doi, {
+    direction: flags.direction ?? 'both',
+    limit: flags.limit ? Number(flags.limit) : undefined,
+  });
+  for (const w of result.warnings ?? []) console.error(`[aviso] ${w}`);
+  console.log(JSON.stringify(result, null, 2));
 }
 
 async function cmdBib(positional) {
@@ -130,7 +135,9 @@ async function main() {
     else if (cmd === 'add') await cmdAdd(positional);
     else if (cmd === 'bib') await cmdBib(positional);
     else if (cmd === 'session') cmdSession(positional);
-    else fail('subcomando desconocido. Uso: search | access | add | bib | session new|list');
+    else if (cmd === 'check-retraction') await cmdCheckRetraction(positional);
+    else if (cmd === 'snowball') await cmdSnowball(positional, flags);
+    else fail('subcomando desconocido. Uso: search | access | add | bib | session new|list | check-retraction | snowball');
   } catch (e) {
     fail(`${e.name ?? 'Error'}: ${String(e.message ?? e)}`);
   }

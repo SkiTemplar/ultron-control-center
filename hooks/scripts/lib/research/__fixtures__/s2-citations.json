@@ -1,0 +1,30 @@
+{
+  "_captured": "sintetico 2026-09-14: forma real de GET /graph/v1/paper/DOI:<doi>/citations?fields=contexts,intents,isInfluential,externalIds,title,year,citationCount de la Semantic Scholar Graph API.",
+  "offset": 0,
+  "data": [
+    {
+      "contexts": ["Similar results were found by [3]."],
+      "intents": ["background"],
+      "isInfluential": false,
+      "citingPaper": {
+        "paperId": "citeA000000000000000000000000000000000",
+        "externalIds": { "DOI": "10.9000/cite-a" },
+        "title": "Citing A - Not Influential",
+        "year": 2021,
+        "citationCount": 5
+      }
+    },
+    {
+      "contexts": [],
+      "intents": [],
+      "isInfluential": true,
+      "citingPaper": {
+        "paperId": "citeB000000000000000000000000000000000",
+        "externalIds": { "DOI": "10.9000/cite-b" },
+        "title": "Citing B - Influential",
+        "year": 2022,
+        "citationCount": 3
+      }
+    }
+  ]
+}

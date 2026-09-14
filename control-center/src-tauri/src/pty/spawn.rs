@@ -278,26 +278,8 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
     }
 }
 
-/// True if `name` resolves on PATH (`where` on Windows, `which` on POSIX).
-///
-/// Used by the orchestrator to fall back to Claude when an optional agentic
-/// CLI (codex/gemini) is not installed, instead of failing the whole
-/// delegation. `build_command` still performs its own probe at spawn time;
-/// this is the cheap pre-check for the fallback decision.
-pub fn cli_on_path(name: &str) -> bool {
-    let name = name.trim();
-    if name.is_empty() {
-        return false;
-    }
-    #[cfg(windows)]
-    let probe = {
-        use std::os::windows::process::CommandExt;
-        let mut c = std::process::Command::new("where");
-        c.arg(name);
-        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        c.output()
-    };
-    #[cfg(not(windows))]
-    let probe = std::process::Command::new("which").arg(name).output();
-    probe.map(|o| o.status.success()).unwrap_or(false)
-}
+// `cli_on_path` (cheap PATH pre-check for the delegation fallback decision)
+// was retired 2026-09-14 alongside `agent_orchestration::delegate` (kanban
+// "comandos huérfanos"). `build_command` above still does its own PATH probe
+// at spawn time. Recoverable from git history if the feature gets wired to a
+// UI later.

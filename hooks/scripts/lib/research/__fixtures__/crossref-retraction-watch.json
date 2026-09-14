@@ -1,0 +1,21 @@
+{
+  "_captured": "sintetico 2026-09-14: forma real de /works/{doi} de Crossref con notice de retraccion importada de Retraction Watch (source: retraction-watch, integracion desde 2023-09).",
+  "status": "ok",
+  "message-type": "work",
+  "message": {
+    "DOI": "10.9101/retracted-watch",
+    "type": "journal-article",
+    "title": ["A Retracted Study (Retraction Watch Notice)"],
+    "container-title": ["Journal of Synthetic Examples"],
+    "published": { "date-parts": [[2019]] },
+    "updated-by": [
+      {
+        "DOI": "10.9101/retraction-notice-2",
+        "type": "retraction",
+        "source": "retraction-watch",
+        "label": "Retraction",
+        "updated": { "date-parts": [[2023, 11, 2]] }
+      }
+    ]
+  }
+}

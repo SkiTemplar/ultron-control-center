@@ -76,6 +76,12 @@ function hookMain() {
   const cwd = payload.cwd || process.cwd();
   const sessionId = payload.session_id || null;
   if (!T.isCodeFile(filePath) || !T.isUnder(filePath, cwd)) return;
+  // Subagentes en worktree: sin node_modules y con el mismo id de proyecto que
+  // el checkout principal; su resultado pisaria el real con un falso rojo.
+  if (T.isGitWorktree(cwd)) {
+    trace({ hook: 'trigger', msg: 'worktree_skipped', cwd, file: filePath });
+    return;
+  }
 
   const project = process.env.RUN_TESTS_PROJECT || projectIdFromCwd(cwd) || path.basename(cwd);
   if (!project) return;

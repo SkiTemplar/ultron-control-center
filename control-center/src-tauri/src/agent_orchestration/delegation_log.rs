@@ -4,7 +4,6 @@
 // File location: ~/.ultron/cockpit/delegations.jsonl
 
 use std::fs;
-use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,55 +25,11 @@ pub(super) fn now_secs_safe() -> u64 {
         .unwrap_or(0)
 }
 
-pub(super) fn truncate(s: &str, max: usize) -> String {
-    // Strip control characters (incl. \r, \t, vertical-tab) — \n is already
-    // collapsed below — so the JSONL line stays grep/jq-friendly even when
-    // a task description was pasted from a terminal with weird escapes
-    // (KIRKARDO 3 LOW). Spaces survive.
-    let cleaned: String = s
-        .trim()
-        .chars()
-        .map(|c| if c == '\n' { ' ' } else { c })
-        .filter(|c| !c.is_control() || *c == ' ')
-        .collect();
-    // Single pass: bound iteration to `max` chars instead of allocating
-    // Vec<char> (KIRKARDO 2 MED). The truncated marker '…' only appears
-    // when we actually had to cut.
-    let mut head = String::with_capacity(max.min(cleaned.len()) + 3);
-    let mut truncated = false;
-    for (count, ch) in cleaned.chars().enumerate() {
-        if count >= max {
-            truncated = true;
-            break;
-        }
-        head.push(ch);
-    }
-    if truncated {
-        head.push('…');
-    }
-    head
-}
-
-pub(super) fn log_delegation(entry: DelegationLogEntry) -> Result<(), String> {
-    let path = delegations_path().ok_or("no home dir")?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-    // KIRKARDO 19 fix: single write_all so two concurrent delegations can't
-    // interleave their JSON body with the newline separator and produce a
-    // malformed JSONL line on Windows (where O_APPEND atomicity is weaker
-    // than POSIX). Avoids the {a}{b}\n\n pattern.
-    let mut buf = line.into_bytes();
-    buf.push(b'\n');
-    f.write_all(&buf).map_err(|e| e.to_string())?;
-    Ok(())
-}
+// `truncate` (task-preview string clamp) and `log_delegation` (JSONL append)
+// were retired alongside the delegation write path (2026-09-14, kanban
+// "comandos huérfanos" — `delegate_task_launch` had zero frontend callers).
+// `list_delegations_inner` below is the surviving READ side, still wired to
+// the Agents tab. Recoverable from git history if the write path returns.
 
 /// Parse JSONL lines and collapse entries sharing the same id: the LAST
 /// occurrence wins (running → done/failed keeps the final state). Returns

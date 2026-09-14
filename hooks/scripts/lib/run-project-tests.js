@@ -64,6 +64,18 @@ function isUnder(filePath, root) {
   return !!f && !!r && (f === r || f.startsWith(r + '/'));
 }
 
+// Worktree enlazado de git: `.git` es un FICHERO (`gitdir: ...`), no una carpeta.
+// Comparte identidad de proyecto con el checkout principal pero no tiene sus
+// dependencias instaladas, asi que sus resultados no son del proyecto real.
+function isGitWorktree(cwd) {
+  if (!cwd) return false;
+  try {
+    return fs.statSync(path.join(String(cwd), '.git')).isFile();
+  } catch (_) {
+    return false;
+  }
+}
+
 function readJson(p) {
   try {
     return JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -259,6 +271,7 @@ module.exports = {
   CODE_EXTS,
   isCodeFile,
   isUnder,
+  isGitWorktree,
   detectTestCommand,
   statePath,
   resultPath,

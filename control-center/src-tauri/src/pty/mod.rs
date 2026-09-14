@@ -3,15 +3,20 @@
 // Spawns `claude` / `codex` (or arbitrary commands) inside a PTY via
 // portable-pty. The embedded terminal UI (and its pty_* Tauri commands)
 // was retired 2026-07; this runtime stays because Rust-side consumers
-// drive it directly: kanban RunBatch (spawn), agent delegation
-// (spawn/write/capture/kill) and the tray/lifecycle shutdown path
-// (kill_all).
+// drive it directly: kanban RunBatch (spawn) and the tray/lifecycle
+// shutdown path (kill_all).
+//
+// `write_inner` / `kill_inner` / `capture_output_inner` / `cli_on_path`
+// (write/poll/kill-by-id + PATH probe) were retired 2026-09-14 alongside
+// `agent_orchestration::delegate`, their only caller (kanban "comandos
+// huérfanos" — `delegate_task_launch` had zero frontend callers).
+// Recoverable from git history if the feature gets wired to a UI later.
 //
 // Submodules:
 //   types    — PTY data types and session struct
 //   registry — Global session registry + timestamp/ID helpers
 //   spawn    — cwd resolution, PATH probing, command building
-//   ops      — Session lifecycle: spawn, write, kill, capture
+//   ops      — Session lifecycle: spawn
 
 pub(crate) mod ops;
 pub(crate) mod registry;
@@ -20,9 +25,5 @@ pub(crate) mod spawn;
 mod tests;
 pub(crate) mod types;
 
-pub use ops::{capture_output_inner, kill_inner, spawn_inner, write_inner};
+pub use ops::spawn_inner;
 pub use registry::kill_all_inner;
-pub use spawn::cli_on_path;
-// CaptureResult sigue siendo pub(crate) via `types`; solo PtyStatus se
-// nombra fuera del modulo (delegate.rs).
-pub use types::PtyStatus;

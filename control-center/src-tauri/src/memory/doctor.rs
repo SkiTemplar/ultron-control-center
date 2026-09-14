@@ -460,7 +460,7 @@ fn check_deprecation_deadlines() -> DoctorCheck {
         .query_row(
             "SELECT COUNT(*) FROM deprecation_entries
              WHERE deadline IS NOT NULL AND deadline < ?1
-               AND state NOT IN ('deleted','restored')",
+               AND state NOT IN ('deleted','restored','archived')",
             [&now],
             |r| r.get(0),
         )

@@ -52,7 +52,12 @@ const A = (c, n, d) => { if (c) console.log(`  [PASS] ${n}`); else { fail++; con
 
 A(byId.get(1)?.result?.serverInfo?.name === 'research', 'initialize -> serverInfo', JSON.stringify(byId.get(1)));
 const tools = byId.get(2)?.result?.tools ?? [];
-A(tools.length === 6 && tools.some((t) => t.name === 'research_search'), 'tools/list = 6 tools con research_search', JSON.stringify(tools.map((t) => t.name)));
+const toolNames = tools.map((t) => t.name);
+A(
+  tools.length === 8 && ['research_search', 'research_check_retraction', 'research_snowball'].every((n) => toolNames.includes(n)),
+  'tools/list = 8 tools, incluye research_search + research_check_retraction + research_snowball',
+  JSON.stringify(toolNames),
+);
 const listResult = byId.get(3)?.result?.content?.[0]?.text ?? '';
 A(!byId.get(3)?.result?.isError && listResult === '[]', 'research_session_list en carpeta vacia -> []', listResult);
 A(byId.get(4)?.result?.isError === true, 'tool inexistente -> isError (caso negativo)', JSON.stringify(byId.get(4)));

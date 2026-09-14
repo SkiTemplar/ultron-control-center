@@ -1,0 +1,25 @@
+{
+  "_captured": "sintetico 2026-09-14: respuesta de GET /works?filter=openalex_id:ID1|ID2 (fallback backward de la bola de nieve, un lote en una sola peticion).",
+  "results": [
+    {
+      "id": "https://openalex.org/Wref1",
+      "doi": "https://doi.org/10.9001/oa-ref-1",
+      "display_name": "OpenAlex Fallback Reference 1",
+      "publication_year": 2018,
+      "cited_by_count": 20,
+      "type": "article",
+      "open_access": { "is_oa": false },
+      "authorships": []
+    },
+    {
+      "id": "https://openalex.org/Wref2",
+      "doi": null,
+      "display_name": "OpenAlex Fallback Reference 2 (No DOI)",
+      "publication_year": 2019,
+      "cited_by_count": 5,
+      "type": "article",
+      "open_access": { "is_oa": false },
+      "authorships": []
+    }
+  ]
+}

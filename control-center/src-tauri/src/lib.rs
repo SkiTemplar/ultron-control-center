@@ -55,7 +55,6 @@ pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memo
 mod plans;
 mod plugin_state;
 mod plugins_info;
-mod project_agents;
 mod project_context;
 mod project_hotkeys;
 mod projects;

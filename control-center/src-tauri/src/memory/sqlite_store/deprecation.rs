@@ -137,6 +137,64 @@ pub(crate) fn insert_deprecation_entry(
     Ok(n > 0)
 }
 
+/// Una entrada de `deprecation_entries` vencida y todavía sin cerrar, tal
+/// como la necesita `MemoryService::apply_deprecation_deadlines`: solo el id
+/// del ledger (`"dep:<item_id>"`) y el `artifact` (el id del `MemoryItem`).
+pub(crate) struct OverdueDeprecationEntry {
+    pub id: String,
+    pub artifact: String,
+}
+
+/// Entradas de dominio `memory` cuyo `deadline` ya pasó y que no están
+/// cerradas (`state` no es `deleted`, `restored` ni `archived`). Mismo filtro
+/// que `check_deprecation_deadlines` del doctor, restringido a `domain='memory'`
+/// porque `artifact` solo tiene sentido como id de `MemoryItem` en ese dominio.
+pub(crate) fn select_overdue_deprecation_entries(
+    conn: &Connection,
+    now_iso: &str,
+) -> Result<Vec<OverdueDeprecationEntry>, MemoryError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, artifact FROM deprecation_entries
+             WHERE domain = 'memory'
+               AND deadline IS NOT NULL AND deadline < ?1
+               AND state NOT IN ('deleted', 'restored', 'archived')",
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("select_overdue: {e}")))?;
+    let rows = stmt
+        .query_map([now_iso], |r| {
+            Ok(OverdueDeprecationEntry {
+                id: r.get(0)?,
+                artifact: r.get(1)?,
+            })
+        })
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("select_overdue: {e}")))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(
+            row.map_err(|e| MemoryError::RemoteUnavailable(format!("select_overdue row: {e}")))?,
+        );
+    }
+    Ok(out)
+}
+
+/// Cierra una entrada del ledger: fija `state` (p.ej. `"archived"` o
+/// `"deleted"`) y refresca `last_seen`. Único escritor: `MemoryService`
+/// (misma regla de oro que `insert_deprecation_entry`).
+pub(crate) fn update_deprecation_entry_state(
+    conn: &Connection,
+    id: &str,
+    state: &str,
+    last_seen_iso: &str,
+) -> Result<(), MemoryError> {
+    conn.execute(
+        "UPDATE deprecation_entries SET state = ?1, last_seen = ?2 WHERE id = ?3",
+        rusqlite::params![state, last_seen_iso, id],
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("update_deprecation_entry_state: {e}")))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,7 +322,7 @@ mod tests {
 
     #[test]
     fn entry_state_is_deprecated_not_deleted_so_overdue_check_applies() {
-        // El check del doctor usa: state NOT IN ('deleted','restored') AND deadline < now.
+        // El check del doctor usa: state NOT IN ('deleted','restored','archived') AND deadline < now.
         // Los items con state='deprecated' y deadline futuro deben retornar overdue=0.
         let conn = schema_conn();
         insert_deprecation_entry(&conn, &sample_input("chk-item")).unwrap();

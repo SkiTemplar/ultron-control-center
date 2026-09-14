@@ -37,7 +37,13 @@ mod tests;
 // actually reference as `crate::ai_router::*`.
 // ---------------------------------------------------------------------------
 
-// The two functions called by other crate modules (hooks_admin, cost_watchdog, …)
+// `route` is called by other crate modules (hooks_admin, cost_watchdog, …).
+// `primary_model_for_zone` lost its last production caller when
+// `agent_orchestration::delegate::resolve_cheap_model` was retired
+// (2026-09-14, kanban "comandos huérfanos"); kept as ai_router's documented
+// "what model would zone X use" primitive — exercised today only by
+// `ai_router_tests::basics`.
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use providers::{primary_model_for_zone, route};
 
 // CLI_CACHE — exposed pub so the test in tests.rs can evict entries via
