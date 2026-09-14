@@ -1,19 +1,16 @@
 #!/usr/bin/env node
-// mcp-memory-server.mjs — copia empaquetada del servidor MCP de memoria de
-// ULTRON para distribucion como plugin de Claude Desktop / Claude Cowork.
+// mcp-memory-server.mjs — la memoria de ULTRON expuesta como MCP server.
 //
-// Fuente canonica: scripts/mcp-memory-server.mjs en la raiz del repo ULTRON.
-// Esta copia vive dentro del plugin (server/) porque Claude Code/Desktop no
-// permite que un componente de plugin referencie ficheros fuera de su propio
-// directorio una vez el plugin se instala/cachea (ver "Path traversal
-// limitations" en la referencia de plugins). Si se toca el protocolo o las
-// tools en el original, replicar el cambio aqui.
+// Igual que codegraph expone el grafo de codigo, esto expone brain.db+Qdrant
+// (recall hibrido del sidecar) a CUALQUIER cliente MCP: Claude Code, Codex,
+// Gemini CLI... El server es un traductor fino: protocolo MCP (JSON-RPC 2.0
+// por stdio, un JSON por linea) -> subprocesos del binario ultron-memory.exe,
+// que resuelve contra el daemon si esta vivo (sub-segundo) o en one-shot.
+// Zero-dep a proposito (mismo criterio que los hooks): sin SDK, el protocolo
+// minimo son 3 metodos (initialize / tools/list / tools/call).
 //
-// Protocolo: MCP (JSON-RPC 2.0 por stdio, un JSON por linea) -> subprocesos
-// del binario ultron-memory.exe, que resuelve contra el daemon si esta vivo
-// (sub-segundo) o en one-shot. Zero-dep a proposito: sin SDK, el protocolo
-// minimo son 3 metodos (initialize / tools/list / tools/call). Solo lectura:
-// ninguna tool escribe en brain.db ni en Qdrant.
+// Registro:  claude mcp add --scope user ultron-memory -- cmd /c node <este fichero>
+// Prueba:    node scripts/mcp-memory-server.selftest.mjs
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";

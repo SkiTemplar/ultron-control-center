@@ -91,6 +91,10 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // FRENTE D (2026-09-10): boton "Abrir app" en la tarjeta de proyecto
         // — lanza project.app_command en una terminal nueva (cwd = path).
         commands::projects::project_open_app,
+        // -- asistente "Nuevo proyecto" (wiring 2026-09-14): wrapper del CLI
+        //    ~/.ultron/scripts/project-create.mjs (roots/list/templates/
+        //    subject/mkdir/create) que consume NewProjectWizard.tsx. --
+        commands::projects::project_create_cli,
         // -- editor CLAUDE.md por proyecto (wiring 2026-08-11, audit #39;
         //    modal en ProjectWorkspace, fila Codigo). Del mismo bloque
         //    quedan SIN registrar a proposito: project_context_load (su

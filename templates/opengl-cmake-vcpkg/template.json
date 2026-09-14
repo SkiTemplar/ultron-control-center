@@ -1,0 +1,18 @@
+{
+  "id": "opengl-cmake-vcpkg",
+  "label": "OpenGL (CMake + vcpkg)",
+  "description": "Proyecto OpenGL con GLFW + GLAD + GLM via manifest de vcpkg, preset Debug-OpenGL y compile_commands.json para clangd. Porta el generador create_opengl_project (kind=context) del Control Center a plantilla local.",
+  "kinds": ["asignatura", "personal"],
+  "requires": ["cmake", "vcpkg"],
+  "files": [
+    "CMakeLists.txt",
+    "CMakePresets.json",
+    "vcpkg.json",
+    "README.md",
+    ".gitignore",
+    "src/common.h",
+    "src/main.cpp",
+    "src/shaders/.gitkeep",
+    "src/assets/.gitkeep"
+  ]
+}

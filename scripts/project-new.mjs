@@ -24,8 +24,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
-const REGISTRY = join(ULTRON, 'cockpit', 'projects.json');
-const BOARDS = join(ULTRON, 'cockpit', 'projects');
+// Overrides (solo para selftests, mismo patron que RESEARCH_ROOT_OVERRIDE en
+// lib/research/session.js): permiten a project-create.mjs y a su selftest
+// invocar este script contra un registro/tablero temporal sin tocar el
+// cockpit real del usuario.
+const REGISTRY = process.env.ULTRON_PROJECTS_JSON_OVERRIDE || join(ULTRON, 'cockpit', 'projects.json');
+const BOARDS = process.env.ULTRON_BOARDS_DIR_OVERRIDE || join(ULTRON, 'cockpit', 'projects');
 
 const COLUMN_ROLES = [
   { id: 1, name: 'Backlog', role: 'todo' },
@@ -225,6 +229,7 @@ if (args.dryRun) {
   process.exit(0);
 }
 
+mkdirSync(dirname(REGISTRY), { recursive: true });
 if (existsSync(REGISTRY)) copyFileSync(REGISTRY, `${REGISTRY}.bak`);
 writeJsonAtomic(REGISTRY, registry);
 

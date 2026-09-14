@@ -3,8 +3,9 @@
 use std::fs;
 
 use super::types_io::{
-    build_mcp_info, normalize_mcp_name, parse_fallbacks, parse_mcp_file, parse_settings,
-    read_health, McpInfo, McpServerCfg,
+    build_mcp_info, normalize_mcp_name, parse_fallbacks, parse_inline_plugin_manifest_mcp,
+    parse_mcp_file, parse_plugin_mcp_file, parse_settings, read_enabled_plugins, read_health,
+    read_installed_plugins, select_enabled_plugin_paths, McpInfo, McpServerCfg,
 };
 
 /// Read `~/.claude.json` and extract every MCP server declared there:
@@ -52,64 +53,44 @@ pub(super) fn collect_claude_json_mcps() -> Vec<(String, String, McpServerCfg)> 
     out
 }
 
-/// Discover MCP servers contributed by installed plugins.
+/// Discover MCP servers contributed by installed, **enabled** plugins.
+///
+/// Source of truth: `~/.claude/plugins/installed_plugins.json` (what the
+/// user actually installed) filtered by `~/.claude/settings.json` ->
+/// `enabledPlugins`. This deliberately does NOT walk
+/// `~/.claude/plugins/marketplaces/`: that tree is the catalogue of every
+/// plugin a marketplace *offers* (`external_plugins/discord`,
+/// `external_plugins/telegram`, ...), not what's installed — treating it as
+/// a source was the bug (uninstalled marketplace plugins showing as MCPs).
 pub(super) fn collect_plugin_mcps() -> Vec<(String, String, McpServerCfg)> {
-    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
     let Some(home) = dirs::home_dir() else {
-        return out;
+        return Vec::new();
     };
-    let plugins_root = home.join(".claude").join("plugins");
-    if !plugins_root.exists() {
-        return out;
-    }
-    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(plugins_root, 0)];
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > 6 {
-            continue;
+    collect_plugin_mcps_from(&home)
+}
+
+/// FS-parameterised core of [`collect_plugin_mcps`] — takes `home` as an
+/// argument so tests can point it at a `tempfile::TempDir` instead of the
+/// real `~` (hermetic, no dependency on this machine's actual plugins).
+pub(super) fn collect_plugin_mcps_from(
+    home: &std::path::Path,
+) -> Vec<(String, String, McpServerCfg)> {
+    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
+    let installed = read_installed_plugins(home);
+    let enabled_plugins = read_enabled_plugins(home);
+
+    for (slug, install_path) in select_enabled_plugin_paths(&installed, &enabled_plugins) {
+        let mcp_path = install_path.join(".mcp.json");
+        for (name, cfg) in parse_plugin_mcp_file(&mcp_path).into_iter() {
+            out.push((slug.clone(), name, cfg));
         }
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                if name == "node_modules" || name.starts_with('.') {
-                    continue;
-                }
-                stack.push((path, depth + 1));
-            } else if path.file_name().and_then(|s| s.to_str()) == Some(".mcp.json") {
-                let slug =
-                    derive_plugin_slug(&path).unwrap_or_else(|| "unknown-plugin".to_string());
-                for (name, cfg) in parse_mcp_file(&path).into_iter() {
-                    out.push((slug.clone(), name, cfg));
-                }
-            }
+
+        let manifest_path = install_path.join(".claude-plugin").join("plugin.json");
+        for (name, cfg) in parse_inline_plugin_manifest_mcp(&manifest_path).into_iter() {
+            out.push((slug.clone(), name, cfg));
         }
     }
     out
-}
-
-pub(super) fn derive_plugin_slug(mcp_path: &std::path::Path) -> Option<String> {
-    let parts: Vec<&std::ffi::OsStr> = mcp_path.iter().collect::<Vec<_>>();
-    let mut idx_plugins: Option<usize> = None;
-    for (i, p) in parts.iter().enumerate() {
-        if p.to_string_lossy() == "plugins" {
-            idx_plugins = Some(i);
-            break;
-        }
-    }
-    let i = idx_plugins?;
-    let after: Vec<String> = parts[i + 1..]
-        .iter()
-        .map(|s| s.to_string_lossy().to_string())
-        .collect();
-    match after.as_slice() {
-        [first, _market, plugin, _ver, _file, ..] if first == "cache" => Some(plugin.clone()),
-        [first, _market, plugin, _file, ..] if first == "marketplaces" => Some(plugin.clone()),
-        [first, plugin, _file, ..] if first == "marketplaces" => Some(plugin.clone()),
-        _ => after.first().cloned(),
-    }
 }
 
 /// Discover MCP servers declared in project-level `.mcp.json` files.

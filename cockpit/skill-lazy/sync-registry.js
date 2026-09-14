@@ -109,6 +109,23 @@ function loadExistingRegistry() {
 // esta activo: si no, la skill no existe para Claude Code y el registry queda
 // prometiendo algo que el dispatcher nunca podra inyectar.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Shared filter: a namespaced id "plugin:skill" is only usable when its
+// plugin is enabled in settings.json. Non-namespaced ids are always usable.
+// enabled === null means settings.json was unreadable — fail-open (a missing
+// settings file must not silently hide every plugin skill).
+// Used both when accepting NEW ids from the dispatcher source and when
+// pruning entries already sitting in the registry (2026-09-14: an uninstalled
+// plugin's cache dir can linger on disk, so disk-presence alone is not enough
+// to decide an entry is still live).
+// ---------------------------------------------------------------------------
+function isNamespacedIdEnabled(id, enabled) {
+  if (!id.includes(':')) return true;
+  if (enabled === null) return true;
+  const plugin = id.split(':')[0];
+  return enabled.some((p) => p.startsWith(plugin));
+}
+
 function enabledPluginNames() {
   try {
     const settings = JSON.parse(fs.readFileSync(SETTINGS_JSON, 'utf8'));
@@ -147,13 +164,7 @@ function extractIdsFromDispatcher() {
   while ((m = reDouble.exec(src)) !== null) ids.push(m[1]);
 
   const enabled = enabledPluginNames();
-  const usable = enabled === null
-    ? [...new Set(ids)]
-    : [...new Set(ids)].filter((id) => {
-        if (!id.includes(':')) return true;
-        const plugin = id.split(':')[0];
-        return enabled.some((p) => p.startsWith(plugin));
-      });
+  const usable = [...new Set(ids)].filter((id) => isNamespacedIdEnabled(id, enabled));
   return usable;
 }
 
@@ -458,11 +469,7 @@ function buildRegistry() {
   // de las entradas existentes para no perder altas manuales, asi que una
   // fantasma ya registrada sobrevivia a cada sincronizacion.
   const enabled = enabledPluginNames();
-  const pluginIsOff = (id) => {
-    if (enabled === null || !id.includes(':')) return false;
-    const plugin = id.split(':')[0];
-    return !enabled.some((p) => p.startsWith(plugin));
-  };
+  const pluginIsOff = (id) => !isNamespacedIdEnabled(id, enabled);
 
   let pruned = 0;
   const prunedIds = [];
@@ -711,4 +718,8 @@ function main() {
   );
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { isNamespacedIdEnabled, extractIdsFromDispatcher, buildRegistry };

@@ -237,8 +237,8 @@ run('el digest se redacta ANTES de enviarse a claude -p', () => {
     previa: [userTurn(`mi clave es ${FAKE_SECRET}`), assistantTurn('ok'), userTurn('segundo prompt real'), assistantTurn('listo')],
   });
   let sentPrompt = null;
-  fakeImpl = (_file, args) => {
-    sentPrompt = args[args.length - 1]; // el prompt va ultimo (ver runClaude)
+  fakeImpl = (_file, _args, opts) => {
+    sentPrompt = opts.input; // el prompt va por stdin (ver runClaude)
     return { status: 0, stdout: JSON.stringify({ is_error: false, result: '## Temas\n- ok\n## Decisiones\n(nada relevante)\n## Pendientes\n(nada relevante)\n## Ficheros/commits relevantes\n(nada relevante)\n' }), stderr: '', error: null, signal: null };
   };
   process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR = dir;
@@ -247,6 +247,28 @@ run('el digest se redacta ANTES de enviarse a claude -p', () => {
   assert.ok(sentPrompt, 'debe haberse llamado a claude -p');
   assert.ok(!sentPrompt.includes(FAKE_SECRET), 'el secreto NO debe llegar en claro al prompt');
   assert.ok(sentPrompt.includes('[REDACTED]'), 'el hueco redactado debe quedar marcado');
+});
+run('un digest mayor que el limite de linea de comandos de Windows viaja por stdin, no como argumento', () => {
+  const projectId = 'demo-long-digest';
+  const turns = [];
+  for (let i = 0; i < 30; i++) {
+    turns.push(userTurn(`prompt ${i} ` + `palabra${i} `.repeat(300)), assistantTurn(`respuesta ${i} ` + `dato${i} `.repeat(300)));
+  }
+  const dir = makeTranscriptsDir({ previa: turns });
+  let sentArgs = null;
+  let sentInput = null;
+  fakeImpl = (_file, args, opts) => {
+    sentArgs = args;
+    sentInput = opts.input;
+    return { status: 0, stdout: JSON.stringify({ is_error: false, result: '## Temas\n- ok\n## Decisiones\n(nada relevante)\n## Pendientes\n(nada relevante)\n## Ficheros/commits relevantes\n(nada relevante)\n' }), stderr: '', error: null, signal: null };
+  };
+  process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR = dir;
+  runMainWithArgs(['--cwd', 'X', '--project', projectId, '--session', 'nueva', '--target-session', 'previa']);
+  delete process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR;
+  assert.ok(sentInput, 'debe haberse llamado a claude -p con el prompt en stdin');
+  assert.ok(sentInput.length > 32767, `el caso debe superar el limite de Windows (prompt de ${sentInput.length} caracteres)`);
+  assert.ok(sentArgs.every((a) => a.length < 100), 'ningun argumento debe llevar el prompt');
+  assert.ok(lastSession.readSummary(projectId, 'previa'), 'summary.md debe escribirse');
 });
 run('NEGATIVO: el resultado del modelo tambien se redacta antes de escribir summary.md', () => {
   const projectId = 'demo-redact-in';

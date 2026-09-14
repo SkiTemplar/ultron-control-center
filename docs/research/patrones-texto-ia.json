@@ -601,6 +601,8 @@
       "ejemplo_en": "clear, concise, and actionable",
       "ejemplo_es": "'claro, conciso y eficaz' repetido como estructura fija en cada enumeración del TFG",
       "correccion": "Listar tantos elementos como el contenido exija (dos, cuatro, siete), no forzar siempre tres.",
+      "rol": "aviso",
+      "rol_nota": "Medido 2026-08-23/2026-09-11 sobre corpus propio (23 IA / 6 humano): dispara en 19/23 documentos IA (82,6%) pero TAMBIEN en 4/6 humanos (66,7%) — salta casi igual en ambos lados, así que sumarlo a la densidad del veredicto castigaba prosa humana legítima con enumeraciones de tres. Se sigue detectando y mostrando (queda en 'matches'), pero no cuenta para 'density_per_100w' ni para el veredicto; ver senales_ejecutables/tipo=heuristica y el campo 'rol' que leen ai-text-detector.js y tfg_lab.rs.",
       "senales_ejecutables": [
         {
           "tipo": "heuristica",

@@ -52,6 +52,44 @@ const CATALOG_PATH = [
 const MAX_MATCHES = 50;
 const EVIDENCE_CONTEXT = 30;
 
+/**
+ * Veredicto por DENSIDAD (decidido por el usuario 2026-09-11, sustituye al
+ * "≥1 señal = IA" anterior). Gemelo de `calcular_veredicto` en tfg_lab.rs.
+ *
+ * MIN_WORDS: un texto corto no da margen estadístico ni al catálogo ni al
+ * autor — por debajo se declara `no_concluyente` en vez de arriesgar un
+ * "limpio" o un "IA" sin base.
+ *
+ * DENSITY_THRESHOLD y DENSITY_BAND: ajustados con leave-one-out sobre el
+ * corpus propio (docs/research/corpus/, gitignorado; ver
+ * `scripts/ai-text-eval.mjs`) el 2026-09-11 — 23 documentos IA / 6 humanos,
+ * AMBOS por debajo de 30: la cifra es la mejor disponible, no una garantía.
+ * El umbral que maximiza F1 en leave-one-out cae en 0,116-0,145 (media
+ * 0,118) según qué documento se deja fuera — banda muy estable, pero nace de
+ * solo 3 humanos con ≥ MIN_WORDS palabras. DENSITY_THRESHOLD=0.12 es ese
+ * ajuste redondeado; DENSITY_BAND=0.03 cubre el rango de inestabilidad entre
+ * pliegues (0,09-0,15) como zona de duda explícita en vez de forzar un
+ * "limpio" o un "IA" donde el propio experimento no está seguro.
+ */
+const MIN_WORDS = 400;
+const DENSITY_THRESHOLD = 0.12;
+const DENSITY_BAND = 0.03;
+
+/**
+ * Tres estados a partir de palabras y densidad (señales/100 palabras SIN
+ * contar las de rol "aviso", ver `compileRules`). `opts` permite overrides
+ * puntuales (banco de medición, CLI) sin tocar los valores por defecto.
+ */
+function computeVerdict(words, densityPer100w, opts) {
+  const minWords = (opts && opts.minWords) ?? MIN_WORDS;
+  const threshold = (opts && opts.densityThreshold) ?? DENSITY_THRESHOLD;
+  const band = (opts && opts.densityBand) ?? DENSITY_BAND;
+  if (words < minWords) return 'no_concluyente';
+  if (densityPer100w >= threshold + band) return 'probable_ia';
+  if (densityPer100w < threshold - band) return 'sin_indicios';
+  return 'no_concluyente';
+}
+
 function loadCatalog(catalogPath) {
   const p = catalogPath || CATALOG_PATH;
   const raw = fs.readFileSync(p, 'utf8');
@@ -134,6 +172,10 @@ function compileRules(patrones) {
     const senales = Array.isArray(patron && patron.senales_ejecutables)
       ? patron.senales_ejecutables
       : [];
+    // "rol" vive en el patrón, no en cada señal suelta: el catálogo declara
+    // UNA vez que un patrón entero es contextual (p. ej. tricolon), no señal
+    // a señal. Por defecto "senal" (cuenta para la densidad del veredicto).
+    const rol = (patron && patron.rol) === 'aviso' ? 'aviso' : 'senal';
     for (const senal of senales) {
       const tipo = (senal && senal.tipo) || '';
       const valor = (senal && senal.valor) || '';
@@ -160,6 +202,7 @@ function compileRules(patrones) {
           correction: (patron && patron.correccion) || '',
           label: `heuristica:${valor}`,
           heuristic: valor,
+          rol,
         });
         continue;
       } else {
@@ -172,6 +215,7 @@ function compileRules(patrones) {
           correction: (patron && patron.correccion) || '',
           label,
           re,
+          rol,
         });
       }
     }
@@ -192,13 +236,18 @@ function patternKey(name) {
 
 /**
  * Escanea `text` contra el catálogo. Devuelve la misma forma que TfgReport:
- * { matches, patterns_hit, total_patterns_scanned, words, density_per_100w }.
+ * { matches, patterns_hit, total_patterns_scanned, words, density_per_100w,
+ *   senales_total, avisos_total, veredicto, motivo_no_concluyente }.
  *
  * `opts.skipPatterns` desactiva patrones por nombre (substring normalizado).
  * Los patrones saltados NO cuentan para `total_patterns_scanned` ni para la
  * densidad: el informe describe lo que de verdad se miró. Se usa para el
  * destino Markdown, donde la negrita y el guion largo son sintaxis legítima y
  * no artefactos de haber pegado la salida de un chatbot.
+ *
+ * `opts.minWords`/`opts.densityThreshold`/`opts.densityBand` pasan a
+ * `computeVerdict` (overrides puntuales; ver esa función para los valores por
+ * defecto y de dónde salen).
  */
 function scan(text, patrones, opts) {
   const src = String(text || '');
@@ -211,10 +260,12 @@ function scan(text, patrones, opts) {
   const scannedPatterns = new Set(rules.map((r) => r.patternIdx));
   const hitPatterns = new Set();
   const matches = [];
-  let total = 0; // TODOS los hallazgos, aunque la lista devuelta se recorte
+  let totalSenal = 0; // hallazgos de rol "senal": cuentan para densidad/veredicto
+  let totalAviso = 0; // hallazgos de rol "aviso": se listan, no cuentan
 
   const push = (rule, start, end) => {
-    total += 1;
+    if (rule.rol === 'aviso') totalAviso += 1;
+    else totalSenal += 1;
     hitPatterns.add(rule.patternIdx);
     if (matches.length >= MAX_MATCHES) return;
     matches.push({
@@ -224,6 +275,7 @@ function scan(text, patrones, opts) {
       start,
       end,
       correction: rule.correction,
+      rol: rule.rol,
     });
   };
 
@@ -244,6 +296,16 @@ function scan(text, patrones, opts) {
   }
 
   const words = src.trim() ? src.trim().split(/\s+/).length : 0;
+  const total = totalSenal + totalAviso;
+  // La densidad se calcula sobre el TOTAL de señales (rol "senal"), no sobre
+  // la lista recortada ni sobre los avisos: si no, un texto largo salía con
+  // menos densidad que uno corto igual de malo, y un tricolon suelto inflaba
+  // el veredicto de un texto humano.
+  const density_per_100w = words > 0 ? (totalSenal * 100) / words : 0;
+  const veredicto = computeVerdict(words, density_per_100w, opts);
+  const motivo_no_concluyente =
+    veredicto === 'no_concluyente' ? (words < ((opts && opts.minWords) ?? MIN_WORDS) ? 'pocas_palabras' : 'densidad_ambigua') : null;
+
   return {
     matches,
     matches_total: total,
@@ -251,9 +313,11 @@ function scan(text, patrones, opts) {
     patterns_hit: hitPatterns.size,
     total_patterns_scanned: scannedPatterns.size,
     words,
-    // La densidad se calcula sobre el TOTAL, no sobre la lista recortada: si
-    // no, un texto largo salía con menos densidad que uno corto igual de malo.
-    density_per_100w: words > 0 ? (total * 100) / words : 0,
+    senales_total: totalSenal,
+    avisos_total: totalAviso,
+    density_per_100w,
+    veredicto,
+    motivo_no_concluyente,
   };
 }
 
@@ -261,4 +325,15 @@ function scan(text, patrones, opts) {
 // es Markdown". En un destino .md son sintaxis legitima, no artefactos.
 const MARKDOWN_NATIVE_PATTERNS = ['artefactos de markup', 'guion largo'];
 
-module.exports = { loadCatalog, compileRules, scan, patternKey, MARKDOWN_NATIVE_PATTERNS, CATALOG_PATH };
+module.exports = {
+  loadCatalog,
+  compileRules,
+  scan,
+  patternKey,
+  MARKDOWN_NATIVE_PATTERNS,
+  CATALOG_PATH,
+  computeVerdict,
+  MIN_WORDS,
+  DENSITY_THRESHOLD,
+  DENSITY_BAND,
+};

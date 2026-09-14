@@ -270,24 +270,23 @@ const PLUGINS = [
   // Testing
   { id: 'superpowers:test-driven-development', triggers: ['tdd', 'test-driven development'],                  strong: ['escribe los tests primero', 'red green refactor'],                         context: ['testing', 'pruebas unitarias', 'cobertura de tests'] },
   { id: 'webapp-testing',                    triggers: ['playwright', 'webapp testing', 'e2e'],               strong: ['test web app local', 'browser snapshot'],                                  context: ['e2e', 'browser testing', 'ui testing'] },
-  // Feature development
-  { id: 'feature-dev:feature-dev',           triggers: ['feature dev'],                                       strong: ['arquitectura de feature', 'diseno tecnico de feature'],                    context: ['nueva feature', 'diseno tecnico'] },
   // Security
   { id: 'security-scan',                     triggers: ['security scan', 'security review'],                  strong: ['cve', 'sast', 'static analysis', 'owasp'],                                 context: ['vulnerabilidades', 'auditoria seguridad'] },
   // Database / migrations
   { id: 'database-migrations',               triggers: ['database migrations', 'db migration'],               strong: ['zero-downtime migration', 'alter table', 'expand-contract', 'prisma migrate', 'alembic'], context: ['schema', 'rls', 'migracion de db'] },
   // Git / versioning
   { id: 'git-conflict-resolver',             triggers: ['git conflict', 'merge conflict', 'git bisect', 'interactive rebase'], strong: ['cherry-pick', 'core.autocrlf', 'git rerere'],        context: ['conflicto de merge', 'rebase'] },
-  { id: 'commit-commands:commit',            triggers: ['commit', 'git commit'],                              strong: ['conventional commits', 'commit message'],                                  context: ['commit'] },
+  // (2026-09-14) commit-commands:commit retirado: plugin desinstalado, git
+  // commit no necesita skill propia (ver git-workflow.md).
   // Frontend / design
   { id: 'frontend-design',                   triggers: ['frontend design'],                                   strong: ['glassmorphism', 'brutalist', 'minimalist ui'],                             context: ['componentes ui', 'estilos visuales', 'frontend'] },
   // Infrastructure
   { id: 'docker-patterns',                   triggers: ['docker', 'dockerfile', 'docker-compose'],            strong: ['multi-stage build', 'docker compose'],                                     context: ['contenedores', 'dockerfile'] },
   // MCP / hooks
   { id: 'mcp-builder',                       triggers: ['mcp builder', 'crear mcp', 'crear servidor mcp'],   strong: ['mcp server', 'servidor mcp'],                                              context: ['model context protocol', 'tool registration'] },
-  { id: 'ecc:hookify',                       triggers: ['hookify', 'crea un hook'],                          strong: ['settings.json hooks', 'pretooluse', 'posttooluse', 'userpromptsubmit hook'], context: ['hooks', 'automatizaciones'] },
+  // (2026-09-14) ecc:hookify retirado: plugin/marketplace ecc desinstalado.
   // Skill / agent management
-  { id: 'skill-creator:skill-creator',       triggers: ['crear skill', 'skill creator'],                     strong: ['mejorar skill', 'editar skill', 'nueva skill'],                            context: ['skill md', 'frontmatter de skill'] },
+  { id: 'skill-creator',                     triggers: ['crear skill', 'skill creator'],                     strong: ['mejorar skill', 'editar skill', 'nueva skill'],                            context: ['skill md', 'frontmatter de skill'] },
   // Memory / context
   { id: 'consolidate-memory',                triggers: ['consolida memoria', 'ordena .ultron', 'limpia el index', 'fusiona memorias'], strong: ['memory consolidation', 'memory.md'],          context: ['memoria', 'index'] },
   // Language patterns (catalog)

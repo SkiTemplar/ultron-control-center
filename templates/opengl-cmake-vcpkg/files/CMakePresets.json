@@ -1,0 +1,16 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "Debug-OpenGL",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/cmake-build-debug-opengl",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Generado por project-create.mjs (plantilla vacio)
+node_modules/
+.venv/
+__pycache__/
+dist/
+build/
+cmake-build-*/
+*.log
+.DS_Store
+Thumbs.db

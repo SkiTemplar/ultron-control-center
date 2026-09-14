@@ -32,8 +32,12 @@ Confirmado en la documentacion oficial:
 de Claude Code. Se duplica porque, una vez instalado, un plugin no puede
 referenciar ficheros fuera de su propio directorio (la referencia de plugins
 lo rechaza como "path escapes plugin directory"; ver "Path traversal
-limitations" en la referencia de plugins). Si cambia el protocolo o las
-tools en el original, replicar el cambio aqui.
+limitations" en la referencia de plugins).
+
+La fuente unica es el original: no editar la copia a mano.
+`node scripts/package-cowork-plugin.mjs` la sobrescribe desde el original
+antes de empaquetar, y `scripts/package-cowork-plugin.selftest.mjs` falla si
+la copia commiteada difiere.
 
 ## Limites
 
@@ -48,16 +52,21 @@ tools en el original, replicar el cambio aqui.
 
 ## Instalación (app de escritorio de Claude)
 
-1. Abrir la app de escritorio Claude (no Claude Code).
-2. Menu **Customize** (barra lateral) -> pestana **Plugins**.
-3. Boton "+" junto a "Personal plugins" -> subir un plugin propio, apuntando
-   a la carpeta `%USERPROFILE%\.ultron\plugins\ultron-memory-cowork`
-   (o a un `.zip` de esa carpeta si la UI solo acepta fichero).
-4. Confirmar instalacion. El plugin queda guardado localmente en el equipo.
-5. Abrir un chat o una sesion de Cowork **local** (Desktop) y comprobar que
+1. Regenerar el zip desde la raiz del repo ULTRON:
+   `node scripts/package-cowork-plugin.mjs` (escribe
+   `plugins/ultron-memory-cowork.zip`). No comprimir la carpeta a mano: el zip
+   debe llevar el manifiesto en la raiz, rutas con `/`, entradas de directorio
+   y ningun `.zip` anidado, y un zip antiguo no refleja los cambios del
+   manifiesto.
+2. Abrir la app de escritorio Claude (no Claude Code).
+3. Menu **Customize** (barra lateral) -> pestana **Plugins**.
+4. Boton "+" junto a "Personal plugins" -> subir
+   `%USERPROFILE%\.ultron\plugins\ultron-memory-cowork.zip`.
+5. Confirmar instalacion. El plugin queda guardado localmente en el equipo.
+6. Abrir un chat o una sesion de Cowork **local** (Desktop) y comprobar que
    las tools `memory_recall` / `memory_stats` / `memory_provenance` aparecen
    en el selector de herramientas/skills.
-6. Probar con un prompt tipo: "usa memory_stats para ver el estado de mi
+7. Probar con un prompt tipo: "usa memory_stats para ver el estado de mi
    memoria" y verificar que responde con datos reales (activos/deprecados).
 
 Nota: en Cowork **en la nube** (o Chrome side panel sin la app abierta) este

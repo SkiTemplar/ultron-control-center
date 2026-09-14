@@ -1,0 +1,8 @@
+# Generado por project-create.mjs (plantilla opengl-cmake-vcpkg)
+cmake-build-*/
+.vs/
+.idea/
+*.o
+*.obj
+CMakeFiles/
+CMakeCache.txt

@@ -32,7 +32,35 @@ const ALLOWED_KEYS: &[&str] = &[
     // Providers para el proxy free-tier (NVIDIA NIM + OpenRouter).
     "NVIDIA_NIM_API_KEY",
     "OPENROUTER_API_KEY",
+    // Buscador de papers (hooks/scripts/lib/research/*.js): claves/emails que
+    // leen openalex.js, semantic-scholar.js y unpaywall.js vía process.env.
+    "OPENALEX_API_KEY",
+    "OPENALEX_MAILTO",
+    "SEMANTIC_SCHOLAR_API_KEY",
+    "UNPAYWALL_EMAIL",
 ];
+
+/// Subconjunto de `ALLOWED_KEYS` que son direcciones de contacto, no
+/// secretos: no se enmascaran en la UI y se validan como email en vez de
+/// tratarse como una API key opaca.
+const EMAIL_KEYS: &[&str] = &["OPENALEX_MAILTO", "UNPAYWALL_EMAIL"];
+
+/// Validación mínima "parse, don't validate": exige un único `@` no inicial
+/// ni final y un dominio con al menos un punto. No pretende cubrir el RFC
+/// completo — solo evitar que basura evidente (vacío, sin arroba, sin
+/// dominio) llegue a `set_var`/`setx` y a las peticiones reales a OpenAlex /
+/// Unpaywall, que exigen un contacto con forma de email.
+fn is_valid_email(raw: &str) -> bool {
+    let t = raw.trim();
+    let Some(at) = t.find('@') else {
+        return false;
+    };
+    if at == 0 || at == t.len() - 1 {
+        return false;
+    }
+    let domain = &t[at + 1..];
+    domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
+}
 
 /// Estado de una API key de proveedor: si está configurada (registro User
 /// scope o env del proceso) y una versión enmascarada para mostrar en la UI.
@@ -46,8 +74,15 @@ pub struct EnvKeyStatus {
     /// True si la key existe en el registro de usuario (HKCU\Environment),
     /// aunque el proceso actual no la vea todavía (requiere reiniciar).
     pub configured: bool,
-    /// Vista enmascarada `abcd…wxyz`. None si no hay key o parece placeholder.
+    /// Vista enmascarada `abcd…wxyz` para secretos. Para las variables de
+    /// `EMAIL_KEYS` (`is_secret: false`) lleva el valor COMPLETO sin
+    /// enmascarar — un email no es un secreto y ocultarlo solo estorba a
+    /// quien quiere comprobar qué contacto quedó guardado. None si no hay
+    /// valor.
     pub masked: Option<String>,
+    /// False para las variables de contacto (`EMAIL_KEYS`): la UI no debe
+    /// enmascararlas ni ofrecer el toggle de mostrar/ocultar.
+    pub is_secret: bool,
 }
 
 /// Enmascara una key: primeros 4 + ... + últimos 4. Devuelve None si vacía
@@ -124,16 +159,24 @@ pub fn get_env_keys_status_inner() -> Result<Vec<EnvKeyStatus>, String> {
             .unwrap_or(false);
         let user_val = user_scope.get(*key);
         let configured = active || user_val.is_some();
-        // Preferimos el valor del proceso para masking; si no, el del registro.
-        let masked = proc_val
-            .as_deref()
-            .and_then(mask_secret)
-            .or_else(|| user_val.map(|s| s.as_str()).and_then(mask_secret));
+        let is_secret = !EMAIL_KEYS.contains(key);
+        // Preferimos el valor del proceso; si no, el del registro. Los
+        // secretos se enmascaran (mask_secret); los emails (EMAIL_KEYS) se
+        // muestran completos — no son un dato sensible.
+        let raw_val = proc_val.as_deref().or_else(|| user_val.map(String::as_str));
+        let masked = if is_secret {
+            raw_val.and_then(mask_secret)
+        } else {
+            raw_val
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
         rows.push(EnvKeyStatus {
             env_var: (*key).to_string(),
             active,
             configured,
             masked,
+            is_secret,
         });
     }
     Ok(rows)
@@ -164,6 +207,16 @@ pub fn set_env_vars_keys_inner(keys: HashMap<String, String>) -> Result<EnvKeysS
         // Skip blank values — caller should send non-empty strings only.
         let trimmed = value.trim();
         if trimmed.is_empty() {
+            skipped.push(key.clone());
+            continue;
+        }
+
+        // EMAIL_KEYS (OPENALEX_MAILTO, UNPAYWALL_EMAIL) son direcciones de
+        // contacto, no secretos opacos: validamos forma de email en vez de
+        // aceptar cualquier string. Unpaywall en concreto rechaza la
+        // petición si el valor no parece un email real (verificado contra
+        // la API el 2026-09-11, ver lib/research/unpaywall.js).
+        if EMAIL_KEYS.contains(&key.as_str()) && !is_valid_email(trimmed) {
             skipped.push(key.clone());
             continue;
         }
@@ -343,5 +396,62 @@ mod tests {
         let result = set_env_vars_keys_inner(keys).unwrap();
         assert!(result.saved.is_empty());
         assert_eq!(result.skipped, vec!["ANTHROPIC_API_KEY"]);
+    }
+
+    #[test]
+    fn invalid_email_is_skipped_without_touching_setx() {
+        // Caso negativo del buscador de papers: OPENALEX_MAILTO y
+        // UNPAYWALL_EMAIL son EMAIL_KEYS — un valor sin forma de email debe
+        // quedar en `skipped` sin llegar a invocar `setx` (igual que el resto
+        // de casos skip de este módulo, no mutamos el entorno real en test).
+        let mut keys = HashMap::new();
+        keys.insert("OPENALEX_MAILTO".to_string(), "not-an-email".to_string());
+        keys.insert("UNPAYWALL_EMAIL".to_string(), "@example.com".to_string());
+        let result = set_env_vars_keys_inner(keys).unwrap();
+        assert!(result.saved.is_empty());
+        assert_eq!(result.skipped.len(), 2);
+        assert!(result.skipped.contains(&"OPENALEX_MAILTO".to_string()));
+        assert!(result.skipped.contains(&"UNPAYWALL_EMAIL".to_string()));
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn is_valid_email_accepts_plausible_addresses_and_rejects_junk() {
+        assert!(is_valid_email("alumno@example.com"));
+        assert!(is_valid_email("  alumno@example.com  ")); // trimmed
+        assert!(!is_valid_email(""));
+        assert!(!is_valid_email("no-at-sign"));
+        assert!(!is_valid_email("@example.com"));
+        assert!(!is_valid_email("alumno@"));
+        assert!(!is_valid_email("alumno@localhost")); // sin punto en el dominio
+        assert!(!is_valid_email("alumno@.com"));
+    }
+
+    #[test]
+    fn research_keys_are_in_the_allowlist() {
+        for key in [
+            "OPENALEX_API_KEY",
+            "OPENALEX_MAILTO",
+            "SEMANTIC_SCHOLAR_API_KEY",
+            "UNPAYWALL_EMAIL",
+        ] {
+            assert!(
+                ALLOWED_KEYS.contains(&key),
+                "{key} debe estar en ALLOWED_KEYS para que el buscador de papers pueda configurarse desde Settings"
+            );
+        }
+    }
+
+    #[test]
+    fn get_env_keys_status_marks_email_keys_as_not_secret() {
+        let rows = get_env_keys_status_inner().unwrap();
+        for row in &rows {
+            let expected_secret = !EMAIL_KEYS.contains(&row.env_var.as_str());
+            assert_eq!(
+                row.is_secret, expected_secret,
+                "is_secret incorrecto para {}",
+                row.env_var
+            );
+        }
     }
 }

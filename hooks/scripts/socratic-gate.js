@@ -22,9 +22,21 @@
  *    de arriba.
  *  - `light`: protocolo y recordatorio, pero SIN escalada — un "ok" pasa.
  *  - `off`: silencio absoluto (proyectos personales donde da igual).
+ *  - `uni` (decidido 2026-09-14, trabajos de universidad): hereda TODO el
+ *    comportamiento de `strict` (protocolo completo, recordatorio, escalada
+ *    ante ack de bajo esfuerzo) y anade un bloque conciso con las reglas
+ *    especificas de asignatura — texto evaluable (memoria/informe/TFG/
+ *    cuestionario): la IA pregunta y orienta, NUNCA redacta el entregable ni
+ *    da la solucion; codigo de practicas: la IA SI lo escribe, pero antes de
+ *    cerrar una tarea hace 2-3 preguntas tipo defensa oral y espera
+ *    respuesta razonada; infraestructura (build/tests/tooling) sin
+ *    restriccion. Si el proyecto tiene marcador `.ultron-trabajo.json`
+ *    (uni-deliverable-guard.js, PreToolUse, es quien BLOQUEA de verdad la
+ *    escritura ahi), el primer prompt y la escalada recuerdan que carpetas
+ *    estan protegidas.
  * El proyecto se resuelve por el cwd de la sesion (prefijo de `path`, asi que
  * las subcarpetas heredan el modo). Cambiar el modo:
- *   node ~/.ultron/scripts/project-socratic.mjs <id> strict|light|off
+ *   node ~/.ultron/scripts/project-socratic.mjs <id> strict|light|off|uni
  * Override (selftest): SOCRATIC_PROJECTS_OVERRIDE = ruta del registro.
  */
 'use strict';
@@ -34,12 +46,13 @@ const path = require('path');
 const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
+const { findTrabajoMarker } = require('./lib/uni-trabajo');
 observe('socratic-gate');
 
 const PROJECTS_REGISTRY_PATH =
   process.env.SOCRATIC_PROJECTS_OVERRIDE ||
   path.join(os.homedir(), '.ultron', 'cockpit', 'projects.json');
-const MODES = new Set(['strict', 'light', 'off']);
+const MODES = new Set(['strict', 'light', 'off', 'uni']);
 const DEFAULT_MODE = 'strict';
 
 // Acks de una palabra que NO constituyen una eleccion razonada.
@@ -181,6 +194,23 @@ const LIGHT_SUFFIX =
   ' [modo light en este proyecto: presenta las opciones, pero un "ok" del ' +
   'usuario vale como eleccion; sin escalada.]';
 
+// Modo uni (2026-09-14): NO repite el protocolo base (arriba) — solo anade
+// las tres reglas de asignatura. Version larga en el primer prompt/escalada,
+// version corta en el recordatorio por turno (token-aware).
+const UNI_SUFFIX =
+  ' [modo uni en este proyecto: texto evaluable (memoria, informe, TFG, ' +
+  'cuestionario) => preguntas y orientacion, la IA NUNCA redacta el ' +
+  'entregable ni da la solucion. Codigo de practicas => la IA SI lo escribe, ' +
+  'pero antes de cerrar la tarea hace 2-3 preguntas tipo defensa oral (por ' +
+  'que esa estructura, que pasa si cambia X, complejidad) y espera ' +
+  'respuesta; si es floja, repasa el concepto antes de seguir. ' +
+  'Infraestructura (build/tests/config/tooling) sin restriccion.]';
+
+const UNI_SUFFIX_SHORT =
+  ' [uni: texto evaluable -> preguntar/orientar, nunca redactar el ' +
+  'entregable ni dar la solucion; codigo de practicas -> se escribe pero se ' +
+  'cierra con 2-3 preguntas de defensa oral; infra sin restriccion.]';
+
 const SHORT_MSG =
   '[ULTRON / SOCRATICO] Decision no trivial de arquitectura/diseno/resolucion ' +
   'en este turno => opciones + trade-offs y decide el usuario (eleccion razonada, ' +
@@ -195,6 +225,23 @@ const ESCALATED_MSG =
   'que opcion elige y POR QUE (minimo una razon tecnica). Solo continua si la ' +
   'eleccion razonada ya existe o si realmente no habia ninguna decision ' +
   'pendiente.';
+
+// Linea informativa de carpetas protegidas (marcador .ultron-trabajo.json,
+// ver lib/uni-trabajo.js). El BLOQUEO real lo hace uni-deliverable-guard.js
+// (PreToolUse); esto es solo el recordatorio en el mensaje del gate. Marcador
+// corrupto: silencio aqui (uni-deliverable-guard.js ya avisa y registra el
+// error en su propio turno, cuando corresponda).
+function markerLine(cwd) {
+  let marker;
+  try {
+    marker = findTrabajoMarker(cwd);
+  } catch (_) {
+    return '';
+  }
+  if (!marker || marker.corrupt) return '';
+  return ` Carpetas protegidas de escritura de la IA en este proyecto: ` +
+    `${marker.protegidas.join(', ')} (marcador ${marker.markerPath}).`;
+}
 
 function handle(raw) {
   raw = String(raw || '').replace(/^﻿/, '').trim();
@@ -212,14 +259,17 @@ function handle(raw) {
   // humano — sin protocolo socratico ni escalada (salida limpia, sin output).
   if (isSystemTurnPrompt(prompt)) return;
 
-  const mode = modeForCwd(input.cwd || process.cwd());
+  const cwd = input.cwd || process.cwd();
+  const mode = modeForCwd(cwd);
   if (mode === 'off') return;
 
   const sessionId = String(input.session_id || 'nosession').replace(/[^A-Za-z0-9_-]/g, '');
 
+  // uni hereda la escalada de strict (decidido 2026-09-14): un ack de bajo
+  // esfuerzo no vale como eleccion razonada en ninguno de los dos modos.
   let msg;
-  if (mode === 'strict' && isLowEffort(prompt)) {
-    msg = ESCALATED_MSG;
+  if ((mode === 'strict' || mode === 'uni') && isLowEffort(prompt)) {
+    msg = mode === 'uni' ? ESCALATED_MSG + markerLine(cwd) : ESCALATED_MSG;
   } else {
     const marker = path.join(os.tmpdir(), `ultron-socratic-${sessionId}`);
     let firstTime = false;
@@ -233,9 +283,11 @@ function handle(raw) {
       // sin marcador fiable => mandar la version corta (mejor poco que doble)
     }
     if (firstTime) {
-      msg = mode === 'light' ? FULL_MSG + LIGHT_SUFFIX : FULL_MSG;
+      if (mode === 'light') msg = FULL_MSG + LIGHT_SUFFIX;
+      else if (mode === 'uni') msg = FULL_MSG + UNI_SUFFIX + markerLine(cwd);
+      else msg = FULL_MSG;
     } else if (looksDecisional(prompt)) {
-      msg = SHORT_MSG;
+      msg = mode === 'uni' ? SHORT_MSG + UNI_SUFFIX_SHORT : SHORT_MSG;
     } else {
       return; // turno sin decision a la vista: cero tokens (recorte 2026-08-13)
     }

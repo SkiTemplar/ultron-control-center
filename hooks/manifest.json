@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-11",
+  "generated_at": "2026-09-14",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -66,7 +66,7 @@
       "script": "~/.ultron/hooks/scripts/ai-text-warn.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "7bafabc37c057b50a3e57d4bae644d7205b6ed297f19f0bd5a21c11b06258152",
+      "checksum_sha256": "a527078090c6dd7203dd37adb146670f31422ae2cc2a8e4b2e033935c008bf29",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -192,6 +192,24 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "PreToolUse (Bash|Agent|Task). Convierte en comprobacion determinista las condiciones que vivian como prosa en CLAUDE.md/rules: subagent_type inexistente (DENY; un tipo fantasma no da error, la delegacion se pierde en silencio -- KIRKARDO CRITICAL 2026-05-27), Python fuera de UV (DENY), git commit sin prefijo convencional (DENY), invocar claude saltandose permisos (DENY) y push forzado (ASK). El cuerpo de los here-docs se ignora: son datos, no comandos. NO escribe memoria. FAIL-OPEN: catalogo de agentes incompleto (<20) o error del clasificador -> deja pasar, para no convertirse en el fallo que evita."
+    },
+    {
+      "id": "uni-deliverable-guard",
+      "event": "PreToolUse",
+      "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+      "command": "node ~/.ultron/hooks/scripts/uni-deliverable-guard.js",
+      "script": "~/.ultron/hooks/scripts/uni-deliverable-guard.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "233146127ec25ebbf9caa847ea2af70bc533b5695db8c6fecb680206a8ebe94b",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "ULTRON_UNI_GUARD"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "PreToolUse (Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell). Modo trabajo universitario (decidido 2026-09-14): BLOQUEO real (no solo recordatorio) de escritura del entregable en proyectos de asignatura con marcador .ultron-trabajo.json (busqueda hasta 4 niveles por encima del cwd; lo crea project-create.mjs para el template trabajo-entrega, protegidas por defecto borrador+entrega). Complementa a socratic-gate.js (modo uni, UserPromptSubmit): el gate recuerda la norma en cada prompt, este hook la hace cumplir de verdad. Write/Edit/MultiEdit/NotebookEdit: exacto via tool_input.file_path. Bash/PowerShell: heuristica sobre redirecciones (> >>), -Destination y el ultimo argumento de cp/copy/move/mv/xcopy/robocopy/Copy-Item/Move-Item -- declarado que NO cubre variables indirectas, tee, escritura desde otro interprete (python -c, node -e) ni symlinks. Desactivar a proposito: ULTRON_UNI_GUARD=off. Marcador corrupto: NO bloquea (fail-open) pero avisa por systemMessage y deja traza en logHookError -- nunca silencioso en ningun sentido. NO escribe memoria. Fail-safe: error interno -> exit 0 sin decision."
     },
     {
       "id": "session-end-summary",
@@ -612,13 +630,13 @@
       "script": "~/.ultron/hooks/scripts/socratic-gate.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "3ead8f4df52c35bd262372123ed0fafb9a46d303cf7883ac387188951972218b",
-      "version": "2.0.0",
+      "checksum_sha256": "6513ee3eaec9259a870ea40e836a07fb9825222e6445a94ffaf4fad0b1043e95",
+      "version": "2.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Gate socratico (decidido 2026-07-08): inyecta en cada UserPromptSubmit el protocolo de decisiones (la IA codea, el usuario decide arquitectura/resolucion con eleccion razonada). Version completa 1a vez por sesion, corta despues; escalada si detecta ack de bajo esfuerzo (ok/dale/lo que veas). No escribe memoria, nunca bloquea. Modo por proyecto (ULTRON 4 F4.3, Q5a): campo `socratic` en cockpit/projects.json — strict (por defecto y ante valor invalido: protocolo + recordatorio + escalada), light (sin escalada: un \"ok\" pasa), off (silencio). Resuelto por prefijo del path del proyecto sobre el cwd; cambiar con scripts/project-socratic.mjs <id> <modo>."
+      "description": "Gate socratico (decidido 2026-07-08): inyecta en cada UserPromptSubmit el protocolo de decisiones (la IA codea, el usuario decide arquitectura/resolucion con eleccion razonada). Version completa 1a vez por sesion, corta despues; escalada si detecta ack de bajo esfuerzo (ok/dale/lo que veas). No escribe memoria, nunca bloquea. Modo por proyecto (ULTRON 4 F4.3, Q5a): campo `socratic` en cockpit/projects.json — strict (por defecto y ante valor invalido: protocolo + recordatorio + escalada), light (sin escalada: un \"ok\" pasa), off (silencio), uni (2026-09-14, trabajos de universidad: hereda la escalada de strict + bloque conciso texto-evaluable/codigo-de-practicas/infraestructura; si hay marcador .ultron-trabajo.json recuerda las carpetas protegidas — el bloqueo real lo hace uni-deliverable-guard.js, PreToolUse). Resuelto por prefijo del path del proyecto sobre el cwd; cambiar con scripts/project-socratic.mjs <id> <modo>."
     },
     {
       "id": "save-user-prompt",

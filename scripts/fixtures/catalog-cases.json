@@ -369,5 +369,80 @@
         "Los resultados del experimento aparecen en la tabla 3."
       ]
     }
+  ],
+  "_doc_veredicto_casos": "Casos para el veredicto por densidad (decidido 2026-09-11): tres estados a partir de palabras y densidad de señales/100 palabras (rol 'senal', SIN contar avisos). Umbral y banda en DENSITY_THRESHOLD/DENSITY_BAND (ai-text-detector.js) y calcular_veredicto (tfg_lab.rs); min_palabras en MIN_WORDS. Consumido por conformidad_con_el_fixture_compartido (paridad) y por el selftest JS del detector.",
+  "veredicto_casos": [
+    {
+      "nombre": "por_debajo_del_minimo_de_palabras_aunque_la_densidad_sea_alta",
+      "words": 350,
+      "density": 0.50,
+      "esperado": "no_concluyente"
+    },
+    {
+      "nombre": "palabras_suficientes_densidad_claramente_alta",
+      "words": 1000,
+      "density": 0.80,
+      "esperado": "probable_ia"
+    },
+    {
+      "nombre": "palabras_suficientes_densidad_claramente_baja",
+      "words": 1000,
+      "density": 0.02,
+      "esperado": "sin_indicios"
+    },
+    {
+      "nombre": "densidad_en_el_centro_de_la_banda_de_duda",
+      "words": 1000,
+      "density": 0.12,
+      "esperado": "no_concluyente"
+    },
+    {
+      "nombre": "limite_bajo_de_la_banda_es_no_concluyente",
+      "words": 1000,
+      "density": 0.09,
+      "esperado": "no_concluyente"
+    },
+    {
+      "nombre": "justo_por_debajo_del_limite_bajo_es_sin_indicios",
+      "words": 1000,
+      "density": 0.08,
+      "esperado": "sin_indicios"
+    },
+    {
+      "nombre": "limite_alto_de_la_banda_ya_es_probable_ia",
+      "words": 1000,
+      "density": 0.15,
+      "esperado": "probable_ia"
+    },
+    {
+      "nombre": "justo_por_debajo_del_limite_alto_sigue_en_duda",
+      "words": 1000,
+      "density": 0.149,
+      "esperado": "no_concluyente"
+    },
+    {
+      "nombre": "texto_vacio_sin_densidad_y_sin_palabras",
+      "words": 0,
+      "density": 0.0,
+      "esperado": "no_concluyente"
+    }
+  ],
+  "_doc_rol_casos": "Casos para el campo 'rol' del catálogo (decidido 2026-09-11): un patrón con rol='aviso' (tricolon) se sigue detectando y listando, pero sus matches no cuentan para density_per_100w/veredicto. Comprueba el rol EXACTO que trae cada TfgMatch/match, no solo si dispara.",
+  "rol_casos": [
+    {
+      "patron": "Regla de tres (tricolon) obsesiva",
+      "texto": "El sistema es rapido, eficiente y escalable.",
+      "rol_esperado": "aviso"
+    },
+    {
+      "patron": "Vocabulario IA sobreusado en español",
+      "texto": "Es crucial destacar que exploraremos los desafios del sector.",
+      "rol_esperado": "senal"
+    },
+    {
+      "patron": "Evitación de la cópula simple ('es/son')",
+      "texto": "El modulo se erige como el nucleo del sistema.",
+      "rol_esperado": "senal"
+    }
   ]
 }

@@ -121,6 +121,13 @@ A(
   `sin match en el catalogo: ${JSON.stringify(huerfanos)}`,
 );
 
+// --- Caso 12 (NEGATIVO, decidido 2026-09-11): SOLO tricolon -> silencio -----
+// Tricolon es rol "aviso" (dispara casi igual en prosa humana que en IA,
+// medido 2026-09-11): que salte solo, sin ninguna señal real, no debe
+// alarmar "puede CANTAR a IA" — ver el filtro por rol en el hook.
+const r12 = fire("Write", "C:/Users/test/tfg/triada.md", "El sistema es rapido, eficiente y escalable.");
+A(r12.status === 0 && r12.stdout === "", "caso12: solo tricolon (rol aviso) -> silencio, no cuenta como señal", `stdout="${r12.stdout.slice(0, 160)}"`);
+
 // --- Caso 11 (GUARDA): TODA regex del catalogo compila en JS ----------------
 // Una regex intraducible se salta en silencio, asi que el patron queda vivo en
 // el Lab (Rust) y muerto en el hook (JS) sin que nadie se entere. Le pasaba al

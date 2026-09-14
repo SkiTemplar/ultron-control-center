@@ -24,6 +24,7 @@ import type {
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
 import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
+import { NewProjectWizard } from "./projects/NewProjectWizard";
 import { ProjectCard } from "./projects/ProjectCard";
 import { ProjectRow } from "./projects/ProjectRow";
 import { FolderTreeView } from "./projects/FolderTreeView";
@@ -106,6 +107,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [openglModalOpen, setOpenglModalOpen] = useState(false);
+  const [newProjectWizardOpen, setNewProjectWizardOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Add-item modal state
@@ -494,6 +496,13 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         <div className="flex flex-wrap items-center gap-2">
           {/* Run Batch — siempre visible en el header de la lista de proyectos */}
           <BatchDropdown headerStyle />
+          <button type="button" onClick={() => setNewProjectWizardOpen(true)}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
+            title="Asistente guiado: asignatura/personal, carpeta, plantilla — sin abrir el Explorador"
+          >
+            + Nuevo proyecto
+          </button>
           <button type="button" onClick={() => setOpenglModalOpen(true)}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
             style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
@@ -723,6 +732,16 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           </div>
         </div>
       )}
+
+      {/* Asistente "Nuevo proyecto" — envuelve project-create.mjs */}
+      <NewProjectWizard
+        open={newProjectWizardOpen}
+        onClose={() => setNewProjectWizardOpen(false)}
+        onCreated={(projectPath) => {
+          setLastAction({ success: true, stdout: `Proyecto creado en ${projectPath}`, stderr: "", exit_code: 0 });
+          void scan();
+        }}
+      />
 
       {/* OpenGL scaffolder modal */}
       <NewOpenGlProjectModal

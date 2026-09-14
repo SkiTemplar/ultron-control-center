@@ -1,0 +1,8 @@
+{
+  "id": "vacio",
+  "label": "Vacio",
+  "description": "Carpeta vacia con .gitignore generico y README minimo; sin generador ni dependencias externas.",
+  "kinds": ["asignatura", "personal"],
+  "requires": [],
+  "files": [".gitignore", "README.md"]
+}

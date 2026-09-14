@@ -100,6 +100,8 @@ manifest.cache.json
 cockpit/projects/
 cockpit/projects-archive/
 cockpit/projects.json
+# raices del creador de proyectos (scripts/project-create.mjs): rutas absolutas del home del usuario
+cockpit/project-roots.json
 cockpit/projects-exclusions.json
 cockpit/project-identity.json
 cockpit/identity-migration.json
@@ -502,3 +504,6 @@ docs/research/perfil-escritura/
 control-center/*.tsbuildinfo
 control-center/vite.config.js
 control-center/vite.config.d.ts
+
+# Ajustes locales del editor (rutas personales)
+.vscode/

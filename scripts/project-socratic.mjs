@@ -3,13 +3,18 @@
 /**
  * project-socratic.mjs - modo del gate socratico por proyecto (ULTRON 4, F4.3).
  *
- * Escribe el campo `socratic` (strict | light | off) en la entrada del
+ * Escribe el campo `socratic` (strict | light | off | uni) en la entrada del
  * proyecto de cockpit/projects.json. Ausente = strict (decision Q5a). El hook
  * socratic-gate.js lo lee por el cwd de la sesion; las subcarpetas heredan.
+ * `uni` (2026-09-14): lo aplica project-create.mjs a todo proyecto creado
+ * bajo una raiz de kind "asignatura" (incluido `subject new`).
  *
  * Uso:
- *   node scripts/project-socratic.mjs <id> <strict|light|off>
+ *   node scripts/project-socratic.mjs <id> <strict|light|off|uni>
  *   node scripts/project-socratic.mjs --list
+ *
+ * ULTRON_PROJECTS_JSON_OVERRIDE (solo para selftests, mismo mecanismo que en
+ * project-new.mjs / kanban.mjs) apunta a un projects.json temporal.
  */
 
 import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync } from 'node:fs';
@@ -17,8 +22,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REGISTRY = join(__dirname, '..', 'cockpit', 'projects.json');
-const MODES = new Set(['strict', 'light', 'off']);
+const REGISTRY = process.env.ULTRON_PROJECTS_JSON_OVERRIDE || join(__dirname, '..', 'cockpit', 'projects.json');
+const MODES = new Set(['strict', 'light', 'off', 'uni']);
 
 function fail(msg) {
   console.error(`[project-socratic] ERROR: ${msg}`);
@@ -32,10 +37,10 @@ const [id, mode] = process.argv.slice(2);
 
 if (id === '--list' || !id) {
   for (const p of projects) console.log(`${(p.socratic || 'strict').padEnd(7)} ${p.id}`);
-  if (!id) console.log('\nUso: node scripts/project-socratic.mjs <id> <strict|light|off>');
+  if (!id) console.log('\nUso: node scripts/project-socratic.mjs <id> <strict|light|off|uni>');
   process.exit(0);
 }
-if (!MODES.has(mode)) fail(`modo "${mode}" no valido (strict | light | off)`);
+if (!MODES.has(mode)) fail(`modo "${mode}" no valido (strict | light | off | uni)`);
 const entry = projects.find((p) => p.id === id);
 if (!entry) fail(`proyecto "${id}" no registrado (ids: ${projects.map((p) => p.id).join(', ')})`);
 

@@ -7,6 +7,17 @@
 
 use super::*;
 
+// Los tests que mutan `ULTRON_RERANK_HOT` comparten el proceso: cargo los
+// ejecuta en hilos paralelos y el env es global, así que sin este lock se
+// pisan entre sí (flaky 2/3). Mismo patrón que `ai_router::tests::env_lock`.
+static RERANK_ENV_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+fn rerank_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    RERANK_ENV_MUTEX
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
 // card-test-fixtures-rust-infra: keep the fixture honest against the private
 // SearchResponse/RawHit shape that `search()` actually deserialises.
 #[test]
@@ -108,6 +119,7 @@ fn reranker_env_matrix() {
 /// Default OFF: el hook por-prompt no paga los ~2 s del re-rank salvo opt-in.
 #[test]
 fn rerank_hot_env_matrix() {
+    let _env = rerank_env_lock();
     let prev = std::env::var("ULTRON_RERANK_HOT").ok();
 
     std::env::remove_var("ULTRON_RERANK_HOT");
@@ -138,6 +150,7 @@ fn rerank_hot_env_matrix() {
 /// `general`; `1` siempre; `0` nunca. Secuencial por la misma carrera del env.
 #[test]
 fn rerank_hot_mode_by_route() {
+    let _env = rerank_env_lock();
     let prev = std::env::var("ULTRON_RERANK_HOT").ok();
     for unset_or_route in [None, Some("route")] {
         match unset_or_route {

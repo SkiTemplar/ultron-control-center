@@ -34,7 +34,11 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
-const PROJECTS = join(ULTRON, 'cockpit', 'projects');
+// ULTRON_BOARDS_DIR_OVERRIDE (solo para selftests, mismo mecanismo que en
+// project-new.mjs): apunta a un directorio de tableros temporal en vez del
+// cockpit real, para que project-create.mjs y su selftest puedan reusar este
+// CLI sin ensuciar el disco del usuario.
+const PROJECTS = process.env.ULTRON_BOARDS_DIR_OVERRIDE || join(ULTRON, 'cockpit', 'projects');
 
 function boardPath(proj) {
   return join(PROJECTS, proj, 'kanban.json');

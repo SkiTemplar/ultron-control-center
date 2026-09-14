@@ -90,6 +90,10 @@ pub(super) struct SettingsRoot {
     pub(super) mcp_servers: BTreeMap<String, McpServerCfg>,
     #[serde(rename = "disabledMcpjsonServers", default)]
     pub(super) disabled_mcpjson_servers: Vec<String>,
+    /// `"name@marketplace" -> enabled`. Missing entries default to enabled
+    /// (see `select_enabled_plugin_paths`).
+    #[serde(rename = "enabledPlugins", default)]
+    pub(super) enabled_plugins: BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -235,6 +239,177 @@ pub(super) fn parse_mcp_file(path: &std::path::Path) -> BTreeMap<String, McpServ
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// installed_plugins.json + enabledPlugins — plugin membership (pure logic)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub(super) struct InstalledPluginEntry {
+    #[serde(default, rename = "installPath")]
+    pub(super) install_path: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub(super) struct InstalledPluginsDoc {
+    /// `"name@marketplace" -> [{ installPath, version, scope, ... }]`.
+    #[serde(default)]
+    pub(super) plugins: BTreeMap<String, Vec<InstalledPluginEntry>>,
+}
+
+/// Parse `~/.claude/plugins/installed_plugins.json` from its raw text.
+/// Missing file, unreadable, or malformed JSON all collapse to an empty
+/// document — a corrupt registry must never panic the MCPs tab, it should
+/// just stop contributing plugin-sourced MCPs until the registry heals.
+pub(super) fn parse_installed_plugins(raw: &str) -> InstalledPluginsDoc {
+    match serde_json::from_str::<InstalledPluginsDoc>(raw) {
+        Ok(doc) => doc,
+        Err(e) => {
+            tracing::warn!("mcps: installed_plugins.json is malformed, ignoring: {e}");
+            InstalledPluginsDoc::default()
+        }
+    }
+}
+
+pub(super) fn read_installed_plugins(home: &std::path::Path) -> InstalledPluginsDoc {
+    let path = home
+        .join(".claude")
+        .join("plugins")
+        .join("installed_plugins.json");
+    match fs::read_to_string(&path) {
+        Ok(raw) => parse_installed_plugins(&raw),
+        Err(e) => {
+            tracing::warn!(
+                "mcps: cannot read installed_plugins.json at {}: {e}",
+                path.display()
+            );
+            InstalledPluginsDoc::default()
+        }
+    }
+}
+
+/// Read `enabledPlugins` straight out of `~/.claude/settings.json`, isolated
+/// from `parse_settings()` (which resolves the shared `SettingsRoot` used
+/// for `mcpServers`/`disabledMcpjsonServers`) so plugin discovery can be
+/// pointed at a fake `home` in tests without touching that shared path.
+/// Missing file / malformed JSON both collapse to "nothing explicitly
+/// disabled" (empty map), matching `select_enabled_plugin_paths`'s
+/// default-enabled behaviour for entries it doesn't recognise.
+pub(super) fn read_enabled_plugins(home: &std::path::Path) -> BTreeMap<String, bool> {
+    let path = home.join(".claude").join("settings.json");
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return BTreeMap::new(),
+    };
+    match serde_json::from_str::<SettingsRoot>(&raw) {
+        Ok(root) => root.enabled_plugins,
+        Err(e) => {
+            tracing::warn!("mcps: settings.json malformed while reading enabledPlugins: {e}");
+            BTreeMap::new()
+        }
+    }
+}
+
+/// Resolve `(plugin_slug, install_path)` for every plugin that is both
+/// **installed** (present in `installed_plugins.json`) and **enabled**.
+///
+/// A plugin counts as enabled unless `settings.json` -> `enabledPlugins`
+/// explicitly maps its `"name@marketplace"` key to `false`. On a real
+/// machine every installed plugin also carries an `enabledPlugins` entry
+/// (Claude Code writes both together on install/toggle), but a *missing*
+/// entry still defaults to enabled here so a plugin installed outside the
+/// normal flow doesn't silently lose its MCPs.
+///
+/// This intentionally never walks `~/.claude/plugins/marketplaces/`: that
+/// tree is the catalogue of *available* plugins (including everything a
+/// marketplace ships, like `external_plugins/discord`), not what the user
+/// actually installed — mixing the two is the bug this function fixes.
+pub(super) fn select_enabled_plugin_paths(
+    installed: &InstalledPluginsDoc,
+    enabled_plugins: &BTreeMap<String, bool>,
+) -> Vec<(String, PathBuf)> {
+    let mut out: Vec<(String, PathBuf)> = Vec::new();
+    for (key, entries) in installed.plugins.iter() {
+        if enabled_plugins.get(key).copied() == Some(false) {
+            continue;
+        }
+        let slug = key.split('@').next().unwrap_or(key).to_string();
+        for entry in entries.iter() {
+            if entry.install_path.is_empty() {
+                continue;
+            }
+            out.push((slug.clone(), PathBuf::from(&entry.install_path)));
+        }
+    }
+    out
+}
+
+/// Parse a plugin-root `.mcp.json`. Unlike project/user `.mcp.json` (always
+/// `{ "mcpServers": { ... } }`), plugin authors in the official marketplace
+/// catalogue ship both that wrapped shape (`context7`) and a flat
+/// `{ "<name>": {...} }` shape (`github`, `playwright`, `linear`) — verified
+/// directly on disk. Accept both; prefer the wrapped shape when both a
+/// `mcpServers` key and sibling keys are present.
+pub(super) fn parse_plugin_mcp_str(raw: &str) -> BTreeMap<String, McpServerCfg> {
+    let value: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return BTreeMap::new(),
+    };
+    let obj = match value.get("mcpServers").and_then(|v| v.as_object()) {
+        Some(o) => o,
+        None => match value.as_object() {
+            Some(o) => o,
+            None => return BTreeMap::new(),
+        },
+    };
+    let mut out: BTreeMap<String, McpServerCfg> = BTreeMap::new();
+    for (k, v) in obj.iter() {
+        if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(v.clone()) {
+            out.insert(k.clone(), cfg);
+        }
+    }
+    out
+}
+
+pub(super) fn parse_plugin_mcp_file(path: &std::path::Path) -> BTreeMap<String, McpServerCfg> {
+    match fs::read_to_string(path) {
+        Ok(raw) => parse_plugin_mcp_str(&raw),
+        Err(_) => BTreeMap::new(),
+    }
+}
+
+/// Extract an *inline* `mcpServers` object from a plugin's
+/// `.claude-plugin/plugin.json`, for plugins that declare servers directly
+/// in the manifest instead of a sibling `.mcp.json`. When `mcpServers` is a
+/// string (a path to another file) or absent, this yields nothing — no
+/// plugin installed on this machine uses that indirection, so it isn't
+/// resolved here (see task note: don't invent handling for shapes not
+/// observed on disk).
+pub(super) fn parse_inline_plugin_manifest_mcp_str(raw: &str) -> BTreeMap<String, McpServerCfg> {
+    let value: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return BTreeMap::new(),
+    };
+    let Some(obj) = value.get("mcpServers").and_then(|v| v.as_object()) else {
+        return BTreeMap::new();
+    };
+    let mut out: BTreeMap<String, McpServerCfg> = BTreeMap::new();
+    for (k, v) in obj.iter() {
+        if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(v.clone()) {
+            out.insert(k.clone(), cfg);
+        }
+    }
+    out
+}
+
+pub(super) fn parse_inline_plugin_manifest_mcp(
+    path: &std::path::Path,
+) -> BTreeMap<String, McpServerCfg> {
+    match fs::read_to_string(path) {
+        Ok(raw) => parse_inline_plugin_manifest_mcp_str(&raw),
+        Err(_) => BTreeMap::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------

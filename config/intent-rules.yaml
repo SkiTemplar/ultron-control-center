@@ -285,7 +285,7 @@ rules:
 
   - id: skill-create
     match: "(crea|nuevo).*\\bskill\\b"
-    skill: "skill-creator:skill-creator"
+    skill: "skill-creator"
     confidence: 0.95
 
   # ── Memory recall ────────────────────────────────────────────────────────────
@@ -363,11 +363,10 @@ rules:
 
   # ── v15.5.10: review R6 #4 — top unmatched clusters ──────────────────────
 
-  # Git ops — 13 unmatched hits in last window
-  - id: git-ops
-    match: "\\b(?:haz |hacer )?(?:un )?git\\s+(?:commit|push|pull|rebase|stash|merge|cherry.?pick|amend)\\b|\\b(?:commit y push|quita la desc(?:ripci[o\xf3]n)? del commit)\\b"
-    skill: "commit-commands:commit"
-    confidence: 0.90
+  # Git ops (2026-09-14): la regla apuntaba a commit-commands:commit, plugin
+  # desinstalado en la limpieza del 2026-09-14. Git commit/push/etc. no
+  # necesita skill propia (cubierto por las convenciones de git-workflow.md);
+  # regla retirada en vez de re-mapeada a un id inexistente.
 
   # ULTRON state questions — 69 unmatched hits
   - id: ultron-state-query

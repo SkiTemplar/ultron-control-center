@@ -16,7 +16,10 @@ type TfgMatch = {
   start: number;
   end: number;
   correction: string;
+  rol: "senal" | "aviso";
 };
+
+type Veredicto = "probable_ia" | "sin_indicios" | "no_concluyente";
 
 type TfgReport = {
   matches: TfgMatch[];
@@ -24,7 +27,29 @@ type TfgReport = {
   total_patterns_scanned: number;
   words: number;
   density_per_100w: number;
+  senales_total: number;
+  avisos_total: number;
+  veredicto: Veredicto;
+  motivo_no_concluyente: "pocas_palabras" | "densidad_ambigua" | null;
 };
+
+function veredictoLabel(v: Veredicto): string {
+  if (v === "probable_ia") return "Probable IA";
+  if (v === "sin_indicios") return "Sin indicios";
+  return "No concluyente";
+}
+
+function veredictoColor(v: Veredicto): string {
+  if (v === "probable_ia") return "var(--color-danger)";
+  if (v === "sin_indicios") return "var(--color-success)";
+  return "var(--color-warn)";
+}
+
+function motivoLabel(m: TfgReport["motivo_no_concluyente"]): string {
+  if (m === "pocas_palabras") return "menos de 400 palabras: sin margen para fiarse de la densidad";
+  if (m === "densidad_ambigua") return "densidad dentro de la banda de duda del umbral";
+  return "";
+}
 
 type CatalogPattern = {
   nombre: string;
@@ -232,13 +257,102 @@ export function Lab() {
     goTo(navIdx[next]);
   }
 
-  // Agrupa matches por patrón para el informe.
+  // Agrupa matches por patrón para el informe. "rol" vive en el patrón
+  // entero (lo fija el catálogo), así que un grupo es homogéneo: o todos sus
+  // matches son "senal" o todos son "aviso" — nunca mezclado.
   const grouped = report
     ? report.matches.reduce<Record<string, TfgMatch[]>>((acc, m) => {
         (acc[m.pattern] = acc[m.pattern] ?? []).push(m);
         return acc;
       }, {})
     : {};
+  const senalGroups = Object.entries(grouped).filter(([, ms]) => ms[0]?.rol !== "aviso");
+  const avisoGroups = Object.entries(grouped).filter(([, ms]) => ms[0]?.rol === "aviso");
+
+  /** Tarjeta de un patrón (lista de matches + guía). Compartida entre
+   * señales y avisos: solo cambia el estilo de fondo del contenedor. */
+  function renderPatternGroup(pattern: string, ms: TfgMatch[], muted: boolean) {
+    return (
+      <div
+        key={pattern}
+        className="rounded p-3"
+        style={{
+          background: muted ? "transparent" : "var(--color-surface-2)",
+          border: `1px dashed ${muted ? "var(--color-border)" : "var(--color-border)"}`,
+          borderStyle: muted ? "dashed" : "solid",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[12.5px] font-medium">{pattern}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setOnlyPattern(onlyPattern === pattern ? null : pattern)}
+              className="rounded px-1.5 py-0.5 text-[10px]"
+              style={{
+                background: onlyPattern === pattern ? "var(--color-accent)" : "var(--color-surface-3)",
+                color: onlyPattern === pattern ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {onlyPattern === pattern ? "solo este" : "aislar"}
+            </button>
+            <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
+              {ms.length} {muted ? "aviso" : "hallazgo"}{ms.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+        <ul className="mt-2 space-y-1">
+          {ms.slice(0, 8).map((m, i) => {
+            // Indice en `ordered` = el que usa la navegacion y el
+            // resaltado. Se busca por posicion, que es unica.
+            const gi = ordered.findIndex((o) => o.start === m.start && o.rule === m.rule);
+            // La posicion se cita sobre el offset YA traducido: si
+            // no, L:C se calcularia con un indice de byte y saldria
+            // corrida en cualquier texto con tildes.
+            const pos = analyzed && gi >= 0 ? lineCol(analyzed, located[gi].start) : null;
+            const isActive = gi >= 0 && gi === activeIdx;
+            return (
+              <li key={i}>
+                <button
+                  type="button"
+                  onClick={() => gi >= 0 && goTo(gi)}
+                  className="w-full rounded px-1 py-0.5 text-left text-[11.5px] transition-colors"
+                  style={{
+                    color: "var(--color-text-secondary)",
+                    background: isActive ? "var(--color-surface-3)" : "transparent",
+                  }}
+                >
+                  {pos && (
+                    <span className="mr-1 tabular-nums text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+                      L{pos.line}:{pos.col}
+                    </span>
+                  )}
+                  <span
+                    className="rounded px-1 text-[10px] uppercase tracking-wide"
+                    style={{ background: "var(--color-surface-3)", color: "var(--color-text-tertiary)" }}
+                  >
+                    {m.rule}
+                  </span>{" "}
+                  …{m.evidence}…
+                </button>
+              </li>
+            );
+          })}
+          {ms.length > 8 && (
+            <li className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
+              +{ms.length - 8} más del mismo patrón
+            </li>
+          )}
+        </ul>
+        {ms[0].correction && (
+          <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            <span style={{ color: "var(--color-warn)" }}>Guía:</span> {ms[0].correction}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -331,9 +445,36 @@ export function Lab() {
                 >
                   <div>
                     <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-text-tertiary)" }}>
-                      Avisos
+                      Veredicto
                     </div>
-                    <div className="text-[22px] font-semibold tabular-nums">{report.matches.length}</div>
+                    <div
+                      className="text-[22px] font-semibold"
+                      style={{ color: veredictoColor(report.veredicto) }}
+                    >
+                      {veredictoLabel(report.veredicto)}
+                    </div>
+                    {report.veredicto === "no_concluyente" && (
+                      <div className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                        {motivoLabel(report.motivo_no_concluyente)}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-text-tertiary)" }}>
+                      Señales
+                    </div>
+                    <div className="text-[22px] font-semibold tabular-nums">{report.senales_total}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-text-tertiary)" }}>
+                      Avisos de estilo
+                    </div>
+                    <div className="text-[22px] font-semibold tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
+                      {report.avisos_total}
+                      <span className="text-[11px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                        {" "}no cuentan
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-text-tertiary)" }}>
@@ -355,6 +496,9 @@ export function Lab() {
                       style={{ color: densityColor(report.density_per_100w) }}
                     >
                       {report.density_per_100w.toFixed(2)}
+                    </div>
+                    <div className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+                      {report.words} palabras · sin contar avisos
                     </div>
                   </div>
                 </div>
@@ -448,95 +592,31 @@ export function Lab() {
                   </div>
                 )}
 
-                {report.matches.length === 0 ? (
+                {report.senales_total === 0 ? (
                   <p className="text-[12.5px]" style={{ color: "var(--color-success)" }}>
-                    Sin señales del catálogo en este texto. Ojo con el alcance: solo se detecta lo que
-                    el catálogo describe con señal ejecutable — un 0 no certifica texto humano.
+                    Sin señales del catálogo en este texto{report.avisos_total > 0 ? ` (sí hay ${report.avisos_total} aviso${report.avisos_total !== 1 ? "s" : ""} de estilo, ver abajo)` : ""}.
+                    Ojo con el alcance: solo se detecta lo que el catálogo describe con señal ejecutable
+                    — un 0 no certifica texto humano.
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {Object.entries(grouped)
+                    {senalGroups
                       .filter(([pattern]) => !onlyPattern || pattern === onlyPattern)
-                      .map(([pattern, ms]) => (
-                      <div
-                        key={pattern}
-                        className="rounded p-3"
-                        style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
-                      >
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-[12.5px] font-medium">{pattern}</span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setOnlyPattern(onlyPattern === pattern ? null : pattern)}
-                              className="rounded px-1.5 py-0.5 text-[10px]"
-                              style={{
-                                background: onlyPattern === pattern ? "var(--color-accent)" : "var(--color-surface-3)",
-                                color:
-                                  onlyPattern === pattern ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
-                                border: "1px solid var(--color-border-strong)",
-                              }}
-                            >
-                              {onlyPattern === pattern ? "solo este" : "aislar"}
-                            </button>
-                            <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
-                              {ms.length} aviso{ms.length !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                        </div>
-                        <ul className="mt-2 space-y-1">
-                          {ms.slice(0, 8).map((m, i) => {
-                            // Indice en `ordered` = el que usa la navegacion y el
-                            // resaltado. Se busca por posicion, que es unica.
-                            const gi = ordered.findIndex((o) => o.start === m.start && o.rule === m.rule);
-                            // La posicion se cita sobre el offset YA traducido: si
-                            // no, L:C se calcularia con un indice de byte y saldria
-                            // corrida en cualquier texto con tildes.
-                            const pos = analyzed && gi >= 0 ? lineCol(analyzed, located[gi].start) : null;
-                            const isActive = gi >= 0 && gi === activeIdx;
-                            return (
-                              <li key={i}>
-                                <button
-                                  type="button"
-                                  onClick={() => gi >= 0 && goTo(gi)}
-                                  className="w-full rounded px-1 py-0.5 text-left text-[11.5px] transition-colors"
-                                  style={{
-                                    color: "var(--color-text-secondary)",
-                                    background: isActive ? "var(--color-surface-3)" : "transparent",
-                                  }}
-                                >
-                                  {pos && (
-                                    <span
-                                      className="mr-1 tabular-nums text-[10px]"
-                                      style={{ color: "var(--color-text-faint)" }}
-                                    >
-                                      L{pos.line}:{pos.col}
-                                    </span>
-                                  )}
-                                  <span
-                                    className="rounded px-1 text-[10px] uppercase tracking-wide"
-                                    style={{ background: "var(--color-surface-3)", color: "var(--color-text-tertiary)" }}
-                                  >
-                                    {m.rule}
-                                  </span>{" "}
-                                  …{m.evidence}…
-                                </button>
-                              </li>
-                            );
-                          })}
-                          {ms.length > 8 && (
-                            <li className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-                              +{ms.length - 8} más del mismo patrón
-                            </li>
-                          )}
-                        </ul>
-                        {ms[0].correction && (
-                          <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                            <span style={{ color: "var(--color-warn)" }}>Guía:</span> {ms[0].correction}
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                      .map(([pattern, ms]) => renderPatternGroup(pattern, ms, false))}
+                  </div>
+                )}
+
+                {avisoGroups.length > 0 && (
+                  <div className="mt-4">
+                    <p className="mb-2 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+                      Avisos de estilo aparte — se detectan y se listan, pero NO cuentan para la
+                      densidad ni para el veredicto (saltan casi igual en prosa humana que en IA).
+                    </p>
+                    <div className="space-y-3">
+                      {avisoGroups
+                        .filter(([pattern]) => !onlyPattern || pattern === onlyPattern)
+                        .map(([pattern, ms]) => renderPatternGroup(pattern, ms, true))}
+                    </div>
                   </div>
                 )}
               </div>

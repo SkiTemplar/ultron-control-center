@@ -41,6 +41,14 @@
  *   `claude -p --safe-mode` cobra de la suscripcion Sonnet (total_cost_usd
  *   notional del plan, no facturacion por token).
  *
+ * Prompt por stdin (2026-09-11): el prompt viajaba como ultimo argumento y en
+ * Windows la linea de comandos completa no puede pasar de 32.767 caracteres.
+ * Con un digest de ~21k caracteres funcionaba; con uno mayor (tope del digest:
+ * 150.000) spawnSync fallaba al instante con ENAMETOOLONG, se contaba como
+ * fallo de `claude -p` y la sesion acababa en backoff sin resumen. Ahora va
+ * por stdin (`input` de spawnSync), que no tiene ese limite; `claude -p` sin
+ * prompt posicional lo lee de stdin (verificado en runtime con estos flags).
+ *
  * Redaccion (revision de codigo 2026-09-11, hallazgo MEDIUM): el digest sale
  * de la maquina hacia `claude -p` y summary.md se inyecta luego en el
  * contexto de otra sesion, asi que ambos pasan por lib/security-helpers.js
@@ -371,13 +379,13 @@ function runClaude(promptText) {
     '--tools', '',
     '--no-session-persistence',
     '--output-format', 'json',
-    promptText, // ultimo: verificado en runtime con esta misma posicion (ver cabecera)
   ];
   let res;
   try {
     res = spawnSync(bin, args, {
       cwd: os.tmpdir(), // fuera de cualquier proyecto: sin CLAUDE.md que cargar
       env,
+      input: promptText, // por stdin, nunca como argumento (ver cabecera: ENAMETOOLONG)
       encoding: 'utf8',
       timeout: TIMEOUT_MS,
       windowsHide: true,

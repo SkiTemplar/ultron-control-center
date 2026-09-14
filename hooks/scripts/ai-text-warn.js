@@ -90,20 +90,31 @@ function main() {
   const report = scan(text, null, {
     skipPatterns: ext === '.md' ? MARKDOWN_NATIVE_PATTERNS : [],
   });
-  if (!report.matches.length) return; // texto limpio → silencio total
+  // Solo las señales de rol "senal" disparan el aviso: un patrón "aviso"
+  // (tricolon) dispara casi igual en prosa humana que en IA (medido
+  // 2026-09-11, ver rol_nota del catálogo) y alarmar solo por él reentrena al
+  // autor a ignorar el hook. Si NO hay ninguna señal, silencio total aunque
+  // haya avisos sueltos.
+  const senales = report.matches.filter((m) => m.rol !== 'aviso');
+  const avisos = report.matches.filter((m) => m.rol === 'aviso');
+  if (!senales.length) return; // sin señales (haya o no avisos) → silencio
 
-  const examples = report.matches.slice(0, MAX_EXAMPLES).map((m) => {
+  const examples = senales.slice(0, MAX_EXAMPLES).map((m) => {
     const fix = m.correction ? ` → ${m.correction}` : '';
     return `  - [${m.pattern}] ${m.rule} · "…${m.evidence}…"${fix}`;
   });
-  const extra = report.matches.length > MAX_EXAMPLES
-    ? `\n  (+${report.matches.length - MAX_EXAMPLES} señales más — pestaña Lab del Control Center para el detalle)`
+  const extra = senales.length > MAX_EXAMPLES
+    ? `\n  (+${senales.length - MAX_EXAMPLES} señales más — pestaña Lab del Control Center para el detalle)`
+    : '';
+  const patronesSenal = new Set(senales.map((m) => m.pattern)).size;
+  const avisoLine = avisos.length
+    ? `\n  Avisos de estilo aparte (no cuentan como señal de IA): ${avisos.length}.`
     : '';
 
   const context =
-    `[detector-IA] ${path.basename(filePath)}: ${report.matches.length} señal(es) de texto-IA ` +
-    `en ${report.patterns_hit} patrón(es) — densidad ${report.density_per_100w.toFixed(1)}/100 palabras. ` +
-    `El texto recién escrito puede CANTAR a IA:\n${examples.join('\n')}${extra}\n` +
+    `[detector-IA] ${path.basename(filePath)}: ${senales.length} señal(es) de texto-IA ` +
+    `en ${patronesSenal} patrón(es) — densidad ${report.density_per_100w.toFixed(2)}/100 palabras. ` +
+    `El texto recién escrito puede CANTAR a IA:\n${examples.join('\n')}${extra}${avisoLine}\n` +
     `Acción: reescribir las frases señaladas con las correcciones del catálogo antes de dar el texto por bueno.`;
 
   process.stdout.write(

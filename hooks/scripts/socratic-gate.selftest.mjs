@@ -28,6 +28,8 @@ const DIR_STRICT = join(FIXTURE, "proyecto-strict");
 const DIR_LIGHT = join(FIXTURE, "proyecto-light");
 const DIR_OFF = join(FIXTURE, "proyecto-off");
 const DIR_LIBRE = join(FIXTURE, "sin-registrar");
+const DIR_UNI = join(FIXTURE, "proyecto-uni");
+const DIR_UNI_MARCADO = join(FIXTURE, "proyecto-uni-marcado");
 const SESSIONS = [];
 
 let fail = 0;
@@ -36,12 +38,20 @@ const ko = (n, d) => { fail++; console.log(`  [FAIL] ${n}\n         -> ${d}`); }
 const A = (c, n, d) => (c ? ok(n) : ko(n, d));
 
 if (existsSync(FIXTURE)) rmSync(FIXTURE, { recursive: true, force: true });
-for (const d of [DIR_STRICT, DIR_LIGHT, DIR_OFF, DIR_LIBRE]) mkdirSync(join(d, "src"), { recursive: true });
+for (const d of [DIR_STRICT, DIR_LIGHT, DIR_OFF, DIR_LIBRE, DIR_UNI, DIR_UNI_MARCADO]) {
+  mkdirSync(join(d, "src"), { recursive: true });
+}
+writeFileSync(
+  join(DIR_UNI_MARCADO, ".ultron-trabajo.json"),
+  JSON.stringify({ protegidas: ["borrador", "entrega"] }),
+);
 writeFileSync(REGISTRY, JSON.stringify({
   projects: [
     { id: "p-strict", path: DIR_STRICT },
     { id: "p-light", path: DIR_LIGHT, socratic: "light" },
     { id: "p-off", path: DIR_OFF, socratic: "off" },
+    { id: "p-uni", path: DIR_UNI, socratic: "uni" },
+    { id: "p-uni-marcado", path: DIR_UNI_MARCADO, socratic: "uni" },
   ],
 }));
 
@@ -100,6 +110,51 @@ A(sys.ctx === "", "strict (NEGATIVO): turno de sistema -> silencio", sys.ctx.sli
 writeFileSync(REGISTRY, JSON.stringify({ projects: [{ id: "p-raro", path: DIR_LIGHT, socratic: "loquesea" }] }));
 const raro = fire("dale", DIR_LIGHT);
 A(/GATE/.test(raro.ctx), "valor invalido de socratic -> strict", raro.ctx.slice(0, 80));
+
+// modo uni: reescribe el registro para recuperar p-uni / p-uni-marcado tras
+// el bloque de "valor invalido" (sobreescribio REGISTRY).
+writeFileSync(REGISTRY, JSON.stringify({
+  projects: [
+    { id: "p-strict", path: DIR_STRICT },
+    { id: "p-uni", path: DIR_UNI, socratic: "uni" },
+    { id: "p-uni-marcado", path: DIR_UNI_MARCADO, socratic: "uni" },
+  ],
+}));
+
+const u1 = fire("vamos a disenar el modulo de pagos", DIR_UNI);
+A(
+  /Protocolo activo/.test(u1.ctx) && /modo uni/.test(u1.ctx) && /entregable/.test(u1.ctx),
+  "uni: primer prompt -> protocolo completo + bloque de reglas de asignatura",
+  u1.ctx.slice(0, 160),
+);
+const u2 = fire("que enfoque prefieres para el cache?", DIR_UNI, u1.sid);
+A(
+  /Decision no trivial/.test(u2.ctx) && /uni:/.test(u2.ctx) && /defensa oral/.test(u2.ctx),
+  "uni: prompt decisional -> recordatorio corto + sufijo uni corto",
+  u2.ctx.slice(0, 160),
+);
+const u3 = fire("ok", DIR_UNI, u1.sid);
+A(
+  /GATE/.test(u3.ctx) && /bajo esfuerzo/.test(u3.ctx),
+  "uni: ack de bajo esfuerzo -> ESCALADA (hereda de strict)",
+  u3.ctx.slice(0, 120),
+);
+const u4 = fire("arregla el typo del README", DIR_UNI, u1.sid);
+A(u4.ctx === "", "uni (NEGATIVO): orden directa sin decision -> silencio", u4.ctx.slice(0, 80));
+
+// uni + marcador .ultron-trabajo.json -> recuerda carpetas protegidas
+const m1 = fire("vamos a disenar el modulo de pagos", DIR_UNI_MARCADO);
+A(
+  /Carpetas protegidas/.test(m1.ctx) && /borrador/.test(m1.ctx) && /entrega/.test(m1.ctx),
+  "uni con marcador: primer prompt anade la linea de carpetas protegidas",
+  m1.ctx.slice(0, 220),
+);
+const m2 = fire("ok", DIR_UNI_MARCADO, m1.sid);
+A(
+  /GATE/.test(m2.ctx) && /Carpetas protegidas/.test(m2.ctx),
+  "uni con marcador: escalada tambien recuerda las carpetas protegidas",
+  m2.ctx.slice(0, 220),
+);
 
 rmSync(FIXTURE, { recursive: true, force: true });
 for (const sid of SESSIONS) {

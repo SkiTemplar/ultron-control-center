@@ -1,0 +1,16 @@
+{
+  "id": "trabajo-entrega",
+  "label": "Trabajo de entrega",
+  "description": "Estructura para un trabajo de asignatura (enunciado, fuentes, borrador, entrega) con checklist de verificacion. create la acompana de una sesion de investigacion y una tarjeta en el kanban de la asignatura contenedora.",
+  "kinds": ["asignatura"],
+  "requires": [],
+  "files": [
+    "enunciado/.gitkeep",
+    "fuentes/.gitkeep",
+    "borrador/.gitkeep",
+    "entrega/.gitkeep",
+    "CHECKLIST.md",
+    "README.md",
+    ".gitignore"
+  ]
+}

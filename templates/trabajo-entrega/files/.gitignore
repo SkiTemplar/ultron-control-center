@@ -1,0 +1,4 @@
+# Generado por project-create.mjs (plantilla trabajo-entrega)
+*.log
+.DS_Store
+Thumbs.db

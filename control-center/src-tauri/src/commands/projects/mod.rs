@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod git_ops;
+pub mod project_create;
 #[allow(clippy::module_inception)]
 // commands/projects/projects.rs mirrors parent — intentional grouping
 pub mod projects;
@@ -13,5 +14,6 @@ pub mod terminal;
 
 pub use agents::*;
 pub use git_ops::*;
+pub use project_create::*;
 pub use projects::*;
 pub use terminal::*;
