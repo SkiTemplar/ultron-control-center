@@ -54,8 +54,8 @@ A(byId.get(1)?.result?.serverInfo?.name === 'research', 'initialize -> serverInf
 const tools = byId.get(2)?.result?.tools ?? [];
 const toolNames = tools.map((t) => t.name);
 A(
-  tools.length === 8 && ['research_search', 'research_check_retraction', 'research_snowball'].every((n) => toolNames.includes(n)),
-  'tools/list = 8 tools, incluye research_search + research_check_retraction + research_snowball',
+  tools.length === 9 && ['research_search', 'research_check_retraction', 'research_snowball', 'research_verify_citations'].every((n) => toolNames.includes(n)),
+  'tools/list = 9 tools, incluye research_search + research_check_retraction + research_snowball + research_verify_citations',
   JSON.stringify(toolNames),
 );
 const listResult = byId.get(3)?.result?.content?.[0]?.text ?? '';

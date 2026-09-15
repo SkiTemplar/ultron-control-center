@@ -1,10 +1,10 @@
 {
   "name": "ultron-memory",
   "displayName": "ULTRON Memory",
-  "version": "1.0.0",
-  "description": "Expone la memoria personal de ULTRON (brain.db + Qdrant, recall hibrido BM25+E5) como servidor MCP local de solo lectura, para chat, Claude Desktop y Claude Cowork en sesiones locales.",
+  "version": "2.0.0",
+  "description": "Expone la memoria personal de ULTRON (brain.db + Qdrant, recall hibrido BM25+E5) y el buscador de papers academicos (OpenAlex + Semantic Scholar) como servidores MCP locales de solo lectura, con los 3 hooks minimos de memoria (resume al abrir, gate socratico por prompt, captura al cerrar), para chat, Claude Desktop y Claude Cowork en sesiones locales.",
   "author": {
     "name": "ULTRON"
   },
-  "keywords": ["memoria", "ultron", "mcp", "recall"]
+  "keywords": ["memoria", "ultron", "mcp", "recall", "investigacion", "papers", "hooks"]
 }

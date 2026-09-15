@@ -4,6 +4,11 @@
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/mcp-memory-server.mjs"],
       "env": {}
+    },
+    "ultron-research": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/research-mcp.js"],
+      "env": {}
     }
   }
 }

@@ -17,6 +17,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { cursoStatus } from "./lib/curso.mjs";
 
 const BIN = path.join(homedir(), ".ultron", "bin",
   process.platform === "win32" ? "ultron-memory.exe" : "ultron-memory");
@@ -54,6 +55,19 @@ const TOOLS = [
       required: ["id"],
     },
   },
+  {
+    name: "curso_status",
+    description:
+      "Índice del curso académico del usuario: TFG y asignaturas por prioridad, proyectos enlazados, " +
+      "último commit y fichero más reciente de cada uno, y el último trabajo tocado. Llamar cuando el usuario " +
+      "pregunte por sus estudios, asignaturas, el TFG, sus trabajos de la universidad o qué priorizar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        codigo: { type: "string", description: "Código de la asignatura para acotar (p. ej. TFG, PROY). Opcional." },
+      },
+    },
+  },
 ];
 
 function runSidecar(args, timeoutMs = 70_000) {
@@ -83,6 +97,8 @@ function callTool(name, args) {
       if (!id) throw new Error("id vacio");
       return runSidecar(["provenance", "--id", id], 30_000);
     }
+    case "curso_status":
+      return JSON.stringify(cursoStatus({ codigo: args?.codigo || undefined }), null, 2);
     default:
       throw new Error(`tool desconocida: ${name}`);
   }

@@ -3,7 +3,9 @@
  * Cowork (scripts/package-cowork-plugin.mjs).
  *
  * Hermetico: construye un arbol de plugin falso en logs/_selftest-package-cowork-plugin
- * y nunca escribe plugins/ultron-memory-cowork.zip. El plugin real solo se lee.
+ * y nunca escribe plugins/ultron-memory-cowork.zip. El plugin real solo se lee
+ * (salvo el caso I, que sincroniza server/ contra las fuentes canonicas: es la
+ * misma operacion que hace `node scripts/package-cowork-plugin.mjs`).
  *
  * Casos:
  *   A) estructura: entradas de directorio explicitas, separador "/", orden
@@ -15,12 +17,20 @@
  *      segmento vacio y zip anidado se rechazan.
  *   E) negativo: arbol sin .claude-plugin/plugin.json se rechaza.
  *   F) negativo: un .zip dentro del arbol se rechaza.
- *   G) plugin real: contiene manifiesto, .mcp.json y server, y ningun .zip.
+ *   G) plugin real: manifiesto, .mcp.json, hooks/hooks.json, ambos servidores
+ *      MCP y ningun .zip.
  *   H) CLI: --src/--out escribe el zip (exit 0); argumento desconocido o --src
  *      inexistente exit 1.
- *   I) paridad: server/ del plugin identico a scripts/mcp-memory-server.mjs
- *      (solo lectura); syncServerCopy sobrescribe una vez, no reescribe si ya
- *      coincide y crea la copia si falta.
+ *   I) resolveLocalClosure: sigue require()/import locales (literal y
+ *      path.join(__dirname|'..', ...)), incluye el cierre completo y lanza
+ *      ante un require que no resuelve.
+ *   J) syncManagedServers + pruneOrphans: copia lo que cambio, borra un
+ *      fichero huerfano y una carpeta que se queda vacia, es idempotente.
+ *   K) paridad real: cada fichero bajo server/ del plugin es byte a byte
+ *      identico a su fuente en scripts/ o hooks/scripts/ (ejecuta
+ *      `node scripts/package-cowork-plugin.mjs` si esto falla).
+ *   L) hooks.json y .mcp.json del plugin real: cada command/args referencia
+ *      un fichero que existe tras el cierre resuelto de su grupo.
  *
  * Uso: node scripts/package-cowork-plugin.selftest.mjs   (exit 0 = verde)
  */
@@ -30,13 +40,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, inflateRawSync } from "node:zlib";
 import {
-  CANONICAL_SERVER,
   DEFAULT_SRC,
   MANIFEST,
-  PLUGIN_SERVER_REL,
+  SYNC_GROUPS,
   buildZip,
   collectEntries,
+  extractLocalTargets,
   listZipEntries,
+  resolveLocalClosure,
+  syncManagedServers,
   syncServerCopy,
   validateEntryName,
 } from "./package-cowork-plugin.mjs";
@@ -119,8 +131,13 @@ A(throws(() => collectEntries(NESTED), /zip anidado/), "F: zip anidado rechazado
 
 // G) plugin real (solo lectura)
 const real = collectEntries(REAL_PLUGIN).map((e) => e.name);
-A(real.includes(MANIFEST) && real.includes(".mcp.json") && real.includes("server/mcp-memory-server.mjs"),
-  "G: plugin real con manifiesto, .mcp.json y server", real.join(","));
+A(
+  real.includes(MANIFEST) && real.includes(".mcp.json") && real.includes("hooks/hooks.json")
+    && real.includes("server/mcp-memory-server.mjs") && real.includes("server/hooks-scripts/research-mcp.js"),
+  "G: plugin real con manifiesto, .mcp.json, hooks.json y ambos servidores MCP",
+  real.join(","),
+);
+A(!real.some((n) => /\.zip$/i.test(n)), "G: plugin real sin .zip anidado", real.filter((n) => /\.zip$/i.test(n)).join(","));
 
 // H) CLI
 const OUT = join(TMPDIR, "demo.zip");
@@ -132,21 +149,83 @@ const missing = spawnSync(process.execPath, [SCRIPT, "--src", join(TMPDIR, "no-e
 A(missing.status === 1 && /no existe la carpeta/.test(missing.stderr) && !existsSync(join(TMPDIR, "x.zip")),
   "H: --src inexistente -> exit 1 sin escribir zip", missing.stderr);
 
-// I) paridad del servidor MCP
-const copyPath = join(DEFAULT_SRC, PLUGIN_SERVER_REL);
-A(readFileSync(copyPath).equals(readFileSync(CANONICAL_SERVER)),
-  "I: server/ del plugin identico a scripts/mcp-memory-server.mjs",
-  "difieren: ejecuta node scripts/package-cowork-plugin.mjs");
-const SYNC = join(TMPDIR, "sync");
-mkdirSync(join(SYNC, "server"), { recursive: true });
-writeFileSync(join(SYNC, "fuente.mjs"), "// v2\n");
-writeFileSync(join(SYNC, "server", "copia.mjs"), "// v1\n");
-const first = syncServerCopy(join(SYNC, "fuente.mjs"), join(SYNC, "server", "copia.mjs"));
-const second = syncServerCopy(join(SYNC, "fuente.mjs"), join(SYNC, "server", "copia.mjs"));
-A(first === true && second === false && readFileSync(join(SYNC, "server", "copia.mjs"), "utf8") === "// v2\n",
-  "I: syncServerCopy sobrescribe una vez y no reescribe si ya coincide", `${first}/${second}`);
-A(syncServerCopy(join(SYNC, "fuente.mjs"), join(SYNC, "nueva", "copia.mjs")) === true && existsSync(join(SYNC, "nueva", "copia.mjs")),
-  "I: syncServerCopy crea la copia si falta", "");
+// I) resolveLocalClosure
+const CLOSURE_ROOT = join(TMPDIR, "closure");
+mkdirSync(join(CLOSURE_ROOT, "lib", "deep"), { recursive: true });
+writeFileSync(join(CLOSURE_ROOT, "entry.js"), [
+  "const a = require('./lib/a');",
+  "const path = require('path');",
+  "const b = require(path.join(__dirname, 'lib', 'b.js'));",
+].join("\n"));
+writeFileSync(join(CLOSURE_ROOT, "lib", "a.js"), "const c = require('./deep/c');\nmodule.exports = c;\n");
+writeFileSync(join(CLOSURE_ROOT, "lib", "b.js"), "const path = require('path');\nconst c = require(path.join('..', 'lib', 'deep', 'c.js'));\nmodule.exports = c;\n");
+writeFileSync(join(CLOSURE_ROOT, "lib", "deep", "c.js"), "module.exports = 1;\n");
+const closure = resolveLocalClosure(CLOSURE_ROOT, ["entry.js"]);
+A(
+  JSON.stringify(closure) === JSON.stringify(["entry.js", "lib/a.js", "lib/b.js", "lib/deep/c.js"]),
+  "I: resolveLocalClosure sigue require literal y path.join(__dirname|'..', ...)",
+  JSON.stringify(closure),
+);
+writeFileSync(join(CLOSURE_ROOT, "roto.js"), "const x = require('./no-existe');\n");
+A(throws(() => resolveLocalClosure(CLOSURE_ROOT, ["roto.js"]), /require local sin resolver/),
+  "I: require local que no resuelve lanza", "");
+A(extractLocalTargets("import { x } from '../y.mjs';").includes("../y.mjs"), "I: extractLocalTargets reconoce import ESM", "");
+
+// J) syncManagedServers + pruneOrphans
+const SYNC_ROOT = join(TMPDIR, "sync-root");
+mkdirSync(SYNC_ROOT, { recursive: true });
+writeFileSync(join(SYNC_ROOT, "srv.js"), "const dep = require('./lib/dep');\nmodule.exports = dep;\n");
+mkdirSync(join(SYNC_ROOT, "lib"), { recursive: true });
+writeFileSync(join(SYNC_ROOT, "lib", "dep.js"), "module.exports = 1;\n");
+const SYNC_PLUGIN = join(TMPDIR, "sync-plugin");
+mkdirSync(SYNC_PLUGIN, { recursive: true });
+const group = { id: "demo", root: SYNC_ROOT, entries: ["srv.js"], destPrefix: "server/demo" };
+const first = syncManagedServers(SYNC_PLUGIN, [group]);
+A(first.changed === 2, "J: primera sincronizacion copia entry + dep", String(first.changed));
+A(
+  existsSync(join(SYNC_PLUGIN, "server", "demo", "srv.js")) && existsSync(join(SYNC_PLUGIN, "server", "demo", "lib", "dep.js")),
+  "J: arbol copiado con la misma estructura relativa",
+  "",
+);
+const second = syncManagedServers(SYNC_PLUGIN, [group]);
+A(second.changed === 0, "J: segunda pasada sin cambios es idempotente", String(second.changed));
+// huerfano: un fichero que ya no forma parte del cierre desaparece, y su carpeta si queda vacia tambien
+writeFileSync(join(SYNC_PLUGIN, "server", "demo", "lib", "huerfano.js"), "// ya no se genera desde la fuente\n");
+mkdirSync(join(SYNC_PLUGIN, "server", "demo", "lib", "vacia"), { recursive: true });
+const third = syncManagedServers(SYNC_PLUGIN, [group]);
+A(
+  third.changed === 1 && !existsSync(join(SYNC_PLUGIN, "server", "demo", "lib", "huerfano.js")) && !existsSync(join(SYNC_PLUGIN, "server", "demo", "lib", "vacia")),
+  "J: pruneOrphans borra fichero huerfano y carpeta vacia",
+  `changed=${third.changed}`,
+);
+
+// K) paridad real: sincroniza el plugin real y comprueba que no quedo nada por copiar
+const beforeSync = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8" });
+A(beforeSync.status === 0, "K: package-cowork-plugin.mjs (plugin real) sale con exit 0", beforeSync.stderr);
+const { changed: realChanged, resolved } = syncManagedServers(REAL_PLUGIN, SYNC_GROUPS);
+A(realChanged === 0, "K: tras sincronizar, una segunda pasada no cambia nada (plugin real al dia)", String(realChanged));
+const diffs = [];
+for (const { group: g, rels } of resolved) {
+  for (const rel of rels) {
+    const canonical = join(g.root, ...rel.split("/"));
+    const copy = join(REAL_PLUGIN, ...g.destPrefix.split("/"), ...rel.split("/"));
+    if (!existsSync(copy) || !readFileSync(copy).equals(readFileSync(canonical))) diffs.push(`${g.id}:${rel}`);
+  }
+}
+A(diffs.length === 0, "K: cada fichero del cierre resuelto es identico a su fuente", diffs.join(","));
+
+// L) hooks.json y .mcp.json del plugin real referencian ficheros existentes
+const hooksJson = JSON.parse(readFileSync(join(REAL_PLUGIN, "hooks", "hooks.json"), "utf8"));
+const hookCommands = Object.values(hooksJson.hooks).flat().flatMap((m) => m.hooks).map((h) => h.command);
+const hookPathsExist = hookCommands.every((cmd) => {
+  const m = cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/);
+  return m && existsSync(join(REAL_PLUGIN, m[1]));
+});
+A(hookPathsExist && hookCommands.length === 3, "L: hooks.json referencia 3 comandos y los 3 ficheros existen", hookCommands.join(" | "));
+const mcpJson = JSON.parse(readFileSync(join(REAL_PLUGIN, ".mcp.json"), "utf8"));
+const mcpArgsExist = Object.values(mcpJson.mcpServers).every((s) =>
+  s.args.every((a) => !a.includes("${CLAUDE_PLUGIN_ROOT}") || existsSync(join(REAL_PLUGIN, a.replace("${CLAUDE_PLUGIN_ROOT}/", "")))));
+A(mcpArgsExist && Object.keys(mcpJson.mcpServers).length === 2, "L: .mcp.json referencia 2 servidores y sus ficheros existen", JSON.stringify(mcpJson));
 
 rmSync(TMPDIR, { recursive: true, force: true });
 console.log(fail === 0 ? "package-cowork-plugin selftest: OK" : `package-cowork-plugin selftest: ${fail} fallo(s)`);

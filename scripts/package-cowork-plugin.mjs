@@ -10,24 +10,27 @@
 // mismo zip byte a byte. Se regenera siempre desde la carpeta: un zip hecho a
 // mano se queda viejo en cuanto cambia el manifiesto.
 //
-// Fuente unica del servidor MCP: scripts/mcp-memory-server.mjs. La copia de
-// server/ existe solo porque un plugin instalado no puede leer fuera de su
-// carpeta; con la carpeta por defecto se sobrescribe desde la fuente antes de
-// empaquetar, y el selftest falla si la copia commiteada difiere.
+// Fuente unica de cada servidor/hook que el plugin reutiliza: sus ficheros
+// canonicos en scripts/ y hooks/scripts/. Un plugin instalado no puede leer
+// fuera de su propia carpeta (ver "Path traversal limitations" en la
+// referencia de plugins), asi que server/ es SIEMPRE una copia. En vez de
+// mantener a mano la lista de ficheros a copiar (se queda vieja en cuanto
+// alguien anade o quita un require()), se resuelve el grafo real de
+// imports/requires desde cada punto de entrada (resolveLocalClosure) y se
+// sincroniza el cierre completo. El selftest falla si la copia commiteada
+// difiere de la fuente o si algun require local no resuelve.
 //
 // Uso:    node scripts/package-cowork-plugin.mjs [--src <dir>] [--out <zip>]
 // Prueba: node scripts/package-cowork-plugin.selftest.mjs
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { crc32, deflateRawSync } from 'node:zlib';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const DEFAULT_SRC = join(REPO_ROOT, 'plugins', 'ultron-memory-cowork');
 const DEFAULT_OUT = join(REPO_ROOT, 'plugins', 'ultron-memory-cowork.zip');
-export const CANONICAL_SERVER = join(REPO_ROOT, 'scripts', 'mcp-memory-server.mjs');
-export const PLUGIN_SERVER_REL = join('server', 'mcp-memory-server.mjs');
 
 export const MANIFEST = '.claude-plugin/plugin.json';
 const SIG_LOCAL = 0x04034b50;
@@ -198,6 +201,157 @@ export function listZipEntries(zip) {
   return entries;
 }
 
+// ---------------------------------------------------------------------------
+// Sincronizacion desde las fuentes canonicas (scripts/ y hooks/scripts/)
+// ---------------------------------------------------------------------------
+
+// Grupos a sincronizar: cada uno tiene una raiz canonica en el repo, los
+// puntos de entrada (rutas relativas a esa raiz) y el prefijo bajo el que se
+// copian dentro del plugin. El resto del arbol de cada grupo lo determina
+// resolveLocalClosure() siguiendo los require()/import reales.
+export const SYNC_GROUPS = [
+  {
+    id: 'memory-mcp',
+    // scripts/mcp-memory-server.mjs: el mismo servidor MCP que usa Claude
+    // Code por CLI (incluye curso_status -> scripts/lib/curso.mjs). Los datos
+    // que lee (cockpit/curso.json) NO se empaquetan: se leen en runtime desde
+    // la maquina donde corre el plugin.
+    root: join(REPO_ROOT, 'scripts'),
+    entries: ['mcp-memory-server.mjs'],
+    destPrefix: 'server',
+  },
+  {
+    id: 'research-and-hooks',
+    // research-mcp.js (buscador de papers) + los 3 hooks minimos: resume de
+    // memoria al abrir, gate socratico por prompt y captura de memoria al
+    // cerrar. Deliberadamente NO se incluye memory-orchestrate.js (prefetch
+    // por prompt: descartado por meter ruido) ni el resto de hooks del
+    // sistema completo (kanban, codegraph, etc. no tienen sentido en Cowork).
+    root: join(REPO_ROOT, 'hooks', 'scripts'),
+    entries: ['research-mcp.js', 'socratic-gate.js', 'memory-session-resume.js', 'session-end-summary.js'],
+    destPrefix: 'server/hooks-scripts',
+  },
+];
+
+function toPosix(p) {
+  return p.split(sep).join('/');
+}
+
+function resolveModulePath(candidate) {
+  if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  if (existsSync(`${candidate}.js`)) return `${candidate}.js`;
+  if (existsSync(`${candidate}.mjs`)) return `${candidate}.mjs`;
+  if (existsSync(join(candidate, 'index.js'))) return join(candidate, 'index.js');
+  return null;
+}
+
+// Extrae los targets locales (relativos) de require()/import de un fuente:
+// require('./x'), import ... from '../x', y require(path.join(__dirname|'..'|'.', ...)).
+export function extractLocalTargets(src) {
+  const targets = [];
+  const reReqLit = /require\(\s*(['"])(\.\.?\/[^'"]*)\1\s*\)/g;
+  let m;
+  while ((m = reReqLit.exec(src))) targets.push(m[2]);
+  const reImportLit = /\bimport\s+(?:[^'";]+\s+from\s+)?(['"])(\.\.?\/[^'"]*)\1/g;
+  while ((m = reImportLit.exec(src))) targets.push(m[2]);
+  const reJoin = /require\(\s*path\.join\(([^)]*)\)\s*\)/g;
+  while ((m = reJoin.exec(src))) {
+    const args = m[1].split(',').map((s) => s.trim());
+    const parts = [];
+    let hasDirname = false;
+    let ok = true;
+    for (const a of args) {
+      if (a === '__dirname') { hasDirname = true; continue; }
+      const lit = a.match(/^(['"])(.*)\1$/);
+      if (lit) { parts.push(lit[2]); continue; }
+      ok = false; // argumento dinamico: no se puede resolver de forma estatica
+    }
+    if (ok && (hasDirname || parts[0] === '.' || parts[0] === '..')) targets.push(parts.join('/'));
+  }
+  return targets;
+}
+
+// Recorre el grafo real de requires/imports locales desde `entries` (rutas
+// relativas a `root`). Devuelve las rutas relativas POSIX del cierre
+// completo, entries incluidas, en orden estable. Lanza si algun require local
+// no resuelve: mejor romper el empaquetado que enviar un plugin con un
+// require roto.
+export function resolveLocalClosure(root, entries) {
+  const visited = new Set();
+  const stack = entries.map((e) => resolve(join(root, e)));
+  while (stack.length) {
+    const file = stack.pop();
+    if (visited.has(file)) continue;
+    if (!existsSync(file)) throw new Error(`punto de entrada no existe: ${file}`);
+    visited.add(file);
+    const src = readFileSync(file, 'utf8');
+    const dir = dirname(file);
+    for (const target of extractLocalTargets(src)) {
+      const resolved = resolveModulePath(join(dir, target));
+      if (!resolved) throw new Error(`require local sin resolver: "${target}" en ${file}`);
+      stack.push(resolved);
+    }
+  }
+  return [...visited].map((f) => toPosix(relative(root, f))).sort();
+}
+
+// Borra de destRoot cualquier fichero que ya no este en keepRel (el grupo
+// dejo de necesitarlo), y las carpetas que quedan vacias tras el borrado.
+// excludeRel son subrutas (relativas a destRoot, sin barra final) que NO se
+// tocan: el destPrefix de otro grupo puede colgar dentro de este destRoot
+// (p.ej. 'hooks-scripts' cuelga de 'server'), y ese subarbol lo gestiona su
+// propio pruneOrphans, no este.
+function pruneOrphans(destRoot, keepRel, excludeRel = new Set()) {
+  if (!existsSync(destRoot)) return 0;
+  let removed = 0;
+  const walk = (dir, prefix) => {
+    for (const item of readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix + item.name;
+      const abs = join(dir, item.name);
+      if (excludeRel.has(rel)) continue;
+      if (item.isDirectory()) {
+        walk(abs, `${rel}/`);
+        if (existsSync(abs) && readdirSync(abs).length === 0) rmSync(abs, { recursive: true, force: true });
+        continue;
+      }
+      if (!keepRel.has(rel)) {
+        rmSync(abs, { force: true });
+        removed++;
+      }
+    }
+  };
+  walk(destRoot, '');
+  return removed;
+}
+
+// Sincroniza todos los SYNC_GROUPS dentro de pluginDir: copia lo que cambio,
+// borra lo que sobra. Devuelve cuantos ficheros se tocaron (copiados o
+// borrados) y, por grupo, el cierre resuelto (lo usa el selftest para el
+// check de paridad).
+export function syncManagedServers(pluginDir, groups = SYNC_GROUPS) {
+  let changed = 0;
+  const resolved = [];
+  for (const group of groups) {
+    const rels = resolveLocalClosure(group.root, group.entries);
+    resolved.push({ group, rels });
+    const destRoot = join(pluginDir, ...group.destPrefix.split('/'));
+    for (const rel of rels) {
+      const canonical = join(group.root, ...rel.split('/'));
+      const copy = join(destRoot, ...rel.split('/'));
+      if (syncServerCopy(canonical, copy)) changed++;
+    }
+    const exclude = new Set();
+    for (const other of groups) {
+      if (other === group) continue;
+      if (other.destPrefix.startsWith(`${group.destPrefix}/`)) {
+        exclude.add(other.destPrefix.slice(group.destPrefix.length + 1));
+      }
+    }
+    changed += pruneOrphans(destRoot, new Set(rels), exclude);
+  }
+  return { changed, resolved };
+}
+
 function parseArgs(argv) {
   const args = { src: DEFAULT_SRC, out: DEFAULT_OUT };
   for (let i = 0; i < argv.length; i++) {
@@ -213,8 +367,9 @@ function parseArgs(argv) {
 function main() {
   const { src, out } = parseArgs(process.argv.slice(2));
   if (!existsSync(src)) throw new Error(`no existe la carpeta del plugin: ${src}`);
-  if (src === DEFAULT_SRC && syncServerCopy(CANONICAL_SERVER, join(src, PLUGIN_SERVER_REL))) {
-    process.stdout.write(`${PLUGIN_SERVER_REL} sincronizado desde ${CANONICAL_SERVER}\n`);
+  if (src === DEFAULT_SRC) {
+    const { changed } = syncManagedServers(src);
+    if (changed) process.stdout.write(`${changed} fichero(s) de server/ sincronizados desde scripts/ y hooks/scripts/\n`);
   }
   const entries = collectEntries(src);
   const zip = buildZip(entries);

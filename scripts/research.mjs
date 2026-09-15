@@ -20,6 +20,7 @@
  *   node scripts/research.mjs session list
  *   node scripts/research.mjs check-retraction <doi>
  *   node scripts/research.mjs snowball <sessionId> <doi> [--direction backward|forward|both] [--limit N]
+ *   node scripts/research.mjs verify-citations <informe.tex|.md|.bib> [--bib <ruta>] [--session <id>]
  */
 
 import { createRequire } from 'node:module';
@@ -111,6 +112,13 @@ async function cmdBib(positional) {
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function cmdVerifyCitations(positional, flags) {
+  const [reportPath] = positional;
+  if (!reportPath) fail('uso: research.mjs verify-citations <informe.tex|.md|.bib> [--bib <ruta>] [--session <id>]');
+  const result = await research.verifyReport(reportPath, { bibPath: flags.bib, sessionId: flags.session });
+  console.log(JSON.stringify(result, null, 2));
+}
+
 function cmdSession(positional) {
   const [sub, ...rest] = positional;
   if (sub === 'new') {
@@ -137,7 +145,8 @@ async function main() {
     else if (cmd === 'session') cmdSession(positional);
     else if (cmd === 'check-retraction') await cmdCheckRetraction(positional);
     else if (cmd === 'snowball') await cmdSnowball(positional, flags);
-    else fail('subcomando desconocido. Uso: search | access | add | bib | session new|list | check-retraction | snowball');
+    else if (cmd === 'verify-citations') await cmdVerifyCitations(positional, flags);
+    else fail('subcomando desconocido. Uso: search | access | add | bib | session new|list | check-retraction | snowball | verify-citations');
   } catch (e) {
     fail(`${e.name ?? 'Error'}: ${String(e.message ?? e)}`);
   }

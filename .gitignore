@@ -100,6 +100,8 @@ manifest.cache.json
 cockpit/projects/
 cockpit/projects-archive/
 cockpit/projects.json
+# indice del curso academico (scripts/curso.mjs): asignaturas y proyectos del usuario
+cockpit/curso.json
 # raices del creador de proyectos (scripts/project-create.mjs): rutas absolutas del home del usuario
 cockpit/project-roots.json
 cockpit/projects-exclusions.json

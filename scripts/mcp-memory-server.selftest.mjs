@@ -44,7 +44,7 @@ const A = (c, n, d) => { if (c) console.log(`  [PASS] ${n}`); else { fail++; con
 
 A(byId.get(1)?.result?.serverInfo?.name === "ultron-memory", "initialize -> serverInfo", JSON.stringify(byId.get(1)));
 const tools = byId.get(2)?.result?.tools ?? [];
-A(tools.length === 3 && tools.some((t) => t.name === "memory_recall"), "tools/list = 3 tools con memory_recall", JSON.stringify(tools.map((t) => t.name)));
+A(tools.length === 4 && tools.some((t) => t.name === "memory_recall") && tools.some((t) => t.name === "curso_status"), "tools/list = 4 tools con memory_recall y curso_status", JSON.stringify(tools.map((t) => t.name)));
 const stats = byId.get(3)?.result?.content?.[0]?.text ?? "";
 A(!byId.get(3)?.result?.isError && /"active"\s*:\s*\d+/.test(stats), "memory_stats devuelve JSON con active", stats.slice(0, 120));
 A(byId.get(4)?.result?.isError === true, "tool inexistente -> isError (caso negativo)", JSON.stringify(byId.get(4)));
