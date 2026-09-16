@@ -1,0 +1,22 @@
+#!/bin/sh
+# ULTRON pre-push hook: sincroniza el espejo publico tras empujar main al repo
+# privado. No bloquea el push: lanza scripts/sync-public-auto.mjs desacoplado,
+# que espera a que el push llegue y publica solo si no hay ficheros nuevos.
+#
+# Installed by scripts/setup-git-hooks.ps1. Idempotent.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+REMOTE_URL="$2"
+
+case "$REMOTE_URL" in
+  *SkiTemplar/ultron.git|*SkiTemplar/ultron) ;;
+  *) exit 0 ;;
+esac
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ] && [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
+    nohup node "$REPO_ROOT/scripts/sync-public-auto.mjs" "$local_sha" >/dev/null 2>&1 &
+  fi
+done
+
+exit 0

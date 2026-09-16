@@ -26,6 +26,13 @@
  * Uso:
  *   node scripts/sync-public.mjs                      # dry-run
  *   node scripts/sync-public.mjs --apply -m "sync: X" # publica
+ *   node scripts/sync-public.mjs --auto               # modo automatico
+ *
+ * --auto (lo lanza git-hooks/pre-push via sync-public-auto.mjs, 2026-09-16):
+ * publica sin preguntar SOLO si no hay altas. Con altas no publica nada y deja
+ * una alerta en alerts.jsonl (pestaña Notifications) con la lista, para
+ * revisarlas y publicar a mano. Tolera un arbol sucio: vuelca HEAD, no el
+ * directorio de trabajo.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -37,13 +44,31 @@ const ESPEJO = 'https://github.com/SkiTemplar/ultron-control-center.git';
 const IGNORE_FILE = path.join(RAIZ, '.publicignore');
 
 const args = process.argv.slice(2);
-const APPLY = args.includes('--apply');
-const MSG = args.includes('-m') ? args[args.indexOf('-m') + 1] : null;
+const AUTO = args.includes('--auto');
+const APPLY = AUTO || args.includes('--apply');
+let MSG = args.includes('-m') ? args[args.indexOf('-m') + 1] : null;
 
 const log = (...a) => console.log(...a);
 function abortar(motivo) {
   console.error(`\n[sync-public] ABORTADO: ${motivo}`);
+  if (AUTO) alertar('warn', `Sync al repo publico abortado: ${motivo.split('\n')[0]}`);
   process.exit(1);
+}
+
+/** Alerta para la pestaña Notifications (mismo formato que alerts.jsonl). */
+function alertar(severity, message) {
+  const fila = {
+    message,
+    severity,
+    source: 'sync.public',
+    status: 'backend',
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  };
+  try {
+    fs.appendFileSync(path.join(os.homedir(), '.ultron', 'alerts.jsonl'), JSON.stringify(fila) + '\n');
+  } catch (err) {
+    console.error(`[sync-public] no se pudo escribir la alerta: ${err.message}`);
+  }
 }
 
 function git(cwd, argv, opts = {}) {
@@ -90,11 +115,13 @@ function expandir(patron, trackeados) {
 // --- 1. Preparacion ----------------------------------------------------------
 const exclusiones = leerExclusiones();
 const sucio = git(RAIZ, ['status', '--porcelain']).trim();
-if (sucio) {
+if (sucio && !AUTO) {
   abortar('el repo tiene cambios sin commitear.\n  Se publica lo que esta en HEAD, asi que un arbol sucio publicaria algo distinto de lo que crees.');
 }
 const head = git(RAIZ, ['rev-parse', '--short', 'HEAD']).trim();
-const trackeados = git(RAIZ, ['ls-files']).trim().split('\n');
+// Lista y volcado salen de HEAD, no del indice: en --auto el arbol puede estar
+// sucio y lo que se publica es siempre lo commiteado.
+const trackeados = git(RAIZ, ['ls-tree', '-r', '--name-only', 'HEAD']).trim().split('\n');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ultron-sync-'));
 const clon = path.join(tmp, 'espejo');
@@ -108,13 +135,23 @@ for (const e of fs.readdirSync(clon)) {
 }
 // `git archive | tar` seria lo idiomatico, pero el tar de Git Bash lee `C:\...`
 // como host remoto ("Cannot connect to C: resolve failed"). `checkout-index`
-// hace el mismo volcado sin depender de tar: escribe el INDICE, que coincide
-// con HEAD porque arriba ya se exige un arbol limpio.
+// hace el mismo volcado sin depender de tar. Escribe un indice TEMPORAL cargado
+// desde HEAD, asi el indice y el arbol de trabajo reales no se tocan y un
+// arbol sucio (--auto) no cuela cambios sin commitear.
 const prefijo = clon.replace(/\\/g, '/') + '/';
+const envIndice = { ...process.env, GIT_INDEX_FILE: path.join(tmp, 'index-head') };
+const lectura = spawnSync('git', ['read-tree', 'HEAD'], {
+  cwd: RAIZ,
+  encoding: 'utf8',
+  windowsHide: true,
+  env: envIndice,
+});
+if (lectura.status !== 0) abortar(`no se pudo cargar HEAD en un indice temporal:\n${lectura.stderr || ''}`);
 const volcado = spawnSync('git', ['checkout-index', '-a', '-f', `--prefix=${prefijo}`], {
   cwd: RAIZ,
   encoding: 'utf8',
   windowsHide: true,
+  env: envIndice,
 });
 if (volcado.status !== 0) abortar(`el volcado del arbol fallo:\n${volcado.stderr || ''}`);
 
@@ -172,6 +209,22 @@ if (!APPLY) {
 }
 
 // --- 6. Publicacion ----------------------------------------------------------
+if (AUTO && altas.length) {
+  const lista = altas.slice(0, 10).map(([, f]) => f).join(', ');
+  const resto = altas.length > 10 ? ` (+${altas.length - 10} mas)` : '';
+  alertar(
+    'warn',
+    `Sync al repo publico en pausa: ${altas.length} fichero(s) nuevo(s) por revisar (${lista}${resto}). ` +
+      'Publicar con: node scripts/sync-public.mjs --apply -m "sync: ..."',
+  );
+  log('\n[sync-public] --auto: hay ALTAS, no se publica. Alerta registrada.');
+  fs.rmSync(tmp, { recursive: true, force: true });
+  process.exit(0);
+}
+if (AUTO && !MSG) {
+  const asunto = git(RAIZ, ['log', '-1', '--format=%s']).trim();
+  MSG = `sync: ${head} ${asunto}`;
+}
 if (!MSG) abortar('--apply exige un mensaje con -m "sync: que ha cambiado".');
 // La identidad se hereda de este repo, nunca se incrusta aqui: el script viaja
 // al espejo publico y el gate PII rechaza datos personales en el codigo.
