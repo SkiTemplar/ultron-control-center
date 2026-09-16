@@ -68,8 +68,11 @@ fn probe_provider(provider: &Provider) -> bool {
                 .header("anthropic-version", "2023-06-01");
         }
     } else if provider.id == "gemini" {
+        // (2026-09-16) Cabecera en vez de `?key=` en la query string — ver el
+        // comentario equivalente en call_gemini (call_wrappers.rs): evita que
+        // la clave quede en claro si reqwest imprime la URL en un error.
         if let Ok(key) = std::env::var(&provider.key_env_var) {
-            req = req.query(&[("key", key)]);
+            req = req.header("x-goog-api-key", key);
         }
     } else if !provider.key_env_var.is_empty() {
         if let Ok(key) = std::env::var(&provider.key_env_var) {

@@ -219,6 +219,10 @@ function compileRules(patrones) {
     // ese idioma del texto, "*" (o ausente, compatibilidad con catálogos
     // viejos) la deja correr siempre. Ver scan() para el filtrado real.
     const idioma = (patron && patron.idioma) || '*';
+    // "alerta": el patrón se comunica al autor aunque sea rol "aviso" y no haya
+    // señales (caracteres invisibles). No toca densidad ni veredicto; solo lo
+    // lee el hook ai-text-warn.js.
+    const alerta = Boolean(patron && patron.alerta);
     for (const senal of senales) {
       const tipo = (senal && senal.tipo) || '';
       const valor = (senal && senal.valor) || '';
@@ -247,6 +251,7 @@ function compileRules(patrones) {
           heuristic: valor,
           rol,
           idioma,
+          alerta,
         });
         continue;
       } else {
@@ -261,6 +266,7 @@ function compileRules(patrones) {
           re,
           rol,
           idioma,
+          alerta,
         });
       }
     }
@@ -329,6 +335,7 @@ function scan(text, patrones, opts) {
       end,
       correction: rule.correction,
       rol: rule.rol,
+      alerta: rule.alerta,
     });
   };
 

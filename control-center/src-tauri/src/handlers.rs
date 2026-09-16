@@ -377,6 +377,16 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         proxy::proxy_health,
         proxy::proxy_state_enabled,
         proxy::proxy_set_enabled,
+        // -- Ollama (modelo local) — AI Router > Modelo local; el interruptor
+        // -- simple de la bandeja no pasa por aqui, habla directo con
+        // -- ollama::toggle. --
+        ollama::commands::ollama_status,
+        ollama::commands::ollama_activate,
+        ollama::commands::ollama_deactivate,
+        ollama::commands::ollama_set_model,
+        ollama::commands::ollama_benchmark,
+        ollama::commands::ollama_pull,
+        ollama::commands::ollama_delete,
         // -- workflow YAML composability + SQLite run history (KIRKARDO 23
         //    P2; wiring 2026-08-11, audit #32: los 6 llevaban desde jun-26
         //    sin registrar y la tabla se creaba vacía en cada boot. El

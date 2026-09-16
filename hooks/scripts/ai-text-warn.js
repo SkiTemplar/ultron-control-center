@@ -97,7 +97,28 @@ function main() {
   // haya avisos sueltos.
   const senales = report.matches.filter((m) => m.rol !== 'aviso');
   const avisos = report.matches.filter((m) => m.rol === 'aviso');
-  if (!senales.length) return; // sin señales (haya o no avisos) → silencio
+  // Excepción: los patrones con "alerta" en el catálogo (caracteres invisibles)
+  // se comunican siempre, haya o no señales (decidido por el usuario
+  // 2026-09-16). Siguen sin contar para la densidad ni el veredicto.
+  const alertas = avisos.filter((m) => m.alerta);
+  if (!senales.length && !alertas.length) return; // sin señales ni alertas → silencio
+
+  const alertaBlock = alertas.length
+    ? `  Caracteres invisibles o espacios Unicode no estándar: ${alertas.length}.\n` +
+      alertas
+        .slice(0, MAX_EXAMPLES)
+        .map((m) => `  - "…${visibilizar(m.evidence)}…" → ${m.correction}`)
+        .join('\n') +
+      '\n'
+    : '';
+
+  if (!senales.length) {
+    emit(
+      `[detector-IA] ${path.basename(filePath)}: sin señales de texto-IA, pero hay caracteres ocultos:\n` +
+        `${alertaBlock}Acción: eliminarlos o sustituirlos por espacios normales.`,
+    );
+    return;
+  }
 
   const examples = senales.slice(0, MAX_EXAMPLES).map((m) => {
     const fix = m.correction ? ` → ${m.correction}` : '';
@@ -115,8 +136,13 @@ function main() {
     `[detector-IA] ${path.basename(filePath)}: ${senales.length} señal(es) de texto-IA ` +
     `en ${patronesSenal} patrón(es) — densidad ${report.density_per_100w.toFixed(2)}/100 palabras. ` +
     `El texto recién escrito puede CANTAR a IA:\n${examples.join('\n')}${extra}${avisoLine}\n` +
+    alertaBlock +
     `Acción: reescribir las frases señaladas con las correcciones del catálogo antes de dar el texto por bueno.`;
 
+  emit(context);
+}
+
+function emit(context) {
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
@@ -124,6 +150,14 @@ function main() {
         additionalContext: context,
       },
     }),
+  );
+}
+
+/** Sustituye cada carácter invisible por su código (⟦U+200B⟧) para que la evidencia se pueda leer. */
+function visibilizar(texto) {
+  return String(texto || '').replace(
+    /[ ­ -‏‪-  -⁤⁦-⁩　]/g,
+    (c) => `⟦U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}⟧`,
   );
 }
 

@@ -1094,6 +1094,26 @@
           "nota": "equivalente ingles"
         }
       ]
+    },
+    {
+      "nombre": "Caracteres invisibles o espacios Unicode no estándar",
+      "idioma": "*",
+      "descripcion": "Caracteres de ancho cero, espacios especiales (sin corte, estrecho, tipográficos), guion blando y controles de dirección que no se ven en pantalla. Pueden llegar al texto al copiar y pegar desde interfaces web de chatbots o desde otros documentos. No son una marca de agua estadística (esa solo la verifica el proveedor con su clave): son un rastro de copia que conviene revisar.",
+      "ejemplo_es": "'El sistema​ procesa los datos' con un espacio de ancho cero invisible tras 'sistema'",
+      "correccion": "Localizar el carácter (el aviso muestra su código U+XXXX) y sustituirlo por un espacio normal o eliminarlo; pegar como texto sin formato.",
+      "rol": "aviso",
+      "alerta": true,
+      "rol_nota": "Medido 2026-09-16 sobre el corpus propio (25 IA es, 6 humano es, 36 IA en, 12 humano en): 0 apariciones en ambos lados, así que no hay base para sumarlo a la densidad. Se lista como aviso y, por decisión del usuario, el hook avisa aunque no haya señales ('alerta'). El BOM U+FEFF queda fuera: al inicio de fichero es legítimo (UTF-8 con BOM).",
+      "fuentes": [
+        "https://www.unicode.org/charts/PDF/U2000.pdf"
+      ],
+      "senales_ejecutables": [
+        {
+          "tipo": "regex",
+          "valor": "[\\u{00A0}\\u{00AD}\\u{2000}-\\u{200F}\\u{202A}-\\u{202F}\\u{205F}-\\u{2064}\\u{2066}-\\u{2069}\\u{3000}]+",
+          "nota": "caracteres invisibles o espacios Unicode no estándar"
+        }
+      ]
     }
   ],
   "deteccion": [

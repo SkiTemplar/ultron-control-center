@@ -51,6 +51,7 @@ mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod migration;
 mod notes;
+mod ollama; // modelo local (autocompletado): interruptor de bandeja + seccion AI Router
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod plans;
 mod plugin_state;

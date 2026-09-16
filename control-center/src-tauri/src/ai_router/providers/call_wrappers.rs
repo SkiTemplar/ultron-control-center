@@ -259,9 +259,16 @@ pub(crate) fn call_gemini(
             body["systemInstruction"] = serde_json::json!({ "parts": [{ "text": sys }] });
         }
     }
+    // (2026-09-16) La clave viaja por la cabecera `x-goog-api-key`, NO por
+    // `?key=` en la query string: la API de Gemini admite ambas formas, pero
+    // reqwest::Error imprime la URL completa (con query incluida) en su
+    // `Display` cuando el envio falla a nivel de red — eso dejaba la clave en
+    // claro en el mensaje de error, que `apply_metric_sample` persistia tal
+    // cual en `metrics.json` (`by_class.gemini.last_error`). Por cabecera, la
+    // URL que reqwest puede llegar a mostrar en un error nunca lleva la clave.
     let resp = client
         .post(&url)
-        .query(&[("key", key)])
+        .header("x-goog-api-key", key)
         .header("content-type", "application/json")
         .json(&body)
         .send()
@@ -472,15 +479,28 @@ pub(crate) fn try_assignment_call(
                 assignment.max_tokens,
             )
         }),
-        "ollama" => with_retry(MAX_RETRIES, || {
-            call_ollama(
-                &provider,
-                &assignment.model,
-                prompt,
-                system_prompt,
-                assignment.max_tokens,
-            )
-        }),
+        "ollama" => {
+            // (2026-09-16) El modelo local activo lo resuelve
+            // `ollama::toggle::model_name` (precedencia env > config
+            // persistido > por defecto), NO el modelo fijo que trae la
+            // ZoneAssignment del zones.json: `qwen2.5-coder:32b` no está
+            // descargado y no cabe en 8 GB de VRAM en esta máquina, así
+            // que despachar con `assignment.model` a ciegas rompía
+            // `code-fast-local` y el fallback local de `light`. Punto de
+            // despacho elegido por ser el único lugar donde TODAS las
+            // llamadas al proveedor `ollama` pasan, sin importar la zona
+            // ni si el modelo llega como primary o como fallback.
+            let model = crate::ollama::toggle::model_name();
+            with_retry(MAX_RETRIES, || {
+                call_ollama(
+                    &provider,
+                    &model,
+                    prompt,
+                    system_prompt,
+                    assignment.max_tokens,
+                )
+            })
+        }
         other => Err((
             format!("no wrapper implemented for provider '{}'", other),
             FailReason::Error,

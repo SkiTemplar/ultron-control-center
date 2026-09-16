@@ -11,7 +11,7 @@
     "fallbacks": [
       {
         "provider_id": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "max_tokens": 1024
       }
     ]
@@ -60,7 +60,7 @@
       },
       {
         "provider_id": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "max_tokens": 2048
       }
     ]
@@ -71,7 +71,7 @@
     "category": "research",
     "primary": {
       "provider_id": "gemini",
-      "model": "gemini-3.8-flash",
+      "model": "gemini-2.5-flash",
       "max_tokens": 4096
     },
     "fallbacks": [
@@ -94,7 +94,7 @@
     "fallbacks": [
       {
         "provider_id": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "max_tokens": 1024
       }
     ]
@@ -111,7 +111,7 @@
     "fallbacks": [
       {
         "provider_id": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "max_tokens": 256
       }
     ],
@@ -140,7 +140,7 @@
     "fallbacks": [
       {
         "provider_id": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "max_tokens": 512
       }
     ]
@@ -157,7 +157,7 @@
     "fallbacks": [
       {
         "provider_id": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "max_tokens": 1024
       },
       {

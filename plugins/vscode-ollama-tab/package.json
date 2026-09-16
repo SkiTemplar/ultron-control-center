@@ -1,0 +1,85 @@
+{
+  "name": "ollama-tab",
+  "displayName": "Ollama Tab",
+  "description": "Autocompletado de linea (ghost text) con un modelo local de Ollama, sin chat ni telemetria.",
+  "version": "0.1.0",
+  "publisher": "ultron-local",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "local"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Ollama Tab",
+      "properties": {
+        "ollamaTab.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Activa o desactiva el autocompletado de linea con Ollama."
+        },
+        "ollamaTab.endpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "URL base del servidor Ollama."
+        },
+        "ollamaTab.model": {
+          "type": "string",
+          "default": "",
+          "description": "Modelo de Ollama a usar para el completado FIM. Vacio (por defecto) = usa el modelo cargado segun GET /api/ps, cacheado unos segundos; cae a qwen2.5-coder:1.5b-base si no hay ninguno cargado. Un valor explicito siempre se respeta."
+        },
+        "ollamaTab.debounceMs": {
+          "type": "number",
+          "default": 75,
+          "description": "Espera antes de pedir una sugerencia tras dejar de escribir (ms)."
+        },
+        "ollamaTab.timeoutMs": {
+          "type": "number",
+          "default": 1500,
+          "description": "Tiempo maximo de espera de la respuesta de Ollama (ms)."
+        },
+        "ollamaTab.maxPrefixChars": {
+          "type": "number",
+          "default": 3000,
+          "description": "Numero maximo de caracteres de contexto antes del cursor."
+        },
+        "ollamaTab.maxSuffixChars": {
+          "type": "number",
+          "default": 1000,
+          "description": "Numero maximo de caracteres de contexto despues del cursor."
+        },
+        "ollamaTab.logSuggestions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Traza en el OutputChannel 'Ollama Tab' una linea por cada sugerencia mostrada (hora, lenguaje, latencia y texto truncado a ~60 caracteres). Nunca vuelca el prefijo del fichero."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -p ./ -w",
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.ts",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

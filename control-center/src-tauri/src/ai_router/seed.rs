@@ -92,11 +92,13 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "GEMINI_API_KEY".into(),
             base_url: "https://generativelanguage.googleapis.com".into(),
-            // (2026-09-11) gemini-3.8-flash verificado vivo contra v1beta/models
-            // y generateContent (thinkingConfig.thinkingBudget:0 sigue OK); gemini-2.5-pro
-            // se deja porque sigue listado en v1beta/models.
-            default_model: "gemini-3.8-flash".into(),
-            models: vec!["gemini-3.8-flash".into(), "gemini-2.5-pro".into()],
+            // (2026-09-16) gemini-3.8-flash medido en vivo: 200 OK pero
+            // 55.497 ms de latencia — inutilizable para las zonas que lo usan
+            // como fallback rapido. gemini-2.5-flash medido el mismo dia:
+            // 200 OK en 624 ms. Vuelta a 2.5-flash en todas las zonas;
+            // gemini-2.5-pro se deja porque sigue listado en v1beta/models.
+            default_model: "gemini-2.5-flash".into(),
+            models: vec!["gemini-2.5-flash".into(), "gemini-2.5-pro".into()],
             cli_command: None,
         },
         Provider {
@@ -115,11 +117,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             // moría con model_not_found. `gpt-oss-20b` es el que responde sin
             // rate limit (~300 ms); el 120b ya los devuelve en esta cuenta.
             default_model: "openai/gpt-oss-20b".into(),
-            models: vec![
-                "openai/gpt-oss-20b".into(),
-                "openai/gpt-oss-120b".into(),
-                "qwen/qwen3.6-27b".into(),
-            ],
+            models: vec!["openai/gpt-oss-20b".into(), "openai/gpt-oss-120b".into()],
             cli_command: None,
         },
         Provider {
@@ -224,8 +222,9 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
     // groq-first. gemini-cli was RETIRED from every chain on 2026-06-19: Google
     // dropped free-tier OAuth for individuals (runtime: IneligibleTierError —
     // "migrate to the Antigravity suite"), so the CLI no longer authenticates.
-    // The cloud 'gemini' provider (gemini-3.8-flash via GEMINI_API_KEY, migrado
-    // desde gemini-2.5-flash el 2026-09-11) replaces it as the general fallback
+    // The cloud 'gemini' provider (gemini-2.5-flash via GEMINI_API_KEY;
+    // vuelta desde gemini-3.8-flash el 2026-09-16 — 3.8-flash medido en vivo
+    // en 55.497 ms, 2.5-flash en 624 ms) replaces it as the general fallback
     // and as research-web's primary (web grounding groq lacks). gemini-cli
     // stays DEFINED in seed_providers in case the tier is restored.
     // 'code-fast-local' stays on Ollama (offline by design).
@@ -258,7 +257,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 },
                 ZoneAssignment {
                     provider_id: "gemini".into(),
-                    model: "gemini-3.8-flash".into(),
+                    model: "gemini-2.5-flash".into(),
                     max_tokens: 1024,
                 },
             ],
@@ -323,7 +322,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 },
                 ZoneAssignment {
                     provider_id: "gemini".into(),
-                    model: "gemini-3.8-flash".into(),
+                    model: "gemini-2.5-flash".into(),
                     max_tokens: 2048,
                 },
             ],
@@ -338,7 +337,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // cloud (mismo modelo, grounding via GEMINI_API_KEY), fallback groq.
             primary: ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-3.8-flash".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 4096,
             },
             fallbacks: vec![ZoneAssignment {
@@ -368,7 +367,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // gemini-cli retirado 2026-06-19 (muerto); queda gemini cloud.
             fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-3.8-flash".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 1024,
             }],
             system_prompt: None,
@@ -385,7 +384,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             },
             fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-3.8-flash".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 256,
             }],
             system_prompt: Some(
@@ -419,7 +418,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             },
             fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
-                model: "gemini-3.8-flash".into(),
+                model: "gemini-2.5-flash".into(),
                 max_tokens: 512,
             }],
             system_prompt: None,
@@ -438,7 +437,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             fallbacks: vec![
                 ZoneAssignment {
                     provider_id: "gemini".into(),
-                    model: "gemini-3.8-flash".into(),
+                    model: "gemini-2.5-flash".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {

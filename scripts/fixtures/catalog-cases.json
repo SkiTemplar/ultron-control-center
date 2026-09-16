@@ -368,6 +368,18 @@
         "El experimento compara dos configuraciones del reranker sobre el mismo corpus.",
         "Los resultados del experimento aparecen en la tabla 3."
       ]
+    },
+    {
+      "nombre": "Caracteres invisibles o espacios Unicode no estándar",
+      "positivos": [
+        "El sistema​ procesa los datos en tiempo real.",
+        "La latencia media fue de 12 ms en el banco de pruebas.",
+        "El resultado  confirma la hipótesis inicial."
+      ],
+      "negativos": [
+        "El sistema procesa los datos en tiempo real.",
+        "La latencia media fue de 12 ms en el banco de pruebas."
+      ]
     }
   ],
   "_doc_veredicto_casos": "Casos para el veredicto por densidad (decidido 2026-09-11): tres estados a partir de palabras y densidad de señales/100 palabras (rol 'senal', SIN contar avisos). Umbral y banda en DENSITY_THRESHOLD/DENSITY_BAND (ai-text-detector.js) y calcular_veredicto (tfg_lab.rs); min_palabras en MIN_WORDS. Consumido por conformidad_con_el_fixture_compartido (paridad) y por el selftest JS del detector.",
@@ -443,6 +455,11 @@
       "patron": "Evitación de la cópula simple ('es/son')",
       "texto": "El modulo se erige como el nucleo del sistema.",
       "rol_esperado": "senal"
+    },
+    {
+      "patron": "Caracteres invisibles o espacios Unicode no estándar",
+      "texto": "El modulo​ procesa los datos.",
+      "rol_esperado": "aviso"
     }
   ]
 }

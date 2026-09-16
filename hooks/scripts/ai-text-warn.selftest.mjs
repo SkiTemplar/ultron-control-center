@@ -128,6 +128,20 @@ A(
 const r12 = fire("Write", "C:/Users/test/tfg/triada.md", "El sistema es rapido, eficiente y escalable.");
 A(r12.status === 0 && r12.stdout === "", "caso12: solo tricolon (rol aviso) -> silencio, no cuenta como señal", `stdout="${r12.stdout.slice(0, 160)}"`);
 
+// --- Caso 13 (ALERTA): aviso con "alerta" en el catálogo -------------------
+// Los caracteres invisibles son rol "aviso" (no suman densidad) pero el hook
+// los comunica aunque no haya señales, con el código visible (U+XXXX).
+const r13 = fire("Write", "C:/Users/test/tfg/invisible.md", "La latencia media\u200B fue de 12 ms en el banco de pruebas.");
+const ctx13 = r13.stdout ? JSON.parse(r13.stdout).hookSpecificOutput.additionalContext : "";
+A(
+  r13.status === 0 && ctx13.includes("caracteres ocultos") && ctx13.includes("U+200B"),
+  "caso13: solo caracter invisible (aviso con alerta) -> avisa con el codigo U+200B",
+  `stdout="${r13.stdout.slice(0, 200)}"`,
+);
+// Negativo: el mismo texto sin el carácter invisible no dice nada.
+const r13b = fire("Write", "C:/Users/test/tfg/invisible.md", "La latencia media fue de 12 ms en el banco de pruebas.");
+A(r13b.status === 0 && r13b.stdout === "", "caso13b: mismo texto sin invisibles -> silencio", `stdout="${r13b.stdout.slice(0, 160)}"`);
+
 // --- Caso 11 (GUARDA): TODA regex del catalogo compila en JS ----------------
 // Una regex intraducible se salta en silencio, asi que el patron queda vivo en
 // el Lab (Rust) y muerto en el hook (JS) sin que nadie se entere. Le pasaba al

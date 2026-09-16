@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RouterMetrics } from "./RouterMetrics";
 import { ProxyControl } from "./ProxyControl";
+import { OllamaControl } from "./OllamaControl";
 
 interface ProviderUsageRow {
   provider_id: string;
@@ -187,6 +188,17 @@ export function RouterDashboard() {
           Proxy free-tier
         </h2>
         <ProxyControl />
+      </div>
+
+      {/* Modelo local (Ollama) — interruptor de bandeja + gestion completa. */}
+      <div className="px-6 pb-6">
+        <h2
+          className="mb-3 text-[13px] font-semibold"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          Modelo local (Ollama)
+        </h2>
+        <OllamaControl />
       </div>
     </div>
   );

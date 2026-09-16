@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-14",
+  "generated_at": "2026-09-16",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -66,7 +66,7 @@
       "script": "~/.ultron/hooks/scripts/ai-text-warn.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "a527078090c6dd7203dd37adb146670f31422ae2cc2a8e4b2e033935c008bf29",
+      "checksum_sha256": "66444e825179e7e29633dcf69904a782f5cc06f9eae4954b1957f4d6343807c5",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

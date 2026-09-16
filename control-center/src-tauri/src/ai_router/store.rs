@@ -143,7 +143,7 @@ pub(crate) fn disabled_providers_set() -> HashSet<String> {
 ///
 /// Unlike `load_zones()`, this used to read an existing `providers.json`
 /// VERBATIM and never resync it against `seed_providers()` — a `providers.json`
-/// written before a seed model bump (e.g. `gemini-2.5-flash`, `codex`/`codex-cli`
+/// written before a seed model bump (e.g. `gemini-3.8-flash`, `codex`/`codex-cli`
 /// on `gpt-5`/`gpt-5.5`) stayed stale forever. `migrate_stale_provider_models`
 /// closes that gap (2026-09-11).
 pub fn load_providers() -> Result<Vec<Provider>, String> {
@@ -184,8 +184,13 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
 /// Pure (no I/O) so the migration is unit-testable.
 pub(crate) fn migrate_stale_provider_models(providers: &mut [Provider]) -> bool {
     // (provider id, stale default_model values that trigger the bump).
+    // gemini-3.8-flash (2026-09-16): medido en vivo, 200 OK pero 55.497 ms de
+    // latencia — vuelve a la lista de valores obsoletos que esta migracion
+    // repara, apuntando de nuevo al gemini-2.5-flash de seed_providers (624 ms
+    // medidos el mismo dia). Ver migrate_gemini_flash_model para el mismo
+    // bump aplicado a zones.json.
     const TARGETS: &[(&str, &[&str])] = &[
-        ("gemini", &["gemini-2.5-flash"]),
+        ("gemini", &["gemini-3.8-flash"]),
         ("codex-cli", &["gpt-5", "gpt-5.5"]),
     ];
     let seed = seed_providers();
@@ -254,10 +259,11 @@ pub fn load_zones() -> Result<Vec<Zone>, String> {
         if retire_gemini_cli(&mut zones) {
             mutated = true;
         }
-        // gemini-2.5-flash -> gemini-3.8-flash migration (2026-09-11): 3.8-flash
-        // verificado vivo contra v1beta/models y generateContent. Idempotente:
-        // un zones.json ya en 3.8-flash (como el vivo, migrado a mano el mismo
-        // dia) no dispara escritura.
+        // gemini-3.8-flash -> gemini-2.5-flash migration (2026-09-16): 3.8-flash
+        // medido en vivo en 55.497 ms (200 OK pero inservible como fallback
+        // rapido); 2.5-flash medido el mismo dia en 624 ms. Supersede la
+        // migracion inversa del 2026-09-11. Idempotente: un zones.json ya en
+        // 2.5-flash no dispara escritura.
         if migrate_gemini_flash_model(&mut zones) {
             mutated = true;
         }
@@ -280,7 +286,7 @@ pub fn load_zones() -> Result<Vec<Zone>, String> {
 }
 
 /// Retire the dead `gemini-cli` provider from every zone chain: replace it with
-/// the cloud `gemini` provider (so research-web keeps gemini-3.8-flash via API,
+/// the cloud `gemini` provider (so research-web keeps gemini-2.5-flash via API,
 /// and every fallback keeps a working target), then drop any fallback whose
 /// provider already appears earlier in the chain (including as the primary).
 ///
@@ -316,18 +322,19 @@ pub(crate) fn retire_gemini_cli(zones: &mut [Zone]) -> bool {
     mutated
 }
 
-/// Bump the cloud `gemini` provider's model from the retired `gemini-2.5-flash`
-/// to `gemini-3.8-flash` (2026-09-11: 3.8-flash verificado vivo contra
-/// `v1beta/models` y `generateContent`, `thinkingConfig.thinkingBudget: 0`
-/// sigue funcionando). Idempotent: a `zones.json` already on `gemini-3.8-flash`
-/// (e.g. the live one, hand-migrated the same day) triggers no mutation. After
-/// the bump, de-dups by (provider, model) so a chain that happened to carry
-/// both the old and new gemini model doesn't end up with a duplicate fallback.
+/// Bump the cloud `gemini` provider's model from the retired `gemini-3.8-flash`
+/// back to `gemini-2.5-flash` (2026-09-16: 3.8-flash medido en vivo — 200 OK
+/// pero 55.497 ms de latencia, muy por encima de lo aceptable para un
+/// fallback rapido; 2.5-flash medido el mismo dia en 624 ms). Supersedes the
+/// 2026-09-11 migration that went the other way. Idempotent: a `zones.json`
+/// already on `gemini-2.5-flash` triggers no mutation. After the bump,
+/// de-dups by (provider, model) so a chain that happened to carry both the
+/// old and new gemini model doesn't end up with a duplicate fallback.
 ///
 /// Pure (no I/O) so the migration is unit-testable.
 pub(crate) fn migrate_gemini_flash_model(zones: &mut [Zone]) -> bool {
-    const OLD_MODEL: &str = "gemini-2.5-flash";
-    const NEW_MODEL: &str = "gemini-3.8-flash";
+    const OLD_MODEL: &str = "gemini-3.8-flash";
+    const NEW_MODEL: &str = "gemini-2.5-flash";
     let mut mutated = false;
     for z in zones.iter_mut() {
         if z.primary.provider_id == "gemini" && z.primary.model == OLD_MODEL {
@@ -482,16 +489,17 @@ mod retire_tests {
     #[test]
     fn keeps_several_models_of_the_same_provider_in_a_chain() {
         // Caso del 2026-09-07: la cuota de Groq es por modelo, así que una
-        // cadena con tres modelos de Groq es legítima y no debe recortarse.
+        // cadena con varios modelos de Groq es legítima y no debe recortarse.
+        // qwen/qwen3.6-27b se retiró del fixture (2026-09-16): devuelve 404
+        // model_not_found en Groq, ya no es un modelo real de esta cuenta.
         let mut zones = vec![Zone {
             id: "chat".into(),
             label: "chat".into(),
             category: "chat".into(),
             primary: asg("groq", "openai/gpt-oss-120b"),
             fallbacks: vec![
-                asg("groq", "qwen/qwen3.6-27b"),
                 asg("groq", "openai/gpt-oss-20b"),
-                asg("gemini", "gemini-3.8-flash"),
+                asg("gemini", "gemini-2.5-flash"),
             ],
             system_prompt: None,
         }];
@@ -499,7 +507,7 @@ mod retire_tests {
             !retire_gemini_cli(&mut zones),
             "nada que migrar ni recortar"
         );
-        assert_eq!(zones[0].fallbacks.len(), 3);
+        assert_eq!(zones[0].fallbacks.len(), 2);
     }
 
     #[test]
@@ -537,43 +545,43 @@ mod gemini_flash_migration_tests {
     }
 
     #[test]
-    fn bumps_gemini_2_5_flash_to_3_8_flash_in_primary_and_fallbacks() {
+    fn bumps_gemini_3_8_flash_back_to_2_5_flash_in_primary_and_fallbacks() {
         let mut zones = vec![Zone {
             id: "research-web".into(),
             label: "research-web".into(),
             category: "research".into(),
-            primary: asg("gemini", "gemini-2.5-flash"),
+            primary: asg("gemini", "gemini-3.8-flash"),
             fallbacks: vec![
                 asg("groq", "openai/gpt-oss-120b"),
-                asg("gemini", "gemini-2.5-flash"),
+                asg("gemini", "gemini-3.8-flash"),
             ],
             system_prompt: None,
         }];
         assert!(migrate_gemini_flash_model(&mut zones));
-        assert_eq!(zones[0].primary.model, "gemini-3.8-flash");
+        assert_eq!(zones[0].primary.model, "gemini-2.5-flash");
         // La entrada duplicada tras el bump se recorta por (proveedor, modelo).
         assert_eq!(zones[0].fallbacks.len(), 1);
         assert_eq!(zones[0].fallbacks[0].provider_id, "groq");
     }
 
     #[test]
-    fn is_idempotent_when_zones_json_already_on_3_8_flash() {
-        // Caso del zones.json vivo: migrado a mano el 2026-09-11. La migracion
-        // del seed no debe reescribir nada ni duplicar la zona.
+    fn is_idempotent_when_zones_json_already_on_2_5_flash() {
+        // Caso del zones.json vivo tras el bump del 2026-09-16. La migracion
+        // no debe reescribir nada ni duplicar la zona.
         let mut zones = vec![Zone {
             id: "chat".into(),
             label: "chat".into(),
             category: "chat".into(),
             primary: asg("groq", "openai/gpt-oss-120b"),
-            fallbacks: vec![asg("gemini", "gemini-3.8-flash")],
+            fallbacks: vec![asg("gemini", "gemini-2.5-flash")],
             system_prompt: None,
         }];
         assert!(
             !migrate_gemini_flash_model(&mut zones),
-            "zones.json ya en 3.8-flash: nada que migrar"
+            "zones.json ya en 2.5-flash: nada que migrar"
         );
         assert_eq!(zones[0].fallbacks.len(), 1);
-        assert_eq!(zones[0].fallbacks[0].model, "gemini-3.8-flash");
+        assert_eq!(zones[0].fallbacks[0].model, "gemini-2.5-flash");
     }
 
     #[test]
@@ -771,14 +779,14 @@ mod provider_model_migration_tests {
     fn bumps_gemini_default_model_and_catalog() {
         let mut providers = vec![provider(
             "gemini",
-            "gemini-2.5-flash",
-            &["gemini-2.5-flash", "gemini-2.5-pro"],
+            "gemini-3.8-flash",
+            &["gemini-3.8-flash", "gemini-2.5-pro"],
         )];
         assert!(migrate_stale_provider_models(&mut providers));
-        assert_eq!(providers[0].default_model, "gemini-3.8-flash");
+        assert_eq!(providers[0].default_model, "gemini-2.5-flash");
         assert!(providers[0]
             .models
-            .contains(&"gemini-3.8-flash".to_string()));
+            .contains(&"gemini-2.5-flash".to_string()));
     }
 
     #[test]
@@ -809,8 +817,8 @@ mod provider_model_migration_tests {
     fn is_idempotent_when_already_on_seed_model() {
         let mut providers = vec![provider(
             "gemini",
-            "gemini-3.8-flash",
-            &["gemini-3.8-flash", "gemini-2.5-pro"],
+            "gemini-2.5-flash",
+            &["gemini-2.5-flash", "gemini-2.5-pro"],
         )];
         assert!(!migrate_stale_provider_models(&mut providers));
     }
