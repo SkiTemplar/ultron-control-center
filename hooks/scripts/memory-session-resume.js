@@ -260,6 +260,45 @@ function launchSessionSummarizer(cwd, sessionId) {
   }
 }
 
+const PORTRAIT_SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'memory-portrait.mjs');
+const PORTRAIT_FILE = path.join(os.homedir(), '.ultron', 'cockpit', 'memory-portrait', 'portrait.json');
+const PORTRAIT_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+
+/**
+ * Retrato del usuario (Memory -> Retrato, 2026-09-16): si tiene 7 días o
+ * más, se regenera en segundo plano con `claude -p` (1-3 min). Si no existe
+ * no se lanza: la primera generación es manual (botón Regenerar). Solo un
+ * stat() en el camino síncrono; mismo patrón desacoplado que el resumidor.
+ */
+function launchPortraitRefreshIfStale() {
+  if (process.env.CLAUDE_NO_HOOKS === '1') return;
+  let fd = null;
+  try {
+    const age = Date.now() - fs.statSync(PORTRAIT_FILE).mtimeMs;
+    if (age < PORTRAIT_MAX_AGE_MS) return;
+    // Toca el fichero antes de lanzar: dos sesiones abiertas a la vez no
+    // disparan dos regeneraciones.
+    const now = new Date();
+    fs.utimesSync(PORTRAIT_FILE, now, now);
+    const dir = path.join(os.homedir(), '.ultron', 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    fd = fs.openSync(path.join(dir, 'memory-portrait.log'), 'a');
+    const child = spawn(process.execPath, [PORTRAIT_SCRIPT], {
+      detached: true,
+      stdio: ['ignore', fd, fd],
+      windowsHide: true,
+    });
+    child.on('error', () => { /* best effort */ });
+    child.unref();
+  } catch {
+    /* sin retrato todavía o error de E/S: el resume sigue igual */
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* el hijo ya tiene su copia */ }
+    }
+  }
+}
+
 /**
  * Bloque `last_session` (2026-09-11): el resumen de la sesion ANTERIOR del
  * proyecto (fichero por sesion, nunca brain.db -- decision del usuario). Si
@@ -404,6 +443,7 @@ function main() {
   let codegraphLines = [];
   try { codegraphLines = codegraphSummary.renderLines(codegraphSummary.summarize(cwd)); } catch { /* sin indice */ }
   const lastSessionLines = computeLastSessionLines({ cwd, sessionId, transcriptPath, project });
+  launchPortraitRefreshIfStale();
   if (!resume && !profileDoc && !harnessNote && !head && !feedbackLines.length && !codegraphLines.length && !lastSessionLines.length) {
     emit(l0);
     return;

@@ -160,6 +160,11 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::memory::memory_item_pin,
         commands::memory::memory_item_unpin,
         commands::memory::memory_stats,
+        // Memory -> Retrato (2026-09-16): retrato del usuario generado por
+        // scripts/memory-portrait.mjs; leer, marcar afirmaciones y regenerar.
+        commands::memory::memory_portrait_get,
+        commands::memory::memory_portrait_mark,
+        commands::memory::memory_portrait_regenerate,
         // Retrieval Inspector (wiring 2026-08-10, audit 08-09 #34): traza
         // completa del recall (dense/sparse/fused + injected/discarded con
         // razon) + rebuild manual del indice denso. Construidos en jun-26,

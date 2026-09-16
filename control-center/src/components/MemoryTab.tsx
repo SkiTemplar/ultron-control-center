@@ -5,6 +5,7 @@
 //   - Browser   : <MemoryBrowser/>   — curate already-governed memories.
 //   - Inspector : <MemoryInspector/> — recall trace: why each memory was
 //                 injected/discarded (wiring 2026-08-10, audit 08-09 #34).
+//   - Retrato   : <MemoryPortrait/>  — qué sabe ULTRON del usuario (2026-09-16).
 //
 // The Sidebar still routes to a single `memory` tab; this component owns the
 // inner sub-tab switch. Black, minimal, hard-edge — colours from
@@ -14,13 +15,15 @@ import { useState } from "react";
 import { MemoryInbox } from "./MemoryInbox";
 import { MemoryBrowser } from "./MemoryBrowser";
 import { MemoryInspector } from "./MemoryInspector";
+import { MemoryPortrait } from "./MemoryPortrait";
 
-type SubTab = "inbox" | "browser" | "inspector";
+type SubTab = "inbox" | "browser" | "inspector" | "portrait";
 
 const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: "inbox", label: "Inbox" },
   { id: "browser", label: "Browser" },
   { id: "inspector", label: "Inspector" },
+  { id: "portrait", label: "Retrato" },
 ];
 
 export function MemoryTab() {
@@ -55,7 +58,15 @@ export function MemoryTab() {
 
       {/* Active surface */}
       <div className="min-h-0 flex-1">
-        {sub === "inbox" ? <MemoryInbox /> : sub === "browser" ? <MemoryBrowser /> : <MemoryInspector />}
+        {sub === "inbox" ? (
+          <MemoryInbox />
+        ) : sub === "browser" ? (
+          <MemoryBrowser />
+        ) : sub === "inspector" ? (
+          <MemoryInspector />
+        ) : (
+          <MemoryPortrait />
+        )}
       </div>
     </div>
   );

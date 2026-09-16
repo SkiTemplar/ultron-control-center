@@ -98,6 +98,7 @@ manifest.cache.json
 # === Cockpit runtime (user-specific) ===
 # kanbans/contextos/sesiones por-proyecto: datos personales, NUNCA al repo publico
 cockpit/projects/
+cockpit/memory-portrait/
 cockpit/projects-archive/
 cockpit/projects.json
 # indice del curso academico (scripts/curso.mjs): asignaturas y proyectos del usuario
