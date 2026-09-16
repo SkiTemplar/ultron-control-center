@@ -189,6 +189,15 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Debe ser el primer plugin. Una segunda copia (p.ej. el autostart
+        // lanzado con la app ya abierta a mano: medido 2026-09-16, dos
+        // control-center.exe de ~1,6 GB cada uno) sale al instante; si la
+        // abrió el usuario, se enfoca la ventana de la copia viva.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if !argv.iter().any(|a| a == "--from-autostart") {
+                tray::focus_main_window(app);
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())

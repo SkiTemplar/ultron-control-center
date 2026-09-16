@@ -85,7 +85,7 @@ fn handle_ollama_click(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
 
 /// Show + focus + unminimize the main window. Mirrors the helper in
 /// `lib.rs` (kept private there) so the tray module is self-contained.
-fn focus_main_window(app: &AppHandle) {
+pub(crate) fn focus_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

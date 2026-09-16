@@ -242,14 +242,10 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // 2026-09-07: la cuota de Groq es POR MODELO. Medido: 266 llamadas
             // a `chat` en un dia (captura + juez de candidatos), el 120b en
             // cooldown por 429 y Gemini con sus 20/dia agotadas -> la captura
-            // se quedaba sin proveedor. Dos modelos mas de Groq en medio, cada
-            // uno con su bucket, antes de gastar la cuota diaria de Gemini.
+            // se quedaba sin proveedor. Otro modelo de Groq en medio, con su
+            // bucket, antes de gastar la cuota diaria de Gemini.
+            // 2026-09-16: qwen/qwen3.6-27b retirado (404 model_not_found).
             fallbacks: vec![
-                ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "qwen/qwen3.6-27b".into(),
-                    max_tokens: 1024,
-                },
                 ZoneAssignment {
                     provider_id: "groq".into(),
                     model: "openai/gpt-oss-20b".into(),
