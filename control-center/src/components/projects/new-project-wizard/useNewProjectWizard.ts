@@ -299,7 +299,9 @@ export function useNewProjectWizard({
       case "asignatura":
         return !!subjectRelPath;
       case "carpeta":
-        return confirmedSub !== null;
+        // La subcarpeta es opcional: basta con que la carpeta actual se haya
+        // podido listar. `confirmedSub` lo fija next(), no puede gatear aquí.
+        return !loadingFolder && entries !== null;
       case "nombre":
         return validateProjectName(name) === null;
       case "plantilla":

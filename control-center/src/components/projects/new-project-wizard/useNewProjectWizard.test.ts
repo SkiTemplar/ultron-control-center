@@ -70,6 +70,27 @@ describe("useNewProjectWizard — canAdvance en el paso nombre", () => {
   });
 });
 
+describe("useNewProjectWizard — canAdvance en el paso carpeta", () => {
+  it("la subcarpeta es opcional: se puede avanzar sin entrar en ninguna; con el listado en error, no", async () => {
+    const { result } = setup();
+    await selectPersonalRoot(result);
+
+    act(() => result.current.next()); // tipo -> carpeta
+    expect(result.current.currentStep).toBe("carpeta");
+    await waitFor(() => expect(result.current.entries).not.toBeNull());
+    expect(result.current.canAdvance()).toBe(true);
+
+    // Negativo: si la carpeta actual no se puede listar, no se avanza.
+    vi.mocked(cliList).mockResolvedValue({
+      ok: false,
+      error: { code: "NOT_FOUND", message: "no existe" },
+    });
+    act(() => result.current.setCurrentSub("fantasma"));
+    await waitFor(() => expect(result.current.folderError).not.toBeNull());
+    expect(result.current.canAdvance()).toBe(false);
+  });
+});
+
 describe("useNewProjectWizard — previewPath", () => {
   it("compone raiz + subcarpeta + nombre; sin raiz seleccionada no hay vista previa", async () => {
     const { result } = setup();
