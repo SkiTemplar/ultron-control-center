@@ -42,4 +42,40 @@ mod tests;
 pub(super) mod types;
 
 pub use commands::{list_installed_apps_inner, open_app_folder_inner, uninstall_app_inner};
-pub use types::{InstalledAppsReport, UninstallResult};
+pub use types::{InstalledApp, InstalledAppsReport, UninstallResult};
+
+/// Busca una aplicacion por nombre en el inventario YA CACHEADO.
+///
+/// Solo lee la cache: nunca lanza el escaneo (winget + Get-Package tarda
+/// segundos). Una orden de voz — "abre Spotify" — no puede quedarse esperando
+/// a un inventario completo; si la cache no esta, el llamante cae a su
+/// alternativa.
+///
+/// Coincidencia por contenido sin distinguir mayusculas, prefiriendo la
+/// coincidencia exacta y, a igualdad, el nombre mas corto ("Spotify" antes que
+/// "Spotify Web Helper").
+#[must_use]
+pub fn find_cached_app(query: &str) -> Option<InstalledApp> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+    let snapshot = cache::read_cache()?;
+    let mut best: Option<InstalledApp> = None;
+    for app in snapshot.apps {
+        let name = app.name.to_lowercase();
+        if name == needle {
+            return Some(app);
+        }
+        if name.contains(&needle) {
+            let shorter = best
+                .as_ref()
+                .map(|b| app.name.len() < b.name.len())
+                .unwrap_or(true);
+            if shorter {
+                best = Some(app);
+            }
+        }
+    }
+    best
+}

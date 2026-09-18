@@ -47,7 +47,10 @@ mod kg;
 mod library;
 mod logs;
 mod maintenance;
-mod maria; // mar.ia: ventana del orbe + puente de estado de voz
+mod maria; // mar.ia: puente de estado de voz hacia las ventanas
+mod maria_quota; // mar.ia: consumo real por ventana movil
+mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
+mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
 mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
@@ -336,15 +339,10 @@ pub fn run() {
                 tracing::error!(error = %e, "tray init failed");
             }
 
-            // mar.ia: el orbe es la cara de la aplicacion, asi que aparece al
-            // arrancar. Best-effort: si la ventana no se puede crear, la app
-            // sigue siendo la de siempre (ventana principal + bandeja).
-            // MARIA_ORB=0 lo desactiva para arranques sin interfaz flotante.
-            if std::env::var("MARIA_ORB").as_deref() != Ok("0") {
-                if let Err(e) = maria::open_orb_inner(app.handle()) {
-                    tracing::warn!(error = %e, "no pude abrir el orbe de mar.ia");
-                }
-            }
+            // mar.ia arranca con Windows: es un asistente, no una herramienta
+            // que se abre a mano. Solo se registra la primera vez (ver
+            // `ensure_autostart`), asi que desactivarlo en Ajustes es firme.
+            maria::ensure_autostart(app.handle());
 
             // Quota watchdog — polls quota-state.json every 60 s and emits
             // quota:updated / quota:critical / quota:reset events so the

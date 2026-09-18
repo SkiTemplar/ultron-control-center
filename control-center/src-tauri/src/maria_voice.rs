@@ -16,7 +16,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter};
 
 /// Proceso vivo + su stdin. Mutex y no canal: las ordenes son esporadicas
 /// (una por pulsacion de tecla), no un flujo.
@@ -68,7 +68,7 @@ fn voice_python(script: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Reenvia al frontend lo que el sidecar escribe. Un evento por linea.
-fn pump_events<R: Runtime>(app: AppHandle<R>, reader: BufReader<std::process::ChildStdout>) {
+fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
     for line in reader.lines() {
         let Ok(line) = line else { break };
         let trimmed = line.trim();
@@ -98,12 +98,14 @@ fn pump_events<R: Runtime>(app: AppHandle<R>, reader: BufReader<std::process::Ch
                 let text = value.get("text").and_then(|v| v.as_str()).unwrap_or("");
                 let _ = app.emit("maria:voice", serde_json::json!({ "text": text }));
             }
-            // Las herramientas NO se ejecutan aqui todavia: se publican para
-            // que la app decida. Prohibido el no-op silencioso, asi que queda
-            // el rastro en el evento y en el log.
+            // El sidecar PIDE; la app EJECUTA. En un hilo aparte: abrir una
+            // aplicacion o consultar la memoria tarda, y este bucle tiene que
+            // seguir leyendo eventos (el nivel de microfono llega ~20 veces
+            // por segundo).
             "tool" => {
                 let _ = app.emit("maria:tool", value.clone());
-                tracing::info!(tool = %value, "el sidecar de voz pide una herramienta");
+                let app_for_tool = app.clone();
+                std::thread::spawn(move || run_tool(&app_for_tool, &value));
             }
             "error" => {
                 let msg = value.get("message").and_then(|v| v.as_str()).unwrap_or("error");
@@ -122,6 +124,51 @@ fn pump_events<R: Runtime>(app: AppHandle<R>, reader: BufReader<std::process::Ch
     let _ = app.emit("maria:voice", serde_json::json!({ "state": "idle" }));
 }
 
+/// Ejecuta una herramienta pedida por la voz y devuelve el resultado REAL
+/// para que mar.ia lo diga. Nada de dar por hecho lo que no se ha hecho.
+fn run_tool(app: &AppHandle, value: &serde_json::Value) {
+    use crate::maria_tools;
+
+    let name = value.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let args = value.get("args").cloned().unwrap_or(serde_json::Value::Null);
+    let arg_str = |k: &str| -> String {
+        args.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let outcome = match name {
+        "abrir_app" => maria_tools::abrir_app(&arg_str("nombre")),
+        "recordar" => maria_tools::recordar(&arg_str("consulta")),
+        "delegar_a_agente" => {
+            let proyecto = arg_str("proyecto");
+            maria_tools::delegar_a_agente(
+                app,
+                &arg_str("tarea"),
+                Some(proyecto.as_str()).filter(|p| !p.is_empty()),
+            )
+        }
+        otra => {
+            // Una herramienta que el modelo se invente no puede acabar en
+            // silencio: se dice que no existe.
+            tracing::warn!(tool = %otra, "herramienta desconocida pedida por la voz");
+            maria_tools::ToolOutcome {
+                ok: false,
+                say: format!("No sé hacer eso todavía: {otra}."),
+            }
+        }
+    };
+
+    if !outcome.ok {
+        crate::toast_emit::record_alert_and_maybe_toast(app, "maria_tools", "warn", &outcome.say);
+    }
+    let payload = serde_json::json!({ "cmd": "say", "text": outcome.say });
+    if let Err(e) = send_line(&payload.to_string()) {
+        tracing::warn!(error = %e, "no pude devolver el resultado al sidecar");
+    }
+}
+
 fn send_line(cmd: &str) -> Result<(), String> {
     let mut guard = VOICE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(proc) = guard.as_mut() else {
@@ -135,7 +182,7 @@ fn send_line(cmd: &str) -> Result<(), String> {
 
 /// Arranca el sidecar si no lo esta. Idempotente.
 #[tauri::command]
-pub async fn maria_voice_start<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
     // El candado se sostiene durante TODO el arranque, no solo para mirar: con
     // check-then-spawn, dos invocaciones seguidas (el orbe y un atajo, o dos
     // clics rapidos) pasaban las dos la comprobacion y acababan con dos
@@ -170,13 +217,62 @@ pub async fn maria_voice_start<R: Runtime>(app: AppHandle<R>) -> Result<bool, St
 
     let app_for_pump = app.clone();
     std::thread::spawn(move || pump_events(app_for_pump, BufReader::new(stdout)));
+
+    // La palabra clave se enciende sola salvo que el usuario la apagara: es la
+    // forma natural de hablarle. El microfono queda abierto SOLO para el
+    // detector, que no transcribe ni guarda nada mas que su gramatica.
+    if wake_enabled() {
+        let _ = send_line(r#"{"cmd":"wake_on"}"#);
+    }
     Ok(true)
+}
+
+/// ¿Esta activada la palabra clave? Por defecto SI: mar.ia responde a su
+/// nombre. Se apaga escribiendo "0" en ~/.ultron/.tmp/maria-wake.txt (por
+/// ejemplo, en clase o en una reunion).
+pub fn wake_enabled() -> bool {
+    dirs::home_dir()
+        .map(|h| h.join(".ultron").join(".tmp").join("maria-wake.txt"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| s.trim() != "0")
+        .unwrap_or(true)
+}
+
+/// Enciende o apaga la escucha por palabra clave, y lo recuerda.
+#[tauri::command]
+pub async fn maria_voice_wake(enabled: bool) -> Result<bool, String> {
+    if let Some(p) = dirs::home_dir().map(|h| h.join(".ultron").join(".tmp").join("maria-wake.txt"))
+    {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        std::fs::write(&p, if enabled { "1" } else { "0" })
+            .map_err(|e| format!("no pude guardar el ajuste de palabra clave: {e}"))?;
+    }
+    send_line(if enabled {
+        r#"{"cmd":"wake_on"}"#
+    } else {
+        r#"{"cmd":"wake_off"}"#
+    })?;
+    Ok(enabled)
 }
 
 /// Pide una escucha (atajo de teclado o boton del orbe).
 #[tauri::command]
 pub async fn maria_voice_listen() -> Result<(), String> {
     send_line(r#"{"cmd":"listen"}"#)
+}
+
+/// Turno escrito: mismo camino que la voz, sin microfono. Lo usa la linea de
+/// comando de la pantalla principal.
+#[tauri::command]
+pub async fn maria_voice_ask(text: String) -> Result<(), String> {
+    let texto = text.trim();
+    if texto.is_empty() {
+        return Err("no me has dicho nada".into());
+    }
+    let payload = serde_json::json!({ "cmd": "ask", "text": texto });
+    send_line(&payload.to_string())
 }
 
 /// Aborta la escucha o la respuesta en curso.

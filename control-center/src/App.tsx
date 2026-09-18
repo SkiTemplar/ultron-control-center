@@ -14,6 +14,9 @@ import { Learn } from "./components/Learn";
 import { Lab } from "./components/Lab";
 import { SessionsZone } from "./components/sessions/SessionsZone";
 import { Conversations } from "./components/Conversations";
+import { HudBackground, HudTopBar, useVoice } from "./components/jarvis/HudFrame";
+import { MariaHome } from "./components/jarvis/MariaHome";
+import { MariaChat } from "./components/jarvis/MariaChat";
 import { Usage } from "./components/Usage";
 import { AIRouterPage } from "./components/AIRouter";
 import { Settings } from "./components/Settings";
@@ -65,10 +68,19 @@ export default function App() {
 }
 
 function AppInner() {
-  const [tab, setTab] = useState<Tab>("projects");
+  const [tab, setTab] = useState<Tab>("home");
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Estado de la voz: alimenta el reactor de la barra y la pantalla principal.
+  const { state: voiceState, amp: voiceAmp, caption: voiceCaption } = useVoice();
+
+  // El sidecar de voz arranca con la aplicacion (antes lo hacia la ventana del
+  // orbe, retirada el 2026-09-18). Idempotente en el backend: si ya corre, no
+  // se lanza un segundo proceso.
+  useEffect(() => {
+    void invoke("maria_voice_start").catch(() => undefined);
+  }, []);
   const { currentId, tabs, select, open } = useProjectsTabs();
   const [lastProjectCtx, setLastProjectCtx] = useState<{
     id: string; title: string; subTab: string;
@@ -527,7 +539,18 @@ function AppInner() {
   }, [maintenanceCommands]);
 
   return (
-    <div className="flex h-full">
+    // HUD de mar.ia: las capas de fondo van detras (z-0, sin eventos de
+    // puntero) y el contenido encima. La barra de telemetria ocupa el alto
+    // completo con `flex-col`, y debajo queda el reparto clasico rail+main:
+    // asi ninguna pestaña heredada cambia de estructura.
+    <div className="relative flex h-full flex-col">
+      <HudBackground />
+      <HudTopBar voiceState={voiceState} />
+      {/* overflow-hidden + min-w-0 en el hijo: sin esto, una pestaña con
+          contenido ancho (la rejilla de Projects) hace crecer a `main` mas
+          alla del contenedor, el documento entero se desplaza y el rail se
+          sale por la izquierda comiendose las primeras letras. */}
+      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
       <Sidebar
         active={tab}
         onSelect={setTab}
@@ -535,7 +558,7 @@ function AppInner() {
         lastProjectCtx={tab !== "projects" ? lastProjectCtx : null}
         onGoBack={goBackToProject}
       />
-      <main className="flex-1 overflow-auto">
+      <main className="min-w-0 flex-1 overflow-auto">
         <UpdateBanner />
         <TabErrorBoundary tab="dashboard">
           {tab === "dashboard" && (
@@ -571,6 +594,19 @@ function AppInner() {
           {tab === "notes" && <Notes />}
           {tab === "learn" && <Learn />}
           {tab === "lab" && <Lab />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="home">
+          {tab === "home" && (
+            <MariaHome
+              voiceState={voiceState}
+              caption={voiceCaption}
+              amp={voiceAmp}
+              onNavigate={(t) => setTab(t)}
+            />
+          )}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="chat">
+          {tab === "chat" && <MariaChat />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="conversations">
           {tab === "conversations" && <Conversations />}
@@ -616,6 +652,7 @@ function AppInner() {
           {tab === "plans" && <Plans />}
         </TabErrorBoundary>
       </main>
+      </div>
 
       <CommandPalette
         open={paletteOpen}

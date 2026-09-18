@@ -212,8 +212,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::batches::batches_requeue,
         commands::batches::batches_dismiss_queue,
         // -- mar.ia: orbe + estado de voz --
-        maria::maria_open_orb,
-        maria::maria_close_orb,
         maria::maria_open_main,
         maria::maria_voice_state,
         maria_voice::maria_voice_start,
@@ -221,6 +219,14 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_voice::maria_voice_cancel,
         maria_voice::maria_voice_stop,
         maria_voice::maria_voice_running,
+        maria_voice::maria_voice_wake,
+        maria_voice::maria_voice_ask,
+        maria_quota::maria_quota_windows,
+        maria_relay::maria_relay_ask,
+        maria_relay::maria_relay_thread,
+        maria_relay::maria_relay_state,
+        maria_relay::maria_relay_config,
+        maria_relay::maria_relay_save_config,
         // -- project detach / reattach (ventanas independientes) --
         commands::detach::detach_project_window,
         // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --

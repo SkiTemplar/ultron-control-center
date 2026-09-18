@@ -43,6 +43,7 @@ const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "skills", label: "Library · Skills", group: "Navigate" },
   { id: "agents", label: "Library · Agents", group: "Navigate" },
   { id: "rules", label: "Library · Rules", group: "Navigate" },
+  { id: "chat", label: "Go to Chat (relevo de proveedores)", group: "Navigate" },
   { id: "conversations", label: "Go to Conversations", group: "Navigate" },
   { id: "sessions", label: "Go to Sessions", group: "Navigate" },
   { id: "projects", label: "Go to Projects", group: "Navigate" },

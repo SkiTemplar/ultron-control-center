@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { DetachedProjectView } from "./components/DetachedProjectView";
-import { MariaOrb } from "./components/maria/MariaOrb";
 import "@fontsource-variable/inter";
 import "./styles.css";
 
@@ -16,11 +15,6 @@ import "./styles.css";
 
 function resolveRoot(): React.ReactNode {
   const { pathname, search } = window.location;
-
-  // mar.ia — el orbe (ventana `maria_orb`, creada por src-tauri/src/maria.rs).
-  if (pathname === "/orb") {
-    return <MariaOrb />;
-  }
 
   if (pathname === "/detached/project") {
     const params = new URLSearchParams(search);

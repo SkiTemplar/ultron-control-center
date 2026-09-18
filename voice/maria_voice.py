@@ -11,8 +11,13 @@ un hijo con tuberias muere con su padre, sin puertos huerfanos.
 
   ENTRADA (stdin), una orden por linea:
     {"cmd": "listen"}    empieza a escuchar YA (atajo de teclado)
+    {"cmd": "ask", "text": "..."}  mismo turno pero escrito, sin microfono
+    {"cmd": "wake_on"}   activa la palabra clave ("María")
+    {"cmd": "wake_off"}  la desactiva (el microfono queda cerrado)
     {"cmd": "stop"}      deja de grabar y TRANSCRIBE lo dicho (soltar la tecla)
     {"cmd": "cancel"}    aborta y TIRA el audio (no transcribe)
+    {"cmd": "say", "text": "..."}  locuta ese texto (resultado de una
+                                   herramienta que ejecuto la app)
     {"cmd": "ping"}      responde {"event":"pong"}
     {"cmd": "shutdown"}  sale
 
@@ -32,6 +37,7 @@ viviendo en ULTRON. Este proceso solo convierte voz en intencion y devuelve voz.
 from __future__ import annotations
 
 import json
+import pathlib
 import queue
 import subprocess
 import sys
@@ -54,6 +60,20 @@ LLM_MODEL = "qwen3.5:9b"
 KEEP_ALIVE_IDLE = "0"
 KEEP_ALIVE_ACTIVE = "45s"
 
+# --- palabra clave ---------------------------------------------------------
+# Vosk (Apache-2.0) con el modelo pequeno de español: 58 MB en disco, corre en
+# CPU y no pide cuenta, clave ni periodo de prueba. Se descarto Porcupine
+# justamente por eso: su plan gratuito es un trial.
+#
+# El truco para que sea barato: en vez de transcribir todo lo que se oye, se
+# le pasa una GRAMATICA de una sola frase. El reconocedor solo puede devolver
+# esas palabras o "[unk]", asi que el trabajo por segundo de audio es minimo.
+WAKE_MODEL_DIR = "models/vosk-model-small-es-0.42"
+WAKE_WORDS = ["maria", "oye maria", "hola maria"]
+# Variantes que suelta el reconocedor cuando oye el nombre. Sin acento: Vosk
+# devuelve el texto normalizado del modelo.
+WAKE_HITS = ("maria", "mar ia", "maría")
+
 SAMPLE_RATE = 16_000
 FRAME_MS = 30
 # Silencio que da por terminada la orden. 900 ms deja respirar sin cortar a
@@ -63,6 +83,11 @@ SILENCE_MS = 900
 MAX_UTTERANCE_S = 30
 # Por debajo de esto es ruido de sala, no voz.
 SILENCE_RMS = 0.012
+
+
+# Turno en marcha (grabando, pensando o hablando). Lo consulta el escuchador
+# de palabra clave para soltar el microfono y no oirse a si misma.
+busy = threading.Event()
 
 
 def emit(event: str, **fields: Any) -> None:
@@ -303,6 +328,90 @@ TOOLS: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 
 
+def wake_text_is_hit(text: str) -> bool:
+    """¿El reconocedor ha oido la palabra clave?
+
+    Se compara sobre el texto normalizado y con `in`: el modelo pequeno suele
+    devolver la frase entera de la gramatica ("oye maria"), y a veces la parte.
+    """
+    limpio = " ".join(text.lower().split())
+    return any(h in limpio for h in WAKE_HITS)
+
+
+class WakeListener:
+    """Escucha continua de la palabra clave.
+
+    Vive en su propio hilo y solo publica un aviso: NO graba, NO guarda audio y
+    NO transcribe nada mas que la gramatica. Cuando acierta, pone la orden
+    `listen` en la cola principal, que es la que si abre la toma completa.
+    """
+
+    def __init__(self, commands: "queue.Queue[dict[str, Any]]") -> None:
+        self.commands = commands
+        self.stop = threading.Event()
+        self.thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self.thread and self.thread.is_alive():
+            return
+        self.stop.clear()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def halt(self) -> None:
+        self.stop.set()
+
+    def _run(self) -> None:
+        try:
+            import json as _json
+            import sounddevice as sd
+            from vosk import KaldiRecognizer, Model, SetLogLevel
+
+            SetLogLevel(-1)  # el modelo escupe diagnostico a stderr por defecto
+            model_dir = str(pathlib.Path(__file__).with_name("models").joinpath(
+                pathlib.Path(WAKE_MODEL_DIR).name
+            ))
+            model = Model(model_dir)
+            grammar = _json.dumps(WAKE_WORDS + ["[unk]"])
+            rec = KaldiRecognizer(model, SAMPLE_RATE, grammar)
+            log("palabra clave activa: di «María»")
+
+            block = int(SAMPLE_RATE * FRAME_MS / 1000)
+            while not self.stop.is_set():
+                # Mientras hay un turno en marcha, el escuchador SUELTA el
+                # microfono: si lo mantuviera abierto grabaria la respuesta
+                # hablada de mar.ia y se despertaria a si misma, ademas de
+                # pelearse con la toma de `record_utterance` por el
+                # dispositivo.
+                if busy.is_set():
+                    busy.wait(0.15)
+                    continue
+                with sd.RawInputStream(
+                    samplerate=SAMPLE_RATE, blocksize=block, dtype="int16", channels=1
+                ) as stream:
+                    while not self.stop.is_set() and not busy.is_set():
+                        data, _overflow = stream.read(block)
+                        pcm = bytes(data)
+                        if rec.AcceptWaveform(pcm):
+                            hit = wake_text_is_hit(
+                                _json.loads(rec.Result()).get("text", "")
+                            )
+                        else:
+                            # El parcial dispara antes: la palabra clave tiene
+                            # que notarse instantanea, no al acabar la frase.
+                            hit = wake_text_is_hit(
+                                _json.loads(rec.PartialResult()).get("partial", "")
+                            )
+                        if hit:
+                            rec.Reset()
+                            emit("wake")
+                            busy.set()  # cierra este stream en la vuelta de arriba
+                            self.commands.put({"cmd": "listen"})
+                            break
+        except Exception as exc:  # noqa: BLE001 - sin palabra clave se sigue con la tecla
+            emit("error", message=f"palabra clave desactivada: {exc}")
+
+
 def stdin_reader(commands: "queue.Queue[dict[str, Any]]") -> None:
     """Lee ordenes del supervisor. Hilo aparte: la escucha bloquea."""
     for line in sys.stdin:
@@ -351,6 +460,17 @@ def handle_utterance(rec: Recorder, speak_fn: Callable[[str], None]) -> None:
     if not text:
         emit("state", state="idle")
         return
+    process_text(text, speak_fn)
+
+
+def process_text(text: str, speak_fn: Callable[[str], None]) -> None:
+    """Turno a partir de TEXTO ya conocido.
+
+    Lo comparten la voz (tras transcribir) y la linea de comando escrita de la
+    pantalla principal: misma cabeza, mismas herramientas, misma respuesta
+    hablada. Sin esto habria dos caminos que divergirian a la primera.
+    """
+    emit("state", state="thinking")
     emit("transcript", text=text)
 
     message = ask_llm(text, TOOLS, KEEP_ALIVE_ACTIVE)
@@ -377,6 +497,7 @@ def main() -> int:
     commands: "queue.Queue[dict[str, Any]]" = queue.Queue()
     threading.Thread(target=stdin_reader, args=(commands,), daemon=True).start()
     rec = Recorder()
+    wake = WakeListener(commands)
     emit("state", state="idle")
     log("sidecar de voz listo")
 
@@ -384,8 +505,16 @@ def main() -> int:
         cmd = commands.get()
         name = cmd.get("cmd")
         if name == "shutdown":
+            wake.halt()
             log("cierro")
             return 0
+        if name == "wake_on":
+            wake.start()
+            continue
+        if name == "wake_off":
+            wake.halt()
+            log("palabra clave desactivada")
+            continue
         if name == "ping":
             emit("pong")
             continue
@@ -395,14 +524,43 @@ def main() -> int:
         if name == "stop":
             rec.stop.set()
             continue
+        if name == "say":
+            # La app ya ejecuto la herramienta y manda el resultado REAL para
+            # locutarlo. El sidecar no inventa el desenlace: solo pone la voz.
+            texto = str(cmd.get("text") or "").strip()
+            if texto:
+                emit("reply", text=texto)
+                emit("state", state="speaking")
+                speak(texto)
+                emit("state", state="idle")
+            continue
+        if name == "ask":
+            texto = str(cmd.get("text") or "").strip()
+            if not texto:
+                continue
+            busy.set()
+            try:
+                process_text(texto, speak)
+            except Exception as exc:  # noqa: BLE001
+                emit("error", message=str(exc))
+                emit("state", state="idle")
+            finally:
+                busy.clear()
+            continue
         if name == "listen":
             rec.cancel.clear()
             rec.stop.clear()
+            busy.set()
             try:
                 handle_utterance(rec, speak)
             except Exception as exc:  # noqa: BLE001 - un fallo no mata el sidecar
                 emit("error", message=str(exc))
                 emit("state", state="idle")
+            finally:
+                # Pase lo que pase, el turno se cierra: si no, el escuchador
+                # de palabra clave se quedaria esperando para siempre y mar.ia
+                # dejaria de responder al nombre.
+                busy.clear()
             continue
         emit("error", message=f"orden desconocida: {name}")
 

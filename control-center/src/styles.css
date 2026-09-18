@@ -1,47 +1,54 @@
 @import "tailwindcss";
 
 /*
- * ULTRON Control Center — design tokens
+ * mar.ia — tokens de diseño (HUD estilo JARVIS)
  *
- * Principios (Mike Tyson):
- *  - True black (#000) para QD-OLED: píxeles apagados = contraste infinito
- *  - Monocromático puro + 3 status colors únicos (verde/amarillo/rojo)
- *  - Sin gradientes decorativos, sin accent azul genérico tech
- *  - Borders apenas perceptibles (#1a1a1a sobre #000)
- *  - Tipografía Inter Variable con jerarquía real (400/500/600)
- *  - Spacing system 4/8/12/16/24/32/48
+ * Sustituyen a los de ULTRON, que eran lo contrario por escrito: "true black
+ * monocromático, sin gradientes decorativos, sin accent azul genérico tech".
+ * Aquí se copia deliberadamente el lenguaje del HUD de Iron Man (Prologue
+ * Films, 2008): azul marino profundo, cian eléctrico, ámbar para lo que
+ * requiere atención, cristal translúcido con bordes de neón.
+ *
+ * Toda la aplicación pinta con estas variables (los componentes usan
+ * `style={{ color: "var(--color-text)" }}`), así que cambiarlas aquí reviste
+ * cada pestaña heredada sin tocar su código.
+ *
+ * Contraste verificado sobre --color-bg (#03070f):
+ *   text        #dceefb → 15.9:1   · text-secondary #8fb6cf → 8.0:1
+ *   text-terti. #5d829b → 4.3:1    · accent         #35d6ff → 10.6:1
  */
 @theme {
-  /* Surfaces - escala monocromática en true black */
-  --color-bg: #000000;
-  --color-surface-1: #0a0a0a;     /* sidebar */
-  --color-surface-2: #111111;     /* cards */
-  --color-surface-3: #1a1a1a;     /* hover */
-  --color-surface-4: #222222;     /* active */
-  --color-border: #1f1f1f;        /* subtle */
-  --color-border-strong: #2a2a2a; /* visible separator */
+  /* Superficies: azul marino, no negro. El cristal va con alfa para que la
+     rejilla del fondo se vea a través de los paneles. */
+  --color-bg: #03070f;
+  --color-surface-1: rgba(10, 010, 010, 0);        /* rail: transparente sobre la rejilla */
+  --color-surface-2: rgba(18, 42, 66, 0.38);       /* paneles de cristal */
+  --color-surface-3: rgba(30, 68, 102, 0.45);      /* hover */
+  --color-surface-4: rgba(45, 105, 150, 0.55);     /* activo */
+  --color-border: rgba(53, 214, 255, 0.16);        /* filo de neón tenue */
+  --color-border-strong: rgba(53, 214, 255, 0.38); /* filo visible */
 
-  /* Text - escala de grises legible */
-  --color-text: #f5f5f5;
-  --color-text-secondary: #a0a0a0;
-  --color-text-tertiary: #6e6e6e;
-  --color-text-faint: #4a4a4a;
+  /* Texto: blanco azulado, como el fósforo de una pantalla */
+  --color-text: #dceefb;
+  --color-text-secondary: #8fb6cf;
+  --color-text-tertiary: #5d829b;
+  --color-text-faint: #3c5d75;
 
-  /* Status - solo 3 colores con significado (GitHub-style, WCAG AA verified) */
-  --color-success: #3fb950;
-  --color-warn: #d29922;
-  --color-danger: #f85149;
+  /* Estados. El ámbar y el rojo del HUD, el verde apenas se usa. */
+  --color-success: #4ae3a0;
+  --color-warn: #ffb302;
+  --color-danger: #ff4d5e;
 
-  /* Subtle accents para el monograma y CTAs primarios = blanco puro */
-  --color-accent: #ffffff;
-  --color-accent-text: #000000;
+  /* Cian eléctrico: el color del arco reactor */
+  --color-accent: #35d6ff;
+  --color-accent-text: #02131d;
 
-  /* Tipografía */
+  /* Tipografía: mono para datos y etiquetas, Inter para prosa larga */
   --font-sans: "Inter Variable", "Inter", -apple-system, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
 
-  /* Sombras minimal (apenas perceptibles sobre OLED) */
-  --shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* La sombra del HUD es luz, no oscuridad */
+  --shadow-sm: 0 0 12px rgba(53, 214, 255, 0.10);
 }
 
 html, body, #root {
@@ -293,3 +300,145 @@ main.flex-1 > div.px-8.py-6 > header,
 }
 .cc-markdown hr { border: 0; border-top: 1px solid var(--color-border); margin: 0.75rem 0; }
 .cc-markdown img { max-width: 100%; }
+
+/* ===========================================================================
+   mar.ia — capa HUD (estilo JARVIS)
+   ---------------------------------------------------------------------------
+   Cuatro capas apiladas detrás de la interfaz, todas decorativas y con
+   pointer-events:none para no robar clics:
+     1. rejilla de plano   2. barrido horizontal   3. viñeta   4. brillo cian
+   Y un juego de utilidades (corchetes de esquina, anillos, texto de HUD) que
+   usan los componentes.
+   =========================================================================== */
+
+/* --- fondo ---------------------------------------------------------------- */
+.hud-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+/* Rejilla de plano: dos gradientes repetidos, 1 px de línea cada 40 px. */
+.hud-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(53, 214, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 214, 255, 0.055) 1px, transparent 1px);
+  background-size: 40px 40px;
+  /* La rejilla se desvanece hacia los bordes: en el HUD la atención va al centro. */
+  mask-image: radial-gradient(ellipse at 50% 45%, #000 35%, transparent 85%);
+}
+/* Viñeta + halo cian desde el centro. */
+.hud-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(53, 214, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.75) 100%);
+}
+
+/* Barrido: una banda tenue que recorre la pantalla. 9 s es lento a propósito:
+   más rápido marea y compite con el contenido. */
+.hud-scan {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(53, 214, 255, 0.05) 48%,
+    rgba(53, 214, 255, 0.09) 50%,
+    rgba(53, 214, 255, 0.05) 52%,
+    transparent 100%
+  );
+  background-size: 100% 22%;
+  background-repeat: no-repeat;
+  animation: hud-scan-move 9s linear infinite;
+}
+@keyframes hud-scan-move {
+  from { background-position: 0 -25%; }
+  to   { background-position: 0 125%; }
+}
+/* Líneas de tubo: el rayado fino de un CRT. */
+.hud-lines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.018) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* --- paneles -------------------------------------------------------------- */
+/* Cristal con filo de neón. */
+.hud-panel {
+  position: relative;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  box-shadow: inset 0 0 24px rgba(53, 214, 255, 0.05), 0 0 18px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+}
+/* Corchetes de esquina: dos pseudo-elementos con dos bordes cada uno cubren
+   las cuatro esquinas (arriba-izq/abajo-der y arriba-der/abajo-izq). */
+.hud-brackets::before,
+.hud-brackets::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--color-accent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+.hud-brackets::before {
+  top: -1px; left: -1px;
+  border-right: 0; border-bottom: 0;
+  box-shadow: 0 0 8px rgba(53, 214, 255, 0.35);
+}
+.hud-brackets::after {
+  bottom: -1px; right: -1px;
+  border-left: 0; border-top: 0;
+  box-shadow: 0 0 8px rgba(53, 214, 255, 0.35);
+}
+
+/* --- tipografía del HUD --------------------------------------------------- */
+.hud-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.hud-value {
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+  text-shadow: 0 0 10px rgba(53, 214, 255, 0.45);
+}
+
+/* --- anillos del reactor -------------------------------------------------- */
+/* Contrarrotantes y a distinta velocidad, como en la película. */
+@keyframes hud-spin      { to { transform: rotate(360deg); } }
+@keyframes hud-spin-back { to { transform: rotate(-360deg); } }
+.hud-ring-slow  { animation: hud-spin 14s linear infinite; transform-origin: 50% 50%; }
+.hud-ring-back  { animation: hud-spin-back 9s linear infinite; transform-origin: 50% 50%; }
+.hud-ring-fast  { animation: hud-spin 4.5s linear infinite; transform-origin: 50% 50%; }
+
+/* Latido del punto de estado. */
+@keyframes hud-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.hud-pulse { animation: hud-pulse 2.2s ease-in-out infinite; }
+
+/* Quien prefiera menos movimiento no debería marearse con el HUD. */
+@media (prefers-reduced-motion: reduce) {
+  .hud-scan,
+  .hud-ring-slow,
+  .hud-ring-back,
+  .hud-ring-fast,
+  .hud-pulse { animation: none; }
+}

@@ -142,3 +142,34 @@ def test_un_fallo_del_modelo_no_deja_el_orbe_colgado():
     finally:
         mv.ask_llm = original
     assert eventos == [] or eventos[-1].get("state") == "idle"
+
+
+# --- palabra clave ---------------------------------------------------------
+
+
+def test_reconoce_la_palabra_clave_en_sus_variantes():
+    for t in ["maria", "oye maria", "hola maria que tal", "MARIA"]:
+        assert mv.wake_text_is_hit(t), t
+
+
+def test_no_se_despierta_con_cualquier_cosa():
+    # Caso negativo: un falso positivo abre el microfono y graba sin permiso.
+    for t in ["", "[unk]", "marea", "mira el correo", "haz una marinera"]:
+        assert not mv.wake_text_is_hit(t), t
+
+
+def test_el_turno_marca_ocupado_y_lo_libera():
+    """El escuchador suelta el microfono mientras dura el turno; si `busy` se
+    quedara puesto, mar.ia dejaria de responder a su nombre para siempre."""
+
+    class RecFalso:
+        def record_utterance(self) -> bytes:
+            assert mv.busy.is_set(), "el turno deberia estar marcado como ocupado"
+            return b""
+
+    mv.busy.set()
+    try:
+        capture(lambda: mv.handle_utterance(RecFalso(), lambda _t: None))
+    finally:
+        mv.busy.clear()
+    assert not mv.busy.is_set()

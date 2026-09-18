@@ -1,9 +1,12 @@
 import { Fragment, useEffect, useState } from "react";
+import { Reactor } from "./jarvis/Reactor";
 import type { GlobalStatus } from "../types";
 import { statusColor, statusLabel } from "../lib/status";
 import { useFeatures, type Features } from "../lib/features";
 
 export type Tab =
+  | "home"
+  | "chat"
   | "dashboard"
   | "mcps"
   | "library"
@@ -64,6 +67,8 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Overview",
     items: [
+      { id: "home", label: "mar.ia", available: true },
+      { id: "chat", label: "Chat", available: true },
       { id: "dashboard", label: "Dashboard", available: true },
       { id: "usage", label: "Usage", available: true, featureKey: "usage" },
       { id: "ai-router", label: "AI Router", available: true },
@@ -190,8 +195,10 @@ function SidebarButton({
       type="button"
       disabled={dim}
       onClick={() => item.available && onSelect(item.id)}
-      className="flex w-full items-center justify-between rounded-md px-3 py-2.5 text-[16.5px] transition-colors"
+      className="relative flex w-full items-center justify-between px-3 py-2 text-[13px] uppercase transition-colors"
       style={{
+        // Entrada de instrumento: sin esquinas redondeadas, con una barra de
+        // luz a la izquierda cuando esta activa y tipografia de HUD.
         background: active ? "var(--color-surface-3)" : "transparent",
         color: active
           ? "var(--color-text)"
@@ -199,6 +206,13 @@ function SidebarButton({
             ? "var(--color-text-faint)"
             : "var(--color-text-secondary)",
         cursor: dim ? "default" : "pointer",
+        fontFamily: "var(--font-mono)",
+        letterSpacing: "0.12em",
+        borderLeft: active
+          ? "2px solid var(--color-accent)"
+          : "2px solid transparent",
+        boxShadow: active ? "inset 0 0 18px rgba(53,214,255,0.12)" : "none",
+        textShadow: active ? "0 0 10px rgba(53,214,255,0.35)" : "none",
       }}
       onMouseEnter={(e) => {
         if (!dim && !active)
@@ -294,18 +308,18 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
         background: "var(--color-surface-1)",
       }}
     >
-      {/* Brand */}
-      <div className="flex items-center gap-2.5 px-5 py-4">
-        <div
-          className="flex h-6 w-6 items-center justify-center rounded text-[12px] font-semibold"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
-        >
-          U
+      {/* Marca: el reactor en lugar del monograma. */}
+      <div className="flex items-center gap-3 px-5 py-4">
+        <Reactor size={30} state="idle" />
+        <div>
+          <div
+            className="text-[15px] font-semibold leading-none"
+            style={{ color: "var(--color-text)", letterSpacing: "0.14em" }}
+          >
+            mar<span style={{ color: "var(--color-accent)" }}>.</span>ia
+          </div>
+          <div className="hud-label mt-1">sistema en linea</div>
         </div>
-        <div className="text-[13.5px] font-medium leading-none">ULTRON</div>
       </div>
 
       {/* Navigation */}
