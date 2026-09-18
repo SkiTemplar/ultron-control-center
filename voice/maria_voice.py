@@ -127,11 +127,16 @@ def speak(text: str) -> None:
         "if ($es) { $s.SelectVoice($es.VoiceInfo.Name) }; "
         f"$s.Speak('{literal}')"
     )
+    # CREATE_NO_WINDOW: sin esto, cada frase hablada abre y cierra una consola
+    # en pantalla (reportado por el usuario el 2026-09-18). `-WindowStyle
+    # Hidden` no basta: la ventana llega a crearse igual.
+    creationflags = 0x0800_0000 if sys.platform == "win32" else 0
     subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
          "-ExecutionPolicy", "Bypass", "-Command", script],
         check=False,
         capture_output=True,
+        creationflags=creationflags,
     )
 
 
@@ -469,8 +474,10 @@ def process_text(text: str, speak_fn: Callable[[str], None]) -> None:
     Lo comparten la voz (tras transcribir) y la linea de comando escrita de la
     pantalla principal: misma cabeza, mismas herramientas, misma respuesta
     hablada. Sin esto habria dos caminos que divergirian a la primera.
+
+    El estado "thinking" lo emite el LLAMANTE: la voz ya lo puso antes de
+    transcribir, y emitirlo aqui otra vez lo duplicaba.
     """
-    emit("state", state="thinking")
     emit("transcript", text=text)
 
     message = ask_llm(text, TOOLS, KEEP_ALIVE_ACTIVE)
@@ -540,6 +547,7 @@ def main() -> int:
                 continue
             busy.set()
             try:
+                emit("state", state="thinking")
                 process_text(texto, speak)
             except Exception as exc:  # noqa: BLE001
                 emit("error", message=str(exc))

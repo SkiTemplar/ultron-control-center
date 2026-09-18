@@ -28,6 +28,8 @@ type RelayAnswer = {
   provider: string;
   text: string;
   skipped: SkipReason[];
+  /** Proveedor que propuso el modelo local para esta tarea. */
+  chosen_by_local: string | null;
 };
 
 type RelayConfig = { order: string[]; disabled: string[] };
@@ -63,6 +65,7 @@ export function MariaChat() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSkips, setLastSkips] = useState<SkipReason[]>([]);
+  const [lastChoice, setLastChoice] = useState<string | null>(null);
   const [config, setConfig] = useState<RelayConfig | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -85,6 +88,7 @@ export function MariaChat() {
     setBusy(true);
     setError(null);
     setLastSkips([]);
+    setLastChoice(null);
     // Optimista: el turno del usuario se ve al instante; el backend lo
     // persiste igualmente, asi que al recargar el hilo no se duplica.
     setTurns((prev) => [
@@ -98,6 +102,7 @@ export function MariaChat() {
         prompt: texto,
       });
       setLastSkips(ans.skipped ?? []);
+      setLastChoice(ans.chosen_by_local ?? null);
       setTurns((prev) => [
         ...prev,
         {
@@ -179,6 +184,13 @@ export function MariaChat() {
 
           {busy && (
             <p className="hud-label hud-pulse py-2">consultando a los proveedores…</p>
+          )}
+
+          {lastChoice && (
+            <p className="hud-label py-1">
+              el modelo local eligió <span style={{ color: "var(--color-accent)" }}>{lastChoice}</span>{" "}
+              para esta tarea
+            </p>
           )}
 
           {lastSkips.length > 0 && (

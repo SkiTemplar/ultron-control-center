@@ -20,10 +20,10 @@ import { Reactor, type ReactorState } from "./Reactor";
  *  invento `cpu_percent`/`memory_used_gb`, que no existen, y la barra mostraba
  *  guiones para siempre sin dar ningun error. */
 type SystemInfo = {
-  cpu_load_pct?: number | null;
+  cpu_pct?: number | null;
   ram_used_gb?: number | null;
   ram_total_gb?: number | null;
-  ram_pct_used?: number | null;
+  ram_pct?: number | null;
 };
 
 function fmtPct(v: number | null | undefined): string {
@@ -37,9 +37,9 @@ export function HudTopBar({ voiceState }: { voiceState: ReactorState }) {
   useEffect(() => {
     let alive = true;
     const pull = () => {
-      // rich_system_info ya existe en ULTRON (System > Diagnostics). Si falla,
+      // maria_telemetry: nativo, sin lanzar consolas. Si falla,
       // la barra se queda con guiones: nada de cifras inventadas.
-      void invoke<SystemInfo>("rich_system_info")
+      void invoke<SystemInfo>("maria_telemetry")
         .then((d) => {
           if (alive) setInfo(d ?? null);
         })
@@ -58,7 +58,7 @@ export function HudTopBar({ voiceState }: { voiceState: ReactorState }) {
   }, []);
 
   const cells: Array<[string, string]> = [
-    ["cpu", fmtPct(info?.cpu_load_pct)],
+    ["cpu", fmtPct(info?.cpu_pct)],
     [
       "ram",
       typeof info?.ram_used_gb === "number" && typeof info?.ram_total_gb === "number"

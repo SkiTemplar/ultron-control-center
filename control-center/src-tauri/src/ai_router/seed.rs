@@ -32,25 +32,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             ],
             cli_command: None,
         },
-        Provider {
-            id: "claude-haiku".into(),
-            name: "Anthropic Claude Haiku".into(),
-            cost_per_mtok: 1.25,
-            supports: vec![
-                ProviderClass::Trivial,
-                ProviderClass::Light,
-                ProviderClass::Medium,
-            ],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: Some("https://api.anthropic.com/v1/models".into()),
-            kind: ProviderKind::Cloud,
-            key_env_var: "ANTHROPIC_API_KEY".into(),
-            base_url: "https://api.anthropic.com".into(),
-            default_model: "claude-haiku-4-5-20251001".into(),
-            models: vec!["claude-haiku-4-5-20251001".into()],
-            cli_command: None,
-        },
-        Provider {
+                Provider {
             id: "codex".into(),
             name: "OpenAI Codex (gpt-5)".into(),
             cost_per_mtok: 10.0,
@@ -101,26 +83,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             models: vec!["gemini-2.5-flash".into(), "gemini-2.5-pro".into()],
             cli_command: None,
         },
-        Provider {
-            id: "groq".into(),
-            name: "Groq".into(),
-            cost_per_mtok: 0.59,
-            supports: vec![ProviderClass::Trivial, ProviderClass::Light],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: Some("https://api.groq.com/openai/v1/models".into()),
-            kind: ProviderKind::Cloud,
-            key_env_var: "GROQ_API_KEY".into(),
-            base_url: "https://api.groq.com/openai".into(),
-            // Groq retiró la familia llama-3.x: `llama-3.3-70b-versatile` y
-            // `llama-3.1-8b-instant` ya no existen en su catálogo (verificado
-            // contra /v1/models el 2026-08-23) y cualquier ruta a este proveedor
-            // moría con model_not_found. `gpt-oss-20b` es el que responde sin
-            // rate limit (~300 ms); el 120b ya los devuelve en esta cuenta.
-            default_model: "openai/gpt-oss-20b".into(),
-            models: vec!["openai/gpt-oss-20b".into(), "openai/gpt-oss-120b".into()],
-            cli_command: None,
-        },
-        Provider {
+                Provider {
             id: "ollama".into(),
             name: "Ollama (local)".into(),
             cost_per_mtok: 0.0,
@@ -149,21 +112,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             ],
             cli_command: None,
         },
-        Provider {
-            id: "deepseek".into(),
-            name: "DeepSeek".into(),
-            cost_per_mtok: 0.14,
-            supports: vec![ProviderClass::Light, ProviderClass::Medium],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: Some("https://api.deepseek.com/models".into()),
-            kind: ProviderKind::Cloud,
-            key_env_var: "DEEPSEEK_API_KEY".into(),
-            base_url: "https://api.deepseek.com".into(),
-            default_model: "deepseek-coder".into(),
-            models: vec!["deepseek-coder".into(), "deepseek-chat".into()],
-            cli_command: None,
-        },
-        // ----------------------------------------------------------------
+                // ----------------------------------------------------------------
         // CLI providers — authenticate via OAuth subscription, no API key.
         // Install: `npm install -g @openai/codex` / `npm install -g @google/gemini-cli`
         // ----------------------------------------------------------------
@@ -242,8 +191,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             category: "chat".into(),
 
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-120b".into(),
+                provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 1024,
             },
             // 2026-09-07: la cuota de Groq es POR MODELO. Medido: 266 llamadas
@@ -254,8 +203,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // 2026-09-16: qwen/qwen3.6-27b retirado (404 model_not_found).
             fallbacks: vec![
                 ZoneAssignment {
-                    provider_id: "groq".into(),
-                    model: "openai/gpt-oss-20b".into(),
+                    provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {
@@ -295,8 +244,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                     max_tokens: 4096,
                 },
                 ZoneAssignment {
-                    provider_id: "deepseek".into(),
-                    model: "deepseek-coder".into(),
+                    provider_id: "codex-cli".into(),
+                model: "gpt-5.6-terra".into(),
                     max_tokens: 4096,
                 },
             ],
@@ -344,8 +293,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 max_tokens: 4096,
             },
             fallbacks: vec![ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-120b".into(),
+                provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 4096,
             }],
             system_prompt: None,
@@ -363,8 +312,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             // para que la automatización no agote la cuota de la zona cara al
             // usuario y dispare 429 -> fallback.
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-20b".into(),
+                provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 1024,
             },
             // gemini-cli retirado 2026-06-19 (muerto); queda gemini cloud.
@@ -381,8 +330,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             category: "system".into(),
 
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-20b".into(),
+                provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 256,
             },
             fallbacks: vec![ZoneAssignment {
@@ -415,8 +364,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             category: "system".into(),
 
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-20b".into(),
+                provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 512,
             },
             fallbacks: vec![ZoneAssignment {
@@ -432,8 +381,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             category: "chat".into(),
 
             primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-20b".into(),
+                provider_id: "ollama".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 1024,
             },
             // gemini-cli retirado 2026-06-19 (muerto); gemini cloud + ollama local.

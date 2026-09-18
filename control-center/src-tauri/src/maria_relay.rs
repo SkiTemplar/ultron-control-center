@@ -64,6 +64,9 @@ pub struct RelayAnswer {
     /// devuelve siempre: si el relevo salto de Claude a Codex, el usuario
     /// tiene derecho a saberlo sin mirar un log.
     pub skipped: Vec<SkipReason>,
+    /// Proveedor que propuso el modelo local para esta tarea (None si no
+    /// estaba disponible o contesto algo que no existe).
+    pub chosen_by_local: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -437,6 +440,82 @@ fn run_local(prompt: &str) -> Result<String, (String, bool)> {
     Ok(text)
 }
 
+/// Proveedor que el modelo local propone para una tarea, validado.
+///
+/// El modelo puede alucinar cualquier cosa; aqui solo se aceptan nombres que
+/// existan en el orden configurado. Si propone una fantasia, se devuelve None
+/// y manda el orden de siempre. Pura: se testea sin red.
+#[must_use]
+pub fn parse_choice(raw: &str, known: &[String]) -> Option<String> {
+    let limpio: String = raw
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || c.is_whitespace())
+        .collect();
+    // Se busca la primera palabra que sea un proveedor conocido: el modelo
+    // suele contestar "claude" a secas, pero a veces mete una frase.
+    limpio
+        .split_whitespace()
+        .find(|w| known.iter().any(|k| k == w))
+        .map(str::to_string)
+}
+
+/// Orden de proveedores para ESTA tarea, decidido por el modelo local.
+///
+/// El local es gratis y ya esta ahi: que elija el destino cuesta ~1 s y evita
+/// gastar una peticion de Claude en algo que resuelve Gemini o el propio
+/// local. El elegido se pone el primero; el resto conserva el orden
+/// configurado como red de seguridad.
+fn order_for_task(prompt: &str, cfg: &RelayConfig) -> (Vec<String>, Option<String>) {
+    let catalogo = cfg.order.join(", ");
+    let instruccion = format!(
+        "Elige QUE modelo debe resolver esta peticion. Responde SOLO con una \
+         palabra de esta lista: {catalogo}.\n\
+         Criterio: 'local' para lo trivial (saludos, conversiones, preguntas \
+         cortas, ordenes del PC); 'gemini' para buscar en internet o trabajar \
+         con imagenes; 'codex' para scripts sueltos y automatizacion; \
+         'claude' para programar en un proyecto, arquitectura o textos largos.\n\n\
+         Peticion: {prompt}"
+    );
+    let body = serde_json::json!({
+        "model": crate::ollama::toggle::model_name(),
+        "stream": false,
+        "think": false,
+        "keep_alive": "30s",
+        "messages": [{ "role": "user", "content": instruccion }],
+        "options": { "num_ctx": 2048, "num_predict": 8, "temperature": 0 },
+    });
+    let elegido = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .ok()
+        .and_then(|c| {
+            c.post("http://127.0.0.1:11434/api/chat")
+                .json(&body)
+                .send()
+                .ok()
+        })
+        .and_then(|r| r.json::<serde_json::Value>().ok())
+        .and_then(|v| {
+            v.get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+                .map(str::to_string)
+        })
+        .and_then(|raw| parse_choice(&raw, &cfg.order));
+
+    match elegido {
+        Some(p) => {
+            let mut orden = vec![p.clone()];
+            orden.extend(cfg.order.iter().filter(|o| **o != p).cloned());
+            (orden, Some(p))
+        }
+        // Sin modelo local (o respuesta ininteligible) no se bloquea nada: se
+        // usa el orden configurado.
+        None => (cfg.order.clone(), None),
+    }
+}
+
 /// Memoria relevante para este turno, via daemon de ULTRON. Mismo recall que
 /// usa el resto del sistema: las skills, los hooks y la memoria no se
 /// reimplementan aqui.
@@ -488,7 +567,13 @@ pub fn ask(thread_id: &str, prompt: &str) -> Result<RelayAnswer, String> {
 
     let mut skipped: Vec<SkipReason> = Vec::new();
     let mut state = load_state();
-    for provider in &cfg.order {
+    // Quien atiende primero lo decide el modelo local segun la tarea: es
+    // gratis y evita gastar una peticion de Claude en algo trivial.
+    let (orden, elegido) = order_for_task(prompt, &cfg);
+    if let Some(p) = &elegido {
+        tracing::info!(proveedor = %p, "el modelo local eligio destino");
+    }
+    for provider in &orden {
         if cfg.disabled.iter().any(|d| d == provider) {
             record_attempt(&mut state, provider, "desactivado", "apagado en relay.json");
             skipped.push(SkipReason {
@@ -521,6 +606,7 @@ pub fn ask(thread_id: &str, prompt: &str) -> Result<RelayAnswer, String> {
                     provider: provider.clone(),
                     text,
                     skipped,
+                    chosen_by_local: elegido.clone(),
                 });
             }
             Err((detail, cuota)) => {
@@ -682,6 +768,28 @@ mod tests {
             assert!(thread_path(malo).is_err(), "deberia rechazar {malo:?}");
         }
         assert!(thread_path("hilo-01_test").is_ok());
+    }
+
+    #[test]
+    fn acepta_la_eleccion_del_modelo_local() {
+        let conocidos: Vec<String> = RelayConfig::default().order;
+        assert_eq!(parse_choice("claude", &conocidos).as_deref(), Some("claude"));
+        assert_eq!(parse_choice("  GEMINI
+", &conocidos).as_deref(), Some("gemini"));
+        assert_eq!(
+            parse_choice("Yo usaria local para esto", &conocidos).as_deref(),
+            Some("local")
+        );
+    }
+
+    #[test]
+    fn rechaza_una_eleccion_inventada() {
+        // Caso negativo: el modelo puede devolver cualquier cosa. Un nombre
+        // que no existe tiene que caer al orden configurado, no colarse.
+        let conocidos: Vec<String> = RelayConfig::default().order;
+        for raw in ["gpt-4", "", "no lo se", "deepseek", "!!!"] {
+            assert!(parse_choice(raw, &conocidos).is_none(), "colo: {raw:?}");
+        }
     }
 
     #[test]

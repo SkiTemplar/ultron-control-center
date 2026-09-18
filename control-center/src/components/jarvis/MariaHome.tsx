@@ -26,16 +26,16 @@ type Gpu = {
   temp_c: number | null;
 };
 
+/** Telemetria nativa (maria_sysinfo). No lanza PowerShell: `rich_system_info`
+ *  si lo hacia y, al pedirlo cada pocos segundos, abria y cerraba consolas. */
 type SystemInfo = {
-  hostname: string;
-  cpu_name: string;
-  cpu_load_pct: number | null;
+  cpu_pct: number | null;
   ram_used_gb: number;
   ram_total_gb: number;
-  ram_pct_used: number;
-  disk_c_free_gb: number;
-  disk_c_pct_used: number;
-  uptime_seconds: number;
+  ram_pct: number;
+  disk_free_gb: number;
+  disk_total_gb: number;
+  disk_pct: number;
   gpus: Gpu[];
 };
 
@@ -268,7 +268,7 @@ export function MariaHome({
   useEffect(() => {
     let alive = true;
     const pull = () => {
-      void invoke<SystemInfo>("rich_system_info")
+      void invoke<SystemInfo>("maria_telemetry")
         .then((d) => alive && setSys(d ?? null))
         .catch(() => alive && setSys(null));
       void invoke<SessionInfo[]>("list_active_sessions")
@@ -308,13 +308,13 @@ export function MariaHome({
       <div className="flex min-h-0 flex-1 items-stretch gap-4 px-5 py-4">
         <div className="hidden w-[210px] shrink-0 space-y-3 self-center md:block">
           <Panel title="sistema">
-            <Row k="cpu" v={num(sys?.cpu_load_pct, "%")} pct={sys?.cpu_load_pct ?? null} />
+            <Row k="cpu" v={num(sys?.cpu_pct, "%")} pct={sys?.cpu_pct ?? null} />
             <Row
               k="ram"
               v={sys ? `${num(sys.ram_used_gb, "", 1)} / ${num(sys.ram_total_gb, " GB", 0)}` : "—"}
-              pct={sys?.ram_pct_used ?? null}
+              pct={sys?.ram_pct ?? null}
             />
-            <Row k="disco c:" v={sys ? `${num(sys.disk_c_free_gb, " GB libres", 0)}` : "—"} pct={sys?.disk_c_pct_used ?? null} />
+            <Row k="disco c:" v={sys ? `${num(sys.disk_free_gb, " GB libres", 0)}` : "—"} pct={sys?.disk_pct ?? null} />
           </Panel>
           <Panel title="gpu">
             {gpu ? (

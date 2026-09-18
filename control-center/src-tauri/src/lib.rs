@@ -49,6 +49,7 @@ mod logs;
 mod maintenance;
 mod maria; // mar.ia: puente de estado de voz hacia las ventanas
 mod maria_quota; // mar.ia: consumo real por ventana movil
+mod maria_sysinfo; // mar.ia: consumo real por ventana movil
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
 mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)

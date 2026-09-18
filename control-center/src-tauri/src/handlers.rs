@@ -222,6 +222,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_voice::maria_voice_wake,
         maria_voice::maria_voice_ask,
         maria_quota::maria_quota_windows,
+        maria_sysinfo::maria_telemetry,
         maria_relay::maria_relay_ask,
         maria_relay::maria_relay_thread,
         maria_relay::maria_relay_state,
