@@ -227,6 +227,9 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::sessions::spawn_session,
         commands::sessions::list_claude_sessions,
         commands::sessions::list_workspaces,
+        // Transcript completo paginado (navegador de conversaciones 2026-09-17):
+        // lo consume src/components/conversations/.
+        commands::session_transcript::read_session_transcript,
         // -- session auto-tags (P1 2026-05-27) --
         sessions_tags::sessions_bulk_auto_tag,
         // -- settings + backup --

@@ -17,6 +17,7 @@ export type Tab =
   | "plans"
   | "changelog"
   | "notifications"
+  | "conversations"
   | "sessions"
   | "usage"
   | "ai-router"
@@ -99,6 +100,10 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Workspace",
     items: [
+      // Conversations: lee y continua las conversaciones de Claude Code
+      // (~/.claude/projects). Va primero porque es la entrada mas usada;
+      // Sessions sigue siendo el monitor en vivo + lanzador de workspaces.
+      { id: "conversations", label: "Conversations", available: true, featureKey: "sessions" },
       { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
       // Finance: native read-only dashboard of the Bank/finanzas project
@@ -144,6 +149,9 @@ const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
   rules: "skills",
   projects: "projects",
   plans: "plans",
+  // Conversations comparte el flag de Sessions (mismo dato: los transcripts
+  // de ~/.claude/projects), asi que tambien tiene que redirigir si se apaga.
+  conversations: "sessions",
   // hooks: gating moved inside System tab — no top-level redirect needed.
 };
 

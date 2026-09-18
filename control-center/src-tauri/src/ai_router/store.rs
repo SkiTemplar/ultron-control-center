@@ -150,7 +150,19 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
     let path = providers_path()?;
     let mut providers: Vec<Provider> = if path.exists() {
         let mut loaded: Vec<Provider> = read_json(&path)?;
-        if migrate_stale_provider_models(&mut loaded) {
+        let mut mutated = migrate_stale_provider_models(&mut loaded);
+        // Auto-cure (2026-09-17): a providers.json missing a seed provider left
+        // zones pointing at a catalog ghost. Live case: `claude` was absent
+        // while zones.json had it as the primary of BOTH code-edit and
+        // code-review, so every route() there burned an attempt on
+        // Err("unknown provider 'claude'") with nothing in the UI to say why
+        // (disabled_providers_set() only iterates providers that EXIST, so the
+        // no-key skip never fired). Mirrors the seed-merge load_zones() has had
+        // since 2026-06-04.
+        if merge_missing_seed_providers(&mut loaded) {
+            mutated = true;
+        }
+        if mutated {
             let _ = write_json(&path, &loaded);
         }
         loaded
@@ -163,6 +175,28 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
         p.api_key_status = compute_key_status(p);
     }
     Ok(providers)
+}
+
+/// Append any `seed_providers()` entry absent from `providers` (matched by id).
+/// Returns true when something was added, so the caller persists the file.
+///
+/// Only ADDS: an operator-edited entry that already exists keeps its cost,
+/// models and base_url untouched (that drift is `migrate_stale_provider_models`'
+/// job, which is scoped to known-stale values). Order is preserved and new
+/// entries are appended, so the catalog never reshuffles under the UI.
+///
+/// Pure (no I/O) so the merge is unit-testable.
+pub(crate) fn merge_missing_seed_providers(providers: &mut Vec<Provider>) -> bool {
+    let have: std::collections::HashSet<String> =
+        providers.iter().map(|p| p.id.clone()).collect();
+    let mut mutated = false;
+    for sp in seed_providers() {
+        if !have.contains(&sp.id) {
+            providers.push(sp);
+            mutated = true;
+        }
+    }
+    mutated
 }
 
 /// Bump provider catalog entries (`default_model` + `models`) that predate a
@@ -192,6 +226,10 @@ pub(crate) fn migrate_stale_provider_models(providers: &mut [Provider]) -> bool 
     const TARGETS: &[(&str, &[&str])] = &[
         ("gemini", &["gemini-3.8-flash"]),
         ("codex-cli", &["gpt-5", "gpt-5.5"]),
+        // qwen2.5-coder:32b (2026-09-17): ~20 GB de VRAM, imposible en la
+        // 4080 Laptop de 12 GB y ni descargado -> la zona code-fast-local
+        // fallaba en cada llamada. Bump al qwen3.5:9b de seed_providers.
+        ("ollama", &["qwen2.5-coder:32b"]),
     ];
     let seed = seed_providers();
     let mut mutated = false;
@@ -750,6 +788,63 @@ mod codex_gpt5_migration_tests {
         }];
         assert!(!migrate_codex_gpt5_model(&mut zones));
         assert_eq!(zones[0].primary.model, "gpt-5");
+    }
+}
+
+#[cfg(test)]
+mod provider_seed_merge_tests {
+    use super::{merge_missing_seed_providers, seed_providers};
+    use crate::ai_router::types::{ApiKeyStatus, Provider, ProviderClass, ProviderKind};
+
+    fn bare(id: &str) -> Provider {
+        Provider {
+            id: id.into(),
+            name: id.into(),
+            cost_per_mtok: 42.0,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: None,
+            kind: ProviderKind::Cloud,
+            key_env_var: String::new(),
+            base_url: "operator-chosen".into(),
+            default_model: "operator-chosen".into(),
+            models: vec!["operator-chosen".into()],
+            cli_command: None,
+        }
+    }
+
+    #[test]
+    fn adds_the_missing_claude_provider() {
+        // El caso real (2026-09-17): providers.json sin 'claude' mientras
+        // zones.json lo tenia como primary de code-edit y code-review.
+        let mut providers: Vec<Provider> =
+            seed_providers().into_iter().filter(|p| p.id != "claude").collect();
+        assert!(!providers.iter().any(|p| p.id == "claude"));
+        assert!(merge_missing_seed_providers(&mut providers));
+        assert!(providers.iter().any(|p| p.id == "claude"));
+    }
+
+    #[test]
+    fn is_a_noop_when_every_seed_provider_is_present() {
+        let mut providers = seed_providers();
+        let before = providers.len();
+        assert!(!merge_missing_seed_providers(&mut providers));
+        assert_eq!(providers.len(), before);
+    }
+
+    #[test]
+    fn never_overwrites_an_existing_entry() {
+        // Caso negativo: una entrada editada a mano se conserva TAL CUAL;
+        // esta funcion solo anade las ausentes.
+        let mut providers = vec![bare("claude")];
+        assert!(merge_missing_seed_providers(&mut providers));
+        let claude = providers.iter().find(|p| p.id == "claude").unwrap();
+        assert_eq!(claude.cost_per_mtok, 42.0);
+        assert_eq!(claude.default_model, "operator-chosen");
+        assert_eq!(claude.base_url, "operator-chosen");
+        // Y el resto del catalogo de seed entra detras, sin reordenar.
+        assert_eq!(providers[0].id, "claude");
+        assert_eq!(providers.len(), seed_providers().len());
     }
 }
 

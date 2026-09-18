@@ -123,7 +123,7 @@
     "category": "code",
     "primary": {
       "provider_id": "ollama",
-      "model": "qwen2.5-coder:32b",
+      "model": "qwen3.5:9b",
       "max_tokens": 2048
     },
     "fallbacks": []
@@ -162,7 +162,7 @@
       },
       {
         "provider_id": "ollama",
-        "model": "qwen2.5-coder:32b",
+        "model": "qwen3.5:9b",
         "max_tokens": 1024
       }
     ]

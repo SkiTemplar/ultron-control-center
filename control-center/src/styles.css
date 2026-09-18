@@ -240,3 +240,56 @@ main.flex-1 > div.px-8.py-6 > header,
   from { transform: translateX(-1rem); opacity: 0; }
   to   { transform: translateX(0);     opacity: 1; }
 }
+
+/* Markdown dentro de una burbuja de conversacion (TranscriptView).
+   react-markdown emite HTML sin estilo y Tailwind resetea los margenes, asi
+   que sin esto un mensaje con listas y codigo sale como un parrafo continuo.
+   Alcance: solo .cc-markdown, para no pisar el resto de la app. */
+.cc-markdown > *:first-child { margin-top: 0; }
+.cc-markdown > *:last-child { margin-bottom: 0; }
+.cc-markdown p,
+.cc-markdown ul,
+.cc-markdown ol,
+.cc-markdown pre,
+.cc-markdown blockquote,
+.cc-markdown table { margin: 0.5rem 0; }
+.cc-markdown ul { list-style: disc; padding-left: 1.25rem; }
+.cc-markdown ol { list-style: decimal; padding-left: 1.25rem; }
+.cc-markdown h1,
+.cc-markdown h2,
+.cc-markdown h3,
+.cc-markdown h4 { margin: 0.75rem 0 0.35rem; font-weight: 600; }
+.cc-markdown h1 { font-size: 1.15em; }
+.cc-markdown h2 { font-size: 1.08em; }
+.cc-markdown h3,
+.cc-markdown h4 { font-size: 1em; }
+.cc-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--color-surface-4);
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+}
+.cc-markdown pre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  padding: 0.5rem 0.65rem;
+  overflow-x: auto;
+}
+.cc-markdown pre code { background: transparent; padding: 0; }
+.cc-markdown blockquote {
+  border-left: 2px solid var(--color-border-strong);
+  padding-left: 0.6rem;
+  color: var(--color-text-secondary);
+}
+.cc-markdown a { color: var(--color-text); text-decoration: underline; }
+.cc-markdown table { border-collapse: collapse; display: block; overflow-x: auto; }
+.cc-markdown th,
+.cc-markdown td {
+  border: 1px solid var(--color-border-strong);
+  padding: 0.2rem 0.45rem;
+  text-align: left;
+}
+.cc-markdown hr { border: 0; border-top: 1px solid var(--color-border); margin: 0.75rem 0; }
+.cc-markdown img { max-width: 100%; }

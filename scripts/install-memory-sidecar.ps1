@@ -93,14 +93,22 @@ if (-not (Test-Path -LiteralPath (Join-Path $crateDir "Cargo.toml"))) {
 }
 Say "building ultron-memory from source (first build downloads the ONNX runtime; can take several minutes)..."
 Push-Location $crateDir
+# cargo writes progress ("Updating crates.io index", "Compiling ...") to
+# stderr. When the caller redirects this script with 2>&1 (install.ps1 does),
+# PowerShell 5.1 turns each stderr line into an ErrorRecord and EAP=Stop
+# aborts the build on the first one. Judge success by the exit code only.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 try {
     & cargo build --release --bin ultron-memory --features qdrant
     if ($LASTEXITCODE -ne 0) { throw ("cargo build exited " + $LASTEXITCODE) }
 } catch {
+    $ErrorActionPreference = $prevEAP
     Pop-Location
     Warn ("build failed: " + $_.Exception.Message)
     exit 1
 }
+$ErrorActionPreference = $prevEAP
 Pop-Location
 $built = Join-Path $crateDir "target\release\ultron-memory.exe"
 if (-not (Test-Path -LiteralPath $built)) {

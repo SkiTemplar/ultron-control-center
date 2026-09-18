@@ -108,9 +108,12 @@ export function LauncherModal({
                   border: "1px solid var(--color-border-strong)",
                 }}
               >
+                {/* Sin Gemini: validate_provider() en sessions.rs lo rechaza
+                    ("unknown provider 'gemini'") desde que gemini-cli se
+                    retiro el 2026-06-19, asi que elegirlo garantizaba un
+                    fallo al lanzar. SessionProvider = "claude" | "codex". */}
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
-                <option value="gemini">Gemini</option>
               </select>
             </div>
             <div className="flex items-center gap-2 text-[12px]">

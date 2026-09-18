@@ -130,15 +130,22 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
                 ProviderClass::Medium,
             ],
             api_key_status: ApiKeyStatus::Configured,
-            health_endpoint: Some("http://localhost:11434/api/tags".into()),
+            // 127.0.0.1, no 'localhost': mismo host que usa el modulo ollama
+            // (toggle.rs OLLAMA_BASE_URL). Con 'localhost' la resolucion puede
+            // irse a ::1 mientras ollama serve escucha en IPv4.
+            health_endpoint: Some("http://127.0.0.1:11434/api/tags".into()),
             kind: ProviderKind::Local,
             key_env_var: String::new(),
-            base_url: "http://localhost:11434".into(),
-            default_model: "qwen2.5-coder:32b".into(),
+            base_url: "http://127.0.0.1:11434".into(),
+            // qwen2.5-coder:32b pedia ~20 GB de VRAM (2026-09-17: no cabe en
+            // una 4080 Laptop de 12 GB y no estaba ni descargado, asi que la
+            // zona code-fast-local fallaba siempre). qwen3.5:9b: 6,6 GB
+            // medidos, 51 tok/s, tool calling correcto.
+            default_model: "qwen3.5:9b".into(),
             models: vec![
+                "qwen3.5:9b".into(),
+                "qwen3.5:4b".into(),
                 "qwen2.5-coder:7b".into(),
-                "qwen2.5-coder:32b".into(),
-                "deepseek-coder-v2:16b".into(),
             ],
             cli_command: None,
         },
@@ -396,7 +403,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
 
             primary: ZoneAssignment {
                 provider_id: "ollama".into(),
-                model: "qwen2.5-coder:32b".into(),
+                model: "qwen3.5:9b".into(),
                 max_tokens: 2048,
             },
             fallbacks: vec![],
@@ -438,7 +445,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 },
                 ZoneAssignment {
                     provider_id: "ollama".into(),
-                    model: "qwen2.5-coder:32b".into(),
+                    model: "qwen3.5:9b".into(),
                     max_tokens: 1024,
                 },
             ],

@@ -188,6 +188,14 @@ function Write-Fail { param([string]$Msg) Write-Host ("  fail  " + $Msg); $Scrip
 function Write-Info { param([string]$Msg) Write-Host ("        " + $Msg) }
 function Write-V    { param([string]$Msg) if ($Script:VerboseOn) { Write-Host ("    .   " + $Msg) } }
 
+# PowerShell 5.1 `Set-Content -Encoding UTF8` prepends a BOM. Strict parsers
+# reject it: Node JSON.parse fails on ~/.claude/settings.json and serde_json in
+# features.rs silently falls back to defaults. Always write config without BOM.
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Text)
+    [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding $false))
+}
+
 function Confirm-YesNo {
     param(
         [string]$Question,
@@ -291,7 +299,7 @@ function Show-InstallWizard {
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
-        ($result | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $Script:ProfilePath -Encoding UTF8
+        Write-Utf8NoBom -Path $Script:ProfilePath -Text ($result | ConvertTo-Json -Depth 3)
         Write-V ("install profile saved -> " + $Script:ProfilePath)
     } catch {
         Write-Warn2 ("could not save install profile: " + $_.Exception.Message)
@@ -772,7 +780,7 @@ function Install-QdrantNative {
         New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
     }
     if (-not (Test-Path -LiteralPath $cfg)) {
-        @"
+        Write-Utf8NoBom -Path $cfg -Text @"
 storage:
   storage_path: ./storage
   snapshots_path: ./snapshots
@@ -783,7 +791,7 @@ service:
   grpc_port: 6334
 
 log_level: INFO
-"@ | Set-Content -LiteralPath $cfg -Encoding UTF8
+"@
         Write-OK "production.yaml seeded"
     }
 
@@ -1003,7 +1011,7 @@ function Update-ClaudeSettings {
     # Atomic write via temp file
     try {
         $tmp = $settingsPath + ".tmp"
-        ($existing | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $tmp -Encoding UTF8
+        Write-Utf8NoBom -Path $tmp -Text ($existing | ConvertTo-Json -Depth 20)
         Move-Item -LiteralPath $tmp -Destination $settingsPath -Force
         Write-OK "settings.json hooks merged"
     } catch {
@@ -1527,7 +1535,7 @@ function Set-FeatureFlags {
     }
 
     try {
-        ($features | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $featuresFile -Encoding UTF8
+        Write-Utf8NoBom -Path $featuresFile -Text ($features | ConvertTo-Json -Depth 3)
         Write-OK ("features.json -> " + $featuresFile)
     } catch {
         Write-Warn2 ("could not write features.json: " + $_.Exception.Message)

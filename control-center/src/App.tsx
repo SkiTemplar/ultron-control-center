@@ -13,6 +13,7 @@ import { Notes } from "./components/Notes";
 import { Learn } from "./components/Learn";
 import { Lab } from "./components/Lab";
 import { SessionsZone } from "./components/sessions/SessionsZone";
+import { Conversations } from "./components/Conversations";
 import { Usage } from "./components/Usage";
 import { AIRouterPage } from "./components/AIRouter";
 import { Settings } from "./components/Settings";
@@ -323,6 +324,9 @@ function AppInner() {
         ["tab.sessions", "sessions"],
         ["tab.projects", "projects"],
         ["tab.plans", "plans"],
+        // tab.memory estaba definido en in_app_shortcuts.rs (Alt+7) pero
+        // faltaba aqui: el atajo existia y no hacia nada (2026-09-17).
+        ["tab.memory", "memory"],
         ["tab.skills", "skills"],
         ["tab.settings", "settings"],
       ];
@@ -560,6 +564,9 @@ function AppInner() {
           {tab === "notes" && <Notes />}
           {tab === "learn" && <Learn />}
           {tab === "lab" && <Lab />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="conversations">
+          {tab === "conversations" && <Conversations />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="sessions">
           {tab === "sessions" && (
