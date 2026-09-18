@@ -39,6 +39,14 @@ type SystemInfo = {
   gpus: Gpu[];
 };
 
+/** Estado del modelo local (`maria_local_status`). */
+type EstadoLocal = {
+  server_up: boolean;
+  model: string;
+  model_loaded: boolean;
+  installed: boolean;
+};
+
 type SessionInfo = {
   session_id: string;
   project_name: string;
@@ -266,6 +274,8 @@ export function MariaHome({
   const [relayState, setRelayState] = useState<Record<string, ProviderState>>({});
   const [relayOrder, setRelayOrder] = useState<string[]>([]);
   const [claudeWindow, setClaudeWindow] = useState<WindowUsage | null>(null);
+  /** Estado real del modelo local: servidor arriba y si ocupa VRAM ahora. */
+  const [local, setLocal] = useState<EstadoLocal | null>(null);
   /** Ultimo problema de la linea de comando. Se pinta: un Enter que no hace
    *  nada y no explica por que es peor que no tener la linea. */
   const [cmdError, setCmdError] = useState<string | null>(null);
@@ -279,6 +289,9 @@ export function MariaHome({
       void invoke<SessionInfo[]>("list_active_sessions")
         .then((d) => alive && setSessions(Array.isArray(d) ? d : []))
         .catch(() => alive && setSessions([]));
+      void invoke<EstadoLocal>("maria_local_status")
+        .then((d) => alive && setLocal(d ?? null))
+        .catch(() => alive && setLocal(null));
       void invoke<Record<string, ProviderState>>("maria_relay_state")
         .then((d) => alive && setRelayState(d ?? {}))
         .catch(() => alive && setRelayState({}));
@@ -441,11 +454,25 @@ export function MariaHome({
               relevo automático al agotarse
             </p>
           </Panel>
-          <Panel title="voz">
-            <Row k="estado" v={voiceState} />
-            <Row k="modelo local" v="qwen3.5:9b" />
+          <Panel title="voz · ia local">
+            <Row k="voz" v={voiceState} />
+            <Row
+              k="servidor"
+              v={
+                local === null
+                  ? "—"
+                  : local.server_up
+                    ? "arriba"
+                    : local.installed
+                      ? "caído"
+                      : "sin ollama"
+              }
+            />
+            <Row k="modelo" v={local?.model || "—"} />
+            <Row k="en vram" v={local === null ? "—" : local.model_loaded ? "sí" : "no"} />
             <p className="hud-label mt-2" style={{ lineHeight: 1.5 }}>
-              se carga al preguntar y se descarga al responder
+              el servidor arranca con mar.ia; el modelo se carga al preguntar y se
+              descarga al responder
             </p>
           </Panel>
         </div>

@@ -318,7 +318,7 @@ pub struct RepoHit {
 /// Windows-only `CREATE_NO_WINDOW` (0x0800_0000) keeps the subprocess from
 /// flashing a console window.
 fn gh_command_local(args: &[String]) -> std::process::Command {
-    let mut cmd = std::process::Command::new("gh");
+    let mut cmd = crate::proc::oculto("gh");
     cmd.args(args);
     #[cfg(windows)]
     {

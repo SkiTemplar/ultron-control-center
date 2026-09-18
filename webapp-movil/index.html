@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#03070f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="mar.ia" />
+    <meta
+      name="description"
+      content="mar.ia en el móvil: hablar, llamar y ver el estado del PC. Todo se piensa y se ejecuta en tu ordenador."
+    />
+    <title>mar.ia</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" href="/icon-192.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- mar.ia móvil.
+         Esta página es SOLO la carcasa: no hay modelo, ni memoria, ni claves
+         aquí. Todo se piensa y se ejecuta en el PC; el teléfono pone el
+         micrófono, el altavoz y la pantalla. -->
+    <header class="barra">
+      <span class="reactor" aria-hidden="true"></span>
+      <span class="marca">mar<span class="punto">.</span>ia</span>
+      <span class="hueco"></span>
+      <button id="ajustes-btn" class="icono" aria-label="conexión con el PC" title="conexión">
+        ⚙
+      </button>
+      <span id="estado-corto" class="etiqueta">sin conectar</span>
+    </header>
+
+    <nav class="pestanas" role="tablist">
+      <button class="pestana activa" data-vista="chat" role="tab">hablar</button>
+      <button class="pestana" data-vista="llamada" role="tab">llamada</button>
+      <button class="pestana" data-vista="estado" role="tab">estado</button>
+      <button class="pestana" data-vista="conexion" role="tab">conexión</button>
+    </nav>
+
+    <main>
+      <!-- hablar ------------------------------------------------------- -->
+      <section id="vista-chat" class="vista">
+        <div id="turnos" class="turnos" aria-live="polite"></div>
+        <form id="formulario" class="entrada">
+          <button type="button" id="microfono" class="boton-icono" aria-label="dictar">●</button>
+          <input
+            id="mensaje"
+            type="text"
+            placeholder="escribe o pulsa ● para dictar…"
+            autocomplete="off"
+            aria-label="mensaje"
+          />
+          <button type="submit" class="boton-icono" aria-label="enviar">▲</button>
+        </form>
+        <p class="pie">
+          <label><input type="checkbox" id="leer-en-voz" checked /> leer la respuesta en voz alta</label>
+        </p>
+      </section>
+
+      <!-- llamada ------------------------------------------------------ -->
+      <section id="vista-llamada" class="vista oculta">
+        <div class="llamada-centro">
+          <div id="orbe" class="orbe" data-estado="parada" aria-hidden="true"></div>
+          <p id="llamada-estado" class="llamada-estado">llamada colgada</p>
+          <p id="llamada-texto" class="llamada-texto"></p>
+          <button id="llamada-btn" class="boton-llamada">llamar a mar.ia</button>
+          <p class="pie" style="text-align: center">
+            Manos libres: escucha, manda al PC, contesta en voz alta y vuelve a escuchar.
+            El reconocimiento y la voz los pone el teléfono; el PC piensa.
+          </p>
+        </div>
+      </section>
+
+      <!-- estado ------------------------------------------------------- -->
+      <section id="vista-estado" class="vista oculta">
+        <div id="paneles"></div>
+        <form id="formulario-decir" class="entrada">
+          <input
+            id="texto-decir"
+            type="text"
+            placeholder="que lo diga el PC en voz alta…"
+            aria-label="texto para el PC"
+          />
+          <button type="submit" class="boton-icono" aria-label="decir">🔊</button>
+        </form>
+      </section>
+
+      <!-- conexión ----------------------------------------------------- -->
+      <section id="vista-conexion" class="vista oculta">
+        <div class="panel">
+          <h2>conexión con el PC</h2>
+          <p class="ayuda">
+            Esta app no piensa nada por su cuenta: habla con mar.ia en tu ordenador. Enciende
+            el servidor en <strong>mar.ia → Ajustes → Móvil</strong> y pega aquí la dirección y
+            el token que te muestra.
+          </p>
+          <label class="campo">
+            <span>dirección del PC</span>
+            <input id="base-url" type="url" inputmode="url" placeholder="https://mi-pc.ts.net" />
+          </label>
+          <label class="campo">
+            <span>token</span>
+            <input id="token" type="text" autocomplete="off" placeholder="el token de Ajustes → Móvil" />
+          </label>
+          <div class="botones">
+            <button id="probar" class="boton">probar y guardar</button>
+            <button id="olvidar" class="boton secundario">olvidar</button>
+          </div>
+          <p id="conexion-resultado" class="ayuda"></p>
+        </div>
+
+        <div class="panel">
+          <h2>si no conecta</h2>
+          <p class="ayuda">
+            Esta página va por <strong>https</strong>, así que el navegador solo la deja hablar
+            con direcciones <strong>https</strong>. Un <code>http://192.168.x.x</code> lo bloquea
+            el propio teléfono, no mar.ia.
+          </p>
+          <p class="ayuda">
+            La forma que funciona fuera de casa es <strong>Tailscale</strong>: instala Tailscale
+            en el PC y en el móvil y, en el PC, ejecuta
+            <code>tailscale serve --bg 8790</code>. Eso te da una dirección
+            <code>https://…​.ts.net</code> con certificado de verdad. Pégala arriba.
+          </p>
+          <p class="ayuda">
+            En la misma red y sin Tailscale, abre directamente el enlace
+            <code>http://…:8790/?t=…</code> que muestra mar.ia: ahí la webapp la sirve el propio
+            PC y no hay mezcla de http y https.
+          </p>
+        </div>
+
+        <div class="panel">
+          <h2>instalar en el móvil</h2>
+          <p class="ayuda">
+            Android: menú del navegador → «Instalar aplicación». iPhone: Compartir → «Añadir a
+            pantalla de inicio». Queda como una app más, a pantalla completa.
+          </p>
+          <button id="instalar" class="boton oculta">instalar ahora</button>
+        </div>
+      </section>
+    </main>
+
+    <div id="error" class="error oculta"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

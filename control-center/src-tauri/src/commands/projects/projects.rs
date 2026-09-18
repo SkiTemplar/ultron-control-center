@@ -259,14 +259,14 @@ pub async fn open_project_in_ide(
     }
 
     for cli in &candidates {
-        if std::process::Command::new("where")
+        if crate::proc::oculto("where")
             .arg(cli)
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
         {
             // Use cmd /C to invoke the .cmd shim winget installs.
-            let mut cmd = std::process::Command::new("cmd");
+            let mut cmd = crate::proc::oculto("cmd");
             cmd.args(["/C", cli, &cleaned]);
             #[cfg(windows)]
             {
@@ -279,7 +279,7 @@ pub async fn open_project_in_ide(
     }
 
     // Fallback: file explorer.
-    let mut explorer = std::process::Command::new("explorer.exe");
+    let mut explorer = crate::proc::oculto("explorer.exe");
     explorer.arg(&cleaned);
     #[cfg(windows)]
     {

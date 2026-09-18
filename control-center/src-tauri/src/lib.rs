@@ -50,7 +50,11 @@ mod maintenance;
 mod maria; // mar.ia: puente de estado de voz hacia las ventanas
 mod maria_quota; // mar.ia: consumo real por ventana movil
 mod maria_sysinfo; // mar.ia: consumo real por ventana movil
+pub mod proc; // mar.ia: lanzar procesos sin abrir ventanas de consola (lo usa tambien el sidecar)
 mod maria_paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
+mod maria_local; // mar.ia: el modelo local disponible, sin ocupar VRAM
+mod maria_login; // mar.ia: como se entra en cada proveedor y si ya se entro
+mod maria_papers; // mar.ia: literatura del TFG (Semantic Scholar + OpenAlex)
 mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
@@ -363,17 +367,9 @@ pub fn run() {
             });
 
             // mar.ia: el servidor de Ollama levantado, el modelo NO cargado.
-            // El usuario pidio exactamente esto: "cuando se abra maria, ya
-            // deberia estar levantado (pero no cargado) el modelo local".
-            // Sin esto, la primera pregunta fallaba en seco si Ollama no
-            // estaba corriendo (medido el 2026-09-18: 0 procesos ollama y la
-            // linea de comandos del overview no hacia nada). `serve` en
-            // reposo no ocupa VRAM; la carga/descarga por pregunta la sigue
-            // gobernando `keep_alive` en maria_relay/maria_voice.
-            std::thread::spawn(|| match crate::ollama::toggle::ensure_server_running() {
-                Ok(()) => tracing::info!("maria: ollama serve disponible"),
-                Err(e) => tracing::warn!(error = %e, "maria: ollama serve no disponible"),
-            });
+            // Reintenta, porque al arrancar con Windows mar.ia suele llegar
+            // antes que el servicio de Ollama. Ver `maria_local`.
+            std::thread::spawn(crate::maria_local::asegurar_al_arranque);
 
             // Webapp del movil. Solo si el usuario la dejo encendida: no se
             // abre un puerto por iniciativa propia (ver `maria_web`).

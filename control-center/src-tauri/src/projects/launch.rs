@@ -62,7 +62,7 @@ pub async fn open_project_inner(
         path_ps_safe(&path)?;
         let lower = path.to_ascii_lowercase();
         if lower.ends_with(".exe") {
-            let mut cmd = std::process::Command::new(&path);
+            let mut cmd = crate::proc::oculto(&path);
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -232,7 +232,7 @@ pub(crate) fn validate_app_command(cmd: &str) -> Result<(), String> {
 #[cfg(windows)]
 fn spawn_app_command(name: &str, app_command: &str, cwd: &std::path::Path) -> Result<(), String> {
     let title = format!("ULTRON {}", name);
-    let mut cmd = std::process::Command::new("cmd");
+    let mut cmd = crate::proc::oculto("cmd");
     cmd.args(["/C", "start", &title, "cmd", "/K", app_command]);
     cmd.current_dir(cwd);
     cmd.spawn()
@@ -252,7 +252,7 @@ fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> R
         "tell application \"Terminal\" to do script \"cd {} && {}\"",
         cwd_str, escaped_cmd
     );
-    std::process::Command::new("osascript")
+    crate::proc::oculto("osascript")
         .args(["-e", &script])
         .spawn()
         .map_err(|e| format!("spawn app_command: {}", e))?;
@@ -264,7 +264,7 @@ fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> R
 /// preferido del usuario).
 #[cfg(all(unix, not(target_os = "macos")))]
 fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> Result<(), String> {
-    std::process::Command::new("x-terminal-emulator")
+    crate::proc::oculto("x-terminal-emulator")
         .arg("-e")
         .arg(app_command)
         .current_dir(cwd)
@@ -275,7 +275,7 @@ fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> R
 
 /// Spawn a Quick Launch executable. We validate the same security envelope as
 /// the `exe` launcher chip (`path_ps_safe`) and prefer a direct
-/// `Command::new(path)` spawn for `.exe` so we never enter a shell.
+/// `crate::proc::oculto(path)` spawn for `.exe` so we never enter a shell.
 pub async fn launch_project_executable_inner(
     app: &tauri::AppHandle,
     path: String,
@@ -290,7 +290,7 @@ pub async fn launch_project_executable_inner(
     path_ps_safe(&path)?;
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".exe") {
-        let mut cmd = std::process::Command::new(&path);
+        let mut cmd = crate::proc::oculto(&path);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -478,7 +478,7 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), Stri
     }
 
     for cli in &candidates {
-        let found = std::process::Command::new("where")
+        let found = crate::proc::oculto("where")
             .arg(cli)
             .output()
             .map(|o| o.status.success())
@@ -486,7 +486,7 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), Stri
         if !found {
             continue;
         }
-        let mut cmd = std::process::Command::new("cmd");
+        let mut cmd = crate::proc::oculto("cmd");
         cmd.args(["/C", cli, &cleaned]);
         #[cfg(windows)]
         {
@@ -520,7 +520,7 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
             }
             let lower = path.to_ascii_lowercase();
             if lower.ends_with(".exe") {
-                let mut cmd = std::process::Command::new(path);
+                let mut cmd = crate::proc::oculto(path);
                 cmd.args(&args);
                 #[cfg(windows)]
                 {

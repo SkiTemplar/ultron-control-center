@@ -1,0 +1,368 @@
+/* mar.ia móvil — mismo lenguaje visual que el HUD de escritorio: azul
+   profundo, cian, monoespaciada y paneles de cristal.
+   Pensado para el teléfono en la mano: nada pulsable mide menos de 44 px y el
+   teclado no tapa el campo de escribir. */
+
+:root {
+  --bg: #03070f;
+  --panel: rgba(18, 42, 66, 0.38);
+  --borde: rgba(53, 214, 255, 0.22);
+  --texto: #cfe9f7;
+  --texto-2: #8fb3c9;
+  --texto-3: #5b7d94;
+  --acento: #35d6ff;
+  --ok: #49e6a0;
+  --aviso: #ffc24b;
+  --peligro: #ff4d5e;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--mono);
+  font-size: 15px;
+  background-image:
+    linear-gradient(rgba(53, 214, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 214, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+/* --- barra ----------------------------------------------------------- */
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--borde);
+}
+.marca {
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+.punto {
+  color: var(--acento);
+}
+.hueco {
+  flex: 1;
+}
+.etiqueta {
+  color: var(--texto-3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.etiqueta.ok {
+  color: var(--ok);
+}
+.etiqueta.mal {
+  color: var(--peligro);
+}
+.icono {
+  min-width: 34px;
+  min-height: 34px;
+  background: none;
+  border: 1px solid var(--borde);
+  color: var(--acento);
+  font-size: 15px;
+}
+.reactor {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--acento);
+  box-shadow: 0 0 12px rgba(53, 214, 255, 0.6);
+  animation: latido 2.6s ease-in-out infinite;
+}
+@keyframes latido {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --- pestañas -------------------------------------------------------- */
+.pestanas {
+  display: flex;
+  border-bottom: 1px solid var(--borde);
+}
+.pestana {
+  flex: 1;
+  min-height: 46px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--texto-3);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.pestana.activa {
+  color: var(--acento);
+  border-bottom-color: var(--acento);
+  background: rgba(53, 214, 255, 0.06);
+}
+
+/* --- vistas ---------------------------------------------------------- */
+main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.vista {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+  overflow-y: auto;
+}
+.oculta {
+  display: none !important;
+}
+
+.turnos {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.turno {
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.turno.yo {
+  background: rgba(53, 214, 255, 0.08);
+}
+.quien {
+  display: block;
+  color: var(--texto-3);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.turno.asistente .quien {
+  color: var(--acento);
+}
+.pensando {
+  color: var(--texto-3);
+  font-size: 12px;
+  animation: latido 1.4s ease-in-out infinite;
+}
+
+/* --- entrada --------------------------------------------------------- */
+.entrada {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.entrada input[type="text"],
+.entrada input[type="url"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font-family: var(--mono);
+  font-size: 16px; /* 16px o más: evita que iOS haga zoom al enfocar */
+}
+.boton-icono {
+  min-width: 48px;
+  min-height: 48px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--acento);
+  font-size: 17px;
+}
+.boton-icono.grabando {
+  color: var(--peligro);
+  border-color: var(--peligro);
+  animation: latido 1s ease-in-out infinite;
+}
+.pie {
+  margin: 0;
+  color: var(--texto-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* --- llamada --------------------------------------------------------- */
+.llamada-centro {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px;
+}
+.orbe {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  border: 2px solid var(--borde);
+  background: radial-gradient(circle at 50% 45%, rgba(53, 214, 255, 0.5), transparent 62%);
+  box-shadow: 0 0 46px rgba(53, 214, 255, 0.18) inset;
+  transition: box-shadow 0.25s ease;
+}
+.orbe[data-estado="escuchando"] {
+  border-color: var(--acento);
+  box-shadow: 0 0 60px rgba(53, 214, 255, 0.5);
+  animation: latido 1.2s ease-in-out infinite;
+}
+.orbe[data-estado="pensando"] {
+  border-color: var(--aviso);
+  animation: latido 0.7s ease-in-out infinite;
+}
+.orbe[data-estado="hablando"] {
+  border-color: var(--ok);
+  box-shadow: 0 0 60px rgba(73, 230, 160, 0.4);
+}
+.llamada-estado {
+  margin: 0;
+  color: var(--texto-2);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.llamada-texto {
+  margin: 0;
+  min-height: 3em;
+  text-align: center;
+  color: var(--texto);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.boton-llamada {
+  min-height: 56px;
+  min-width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--acento);
+  color: var(--acento);
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+.boton-llamada.colgar {
+  border-color: var(--peligro);
+  color: var(--peligro);
+}
+
+/* --- paneles --------------------------------------------------------- */
+.panel {
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--texto-3);
+  font-weight: 500;
+}
+.fila {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.fila .v {
+  color: var(--acento);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.ayuda {
+  margin: 6px 0;
+  color: var(--texto-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.ayuda code {
+  color: var(--acento);
+  overflow-wrap: anywhere;
+}
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--texto-3);
+}
+.campo input {
+  min-height: 48px;
+  padding: 0 12px;
+  background: rgba(3, 7, 15, 0.6);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font-family: var(--mono);
+  font-size: 16px;
+}
+.botones {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.boton {
+  min-height: 48px;
+  padding: 0 18px;
+  background: var(--panel);
+  border: 1px solid var(--acento);
+  color: var(--acento);
+  font-family: var(--mono);
+  font-size: 14px;
+}
+.boton.secundario {
+  border-color: var(--borde);
+  color: var(--texto-2);
+}
+
+/* --- error global ---------------------------------------------------- */
+.error {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid var(--peligro);
+  color: var(--peligro);
+  font-size: 12.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}

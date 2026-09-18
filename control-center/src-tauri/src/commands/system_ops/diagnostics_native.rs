@@ -218,7 +218,7 @@ fn time_hhmm_valid(s: &str) -> bool {
 fn register_task(time_hhmm: &str) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let tr = format!("\"{}\" --run-diagnostic", exe.display());
-    let status = std::process::Command::new("schtasks.exe")
+    let status = crate::proc::oculto("schtasks.exe")
         .args([
             "/create", "/tn", TASK_NAME, "/tr", &tr, "/sc", "daily", "/st", time_hhmm, "/f",
         ])
@@ -232,7 +232,7 @@ fn register_task(time_hhmm: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn unregister_task() -> Result<(), String> {
-    let _ = std::process::Command::new("schtasks.exe")
+    let _ = crate::proc::oculto("schtasks.exe")
         .args(["/delete", "/tn", TASK_NAME, "/f"])
         .status();
     Ok(())
@@ -580,7 +580,7 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
         "git-uncommitted-cockpit" => {
             let cockpit = dirs::home_dir().map(|h| h.join(".ultron").join("cockpit"));
             let (status, detail) = if let Some(path) = cockpit {
-                let output = std::process::Command::new("git")
+                let output = crate::proc::oculto("git")
                     .args(["-C", &path.display().to_string(), "status", "--porcelain"])
                     .output();
                 match output {

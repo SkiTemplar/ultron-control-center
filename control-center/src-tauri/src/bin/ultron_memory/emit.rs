@@ -21,7 +21,8 @@ use control_center_lib as ul;
 /// que el read-path inyecta en todas partes). 1.0 write-path.
 fn cwd_project() -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    let out = std::process::Command::new("git")
+    // El sidecar es otro crate raiz: usa el helper de la biblioteca.
+    let out = control_center_lib::proc::oculto("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(&cwd)
         .output()

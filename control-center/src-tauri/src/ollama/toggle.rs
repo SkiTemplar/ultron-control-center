@@ -360,7 +360,7 @@ pub fn ensure_server_running() -> Result<(), String> {
             .to_string()
     })?;
 
-    let mut cmd = std::process::Command::new(&binary);
+    let mut cmd = crate::proc::oculto(&binary);
     cmd.arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

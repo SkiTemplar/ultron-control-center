@@ -13,7 +13,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchEntry {
@@ -115,7 +114,7 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
         .unwrap_or_default();
 
     let output = if ext == "ps1" {
-        Command::new("powershell")
+        crate::proc::oculto("powershell")
             .args([
                 "-NoProfile",
                 "-ExecutionPolicy",
@@ -125,7 +124,7 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
             ])
             .output()
     } else {
-        Command::new("cmd")
+        crate::proc::oculto("cmd")
             .args(["/C", &cand.to_string_lossy()])
             .output()
     };

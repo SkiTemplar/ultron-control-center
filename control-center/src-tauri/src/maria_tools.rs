@@ -86,7 +86,7 @@ pub fn abrir_app(nombre: &str) -> ToolOutcome {
     if let Some(app) = crate::installed_apps::find_cached_app(nombre) {
         if let Some(dir) = app.install_location.as_deref().filter(|d| !d.is_empty()) {
             if let Some(exe) = exe_in(std::path::Path::new(dir), &app.name) {
-                return match std::process::Command::new(&exe).spawn() {
+                return match crate::proc::oculto(&exe).spawn() {
                     Ok(_) => ToolOutcome::ok(format!("Abriendo {}.", app.name)),
                     Err(e) => ToolOutcome::fail(format!("No pude abrir {}: {e}.", app.name)),
                 };
@@ -97,7 +97,7 @@ pub fn abrir_app(nombre: &str) -> ToolOutcome {
     // 2) Start-Process: resuelve alias del sistema, apps de la Store y lo que
     //    este en el PATH. El nombre viaja como argumento suelto (argv), no
     //    concatenado en una linea de comandos.
-    let mut cmd = std::process::Command::new("powershell.exe");
+    let mut cmd = crate::proc::oculto("powershell.exe");
     cmd.args([
         "-NoProfile",
         "-NonInteractive",

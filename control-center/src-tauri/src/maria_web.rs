@@ -45,6 +45,18 @@ pub struct WebConfig {
     pub ntfy_topic: String,
     #[serde(default = "ntfy_por_defecto")]
     pub ntfy_server: String,
+    /// Webs desde las que se acepta una llamada a la API (CORS).
+    ///
+    /// Por que hace falta: la app instalable vive en Vercel (https) y llama a
+    /// este servidor, que es otro origen. Sin esta lista el navegador corta la
+    /// peticion antes de salir. Es una LISTA, no un `*`: con `*`, cualquier
+    /// web abierta en el movil podria intentar hablar con el PC.
+    #[serde(default = "origenes_por_defecto")]
+    pub allowed_origins: Vec<String>,
+}
+
+fn origenes_por_defecto() -> Vec<String> {
+    vec!["https://maria-movil.vercel.app".to_string()]
 }
 
 fn ntfy_por_defecto() -> String {
@@ -59,8 +71,27 @@ impl Default for WebConfig {
             bind: "127.0.0.1".into(),
             ntfy_topic: String::new(),
             ntfy_server: ntfy_por_defecto(),
+            allowed_origins: origenes_por_defecto(),
         }
     }
+}
+
+/// Origen que se devuelve en `Access-Control-Allow-Origin`, o None si no esta
+/// permitido. Pura: se testea sin servidor.
+///
+/// Se compara el origen EXACTO y se devuelve tal cual (no `*`): con `*` el
+/// navegador ni siquiera manda la cabecera del token en una peticion con
+/// credenciales, y ademas abriria la API a cualquier web.
+#[must_use]
+pub fn origen_permitido(origen: &str, permitidos: &[String]) -> Option<String> {
+    let o = origen.trim();
+    if o.is_empty() {
+        return None;
+    }
+    permitidos
+        .iter()
+        .find(|p| p.trim().eq_ignore_ascii_case(o))
+        .map(|_| o.to_string())
 }
 
 /// Estado del servidor para la interfaz.
@@ -208,12 +239,27 @@ fn header(k: &str, v: &str) -> Header {
     Header::from_bytes(k.as_bytes(), v.as_bytes()).expect("cabecera valida")
 }
 
+/// Origen de la peticion, si lo trae.
+fn origen_de(req: &Request) -> String {
+    req.headers()
+        .iter()
+        .find(|h| h.field.equiv("origin"))
+        .map(|h| h.value.as_str().to_string())
+        .unwrap_or_default()
+}
+
 fn responder_json(req: Request, codigo: u16, cuerpo: &serde_json::Value) {
     let texto = cuerpo.to_string();
-    let resp = Response::from_string(texto)
+    let permitido = origen_permitido(&origen_de(&req), &load_config().allowed_origins);
+    let mut resp = Response::from_string(texto)
         .with_status_code(codigo)
         .with_header(header("content-type", "application/json; charset=utf-8"))
         .with_header(header("cache-control", "no-store"));
+    if let Some(o) = permitido {
+        resp = resp
+            .with_header(header("access-control-allow-origin", &o))
+            .with_header(header("vary", "Origin"));
+    }
     let _ = req.respond(resp);
 }
 
@@ -260,6 +306,24 @@ fn atender(mut req: Request) {
             let _ = req.respond(resp);
             return;
         }
+    }
+
+    // Preflight: el navegador pregunta antes de mandar una peticion con
+    // cabecera propia (`x-maria-token`). Sin contestarlo, la app de Vercel no
+    // llega ni a intentar la llamada de verdad.
+    if metodo == "OPTIONS" {
+        let permitido = origen_permitido(&origen_de(&req), &load_config().allowed_origins);
+        let mut resp = Response::from_string("").with_status_code(204);
+        if let Some(o) = permitido {
+            resp = resp
+                .with_header(header("access-control-allow-origin", &o))
+                .with_header(header("access-control-allow-methods", "GET, POST, OPTIONS"))
+                .with_header(header("access-control-allow-headers", "content-type, x-maria-token"))
+                .with_header(header("access-control-max-age", "600"))
+                .with_header(header("vary", "Origin"));
+        }
+        let _ = req.respond(resp);
+        return;
     }
 
     if !ruta.starts_with("/api/") {
@@ -392,7 +456,7 @@ fn atender(mut req: Request) {
 /// Direcciones IPv4 de este PC, para enseñar por donde entrar desde el movil.
 fn direcciones_locales() -> Vec<String> {
     let mut out = vec!["127.0.0.1".to_string()];
-    let mut cmd = std::process::Command::new("ipconfig");
+    let mut cmd = crate::proc::oculto("ipconfig");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -605,6 +669,35 @@ mod tests {
         for r in ["/api/estado", "/../secreto", "/app.js.map", ""] {
             assert!(estatico(r).is_none(), "no deberia servir {r}");
         }
+    }
+
+    #[test]
+    fn solo_pasan_los_origenes_de_la_lista() {
+        let lista = vec!["https://maria-movil.vercel.app".to_string()];
+        assert_eq!(
+            origen_permitido("https://maria-movil.vercel.app", &lista).as_deref(),
+            Some("https://maria-movil.vercel.app")
+        );
+        // Mayusculas del esquema/host no deberian dejarte fuera.
+        assert!(origen_permitido("HTTPS://MARIA-MOVIL.VERCEL.APP", &lista).is_some());
+    }
+
+    #[test]
+    fn un_origen_ajeno_no_recibe_permiso() {
+        // Caso negativo: sin esto, cualquier web abierta en el movil podria
+        // intentar hablar con el PC. Ojo con los que "empiezan por" el bueno.
+        let lista = vec!["https://maria-movil.vercel.app".to_string()];
+        for malo in [
+            "https://maria-movil.vercel.app.evil.com",
+            "http://maria-movil.vercel.app",
+            "https://otra.vercel.app",
+            "",
+            "null",
+        ] {
+            assert!(origen_permitido(malo, &lista).is_none(), "colo: {malo:?}");
+        }
+        // Lista vacia = nadie de fuera.
+        assert!(origen_permitido("https://maria-movil.vercel.app", &[]).is_none());
     }
 
     #[test]

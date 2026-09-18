@@ -13,7 +13,6 @@
 // bloquear con pipes llenos y mata el proceso si excede el timeout.
 
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::Duration;
 
 #[cfg(windows)]
@@ -96,7 +95,7 @@ pub fn project_create_cli(args: Vec<String>) -> Result<serde_json::Value, String
         ));
     }
 
-    let mut cmd = Command::new("node");
+    let mut cmd = crate::proc::oculto("node");
     cmd.arg(&script);
     cmd.args(&args);
     if !args.iter().any(|a| a == "--json") {

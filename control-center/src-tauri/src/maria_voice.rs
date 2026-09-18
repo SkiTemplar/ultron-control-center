@@ -12,7 +12,7 @@
 // sistema por su cuenta.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
@@ -196,7 +196,7 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
     let script = voice_script()?;
     let python = voice_python(&script);
 
-    let mut command = Command::new(&python);
+    let mut command = crate::proc::oculto(&python);
     command
         .arg(&script)
         .stdin(Stdio::piped())

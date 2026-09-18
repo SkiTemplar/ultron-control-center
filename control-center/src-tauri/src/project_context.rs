@@ -14,7 +14,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 // ---------------------------------------------------------------------------
 // Public payload types — serialised directly to the frontend
@@ -109,7 +108,7 @@ fn load_claude_md(project_path: &str) -> (Option<String>, Option<String>) {
 
 fn load_git_summary(project_path: &str) -> Option<GitSummary> {
     // branch
-    let branch_out = Command::new("git")
+    let branch_out = crate::proc::oculto("git")
         .args(["-C", project_path, "rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .ok()?;
@@ -121,7 +120,7 @@ fn load_git_summary(project_path: &str) -> Option<GitSummary> {
         .to_string();
 
     // last 10 commits oneline
-    let log_out = Command::new("git")
+    let log_out = crate::proc::oculto("git")
         .args(["-C", project_path, "log", "--oneline", "-10"])
         .output()
         .ok()?;

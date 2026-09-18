@@ -84,7 +84,7 @@ pub fn open_app_folder_inner(install_location: String) -> Result<String, String>
         .strip_prefix(r"\\?\")
         .unwrap_or(&canonical_str)
         .to_string();
-    let mut explorer = std::process::Command::new("explorer.exe");
+    let mut explorer = crate::proc::oculto("explorer.exe");
     explorer.arg(&cleaned);
     #[cfg(windows)]
     {

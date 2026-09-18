@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { PapersView } from "./lab/PapersView";
 
 type TfgMatch = {
   pattern: string;
@@ -61,7 +62,7 @@ type CatalogPattern = {
   senales_ejecutables?: { tipo: string; valor: string; nota?: string }[];
 };
 
-type SubView = "detector" | "catalogo";
+type SubView = "detector" | "catalogo" | "papers";
 
 function densityColor(d: number): string {
   if (d >= 3) return "var(--color-danger)";
@@ -361,7 +362,7 @@ export function Lab() {
           <div className="flex items-baseline gap-3">
             <h2 className="text-[15px] font-semibold">Lab</h2>
             <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              Detección determinista de patrones de texto IA · fuente: docs/research/patrones-texto-ia.json
+              Patrones de texto IA (determinista) · búsqueda de literatura en Semantic Scholar y OpenAlex
             </span>
           </div>
         </div>
@@ -370,6 +371,7 @@ export function Lab() {
             [
               ["detector", "Detector"],
               ["catalogo", "Catálogo"],
+              ["papers", "Papers"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -624,6 +626,7 @@ export function Lab() {
           </div>
         )}
 
+        {view === "papers" && <PapersView />}
         {view === "catalogo" && (
           <div>
             {patterns === null ? (

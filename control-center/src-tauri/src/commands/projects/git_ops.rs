@@ -5,7 +5,6 @@
 // Errors surface as Err(String) so the frontend shows them directly.
 
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -23,7 +22,7 @@ fn repo_state_cache() -> &'static Mutex<RepoStateCache> {
 }
 
 fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = crate::proc::oculto("git")
         .args(args)
         .current_dir(cwd)
         .output()
@@ -163,7 +162,7 @@ pub struct GitRepoState {
 /// spaces). `git diff` exits 1 when there ARE differences — that is not an error,
 /// so a non-empty stdout is always treated as success.
 fn git_stdout(args: &[&str], cwd: &str) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = crate::proc::oculto("git")
         .args(args)
         .current_dir(cwd)
         .output()
@@ -388,7 +387,7 @@ pub fn codegraph_summary(path: String) -> Result<CodeGraphSummary, String> {
 /// Blocks until done (may take seconds for large repos).
 #[tauri::command]
 pub fn codegraph_init_project(path: String) -> Result<String, String> {
-    let out = Command::new("codegraph")
+    let out = crate::proc::oculto("codegraph")
         .args(["init", "-i"])
         .current_dir(&path)
         .output()

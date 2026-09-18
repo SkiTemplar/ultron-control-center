@@ -64,10 +64,10 @@ pub async fn open_in_vscode(folder_path: String, file_path: String) -> Result<()
         {
             use std::os::windows::process::CommandExt;
             // Wrap with `cmd.exe /C code …` so the `code.cmd` shim on PATHEXT
-            // resolves correctly — `Command::new("code")` does not walk shims
+            // resolves correctly — `crate::proc::oculto("code")` does not walk shims
             // on Windows. CREATE_NO_WINDOW keeps cmd.exe from flashing a
             // console for the half-second the child lives.
-            let mut cmd = std::process::Command::new("cmd.exe");
+            let mut cmd = crate::proc::oculto("cmd.exe");
             cmd.arg("/C").arg("code");
             if !folder_arg.is_empty() {
                 cmd.arg(&folder_arg);
@@ -80,7 +80,7 @@ pub async fn open_in_vscode(folder_path: String, file_path: String) -> Result<()
         }
         #[cfg(not(windows))]
         {
-            let mut cmd = std::process::Command::new("code");
+            let mut cmd = crate::proc::oculto("code");
             if !folder_arg.is_empty() {
                 cmd.arg(&folder_arg);
             }

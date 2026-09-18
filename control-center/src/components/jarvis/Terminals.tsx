@@ -187,11 +187,14 @@ export function Terminals() {
               setModelo("");
             }}
             aria-label="cli"
-            className="hud-panel px-1 py-1 text-[11px]"
+            className="hud-panel px-3 text-[13px]"
             style={{
+              minHeight: 38,
+              minWidth: 132,
               color: "var(--color-accent)",
               fontFamily: "var(--font-mono)",
               outline: "none",
+              cursor: "pointer",
             }}
           >
             {PROVEEDORES.map((p) => (
@@ -212,11 +215,18 @@ export function Terminals() {
               modelosDisponibles.find((m) => m.id === modelo)?.para ??
               "el que traiga la CLI por defecto"
             }
-            className="hud-panel px-1 py-1 text-[11px]"
+            className="hud-panel px-3 text-[13px]"
             style={{
+              minHeight: 38,
+              minWidth: 150,
               color: modelo ? "var(--color-accent)" : "var(--color-text-secondary)",
+              border: modelo
+                ? "1px solid var(--color-accent)"
+                : "1px solid var(--color-border)",
               fontFamily: "var(--font-mono)",
               outline: "none",
+              cursor: modelosDisponibles.length === 0 ? "not-allowed" : "pointer",
+              opacity: modelosDisponibles.length === 0 ? 0.5 : 1,
             }}
           >
             <option value="">por defecto</option>
@@ -230,8 +240,13 @@ export function Terminals() {
         <button
           type="button"
           onClick={() => void abrir(proveedor, modelo)}
-          className="hud-panel hud-label px-2 py-1"
-          style={{ color: "var(--color-accent)", cursor: "pointer" }}
+          className="hud-panel px-4 text-[13px]"
+          style={{
+            minHeight: 38,
+            color: "var(--color-accent)",
+            fontFamily: "var(--font-mono)",
+            cursor: "pointer",
+          }}
         >
           + abrir
         </button>
@@ -239,15 +254,20 @@ export function Terminals() {
         {pestanas.map((t) => (
           <span
             key={t.id}
-            className="hud-panel flex items-center gap-1 px-2 py-1"
+            className="hud-panel flex items-center gap-2 px-3"
             style={{
+              minHeight: 38,
               background: t.id === activa ? "var(--color-surface-3)" : undefined,
+              border:
+                t.id === activa
+                  ? "1px solid var(--color-accent)"
+                  : "1px solid var(--color-border)",
             }}
           >
             <button
               type="button"
               onClick={() => setActiva(t.id)}
-              className="hud-label"
+              className="text-[13px]"
               title={t.model ? `${t.provider} con ${t.model}` : `${t.provider} (modelo por defecto)`}
               style={{
                 color: t.id === activa ? "var(--color-accent)" : "var(--color-text-secondary)",

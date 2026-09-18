@@ -100,7 +100,7 @@ pub(crate) fn count_live_cli_sessions() -> Option<usize> {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let out = std::process::Command::new("tasklist")
+        let out = crate::proc::oculto("tasklist")
             .args(["/FI", "IMAGENAME eq claude.exe", "/FO", "CSV", "/NH"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()

@@ -95,7 +95,7 @@ pub fn memory_portrait_regenerate() -> Result<String, String> {
         .open(log_dir.join("memory-portrait.log"))
         .map_err(|e| format!("abrir log: {e}"))?;
     let log_err = log.try_clone().map_err(|e| e.to_string())?;
-    let mut cmd = std::process::Command::new(node);
+    let mut cmd = crate::proc::oculto(node);
     cmd.arg(&script)
         .current_dir(&root)
         .stdout(log)

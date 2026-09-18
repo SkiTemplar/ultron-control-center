@@ -281,13 +281,13 @@ pub fn proxy_start_inner() -> Result<ProxyHealth, String> {
     let display = binary.path().display().to_string();
     let mut cmd = match &binary {
         ProxyBinary::Exe(path) => {
-            let mut c = std::process::Command::new(path);
+            let mut c = crate::proc::oculto(path);
             c.arg(format!("--port={PROXY_PORT}"))
                 .arg("--bind=127.0.0.1");
             c
         }
         ProxyBinary::NodeScript(path) => {
-            let mut c = std::process::Command::new("node");
+            let mut c = crate::proc::oculto("node");
             c.arg(path);
             c
         }

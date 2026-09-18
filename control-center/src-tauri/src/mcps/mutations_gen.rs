@@ -432,7 +432,7 @@ pub fn mcp_ping_inner(name: String) -> McpPingResult {
     };
 
     let start = Instant::now();
-    let mut cmd = std::process::Command::new(&command);
+    let mut cmd = crate::proc::oculto(&command);
     cmd.args(&cfg.args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

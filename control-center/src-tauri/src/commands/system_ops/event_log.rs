@@ -96,7 +96,7 @@ pub async fn open_event_viewer() -> Result<(), String> {
     {
         use std::os::windows::process::CommandExt;
         tauri::async_runtime::spawn_blocking(|| {
-            let mut cmd = std::process::Command::new("cmd.exe");
+            let mut cmd = crate::proc::oculto("cmd.exe");
             cmd.args(["/C", "start", "", "eventvwr.msc"]);
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             cmd.spawn().map_err(|e| format!("spawn eventvwr: {e}"))
@@ -118,7 +118,7 @@ pub async fn open_event_viewer() -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn query_event_log(limit: u32, scope: EventLogScope) -> Result<Vec<EventLogEntry>, String> {
     use std::os::windows::process::CommandExt;
-    use std::process::Command;
+    
 
     let xpath = build_xpath(scope);
 
@@ -127,7 +127,7 @@ fn query_event_log(limit: u32, scope: EventLogScope) -> Result<Vec<EventLogEntry
     //   /f   -> output format (XML is easiest to parse robustly)
     //   /q   -> XPath query
     //   /rd  -> reverse direction (newest first)
-    let mut cmd = Command::new("wevtutil.exe");
+    let mut cmd = crate::proc::oculto("wevtutil.exe");
     cmd.args([
         "qe",
         "System",

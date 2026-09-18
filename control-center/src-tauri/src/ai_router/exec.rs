@@ -104,7 +104,7 @@ where
 // ---------------------------------------------------------------------------
 //
 // HISTORY (KIRKARDO HIGH fix, 2026-09-11): this module used to build ONE
-// shell string and run it via `cmd /C <string>`, because `Command::new("codex")`
+// shell string and run it via `cmd /C <string>`, because `crate::proc::oculto("codex")`
 // fails with NotFound on Windows — npm installs its CLIs as `<name>.cmd`
 // shims, and Rust's `Command` does NOT do the PATHEXT-style extension search
 // a real shell performs (verified empirically). To make that string safe it
@@ -135,7 +135,7 @@ where
 pub(crate) fn resolve_windows_cli_program(cmd: &str) -> String {
     for ext in ["cmd", "exe", "bat"] {
         let candidate = format!("{cmd}.{ext}");
-        let found = std::process::Command::new("where")
+        let found = crate::proc::oculto("where")
             .arg(&candidate)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -335,7 +335,7 @@ pub(crate) fn call_cli(
     #[cfg(not(target_os = "windows"))]
     let program = cmd.to_string();
 
-    let mut command = std::process::Command::new(&program);
+    let mut command = crate::proc::oculto(&program);
     command.args(&args);
 
     // Codex reads the prompt from stdin (see cli_invocation_args's doc);

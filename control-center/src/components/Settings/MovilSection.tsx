@@ -17,7 +17,13 @@ type WebConfig = {
   bind: string;
   ntfy_topic: string;
   ntfy_server: string;
+  allowed_origins: string[];
 };
+
+/** La app instalable. Se sirve desde Vercel porque un PWA necesita https para
+ *  poder instalarse, y el PC no lo tiene. La app no piensa nada: solo habla
+ *  con este servidor. */
+const APP_MOVIL = "https://maria-movil.vercel.app";
 
 type WebStatus = {
   running: boolean;
@@ -155,6 +161,48 @@ export function MovilSection() {
           </span>
         </div>
       )}
+
+      {/* --- app instalable ------------------------------------------------ */}
+      <div className="flex flex-col gap-2">
+        <h3 className="hud-label" style={{ fontSize: 12 }}>
+          app del móvil
+        </h3>
+        <p className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Ábrela en el teléfono e instálala («Instalar aplicación» en Android, «Añadir a
+          pantalla de inicio» en iPhone). Ahí dentro pegas la dirección y el token de arriba.
+          La app no piensa nada: todo se manda a este PC.
+        </p>
+        <code
+          className="hud-panel px-2 py-1 text-[12px]"
+          style={{ color: "var(--color-accent)", overflowWrap: "anywhere" }}
+        >
+          {APP_MOVIL}
+        </code>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(APP_MOVIL)
+                .then(() => setMensaje("enlace copiado"))
+                .catch(() => setError("no pude copiar al portapapeles"));
+            }}
+            className="hud-panel px-3 text-[12px]"
+            style={{ minHeight: 34, color: "var(--color-accent)", cursor: "pointer" }}
+          >
+            copiar enlace
+          </button>
+        </div>
+        <p className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Esa web va por https, así que solo puede hablar con una dirección https. Para usarla
+          fuera de casa: instala Tailscale y ejecuta <code>tailscale serve --bg {borrador.port}</code>
+          {" "}en el PC; te da un <code>https://….ts.net</code> que pegar en la app. En la misma
+          red, usa directamente el enlace de arriba (lo sirve el propio PC).
+        </p>
+        <p className="hud-label">
+          orígenes aceptados por la API: {(borrador.allowed_origins ?? []).join(", ") || "ninguno"}
+        </p>
+      </div>
 
       {/* --- avisos ------------------------------------------------------- */}
       <div className="flex flex-col gap-2">

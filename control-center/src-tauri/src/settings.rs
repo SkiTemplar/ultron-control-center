@@ -332,7 +332,7 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
         // approvals that no longer correspond to a live Run entry — the
         // plugin's own value lives at the same name, so deleting it when
         // present would break the user's current preference).
-        let run_present = std::process::Command::new("reg.exe")
+        let run_present = crate::proc::oculto("reg.exe")
             .args([
                 "query",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -345,14 +345,14 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
             .unwrap_or(false);
 
         if !run_present {
-            let approved_present = std::process::Command::new("reg.exe")
+            let approved_present = crate::proc::oculto("reg.exe")
                 .args(["query", approved_path, "/v", app_name])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
             if approved_present {
-                let out = std::process::Command::new("reg.exe")
+                let out = crate::proc::oculto("reg.exe")
                     .args(["delete", approved_path, "/v", app_name, "/f"])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output();

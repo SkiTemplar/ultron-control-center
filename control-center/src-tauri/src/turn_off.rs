@@ -171,10 +171,10 @@ pub fn cancel_inner() -> Result<TurnOffState, String> {
 #[cfg(target_os = "windows")]
 fn run_shutdown_schedule(seconds: u32) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    use std::process::Command;
+    
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut cmd = Command::new("shutdown.exe");
+    let mut cmd = crate::proc::oculto("shutdown.exe");
     cmd.args(["/s", "/t", &seconds.to_string()]);
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd
@@ -193,10 +193,10 @@ fn run_shutdown_schedule(seconds: u32) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn run_shutdown_abort() -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    use std::process::Command;
+    
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut cmd = Command::new("shutdown.exe");
+    let mut cmd = crate::proc::oculto("shutdown.exe");
     cmd.args(["/a"]);
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd

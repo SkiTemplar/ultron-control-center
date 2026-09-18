@@ -3,7 +3,6 @@
 // `run_backup_now_inner` is a dedicated "force backup" entry point that
 // re-reads the configured destination from disk on every invocation.
 
-use std::process::Command;
 
 use serde::Serialize;
 
@@ -65,7 +64,7 @@ pub fn run_backup_now_inner() -> Result<MaintenanceResult, String> {
     #[cfg(not(target_os = "windows"))]
     let (cmd, args): (String, Vec<String>) =
         ("bash".into(), vec![script.to_string_lossy().into_owned()]);
-    let mut command = Command::new(&cmd);
+    let mut command = crate::proc::oculto(&cmd);
     command.args(&args).current_dir(home.join(".ultron"));
 
     // v2.7: explicitly inject the configured destination + sources into
@@ -119,7 +118,7 @@ pub fn run_maintenance_inner(kind: String) -> Result<MaintenanceResult, String> 
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let (cmd, args) = build_cmd(&kind, &home)?;
     let start = std::time::Instant::now();
-    let mut command = Command::new(&cmd);
+    let mut command = crate::proc::oculto(&cmd);
     command.args(&args).current_dir(home.join(".ultron"));
     #[cfg(windows)]
     {

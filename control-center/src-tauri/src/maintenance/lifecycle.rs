@@ -136,7 +136,7 @@ Start-Sleep -Seconds 3
     // script handles its own lifetime (auto-close after relaunch, pause
     // on failure), so layering `-NoExit` on top would leave a dead
     // PowerShell window behind after the user's relaunch.
-    let mut command = std::process::Command::new("powershell.exe");
+    let mut command = crate::proc::oculto("powershell.exe");
     command
         .current_dir(&cwd)
         .arg("-NoProfile")

@@ -28,7 +28,7 @@ fn spawn_console(dir: &Path, kind: &str) -> Result<(), String> {
 
     let mut command = match kind {
         "cmd" => {
-            let mut c = std::process::Command::new("cmd.exe");
+            let mut c = crate::proc::oculto("cmd.exe");
             c.arg("/K"); // keep the window open
             c
         }
@@ -36,7 +36,7 @@ fn spawn_console(dir: &Path, kind: &str) -> Result<(), String> {
             // Elevacion via Start-Process -Verb RunAs: el UAC prompt es el
             // punto de consentimiento; la ventana elevada abre en el dir
             // del proyecto y se queda abierta (-NoExit).
-            let mut c = std::process::Command::new("powershell.exe");
+            let mut c = crate::proc::oculto("powershell.exe");
             c.arg("-NoProfile").arg("-Command").arg(format!(
                 "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoExit','-Command','Set-Location -LiteralPath \"{}\"'",
                 dir.display()
@@ -45,7 +45,7 @@ fn spawn_console(dir: &Path, kind: &str) -> Result<(), String> {
         }
         // "powershell" y cualquier valor desconocido: PowerShell normal.
         _ => {
-            let mut c = std::process::Command::new("powershell.exe");
+            let mut c = crate::proc::oculto("powershell.exe");
             c.arg("-NoExit");
             c
         }
@@ -64,7 +64,7 @@ fn spawn_console(dir: &Path, _kind: &str) -> Result<(), String> {
     // Linux/macOS: mejor esfuerzo con los emuladores mas comunes. La card
     // muestra el error si ninguno existe (mandamiento 11: nada de no-ops).
     for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
-        if std::process::Command::new(term)
+        if crate::proc::oculto(term)
             .current_dir(dir)
             .spawn()
             .is_ok()

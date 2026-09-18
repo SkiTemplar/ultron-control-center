@@ -60,7 +60,7 @@ pub fn detect_cli(command: &str) -> bool {
     }
 
     #[cfg(target_os = "windows")]
-    let found = std::process::Command::new("where")
+    let found = crate::proc::oculto("where")
         .arg(command)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -70,7 +70,7 @@ pub fn detect_cli(command: &str) -> bool {
         .unwrap_or(false);
 
     #[cfg(not(target_os = "windows"))]
-    let found = std::process::Command::new("which")
+    let found = crate::proc::oculto("which")
         .arg(command)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

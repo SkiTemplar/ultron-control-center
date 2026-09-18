@@ -217,7 +217,7 @@ pub fn delete_hook_inner(id: String) -> Result<HookMutationResult, String> {
 /// Run a hook's command in a sandboxed PowerShell with a 5s timeout.
 pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookTestResult, String> {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     let list = list_hooks_inner()?;
     let hook = list
@@ -236,7 +236,7 @@ pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookT
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        let mut c = Command::new("powershell.exe");
+        let mut c = crate::proc::oculto("powershell.exe");
         c.args([
             "-NoProfile",
             "-NonInteractive",
@@ -249,7 +249,7 @@ pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookT
     };
     #[cfg(not(target_os = "windows"))]
     let mut cmd = {
-        let mut c = Command::new("bash");
+        let mut c = crate::proc::oculto("bash");
         c.arg("-s");
         c
     };

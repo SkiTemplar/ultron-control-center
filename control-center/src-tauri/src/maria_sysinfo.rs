@@ -48,7 +48,7 @@ pub struct HudTelemetry {
 /// Lee la GPU con nvidia-smi. Sin tarjeta NVIDIA devuelve vacio y el panel
 /// pinta "sin datos de gpu" en vez de inventarse una.
 fn read_gpus() -> Vec<Gpu> {
-    let mut cmd = std::process::Command::new("nvidia-smi");
+    let mut cmd = crate::proc::oculto("nvidia-smi");
     cmd.args([
         "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
         "--format=csv,noheader,nounits",

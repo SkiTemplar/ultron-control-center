@@ -75,7 +75,7 @@ pub async fn compute_cost(
 /// agent / rule folder and can navigate sibling README, examples, etc.
 ///
 /// Windows-specific: `code` ships as `code.cmd` shim — bare
-/// `Command::new("code")` does not walk PATHEXT, so we wrap with
+/// `crate::proc::oculto("code")` does not walk PATHEXT, so we wrap with
 /// `cmd.exe /C code <folder>` (same trick as `pty::build_command`). The
 /// `CREATE_NO_WINDOW` flag (0x0800_0000) keeps cmd.exe from flashing a
 /// console window for the half-second the subprocess lives.
@@ -96,14 +96,14 @@ pub async fn open_folder_in_vscode(target: String) -> Result<(), String> {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            let mut cmd = std::process::Command::new("cmd.exe");
+            let mut cmd = crate::proc::oculto("cmd.exe");
             cmd.arg("/C").arg("code").arg(&arg);
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             cmd.status()
         }
         #[cfg(not(windows))]
         {
-            std::process::Command::new("code").arg(&arg).status()
+            crate::proc::oculto("code").arg(&arg).status()
         }
     })
     .await

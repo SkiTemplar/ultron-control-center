@@ -77,7 +77,7 @@ fn run_sync_registry() -> Result<SyncRegistryResult, String> {
     // (instead of an opaque "program not found" from Command::spawn).
     let node = which::which("node").map_err(|_| "node not found on PATH".to_string())?;
 
-    let mut cmd = std::process::Command::new(node);
+    let mut cmd = crate::proc::oculto(node);
     cmd.arg(&script);
     #[cfg(windows)]
     {

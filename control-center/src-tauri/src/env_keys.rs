@@ -17,7 +17,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Command;
 
 /// Nombres de variables de entorno que este comando acepta modificar.
 /// Cualquier clave que no esté en esta lista es ignorada (skipped).
@@ -106,7 +105,7 @@ fn mask_secret(raw: &str) -> Option<String> {
 /// heredado (setx no refresca el proceso padre / explorer.exe).
 pub(crate) fn read_user_scope_keys() -> HashMap<String, String> {
     let mut out: HashMap<String, String> = HashMap::new();
-    let output = Command::new("reg")
+    let output = crate::proc::oculto("reg")
         .args(["query", "HKCU\\Environment"])
         .output();
     let Ok(output) = output else {
@@ -224,7 +223,7 @@ pub fn set_env_vars_keys_inner(keys: HashMap<String, String>) -> Result<EnvKeysS
         // setx KEY value  — User scope, no /M flag (no elevation required).
         // Arguments passed as separate &str so the OS builds the argv array
         // directly; no shell interpretation possible.
-        let result = Command::new("setx").arg(key).arg(trimmed).output();
+        let result = crate::proc::oculto("setx").arg(key).arg(trimmed).output();
 
         match result {
             Ok(output) if output.status.success() => {

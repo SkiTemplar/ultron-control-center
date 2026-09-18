@@ -216,7 +216,7 @@ pub(super) fn plugin_repo_subpath(marketplace: &str, plugin_name: &str) -> Strin
 
 /// Build a `gh` command (Windows: CREATE_NO_WINDOW).
 fn gh_cmd_v2(args: &[&str]) -> std::process::Command {
-    let mut cmd = std::process::Command::new("gh");
+    let mut cmd = crate::proc::oculto("gh");
     cmd.args(args);
     #[cfg(windows)]
     {

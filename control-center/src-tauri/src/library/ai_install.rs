@@ -351,13 +351,13 @@ fn execute_steps(steps: &[InstallStep]) -> Vec<String> {
         let result = if needs_shell {
             #[cfg(windows)]
             let mut cmd = {
-                let mut c = std::process::Command::new("cmd");
+                let mut c = crate::proc::oculto("cmd");
                 c.args(["/C", &step.cmd]);
                 c
             };
             #[cfg(not(windows))]
             let mut cmd = {
-                let mut c = std::process::Command::new("sh");
+                let mut c = crate::proc::oculto("sh");
                 c.args(["-c", &step.cmd]);
                 c
             };
@@ -372,7 +372,7 @@ fn execute_steps(steps: &[InstallStep]) -> Vec<String> {
             if tokens.is_empty() {
                 continue;
             }
-            let mut cmd = std::process::Command::new(tokens[0]);
+            let mut cmd = crate::proc::oculto(tokens[0]);
             cmd.args(&tokens[1..]);
             #[cfg(windows)]
             {

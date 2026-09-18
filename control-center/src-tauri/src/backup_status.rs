@@ -467,8 +467,8 @@ fn validate_time(time: &str) -> Result<String, String> {
 
 #[cfg(target_os = "windows")]
 fn task_registered() -> bool {
-    use std::process::Command;
-    let mut cmd = Command::new("schtasks.exe");
+    
+    let mut cmd = crate::proc::oculto("schtasks.exe");
     cmd.args(["/Query", "/TN", "UltronBackup-Weekly"]);
     #[cfg(windows)]
     {
@@ -499,7 +499,7 @@ pub fn get_backup_schedule_inner() -> Result<BackupScheduleInfo, String> {
 
 #[cfg(target_os = "windows")]
 fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
-    use std::process::Command;
+    
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let script_path = home.join(".ultron\\scripts\\backup\\weekly-backup.ps1");
     if !script_path.is_file() {
@@ -514,7 +514,7 @@ fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
     );
     // schtasks /F overwrites any existing task with the same name, which
     // is exactly the upsert semantics the UI wants.
-    let mut cmd = Command::new("schtasks.exe");
+    let mut cmd = crate::proc::oculto("schtasks.exe");
     cmd.args([
         "/Create",
         "/SC",

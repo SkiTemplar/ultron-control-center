@@ -22,7 +22,7 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -337,9 +337,9 @@ fn cli_invocation(provider: &str) -> Option<(&'static str, Vec<String>, bool)> {
 }
 
 /// ¿Esta el binario en el PATH? Windows los instala como `.cmd`, asi que
-/// `Command::new("claude")` no siempre resuelve: se pregunta a `where`.
+/// `crate::proc::oculto("claude")` no siempre resuelve: se pregunta a `where`.
 fn cli_disponible(cmd: &str) -> bool {
-    let mut probe = Command::new(if cfg!(windows) { "where" } else { "which" });
+    let mut probe = crate::proc::oculto(if cfg!(windows) { "where" } else { "which" });
     probe.arg(cmd);
     #[cfg(windows)]
     {
@@ -384,11 +384,11 @@ fn run_cli(
     // En Windows las CLI de npm son shims .cmd: se invocan a traves de cmd /C
     // (mismo truco que pty/spawn.rs), con los argumentos como argv.
     let mut cmd = if cfg!(windows) {
-        let mut c = Command::new("cmd");
+        let mut c = crate::proc::oculto("cmd");
         c.arg("/C").arg(bin);
         c
     } else {
-        Command::new(bin)
+        crate::proc::oculto(bin)
     };
     for a in args.iter().chain(extra.iter()) {
         cmd.arg(a);

@@ -100,31 +100,48 @@ const SKIP_LABEL: Record<string, string> = {
 /** Aviso del propio chat (no es un turno: no se guarda en el hilo). */
 type Aviso = { ts: number; text: string; tono: "info" | "error" };
 
-/** Desplegable compacto del HUD. "auto" = sin fijar (decide mar.ia). */
+/** Selector del HUD. "auto" = sin fijar (decide mar.ia).
+ *
+ *  Tamano: 38 px de alto y 13 px de texto. La primera version media 11 px y
+ *  media linea de alto; el usuario pidio botones "mas grandes y accesibles"
+ *  (2026-09-19), y 38 px es lo minimo que se acierta con el raton sin apuntar
+ *  (por debajo de eso ya se falla en una pantalla de portatil). */
 function Selector({
   etiqueta,
   valor,
   opciones,
   onChange,
+  titulo,
 }: {
   etiqueta: string;
   valor: string;
   opciones: Array<{ id: string; label: string }>;
   onChange: (v: string) => void;
+  titulo?: string;
 }) {
+  const fijado = Boolean(valor);
   return (
-    <label className="flex items-center gap-1">
+    <label className="flex flex-col gap-0.5" title={titulo}>
       <span className="hud-label">{etiqueta}</span>
       <select
         value={valor}
         onChange={(e) => onChange(e.target.value)}
         aria-label={etiqueta}
         disabled={opciones.length === 0}
-        className="hud-panel px-1 py-0.5 text-[11px]"
+        className="hud-panel px-3 text-[13px]"
         style={{
-          color: valor ? "var(--color-accent)" : "var(--color-text-secondary)",
+          minHeight: 38,
+          minWidth: 132,
+          color: fijado ? "var(--color-accent)" : "var(--color-text-secondary)",
+          // Un borde distinto cuando esta fijado: de un vistazo se ve si manda
+          // el usuario o mar.ia, sin leer la etiqueta de al lado.
+          border: fijado
+            ? "1px solid var(--color-accent)"
+            : "1px solid var(--color-border)",
           fontFamily: "var(--font-mono)",
           outline: "none",
+          cursor: opciones.length === 0 ? "not-allowed" : "pointer",
+          opacity: opciones.length === 0 ? 0.5 : 1,
         }}
       >
         <option value="">auto</option>
@@ -536,10 +553,11 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           {/* Quien va a contestar y con que. Los tres selectores en "auto"
               significan que decide mar.ia; en cuanto tocas uno, manda el
               usuario y se dice explicitamente. */}
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+          <div className="mt-2 flex flex-wrap items-end gap-3 text-[12px]">
             <Selector
               etiqueta="proveedor"
               valor={forzado ?? ""}
+              titulo="quién contesta. auto = lo decide mar.ia según la petición"
               opciones={(config?.order ?? []).map((p) => ({ id: p, label: p }))}
               onChange={(v) => {
                 const p = v ? parseProvider(v) : null;
@@ -553,16 +571,44 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
             <Selector
               etiqueta="modelo"
               valor={modeloFijo ?? ""}
+              titulo={
+                forzado
+                  ? modelosDe(forzado)
+                      .map((m) => `${m.id}: ${m.para}`)
+                      .join("\n")
+                  : "elige antes un proveedor"
+              }
               opciones={modelosDe(forzado).map((m) => ({ id: m.id, label: m.label }))}
               onChange={(v) => setModeloFijo(v || null)}
             />
             <Selector
               etiqueta="esfuerzo"
               valor={esfuerzoFijo ?? ""}
+              titulo="cuánto debe pensar antes de contestar"
               opciones={(catalogo?.efforts ?? [...ESFUERZOS]).map((e) => ({ id: e, label: e }))}
               onChange={(v) => setEsfuerzoFijo((v as Esfuerzo) || null)}
             />
-            <span style={{ color: "var(--color-text-tertiary)" }}>
+            {(forzado || modeloFijo || esfuerzoFijo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setForzado(null);
+                  setModeloFijo(null);
+                  setEsfuerzoFijo(null);
+                }}
+                className="hud-panel px-3 text-[12px]"
+                style={{
+                  minHeight: 38,
+                  color: "var(--color-warn)",
+                  fontFamily: "var(--font-mono)",
+                  cursor: "pointer",
+                }}
+                title="vuelve a dejar que mar.ia elija (igual que /analizar)"
+              >
+                volver a auto
+              </button>
+            )}
+            <span className="pb-2" style={{ color: "var(--color-text-tertiary)" }}>
               {forzado || modeloFijo || esfuerzoFijo ? (
                 <span style={{ color: "var(--color-warn)" }}>fijado a mano</span>
               ) : (
@@ -617,10 +663,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                   </span>
                   {t.role !== "user" && t.model && (
                     <span
-                      className="hud-label px-1"
+                      className="px-2 py-0.5 text-[11px]"
                       style={{
                         border: "1px solid var(--color-border)",
+                        background: "var(--color-surface-3)",
                         color: "var(--color-text-secondary)",
+                        fontFamily: "var(--font-mono)",
                       }}
                       title="modelo y esfuerzo con los que se contestó"
                     >

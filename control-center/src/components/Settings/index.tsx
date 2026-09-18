@@ -9,6 +9,7 @@ import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { ApiKeysSection } from "./ApiKeysSection";
 import { McpAccountsSection } from "./McpAccountsSection";
 import { MovilSection } from "./MovilSection";
+import { AccesoProveedores } from "./AccesoProveedores";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
@@ -211,7 +212,15 @@ export function Settings(_props: SettingsProps = {}) {
       <div className="mt-5">
         {/* Tab panels */}
         {section === "general" && <LifecyclePanel />}
-        {section === "auth" && <AuthStatus onRecheck={load} />}
+        {section === "auth" && (
+          <>
+            {/* La ficha por proveedor va PRIMERO: es la que cubre los cuatro
+                caminos (incluido Gemini/Antigravity). AuthStatus se queda
+                debajo porque trae el detalle de caducidad de Claude y Codex. */}
+            <AccesoProveedores />
+            <AuthStatus onRecheck={load} />
+          </>
+        )}
         {section === "api-keys" && <ApiKeysSection />}
         {section === "mcp-accounts" && <McpAccountsSection />}
         {section === "movil" && <MovilSection />}
