@@ -373,7 +373,7 @@ mod tests {
             Err(acceso_denegado()),
             Ok(()),
         ]));
-        assert_eq!(ganado.unwrap(), true, "tras el borrado pendiente se gana");
+        assert!(ganado.unwrap(), "tras el borrado pendiente se gana");
     }
 
     #[test]
@@ -382,11 +382,7 @@ mod tests {
             Err(acceso_denegado()),
             Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
         ]));
-        assert_eq!(
-            ganado.unwrap(),
-            false,
-            "el rival reclamo: se pierde sin error"
-        );
+        assert!(!ganado.unwrap(), "el rival reclamo: se pierde sin error");
     }
 
     #[test]
