@@ -510,3 +510,7 @@ control-center/vite.config.d.ts
 
 # Ajustes locales del editor (rutas personales)
 .vscode/
+
+# mar.ia: modelos de voz (se descargan, no se versionan)
+voice/models/
+voice/.venv/
