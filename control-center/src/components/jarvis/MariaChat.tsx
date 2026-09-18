@@ -20,10 +20,13 @@ import remarkGfm from "remark-gfm";
 import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
 import {
   COMMANDS,
+  ESFUERZOS,
   helpText,
+  parseEsfuerzo,
   parseLine,
   parseProvider,
   suggestFor,
+  type Esfuerzo,
   type Provider,
 } from "./chatCommands";
 
@@ -31,7 +34,30 @@ type Turn = {
   ts: string;
   role: string;
   provider: string;
+  /** Modelo concreto que contesto. Vacio en turnos anteriores a que se
+   *  guardara, y en los del usuario. */
+  model?: string;
+  effort?: string;
   text: string;
+};
+
+/** Catalogo de modelos que sirve el backend (`maria_models_catalog`). */
+type ModeloInfo = { id: string; label: string; para: string };
+type CatalogoProveedor = {
+  provider: string;
+  models: ModeloInfo[];
+  default_model: string;
+  effort_mode: string;
+};
+type Catalogo = { providers: CatalogoProveedor[]; efforts: string[] };
+
+/** Como se controla el esfuerzo en cada proveedor. Se enseña tal cual para no
+ *  fingir un mando que esa CLI no tiene. */
+const EFFORT_MODE_LABEL: Record<string, string> = {
+  Bandera: "control real",
+  EnElPrompt: "se pide en el mensaje",
+  Razonamiento: "razonar sí/no",
+  SinControl: "sin control",
 };
 
 type SkipReason = { provider: string; kind: string; detail: string };
@@ -39,6 +65,11 @@ type SkipReason = { provider: string; kind: string; detail: string };
 type RelayAnswer = {
   thread_id: string;
   provider: string;
+  /** Modelo concreto que atendio el turno. */
+  model: string;
+  effort: string;
+  /** "local" si lo decidio mar.ia, "manual" si lo fijo el usuario. */
+  decided_by: string;
   text: string;
   skipped: SkipReason[];
   /** Proveedor que propuso el modelo local para esta tarea. */
@@ -69,9 +100,59 @@ const SKIP_LABEL: Record<string, string> = {
 /** Aviso del propio chat (no es un turno: no se guarda en el hilo). */
 type Aviso = { ts: number; text: string; tono: "info" | "error" };
 
-export function MariaChat() {
+/** Desplegable compacto del HUD. "auto" = sin fijar (decide mar.ia). */
+function Selector({
+  etiqueta,
+  valor,
+  opciones,
+  onChange,
+}: {
+  etiqueta: string;
+  valor: string;
+  opciones: Array<{ id: string; label: string }>;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1">
+      <span className="hud-label">{etiqueta}</span>
+      <select
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={etiqueta}
+        disabled={opciones.length === 0}
+        className="hud-panel px-1 py-0.5 text-[11px]"
+        style={{
+          color: valor ? "var(--color-accent)" : "var(--color-text-secondary)",
+          fontFamily: "var(--font-mono)",
+          outline: "none",
+        }}
+      >
+        <option value="">auto</option>
+        {opciones.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+type Props = {
+  /** Conversacion a abrir. Solo la usa el mosaico: la pestana Chat elige ella
+   *  misma la ultima abierta. */
+  hiloInicial?: string;
+  /** true en un panel del mosaico: sin barra lateral, la lista de
+   *  conversaciones ya esta en su propia pestana y en un panel estrecho solo
+   *  robaria la mitad del ancho. */
+  compacto?: boolean;
+  /** Avisa de la conversacion activa para que el mosaico la recuerde. */
+  onHilo?: (id: string) => void;
+};
+
+export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {}) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
-  const [threadId, setThreadId] = useState("");
+  const [threadId, setThreadId] = useState(hiloInicial ?? "");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,6 +162,12 @@ export function MariaChat() {
   const [config, setConfig] = useState<RelayConfig | null>(null);
   /** Proveedor forzado con /migrar. null = decide mar.ia. */
   const [forzado, setForzado] = useState<Provider | null>(null);
+  /** Modelo y esfuerzo fijados a mano. null = los decide mar.ia. */
+  const [modeloFijo, setModeloFijo] = useState<string | null>(null);
+  const [esfuerzoFijo, setEsfuerzoFijo] = useState<Esfuerzo | null>(null);
+  const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
+  /** Lo que mar.ia decidio en el ultimo turno (para pintarlo en la cabecera). */
+  const [ultimo, setUltimo] = useState<{ model: string; effort: string } | null>(null);
   const [query, setQuery] = useState("");
   const [sugerido, setSugerido] = useState(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -90,6 +177,20 @@ export function MariaChat() {
   const activa = useMemo(
     () => threads.find((t) => t.id === threadId) ?? null,
     [threads, threadId],
+  );
+
+  /** Modelos del proveedor fijado. Sin proveedor fijado no se ofrece ninguno:
+   *  un modelo sin saber de quien es no se puede mandar a nadie. */
+  const modelosDe = useCallback(
+    (p: string | null): ModeloInfo[] =>
+      (p && catalogo?.providers.find((c) => c.provider === p)?.models) || [],
+    [catalogo],
+  );
+
+  const modoEsfuerzoDe = useCallback(
+    (p: string): string =>
+      catalogo?.providers.find((c) => c.provider === p)?.effort_mode ?? "",
+    [catalogo],
   );
 
   const avisar = useCallback((text: string, tono: Aviso["tono"] = "info") => {
@@ -107,6 +208,11 @@ export function MariaChat() {
   useEffect(() => {
     void (async () => {
       const lista = await recargarLista();
+      // Con hilo indicado (mosaico) se respeta ese y no se abre otro.
+      if (hiloInicial) {
+        setThreadId(hiloInicial);
+        return;
+      }
       const abierta = lista.find((t) => !t.closed);
       if (abierta) {
         setThreadId(abierta.id);
@@ -123,7 +229,15 @@ export function MariaChat() {
     void invoke<RelayConfig>("maria_relay_config")
       .then(setConfig)
       .catch(() => setConfig(null));
-  }, [recargarLista]);
+    void invoke<Catalogo>("maria_models_catalog")
+      .then(setCatalogo)
+      .catch(() => setCatalogo(null));
+  }, [recargarLista, hiloInicial]);
+
+  // El mosaico guarda que conversacion tiene cada panel para reabrirla igual.
+  useEffect(() => {
+    if (threadId) onHilo?.(threadId);
+  }, [threadId, onHilo]);
 
   // Turnos de la conversacion activa.
   useEffect(() => {
@@ -154,6 +268,9 @@ export function MariaChat() {
     setThreadId(nueva.id);
     setTurns([]);
     setForzado(null);
+    setModeloFijo(null);
+    setEsfuerzoFijo(null);
+    setUltimo(null);
     await recargarLista();
     avisar(folder ? `conversación nueva en «${folder}»` : "conversación nueva");
   }
@@ -190,8 +307,45 @@ export function MariaChat() {
       }
       case "/analizar":
         setForzado(null);
-        avisar("mar.ia vuelve a elegir proveedor según lo que escribas");
+        setModeloFijo(null);
+        setEsfuerzoFijo(null);
+        avisar("mar.ia vuelve a elegir proveedor, modelo y esfuerzo según lo que escribas");
         return;
+      case "/modelo": {
+        const disponibles = modelosDe(forzado);
+        if (disponibles.length === 0) {
+          avisar("primero elige proveedor: /migrar claude", "error");
+          return;
+        }
+        const elegido = disponibles.find((m) => m.id.toLowerCase() === arg.trim().toLowerCase());
+        if (!elegido) {
+          avisar(
+            `«${arg || "(vacío)"}» no está en ${forzado}: ${disponibles
+              .map((m) => m.id)
+              .join(", ")}`,
+            "error",
+          );
+          return;
+        }
+        setModeloFijo(elegido.id);
+        avisar(`modelo fijado a ${elegido.id}`);
+        return;
+      }
+      case "/esfuerzo": {
+        const nivel = parseEsfuerzo(arg);
+        if (!nivel) {
+          avisar(`«${arg || "(vacío)"}» no es un nivel: ${ESFUERZOS.join(", ")}`, "error");
+          return;
+        }
+        setEsfuerzoFijo(nivel);
+        const modo = forzado ? modoEsfuerzoDe(forzado) : "";
+        avisar(
+          modo
+            ? `esfuerzo ${nivel} (en ${forzado}: ${EFFORT_MODE_LABEL[modo] ?? modo})`
+            : `esfuerzo fijado a ${nivel}`,
+        );
+        return;
+      }
       case "/fijar": {
         if (!activa) return;
         await invoke("maria_thread_pin", { threadId, pinned: !activa.pinned }).catch((e) =>
@@ -267,15 +421,20 @@ export function MariaChat() {
         threadId,
         prompt: texto,
         provider: forzado,
+        model: modeloFijo,
+        effort: esfuerzoFijo,
       });
       setLastSkips(ans.skipped ?? []);
       setLastChoice(ans.chosen_by_local ?? null);
+      setUltimo({ model: ans.model ?? "", effort: ans.effort ?? "" });
       setTurns((prev) => [
         ...prev,
         {
           ts: new Date().toISOString(),
           role: "assistant",
           provider: ans.provider,
+          model: ans.model,
+          effort: ans.effort,
           text: ans.text,
         },
       ]);
@@ -346,37 +505,89 @@ export function MariaChat() {
 
   return (
     <div className="flex h-full min-w-0">
-      <ThreadSidebar
-        threads={threads}
-        activeId={threadId}
-        query={query}
-        onQuery={setQuery}
-        onSelect={setThreadId}
-        onNew={() => void nuevaConversacion()}
-        onPin={(id, pinned) => {
-          void invoke("maria_thread_pin", { threadId: id, pinned })
-            .then(() => recargarLista())
-            .catch((e) => avisar(String(e), "error"));
-        }}
-      />
+      {!compacto && (
+        <ThreadSidebar
+          threads={threads}
+          activeId={threadId}
+          query={query}
+          onQuery={setQuery}
+          onSelect={setThreadId}
+          onNew={() => void nuevaConversacion()}
+          onPin={(id, pinned) => {
+            void invoke("maria_thread_pin", { threadId: id, pinned })
+              .then(() => recargarLista())
+              .catch((e) => avisar(String(e), "error"));
+          }}
+        />
+      )}
 
-      <div className="flex min-w-0 flex-1 flex-col px-6 py-4">
+      <div
+        className={
+          compacto
+            ? "flex min-w-0 flex-1 flex-col px-3 py-2"
+            : "flex min-w-0 flex-1 flex-col px-6 py-4"
+        }
+      >
         <header className="mb-3">
           <h1 className="hud-label" style={{ fontSize: 12 }}>
             {activa?.title || "chat"} {activa?.closed ? "· cerrada" : ""}
           </h1>
+
+          {/* Quien va a contestar y con que. Los tres selectores en "auto"
+              significan que decide mar.ia; en cuanto tocas uno, manda el
+              usuario y se dice explicitamente. */}
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+            <Selector
+              etiqueta="proveedor"
+              valor={forzado ?? ""}
+              opciones={(config?.order ?? []).map((p) => ({ id: p, label: p }))}
+              onChange={(v) => {
+                const p = v ? parseProvider(v) : null;
+                setForzado(p);
+                // El modelo pertenece a un proveedor: al cambiar de proveedor,
+                // mantener "opus" seleccionado mandaria un modelo que la otra
+                // CLI no tiene.
+                setModeloFijo(null);
+              }}
+            />
+            <Selector
+              etiqueta="modelo"
+              valor={modeloFijo ?? ""}
+              opciones={modelosDe(forzado).map((m) => ({ id: m.id, label: m.label }))}
+              onChange={(v) => setModeloFijo(v || null)}
+            />
+            <Selector
+              etiqueta="esfuerzo"
+              valor={esfuerzoFijo ?? ""}
+              opciones={(catalogo?.efforts ?? [...ESFUERZOS]).map((e) => ({ id: e, label: e }))}
+              onChange={(v) => setEsfuerzoFijo((v as Esfuerzo) || null)}
+            />
+            <span style={{ color: "var(--color-text-tertiary)" }}>
+              {forzado || modeloFijo || esfuerzoFijo ? (
+                <span style={{ color: "var(--color-warn)" }}>fijado a mano</span>
+              ) : (
+                "lo decide mar.ia"
+              )}
+              {ultimo?.model && (
+                <>
+                  {" · último: "}
+                  <span className="font-mono">{ultimo.model}</span>
+                  {ultimo.effort ? ` (${ultimo.effort})` : ""}
+                </>
+              )}
+            </span>
+          </div>
+
           <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
-            {forzado ? (
-              <>
-                destino fijado a <span style={{ color: "var(--color-warn)" }}>{forzado}</span>
-              </>
-            ) : (
-              <>mar.ia elige proveedor según la petición</>
-            )}
             {config && (
               <>
-                {" · relevo "}
-                <span className="font-mono">{config.order.join(" → ")}</span>
+                relevo <span className="font-mono">{config.order.join(" → ")}</span>
+              </>
+            )}
+            {forzado && modoEsfuerzoDe(forzado) && (
+              <>
+                {" · esfuerzo en "}
+                {forzado}: {EFFORT_MODE_LABEL[modoEsfuerzoDe(forzado)] ?? modoEsfuerzoDe(forzado)}
               </>
             )}
           </p>
@@ -404,6 +615,19 @@ export function MariaChat() {
                       ? "tú"
                       : (PROVIDER_LABEL[t.provider] ?? t.provider ?? "asistente")}
                   </span>
+                  {t.role !== "user" && t.model && (
+                    <span
+                      className="hud-label px-1"
+                      style={{
+                        border: "1px solid var(--color-border)",
+                        color: "var(--color-text-secondary)",
+                      }}
+                      title="modelo y esfuerzo con los que se contestó"
+                    >
+                      {t.model}
+                      {t.effort ? ` · ${t.effort}` : ""}
+                    </span>
+                  )}
                   <span className="hud-label" style={{ letterSpacing: "0.06em" }}>
                     {new Date(t.ts).toLocaleTimeString("es-ES", {
                       hour: "2-digit",

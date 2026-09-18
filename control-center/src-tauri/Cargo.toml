@@ -74,6 +74,11 @@ tokio = { version = "1", features = ["time"] }
 # (the GUI in lib.rs::run() and each sidecar's main).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Servidor HTTP minimo de la webapp movil de mar.ia (`maria_web.rs`). Se elige
+# tiny_http y no axum a proposito: son ~3 dependencias sin runtime async, el
+# servidor corre en su propio hilo y todo lo que sirve cabe en un fichero que
+# se puede auditar de una sentada.
+tiny_http = "0.12"
 # Qdrant semantic recall (optional — enable with --features qdrant).
 # fastembed provides ONNX-based BGE-small-EN-v1.5 (384-d) locally, no API key.
 fastembed = { version = "4", optional = true }

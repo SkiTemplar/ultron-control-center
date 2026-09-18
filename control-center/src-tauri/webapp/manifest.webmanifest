@@ -1,0 +1,20 @@
+{
+  "name": "mar.ia",
+  "short_name": "mar.ia",
+  "description": "Hablar con mar.ia, ver el estado del PC y leer los avisos desde el movil.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#03070f",
+  "theme_color": "#03070f",
+  "lang": "es-ES",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgZmlsbD0iIzAzMDcwZiIvPjxjaXJjbGUgY3g9Ijk2IiBjeT0iOTYiIHI9IjYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMzNWQ2ZmYiIHN0cm9rZS13aWR0aD0iNiIgc3Ryb2tlLWRhc2hhcnJheT0iMTQgMTAiLz48Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSIzNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzVkNmZmIiBzdHJva2Utd2lkdGg9IjUiLz48Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSIxNiIgZmlsbD0iI2NmZTlmNyIvPjwvc3ZnPg==",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

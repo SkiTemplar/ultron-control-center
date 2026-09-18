@@ -1,0 +1,268 @@
+/* mar.ia en el movil — mismo lenguaje visual que el HUD de escritorio:
+   azul profundo, cian, tipografia monoespaciada y paneles de cristal.
+   Pensado para una pantalla de telefono en la mano: nada mide menos de 44px
+   de alto y el teclado no tapa el campo de escribir. */
+
+:root {
+  --bg: #03070f;
+  --panel: rgba(18, 42, 66, 0.38);
+  --panel-solido: rgba(6, 20, 32, 0.97);
+  --borde: rgba(53, 214, 255, 0.22);
+  --texto: #cfe9f7;
+  --texto-2: #8fb3c9;
+  --texto-3: #5b7d94;
+  --acento: #35d6ff;
+  --aviso: #ffc24b;
+  --peligro: #ff4d5e;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--mono);
+  font-size: 15px;
+  /* La rejilla de plano del HUD, en barato: dos degradados repetidos. */
+  background-image:
+    linear-gradient(rgba(53, 214, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 214, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  /* Respeta la muesca y la barra de gestos del telefono. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* --- barra superior ------------------------------------------------- */
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--borde);
+}
+.marca {
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+.punto {
+  color: var(--acento);
+}
+.hueco {
+  flex: 1;
+}
+.etiqueta {
+  color: var(--texto-3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.reactor {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--acento);
+  box-shadow: 0 0 12px rgba(53, 214, 255, 0.6);
+  animation: latido 2.6s ease-in-out infinite;
+}
+@keyframes latido {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* --- pestanas -------------------------------------------------------- */
+.pestanas {
+  display: flex;
+  border-bottom: 1px solid var(--borde);
+}
+.pestana {
+  flex: 1;
+  min-height: 44px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--texto-3);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.pestana.activa {
+  color: var(--acento);
+  border-bottom-color: var(--acento);
+  background: rgba(53, 214, 255, 0.06);
+}
+
+/* --- vistas ---------------------------------------------------------- */
+main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.vista {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+}
+.oculta {
+  display: none !important;
+}
+
+.turnos {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.turno {
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.turno.yo {
+  background: rgba(53, 214, 255, 0.08);
+}
+.quien {
+  display: block;
+  color: var(--texto-3);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.turno.asistente .quien {
+  color: var(--acento);
+}
+.pensando {
+  color: var(--texto-3);
+  font-size: 12px;
+  animation: latido 1.4s ease-in-out infinite;
+}
+
+/* --- entrada --------------------------------------------------------- */
+.entrada {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.entrada input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font-family: var(--mono);
+  font-size: 15px; /* 16px o mas evita que iOS haga zoom al enfocar */
+  outline: none;
+}
+.boton-icono {
+  min-width: 46px;
+  min-height: 46px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--acento);
+  font-size: 16px;
+}
+.boton-icono.grabando {
+  color: var(--peligro);
+  border-color: var(--peligro);
+  animation: latido 1s ease-in-out infinite;
+}
+.pie {
+  margin: 0;
+  color: var(--texto-3);
+  font-size: 11px;
+}
+
+/* --- paneles de estado ----------------------------------------------- */
+.panel {
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--texto-3);
+  font-weight: 500;
+}
+.fila {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.fila .v {
+  color: var(--acento);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+#vista-estado,
+#vista-avisos {
+  overflow-y: auto;
+}
+
+/* --- avisos ---------------------------------------------------------- */
+.aviso {
+  border: 1px solid var(--borde);
+  border-left-width: 3px;
+  background: var(--panel);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.aviso.warn {
+  border-left-color: var(--aviso);
+}
+.aviso.critical,
+.aviso.blocking {
+  border-left-color: var(--peligro);
+}
+.aviso .cuando {
+  display: block;
+  color: var(--texto-3);
+  font-size: 10px;
+  margin-bottom: 3px;
+}
+
+/* --- error global ---------------------------------------------------- */
+.error {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid var(--peligro);
+  color: var(--peligro);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}

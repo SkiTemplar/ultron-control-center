@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMMANDS,
   helpText,
+  parseEsfuerzo,
   parseLine,
   parseProvider,
   suggestFor,
@@ -66,6 +67,22 @@ describe("parseProvider", () => {
     // mandando a ninguna parte y sin decirlo.
     for (const malo of ["gpt-4", "deepseek", "", "claude2"]) {
       expect(parseProvider(malo)).toBeNull();
+    }
+  });
+});
+
+describe("parseEsfuerzo", () => {
+  it("acepta los tres niveles", () => {
+    expect(parseEsfuerzo("bajo")).toBe("bajo");
+    expect(parseEsfuerzo(" ALTO ")).toBe("alto");
+    expect(parseEsfuerzo("medio")).toBe("medio");
+  });
+
+  it("rechaza cualquier otro nivel", () => {
+    // Caso negativo: "turbo" no puede caer en "alto" y encarecer todas las
+    // respuestas sin que el usuario lo haya pedido.
+    for (const malo of ["turbo", "high", "", "9"]) {
+      expect(parseEsfuerzo(malo)).toBeNull();
     }
   });
 });

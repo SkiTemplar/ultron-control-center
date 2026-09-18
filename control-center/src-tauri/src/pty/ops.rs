@@ -18,6 +18,9 @@ pub fn spawn_inner<R: Runtime>(
     agent: Option<String>,
     cwd: String,
     _prompt: Option<String>,
+    // extra_args: argumentos adicionales para la CLI (p. ej. `--model opus`).
+    // Vacio para los llamantes que no eligen modelo.
+    extra_args: Vec<String>,
 ) -> Result<String, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -39,6 +42,9 @@ pub fn spawn_inner<R: Runtime>(
         log_pty_failure(&provider, &cwd, &format!("build_command: {e}"));
         e
     })?;
+    for a in &extra_args {
+        cmd.arg(a);
+    }
     // All Claude sessions run with --dangerously-skip-permissions by default.
     // Opt out via claude_safe_mode=true in ~/.ultron/cockpit/features.json.
     if provider == "claude" {

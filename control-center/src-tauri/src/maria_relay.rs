@@ -67,6 +67,13 @@ pub struct Turn {
     /// Vacio en los turnos del usuario.
     #[serde(default)]
     pub provider: String,
+    /// Modelo concreto ("opus", "gpt-5-codex", …). Vacio en los turnos del
+    /// usuario y en los hilos anteriores a que esto existiera.
+    #[serde(default)]
+    pub model: String,
+    /// Esfuerzo pedido ("bajo" | "medio" | "alto").
+    #[serde(default)]
+    pub effort: String,
     pub text: String,
 }
 
@@ -76,6 +83,12 @@ pub struct RelayAnswer {
     pub thread_id: String,
     /// Proveedor que finalmente contesto.
     pub provider: String,
+    /// Modelo concreto que atendio el turno.
+    pub model: String,
+    /// Esfuerzo con el que se pidio.
+    pub effort: String,
+    /// "local" si lo decidio mar.ia, "manual" si lo fijo el usuario.
+    pub decided_by: String,
     pub text: String,
     /// Proveedores que se intentaron antes, con su motivo de descarte. Se
     /// devuelve siempre: si el relevo salto de Claude a Codex, el usuario
@@ -346,13 +359,31 @@ fn cli_disponible(cmd: &str) -> bool {
 }
 
 /// Lanza una CLI con el prompt y espera su salida.
-fn run_cli(provider: &str, prompt: &str) -> Result<String, (String, bool)> {
+///
+/// `model` y `effort` se traducen a lo que esa CLI entiende de verdad (ver
+/// `maria_models::argumentos`); lo que no soporta, no se le manda.
+fn run_cli(
+    provider: &str,
+    prompt: &str,
+    model: &str,
+    effort: &str,
+) -> Result<String, (String, bool)> {
     let Some((bin, args, por_stdin)) = cli_invocation(provider) else {
         return Err((format!("no se como invocar {provider}"), false));
     };
     if !cli_disponible(bin) {
         return Err((format!("{bin} no esta instalada"), false));
     }
+    let extra = crate::maria_models::argumentos(provider, model, effort);
+    // Claude no tiene bandera de esfuerzo: se le pide en el propio mensaje.
+    let prefijo = crate::maria_models::prefijo_esfuerzo(provider, effort);
+    let prompt_owned;
+    let prompt = if prefijo.is_empty() {
+        prompt
+    } else {
+        prompt_owned = format!("{prefijo}{prompt}");
+        &prompt_owned
+    };
 
     // En Windows las CLI de npm son shims .cmd: se invocan a traves de cmd /C
     // (mismo truco que pty/spawn.rs), con los argumentos como argv.
@@ -363,7 +394,7 @@ fn run_cli(provider: &str, prompt: &str) -> Result<String, (String, bool)> {
     } else {
         Command::new(bin)
     };
-    for a in &args {
+    for a in args.iter().chain(extra.iter()) {
         cmd.arg(a);
     }
     if !por_stdin {
@@ -422,11 +453,14 @@ fn run_cli(provider: &str, prompt: &str) -> Result<String, (String, bool)> {
 }
 
 /// Modelo local por Ollama. Ultimo recurso: sin cuota que agotar.
-fn run_local(prompt: &str) -> Result<String, (String, bool)> {
+///
+/// El esfuerzo se traduce a `think`: razonar cuesta segundos y tokens, asi que
+/// solo se enciende con esfuerzo alto.
+fn run_local(prompt: &str, effort: &str) -> Result<String, (String, bool)> {
     let body = serde_json::json!({
         "model": crate::ollama::toggle::model_name(),
         "stream": false,
-        "think": false,
+        "think": crate::maria_models::razonar_en_local(effort),
         // Ventana corta DENTRO del turno (la eleccion de destino y la
         // respuesta son dos llamadas seguidas). Al terminar `ask` se descarga
         // a mano con `descargar_modelo_local`: asi la VRAM queda libre entre
@@ -480,21 +514,73 @@ pub fn parse_choice(raw: &str, known: &[String]) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Orden de proveedores para ESTA tarea, decidido por el modelo local.
+/// Lo que el modelo local propone: proveedor, modelo y esfuerzo. Pura: se
+/// testea sin red.
 ///
-/// El local es gratis y ya esta ahi: que elija el destino cuesta ~1 s y evita
-/// gastar una peticion de Claude en algo que resuelve Gemini o el propio
-/// local. El elegido se pone el primero; el resto conserva el orden
-/// configurado como red de seguridad.
-fn order_for_task(prompt: &str, cfg: &RelayConfig) -> (Vec<String>, Option<String>) {
-    let catalogo = cfg.order.join(", ");
+/// El modelo puede contestar cualquier cosa, asi que TODO se valida contra el
+/// catalogo. Lo que no cuadre se cae a un valor sensato en vez de acabar en
+/// una linea de comandos.
+#[must_use]
+pub fn parse_plan(raw: &str, known: &[String]) -> Option<crate::maria_models::Eleccion> {
+    let provider = parse_choice(raw, known)?;
+    let limpio = raw.to_lowercase();
+    // Modelo: la primera palabra del catalogo de ESE proveedor que aparezca.
+    let catalogo = crate::maria_models::catalogo_vivo();
+    let modelos: Vec<String> = catalogo
+        .iter()
+        .find(|c| c.provider == provider)
+        .map(|c| c.models.iter().map(|m| m.id.clone()).collect())
+        .unwrap_or_default();
+    let model = modelos
+        .iter()
+        .find(|id| limpio.contains(&id.to_lowercase()))
+        .cloned()
+        .unwrap_or_else(|| crate::maria_models::modelo_por_defecto(&provider));
+    // Esfuerzo: se busca la palabra tal cual; si no viene, medio.
+    let effort = ["alto", "bajo", "high", "low", "medio", "medium"]
+        .iter()
+        .find(|p| limpio.contains(*p))
+        .map(|p| crate::maria_models::normaliza_esfuerzo(p))
+        .unwrap_or_else(|| "medio".to_string());
+    Some(crate::maria_models::Eleccion {
+        provider,
+        model,
+        effort,
+    })
+}
+
+/// Plan para ESTA tarea, decidido por el modelo local: a quien se le pide, con
+/// que modelo y con cuanto esfuerzo.
+///
+/// El local es gratis y ya esta ahi: decidir cuesta ~1 s y evita gastar una
+/// peticion de Opus en un "que hora es". Devuelve tambien el orden de relevo
+/// (el elegido primero, el resto detras como red de seguridad).
+fn plan_para_tarea(
+    prompt: &str,
+    cfg: &RelayConfig,
+) -> (Vec<String>, Option<crate::maria_models::Eleccion>) {
+    let proveedores = cfg.order.join(", ");
+    let catalogo: String = crate::maria_models::catalogo_vivo()
+        .iter()
+        .filter(|c| cfg.order.iter().any(|o| *o == c.provider))
+        .map(|c| {
+            let ms: Vec<String> = c
+                .models
+                .iter()
+                .map(|m| format!("{} ({})", m.id, m.para))
+                .collect();
+            format!("- {}: {}
+", c.provider, ms.join("; "))
+        })
+        .collect();
     let instruccion = format!(
-        "Elige QUE modelo debe resolver esta peticion. Responde SOLO con una \
-         palabra de esta lista: {catalogo}.\n\
-         Criterio: 'local' para lo trivial (saludos, conversiones, preguntas \
-         cortas, ordenes del PC); 'gemini' para buscar en internet o trabajar \
-         con imagenes; 'codex' para scripts sueltos y automatizacion; \
-         'claude' para programar en un proyecto, arquitectura o textos largos.\n\n\
+        "Decide QUIEN resuelve esta peticion, CON QUE MODELO y CON CUANTO          ESFUERZO.
+         Responde en UNA linea con tres palabras separadas por espacios:          proveedor modelo esfuerzo.
+         Proveedores: {proveedores}. Esfuerzo: bajo, medio o alto.
+         Modelos por proveedor:
+{catalogo}
+         Criterio: lo trivial (saludos, conversiones, preguntas cortas,          ordenes del PC) va a 'local' o al modelo mas pequeno con esfuerzo          bajo; buscar en internet o mirar imagenes va a 'gemini'; scripts y          automatizacion a 'codex'; programar en un proyecto, arquitectura o          textos largos a 'claude' con el modelo grande y esfuerzo alto.
+
          Peticion: {prompt}"
     );
     let body = serde_json::json!({
@@ -503,10 +589,10 @@ fn order_for_task(prompt: &str, cfg: &RelayConfig) -> (Vec<String>, Option<Strin
         "think": false,
         "keep_alive": KEEP_ALIVE_TURNO,
         "messages": [{ "role": "user", "content": instruccion }],
-        "options": { "num_ctx": 2048, "num_predict": 8, "temperature": 0 },
+        "options": { "num_ctx": 4096, "num_predict": 24, "temperature": 0 },
     });
     let elegido = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(25))
         .build()
         .ok()
         .and_then(|c| {
@@ -522,16 +608,16 @@ fn order_for_task(prompt: &str, cfg: &RelayConfig) -> (Vec<String>, Option<Strin
                 .and_then(|c| c.as_str())
                 .map(str::to_string)
         })
-        .and_then(|raw| parse_choice(&raw, &cfg.order));
+        .and_then(|raw| parse_plan(&raw, &cfg.order));
 
     match elegido {
-        Some(p) => {
-            let mut orden = vec![p.clone()];
-            orden.extend(cfg.order.iter().filter(|o| **o != p).cloned());
-            (orden, Some(p))
+        Some(plan) => {
+            let mut orden = vec![plan.provider.clone()];
+            orden.extend(cfg.order.iter().filter(|o| **o != plan.provider).cloned());
+            (orden, Some(plan))
         }
         // Sin modelo local (o respuesta ininteligible) no se bloquea nada: se
-        // usa el orden configurado.
+        // usa el orden configurado y el modelo por defecto de cada CLI.
         None => (cfg.order.clone(), None),
     }
 }
@@ -566,7 +652,11 @@ fn memoria_para(prompt: &str) -> Option<String> {
 /// primero (lo usa el comando `/migrar` del chat). El resto del orden se
 /// conserva como red de seguridad: forzar a Claude cuando Claude no tiene
 /// cuota no puede dejar al usuario sin respuesta.
-pub fn ask(thread_id: &str, prompt: &str, forzado: Option<&str>) -> Result<RelayAnswer, String> {
+pub fn ask(
+    thread_id: &str,
+    prompt: &str,
+    forzado: Option<&crate::maria_models::Eleccion>,
+) -> Result<RelayAnswer, String> {
     let r = ask_inner(thread_id, prompt, forzado);
     // Pase lo que pase, la VRAM queda libre: el turno ha terminado.
     descargar_modelo_local();
@@ -579,7 +669,7 @@ pub fn ask(thread_id: &str, prompt: &str, forzado: Option<&str>) -> Result<Relay
 fn ask_inner(
     thread_id: &str,
     prompt: &str,
-    forzado: Option<&str>,
+    forzado: Option<&crate::maria_models::Eleccion>,
 ) -> Result<RelayAnswer, String> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
@@ -600,25 +690,37 @@ fn ask_inner(
             ts: chrono::Utc::now().to_rfc3339(),
             role: "user".into(),
             provider: String::new(),
+            model: String::new(),
+            effort: String::new(),
             text: prompt.to_string(),
         },
     )?;
 
     let mut skipped: Vec<SkipReason> = Vec::new();
     let mut state = load_state();
-    // Quien atiende primero lo decide el modelo local segun la tarea: es
-    // gratis y evita gastar una peticion de Claude en algo trivial.
-    let (orden, elegido) = match forzado.filter(|f| cfg.order.iter().any(|o| o == f)) {
-        // Migracion pedida a mano: no se consulta al local, manda el usuario.
+    // Quien atiende, con que modelo y con cuanto esfuerzo lo decide el modelo
+    // local segun la tarea: es gratis y evita gastar una peticion de Opus en
+    // algo trivial. Si el usuario lo ha fijado a mano, manda el usuario.
+    let manual = forzado.filter(|f| cfg.order.iter().any(|o| *o == f.provider));
+    let (orden, plan) = match manual {
         Some(f) => {
-            let mut orden = vec![f.to_string()];
-            orden.extend(cfg.order.iter().filter(|o| o.as_str() != f).cloned());
-            (orden, None)
+            let mut orden = vec![f.provider.clone()];
+            orden.extend(cfg.order.iter().filter(|o| **o != f.provider).cloned());
+            (orden, Some(f.clone()))
         }
-        None => order_for_task(prompt, &cfg),
+        None => plan_para_tarea(prompt, &cfg),
     };
-    if let Some(p) = &elegido {
-        tracing::info!(proveedor = %p, "el modelo local eligio destino");
+    let decided_by = if manual.is_some() { "manual" } else { "local" };
+    let chosen_by_local = if manual.is_some() {
+        None
+    } else {
+        plan.as_ref().map(|p| p.provider.clone())
+    };
+    if let Some(p) = &plan {
+        tracing::info!(
+            proveedor = %p.provider, modelo = %p.model, esfuerzo = %p.effort,
+            origen = decided_by, "destino del turno"
+        );
     }
     for provider in &orden {
         if cfg.disabled.iter().any(|d| d == provider) {
@@ -630,10 +732,26 @@ fn ask_inner(
             });
             continue;
         }
+        // El plan solo vale para el proveedor elegido; si el relevo salta a
+        // otro, ese otro usa su modelo por defecto — pedirle "opus" a Gemini
+        // seria pedirle un modelo que no tiene.
+        let mismo = plan.as_ref().is_some_and(|p| {
+            p.provider == *provider && crate::maria_models::modelo_valido(provider, &p.model)
+        });
+        let (modelo, esfuerzo) = match plan.as_ref().filter(|_| mismo) {
+            Some(p) => (
+                p.model.clone(),
+                crate::maria_models::normaliza_esfuerzo(&p.effort),
+            ),
+            None => (
+                crate::maria_models::modelo_por_defecto(provider),
+                "medio".to_string(),
+            ),
+        };
         let intento = if provider == "local" {
-            run_local(&completo)
+            run_local(&completo, &esfuerzo)
         } else {
-            run_cli(provider, &completo)
+            run_cli(provider, &completo, &modelo, &esfuerzo)
         };
         match intento {
             Ok(text) => {
@@ -645,15 +763,20 @@ fn ask_inner(
                         ts: chrono::Utc::now().to_rfc3339(),
                         role: "assistant".into(),
                         provider: provider.clone(),
+                        model: modelo.clone(),
+                        effort: esfuerzo.clone(),
                         text: text.clone(),
                     },
                 )?;
                 return Ok(RelayAnswer {
                     thread_id: thread_id.to_string(),
                     provider: provider.clone(),
+                    model: modelo,
+                    effort: esfuerzo,
+                    decided_by: decided_by.to_string(),
                     text,
                     skipped,
-                    chosen_by_local: elegido.clone(),
+                    chosen_by_local,
                 });
             }
             Err((detail, cuota)) => {
@@ -696,9 +819,22 @@ pub async fn maria_relay_ask(
     thread_id: String,
     prompt: String,
     provider: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
 ) -> Result<RelayAnswer, String> {
+    // Un proveedor fijado a mano puede venir sin modelo: entonces se usa el
+    // que ESE proveedor tenga por defecto, no el de otro.
+    let forzado = provider
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| crate::maria_models::Eleccion {
+            model: model
+                .filter(|m| !m.trim().is_empty())
+                .unwrap_or_else(|| crate::maria_models::modelo_por_defecto(&p)),
+            effort: crate::maria_models::normaliza_esfuerzo(&effort.unwrap_or_default()),
+            provider: p,
+        });
     // Bloqueante (procesos + red) fuera del hilo async de Tauri.
-    tauri::async_runtime::spawn_blocking(move || ask(&thread_id, &prompt, provider.as_deref()))
+    tauri::async_runtime::spawn_blocking(move || ask(&thread_id, &prompt, forzado.as_ref()))
         .await
         .map_err(|e| format!("spawn_blocking: {e}"))?
 }
@@ -737,6 +873,8 @@ mod tests {
             ts: "2026-09-18T10:00:00Z".into(),
             role: role.into(),
             provider: provider.into(),
+            model: String::new(),
+            effort: String::new(),
             text: text.into(),
         }
     }

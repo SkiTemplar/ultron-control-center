@@ -169,7 +169,9 @@ fn run_tool(app: &AppHandle, value: &serde_json::Value) {
     }
 }
 
-fn send_line(cmd: &str) -> Result<(), String> {
+/// Manda una linea de orden al sidecar. Publico porque la webapp movil
+/// tambien habla con el (`maria_web`), no solo la ventana.
+pub fn send_line(cmd: &str) -> Result<(), String> {
     let mut guard = VOICE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(proc) = guard.as_mut() else {
         return Err("el sidecar de voz no esta arrancado".into());

@@ -18,6 +18,7 @@ import { HudBackground, HudTopBar, useVoice } from "./components/jarvis/HudFrame
 import { MariaHome } from "./components/jarvis/MariaHome";
 import { MariaChat } from "./components/jarvis/MariaChat";
 import { Terminals } from "./components/jarvis/Terminals";
+import { Mosaico } from "./components/jarvis/Mosaico";
 import { Usage } from "./components/Usage";
 import { AIRouterPage } from "./components/AIRouter";
 import { Settings } from "./components/Settings";
@@ -614,6 +615,9 @@ function AppInner() {
         </TabErrorBoundary>
         <TabErrorBoundary tab="terminals">
           {tab === "terminals" && <Terminals />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="mosaic">
+          {tab === "mosaic" && <Mosaico />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="sessions">
           {tab === "sessions" && (

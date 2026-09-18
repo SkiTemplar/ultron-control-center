@@ -28,7 +28,9 @@ export const COMMANDS: SlashCommand[] = [
     args: "<claude|codex|gemini|local>",
     desc: "manda lo que escribas a ese proveedor",
   },
-  { name: "/analizar", args: "", desc: "vuelve a dejar que mar.ia elija proveedor" },
+  { name: "/analizar", args: "", desc: "vuelve a dejar que mar.ia elija proveedor y modelo" },
+  { name: "/modelo", args: "<haiku|sonnet|opus|…>", desc: "fija el modelo concreto" },
+  { name: "/esfuerzo", args: "<bajo|medio|alto>", desc: "fija cuanto debe pensar" },
   { name: "/fijar", args: "", desc: "fija o suelta esta conversación" },
   { name: "/titulo", args: "<texto>", desc: "renombra la conversación" },
   { name: "/carpeta", args: "<nombre>", desc: "mueve la conversación a una carpeta" },
@@ -82,6 +84,17 @@ export function parseLine(raw: string): ParsedLine {
 export function parseProvider(arg: string): Provider | null {
   const limpio = arg.trim().toLowerCase();
   return (PROVIDERS as readonly string[]).includes(limpio) ? (limpio as Provider) : null;
+}
+
+/** Niveles de esfuerzo. Mismo orden y mismos nombres que en Rust
+ *  (`maria_models::ESFUERZOS`): la interfaz no inventa niveles propios. */
+export const ESFUERZOS = ["bajo", "medio", "alto"] as const;
+export type Esfuerzo = (typeof ESFUERZOS)[number];
+
+/** Valida el argumento de `/esfuerzo`. Devuelve null si no es un nivel. */
+export function parseEsfuerzo(arg: string): Esfuerzo | null {
+  const limpio = arg.trim().toLowerCase();
+  return (ESFUERZOS as readonly string[]).includes(limpio) ? (limpio as Esfuerzo) : null;
 }
 
 /** Texto de ayuda, una linea por comando. */

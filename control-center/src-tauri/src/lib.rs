@@ -50,9 +50,11 @@ mod maintenance;
 mod maria; // mar.ia: puente de estado de voz hacia las ventanas
 mod maria_quota; // mar.ia: consumo real por ventana movil
 mod maria_sysinfo; // mar.ia: consumo real por ventana movil
+mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
 mod maria_term; // mar.ia: terminales embebidas (claude/codex/gemini/powershell)
+mod maria_web; // mar.ia: webapp del movil (servidor local + avisos por ntfy)
 mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
 mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
 mod mcps;
@@ -370,6 +372,19 @@ pub fn run() {
             std::thread::spawn(|| match crate::ollama::toggle::ensure_server_running() {
                 Ok(()) => tracing::info!("maria: ollama serve disponible"),
                 Err(e) => tracing::warn!(error = %e, "maria: ollama serve no disponible"),
+            });
+
+            // Webapp del movil. Solo si el usuario la dejo encendida: no se
+            // abre un puerto por iniciativa propia (ver `maria_web`).
+            std::thread::spawn(|| {
+                let cfg = crate::maria_web::load_config();
+                if !cfg.enabled {
+                    return;
+                }
+                match crate::maria_web::start(&cfg) {
+                    Ok(()) => tracing::info!(puerto = cfg.port, "maria-web: arrancada"),
+                    Err(e) => tracing::warn!(error = %e, "maria-web: no pude arrancar"),
+                }
             });
 
             // Auto-warm the agent/skill catalog off the startup thread so skills

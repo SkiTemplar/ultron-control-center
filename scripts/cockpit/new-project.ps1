@@ -26,16 +26,39 @@ $ErrorActionPreference = "Stop"
 # usuario, confuso). Mejor uso claro y salir.
 if (-not $Name -or $Name.Trim().Length -eq 0) {
     Write-Output "Uso: ultron-new <nombre> [""idea""] [-Root <ruta>] [-NoSpawn]"
-    Write-Output "Crea el proyecto en CARRERA\PROYECTOS_PERSONALES, siembra git+README+CLAUDE.md y abre un tab claude con color."
+    Write-Output "Crea el proyecto en la raiz configurada, siembra git+README+CLAUDE.md y abre un tab claude con color."
     exit 1
 }
 
-# --- Raiz por defecto (decision del usuario 2026-08-13) ---------------------
+# --- Raiz de proyectos ------------------------------------------------------
+# Antes estaba clavada a la carpeta del autor original
+# (%USERPROFILE%\CARRERA\PROYECTOS_PERSONALES): en cualquier otra maquina el
+# script moria con "La raiz de proyectos no existe". Ahora se resuelve por
+# orden y se explica cual falta cuando no hay ninguna.
+#   1. -Root <ruta>
+#   2. $env:MARIA_PROJECTS_ROOT
+#   3. "raiz_proyectos" de cockpit\maria\identidad.json
+#   4. %USERPROFILE%\Documents  (existe en toda instalacion de Windows)
 if (-not $Root -or $Root.Trim().Length -eq 0) {
-    $Root = Join-Path $env:USERPROFILE "CARRERA\PROYECTOS_PERSONALES"
+    $Root = $env:MARIA_PROJECTS_ROOT
+}
+if (-not $Root -or $Root.Trim().Length -eq 0) {
+    $idFile = Join-Path $env:USERPROFILE ".ultron\cockpit\maria\identidad.json"
+    if (Test-Path -LiteralPath $idFile) {
+        try {
+            $id = Get-Content -LiteralPath $idFile -Raw | ConvertFrom-Json
+            if ($id.raiz_proyectos) { $Root = [string]$id.raiz_proyectos }
+        } catch {
+            # Un JSON roto no puede impedir crear un proyecto: se sigue al
+            # siguiente candidato.
+        }
+    }
+}
+if (-not $Root -or $Root.Trim().Length -eq 0) {
+    $Root = Join-Path $env:USERPROFILE "Documents"
 }
 if (-not (Test-Path -LiteralPath $Root)) {
-    throw "La raiz de proyectos no existe: $Root"
+    throw "La raiz de proyectos no existe: $Root. Pasa -Root <ruta>, define MARIA_PROJECTS_ROOT o pon 'raiz_proyectos' en cockpit\maria\identidad.json."
 }
 
 # --- Validacion del nombre --------------------------------------------------

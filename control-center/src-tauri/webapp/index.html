@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#03070f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>mar.ia</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <!-- mar.ia en el movil.
+         Sin framework ni empaquetador a proposito: son tres ficheros que el
+         binario sirve tal cual, asi que no hay nada que construir ni una
+         cadena de dependencias que mantener para una pantalla de telefono. -->
+    <header class="barra">
+      <span class="reactor" aria-hidden="true"></span>
+      <span class="marca">mar<span class="punto">.</span>ia</span>
+      <span class="hueco"></span>
+      <span id="estado-corto" class="etiqueta">conectando…</span>
+    </header>
+
+    <nav class="pestanas" role="tablist">
+      <button class="pestana activa" data-vista="chat" role="tab">hablar</button>
+      <button class="pestana" data-vista="estado" role="tab">estado</button>
+      <button class="pestana" data-vista="avisos" role="tab">avisos</button>
+    </nav>
+
+    <main>
+      <!-- hablar ------------------------------------------------------- -->
+      <section id="vista-chat" class="vista">
+        <div id="turnos" class="turnos" aria-live="polite"></div>
+        <form id="formulario" class="entrada">
+          <button
+            type="button"
+            id="microfono"
+            class="boton-icono"
+            aria-label="dictar"
+            title="dictar"
+          >
+            ●
+          </button>
+          <input
+            id="mensaje"
+            type="text"
+            placeholder="escribe o pulsa ● para dictar…"
+            autocomplete="off"
+            aria-label="mensaje"
+          />
+          <button type="submit" class="boton-icono" aria-label="enviar">▲</button>
+        </form>
+        <p class="pie">
+          <label><input type="checkbox" id="leer-en-voz" checked /> leer la respuesta en voz alta</label>
+        </p>
+      </section>
+
+      <!-- estado ------------------------------------------------------- -->
+      <section id="vista-estado" class="vista oculta">
+        <div id="paneles"></div>
+        <form id="formulario-decir" class="entrada">
+          <input
+            id="texto-decir"
+            type="text"
+            placeholder="que lo diga el PC en voz alta…"
+            aria-label="texto para el PC"
+          />
+          <button type="submit" class="boton-icono" aria-label="decir">🔊</button>
+        </form>
+      </section>
+
+      <!-- avisos ------------------------------------------------------- -->
+      <section id="vista-avisos" class="vista oculta">
+        <div id="lista-avisos"></div>
+      </section>
+    </main>
+
+    <div id="error" class="error oculta"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

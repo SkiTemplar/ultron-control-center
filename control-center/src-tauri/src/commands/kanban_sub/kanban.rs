@@ -134,6 +134,8 @@ async fn dispatch<R: Runtime>(
                 agent_inner,
                 cwd_inner,
                 prompt_inner,
+                // Sin modelo forzado: el kanban usa el de la CLI.
+                Vec::new(),
             )
         })
         .await

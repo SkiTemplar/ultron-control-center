@@ -223,6 +223,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_voice::maria_voice_ask,
         maria_quota::maria_quota_windows,
         maria_sysinfo::maria_telemetry,
+        maria_models::maria_models_catalog,
         maria_relay::maria_relay_ask,
         maria_relay::maria_relay_thread,
         maria_relay::maria_relay_state,
@@ -242,6 +243,9 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_term::maria_term_resize,
         maria_term::maria_term_kill,
         maria_term::maria_term_list,
+        maria_web::maria_web_status,
+        maria_web::maria_web_set,
+        maria_web::maria_web_test_notify,
         // -- project detach / reattach (ventanas independientes) --
         commands::detach::detach_project_window,
         // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --

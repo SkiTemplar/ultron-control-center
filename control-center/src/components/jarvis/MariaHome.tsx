@@ -53,6 +53,7 @@ const ORBIT: Array<{ tab: Tab; label: string }> = [
   { tab: "chat", label: "chat" },
   { tab: "conversations", label: "conversaciones" },
   { tab: "terminals", label: "terminales" },
+  { tab: "mosaic", label: "mosaico" },
   { tab: "memory", label: "memoria" },
   { tab: "agents", label: "agentes" },
   { tab: "skills", label: "skills" },

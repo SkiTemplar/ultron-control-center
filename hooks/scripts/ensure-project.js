@@ -32,11 +32,64 @@ observe('ensure-project');
 const ULTRON = path.join(os.homedir(), '.ultron');
 const REGISTRY = path.join(ULTRON, 'cockpit', 'projects.json');
 
-/// Raices bajo las que viven los proyectos del usuario (verificado contra
-/// projects.json el 2026-08-22: PERSONAL 8, CARRERA 5, PROFESIONAL 2).
-const RAICES_PROPIAS = ['PERSONAL', 'CARRERA', 'PROFESIONAL'];
-/// Cuenta de GitHub del usuario: un remote suyo marca el repo como propio.
-const CUENTA_GIT = 'SkiTemplar';
+/// Identidad de ESTA maquina: bajo que carpetas vive el trabajo del usuario y
+/// con que cuentas de git publica.
+///
+/// Antes esto estaba clavado en el codigo con los valores del autor original
+/// (`PERSONAL`/`CARRERA`/`PROFESIONAL` y la cuenta `SkiTemplar`). En cualquier
+/// otro ordenador ninguna de las dos senales acertaba nunca, asi que el alta
+/// automatica de proyectos no funcionaba (reportado por el usuario el
+/// 2026-09-18: "ajustes que siguen siendo solo validos para el sistema de
+/// archivos de mi companero").
+///
+/// Orden de resolucion:
+///   1. `cockpit/maria/identidad.json` — lo que el usuario haya puesto a mano.
+///   2. Derivado del registro de proyectos de ESTA maquina.
+///   3. Vacio: sin senal propia se cae a "no es proyecto", que es el lado
+///      seguro (mejor no dar de alta que dar de alta medio disco).
+const IDENTIDAD = path.join(ULTRON, 'cockpit', 'maria', 'identidad.json');
+
+/** Lee la identidad configurada a mano. `{}` si no existe o es ilegible. */
+function identidadGuardada() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(IDENTIDAD, 'utf8'));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Raices de trabajo deducidas del registro de proyectos.
+ *
+ * Se toma el primer segmento por DEBAJO del home de cada proyecto registrado
+ * (`C:\Users\yo\Documents\GitHub\x` -> `documents`) y se queda con los que
+ * se repiten al menos dos veces: una carpeta con un solo proyecto dentro no es
+ * una raiz de trabajo, es un proyecto suelto. Pura salvo por el registro que
+ * recibe, asi que se puede probar.
+ */
+function raicesDelRegistro(registro, home) {
+  const homePartes = norm(home).split(/[\\/]/).filter(Boolean);
+  const cuenta = new Map();
+  for (const p of registro) {
+    const partes = norm(p && p.path).split(/[\\/]/).filter(Boolean);
+    if (partes.length <= homePartes.length) continue;
+    const bajoHome = homePartes.every((seg, i) => partes[i] === seg);
+    const primera = bajoHome ? partes[homePartes.length] : partes[1];
+    if (!primera) continue;
+    cuenta.set(primera, (cuenta.get(primera) || 0) + 1);
+  }
+  return [...cuenta.entries()]
+    .filter(([, n]) => n >= 2)
+    .map(([r]) => r);
+}
+
+/** Cuentas de git propias: solo las configuradas a mano (no se adivinan). */
+function cuentasGit() {
+  const guardada = identidadGuardada();
+  const lista = Array.isArray(guardada.cuentas_git) ? guardada.cuentas_git : [];
+  return lista.map((c) => String(c).trim()).filter(Boolean);
+}
 /// Carpetas que NUNCA son proyecto aunque cumplan lo demas.
 // `~/.claude/` guarda skills, agentes y config: nunca es un proyecto aunque
 // alguna carpeta sea un repo git propio (caso real: `~/.claude/skills/ultron`
@@ -92,8 +145,9 @@ function raizGit(cwd) {
   }
 }
 
-/** ¿Algun remote apunta a la cuenta del usuario? */
-function remotePropio(cwd) {
+/** ¿Algun remote apunta a una cuenta propia? Sin cuentas configuradas, no. */
+function remotePropio(cwd, cuentas) {
+  if (!cuentas || cuentas.length === 0) return null;
   try {
     const out = execFileSync('git', ['-C', cwd, 'remote', '-v'], {
       encoding: 'utf8',
@@ -101,16 +155,17 @@ function remotePropio(cwd) {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-    return new RegExp(`[/:]${CUENTA_GIT}/`, 'i').test(out);
+    return cuentas.find((c) => new RegExp(`[/:]${c}/`, 'i').test(out)) || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** ¿La ruta cuelga de una de las raices de trabajo del usuario? */
-function bajoRaizPropia(cwd) {
+/** ¿La ruta cuelga de una de las raices de trabajo de ESTA maquina? */
+function bajoRaizPropia(cwd, raices) {
+  if (!raices || raices.length === 0) return false;
   const partes = norm(cwd).split(/[\\/]/);
-  return RAICES_PROPIAS.some((r) => partes.includes(r.toLowerCase()));
+  return raices.some((r) => partes.includes(String(r).toLowerCase()));
 }
 
 /**
@@ -142,8 +197,19 @@ function decidir(cwd, registro) {
   // puede conocer todavia.
   const raiz = raizGit(cwd);
   if (!raiz) return { esProyecto: false, motivo: 'no es repo git' };
-  if (remotePropio(cwd)) return { esProyecto: true, motivo: `repo git con remote de ${CUENTA_GIT}` };
-  if (bajoRaizPropia(cwd)) return { esProyecto: true, motivo: 'repo git bajo una raiz de trabajo propia' };
+
+  const guardada = identidadGuardada();
+  const raices = (
+    Array.isArray(guardada.raices) && guardada.raices.length > 0
+      ? guardada.raices
+      : raicesDelRegistro(registro, os.homedir())
+  ).map((r) => String(r).toLowerCase());
+
+  const cuenta = remotePropio(cwd, cuentasGit());
+  if (cuenta) return { esProyecto: true, motivo: `repo git con remote de ${cuenta}` };
+  if (bajoRaizPropia(cwd, raices)) {
+    return { esProyecto: true, motivo: 'repo git bajo una raiz de trabajo propia' };
+  }
   return { esProyecto: false, motivo: 'repo git ajeno (sin remote propio ni raiz propia)' };
 }
 
@@ -272,10 +338,18 @@ function main() {
   emit(avisos.length ? `## Estado del proyecto (ensure-project)\n\n- ${avisos.join('\n- ')}` : '');
 }
 
-try {
-  main();
-} catch (e) {
-  logHookError('ensure-project', e);
-  try { emit(''); } catch { /* ignore */ }
+// Solo se ejecuta como hook, no al importarlo: la prueba requiere este
+// fichero para probar las funciones puras, y sin este guardia cada `require`
+// lanzaba una indexacion de CodeGraph en segundo plano.
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    logHookError('ensure-project', e);
+    try { emit(''); } catch { /* ignore */ }
+  }
+  process.exitCode = 0;
 }
-process.exitCode = 0;
+
+// Se exporta lo puro para las pruebas (`tests/test-identidad-maquina.js`).
+module.exports = { raicesDelRegistro, bajoRaizPropia, remotePropio };

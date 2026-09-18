@@ -8,6 +8,7 @@ export type Tab =
   | "home"
   | "chat"
   | "terminals"
+  | "mosaic"
   | "dashboard"
   | "mcps"
   | "library"
@@ -77,6 +78,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "chat", label: "Chat", available: true },
       { id: "conversations", label: "Conversaciones", available: true, featureKey: "sessions" },
       { id: "terminals", label: "Terminales", available: true },
+      { id: "mosaic", label: "Mosaico", available: true },
       { id: "usage", label: "Consumo", available: true, featureKey: "usage" },
     ],
   },

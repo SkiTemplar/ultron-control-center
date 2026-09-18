@@ -15,119 +15,93 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import "@xterm/xterm/css/xterm.css";
+import {
+  ajustar,
+  montarTerminal,
+  PROVEEDORES,
+  type Catalogo,
+  type ModeloInfo,
+  type TerminalMontado,
+  type TermInfo,
+} from "./terminalCore";
 
-/** Lo que se puede abrir. Tiene que coincidir con la lista blanca de Rust
- *  (`maria_term::PERMITIDOS`): si no, el boton pide algo que el backend
- *  rechaza y el usuario ve un error sin saber por que. */
-const PROVEEDORES = [
-  { id: "claude", label: "claude" },
-  { id: "codex", label: "codex" },
-  { id: "gemini", label: "gemini" },
-  { id: "powershell", label: "powershell" },
-] as const;
-
-type Pestana = { id: string; provider: string };
-
-/** Paleta del terminal, a juego con el HUD. */
-const TEMA = {
-  background: "#040d16",
-  foreground: "#cfe9f7",
-  cursor: "#35d6ff",
-  selectionBackground: "rgba(53,214,255,0.25)",
-  black: "#0a1520",
-  brightBlack: "#41566b",
-  blue: "#35d6ff",
-  brightBlue: "#7fe6ff",
-  cyan: "#35d6ff",
-  green: "#49e6a0",
-  red: "#ff4d5e",
-  yellow: "#ffc24b",
-  white: "#cfe9f7",
-};
+type Pestana = { id: string; provider: string; model: string };
 
 export function Terminals() {
   const [pestanas, setPestanas] = useState<Pestana[]>([]);
   const [activa, setActiva] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
+  const [proveedor, setProveedor] = useState<string>("claude");
+  /** "" = el modelo que traiga la CLI por defecto. */
+  const [modelo, setModelo] = useState<string>("");
   const hostRef = useRef<HTMLDivElement | null>(null);
-  /** Un xterm por sesion: cambiar de pestana no puede perder el scrollback. */
-  const terminales = useRef(new Map<string, { term: Terminal; fit: FitAddon }>());
-  const suscripciones = useRef(new Map<string, UnlistenFn[]>());
+  /** Un xterm por sesion, cada uno en SU PROPIO div, todos colgados del
+   *  contenedor a la vez. Cambiar de pestana solo enseña uno y esconde los
+   *  demas.
+   *
+   *  La primera version sacaba el div del DOM y volvia a llamar a `open()` al
+   *  cambiar de pestana: xterm no repinta en ese camino y la pestana volvia
+   *  EN BLANCO (reportado por el usuario el 2026-09-18). Con un div fijo por
+   *  sesion, `open()` se llama una sola vez y no hay nada que repintar. */
+  const terminales = useRef(new Map<string, TerminalMontado & { caja: HTMLDivElement }>());
 
   // Sesiones que sobrevivieron a una recarga de la interfaz (el PTY vive en
   // Rust, no en la ventana).
   useEffect(() => {
-    void invoke<Array<{ id: string; provider: string; running: boolean }>>("maria_term_list")
+    void invoke<TermInfo[]>("maria_term_list")
       .then((lista) => {
         const vivas = (lista ?? []).filter((t) => t.running);
         if (vivas.length === 0) return;
-        setPestanas(vivas.map((t) => ({ id: t.id, provider: t.provider })));
+        setPestanas(
+          vivas.map((t) => ({ id: t.id, provider: t.provider, model: t.model ?? "" })),
+        );
         setActiva((a) => a || vivas[0].id);
       })
       .catch(() => undefined);
+    void invoke<Catalogo>("maria_models_catalog")
+      .then(setCatalogo)
+      .catch(() => setCatalogo(null));
   }, []);
 
-  /** Monta (o recupera) el xterm de una sesion dentro del contenedor. */
+  /** Modelos elegibles del proveedor seleccionado. PowerShell no tiene. */
+  const modelosDisponibles: ModeloInfo[] =
+    catalogo?.providers.find((c) => c.provider === proveedor)?.models ?? [];
+
+  /** Monta (o recupera) el xterm de una sesion y lo deja a la vista. */
   const montar = useCallback(async (id: string) => {
     const host = hostRef.current;
     if (!host) return;
+
     let entrada = terminales.current.get(id);
     if (!entrada) {
-      const term = new Terminal({
-        fontFamily:
-          'ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace',
-        fontSize: 12.5,
-        theme: TEMA,
-        cursorBlink: true,
-        // El PTY ya guarda 256 KiB; aqui basta con un scrollback generoso.
-        scrollback: 5000,
-        convertEol: false,
+      const caja = document.createElement("div");
+      caja.style.width = "100%";
+      caja.style.height = "100%";
+      host.appendChild(caja);
+      const m = await montarTerminal(id, caja, setError).catch((e) => {
+        setError(String(e));
+        caja.remove();
+        return null;
       });
-      const fit = new FitAddon();
-      term.loadAddon(fit);
-      entrada = { term, fit };
+      if (!m) return;
+      entrada = { ...m, caja };
       terminales.current.set(id, entrada);
-
-      term.onData((d) => {
-        void invoke("maria_term_write", { id, data: btoa(unescape(encodeURIComponent(d))) }).catch(
-          (e) => setError(String(e)),
-        );
-      });
-      term.onResize(({ rows, cols }) => {
-        void invoke("maria_term_resize", { id, rows, cols }).catch(() => undefined);
-      });
-
-      const unData = await listen<{ data?: string }>(`pty:data:${id}`, (e) => {
-        const b64 = e.payload?.data;
-        if (typeof b64 === "string") term.write(bytesDesdeBase64(b64));
-      });
-      const unExit = await listen<{ exit_code?: number }>(`pty:exit:${id}`, (e) => {
-        term.write(`\r\n\x1b[33m— sesión terminada (código ${e.payload?.exit_code ?? "?"}) —\x1b[0m\r\n`);
-      });
-      suscripciones.current.set(id, [unData, unExit]);
     }
 
-    host.replaceChildren();
-    entrada.term.open(host);
-    entrada.fit.fit();
+    // Enseña la activa y esconde el resto. `visibility`+`position` en vez de
+    // `display:none`: con display en none el contenedor mide 0 y `fit()`
+    // calcularia una rejilla absurda.
+    for (const [otro, { caja }] of terminales.current) {
+      const visible = otro === id;
+      caja.style.position = visible ? "relative" : "absolute";
+      caja.style.visibility = visible ? "visible" : "hidden";
+      caja.style.pointerEvents = visible ? "auto" : "none";
+      caja.style.zIndex = visible ? "1" : "0";
+    }
+
+    ajustar(entrada, id);
     entrada.term.focus();
-
-    // Vuelca lo capturado mientras esta pestana no estaba montada. Se pide
-    // DESPUES de abrir para que el texto caiga sobre una rejilla ya medida.
-    const previo = await invoke<string>("maria_term_subscribe", { id }).catch(() => "");
-    if (previo) {
-      entrada.term.clear();
-      entrada.term.write(bytesDesdeBase64(previo));
-    }
-    void invoke("maria_term_resize", {
-      id,
-      rows: entrada.term.rows,
-      cols: entrada.term.cols,
-    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -141,11 +115,7 @@ export function Terminals() {
     if (!host) return;
     const ro = new ResizeObserver(() => {
       const entrada = terminales.current.get(activa);
-      try {
-        entrada?.fit.fit();
-      } catch {
-        // fit() falla si el contenedor mide 0 (pestana oculta): no es un error.
-      }
+      if (entrada) ajustar(entrada, activa);
     });
     ro.observe(host);
     return () => ro.disconnect();
@@ -155,39 +125,41 @@ export function Terminals() {
   // espera volver y encontrarse su sesion donde la dejo.
   useEffect(
     () => () => {
-      for (const fns of suscripciones.current.values()) {
-        for (const f of fns) f();
+      for (const { soltar, caja } of terminales.current.values()) {
+        soltar();
+        caja.remove();
       }
-      suscripciones.current.clear();
-      for (const { term } of terminales.current.values()) term.dispose();
       terminales.current.clear();
     },
     [],
   );
 
-  async function abrir(provider: string) {
+  async function abrir(provider: string, model: string) {
     setError(null);
-    const id = await invoke<string>("maria_term_open", { provider, cwd: null }).catch((e) => {
+    const id = await invoke<string>("maria_term_open", {
+      provider,
+      cwd: null,
+      model: model || null,
+    }).catch((e) => {
       setError(String(e));
       return null;
     });
     if (!id) return;
-    setPestanas((prev) => [...prev, { id, provider }]);
+    setPestanas((prev) => [...prev, { id, provider, model }]);
     setActiva(id);
   }
 
   async function cerrar(id: string) {
     await invoke("maria_term_kill", { id }).catch(() => undefined);
-    for (const f of suscripciones.current.get(id) ?? []) f();
-    suscripciones.current.delete(id);
-    terminales.current.get(id)?.term.dispose();
+    const entrada = terminales.current.get(id);
+    entrada?.soltar();
+    entrada?.caja.remove();
     terminales.current.delete(id);
     setPestanas((prev) => {
       const resto = prev.filter((p) => p.id !== id);
       setActiva((a) => (a === id ? (resto[0]?.id ?? "") : a));
       return resto;
     });
-    hostRef.current?.replaceChildren();
   }
 
   return (
@@ -202,17 +174,67 @@ export function Terminals() {
       </header>
 
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        {PROVEEDORES.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => void abrir(p.id)}
-            className="hud-panel hud-label px-2 py-1"
-            style={{ color: "var(--color-accent)", cursor: "pointer" }}
+        {/* Se elige proveedor Y modelo antes de abrir: una sesion interactiva
+            no se puede cambiar de modelo por fuera despues. */}
+        <label className="flex items-center gap-1">
+          <span className="hud-label">cli</span>
+          <select
+            value={proveedor}
+            onChange={(e) => {
+              setProveedor(e.target.value);
+              // El modelo pertenece a un proveedor: arrastrarlo al siguiente
+              // seria pedir un modelo que esa CLI no tiene.
+              setModelo("");
+            }}
+            aria-label="cli"
+            className="hud-panel px-1 py-1 text-[11px]"
+            style={{
+              color: "var(--color-accent)",
+              fontFamily: "var(--font-mono)",
+              outline: "none",
+            }}
           >
-            + {p.label}
-          </button>
-        ))}
+            {PROVEEDORES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-1">
+          <span className="hud-label">modelo</span>
+          <select
+            value={modelo}
+            onChange={(e) => setModelo(e.target.value)}
+            aria-label="modelo"
+            disabled={modelosDisponibles.length === 0}
+            title={
+              modelosDisponibles.find((m) => m.id === modelo)?.para ??
+              "el que traiga la CLI por defecto"
+            }
+            className="hud-panel px-1 py-1 text-[11px]"
+            style={{
+              color: modelo ? "var(--color-accent)" : "var(--color-text-secondary)",
+              fontFamily: "var(--font-mono)",
+              outline: "none",
+            }}
+          >
+            <option value="">por defecto</option>
+            {modelosDisponibles.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void abrir(proveedor, modelo)}
+          className="hud-panel hud-label px-2 py-1"
+          style={{ color: "var(--color-accent)", cursor: "pointer" }}
+        >
+          + abrir
+        </button>
         <span className="flex-1" />
         {pestanas.map((t) => (
           <span
@@ -226,6 +248,7 @@ export function Terminals() {
               type="button"
               onClick={() => setActiva(t.id)}
               className="hud-label"
+              title={t.model ? `${t.provider} con ${t.model}` : `${t.provider} (modelo por defecto)`}
               style={{
                 color: t.id === activa ? "var(--color-accent)" : "var(--color-text-secondary)",
                 background: "none",
@@ -234,6 +257,7 @@ export function Terminals() {
               }}
             >
               {t.provider}
+              {t.model ? ` · ${t.model}` : ""}
             </button>
             <button
               type="button"
@@ -269,21 +293,12 @@ export function Terminals() {
       <div className="hud-panel hud-brackets min-h-0 flex-1 overflow-hidden p-2">
         {pestanas.length === 0 ? (
           <p className="hud-label p-2">
-            ninguna terminal abierta. pulsa «+ claude», «+ codex», «+ gemini» o «+ powershell».
+            ninguna terminal abierta. elige cli y modelo arriba y pulsa «+ abrir».
           </p>
         ) : (
-          <div ref={hostRef} className="h-full w-full" />
+          <div ref={hostRef} className="relative h-full w-full" />
         )}
       </div>
     </div>
   );
-}
-
-/** base64 → bytes. xterm acepta Uint8Array y asi no se rompe el UTF-8 que
- *  llega partido entre dos lecturas del PTY. */
-function bytesDesdeBase64(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
 }

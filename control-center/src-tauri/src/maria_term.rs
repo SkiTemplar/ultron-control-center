@@ -23,6 +23,32 @@ pub struct TermInfo {
     pub id: String,
     pub provider: String,
     pub running: bool,
+    /// Modelo con el que se abrio ("" = el que traiga la CLI por defecto).
+    pub model: String,
+}
+
+/// Modelo con el que se abrio cada terminal, para poder enseñarlo en la
+/// pestana. El PTY no lo guarda (es una sesion interactiva, no una llamada),
+/// asi que se apunta aqui al abrirla.
+static MODELOS: once_cell::sync::Lazy<
+    std::sync::Mutex<std::collections::HashMap<String, String>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn apuntar_modelo(id: &str, modelo: &str) {
+    if modelo.is_empty() {
+        return;
+    }
+    if let Ok(mut m) = MODELOS.lock() {
+        m.insert(id.to_string(), modelo.to_string());
+    }
+}
+
+fn modelo_de(id: &str) -> String {
+    MODELOS
+        .lock()
+        .ok()
+        .and_then(|m| m.get(id).cloned())
+        .unwrap_or_default()
 }
 
 /// ¿Es un proveedor de la lista blanca? Pura: se testea sin abrir nada.
@@ -47,13 +73,24 @@ pub async fn maria_term_open(
     app: AppHandle,
     provider: String,
     cwd: Option<String>,
+    model: Option<String>,
 ) -> Result<String, String> {
     if !proveedor_permitido(&provider) {
         return Err(format!("proveedor no permitido: {provider}"));
     }
-    let carpeta = cwd.filter(|c| !c.trim().is_empty()).unwrap_or_else(cwd_por_defecto);
+    // El modelo se valida contra el catalogo antes de acercarse a una linea de
+    // comandos (mismo motivo que la lista blanca de proveedores).
+    let modelo = model.map(|m| m.trim().to_string()).unwrap_or_default();
+    if !crate::maria_models::modelo_valido(&provider, &modelo) {
+        return Err(format!("{provider} no tiene el modelo {modelo}"));
+    }
+    let carpeta = cwd
+        .filter(|c| !c.trim().is_empty())
+        .unwrap_or_else(cwd_por_defecto);
+    let modelo_apuntar = modelo.clone();
+    let extra = crate::maria_models::argumentos_interactivos(&provider, &modelo);
     // Bloqueante (sondeo de PATH + spawn) fuera del hilo async de Tauri.
-    tauri::async_runtime::spawn_blocking(move || {
+    let id = tauri::async_runtime::spawn_blocking(move || {
         crate::pty::spawn_inner(
             app,
             "maria-term".to_string(),
@@ -62,10 +99,13 @@ pub async fn maria_term_open(
             None,
             carpeta,
             None,
+            extra,
         )
     })
     .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
+    .map_err(|e| format!("spawn_blocking: {e}"))??;
+    apuntar_modelo(&id, &modelo_apuntar);
+    Ok(id)
 }
 
 /// Enciende la emision en vivo y devuelve (en base64) lo ya capturado.
@@ -99,6 +139,7 @@ pub async fn maria_term_list() -> Result<Vec<TermInfo>, String> {
     Ok(crate::pty::list_inner()
         .into_iter()
         .map(|(id, provider, running)| TermInfo {
+            model: modelo_de(&id),
             id,
             provider,
             running,
