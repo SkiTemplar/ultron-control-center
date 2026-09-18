@@ -58,6 +58,26 @@ function abortar(motivo) {
   process.exit(1);
 }
 
+/**
+ * Borra el temporal del clon sin tumbar el script.
+ *
+ * En Windows, `git push` deja handles abiertos sobre el .git del clon durante
+ * unos instantes, asi que un `rmSync` inmediato lanza EBUSY/EPERM. Ocurria
+ * DESPUES de publicar, de modo que un sync correcto terminaba con un stack de
+ * Node y parecia haber fallado (2026-09-18). Se reintenta un par de veces y, si
+ * el temporal se resiste, se avisa y se sigue: el sistema ya lo purga solo.
+ */
+function limpiarTmp(dir) {
+  for (let intento = 0; intento < 3; intento++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      return;
+    } catch (e) {
+      if (intento === 2) log(`   aviso: no se pudo borrar el temporal ${dir} (${e.code || e.message})`);
+    }
+  }
+}
+
 /** Alerta para la pestaña Notifications (mismo formato que alerts.jsonl). */
 function alertar(severity, message) {
   const fila = {
@@ -209,7 +229,7 @@ git(clon, ['add', '-A']);
 const estado = git(clon, ['diff', '--cached', '--name-status']).trim();
 if (!estado) {
   log('\n[sync-public] el espejo ya esta al dia. Nada que publicar.');
-  fs.rmSync(tmp, { recursive: true, force: true });
+  limpiarTmp(tmp);
   process.exit(0);
 }
 const filas = estado.split('\n').map((l) => l.split('\t'));
@@ -239,7 +259,7 @@ if (AUTO && altas.length) {
       'Publicar con: node scripts/sync-public.mjs --apply -m "sync: ..."',
   );
   log('\n[sync-public] --auto: hay ALTAS, no se publica. Alerta registrada.');
-  fs.rmSync(tmp, { recursive: true, force: true });
+  limpiarTmp(tmp);
   process.exit(0);
 }
 if (AUTO && !MSG) {
@@ -268,4 +288,4 @@ git(clon, [
 ]);
 git(clon, ['push', 'origin', 'main'], { mostrar: true });
 log(`\n[sync-public] publicado. HEAD privado ${head} -> espejo actualizado.`);
-fs.rmSync(tmp, { recursive: true, force: true });
+limpiarTmp(tmp);
