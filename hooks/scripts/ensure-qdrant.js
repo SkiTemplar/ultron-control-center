@@ -26,8 +26,7 @@ const HEALTHZ = { host: 'localhost', port: 6333, path: '/healthz', timeout: 700 
 // del launcher era fire-and-forget CIEGO: nada comprobaba si el relaunch
 // funciono (audit 2026-08-09, causa raiz de las caidas silenciosas).
 const WATCHDOG = path.join(
-  os.homedir(),
-  '.ultron',
+  require('./lib/maria-home.js').mariaHome(),
   'scripts',
   'qdrant',
   'qdrant-watchdog.ps1'

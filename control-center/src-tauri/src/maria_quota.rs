@@ -43,12 +43,9 @@ pub struct WindowUsage {
 }
 
 fn ceiling_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| {
-        h.join(".ultron")
-            .join("cockpit")
-            .join("maria")
-            .join("quota-ceiling.json")
-    })
+    crate::maria_paths::cockpit("maria")
+        .ok()
+        .map(|d| d.join("quota-ceiling.json"))
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

@@ -59,12 +59,7 @@ pub fn proveedor_permitido(p: &str) -> bool {
 
 /// Carpeta de trabajo por defecto de una terminal nueva.
 fn cwd_por_defecto() -> String {
-    std::env::var("ULTRON_HOME")
-        .ok()
-        .or_else(|| {
-            dirs::home_dir().map(|h| h.join(".ultron").to_string_lossy().to_string())
-        })
-        .unwrap_or_else(|| ".".into())
+    crate::maria_paths::home().to_string_lossy().to_string()
 }
 
 /// Abre una terminal y devuelve su id.

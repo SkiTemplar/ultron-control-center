@@ -28,7 +28,7 @@ struct VoiceProc {
 static VOICE: Lazy<Mutex<Option<VoiceProc>>> = Lazy::new(|| Mutex::new(None));
 
 /// Raiz del fork (donde vive `voice/`). El repo de mar.ia no esta en
-/// `~/.ultron` (ahi vive el ESTADO: memoria, hooks, skills), asi que la ruta
+/// la raiz de mar.ia (ahi vive el ESTADO: memoria, hooks, skills), asi que la ruta
 /// se resuelve por variable de entorno y, si falta, junto al ejecutable.
 fn voice_script() -> Result<std::path::PathBuf, String> {
     if let Ok(dir) = std::env::var("MARIA_HOME") {
@@ -230,11 +230,11 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
 }
 
 /// ¿Esta activada la palabra clave? Por defecto SI: mar.ia responde a su
-/// nombre. Se apaga escribiendo "0" en ~/.ultron/.tmp/maria-wake.txt (por
+/// nombre. Se apaga escribiendo "0" en <raiz>/.tmp/maria-wake.txt (por
 /// ejemplo, en clase o en una reunion).
 pub fn wake_enabled() -> bool {
     dirs::home_dir()
-        .map(|h| h.join(".ultron").join(".tmp").join("maria-wake.txt"))
+        .map(|_| crate::maria_paths::home().join(".tmp").join("maria-wake.txt"))
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|s| s.trim() != "0")
         .unwrap_or(true)
@@ -243,7 +243,7 @@ pub fn wake_enabled() -> bool {
 /// Enciende o apaga la escucha por palabra clave, y lo recuerda.
 #[tauri::command]
 pub async fn maria_voice_wake(enabled: bool) -> Result<bool, String> {
-    if let Some(p) = dirs::home_dir().map(|h| h.join(".ultron").join(".tmp").join("maria-wake.txt"))
+    if let Some(p) = dirs::home_dir().map(|_| crate::maria_paths::home().join(".tmp").join("maria-wake.txt"))
     {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -317,7 +317,7 @@ pub async fn maria_voice_running() -> Result<bool, String> {
 pub const DEFAULT_PTT: &str = "Ctrl+Space";
 
 fn ptt_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".ultron").join(".tmp").join("maria-ptt.txt"))
+    dirs::home_dir().map(|_| crate::maria_paths::home().join(".tmp").join("maria-ptt.txt"))
 }
 
 /// Combinacion de pulsar-para-hablar. Fichero de texto plano, igual que el

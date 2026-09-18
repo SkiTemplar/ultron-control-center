@@ -50,6 +50,7 @@ mod maintenance;
 mod maria; // mar.ia: puente de estado de voz hacia las ventanas
 mod maria_quota; // mar.ia: consumo real por ventana movil
 mod maria_sysinfo; // mar.ia: consumo real por ventana movil
+mod maria_paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
 mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
@@ -474,18 +475,19 @@ fn qdrant_is_running() -> bool {
 
 /// Attempt to spawn the bundled Qdrant binary detached with no console
 /// window.  The executable path is read from `ULTRON_QDRANT_EXE` (its working
-/// dir from `ULTRON_QDRANT_DIR`), falling back to a portable location under
-/// `%USERPROFILE%\.ultron\qdrant-native\`.  Returns the child handle on
-/// success, or logs and returns `None`.
+/// dir from `ULTRON_QDRANT_DIR`), falling back to `qdrant-native/` under la
+/// raiz de mar.ia (`maria_paths::home()` — `.maria`, o `.ultron` en una
+/// instalacion sin migrar).  Returns the child handle on success, or logs and
+/// returns `None`.
 #[cfg(target_os = "windows")]
 fn spawn_qdrant_exe() -> Option<std::process::Child> {
     use std::os::windows::process::CommandExt;
 
-    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
+    let home = crate::maria_paths::home().to_string_lossy().to_string();
     let qdrant_exe = std::env::var("ULTRON_QDRANT_EXE")
-        .unwrap_or_else(|_| format!(r"{home}\.ultron\qdrant-native\qdrant.exe"));
+        .unwrap_or_else(|_| format!(r"{home}\qdrant-native\qdrant.exe"));
     let qdrant_dir = std::env::var("ULTRON_QDRANT_DIR")
-        .unwrap_or_else(|_| format!(r"{home}\.ultron\qdrant-native"));
+        .unwrap_or_else(|_| format!(r"{home}\qdrant-native"));
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     if !std::path::Path::new(&qdrant_exe).exists() {

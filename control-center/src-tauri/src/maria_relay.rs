@@ -5,7 +5,7 @@
 // conversacion con los tres" no existe como tal; hay que declararlo.
 //
 // La solucion: el hilo canonico es de mar.ia. Vive en
-// `~/.ultron/cockpit/maria/threads/<id>.jsonl`, un turno por linea, con el
+// `<raiz>/cockpit/maria/threads/<id>.jsonl`, un turno por linea, con el
 // proveedor que lo contesto. Cuando toca cambiar de proveedor (porque se agoto
 // la cuota o porque la tarea pide otro), se compone un PAQUETE DE CONTEXTO —
 // resumen del hilo + ultimos turnos + memoria relevante de ULTRON — y se
@@ -134,11 +134,7 @@ impl Default for RelayConfig {
 }
 
 fn maria_dir() -> Result<PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or("no encuentro HOME")?
-        .join(".ultron")
-        .join("cockpit")
-        .join("maria");
+    let dir = crate::maria_paths::cockpit("maria")?;
     std::fs::create_dir_all(dir.join("threads")).map_err(|e| format!("crear carpeta: {e}"))?;
     Ok(dir)
 }

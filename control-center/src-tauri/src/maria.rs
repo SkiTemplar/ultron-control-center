@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Deja mar.ia registrada para arrancar con Windows, UNA sola vez.
 ///
-/// Se marca en `~/.ultron/.tmp/maria-autostart-done.txt` para no volver a
+/// Se marca en `<raiz>/.tmp/maria-autostart-done.txt` para no volver a
 /// activarlo en cada arranque: si el usuario lo desactiva en Ajustes, la
 /// decision es suya y aqui no se pisa.
 ///
@@ -18,7 +18,7 @@ pub fn ensure_autostart(app: &AppHandle) {
     use tauri_plugin_autostart::ManagerExt;
 
     let Some(marca) = dirs::home_dir()
-        .map(|h| h.join(".ultron").join(".tmp").join("maria-autostart-done.txt"))
+        .map(|_| crate::maria_paths::home().join(".tmp").join("maria-autostart-done.txt"))
     else {
         return;
     };

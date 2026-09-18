@@ -1,7 +1,7 @@
 // mar.ia — indice de conversaciones.
 //
 // El relevo (`maria_relay`) guarda los TURNOS en
-// `~/.ultron/cockpit/maria/threads/<id>.jsonl`. Aqui vive lo demas: titulo,
+// `<raiz>/cockpit/maria/threads/<id>.jsonl`. Aqui vive lo demas: titulo,
 // carpeta, fijado, fecha y si la conversacion se dio por terminada. Va en un
 // fichero aparte (`threads.json`) a proposito: los turnos son un log al que
 // solo se anade, y reescribirlo entero para cambiar un titulo seria pedir una
@@ -61,11 +61,7 @@ impl ThreadMeta {
 }
 
 fn maria_dir() -> Result<PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or("no encuentro HOME")?
-        .join(".ultron")
-        .join("cockpit")
-        .join("maria");
+    let dir = crate::maria_paths::cockpit("maria")?;
     std::fs::create_dir_all(dir.join("threads")).map_err(|e| format!("crear carpeta: {e}"))?;
     Ok(dir)
 }

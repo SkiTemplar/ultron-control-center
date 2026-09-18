@@ -4,7 +4,9 @@ Instrucciones de proyecto para trabajar en este repo. Se carga automáticamente 
 
 ## Qué es
 
-ULTRON Control Center: app **Tauri 2 + React 19 + Rust** (`control-center/`, v2.7.1) — orquestador multi-IA + memoria gobernada + routing de skills/agentes + kanban/RunBatch. Monorepo único en `~/.ultron/` (un solo `.git`, sin submódulos). Responder siempre en **Español** (con tildes/ñ).
+**mar.ia** (fork de ULTRON Control Center): app **Tauri 2 + React 19 + Rust** (`control-center/`) — asistente con orbe JARVIS, relevo de proveedores (claude/codex/gemini/local), memoria gobernada, routing de skills/agentes, terminales embebidas, mosaico y webapp móvil. Responder siempre en **Español** (con tildes/ñ).
+
+**Carpeta raíz: `~/.maria`** (renombrada desde `~/.ultron` el 2026-09-18). `~/.ultron` sigue existiendo como **enlace de directorio (junction)** a `.maria`: eso es lo que hace que las referencias antiguas —hooks registrados en `~/.claude/settings.json`, scripts, rutas dentro de `brain.db`— sigan funcionando sin tocarlas. El código nuevo NO construye la ruta a mano: pregunta a `maria_paths::home()` (Rust) o `lib/maria-home.js` (hooks), que resuelven `MARIA_HOME` > `~/.maria` > `~/.ultron`. Migración: `scripts/migrar-a-maria.ps1` (idempotente, con `-DryRun`).
 
 ## Build y ejecución — GOTCHAS (causan la mayoría de líos)
 

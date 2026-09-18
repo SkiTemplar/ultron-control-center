@@ -29,7 +29,7 @@ const { execFileSync, spawn } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
 observe('ensure-project');
 
-const ULTRON = path.join(os.homedir(), '.ultron');
+const ULTRON = require('./lib/maria-home.js').mariaHome();
 const REGISTRY = path.join(ULTRON, 'cockpit', 'projects.json');
 
 /// Identidad de ESTA maquina: bajo que carpetas vive el trabajo del usuario y

@@ -78,13 +78,7 @@ pub struct WebStatus {
 static SERVIDOR: Lazy<Mutex<Option<std::sync::Arc<Server>>>> = Lazy::new(|| Mutex::new(None));
 
 fn maria_dir() -> Result<std::path::PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or("no encuentro HOME")?
-        .join(".ultron")
-        .join("cockpit")
-        .join("maria");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("crear carpeta: {e}"))?;
-    Ok(dir)
+    crate::maria_paths::cockpit("maria")
 }
 
 fn config_path() -> Result<std::path::PathBuf, String> {
@@ -234,11 +228,9 @@ fn leer_cuerpo(req: &mut Request) -> serde_json::Value {
     serde_json::from_str(&texto).unwrap_or(serde_json::Value::Null)
 }
 
-/// Avisos recientes de `~/.ultron/alerts.jsonl`, los ultimos `max`.
+/// Avisos recientes de `<raiz>/alerts.jsonl`, los ultimos `max`.
 fn avisos(max: usize) -> Vec<serde_json::Value> {
-    let Some(path) = dirs::home_dir().map(|h| h.join(".ultron").join("alerts.jsonl")) else {
-        return Vec::new();
-    };
+    let path = crate::maria_paths::home().join("alerts.jsonl");
     let Ok(texto) = std::fs::read_to_string(path) else {
         return Vec::new();
     };

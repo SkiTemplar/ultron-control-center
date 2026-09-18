@@ -26,7 +26,7 @@ const { spawn } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
 observe('ensure-codegraph');
 
-const ULTRON = path.join(os.homedir(), '.ultron');
+const ULTRON = require('./lib/maria-home.js').mariaHome();
 const CG_DIR = path.join(ULTRON, '.codegraph');
 const PID_FILE = path.join(CG_DIR, 'daemon.pid');
 const LOG_FILE = path.join(CG_DIR, 'daemon.log');
