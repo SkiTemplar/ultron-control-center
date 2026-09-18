@@ -7,6 +7,7 @@ import { useFeatures, type Features } from "../lib/features";
 export type Tab =
   | "home"
   | "chat"
+  | "terminals"
   | "dashboard"
   | "mcps"
   | "library"
@@ -64,68 +65,55 @@ type Item = {
 };
 
 const SECTIONS: { heading: string; items: Item[] }[] = [
+  // mar.ia (2026-09-18): las secciones heredadas de ULTRON se reordenan y se
+  // pasan a castellano, que es el idioma del sistema. NO se borra ninguna
+  // pestana: las de poco uso bajan al grupo "mas" (plegable) y siguen a un
+  // clic, ademas de estar en la paleta de comandos. El usuario pidio
+  // "simplificar sin perder utilidad" — esconder no es quitar.
   {
-    heading: "Overview",
+    heading: "Principal",
     items: [
       { id: "home", label: "mar.ia", available: true },
       { id: "chat", label: "Chat", available: true },
-      { id: "dashboard", label: "Dashboard", available: true },
-      { id: "usage", label: "Usage", available: true, featureKey: "usage" },
-      { id: "ai-router", label: "AI Router", available: true },
-      // v2.5.1: Changelog dropped from sidebar (user does not need it).
-      // Still reachable via command palette "Go to Changelog" since the
-      // Tab union still includes it and App.tsx still routes it.
-      // Notifications moved to footer block (anchored at bottom like Settings).
+      { id: "conversations", label: "Conversaciones", available: true, featureKey: "sessions" },
+      { id: "terminals", label: "Terminales", available: true },
+      { id: "usage", label: "Consumo", available: true, featureKey: "usage" },
     ],
   },
   {
-    heading: "System",
+    heading: "Cerebro",
     items: [
-      { id: "system", label: "System", available: true },
+      // Lo que hace que mar.ia sea mar.ia: memoria, skills/agentes, MCPs y
+      // el relevo entre proveedores. Va junto y arriba a proposito.
+      { id: "memory", label: "Memoria", available: true },
+      { id: "library", label: "Skills y agentes", available: true, featureKey: "skills" },
       { id: "mcps", label: "MCPs", available: true, featureKey: "mcps" },
-      // v2.1: Skills + Agents + Rules collapsed into one Library tab with
-      // sub-navigation. The 3 individual tab ids remain reachable via the
-      // command palette and deep-links — App.tsx routes them all to
-      // <Library initial="..." /> so deep-linking still feels native.
-      { id: "library", label: "Library", available: true, featureKey: "skills" },
-      // Memory tab (re-added 2026-06-04): human-in-the-loop validation of the
-      // memory kernel — candidate inbox (approve/reject/edit) + brain.db health
-      // (Memory Trace). The backend kernel was backend-only after fullize
-      // 2026-06-01; this surfaces the inbox + governance commands again.
-      { id: "memory", label: "Memory", available: true },
-      // v2.6 (card-v26-fb-005): cross-project markdown notes at
-      // ~/.ultron/cockpit/notes/.
-      { id: "notes", label: "Notes", available: true },
-      { id: "learn", label: "Learn", available: true },
-      // Lab TFG (2026-08-12): deteccion de patrones de texto IA sobre el
-      // catalogo de investigacion del usuario (docs/research). Determinista.
-      { id: "lab", label: "Lab", available: true },
+      { id: "ai-router", label: "Router", available: true },
     ],
   },
   {
-    heading: "Workspace",
+    heading: "Trabajo",
     items: [
-      // Conversations: lee y continua las conversaciones de Claude Code
-      // (~/.claude/projects). Va primero porque es la entrada mas usada;
-      // Sessions sigue siendo el monitor en vivo + lanzador de workspaces.
-      { id: "conversations", label: "Conversations", available: true, featureKey: "sessions" },
-      { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
-      { id: "projects", label: "Projects", available: true, featureKey: "projects" },
-      // Finance: native read-only dashboard of the Bank/finanzas project
-      // (Tío Gilito). Surfaces saldo/fondos/movimientos without launching the
-      // separate Streamlit app; the buttons spawn a Tío Gilito CLI session.
-      // Finance is a local-only feature (KutxaBank data). Visible only when
-      // built with VITE_FINANCE=1; Finance.tsx is excluded from the public repo.
-      { id: "finance", label: "Finance", available: import.meta.env.VITE_FINANCE === "1" },
-      // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
-      // lives inside Projects -> Board. Workdays removed (fullize 2026-06-01).
+      { id: "sessions", label: "Sesiones", available: true, featureKey: "sessions" },
+      { id: "projects", label: "Proyectos", available: true, featureKey: "projects" },
+      { id: "system", label: "Sistema", available: true },
+      // --- grupo "mas" (plegable) ---------------------------------------
+      // Nada de esto desaparece: son las pestanas que casi nunca se abren.
+      { id: "dashboard", label: "Panel", available: true, tier: "more" },
+      { id: "notes", label: "Notas", available: true, tier: "more" },
+      { id: "learn", label: "Aprender", available: true, tier: "more" },
+      { id: "lab", label: "Laboratorio", available: true, tier: "more" },
+      { id: "changelog", label: "Novedades", available: true, tier: "more" },
+      // Finance: panel local del proyecto de finanzas. Solo con VITE_FINANCE=1.
+      {
+        id: "finance",
+        label: "Finanzas",
+        available: import.meta.env.VITE_FINANCE === "1",
+        tier: "more",
+      },
     ],
   },
-  // v2.1: "Gaming" and "Personal" tabs deleted (old ULTRON persona stack).
-  // "Hooks" lives inside System as a sub-tab since v15.2.
-  // v2.6 (card-v26-fb-015): Settings moved out of SECTIONS — rendered as
-  // a footer block so it anchors at the bottom of the sidebar instead of
-  // floating in the middle on tall screens.
+  // v2.6: Ajustes se pinta como bloque al pie, no como seccion.
 ];
 
 // v15.3 — persisted toggle for the "More" group. Defaults closed so the
@@ -408,7 +396,7 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
                 aria-expanded={moreOpen}
                 title={`Show/hide ${moreItems.length} secondary tab${moreItems.length === 1 ? "" : "s"}`}
               >
-                <span>More ({moreItems.length})</span>
+                <span>Más ({moreItems.length})</span>
                 <span aria-hidden="true">{moreOpen ? "▾" : "▸"}</span>
               </button>
               {moreOpen && (
@@ -442,13 +430,13 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
       >
         {features.notifications !== false && (
           <SidebarButton
-            item={{ id: "notifications", label: "Notifications", available: true }}
+            item={{ id: "notifications", label: "Avisos", available: true }}
             active={active === "notifications"}
             onSelect={onSelect}
           />
         )}
         <SidebarButton
-          item={{ id: "settings", label: "Settings", available: true }}
+          item={{ id: "settings", label: "Ajustes", available: true }}
           active={active === "settings"}
           onSelect={onSelect}
         />

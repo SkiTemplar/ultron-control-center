@@ -52,6 +52,7 @@ type SessionInfo = {
 const ORBIT: Array<{ tab: Tab; label: string }> = [
   { tab: "chat", label: "chat" },
   { tab: "conversations", label: "conversaciones" },
+  { tab: "terminals", label: "terminales" },
   { tab: "memory", label: "memoria" },
   { tab: "agents", label: "agentes" },
   { tab: "skills", label: "skills" },
@@ -264,6 +265,9 @@ export function MariaHome({
   const [relayState, setRelayState] = useState<Record<string, ProviderState>>({});
   const [relayOrder, setRelayOrder] = useState<string[]>([]);
   const [claudeWindow, setClaudeWindow] = useState<WindowUsage | null>(null);
+  /** Ultimo problema de la linea de comando. Se pinta: un Enter que no hace
+   *  nada y no explica por que es peor que no tener la linea. */
+  const [cmdError, setCmdError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -453,9 +457,24 @@ export function MariaHome({
           e.preventDefault();
           const texto = prompt.trim();
           if (!texto) return;
-          // Misma entrada que la voz: el modelo local decide y la app ejecuta.
-          void invoke("maria_voice_ask", { text: texto }).catch(() => undefined);
           setPrompt("");
+          setCmdError(null);
+          // Misma entrada que la voz: el modelo local decide y la app ejecuta.
+          // Si el sidecar no esta levantado se levanta AQUI y se reintenta:
+          // antes el Enter no hacia absolutamente nada y no habia forma de
+          // saber por que (reportado por el usuario el 2026-09-18).
+          void (async () => {
+            try {
+              await invoke("maria_voice_ask", { text: texto });
+            } catch {
+              try {
+                await invoke("maria_voice_start");
+                await invoke("maria_voice_ask", { text: texto });
+              } catch (e2) {
+                setCmdError(String(e2));
+              }
+            }
+          })();
         }}
       >
         <span className="hud-label">&gt;</span>
@@ -472,6 +491,18 @@ export function MariaHome({
           }}
         />
       </form>
+      {cmdError && (
+        <p
+          className="relative z-10 mx-auto mb-4 w-[min(620px,80%)] px-3 py-2 text-[11px]"
+          style={{
+            border: "1px solid var(--color-danger)",
+            color: "var(--color-danger)",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {cmdError}
+        </p>
+      )}
     </div>
   );
 }

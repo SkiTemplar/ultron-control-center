@@ -344,7 +344,11 @@ pub fn query_state(model: &str) -> OllamaState {
 /// Arranca `ollama serve` oculto en segundo plano si la API no responde, y
 /// espera (con timeout acotado) a que empiece a contestar. No hace nada si
 /// la API ya esta arriba.
-fn ensure_server_running() -> Result<(), String> {
+/// Levanta `ollama serve` si no responde. NO carga ningun modelo: el
+/// servidor en reposo ocupa ~30 MB de RAM y 0 de VRAM, y es lo que permite
+/// que la primera pregunta solo pague la carga del modelo y no ademas el
+/// arranque del servicio. mar.ia lo llama al arrancar (ver `lib.rs`).
+pub fn ensure_server_running() -> Result<(), String> {
     let client = http_client()?;
     if client.get(ps_url()).send().is_ok() {
         return Ok(()); // ya esta arriba

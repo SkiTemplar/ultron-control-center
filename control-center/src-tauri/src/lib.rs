@@ -51,6 +51,8 @@ mod maria; // mar.ia: puente de estado de voz hacia las ventanas
 mod maria_quota; // mar.ia: consumo real por ventana movil
 mod maria_sysinfo; // mar.ia: consumo real por ventana movil
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
+mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
+mod maria_term; // mar.ia: terminales embebidas (claude/codex/gemini/powershell)
 mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
 mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
 mod mcps;
@@ -355,6 +357,19 @@ pub fn run() {
             // Never panics — a missing exe is logged and boot continues.
             std::thread::spawn(|| {
                 qdrant_auto_launch();
+            });
+
+            // mar.ia: el servidor de Ollama levantado, el modelo NO cargado.
+            // El usuario pidio exactamente esto: "cuando se abra maria, ya
+            // deberia estar levantado (pero no cargado) el modelo local".
+            // Sin esto, la primera pregunta fallaba en seco si Ollama no
+            // estaba corriendo (medido el 2026-09-18: 0 procesos ollama y la
+            // linea de comandos del overview no hacia nada). `serve` en
+            // reposo no ocupa VRAM; la carga/descarga por pregunta la sigue
+            // gobernando `keep_alive` en maria_relay/maria_voice.
+            std::thread::spawn(|| match crate::ollama::toggle::ensure_server_running() {
+                Ok(()) => tracing::info!("maria: ollama serve disponible"),
+                Err(e) => tracing::warn!(error = %e, "maria: ollama serve no disponible"),
             });
 
             // Auto-warm the agent/skill catalog off the startup thread so skills

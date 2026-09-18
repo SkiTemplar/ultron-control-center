@@ -54,11 +54,14 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 # Medido en la 4080 Laptop el 17/09/2026: 6,6 GB, 3,4 s por respuesta en
 # caliente, 51 tok/s y tool calling correcto en español.
 LLM_MODEL = "qwen3.5:9b"
-# El modelo se descarga en cuanto contesta: la GPU queda libre (774 MiB en
-# reposo). Durante una conversacion activa se mantiene unos segundos para que
-# el turno siguiente no pague la carga otra vez.
-KEEP_ALIVE_IDLE = "0"
-KEEP_ALIVE_ACTIVE = "45s"
+# El modelo se descarga EN CUANTO contesta: la GPU queda libre (774 MiB en
+# reposo, medido). Decision explicita del usuario el 2026-09-18 ("se debe
+# cargar y descargar por cada pregunta, es igual que tarde un poco mas"), asi
+# que no se deja ninguna ventana de gracia: cada turno paga la carga (3,0 s en
+# caliente, hasta 36 s en frio) a cambio de no reservar 6,6 GB de VRAM entre
+# preguntas. El servidor `ollama serve` SI queda levantado (lo arranca la app
+# al abrirse): lo que se descarga es el modelo, no el servicio.
+KEEP_ALIVE_POR_TURNO = "0"
 
 # --- palabra clave ---------------------------------------------------------
 # Vosk (Apache-2.0) con el modelo pequeno de español: 58 MB en disco, corre en
@@ -418,7 +421,13 @@ class WakeListener:
 
 
 def stdin_reader(commands: "queue.Queue[dict[str, Any]]") -> None:
-    """Lee ordenes del supervisor. Hilo aparte: la escucha bloquea."""
+    """Lee ordenes del supervisor. Hilo aparte: la escucha bloquea.
+
+    Cuando stdin se cierra, el padre ha muerto: se manda `shutdown` para que
+    el bucle principal salga. Sin esto el sidecar quedaba huerfano esperando
+    ordenes eternamente y RETENIENDO EL MICROFONO (medido: 4 procesos vivos
+    tras varios arranques de la app, 2026-09-18).
+    """
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -427,6 +436,7 @@ def stdin_reader(commands: "queue.Queue[dict[str, Any]]") -> None:
             commands.put(json.loads(line))
         except json.JSONDecodeError:
             emit("error", message=f"orden ilegible: {line[:120]}")
+    commands.put({"cmd": "shutdown"})
 
 
 def acknowledge(calls: list[dict[str, Any]]) -> str:
@@ -480,7 +490,7 @@ def process_text(text: str, speak_fn: Callable[[str], None]) -> None:
     """
     emit("transcript", text=text)
 
-    message = ask_llm(text, TOOLS, KEEP_ALIVE_ACTIVE)
+    message = ask_llm(text, TOOLS, KEEP_ALIVE_POR_TURNO)
     calls = message.get("tool_calls") or []
     for call in calls:
         fn = call.get("function", {})

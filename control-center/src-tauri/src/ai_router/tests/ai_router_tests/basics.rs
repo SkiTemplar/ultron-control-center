@@ -60,17 +60,26 @@ fn codex_cli_omits_model_flag_when_model_is_empty() {
 
 #[test]
 fn seed_providers_includes_all_targets() {
+    // mar.ia (2026-09-18): el catalogo se redujo a peticion del usuario a
+    // Claude, GPT (codex), Gemini y el modelo local. Groq, DeepSeek y
+    // claude-haiku salieron del seed, asi que esta prueba ya no puede
+    // exigirlos.
     let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
-    for expected in [
-        "claude",
-        "claude-haiku",
-        "codex",
-        "gemini",
-        "groq",
-        "ollama",
-        "deepseek",
-    ] {
+    for expected in ["claude", "codex", "gemini", "ollama"] {
         assert!(ids.iter().any(|id| id == expected), "missing {}", expected);
+    }
+}
+
+#[test]
+fn seed_providers_no_trae_los_proveedores_retirados() {
+    // Caso negativo: si alguno vuelve a colarse en el seed, reaparece en la
+    // lista de la interfaz y el usuario vuelve a tener que quitarlo a mano.
+    let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
+    for retirado in ["groq", "deepseek", "claude-haiku"] {
+        assert!(
+            !ids.iter().any(|id| id == retirado),
+            "{retirado} volvio al catalogo"
+        );
     }
 }
 

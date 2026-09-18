@@ -2,7 +2,7 @@
 
 use base64::Engine;
 use portable_pty::{native_pty_system, PtySize};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::thread;
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -206,8 +206,75 @@ pub(super) fn should_notify_session_error(exit_code: i32, enabled: bool) -> bool
     enabled && exit_code > 0
 }
 
-// `write_inner` / `kill_inner` / `capture_output_inner` (write/kill-by-id +
-// offset-based output capture) were retired 2026-09-14 alongside
-// `agent_orchestration::delegate`, their only caller (kanban "comandos
-// huérfanos"). Recoverable from git history if the feature gets wired to a
-// UI later.
+// ---------------------------------------------------------------------------
+// Terminal embebida de mar.ia (2026-09-18)
+// ---------------------------------------------------------------------------
+//
+// `write_inner`/`kill_inner` se retiraron en 2026-09-14 al quedarse sin
+// consumidor. Vuelven — reescritos, no copiados — porque ahora SI hay
+// interfaz: la pestana "Terminales" de mar.ia, que el usuario pidio para
+// lanzar claude/codex/gemini dentro de la aplicacion en vez de en consolas
+// sueltas. `subscribe_inner` es nuevo: enciende la emision en vivo y devuelve
+// lo ya capturado, para que al volver a la pestana el terminal no aparezca en
+// blanco.
+
+/// Escribe en el PTY (tecleado del usuario).
+pub fn write_inner(id: &str, data: &[u8]) -> Result<(), String> {
+    let mut reg = registry().lock().map_err(|e| e.to_string())?;
+    let s = reg.get_mut(id).ok_or("sesion de terminal no encontrada")?;
+    s.writer
+        .write_all(data)
+        .and_then(|()| s.writer.flush())
+        .map_err(|e| format!("escribir en el terminal: {e}"))
+}
+
+/// Ajusta el tamano del PTY. Sin esto, las TUIs (Claude, Codex) pintan sobre
+/// una rejilla de 120x30 fija y el texto se parte al redimensionar la ventana.
+pub fn resize_inner(id: &str, rows: u16, cols: u16) -> Result<(), String> {
+    if rows == 0 || cols == 0 {
+        return Err("tamano de terminal invalido".into());
+    }
+    let reg = registry().lock().map_err(|e| e.to_string())?;
+    let s = reg.get(id).ok_or("sesion de terminal no encontrada")?;
+    s.master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("redimensionar: {e}"))
+}
+
+/// Enciende la emision en vivo y devuelve en base64 lo capturado hasta ahora.
+pub fn subscribe_inner(id: &str) -> Result<String, String> {
+    let mut reg = registry().lock().map_err(|e| e.to_string())?;
+    let s = reg.get_mut(id).ok_or("sesion de terminal no encontrada")?;
+    s.subscribed = true;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&s.output_buffer))
+}
+
+/// Mata una sesion y la saca del registro.
+pub fn kill_inner(id: &str) -> Result<(), String> {
+    let mut reg = registry().lock().map_err(|e| e.to_string())?;
+    let mut s = reg.remove(id).ok_or("sesion de terminal no encontrada")?;
+    let _ = s.child.kill();
+    s.status = PtyStatus::Killed;
+    Ok(())
+}
+
+/// Sesiones vivas, para repintar las pestanas tras recargar la interfaz.
+pub fn list_inner() -> Vec<(String, String, bool)> {
+    let Ok(reg) = registry().lock() else {
+        return Vec::new();
+    };
+    reg.values()
+        .map(|s| {
+            (
+                s.id.clone(),
+                s.provider.clone(),
+                matches!(s.status, PtyStatus::Running),
+            )
+        })
+        .collect()
+}

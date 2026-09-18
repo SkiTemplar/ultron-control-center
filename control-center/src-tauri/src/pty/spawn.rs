@@ -161,7 +161,11 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
         return Err("provider is empty".to_string());
     }
     match trimmed {
-        "claude" | "codex" => {
+        // mar.ia (2026-09-18): "gemini" entra aqui para que la terminal
+        // embebida pueda lanzar las TRES CLIs de suscripcion. La rama ya era
+        // generica (sondea el nombre en PATH y lo ejecuta), asi que no
+        // necesita un caso propio.
+        "claude" | "codex" | "gemini" => {
             // v2.6 bug fix: pre-validate the binary exists on PATH. Without
             // this, codex just opens a PTY that immediately dies because
             // cmd.exe ran but the shim wasn't found — the user sees a blank

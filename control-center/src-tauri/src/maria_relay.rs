@@ -40,6 +40,23 @@ const MAX_TURNO_CHARS: usize = 1_200;
 /// Tiempo maximo por proveedor antes de pasar al siguiente.
 const TIMEOUT_PROVEEDOR: Duration = Duration::from_secs(180);
 
+/// Cuanto vive el modelo local en VRAM DENTRO de un turno. No es la politica
+/// de reposo: al acabar el turno se descarga explicitamente (ver
+/// `descargar_modelo_local`). Esta ventana solo evita recargarlo entre la
+/// eleccion de destino y la respuesta, que son dos llamadas seguidas.
+const KEEP_ALIVE_TURNO: &str = "2m";
+
+/// Suelta el modelo local de la VRAM. Se llama al terminar cada turno:
+/// el usuario pidio "cargar y descargar por cada pregunta" (2026-09-18).
+/// Silencioso a proposito — si Ollama no esta, no hay nada que soltar y el
+/// turno ya ha terminado.
+fn descargar_modelo_local() {
+    let modelo = crate::ollama::toggle::model_name();
+    if let Err(e) = crate::ollama::toggle::deactivate(&modelo) {
+        tracing::debug!(error = %e, "no se pudo descargar el modelo local");
+    }
+}
+
 /// Un turno del hilo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Turn {
@@ -410,8 +427,11 @@ fn run_local(prompt: &str) -> Result<String, (String, bool)> {
         "model": crate::ollama::toggle::model_name(),
         "stream": false,
         "think": false,
-        // Se descarga en cuanto contesta: la GPU queda libre.
-        "keep_alive": "30s",
+        // Ventana corta DENTRO del turno (la eleccion de destino y la
+        // respuesta son dos llamadas seguidas). Al terminar `ask` se descarga
+        // a mano con `descargar_modelo_local`: asi la VRAM queda libre entre
+        // preguntas sin recargar el modelo dos veces en la misma.
+        "keep_alive": KEEP_ALIVE_TURNO,
         "messages": [{ "role": "user", "content": prompt }],
         "options": { "num_ctx": 8192, "num_predict": 600 },
     });
@@ -481,7 +501,7 @@ fn order_for_task(prompt: &str, cfg: &RelayConfig) -> (Vec<String>, Option<Strin
         "model": crate::ollama::toggle::model_name(),
         "stream": false,
         "think": false,
-        "keep_alive": "30s",
+        "keep_alive": KEEP_ALIVE_TURNO,
         "messages": [{ "role": "user", "content": instruccion }],
         "options": { "num_ctx": 2048, "num_predict": 8, "temperature": 0 },
     });
@@ -541,7 +561,26 @@ fn memoria_para(prompt: &str) -> Option<String> {
 }
 
 /// Pregunta al hilo `thread_id`, relevando proveedores hasta que uno conteste.
-pub fn ask(thread_id: &str, prompt: &str) -> Result<RelayAnswer, String> {
+///
+/// `forzado` salta la eleccion del modelo local y pone ese proveedor el
+/// primero (lo usa el comando `/migrar` del chat). El resto del orden se
+/// conserva como red de seguridad: forzar a Claude cuando Claude no tiene
+/// cuota no puede dejar al usuario sin respuesta.
+pub fn ask(thread_id: &str, prompt: &str, forzado: Option<&str>) -> Result<RelayAnswer, String> {
+    let r = ask_inner(thread_id, prompt, forzado);
+    // Pase lo que pase, la VRAM queda libre: el turno ha terminado.
+    descargar_modelo_local();
+    if r.is_ok() {
+        crate::maria_threads::touch(thread_id);
+    }
+    r
+}
+
+fn ask_inner(
+    thread_id: &str,
+    prompt: &str,
+    forzado: Option<&str>,
+) -> Result<RelayAnswer, String> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
         return Err("no me has dicho nada".into());
@@ -569,7 +608,15 @@ pub fn ask(thread_id: &str, prompt: &str) -> Result<RelayAnswer, String> {
     let mut state = load_state();
     // Quien atiende primero lo decide el modelo local segun la tarea: es
     // gratis y evita gastar una peticion de Claude en algo trivial.
-    let (orden, elegido) = order_for_task(prompt, &cfg);
+    let (orden, elegido) = match forzado.filter(|f| cfg.order.iter().any(|o| o == f)) {
+        // Migracion pedida a mano: no se consulta al local, manda el usuario.
+        Some(f) => {
+            let mut orden = vec![f.to_string()];
+            orden.extend(cfg.order.iter().filter(|o| o.as_str() != f).cloned());
+            (orden, None)
+        }
+        None => order_for_task(prompt, &cfg),
+    };
     if let Some(p) = &elegido {
         tracing::info!(proveedor = %p, "el modelo local eligio destino");
     }
@@ -645,9 +692,13 @@ pub fn ask(thread_id: &str, prompt: &str) -> Result<RelayAnswer, String> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub async fn maria_relay_ask(thread_id: String, prompt: String) -> Result<RelayAnswer, String> {
+pub async fn maria_relay_ask(
+    thread_id: String,
+    prompt: String,
+    provider: Option<String>,
+) -> Result<RelayAnswer, String> {
     // Bloqueante (procesos + red) fuera del hilo async de Tauri.
-    tauri::async_runtime::spawn_blocking(move || ask(&thread_id, &prompt))
+    tauri::async_runtime::spawn_blocking(move || ask(&thread_id, &prompt, provider.as_deref()))
         .await
         .map_err(|e| format!("spawn_blocking: {e}"))?
 }
