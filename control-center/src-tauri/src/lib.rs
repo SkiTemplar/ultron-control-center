@@ -47,6 +47,8 @@ mod kg;
 mod library;
 mod logs;
 mod maintenance;
+mod maria; // mar.ia: ventana del orbe + puente de estado de voz
+mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod migration;
@@ -216,7 +218,14 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
+                    // mar.ia: pulsar-para-hablar necesita AMBOS estados
+                    // (pulsar graba, soltar cierra la toma), asi que se
+                    // atiende antes del filtro de `Pressed`.
+                    let pressed = event.state() == ShortcutState::Pressed;
+                    if maria_voice::handle_ptt(shortcut, pressed) {
+                        return;
+                    }
+                    if pressed {
                         if project_hotkeys::handle_shortcut(app, shortcut, event.state()) {
                             return;
                         }
@@ -298,6 +307,22 @@ pub fn run() {
                 tracing::error!(error = %e, "global shortcut register failed");
             }
 
+            // mar.ia — pulsar para hablar (por defecto Ctrl+Espacio). Es un
+            // atajo GLOBAL: mientras mar.ia corra, esa combinacion deja de
+            // llegar a las demas aplicaciones. Se cambia en
+            // ~/.ultron/.tmp/maria-ptt.txt.
+            let ptt_spec = maria_voice::ptt_spec();
+            match hotkeys::parse_hotkey(&ptt_spec) {
+                Ok(ptt) => {
+                    if let Err(e) = shortcut_handle.register(ptt) {
+                        tracing::error!(hotkey = %ptt_spec, error = %e,
+                            "no pude registrar pulsar-para-hablar");
+                    }
+                }
+                Err(e) => tracing::error!(hotkey = %ptt_spec, error = %e,
+                    "combinacion de pulsar-para-hablar invalida"),
+            }
+
             // Per-project hotkeys — user-defined in Settings → Project
             // hotkeys, persisted at ~/.ultron/cockpit/project-hotkeys.json.
             // (The legacy auto-registered Ctrl+Alt+1..9 set was removed in
@@ -309,6 +334,16 @@ pub fn run() {
             // Tray + close-to-tray.
             if let Err(e) = tray::init_tray(app.handle()) {
                 tracing::error!(error = %e, "tray init failed");
+            }
+
+            // mar.ia: el orbe es la cara de la aplicacion, asi que aparece al
+            // arrancar. Best-effort: si la ventana no se puede crear, la app
+            // sigue siendo la de siempre (ventana principal + bandeja).
+            // MARIA_ORB=0 lo desactiva para arranques sin interfaz flotante.
+            if std::env::var("MARIA_ORB").as_deref() != Ok("0") {
+                if let Err(e) = maria::open_orb_inner(app.handle()) {
+                    tracing::warn!(error = %e, "no pude abrir el orbe de mar.ia");
+                }
             }
 
             // Quota watchdog — polls quota-state.json every 60 s and emits

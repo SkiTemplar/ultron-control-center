@@ -409,6 +409,13 @@ function AppInner() {
       run: () => void refreshAll(),
     });
     list.push({
+      id: "maria-orb",
+      label: "mar.ia — abrir el orbe",
+      description: "Ventana pequeña con el blob: voz, estado y acceso rápido.",
+      group: "Actions",
+      run: () => void runQuiet("Abrir el orbe de mar.ia", "maria_open_orb"),
+    });
+    list.push({
       id: "settings",
       label: "Open Settings",
       group: "Actions",

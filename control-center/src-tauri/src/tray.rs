@@ -121,7 +121,10 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Menu items. Each gets a stable id so the menu event handler can
     // route by string match. Tauri 2 uses MenuItem::with_id; ids are
     // returned by event.id().as_ref().
-    let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
+    let open_i = MenuItem::with_id(app, "open", "Abrir mar.ia", true, None::<&str>)?;
+    // mar.ia: el orbe es la cara del asistente y tiene que poder invocarse
+    // sin abrir la aplicacion entera.
+    let orb_i = MenuItem::with_id(app, "maria_orb", "mar.ia — orbe", true, None::<&str>)?;
     let new_claude_i =
         MenuItem::with_id(app, "new_claude", "New Claude session", true, None::<&str>)?;
     let new_codex_i = MenuItem::with_id(app, "new_codex", "New Codex session", true, None::<&str>)?;
@@ -151,6 +154,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         app,
         &[
             &open_i,
+            &orb_i,
             &new_claude_i,
             &new_codex_i,
             &plans_i,
@@ -173,7 +177,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .clone();
 
     let _tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("ULTRON Control Center")
+        .tooltip("mar.ia")
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -199,6 +203,13 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         let _guard = guard; // liberado al terminar el cierre (Drop)
                         handle_ollama_click(&app_handle, &item);
                     });
+                }
+                "maria_orb" => {
+                    if let Err(e) = crate::maria::open_orb_inner(app) {
+                        crate::toast_emit::record_alert_and_maybe_toast(
+                            app, "maria_orb", "warn", &e,
+                        );
+                    }
                 }
                 "new_claude" | "new_codex" | "open_plans" | "open_memory" => {
                     // Surface the window first so the user sees the
