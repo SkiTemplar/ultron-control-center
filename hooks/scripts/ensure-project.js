@@ -200,6 +200,21 @@ function darDeAlta(cwd, id) {
  * ".". Asi una carpeta con `&`, espacios o comillas en el nombre no puede
  * inyectar nada en la linea de comandos.
  */
+/**
+ * Solo se indexa una carpeta dada de alta como proyecto, sin indice previo y
+ * fuera de la carpeta temporal del sistema. Antes se indexaba CUALQUIER cwd: una
+ * sesion headless con cwd=%TEMP% dejo un indice de 364 MB sobre los temporales
+ * (2026-09-11), que ademas hacia creer a los demas hooks que todo lo que cuelga
+ * de %TEMP% tiene indice.
+ */
+function debeIndexarCodegraph(cwd, idProyecto, tmpDir) {
+  if (!idProyecto) return false;
+  const tmp = norm(path.resolve(tmpDir)).replace(/\\/g, '/');
+  const dir = norm(path.resolve(cwd)).replace(/\\/g, '/');
+  if (dir === tmp || dir.startsWith(`${tmp}/`)) return false;
+  return !fs.existsSync(path.join(cwd, '.codegraph'));
+}
+
 function indexarCodegraph(cwd) {
   const hijo = spawn('codegraph', ['init', '.'], {
     cwd,
@@ -260,7 +275,7 @@ function main() {
   }
 
   // CodeGraph: indexar es lo caro, asi que va detached y solo si falta.
-  if (!fs.existsSync(path.join(cwd, '.codegraph'))) {
+  if (debeIndexarCodegraph(cwd, idProyecto, os.tmpdir())) {
     try {
       indexarCodegraph(cwd);
       avisos.push('Indice CodeGraph ausente: indexando en segundo plano (codegraph init). Estara disponible en los proximos turnos.');
@@ -272,10 +287,16 @@ function main() {
   emit(avisos.length ? `## Estado del proyecto (ensure-project)\n\n- ${avisos.join('\n- ')}` : '');
 }
 
-try {
-  main();
-} catch (e) {
-  logHookError('ensure-project', e);
-  try { emit(''); } catch { /* ignore */ }
+// Solo corre el hook cuando se invoca directamente; al importarse (tests)
+// expone las funciones puras sin leer stdin ni tocar el registro.
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    logHookError('ensure-project', e);
+    try { emit(''); } catch { /* ignore */ }
+  }
+  process.exitCode = 0;
+} else {
+  module.exports = { debeIndexarCodegraph };
 }
-process.exitCode = 0;

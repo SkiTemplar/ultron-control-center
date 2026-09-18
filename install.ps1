@@ -59,7 +59,7 @@
 
 .EXAMPLE
   # Standard one-liner from a fresh shell - opens the visual wizard:
-  iex (irm https://raw.githubusercontent.com/SkiTemplar/ultron/main/install.ps1)
+  iex (irm https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/install.ps1)
 
 .EXAMPLE
   # Skip the wizard, ask each question in the terminal:
@@ -168,7 +168,7 @@ function Write-Banner {
     Write-Host ""
     Write-Host "======================================================="
     Write-Host " ULTRON installer (root) $Script:VersionFallback"
-    Write-Host " https://github.com/SkiTemplar/ultron"
+    Write-Host " https://github.com/SkiTemplar/ultron-control-center"
     Write-Host "======================================================="
     Write-Host ""
     Write-Host " Auto-install enabled: missing dependencies (git, Node,"

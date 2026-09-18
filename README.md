@@ -39,7 +39,7 @@ Code: lo envuelve con estado persistente, inspeccionable y versionable.
 recomendado; es idempotente y pregunta antes de tocar nada:
 
 ```powershell
-git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # Linux: ./install.sh
 ```
@@ -58,7 +58,7 @@ plan sin tocar nada):
 **Solo la app de escritorio** (sin skills/hooks/sidecar de memoria):
 
 ```bash
-git clone https://github.com/SkiTemplar/ultron.git ~/.ultron && cd ~/.ultron/control-center
+git clone https://github.com/SkiTemplar/ultron-control-center.git ~/.ultron && cd ~/.ultron/control-center
 cp ../.env.example ../.env   # opcional: claves de proveedores LLM (todas vacias por defecto)
 npm install
 npm run build:app            # = kill-app + tauri build -> ejecutable de escritorio
@@ -191,6 +191,30 @@ memoria esta en `control-center/src-tauri/src/memory/`.
   checks usan sondas baratas y no gastan tokens; las invocaciones de test si.
 - Zonas por defecto incluyen `chat`, `code-edit`, `code-review`, `research-web`,
   `code-fast-local`, entre otras.
+
+#### Para que sirven los LLM secundarios (y para que no)
+
+El router **no toca tu conversacion con Claude Code**: esa sesion habla directa
+con Anthropic. Los modelos secundarios son la fontaneria barata de la app —
+tareas cortas, de una sola vuelta, donde gastar el modelo grande no aporta nada.
+Con una clave gratuita de Groq (y Gemini de relevo) funciona todo lo de abajo;
+sin ninguna clave, cada una cae a su camino sin IA o devuelve un error explicito,
+y el resto de la app sigue igual.
+
+| Zona | Quien la consume hoy | Para que |
+|------|----------------------|----------|
+| `summarize` | resumen de sesion, etiquetado de sesiones, alerta de coste | comprimir texto a una o pocas frases |
+| `chat` | captura de memoria y juez de candidatos | extraer decisiones de un turno y decidir si merecen guardarse |
+| `utility` | nombrado de hooks | poner nombre legible a un hook a partir de su codigo |
+| `light` | categorias de apps, resumen de novedades de plugins | respuestas de una palabra o una linea |
+| `code-review` / `code-edit` | analisis previo a instalar un repo desde Library | informe JSON de que instala y que riesgo tiene |
+| `research-web`, `code-fast-local`, `routing-decision` | **ningun consumidor en el backend todavia** | se pueden probar desde la pestana AI Router; no las llama ninguna funcion |
+
+El enrutado de skills, el destilado de lecciones y el perfil de proyecto usan
+una cadena aparte (`orchestrator/skill_llm`), con cuota propia, para no competir
+con estas zonas. **Ollama** es opcional: hoy solo respalda `code-fast-local` y el
+ultimo relevo de `light`; si no vas a trabajar sin conexion, no hace falta
+instalarlo.
 
 ### Orquestador: deteccion automatica de skills/agentes
 

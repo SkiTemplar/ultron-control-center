@@ -2,15 +2,15 @@
 # bootstrap.sh — ULTRON one-shot installer for Linux (v15.5+)
 #
 # Run from anywhere on Linux:
-#   curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.sh | bash
 #
 # Or download + run:
-#   curl -fsSL -o ultron-bootstrap.sh https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh
+#   curl -fsSL -o ultron-bootstrap.sh https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.sh
 #   chmod +x ultron-bootstrap.sh
 #   ./ultron-bootstrap.sh
 #
 # What it does (no git clone required):
-#   1. Fetches the latest GitHub release for SkiTemplar/ultron.
+#   1. Fetches the latest GitHub release for SkiTemplar/ultron-control-center.
 #   2. Downloads `ultron-system-<ver>.zip` + .sha256, verifies, extracts to ~/.ultron.
 #   3. Runs install.sh (which wires skills / agents / hooks / Qdrant).
 #   4. Downloads the Linux Tauri artifact (.AppImage preferred, .deb fallback)
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 # ─── defaults / flag parsing ────────────────────────────────────────────────
-REPO="SkiTemplar/ultron"
+REPO="SkiTemplar/ultron-control-center"
 INSTALL_DIR="${HOME}/.ultron"
 SKIP_INSTALLER=0
 DRY_RUN=0

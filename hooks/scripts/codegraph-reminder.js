@@ -72,6 +72,22 @@ function classifyArgs(tokens) {
   return 'unknown';
 }
 
+// Lideres de segmento de un comando Bash: lo que va antes del primer pipe de
+// cada tramo secuenciado (&&, ||, ;, salto de linea). Unica fuente de verdad
+// para isBlindCodeExploration y bashSearchPattern. El cuerpo de un heredoc es
+// CONTENIDO que se escribe, no comandos: se elimina (sus `;` partian segmentos
+// falsos) y el segmento que lo abre (`cat > f <<EOF`) se descarta, porque
+// escribe un fichero en vez de leer codigo. Un here-string (`<<<`) no es heredoc.
+const HEREDOC_BODY_RE = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g;
+const HEREDOC_OPEN_RE = /(^|[^<])<<-?\s*['"]?\w/;
+function segmentLeaders(command) {
+  const cmd = String(command || '').replace(HEREDOC_BODY_RE, '<<$2');
+  return cmd
+    .split(/&&|\|\||;|\n/)
+    .map((seg) => seg.split('|')[0].trim())
+    .filter((leader) => leader && !HEREDOC_OPEN_RE.test(leader));
+}
+
 // True si el comando Bash es exploracion de CODIGO a ciegas. Mira solo los
 // lideres de cada segmento secuenciado (&&/||/;); IGNORA lo que va tras un pipe
 // (`| head`, `| wc -l` son post-proceso de, p.ej., `cargo test | tail` — que NO
@@ -81,12 +97,7 @@ function classifyArgs(tokens) {
 //  - busqueda con objetivo SOLO de datos -> no (grep sobre manifest.json, logs)
 //  - lectura pasiva (cat/tail/ls/...) sin argumento de codigo -> no
 function isBlindCodeExploration(command) {
-  const cmd = String(command || '');
-  if (!cmd.trim()) return false;
-  const segments = cmd.split(/&&|\|\||;/);
-  for (const seg of segments) {
-    const leader = seg.split('|')[0].trim();
-    if (!leader) continue;
+  for (const leader of segmentLeaders(command)) {
     // Descarta prefijos VAR=val y toma el primer token; basename sin ruta.
     const tokens = leader.split(/\s+/).filter((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
     if (!tokens.length) continue;
@@ -165,21 +176,61 @@ function isSymbolPattern(pattern) {
   return /^[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.|->|#)[A-Za-z_][A-Za-z0-9_]*)*$/.test(p);
 }
 
-// Primer patron "de simbolo" de un grep/rg en Bash, si lo hay.
+// Primer patron "de simbolo" de un grep/rg en Bash, si lo hay. Solo cuenta el
+// grep/rg que LIDERA un segmento: tras un pipe es un filtro de salida
+// (`node x | grep -v warning`), no una busqueda en el arbol (falso positivo
+// medido 2026-09-18). Mismo criterio de segmentos que isBlindCodeExploration.
+const LEADING_SEARCH_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*[\\/])?(?:grep|rg)\b((?:\s+-{1,2}[A-Za-z-]+(?:=\S+)?)*)\s+(['"]?)([^'"\s|]+)\2/;
 function bashSearchPattern(command) {
-  const m = String(command || '').match(/\b(?:grep|rg)\b((?:\s+-{1,2}[A-Za-z-]+(?:=\S+)?)*)\s+(['"]?)([^'"\s|]+)\2/);
-  return m ? m[3] : '';
+  for (const leader of segmentLeaders(command)) {
+    const m = leader.match(LEADING_SEARCH_RE);
+    if (m) return m[3];
+  }
+  return '';
+}
+
+// node:sqlite avisa por stderr de que es experimental en CADA proceso; este hook
+// corre en cada herramienta, asi que se silencia solo durante la carga.
+function loadSqlite() {
+  const emitWarning = process.emitWarning;
+  process.emitWarning = () => {};
+  try {
+    return require('node:sqlite');
+  } finally {
+    process.emitWarning = emitWarning;
+  }
+}
+
+// True si el indice conoce un simbolo con ese nombre (ultimo segmento de una
+// ruta `a::b::c` / `a.b`). Es lo que justifica el deny: si el indice no lo
+// tiene, codegraph_search tampoco lo va a resolver y el grep es legitimo.
+// Fail-open: sin node:sqlite, sin DB o con la DB ocupada => false (no deny).
+function symbolInIndexDb(pattern, dbPath) {
+  if (!dbPath) return false;
+  const name = String(pattern).split(/::|\.|->|#/).pop();
+  const { DatabaseSync } = loadSqlite();
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return !!db.prepare('SELECT 1 FROM nodes WHERE name = ? LIMIT 1').get(name);
+  } finally {
+    db.close();
+  }
 }
 
 /**
  * Decision pura del gate para una exploracion que YA se sabe aplicable.
  * Devuelve null (dejar pasar / solo nudge) o el motivo del deny.
  */
-function gateDecision({ tool, toolInput, explores, mode }) {
+function gateDecision({ tool, toolInput, explores, mode, symbolInIndex }) {
   if (mode !== 'deny' || explores <= GATE_FREE) return null;
   const ti = toolInput || {};
+  // Solo se deniega lo que el indice puede responder de verdad.
+  const known = (pattern) => {
+    if (typeof symbolInIndex !== 'function') return true;
+    try { return !!symbolInIndex(pattern); } catch (_) { return false; }
+  };
   if (tool === 'Grep') {
-    if (!isSymbolPattern(ti.pattern)) return null;
+    if (!isSymbolPattern(ti.pattern) || !known(ti.pattern)) return null;
     return (
       `[ULTRON / CodeGraph] Grep "${ti.pattern}" DENEGADO: ${explores} exploraciones a ciegas ` +
       `seguidas sin usar el indice. Sustituyelo por codegraph_search "${ti.pattern}" ` +
@@ -199,7 +250,7 @@ function gateDecision({ tool, toolInput, explores, mode }) {
   }
   if (tool === 'Bash') {
     const pat = bashSearchPattern(ti.command);
-    if (!isSymbolPattern(pat)) return null;
+    if (!isSymbolPattern(pat) || !known(pat)) return null;
     return (
       `[ULTRON / CodeGraph] grep/rg "${pat}" en Bash DENEGADO: ${explores} exploraciones a ciegas ` +
       `seguidas sin usar el indice. Sustituyelo por codegraph_search "${pat}" o codegraph_explore "${pat}". ` +
@@ -250,19 +301,21 @@ function lastCodegraphUseOffset(transcriptPath) {
   }
 }
 
-function findCodegraphDb(startDir) {
+function findCodegraphDbPath(startDir) {
   // Sube hasta 8 niveles buscando .codegraph/codegraph.db
   let dir = startDir;
   for (let i = 0; i < 8 && dir; i++) {
+    const candidate = path.join(dir, '.codegraph', 'codegraph.db');
     try {
-      if (fs.existsSync(path.join(dir, '.codegraph', 'codegraph.db'))) return true;
+      if (fs.existsSync(candidate)) return candidate;
     } catch (_) { /* ignore */ }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return false;
+  return '';
 }
+
 
 function handle(raw) {
   // Strip BOM y espacios (algunos shells/encodings anteponen BOM UTF-8,
@@ -302,7 +355,8 @@ function handle(raw) {
   // Solo si hay indice codegraph aplicable
   const anchorDir = path.extname(target) ? path.dirname(target) : target;
   const underUltron = /[\\/]\.ultron([\\/]|$)/i.test(target) || /[\\/]\.ultron([\\/]|$)/i.test(cwd);
-  if (!underUltron && !findCodegraphDb(anchorDir || cwd)) return;
+  const dbPath = findCodegraphDbPath(anchorDir || cwd);
+  if (!underUltron && !dbPath) return;
 
   // Contador persistente por sesion (mismo fichero temp que el viejo marker
   // booleano): explores = exploraciones desde el ultimo uso de codegraph;
@@ -344,6 +398,7 @@ function handle(raw) {
     toolInput: ti,
     explores: state.explores,
     mode: gateMode(),
+    symbolInIndex: (pattern) => symbolInIndexDb(pattern, dbPath),
   });
   if (denyReason) {
     return JSON.stringify({
@@ -402,6 +457,7 @@ if (require.main === module) {
     isSymbolPattern,
     bashSearchPattern,
     gateDecision,
+    symbolInIndexDb,
     GATE_FREE,
   };
 }

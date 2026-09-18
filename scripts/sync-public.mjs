@@ -16,6 +16,8 @@
  *      SOLO lo trackeado es lo que garantiza que nada ignorado viaje: el
  *      .gitignore ya es el filtro de datos personales.
  *   3. Borra del clon lo que liste .publicignore.
+ *   3b. Reapunta al espejo las URLs de este repo privado (bootstrap, instalador
+ *      y auto-updater apuntaban a un 404 para quien clonase el espejo).
  *   4. Pasa el gate PII sobre el arbol resultante y ABORTA si hay HIGH.
  *   5. Enseña altas, bajas y modificaciones.
  *   6. Con --apply, commitea y empuja. Sin --apply no escribe nada remoto.
@@ -38,6 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { reapuntarRepo, FICHEROS_REESCRITOS } from './lib/public-rewrite.mjs';
 
 const RAIZ = path.resolve(path.join(import.meta.dirname, '..'));
 const ESPEJO = 'https://github.com/SkiTemplar/ultron-control-center.git';
@@ -169,6 +172,24 @@ for (const patron of exclusiones) {
   }
 }
 log(`[sync-public] ${excluidos} fichero(s) excluidos por .publicignore`);
+
+// --- 3b. Reapuntado del repo -------------------------------------------------
+// El volcado se lleva las URLs de este repo, que es PRIVADO: quien clonaba el
+// espejo se encontraba el bootstrap, el instalador y el auto-updater apuntando
+// a un 404. Solo se reescribe el arbol publicado; aqui nada cambia.
+let reapuntados = 0;
+let refsReapuntadas = 0;
+for (const f of FICHEROS_REESCRITOS) {
+  const p = path.join(clon, f);
+  if (!fs.existsSync(p)) continue;
+  const { texto, cambios } = reapuntarRepo(fs.readFileSync(p, 'utf8'));
+  if (!cambios) continue;
+  fs.writeFileSync(p, texto);
+  reapuntados++;
+  refsReapuntadas += cambios;
+  log(`   ~ ${f} (${cambios} referencia/s al repo privado)`);
+}
+log(`[sync-public] ${reapuntados} fichero(s) reapuntados al espejo (${refsReapuntadas} referencia/s)`);
 
 // --- 4. Gate PII -------------------------------------------------------------
 log('[sync-public] gate PII sobre el arbol a publicar...');

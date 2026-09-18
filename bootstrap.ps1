@@ -1,14 +1,14 @@
 # bootstrap.ps1 - ULTRON one-shot installer (v15.4.17+)
 #
 # Run from anywhere on Windows:
-#   iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+#   iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.ps1 | iex
 #
 # Or download + run:
-#   curl -L -o ultron-bootstrap.ps1 https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
+#   curl -L -o ultron-bootstrap.ps1 https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.ps1
 #   pwsh -ExecutionPolicy Bypass -File ultron-bootstrap.ps1
 #
 # What it does (no git clone required):
-#   1. Fetches the latest GitHub release for SkiTemplar/ultron.
+#   1. Fetches the latest GitHub release for SkiTemplar/ultron-control-center.
 #   2. Downloads the `ultron-system-<ver>.zip` asset and extracts to ~/.ultron.
 #   3. Downloads the `ULTRON Control Center_<ver>_x64-setup.exe` installer.
 #   4. Runs install.ps1 (which wires skills / agents / hooks / Qdrant).
@@ -20,7 +20,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Repo = "SkiTemplar/ultron",
+    [string]$Repo = "SkiTemplar/ultron-control-center",
     [string]$InstallDir = "$env:USERPROFILE\.ultron",
     [switch]$SkipInstaller,
     [switch]$DryRun,

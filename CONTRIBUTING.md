@@ -23,7 +23,7 @@ ULTRON is a Windows 11 + Linux x86_64 (v15.5+) orchestrator for Claude Code, Cod
 From an elevated PowerShell on Windows 10/11 with Claude Code already installed and authenticated:
 
 ```powershell
-git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 .\install.ps1                       # auto-installs uv, Qdrant native, hooks (~3 min)
 cd control-center
@@ -209,7 +209,7 @@ No force-pushes to `main`. Rewrite history only on your own branch.
 
 ## Contact
 
-- **General questions, design discussion, bug reports:** GitHub Issues on `SkiTemplar/ultron`.
+- **General questions, design discussion, bug reports:** GitHub Issues on `SkiTemplar/ultron-control-center`.
 - **Security vulnerabilities:** do **not** open a public issue. Follow the disclosure process in `SECURITY.md`.
 - **Skill or agent proposals:** open a draft issue with the manifest attached. The PI scanner output is helpful context.
 

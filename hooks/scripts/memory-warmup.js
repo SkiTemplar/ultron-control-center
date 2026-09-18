@@ -18,6 +18,8 @@
 // one-shot (cold E5, correcto). Este hook nunca bloquea: emite vacio y exit 0.
 
 const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
 const { spawnDetached } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
 observe('memory-warmup');
@@ -33,11 +35,25 @@ function emit(additionalContext) {
   );
 }
 
+function warmModelsDetached() {
+  const child = spawn(process.execPath, [path.join(__dirname, 'memory-warm-models.js')], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.on('error', (e) => logHookError('memory-warmup', e));
+  child.unref();
+}
+
 function main() {
   try { fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
   // Arranca el daemon residente (E5 caliente en RAM). Idempotente y detached.
   spawnDetached(['serve']);
-  emit(''); // este hook solo arranca el daemon; nunca inyecta nada
+  // Si el daemon YA estaba vivo, `serve` sale sin calentar nada y E5 puede
+  // llevar rato fuera de RAM (liberacion por inactividad): se recarga aparte,
+  // mientras el usuario escribe el primer prompt. Ver memory-warm-models.js.
+  warmModelsDetached();
+  emit(''); // este hook solo arranca y calienta el daemon; nunca inyecta nada
 }
 
 try {
