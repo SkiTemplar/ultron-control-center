@@ -141,6 +141,49 @@ fn try_create_claim(lock: &Path, own_token: &str) -> std::io::Result<()> {
     f.write_all(serde_json::to_string(&body).unwrap_or_default().as_bytes())
 }
 
+/// `ERROR_ACCESS_DENIED`. En Windows, crear un fichero con `create_new` sobre un
+/// nombre cuyo borrado sigue pendiente de cerrar devuelve esto en vez de
+/// `AlreadyExists`: es exactamente la ventana que abre el retiro de un huerfano
+/// (`remove_file` + `try_create_claim`) cuando varios `serve` compiten. Tratarlo
+/// como error tumbaba el arranque de un daemon que solo habia perdido la carrera
+/// (CI 2026-09-18: `claim lockfile: Access is denied. (os error 5)`).
+const ACCESS_DENIED: i32 = 5;
+
+/// Reintentos del claim mientras dure el borrado pendiente de un rival. La
+/// ventana es de microsegundos: 12 intentos con 2 ms de espera la cubren de
+/// sobra sin retrasar un arranque legitimo mas de ~24 ms.
+const CLAIM_RETRIES: u32 = 12;
+const CLAIM_RETRY_WAIT: Duration = Duration::from_millis(2);
+
+/// Crea el claim tolerando el borrado pendiente de un rival.
+/// `Ok(true)` = ganado, `Ok(false)` = otro reclamo primero, `Err` = fallo real
+/// (incluido un ACCESS_DENIED que persiste: un permiso de verdad no se disfraza
+/// de derrota).
+fn crear_claim_reintentando(
+    mut crear: impl FnMut() -> std::io::Result<()>,
+) -> Result<bool, String> {
+    let mut ultimo = None;
+    for intento in 0..CLAIM_RETRIES {
+        match crear() {
+            Ok(()) => return Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+            Err(e) if e.raw_os_error() == Some(ACCESS_DENIED) => {
+                ultimo = Some(e);
+                if intento + 1 < CLAIM_RETRIES {
+                    std::thread::sleep(CLAIM_RETRY_WAIT);
+                }
+            }
+            Err(e) => return Err(format!("claim lockfile: {e}")),
+        }
+    }
+    Err(format!(
+        "claim lockfile: {}",
+        ultimo
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "acceso denegado".to_string())
+    ))
+}
+
 /// `true` si el lockfile existente es un huerfano: claim viejo sin daemon que
 /// responda al ping.
 fn is_orphan(lock: &Path, is_alive: &impl Fn(u16, &str) -> bool) -> bool {
@@ -161,10 +204,8 @@ pub(super) fn claim_lockfile_at(
     if let Some(parent) = lock.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create run dir: {e}"))?;
     }
-    match try_create_claim(lock, own_token) {
-        Ok(()) => return Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(format!("claim lockfile: {e}")),
+    if crear_claim_reintentando(|| try_create_claim(lock, own_token))? {
+        return Ok(true);
     }
     if !is_orphan(lock, &is_alive) {
         return Ok(false);
@@ -189,11 +230,7 @@ pub(super) fn claim_lockfile_at(
     // reclamar justo antes de que lo cogieramos.
     let result = if is_orphan(lock, &is_alive) {
         let _ = std::fs::remove_file(lock);
-        match try_create_claim(lock, own_token) {
-            Ok(()) => Ok(true),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-            Err(e) => Err(format!("claim lockfile: {e}")),
-        }
+        crear_claim_reintentando(|| try_create_claim(lock, own_token))
     } else {
         Ok(false)
     };
@@ -309,6 +346,79 @@ mod tests {
         .unwrap();
         assert!(!won, "dos ganadores sobre el mismo lockfile");
         assert_eq!(token_of(&lock), "rival");
+    }
+
+    /// Secuencia de errores simulada para `crear_claim_reintentando`: cada
+    /// llamada consume un resultado de la lista.
+    fn guion(pasos: Vec<std::io::Result<()>>) -> impl FnMut() -> std::io::Result<()> {
+        let mut pasos = pasos.into_iter();
+        move || {
+            pasos
+                .next()
+                .unwrap_or_else(|| Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)))
+        }
+    }
+
+    fn acceso_denegado() -> std::io::Error {
+        std::io::Error::from_raw_os_error(ACCESS_DENIED)
+    }
+
+    #[test]
+    fn acceso_denegado_transitorio_no_tumba_el_claim() {
+        // Windows devuelve ACCESS_DENIED (no ALREADY_EXISTS) mientras el borrado
+        // de un rival esta pendiente de cerrar: es transitorio y hay que
+        // reintentar, no propagar el error.
+        let ganado = crear_claim_reintentando(guion(vec![
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Ok(()),
+        ]));
+        assert_eq!(ganado.unwrap(), true, "tras el borrado pendiente se gana");
+    }
+
+    #[test]
+    fn acceso_denegado_hasta_que_gana_el_rival_es_derrota_limpia() {
+        let ganado = crear_claim_reintentando(guion(vec![
+            Err(acceso_denegado()),
+            Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
+        ]));
+        assert_eq!(
+            ganado.unwrap(),
+            false,
+            "el rival reclamo: se pierde sin error"
+        );
+    }
+
+    #[test]
+    fn acceso_denegado_persistente_si_es_error() {
+        // Caso NEGATIVO: un permiso de verdad (carpeta protegida) no se puede
+        // disfrazar de derrota; agotados los reintentos, se propaga.
+        let r = crear_claim_reintentando(guion(vec![
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+            Err(acceso_denegado()),
+        ]));
+        assert!(
+            r.is_err(),
+            "un permiso real debe propagarse, no ser Ok(false)"
+        );
+    }
+
+    #[test]
+    fn otro_error_de_io_no_se_reintenta() {
+        let r = crear_claim_reintentando(guion(vec![Err(std::io::Error::from(
+            std::io::ErrorKind::NotFound,
+        ))]));
+        assert!(r.is_err(), "un error ajeno se propaga en el primer intento");
     }
 
     #[test]
