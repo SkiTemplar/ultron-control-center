@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Conversations } from "../Conversations";
 import { MariaChat } from "./MariaChat";
 import { TerminalPane } from "./TerminalPane";
+import { HudSelect } from "./HudSelect";
 import {
   anadir,
   cargar,
@@ -86,24 +87,16 @@ export function Mosaico() {
           </button>
         ))}
 
-        <label className="flex items-center gap-1">
-          <span className="hud-label">columnas</span>
-          <select
-            value={disp.columnas}
-            onChange={(e) => setDisp((d) => fijarColumnas(d, Number(e.target.value)))}
-            aria-label="columnas"
-            className="hud-panel px-1 py-1 text-[11px]"
-            style={{ color: "var(--color-accent)", fontFamily: "var(--font-mono)" }}
-          >
-            {Array.from({ length: MAX_COLUMNAS - MIN_COLUMNAS + 1 }, (_, i) => i + MIN_COLUMNAS).map(
-              (n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ),
-            )}
-          </select>
-        </label>
+        <HudSelect
+          etiqueta="columnas"
+          valor={String(disp.columnas)}
+          ancho={110}
+          opciones={Array.from(
+            { length: MAX_COLUMNAS - MIN_COLUMNAS + 1 },
+            (_, i) => i + MIN_COLUMNAS,
+          ).map((n) => ({ id: String(n), label: String(n) }))}
+          onChange={(v) => setDisp((d) => fijarColumnas(d, Number(v)))}
+        />
       </header>
 
       {disp.paneles.length === 0 ? (

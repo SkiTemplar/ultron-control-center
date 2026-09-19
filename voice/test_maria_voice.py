@@ -173,3 +173,112 @@ def test_el_turno_marca_ocupado_y_lo_libera():
     finally:
         mv.busy.clear()
     assert not mv.busy.is_set()
+
+# ---------------------------------------------------------------------------
+# Saludo al despertar y animacion al hablar
+# ---------------------------------------------------------------------------
+
+
+def test_el_saludo_cambia_con_la_hora(monkeypatch):
+    """El saludo dice la franja correcta. Se congela el reloj: si dependiera de
+    la hora real, el test pasaria o fallaria segun cuando se lance."""
+    import time as _t
+
+    def reloj(hora):
+        return lambda *_: _t.struct_time((2026, 9, 19, hora, 0, 0, 4, 262, 0))
+
+    for hora, esperado in [(9, "Buenos días"), (16, "Buenas tardes"), (23, "Buenas noches")]:
+        monkeypatch.setattr(mv.time, "localtime", reloj(hora))
+        frase = mv.saludo_de_bienvenida()
+        assert frase.startswith(esperado), f"a las {hora}: {frase}"
+        assert "mar.ia" in frase
+
+
+def test_el_saludo_no_carga_el_modelo(monkeypatch):
+    """Caso negativo: si el saludo pasara por el LLM, arrancar costaria 6,6 GB
+    de VRAM y varios segundos solo para dar los buenos dias."""
+    def explota(*_a, **_k):
+        raise AssertionError("el saludo no puede llamar al modelo")
+
+    monkeypatch.setattr(mv, "ask_llm", explota)
+    assert mv.saludo_de_bienvenida()
+
+
+def test_la_envolvente_manda_niveles_y_termina_en_cero():
+    """Mientras habla, el orbe recibe niveles; al acabar, vuelve a 0 — si no,
+    se quedaria latiendo en silencio para siempre."""
+    import threading
+
+    parar = threading.Event()
+
+    def corta():
+        parar.set()
+
+    t = threading.Timer(0.25, corta)
+    t.start()
+    eventos = capture(lambda: mv._envolvente_al_hablar("una frase de prueba", parar))
+    t.cancel()
+
+    niveles = [e for e in eventos if e.get("event") == "amp"]
+    assert len(niveles) >= 2, f"muy pocos niveles: {len(niveles)}"
+    assert all(0.0 <= e["amp"] <= 1.0 for e in niveles), "nivel fuera de rango"
+    assert niveles[-1]["amp"] == 0.0, "no volvio a cero al terminar"
+
+
+def test_la_envolvente_para_al_instante_si_ya_venia_parada():
+    """Caso negativo: con la senal de parada ya puesta no debe animar nada,
+    solo dejar el orbe a cero."""
+    import threading
+
+    parar = threading.Event()
+    parar.set()
+    eventos = capture(lambda: mv._envolvente_al_hablar("lo que sea", parar))
+    niveles = [e for e in eventos if e.get("event") == "amp"]
+    assert niveles == [{"event": "amp", "amp": 0.0}], niveles
+
+def test_emit_es_seguro_desde_varios_hilos():
+    """Tres hilos escribiendo a la vez: el sidecar arrancaba asi (saludo +
+    envolvente + bucle principal) y el flush petaba con OSError 22, matando el
+    proceso. Cada linea tiene que salir entera y ser JSON valido."""
+    import threading
+
+    salida = io.StringIO()
+    original = mv.sys.stdout
+    mv.sys.stdout = salida
+    try:
+        hilos = [
+            threading.Thread(target=lambda n=n: [mv.emit("amp", amp=0.5, hilo=n) for _ in range(40)])
+            for n in range(3)
+        ]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join()
+    finally:
+        mv.sys.stdout = original
+
+    lineas = [l for l in salida.getvalue().splitlines() if l.strip()]
+    assert len(lineas) == 120, f"se perdieron lineas: {len(lineas)}"
+    for l in lineas:
+        json.loads(l)  # cada linea, JSON entero — nada de mezclas
+
+
+def test_emit_no_revienta_si_la_tuberia_se_cierra():
+    """Caso negativo: con el padre muerto, emit no puede lanzar (eso mataba el
+    hilo y dejaba el microfono cogido). Debe marcar SALIDA_ROTA y callarse."""
+    class Rota:
+        def write(self, _):
+            raise OSError(22, "Invalid argument")
+
+        def flush(self):
+            raise OSError(22, "Invalid argument")
+
+    original = mv.sys.stdout
+    mv.SALIDA_ROTA.clear()
+    mv.sys.stdout = Rota()
+    try:
+        mv.emit("state", state="idle")  # no debe lanzar
+    finally:
+        mv.sys.stdout = original
+    assert mv.SALIDA_ROTA.is_set()
+    mv.SALIDA_ROTA.clear()

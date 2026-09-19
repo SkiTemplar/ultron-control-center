@@ -17,7 +17,9 @@ const STATE_COLOR: Record<ReactorState, string> = {
   idle: "var(--color-accent)",
   listening: "#7ef2ff",
   thinking: "#b388ff",
-  speaking: "var(--color-accent)",
+  // Verde-cian: el acento normal ya lo usa el reposo, y hablar tiene que
+  // distinguirse de un vistazo.
+  speaking: "#6ff5d0",
   offline: "var(--color-text-faint)",
 };
 
@@ -54,6 +56,7 @@ export function Reactor({
 }) {
   const color = STATE_COLOR[state];
   const still = state === "offline";
+  const hablando = state === "speaking";
   return (
     <svg
       width={size}
@@ -83,11 +86,20 @@ export function Reactor({
           strokeDasharray="120 62" strokeLinecap="round" opacity="0.9"
         />
       </g>
+      {/* Al hablar: dos ondas que salen del nucleo. Sin esto, hablar y
+          escuchar se veian igual — solo cambiaba el color, y el acento es el
+          mismo en los dos. */}
+      {hablando && (
+        <g fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="50" cy="50" r="20" className="hud-onda" opacity="0.7" />
+          <circle cx="50" cy="50" r="20" className="hud-onda hud-onda-2" opacity="0.5" />
+        </g>
+      )}
       {/* Nucleo. */}
       <circle cx="50" cy="50" r="17" fill="currentColor" opacity="0.18" />
       <circle
         cx="50" cy="50" r="10" fill="currentColor"
-        className={still ? undefined : "hud-pulse"}
+        className={still ? undefined : hablando ? "hud-pulse-rapido" : "hud-pulse"}
       />
       <circle cx="50" cy="50" r="4.5" fill="#ffffff" opacity="0.9" />
     </svg>

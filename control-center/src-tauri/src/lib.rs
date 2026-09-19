@@ -371,6 +371,10 @@ pub fn run() {
             // antes que el servicio de Ollama. Ver `maria_local`.
             std::thread::spawn(crate::maria_local::asegurar_al_arranque);
 
+            // La voz, viva desde el arranque: es la que saluda al despertar y
+            // la que escucha la palabra clave. Ver `maria_voice`.
+            crate::maria_voice::arrancar_al_inicio(app.handle().clone());
+
             // Webapp del movil. Solo si el usuario la dejo encendida: no se
             // abre un puerto por iniciativa propia (ver `maria_web`).
             std::thread::spawn(|| {

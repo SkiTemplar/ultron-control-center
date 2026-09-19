@@ -46,15 +46,27 @@ void main() {
   float r = length(uv);
   float ang = atan(uv.y, uv.x);
 
-  // Velocidad y turbulencia por estado: dormido respira, pensando hierve.
-  float speed = uState < 0.5 ? 0.22 : (uState < 1.5 ? 0.6 : (uState < 2.5 ? 1.5 : 0.9));
-  float churn = uState < 0.5 ? 0.35 : (uState < 1.5 ? 0.7 : (uState < 2.5 ? 1.25 : 0.9));
+  // Velocidad y turbulencia por estado: dormido respira, pensando hierve,
+  // hablando ondula (el nivel viene en uAmp desde el sidecar).
+  float speed = uState < 0.5 ? 0.22 : (uState < 1.5 ? 0.6 : (uState < 2.5 ? 1.5 : 1.15));
+  float churn = uState < 0.5 ? 0.35 : (uState < 1.5 ? 0.7 : (uState < 2.5 ? 1.25 : 1.05));
+  float hablando = step(2.5, uState);
 
   float t = uTime * speed;
   // Deformacion del borde: ruido en coordenadas polares -> nada de "pelota".
   float wob = fbm(vec2(cos(ang), sin(ang)) * 2.1 + t) - 0.5;
   float breathe = 0.035 * sin(uTime * 1.1);
   float radius = 0.52 + breathe + wob * 0.16 * churn + uAmp * 0.20;
+
+  // Al hablar, ondas concentricas que salen del nucleo: es lo que hace que se
+  // LEA como una voz y no como un blob mas rapido. Sin esto, hablar y
+  // escuchar se veian casi igual.
+  float ondas = 0.0;
+  if (hablando > 0.5) {
+    float fase = r * 16.0 - uTime * 5.0;
+    ondas = sin(fase) * 0.5 + 0.5;
+    ondas *= exp(-2.2 * r) * (0.25 + uAmp * 0.9);
+  }
 
   // Cuerpo con borde suave + halo exterior.
   float body = smoothstep(radius, radius - 0.20, r);
@@ -69,6 +81,7 @@ void main() {
   vec3 col = mix(deep, mid, smoothstep(0.15, 0.85, inner));
   col = mix(col, hot, rim * (0.55 + uAmp * 0.8));
   col += hot * halo * (0.35 + uAmp * 0.5);
+  col += hot * ondas * body;
 
   float alpha = clamp(body + halo * 0.9, 0.0, 1.0);
   // Sin premultiplicar: el canvas se compone sobre una ventana transparente.

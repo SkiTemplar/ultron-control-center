@@ -18,6 +18,7 @@ import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
+import { HudSelect } from "./HudSelect";
 import {
   COMMANDS,
   ESFUERZOS,
@@ -100,60 +101,22 @@ const SKIP_LABEL: Record<string, string> = {
 /** Aviso del propio chat (no es un turno: no se guarda en el hilo). */
 type Aviso = { ts: number; text: string; tono: "info" | "error" };
 
-/** Selector del HUD. "auto" = sin fijar (decide mar.ia).
- *
- *  Tamano: 38 px de alto y 13 px de texto. La primera version media 11 px y
- *  media linea de alto; el usuario pidio botones "mas grandes y accesibles"
- *  (2026-09-19), y 38 px es lo minimo que se acierta con el raton sin apuntar
- *  (por debajo de eso ya se falla en una pantalla de portatil). */
-function Selector({
-  etiqueta,
-  valor,
-  opciones,
-  onChange,
-  titulo,
-}: {
-  etiqueta: string;
-  valor: string;
-  opciones: Array<{ id: string; label: string }>;
-  onChange: (v: string) => void;
-  titulo?: string;
-}) {
-  const fijado = Boolean(valor);
-  return (
-    <label className="flex flex-col gap-0.5" title={titulo}>
-      <span className="hud-label">{etiqueta}</span>
-      <select
-        value={valor}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={etiqueta}
-        disabled={opciones.length === 0}
-        className="hud-panel px-3 text-[13px]"
-        style={{
-          minHeight: 38,
-          minWidth: 132,
-          color: fijado ? "var(--color-accent)" : "var(--color-text-secondary)",
-          // Un borde distinto cuando esta fijado: de un vistazo se ve si manda
-          // el usuario o mar.ia, sin leer la etiqueta de al lado.
-          border: fijado
-            ? "1px solid var(--color-accent)"
-            : "1px solid var(--color-border)",
-          fontFamily: "var(--font-mono)",
-          outline: "none",
-          cursor: opciones.length === 0 ? "not-allowed" : "pointer",
-          opacity: opciones.length === 0 ? 0.5 : 1,
-        }}
-      >
-        <option value="">auto</option>
-        {opciones.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+/** Para qué sirve cada proveedor, en una línea. Se lee dentro del desplegable:
+ *  elegir a ciegas entre cuatro nombres no ayuda a nadie. */
+const PROVEEDOR_HINT: Record<string, string> = {
+  claude: "programar en un proyecto, arquitectura, textos largos",
+  codex: "scripts sueltos y automatización",
+  gemini: "buscar en internet y trabajar con imágenes",
+  local: "gratis y sin cuota; lo trivial y las órdenes del PC",
+};
+
+/** Qué significa cada nivel de esfuerzo. El control real depende del
+ *  proveedor (ver la línea de debajo de los selectores). */
+const ESFUERZO_HINT: Record<string, string> = {
+  bajo: "responde directo, sin desarrollar",
+  medio: "lo normal",
+  alto: "analiza a fondo antes de contestar; tarda más",
+};
 
 type Props = {
   /** Conversacion a abrir. Solo la usa el mosaico: la pestana Chat elige ella
@@ -554,11 +517,17 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               significan que decide mar.ia; en cuanto tocas uno, manda el
               usuario y se dice explicitamente. */}
           <div className="mt-2 flex flex-wrap items-end gap-3 text-[12px]">
-            <Selector
+            <HudSelect
               etiqueta="proveedor"
               valor={forzado ?? ""}
-              titulo="quién contesta. auto = lo decide mar.ia según la petición"
-              opciones={(config?.order ?? []).map((p) => ({ id: p, label: p }))}
+              vacio="auto · decide mar.ia"
+              ancho={168}
+              titulo="quién contesta"
+              opciones={(config?.order ?? []).map((p) => ({
+                id: p,
+                label: p,
+                hint: PROVEEDOR_HINT[p],
+              }))}
               onChange={(v) => {
                 const p = v ? parseProvider(v) : null;
                 setForzado(p);
@@ -568,24 +537,30 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                 setModeloFijo(null);
               }}
             />
-            <Selector
+            <HudSelect
               etiqueta="modelo"
               valor={modeloFijo ?? ""}
-              titulo={
-                forzado
-                  ? modelosDe(forzado)
-                      .map((m) => `${m.id}: ${m.para}`)
-                      .join("\n")
-                  : "elige antes un proveedor"
-              }
-              opciones={modelosDe(forzado).map((m) => ({ id: m.id, label: m.label }))}
+              vacio={forzado ? "auto · el que elija mar.ia" : "elige antes proveedor"}
+              ancho={176}
+              titulo="qué modelo concreto contesta"
+              opciones={modelosDe(forzado).map((m) => ({
+                id: m.id,
+                label: m.label,
+                hint: m.para,
+              }))}
               onChange={(v) => setModeloFijo(v || null)}
             />
-            <Selector
+            <HudSelect
               etiqueta="esfuerzo"
               valor={esfuerzoFijo ?? ""}
+              vacio="auto"
+              ancho={140}
               titulo="cuánto debe pensar antes de contestar"
-              opciones={(catalogo?.efforts ?? [...ESFUERZOS]).map((e) => ({ id: e, label: e }))}
+              opciones={(catalogo?.efforts ?? [...ESFUERZOS]).map((e) => ({
+                id: e,
+                label: e,
+                hint: ESFUERZO_HINT[e],
+              }))}
               onChange={(v) => setEsfuerzoFijo((v as Esfuerzo) || null)}
             />
             {(forzado || modeloFijo || esfuerzoFijo) && (

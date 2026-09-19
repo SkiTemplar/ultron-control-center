@@ -37,6 +37,8 @@ viviendo en ULTRON. Este proceso solo convierte voz en intencion y devuelve voz.
 from __future__ import annotations
 
 import json
+import math
+import os
 import pathlib
 import queue
 import subprocess
@@ -93,12 +95,43 @@ SILENCE_RMS = 0.012
 busy = threading.Event()
 
 
+# stdout en UTF-8, pase lo que pase. Python en Windows usa la pagina de codigos
+# ANSI del sistema (cp1252 aqui), asi que "linea" con tilde salia como un byte
+# 0xED suelto y el supervisor leia basura: el saludo llegaba como "l?nea" y un
+# lector estricto se rompia con UnicodeDecodeError (medido el 2026-09-19).
+for _flujo in (sys.stdout, sys.stderr):
+    try:
+        _flujo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        # Flujo ya envuelto o sin reconfigure: se sigue igual.
+        pass
+
+# Un solo escritor a la vez en stdout. Sin este candado, el sidecar MORIA al
+# arrancar: el saludo, su envolvente y el bucle principal escribian a la vez en
+# la tuberia y el flush petaba con `OSError: [Errno 22] Invalid argument`, que
+# a su vez tumbaba el proceso (visto en logs/maria-voz.log el 2026-09-19).
+_SALIDA = threading.Lock()
+# Se levanta cuando stdout deja de existir: el supervisor se ha ido y no hay
+# nada que hacer aqui. El bucle principal lo mira para salir limpio.
+SALIDA_ROTA = threading.Event()
+
+
 def emit(event: str, **fields: Any) -> None:
     """Escribe un evento en stdout. Una linea, con flush: el supervisor lee
-    linea a linea y sin flush el orbe se quedaria congelado."""
+    linea a linea y sin flush el orbe se quedaria congelado.
+
+    Es seguro llamarlo desde varios hilos (voz, envolvente, bucle principal).
+    """
     payload = {"event": event, **fields}
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    linea = json.dumps(payload, ensure_ascii=False) + "\n"
+    with _SALIDA:
+        try:
+            sys.stdout.write(linea)
+            sys.stdout.flush()
+        except (OSError, ValueError):
+            # La tuberia se ha cerrado: el padre ya no esta. No se re-lanza el
+            # error — eso mataba el hilo y dejaba el microfono cogido.
+            SALIDA_ROTA.set()
 
 
 def log(message: str) -> None:
@@ -110,12 +143,47 @@ def log(message: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Ritmo de habla de SAPI en español, medido a ojo sobre frases reales: unas
+# 2,8 palabras por segundo. Sirve para saber CUANTO va a durar la frase y
+# animar el orbe mientras tanto.
+PALABRAS_POR_SEGUNDO = 2.8
+# Cada cuanto se manda un nivel al orbe mientras habla.
+PASO_ENVOLVENTE_S = 0.06
+
+
+def _envolvente_al_hablar(text: str, parar: "threading.Event") -> None:
+    """Manda niveles al orbe mientras SAPI habla, para que se mueva al ritmo
+    de la frase.
+
+    LIMITE DECLARADO: esto NO es el audio real. SAPI no devuelve el nivel de
+    salida, asi que se sintetiza una envolvente a partir de la cadencia del
+    texto (silabas aproximadas y pausas en las comas y los puntos). Es una
+    ANIMACION creible, no una medicion — y por eso esta escrito aqui y no
+    disfrazado de `amp` del microfono.
+    """
+    palabras = max(1, len(text.split()))
+    duracion = palabras / PALABRAS_POR_SEGUNDO
+    t = 0.0
+    fase = 0.0
+    while not parar.is_set() and t < duracion + 1.5:
+        # Dos senos desfasados: sube y baja como una voz, sin repetirse igual.
+        fase += PASO_ENVOLVENTE_S * 9.0
+        nivel = 0.35 + 0.30 * math.sin(fase) + 0.18 * math.sin(fase * 0.37 + 1.1)
+        emit("amp", amp=max(0.05, min(1.0, nivel)))
+        parar.wait(PASO_ENVOLVENTE_S)
+        t += PASO_ENVOLVENTE_S
+    emit("amp", amp=0.0)
+
+
 def speak(text: str) -> None:
     """Dice `text` con la voz del sistema.
 
     SAPI en vez de una libreria: cero dependencias nuevas, voces españolas ya
     instaladas en Windows y el mismo patron de PowerShell desacoplado que usa
     notify-relay.js. Kokoro llegara despues, que suena mucho mejor.
+
+    Mientras habla se manda una envolvente al orbe (ver
+    `_envolvente_al_hablar`) para que se vea que esta hablando.
     """
     if not text.strip():
         return
@@ -134,13 +202,24 @@ def speak(text: str) -> None:
     # en pantalla (reportado por el usuario el 2026-09-18). `-WindowStyle
     # Hidden` no basta: la ventana llega a crearse igual.
     creationflags = 0x0800_0000 if sys.platform == "win32" else 0
-    subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-         "-ExecutionPolicy", "Bypass", "-Command", script],
-        check=False,
-        capture_output=True,
-        creationflags=creationflags,
+    parar = threading.Event()
+    animacion = threading.Thread(
+        target=_envolvente_al_hablar, args=(text, parar), daemon=True
     )
+    animacion.start()
+    try:
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+             "-ExecutionPolicy", "Bypass", "-Command", script],
+            check=False,
+            capture_output=True,
+            creationflags=creationflags,
+        )
+    finally:
+        # La animacion se corta con la voz, pase lo que pase: dejarla viva
+        # tras un fallo dejaria el orbe latiendo en silencio para siempre.
+        parar.set()
+        animacion.join(timeout=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +589,20 @@ def process_text(text: str, speak_fn: Callable[[str], None]) -> None:
     emit("state", state="idle")
 
 
+def saludo_de_bienvenida() -> str:
+    """Saludo segun la hora. Frase fija a proposito: cargar el modelo (6,6 GB)
+    para decir "buenos dias" seria pagar 3 segundos y toda la VRAM por una
+    cortesia."""
+    hora = time.localtime().tm_hour
+    if 6 <= hora < 13:
+        momento = "Buenos días"
+    elif 13 <= hora < 21:
+        momento = "Buenas tardes"
+    else:
+        momento = "Buenas noches"
+    return f"{momento}. mar.ia en línea, te escucho."
+
+
 def main() -> int:
     commands: "queue.Queue[dict[str, Any]]" = queue.Queue()
     threading.Thread(target=stdin_reader, args=(commands,), daemon=True).start()
@@ -518,8 +611,31 @@ def main() -> int:
     emit("state", state="idle")
     log("sidecar de voz listo")
 
+    # Saludo al despertar: el usuario lo pidio ("que me salude segun
+    # despierte"). Va en un hilo aparte para no retrasar la primera orden, y
+    # se puede apagar con MARIA_SIN_SALUDO=1.
+    if os.environ.get("MARIA_SIN_SALUDO", "") != "1":
+        def _saludar() -> None:
+            # Medio segundo de cortesia: al arrancar llega `wake_on` y se monta
+            # el detector. Saludar en ese mismo instante competia por el
+            # microfono y por la salida.
+            time.sleep(0.6)
+            frase = saludo_de_bienvenida()
+            emit("reply", text=frase)
+            emit("state", state="speaking")
+            speak(frase)
+            emit("state", state="idle")
+
+        threading.Thread(target=_saludar, daemon=True).start()
+
     while True:
-        cmd = commands.get()
+        try:
+            cmd = commands.get(timeout=1.0)
+        except queue.Empty:
+            if SALIDA_ROTA.is_set():
+                wake.halt()
+                return 0
+            continue
         name = cmd.get("cmd")
         if name == "shutdown":
             wake.halt()

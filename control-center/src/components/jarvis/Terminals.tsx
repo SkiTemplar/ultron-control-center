@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { HudSelect } from "./HudSelect";
 import {
   ajustar,
   montarTerminal,
@@ -176,71 +177,36 @@ export function Terminals() {
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
         {/* Se elige proveedor Y modelo antes de abrir: una sesion interactiva
             no se puede cambiar de modelo por fuera despues. */}
-        <label className="flex items-center gap-1">
-          <span className="hud-label">cli</span>
-          <select
-            value={proveedor}
-            onChange={(e) => {
-              setProveedor(e.target.value);
-              // El modelo pertenece a un proveedor: arrastrarlo al siguiente
-              // seria pedir un modelo que esa CLI no tiene.
-              setModelo("");
-            }}
-            aria-label="cli"
-            className="hud-panel px-3 text-[13px]"
-            style={{
-              minHeight: 38,
-              minWidth: 132,
-              color: "var(--color-accent)",
-              fontFamily: "var(--font-mono)",
-              outline: "none",
-              cursor: "pointer",
-            }}
-          >
-            {PROVEEDORES.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1">
-          <span className="hud-label">modelo</span>
-          <select
-            value={modelo}
-            onChange={(e) => setModelo(e.target.value)}
-            aria-label="modelo"
-            disabled={modelosDisponibles.length === 0}
-            title={
-              modelosDisponibles.find((m) => m.id === modelo)?.para ??
-              "el que traiga la CLI por defecto"
-            }
-            className="hud-panel px-3 text-[13px]"
-            style={{
-              minHeight: 38,
-              minWidth: 150,
-              color: modelo ? "var(--color-accent)" : "var(--color-text-secondary)",
-              border: modelo
-                ? "1px solid var(--color-accent)"
-                : "1px solid var(--color-border)",
-              fontFamily: "var(--font-mono)",
-              outline: "none",
-              cursor: modelosDisponibles.length === 0 ? "not-allowed" : "pointer",
-              opacity: modelosDisponibles.length === 0 ? 0.5 : 1,
-            }}
-          >
-            <option value="">por defecto</option>
-            {modelosDisponibles.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <HudSelect
+          etiqueta="cli"
+          valor={proveedor}
+          ancho={150}
+          titulo="qué CLI abre esta terminal"
+          opciones={PROVEEDORES.map((p) => ({ id: p.id, label: p.label }))}
+          onChange={(v) => {
+            setProveedor(v);
+            // El modelo pertenece a un proveedor: arrastrarlo al siguiente
+            // seria pedir un modelo que esa CLI no tiene.
+            setModelo("");
+          }}
+        />
+        <HudSelect
+          etiqueta="modelo"
+          valor={modelo}
+          vacio="por defecto de la CLI"
+          ancho={176}
+          titulo="con qué modelo arranca la sesión"
+          opciones={modelosDisponibles.map((m) => ({
+            id: m.id,
+            label: m.label,
+            hint: m.para,
+          }))}
+          onChange={setModelo}
+        />
         <button
           type="button"
           onClick={() => void abrir(proveedor, modelo)}
-          className="hud-panel px-4 text-[13px]"
+          className="hud-panel mt-4 px-4 text-[13px]"
           style={{
             minHeight: 38,
             color: "var(--color-accent)",

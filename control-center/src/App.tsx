@@ -77,11 +77,19 @@ function AppInner() {
   // Estado de la voz: alimenta el reactor de la barra y la pantalla principal.
   const { state: voiceState, amp: voiceAmp, caption: voiceCaption } = useVoice();
 
-  // El sidecar de voz arranca con la aplicacion (antes lo hacia la ventana del
-  // orbe, retirada el 2026-09-18). Idempotente en el backend: si ya corre, no
-  // se lanza un segundo proceso.
+  // La voz la arranca el BACKEND al abrir mar.ia (`maria_voice::
+  // arrancar_al_inicio`), no la ventana: la app puede quedarse en la bandeja
+  // sin ventana y la voz tiene que estar viva igual. Aqui solo se comprueba, y
+  // si sigue caida se dice — antes este `catch` se tragaba el fallo y la voz
+  // no arrancaba sin que nada lo contara (2026-09-19).
+  const [vozCaida, setVozCaida] = useState<string | null>(null);
   useEffect(() => {
-    void invoke("maria_voice_start").catch(() => undefined);
+    const t = setTimeout(() => {
+      void invoke<boolean>("maria_voice_running")
+        .then((viva) => setVozCaida(viva ? null : "la voz no ha arrancado"))
+        .catch((e) => setVozCaida(String(e)));
+    }, 6000);
+    return () => clearTimeout(t);
   }, []);
   const { currentId, tabs, select, open } = useProjectsTabs();
   const [lastProjectCtx, setLastProjectCtx] = useState<{
@@ -548,6 +556,30 @@ function AppInner() {
     <div className="relative flex h-full flex-col">
       <HudBackground />
       <HudTopBar voiceState={voiceState} />
+      {vozCaida && (
+        <div
+          className="relative z-10 px-4 py-1 text-[11px]"
+          style={{
+            background: "rgba(255,77,94,0.10)",
+            borderBottom: "1px solid var(--color-danger)",
+            color: "var(--color-danger)",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {vozCaida} — revisa que exista voice/.venv y mira el log de mar.ia.
+          <button
+            type="button"
+            onClick={() => {
+              setVozCaida(null);
+              void invoke("maria_voice_start").catch((e) => setVozCaida(String(e)));
+            }}
+            className="ml-3 underline"
+            style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}
+          >
+            reintentar
+          </button>
+        </div>
+      )}
       {/* overflow-hidden + min-w-0 en el hijo: sin esto, una pestaña con
           contenido ancho (la rejilla de Projects) hace crecer a `main` mas
           alla del contenedor, el documento entero se desplaza y el rail se

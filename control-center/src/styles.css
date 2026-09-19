@@ -385,6 +385,35 @@ main.flex-1 > div.px-8.py-6 > header,
   box-shadow: inset 0 0 24px rgba(53, 214, 255, 0.05), 0 0 18px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(6px);
 }
+/* Ondas del reactor cuando mar.ia habla: salen del nucleo y se desvanecen.
+   Dos circulos con la misma animacion y medio ciclo de desfase bastan para
+   que se lea como una voz en vez de como un anillo mas. */
+@keyframes hud-onda {
+  0% {
+    r: 14;
+    opacity: 0.75;
+  }
+  100% {
+    r: 46;
+    opacity: 0;
+  }
+}
+.hud-onda {
+  animation: hud-onda 1.5s ease-out infinite;
+  transform-origin: center;
+}
+.hud-onda-2 {
+  animation-delay: 0.75s;
+}
+/* Nucleo latiendo mas rapido mientras habla. */
+@keyframes hud-pulse-rapido {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.hud-pulse-rapido {
+  animation: hud-pulse-rapido 0.55s ease-in-out infinite;
+}
+
 /* Desplegable sobre contenido (autocompletado de comandos del chat).
    El cristal de .hud-panel es translucido a proposito, pero un menu flotante
    con el texto del chat transparentandose por detras es ilegible: aqui el

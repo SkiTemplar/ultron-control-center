@@ -31,10 +31,16 @@ static VOICE: Lazy<Mutex<Option<VoiceProc>>> = Lazy::new(|| Mutex::new(None));
 /// la raiz de mar.ia (ahi vive el ESTADO: memoria, hooks, skills), asi que la ruta
 /// se resuelve por variable de entorno y, si falta, junto al ejecutable.
 fn voice_script() -> Result<std::path::PathBuf, String> {
-    if let Ok(dir) = std::env::var("MARIA_HOME") {
-        let p = std::path::Path::new(&dir).join("voice").join("maria_voice.py");
-        if p.exists() {
-            return Ok(p);
+    // OJO con el nombre: `MARIA_HOME` es la raiz de DATOS (`maria_paths`), no
+    // la del repo. Aqui hace falta el repo, que es donde vive `voice/`, asi
+    // que la variable es otra. Usarlas mezcladas dejaba una de las dos
+    // apuntando al sitio equivocado en cuanto se definiera.
+    for var in ["MARIA_REPO", "ULTRON_REPO"] {
+        if let Ok(dir) = std::env::var(var) {
+            let p = std::path::Path::new(&dir).join("voice").join("maria_voice.py");
+            if p.exists() {
+                return Ok(p);
+            }
         }
     }
     // Desarrollo: el ejecutable vive en <repo>/control-center/src-tauri/target/<perfil>/
@@ -50,7 +56,7 @@ fn voice_script() -> Result<std::path::PathBuf, String> {
             }
         }
     }
-    Err("no encuentro voice/maria_voice.py (define MARIA_HOME con la raiz del repo)".into())
+    Err("no encuentro voice/maria_voice.py (define MARIA_REPO con la raiz del repo)".into())
 }
 
 /// Interprete del entorno del sidecar. Su venv propio: faster-whisper arrastra
@@ -196,12 +202,24 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
     let script = voice_script()?;
     let python = voice_python(&script);
 
+    // El stderr del sidecar va a un fichero, no a /dev/null: cuando la voz no
+    // arrancaba (2026-09-19) el motivo estaba justo ahi y se estaba tirando a
+    // la basura. Si el fichero no se puede abrir, se sigue sin el.
+    let log = crate::maria_paths::home().join("logs").join("maria-voz.log");
+    let _ = std::fs::create_dir_all(log.parent().unwrap_or(&log));
+    let stderr = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null());
+
     let mut command = crate::proc::oculto(&python);
     command
         .arg(&script)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(stderr);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -227,6 +245,24 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
         let _ = send_line(r#"{"cmd":"wake_on"}"#);
     }
     Ok(true)
+}
+
+/// Arranca la voz al abrir mar.ia, sin esperar a que se pinte la ventana.
+///
+/// Antes lo pedia el frontend (`App.tsx`) y, si fallaba, se tragaba el error:
+/// la voz no arrancaba y no habia forma de saber por que (comprobado el
+/// 2026-09-19: 0 procesos del sidecar con la app abierta). Ademas mar.ia
+/// arranca con Windows y puede quedarse en la bandeja sin ventana: la voz
+/// tiene que estar viva igual, que es justo lo que pide un saludo "al
+/// despertar".
+pub fn arrancar_al_inicio(app: AppHandle) {
+    std::thread::spawn(move || {
+        match tauri::async_runtime::block_on(maria_voice_start(app)) {
+            Ok(true) => tracing::info!("maria-voz: sidecar arrancado"),
+            Ok(false) => tracing::info!("maria-voz: ya estaba arrancado"),
+            Err(e) => tracing::error!(error = %e, "maria-voz: no pude arrancar la voz"),
+        }
+    });
 }
 
 /// ¿Esta activada la palabra clave? Por defecto SI: mar.ia responde a su

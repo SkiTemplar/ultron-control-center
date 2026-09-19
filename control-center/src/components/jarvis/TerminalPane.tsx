@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { HudSelect } from "./HudSelect";
 import {
   ajustar,
   montarTerminal,
@@ -103,46 +104,35 @@ export function TerminalPane({ sessionId, onSession }: Props) {
     return (
       <div className="flex h-full flex-col gap-2 p-3">
         <p className="hud-label">este panel no tiene sesión</p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <select
-            value={proveedor}
-            onChange={(e) => {
-              setProveedor(e.target.value);
+        <div className="flex flex-wrap items-end gap-2">
+          <HudSelect
+            etiqueta="cli"
+            valor={proveedor}
+            ancho={140}
+            opciones={PROVEEDORES.map((p) => ({ id: p.id, label: p.label }))}
+            onChange={(v) => {
+              setProveedor(v);
               setModelo("");
             }}
-            aria-label="cli"
-            className="hud-panel px-1 py-1 text-[11px]"
-            style={{ color: "var(--color-accent)", fontFamily: "var(--font-mono)" }}
-          >
-            {PROVEEDORES.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={modelo}
-            onChange={(e) => setModelo(e.target.value)}
-            aria-label="modelo"
-            disabled={modelos.length === 0}
-            className="hud-panel px-1 py-1 text-[11px]"
-            style={{
-              color: modelo ? "var(--color-accent)" : "var(--color-text-secondary)",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            <option value="">por defecto</option>
-            {modelos.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          />
+          <HudSelect
+            etiqueta="modelo"
+            valor={modelo}
+            vacio="por defecto de la CLI"
+            ancho={170}
+            opciones={modelos.map((m) => ({ id: m.id, label: m.label, hint: m.para }))}
+            onChange={setModelo}
+          />
           <button
             type="button"
             onClick={() => void abrir()}
-            className="hud-panel hud-label px-2 py-1"
-            style={{ color: "var(--color-accent)", cursor: "pointer" }}
+            className="hud-panel px-3 text-[13px]"
+            style={{
+              minHeight: 38,
+              color: "var(--color-accent)",
+              fontFamily: "var(--font-mono)",
+              cursor: "pointer",
+            }}
           >
             + abrir
           </button>
