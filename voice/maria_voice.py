@@ -36,6 +36,7 @@ viviendo en mar.ia. Este proceso solo convierte voz en intencion y devuelve voz.
 
 from __future__ import annotations
 
+import datetime
 import json
 import math
 import os
@@ -86,8 +87,27 @@ FRAME_MS = 30
 SILENCE_MS = 900
 # Tope duro: si algo se queda enganchado, no grabamos indefinidamente.
 MAX_UTTERANCE_S = 30
-# Por debajo de esto es ruido de sala, no voz.
-SILENCE_RMS = 0.012
+
+# --- cuando hay voz y cuando no --------------------------------------------
+# Esto ERA un umbral fijo (SILENCE_RMS = 0.012) y era el fallo: el usuario
+# hablaba, la palabra clave le oia y luego no se transcribia nada y el orbe se
+# quedaba en "escuchando" hasta el tope de 30 s.
+#
+# Medido en este equipo el 2026-09-19: el microfono de los auriculares da un
+# ruido ambiente de 0,00001 RMS, mil veces por debajo de aquel umbral. Con esa
+# ganancia, la voz tampoco llegaba a 0,012 y la grabacion se descartaba entera
+# (`voiced` nunca se ponia a True). Vosk si le oia porque normaliza el nivel
+# por dentro; la puerta de grabacion, no.
+#
+# Ahora el umbral es RELATIVO al ruido de la sala, que es lo unico que funciona
+# igual con un microfono flojo y con uno caliente:
+#     umbral = max(ruido_medido * FACTOR_VOZ, PISO_RMS)
+FACTOR_VOZ = 6.0
+# Piso de seguridad, por si el ruido medido fuese cero absoluto (silencio
+# digital). -80 dBFS: cualquier voz real lo pasa.
+PISO_RMS = 0.0001
+# Cuanto se escucha antes de hablar para medir el ruido de la sala.
+CALIBRADO_MS = 300
 
 
 # Turno en marcha (grabando, pensando o hablando). Lo consulta el escuchador
@@ -237,6 +257,45 @@ SYSTEM_PROMPT = (
     "pregunta una sola cosa concreta."
 )
 
+# Dias y meses a mano: el sidecar no fija el locale del sistema, y con el locale
+# por defecto `strftime("%A")` sale en ingles.
+DIAS = ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo")
+MESES = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+
+def contexto_de_ahora() -> str:
+    """Fecha, hora y equipo, para que no tenga que adivinarlos.
+
+    Un modelo de lenguaje no sabe que dia es: lo unico que puede hacer es
+    inventarselo a partir de su entrenamiento, y eso es lo que paso — el
+    usuario le pregunto la fecha el 2026-09-19 y no supo decirsela. No es un
+    problema de permisos ni de herramientas: el dato hay que darselo, y darselo
+    en cada turno porque cambia.
+    """
+    import getpass
+    import platform
+
+    ahora = datetime.datetime.now().astimezone()
+    fecha = (
+        f"{DIAS[ahora.weekday()]} {ahora.day} de {MESES[ahora.month - 1]} "
+        f"de {ahora.year}"
+    )
+    try:
+        equipo = platform.node() or "este PC"
+        usuario = getpass.getuser()
+    except Exception:  # noqa: BLE001 - el contexto nunca puede tumbar un turno
+        equipo, usuario = "este PC", "el usuario"
+    return (
+        f"Contexto real de AHORA MISMO (uselo, no lo deduzcas): "
+        f"hoy es {fecha}; son las {ahora:%H:%M} ({ahora.tzname()}); "
+        f"el equipo se llama {equipo} y la sesion es de {usuario}. "
+        f"Para cualquier otro dato del ordenador o de la red, usa la "
+        f"herramienta estado_del_sistema; para errores y avisos, mirar_registros."
+    )
+
 
 def ask_llm(prompt: str, tools: list[dict[str, Any]], keep_alive: str) -> dict[str, Any]:
     """Una vuelta contra Ollama. Devuelve el mensaje crudo (texto y/o llamadas
@@ -254,6 +313,7 @@ def ask_llm(prompt: str, tools: list[dict[str, Any]], keep_alive: str) -> dict[s
         "keep_alive": keep_alive,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": contexto_de_ahora()},
             {"role": "user", "content": prompt},
         ],
         "tools": tools,
@@ -270,6 +330,98 @@ def ask_llm(prompt: str, tools: list[dict[str, Any]], keep_alive: str) -> dict[s
 # ---------------------------------------------------------------------------
 # Escucha
 # ---------------------------------------------------------------------------
+
+
+_VOSK_MODELO: Any | None = None
+_VOSK_LOCK = threading.Lock()
+
+
+def modelo_vosk() -> Any:
+    """El modelo pequeno de Vosk, cargado una sola vez.
+
+    Lo usan dos cosas: la palabra clave (con gramatica de una frase) y la
+    transcripcion en vivo mientras hablas (con gramatica libre). Cargarlo dos
+    veces serian 58 MB de disco y ~100 MB de RAM repetidos para nada.
+    """
+    global _VOSK_MODELO
+    with _VOSK_LOCK:
+        if _VOSK_MODELO is None:
+            from vosk import Model, SetLogLevel
+
+            SetLogLevel(-1)
+            ruta = pathlib.Path(__file__).with_name("models").joinpath(
+                pathlib.Path(WAKE_MODEL_DIR).name
+            )
+            _VOSK_MODELO = Model(str(ruta))
+        return _VOSK_MODELO
+
+
+MODELO_STT = "large-v3-turbo"
+
+
+def _registrar_dlls_cuda() -> None:
+    """Deja a la vista cuBLAS y cuDNN si estan instalados como paquetes de pip.
+
+    `scripts/instalar-voz-gpu.ps1` los mete en site-packages/nvidia/*/bin, y ahi
+    Windows no los busca solo: desde Python 3.8 las DLL de extension se cargan
+    solo desde los directorios registrados a mano. Sin esto, instalar los
+    paquetes no serviria de nada y la GPU seguiria sin poder transcribir.
+
+    Silencioso a proposito: si no estan, se sigue por CPU.
+    """
+    if not hasattr(os, "add_dll_directory"):
+        return
+    base = pathlib.Path(sys.executable).parent.parent / "Lib" / "site-packages" / "nvidia"
+    for sub in ("cublas", "cudnn"):
+        carpeta = base / sub / "bin"
+        if carpeta.is_dir():
+            try:
+                os.add_dll_directory(str(carpeta))
+            except OSError:
+                pass
+
+
+def cargar_whisper(forzar_cpu: bool = False) -> Any:
+    """Carga faster-whisper en la GPU si REALMENTE puede, y si no en la CPU.
+
+    Por que una prueba de verdad y no un try alrededor del constructor: el
+    constructor con `device="cuda"` funciona aunque falten las librerias de
+    CUDA. El error salta despues, al codificar el primer audio:
+
+        RuntimeError: Library cublas64_12.dll is not found or cannot be loaded
+
+    Y eso es exactamente lo que estaba pasando (medido el 2026-09-19 en este
+    equipo, que no tiene cuBLAS instalado): la palabra clave te oia, la
+    grabacion iba bien, y al transcribir reventaba. Desde fuera se veia como
+    "se queda escuchando y no escribe nada".
+
+    Asi que se transcribe un segundo de silencio con `vad_filter=False`, que
+    obliga a pasar por el codificador. Si ahi falla, no hay GPU util.
+
+    CPU mide 4 s por cada 3 s de audio en esta maquina; la GPU seria ~0,3 s.
+    Para tenerla: scripts\\instalar-voz-gpu.ps1 (baja cuBLAS y cuDNN, ~700 MB).
+    """
+    import numpy as np
+
+    _registrar_dlls_cuda()
+    from faster_whisper import WhisperModel
+
+    if not forzar_cpu:
+        try:
+            m = WhisperModel(MODELO_STT, device="cuda", compute_type="int8")
+            mudo = np.zeros(16_000, dtype=np.float32)
+            segs, _ = m.transcribe(mudo, language="es", beam_size=1, vad_filter=False)
+            list(segs)  # perezoso: sin consumirlo no se codifica nada
+            log(f"transcripcion en GPU ({MODELO_STT}, int8)")
+            return m
+        except Exception as exc:  # noqa: BLE001 - degradar, no morir
+            log(
+                f"la GPU no puede transcribir ({type(exc).__name__}: {exc}); "
+                f"uso la CPU. Para la GPU: scripts\\instalar-voz-gpu.ps1"
+            )
+
+    log(f"transcripcion en CPU ({MODELO_STT}, int8)")
+    return WhisperModel(MODELO_STT, device="cpu", compute_type="int8")
 
 
 @dataclass
@@ -289,28 +441,46 @@ class Recorder:
 
     def ensure_model(self) -> Any:
         if self.model is None:
-            from faster_whisper import WhisperModel
-
-            log("cargando faster-whisper large-v3-turbo (int8)")
-            # int8 sobre GPU: ~2,5 GB y ~12x tiempo real. Si no hay CUDA, cae a
-            # CPU en vez de reventar.
-            try:
-                self.model = WhisperModel("large-v3-turbo", device="cuda", compute_type="int8")
-            except Exception as exc:  # noqa: BLE001 - degradar, no morir
-                log(f"sin CUDA ({exc}); transcribiendo en CPU")
-                self.model = WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
+            self.model = cargar_whisper()
         return self.model
 
     def record_utterance(self) -> bytes:
-        """Graba hasta que detecta silencio sostenido. Devuelve PCM 16 kHz mono."""
+        """Graba hasta que detecta silencio sostenido. Devuelve PCM 16 kHz mono.
+
+        Dos cosas van en paralelo mientras grabas:
+
+        * El NIVEL, para saber cuando has terminado. El umbral se calcula con
+          el ruido real de la sala (ver FACTOR_VOZ): con un umbral fijo, un
+          microfono flojo no abria nunca la puerta y la toma se tiraba entera.
+        * La TRANSCRIPCION EN VIVO con Vosk, que se emite segun hablas. El
+          usuario lo pidio el 2026-09-19: "todas mis voces deberian
+          transcribirse al momento para saber exactamente el mensaje que le van
+          a dar". Ademas sirve de segunda opinion sobre si hay voz: Vosk
+          normaliza el nivel, asi que oye aunque el microfono venga bajito.
+
+        Lo definitivo lo dice Whisper despues; esto es el subtitulo mientras
+        hablas.
+        """
         import numpy as np
         import sounddevice as sd
 
+        try:
+            from vosk import KaldiRecognizer
+
+            vivo = KaldiRecognizer(modelo_vosk(), SAMPLE_RATE)
+        except Exception as exc:  # noqa: BLE001 - sin parciales se sigue grabando
+            log(f"sin transcripcion en vivo ({exc})")
+            vivo = None
+
         frames: list[bytes] = []
+        niveles: list[float] = []
         silence_frames = 0
         voiced = False
+        ultimo_parcial = ""
         needed_silence = SILENCE_MS // FRAME_MS
+        calibrado_frames = max(1, CALIBRADO_MS // FRAME_MS)
         block = int(SAMPLE_RATE * FRAME_MS / 1000)
+        umbral = PISO_RMS
         started = time.monotonic()
 
         with sd.RawInputStream(
@@ -328,9 +498,35 @@ class Recorder:
 
                 samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
                 rms = float(np.sqrt(np.mean(samples * samples))) if samples.size else 0.0
-                emit("amp", amp=min(1.0, rms * 8))
+                # El medidor del orbe se escala contra el umbral, no contra un
+                # numero fijo: si no, con este microfono la bolita no se movia.
+                emit("amp", amp=min(1.0, rms / (umbral * 4)))
 
-                if rms >= SILENCE_RMS:
+                if not voiced and len(niveles) < calibrado_frames:
+                    # Calibrado: los primeros 300 ms son la sala, no tu.
+                    niveles.append(rms)
+                    if len(niveles) == calibrado_frames:
+                        ruido = float(np.median(niveles))
+                        umbral = max(ruido * FACTOR_VOZ, PISO_RMS)
+                        log(f"ruido de sala {ruido:.5f} -> umbral {umbral:.5f}")
+                    continue
+
+                hay_texto = False
+                if vivo is not None:
+                    try:
+                        if vivo.AcceptWaveform(pcm):
+                            trozo = json.loads(vivo.Result()).get("text", "")
+                        else:
+                            trozo = json.loads(vivo.PartialResult()).get("partial", "")
+                        trozo = (trozo or "").strip()
+                        hay_texto = bool(trozo)
+                        if trozo and trozo != ultimo_parcial:
+                            ultimo_parcial = trozo
+                            emit("parcial", text=trozo)
+                    except Exception:  # noqa: BLE001 - el parcial es un extra
+                        vivo = None
+
+                if rms >= umbral or hay_texto:
                     voiced = True
                     silence_frames = 0
                 elif voiced:
@@ -353,10 +549,29 @@ class Recorder:
         if not pcm:
             return ""
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-        segments, _info = self.ensure_model().transcribe(
-            audio, language="es", vad_filter=True, beam_size=1
-        )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        # Normalizado de nivel: este microfono entrega picos de 0,01 y Whisper
+        # con audio tan bajo se inventa texto o devuelve vacio. Se sube hasta
+        # 0,8 de pico. Si la toma ya viene fuerte, no se toca.
+        pico = float(np.abs(audio).max()) if audio.size else 0.0
+        if 0.0 < pico < 0.8:
+            audio = audio * (0.8 / pico)
+
+        def intento(modelo: Any) -> str:
+            segments, _info = modelo.transcribe(
+                audio, language="es", vad_filter=True, beam_size=1
+            )
+            return " ".join(seg.text.strip() for seg in segments).strip()
+
+        try:
+            return intento(self.ensure_model())
+        except Exception as exc:  # noqa: BLE001 - una toma no puede perderse
+            # Red de seguridad: si la GPU se cae a mitad (se quedo sin memoria,
+            # falta una libreria que la prueba no vio), se rehace en CPU y se
+            # vuelve a intentar. Perder lo que acabas de decir por un fallo de
+            # driver no es aceptable.
+            log(f"fallo al transcribir ({type(exc).__name__}: {exc}); reintento en CPU")
+            self.model = cargar_whisper(forzar_cpu=True)
+            return intento(self.model)
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +583,39 @@ class Recorder:
 # ---------------------------------------------------------------------------
 
 TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "estado_del_sistema",
+            "description": (
+                "Datos reales de este ordenador AHORA: CPU, memoria, disco, GPU y "
+                "si hay conexion a internet. Usala para cualquier pregunta sobre "
+                "como va el PC o si hay red."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mirar_registros",
+            "description": (
+                "Lee los ultimos registros de este ordenador: los de mar.ia y los "
+                "errores recientes de Windows. Usala cuando pregunten que ha "
+                "fallado, por que algo no funciona o que ha pasado."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fuente": {
+                        "type": "string",
+                        "enum": ["maria", "windows"],
+                        "description": "maria = los logs del programa; windows = el visor de eventos.",
+                    }
+                },
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -455,15 +703,10 @@ class WakeListener:
         try:
             import json as _json
             import sounddevice as sd
-            from vosk import KaldiRecognizer, Model, SetLogLevel
+            from vosk import KaldiRecognizer
 
-            SetLogLevel(-1)  # el modelo escupe diagnostico a stderr por defecto
-            model_dir = str(pathlib.Path(__file__).with_name("models").joinpath(
-                pathlib.Path(WAKE_MODEL_DIR).name
-            ))
-            model = Model(model_dir)
             grammar = _json.dumps(WAKE_WORDS + ["[unk]"])
-            rec = KaldiRecognizer(model, SAMPLE_RATE, grammar)
+            rec = KaldiRecognizer(modelo_vosk(), SAMPLE_RATE, grammar)
             log("palabra clave activa: di «María»")
 
             block = int(SAMPLE_RATE * FRAME_MS / 1000)
@@ -546,16 +789,26 @@ def acknowledge(calls: list[dict[str, Any]]) -> str:
 
 
 def handle_utterance(rec: Recorder, speak_fn: Callable[[str], None]) -> None:
+    """Un turno completo: grabar, transcribir y contestar.
+
+    Los dos caminos que no llevan a respuesta AVISAN. Antes volvian a "idle" en
+    silencio y desde fuera era imposible distinguir "no te he oido" de "me he
+    colgado": el usuario veia el orbe escuchando y nada mas.
+    """
     emit("state", state="listening")
     pcm = rec.record_utterance()
     if not pcm:
         emit("state", state="idle")
+        emit("transcript", text="(no he oído nada: revisa el micrófono)")
+        log("grabacion vacia: ninguna muestra por encima del umbral")
         return
 
     emit("state", state="thinking")
     text = rec.transcribe(pcm)
     if not text:
         emit("state", state="idle")
+        emit("transcript", text="(no he entendido lo que has dicho)")
+        log("whisper no devolvio texto para una toma con voz")
         return
     process_text(text, speak_fn)
 

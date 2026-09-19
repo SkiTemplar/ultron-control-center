@@ -4,13 +4,15 @@
 
 import { KeyFieldRow } from "./KeyFieldRow";
 import { RESEARCH_KEYS } from "./key-catalog";
-import type { EnvKeyStatus, FieldState } from "./types";
+import type { EnvKeyStatus, FieldState, ProviderKeyDef } from "./types";
 
 interface ResearchKeysGroupProps {
   fields: Record<string, FieldState>;
   statuses: Record<string, EnvKeyStatus>;
   onChange: (envVar: string, value: string) => void;
   onToggleVisible: (envVar: string) => void;
+  onDelete: (def: ProviderKeyDef) => void;
+  borrando: string | null;
 }
 
 export function ResearchKeysGroup({
@@ -18,6 +20,8 @@ export function ResearchKeysGroup({
   statuses,
   onChange,
   onToggleVisible,
+  onDelete,
+  borrando,
 }: ResearchKeysGroupProps) {
   return (
     <>
@@ -44,6 +48,8 @@ export function ResearchKeysGroup({
             isEmail={def.isEmail}
             onChange={onChange}
             onToggleVisible={onToggleVisible}
+            onDelete={onDelete}
+            borrando={borrando === def.envVar}
           />
         ))}
       </ul>

@@ -16,6 +16,10 @@ interface KeyFieldRowProps {
   isEmail?: boolean;
   onChange: (envVar: string, value: string) => void;
   onToggleVisible: (envVar: string) => void;
+  /** Pide borrar esta clave. La pantalla abre el dialogo de confirmacion. */
+  onDelete?: (def: ProviderKeyDef) => void;
+  /** True mientras se esta borrando esta fila. */
+  borrando?: boolean;
   extra?: ReactNode;
 }
 
@@ -26,9 +30,14 @@ export function KeyFieldRow({
   isEmail = false,
   onChange,
   onToggleVisible,
+  onDelete,
+  borrando = false,
   extra,
 }: KeyFieldRowProps) {
   const st = status;
+  // El boton de borrar solo sale si hay algo que borrar: con la clave sin
+  // configurar seria un boton incapaz de hacer nada.
+  const sePuedeBorrar = Boolean(onDelete && st?.configured);
   return (
     <li>
       <label
@@ -133,6 +142,39 @@ export function KeyFieldRow({
             }}
           >
             <EyeIcon crossed={state.visible} />
+          </button>
+        )}
+        {sePuedeBorrar && (
+          <button
+            type="button"
+            onClick={() => onDelete?.(def)}
+            disabled={borrando}
+            title={`Eliminar ${def.envVar} (pide confirmación)`}
+            aria-label={`Eliminar ${def.envVar}`}
+            className="flex shrink-0 items-center justify-center rounded p-1.5 transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text-secondary)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-danger)";
+              e.currentTarget.style.borderColor = "var(--color-danger)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-secondary)";
+              e.currentTarget.style.borderColor = "var(--color-border-strong)";
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9L12 4M6.5 6.8v4.4M9.5 6.8v4.4"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
         )}
         {/* Env var name badge */}

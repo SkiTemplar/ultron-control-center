@@ -9,6 +9,7 @@ import { EyeIcon } from "./EyeIcon";
 import { GITHUB_TOKEN_TUTORIAL } from "./key-catalog";
 import { TutorialDisclosure } from "./TutorialDisclosure";
 import type { GithubTokenResult } from "./types";
+import { Confirmar } from "../Confirmar";
 
 export function GithubTokenCard() {
   const [value, setValue] = useState("");
@@ -17,6 +18,33 @@ export function GithubTokenCard() {
   const [result, setResult] = useState<GithubTokenResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentMasked, setCurrentMasked] = useState<string | null>(null);
+  const [confirmando, setConfirmando] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+  const [borrado, setBorrado] = useState<string | null>(null);
+
+  // Borrar el token. A diferencia de las otras claves, aqui no hay un badge de
+  // "configurada" que consultar (esta tarjeta no tiene comando de lectura),
+  // asi que el boton sale siempre y es el backend el que dice la verdad: si no
+  // habia token, contesta "no estaba definida en ningun sitio que pueda tocar".
+  const handleDelete = useCallback(async () => {
+    setBorrando(true);
+    setError(null);
+    setResult(null);
+    setBorrado(null);
+    try {
+      const msg = await invoke<string>("maria_clave_borrar", {
+        variable: "GITHUB_TOKEN",
+        confirmar: true,
+      });
+      setBorrado(msg);
+      setCurrentMasked(null);
+      setValue("");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBorrando(false);
+    }
+  }, []);
 
   // Check whether a token is already stored (peek at env via a quick invoke).
   // We reuse `get_env_keys_status` — GITHUB_TOKEN is not in that list, so we
@@ -199,7 +227,59 @@ export function GithubTokenCard() {
         >
           {saving ? "Guardando…" : "Save token"}
         </button>
+        <button
+          type="button"
+          onClick={() => setConfirmando(true)}
+          disabled={borrando}
+          title="Elimina GITHUB_TOKEN del .env y de las variables de usuario"
+          className="rounded px-4 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border-strong)",
+            color: "var(--color-text-secondary)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--color-danger)";
+            e.currentTarget.style.borderColor = "var(--color-danger)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--color-text-secondary)";
+            e.currentTarget.style.borderColor = "var(--color-border-strong)";
+          }}
+        >
+          {borrando ? "Eliminando…" : "Eliminar"}
+        </button>
       </div>
+
+      {confirmando && (
+        <Confirmar
+          titulo="Eliminar el token de GitHub"
+          detalle={
+            "Se quita GITHUB_TOKEN del .env de mar.ia y de las variables de usuario " +
+            "de Windows. El token en sí no se puede recuperar: habrá que generar otro " +
+            "en GitHub. Lo que ya esté abierto seguirá viéndolo hasta reiniciarse."
+          }
+          accion="Eliminar"
+          onCancelar={() => setConfirmando(false)}
+          onConfirmar={() => {
+            setConfirmando(false);
+            void handleDelete();
+          }}
+        />
+      )}
+
+      {borrado && (
+        <div
+          className="mt-3 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(63,185,80,0.06)",
+            border: "1px solid rgba(63,185,80,0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {borrado}
+        </div>
+      )}
 
       {error && (
         <div

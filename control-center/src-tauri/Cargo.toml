@@ -114,6 +114,10 @@ windows-sys = { version = "0.60", features = [
     # bajo nivel + SendInput para borrar la orden y escribir la respuesta.
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    # La respuesta de `//maria` se PEGA (portapapeles + Ctrl+V) en vez de
+    # teclearse caracter a caracter: ver `maria_teclado::win::escribir`.
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }
 
 # ---------------------------------------------------------------------------

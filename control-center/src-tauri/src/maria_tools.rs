@@ -161,6 +161,158 @@ pub fn recordar(consulta: &str) -> ToolOutcome {
     ToolOutcome::ok(corta)
 }
 
+/// Estado real de este ordenador, en una frase locutable.
+///
+/// Por que existe: el usuario pidio (2026-09-19) que mar.ia pudiera "acceder a
+/// la red y mirar los registros del ordenador". La voz corre sobre un modelo
+/// local que no sabe nada de esta maquina; sin una herramienta que lea los
+/// datos de verdad, cualquier respuesta sobre la CPU, el disco o la conexion
+/// seria inventada.
+///
+/// LIMITE DECLARADO (mandamiento 13): son datos de LECTURA y del propio equipo.
+/// No cambia nada, no sale a buscar informacion a internet — solo comprueba si
+/// hay salida a la red.
+#[must_use]
+pub fn estado_del_sistema() -> ToolOutcome {
+    let t = crate::maria_sysinfo::telemetry();
+    let cpu = t
+        .cpu_pct
+        .map(|c| format!("{c:.0} por ciento de CPU"))
+        .unwrap_or_else(|| "CPU sin medir".to_string());
+    let gpu = t
+        .gpus
+        .first()
+        .map(|g| match (g.mem_used_mb, g.mem_total_mb) {
+            (Some(u), Some(tot)) if tot > 0 => {
+                format!("; la gráfica {} con {u} de {tot} megas", g.name)
+            }
+            _ => format!("; gráfica {}", g.name),
+        })
+        .unwrap_or_default();
+    let red = if hay_internet() {
+        "con conexión a internet"
+    } else {
+        "sin conexión a internet"
+    };
+    ToolOutcome::ok(format!(
+        "{cpu}, {:.1} de {:.1} gigas de memoria y {:.0} gigas libres en disco{gpu}. Estamos {red}.",
+        t.ram_used_gb, t.ram_total_gb, t.disk_free_gb
+    ))
+}
+
+/// ¿Hay salida a internet? Una peticion corta y sin cuerpo.
+///
+/// Se pregunta a Cloudflare porque su `/cdn-cgi/trace` responde en texto plano
+/// y sin cookies. Tres segundos de tope: esto se locuta, no puede colgar la voz.
+fn hay_internet() -> bool {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .ok()
+        .and_then(|c| c.get("https://1.1.1.1/cdn-cgi/trace").send().ok())
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
+/// Los ultimos avisos y errores, de mar.ia o de Windows.
+///
+/// `fuente`: "windows" mira el visor de eventos del sistema; cualquier otra
+/// cosa, los propios registros de mar.ia.
+#[must_use]
+pub fn mirar_registros(fuente: &str) -> ToolOutcome {
+    if fuente.trim().eq_ignore_ascii_case("windows") {
+        return registros_de_windows();
+    }
+    registros_de_maria()
+}
+
+/// Ultimas lineas con pinta de problema en los logs de mar.ia.
+fn registros_de_maria() -> ToolOutcome {
+    let dir = crate::maria_paths::home().join("logs");
+    let Ok(entradas) = std::fs::read_dir(&dir) else {
+        return ToolOutcome::fail(format!("No encuentro la carpeta de registros en {}.", dir.display()));
+    };
+    // El fichero tocado mas recientemente: es donde esta lo de ahora.
+    let mut ficheros: Vec<(std::time::SystemTime, std::path::PathBuf)> = entradas
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "log"))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    // De mas reciente a mas antiguo.
+    ficheros.sort_by_key(|(fecha, _)| std::cmp::Reverse(*fecha));
+    let Some((_, ruta)) = ficheros.first() else {
+        return ToolOutcome::ok("No hay ningún registro todavía.");
+    };
+    let Ok(texto) = std::fs::read_to_string(ruta) else {
+        return ToolOutcome::fail("No he podido leer el registro.");
+    };
+    let malas: Vec<&str> = texto
+        .lines()
+        .rev()
+        .filter(|l| {
+            let b = l.to_lowercase();
+            b.contains("error") || b.contains("warn") || b.contains("fail")
+        })
+        .take(3)
+        .collect();
+    let nombre = ruta
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if malas.is_empty() {
+        return ToolOutcome::ok(format!("En {nombre} no hay errores recientes."));
+    }
+    // Se locuta: una frase, no un volcado. Se recorta cada linea.
+    let resumen: Vec<String> = malas
+        .iter()
+        .rev()
+        .map(|l| l.chars().take(140).collect::<String>())
+        .collect();
+    ToolOutcome::ok(format!("En {nombre}: {}", resumen.join(" | ")))
+}
+
+/// Los ultimos errores del visor de eventos de Windows.
+#[cfg(windows)]
+fn registros_de_windows() -> ToolOutcome {
+    // `wevtutil` viene con Windows y no necesita permisos de administrador
+    // para el registro del sistema. `/c:3` = tres sucesos, `/rd:true` = los
+    // mas recientes primero, `/f:text` = legible.
+    let salida = crate::proc::oculto("wevtutil.exe")
+        .args([
+            "qe",
+            "System",
+            "/q:*[System[(Level=1 or Level=2)]]",
+            "/c:3",
+            "/rd:true",
+            "/f:text",
+        ])
+        .output();
+    let Ok(out) = salida else {
+        return ToolOutcome::fail("No he podido consultar el visor de eventos.");
+    };
+    if !out.status.success() {
+        return ToolOutcome::fail("El visor de eventos ha rechazado la consulta.");
+    }
+    let texto = String::from_utf8_lossy(&out.stdout);
+    // De cada suceso interesa la descripcion, no la cabecera entera.
+    let lineas: Vec<String> = texto
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("Description:") || l.starts_with("Descripción:"))
+        .map(|l| l.chars().take(140).collect::<String>())
+        .take(3)
+        .collect();
+    if lineas.is_empty() {
+        return ToolOutcome::ok("Windows no ha registrado errores recientes.");
+    }
+    ToolOutcome::ok(format!("Últimos errores de Windows: {}", lineas.join(" | ")))
+}
+
+#[cfg(not(windows))]
+fn registros_de_windows() -> ToolOutcome {
+    ToolOutcome::fail("El visor de eventos solo existe en Windows.")
+}
+
 /// Manda una tarea a un agente de Claude Code.
 ///
 /// Fuego y olvido a proposito: el trabajo largo no puede bloquear la voz. El
@@ -258,5 +410,26 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("unins000.exe"), "").expect("write");
         assert!(exe_in(dir.path(), "Spotify").is_none());
+    }
+
+    #[test]
+    fn el_estado_del_sistema_da_numeros_de_verdad() {
+        // No se comprueba un valor concreto (cambia cada segundo), si que la
+        // frase sale de la telemetria real y no de una plantilla vacia: tiene
+        // que mencionar la memoria, que siempre se mide.
+        let r = estado_del_sistema();
+        assert!(r.ok);
+        assert!(r.say.contains("gigas de memoria"), "frase rara: {}", r.say);
+        assert!(r.say.contains("disco"), "frase rara: {}", r.say);
+    }
+
+    #[test]
+    fn los_registros_siempre_contestan_algo() {
+        // Caso negativo del mandamiento 11: aunque no haya logs, la
+        // herramienta tiene que decir QUE pasa, no devolver una frase vacia.
+        for fuente in ["maria", "", "loquesea"] {
+            let r = mirar_registros(fuente);
+            assert!(!r.say.trim().is_empty(), "fuente {fuente:?} se quedo muda");
+        }
     }
 }

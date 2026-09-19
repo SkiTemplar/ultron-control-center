@@ -260,11 +260,14 @@ function Row({ k, v, pct }: { k: string; v: string; pct?: number | null }) {
 export function MariaHome({
   voiceState,
   caption,
+  captionParcial = false,
   amp,
   onNavigate,
 }: {
   voiceState: ReactorState;
   caption: string;
+  /** El subtitulo todavia se esta formando (Vosk en vivo), no es definitivo. */
+  captionParcial?: boolean;
   amp: number;
   onNavigate: (t: Tab) => void;
 }) {
@@ -368,11 +371,22 @@ export function MariaHome({
 
           <p className="hud-label mt-5" style={{ fontSize: 11 }}>{STATE_TEXT[voiceState]}</p>
           {caption && (
+            /* Mientras hablas se ve lo que va entendiendo, en gris y en
+               cursiva; al soltar, la transcripcion buena lo sustituye en
+               firme. Asi se sabe SIEMPRE que ha oido, que era justo lo que
+               fallaba: el usuario hablaba y no aparecia nada. */
             <p
               className="mt-1 max-w-[520px] text-center text-[12px]"
-              style={{ color: "var(--color-text-secondary)", overflowWrap: "anywhere" }}
+              style={{
+                color: captionParcial
+                  ? "var(--color-text-tertiary)"
+                  : "var(--color-text-secondary)",
+                fontStyle: captionParcial ? "italic" : "normal",
+                overflowWrap: "anywhere",
+              }}
             >
               {caption}
+              {captionParcial && "…"}
             </p>
           )}
 

@@ -75,7 +75,12 @@ function AppInner() {
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Estado de la voz: alimenta el reactor de la barra y la pantalla principal.
-  const { state: voiceState, amp: voiceAmp, caption: voiceCaption } = useVoice();
+  const {
+    state: voiceState,
+    amp: voiceAmp,
+    caption: voiceCaption,
+    captionParcial: voiceCaptionParcial,
+  } = useVoice();
 
   // La voz la arranca el BACKEND al abrir mar.ia (`maria_voice::
   // arrancar_al_inicio`), no la ventana: la app puede quedarse en la bandeja
@@ -634,6 +639,7 @@ function AppInner() {
             <MariaHome
               voiceState={voiceState}
               caption={voiceCaption}
+              captionParcial={voiceCaptionParcial}
               amp={voiceAmp}
               onNavigate={(t) => setTab(t)}
             />

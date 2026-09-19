@@ -105,28 +105,46 @@ export function HudBackground() {
  *  Un solo `listen` para toda la aplicacion: el reactor de la barra, el de la
  *  pantalla principal y el subtitulo beben del mismo evento. Con un hook por
  *  componente habria tres suscripciones al mismo canal. */
-export function useVoice(): { state: ReactorState; amp: number; caption: string } {
+export function useVoice(): {
+  state: ReactorState;
+  amp: number;
+  caption: string;
+  /** El subtitulo es lo que Vosk va entendiendo, todavia puede cambiar. */
+  captionParcial: boolean;
+} {
   const [state, setState] = useState<ReactorState>("offline");
   const [amp, setAmp] = useState(0);
   const [caption, setCaption] = useState("");
+  const [captionParcial, setCaptionParcial] = useState(false);
 
   useEffect(() => {
     // Al montar preguntamos si el sidecar vive; luego mandan los eventos.
     void invoke<boolean>("maria_voice_running")
       .then((running) => setState(running ? "idle" : "offline"))
       .catch(() => setState("offline"));
-    const un = listen<{ state?: string; amp?: number; text?: string }>("maria:voice", (e) => {
-      const p = e.payload ?? {};
-      if (p.state === "idle" || p.state === "listening" || p.state === "thinking" || p.state === "speaking") {
-        setState(p.state);
-      }
-      if (typeof p.amp === "number") setAmp(Math.max(0, Math.min(1, p.amp)));
-      if (typeof p.text === "string") setCaption(p.text.slice(0, 200));
-    });
+    const un = listen<{ state?: string; amp?: number; text?: string; parcial?: boolean }>(
+      "maria:voice",
+      (e) => {
+        const p = e.payload ?? {};
+        if (
+          p.state === "idle" ||
+          p.state === "listening" ||
+          p.state === "thinking" ||
+          p.state === "speaking"
+        ) {
+          setState(p.state);
+        }
+        if (typeof p.amp === "number") setAmp(Math.max(0, Math.min(1, p.amp)));
+        if (typeof p.text === "string") {
+          setCaption(p.text.slice(0, 200));
+          setCaptionParcial(p.parcial === true);
+        }
+      },
+    );
     return () => {
       void un.then((f) => f());
     };
   }, []);
 
-  return { state, amp, caption };
+  return { state, amp, caption, captionParcial };
 }

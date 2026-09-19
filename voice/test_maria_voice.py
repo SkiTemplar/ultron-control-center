@@ -87,7 +87,11 @@ def test_la_transcripcion_vacia_no_llama_al_modelo():
         mv.ask_llm = original
 
     assert dicho == []
-    assert [e.get("state") for e in eventos] == ["listening", "idle"]
+    assert [e["state"] for e in eventos if "state" in e] == ["listening", "idle"]
+    # Y NO se queda mudo: dice que no ha oido nada. Antes volvia a "idle" en
+    # silencio y desde fuera parecia que se habia colgado escuchando.
+    avisos = [e.get("text", "") for e in eventos if e.get("event") == "transcript"]
+    assert any("no he o" in a.lower() for a in avisos), avisos
 
 
 def test_el_turno_completo_emite_transcripcion_respuesta_y_estados():
@@ -299,3 +303,149 @@ def test_si_el_modelo_local_no_esta_maria_lo_dice_en_voz_alta(monkeypatch):
     assert respuestas, "no dijo nada"
     assert "Ollama" in respuestas[0]
     assert dicho and "Ollama" in dicho[0], "no lo dijo en voz alta"
+
+
+# ---------------------------------------------------------------------------
+# La captura: umbral relativo y transcripcion en vivo
+#
+# El fallo real (2026-09-19): el microfono de los auriculares da 0,00001 RMS de
+# ruido y el umbral estaba fijo en 0,012. La voz nunca lo pasaba, la toma se
+# tiraba entera y el orbe se quedaba en "escuchando". Estos tests fijan que el
+# umbral se saque del ruido MEDIDO y no de una constante.
+# ---------------------------------------------------------------------------
+
+
+class StreamFalso:
+    """Un microfono de mentira: devuelve los bloques que se le den."""
+
+    def __init__(self, bloques):
+        self.bloques = list(bloques)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def read(self, _n):
+        if self.bloques:
+            return self.bloques.pop(0), False
+        # Se acabo el guion: silencio digital para siempre.
+        return b"\x00\x00" * 480, False
+
+
+def _tono(amplitud: float, n: int = 480) -> bytes:
+    import numpy as np
+
+    x = (np.random.default_rng(0).normal(0, amplitud, n) * 32767).clip(-32767, 32767)
+    return x.astype(np.int16).tobytes()
+
+
+def _grabar_con(monkeypatch, bloques):
+    """Corre record_utterance contra un microfono de mentira. Devuelve
+    (pcm, eventos)."""
+    import sounddevice as sd
+
+    monkeypatch.setattr(sd, "RawInputStream", lambda **_k: StreamFalso(bloques))
+    # Sin Vosk: aqui se prueba la puerta por nivel, no el reconocedor.
+    monkeypatch.setattr(mv, "modelo_vosk", lambda: (_ for _ in ()).throw(RuntimeError("sin vosk")))
+    rec = mv.Recorder()
+    caja = {}
+    eventos = capture(lambda: caja.setdefault("pcm", rec.record_utterance()))
+    return caja["pcm"], eventos
+
+
+def test_un_microfono_flojo_tambien_abre_la_puerta(monkeypatch):
+    """Voz a 0,004 RMS: MUY por debajo del viejo umbral fijo de 0,012."""
+    ruido = [_tono(0.00001) for _ in range(12)]   # 360 ms de sala
+    voz = [_tono(0.004) for _ in range(20)]       # 600 ms hablando
+    silencio = [_tono(0.00001) for _ in range(40)]  # y te callas
+    pcm, _ = _grabar_con(monkeypatch, ruido + voz + silencio)
+    assert pcm, "con voz audible la grabacion no puede salir vacia"
+
+
+def test_una_sala_en_silencio_no_se_confunde_con_voz(monkeypatch):
+    """Caso negativo: solo ruido, nada de voz -> no se graba nada.
+
+    Sin esto, bajar el umbral habria cambiado un fallo por el contrario:
+    mandarle a Whisper silencio, que se lo inventa.
+    """
+    solo_ruido = [_tono(0.00001) for _ in range(60)]
+    monkeypatch.setattr(mv, "MAX_UTTERANCE_S", 1.0)
+    pcm, _ = _grabar_con(monkeypatch, solo_ruido)
+    assert pcm == b"", "el ruido de sala no es voz"
+
+
+def test_el_umbral_se_calcula_con_el_ruido_medido(monkeypatch):
+    """Una sala ruidosa sube el liston; una silenciosa se queda en el piso."""
+    ruidosa = [_tono(0.01) for _ in range(12)]
+    monkeypatch.setattr(mv, "MAX_UTTERANCE_S", 1.0)
+    _, eventos = _grabar_con(monkeypatch, ruidosa)
+    linea = [e.get("message", "") for e in eventos if e.get("event") == "log"]
+    umbral = [m for m in linea if "umbral" in m]
+    assert umbral, f"no se registro el calibrado: {linea}"
+    # ruido ~0,01 * FACTOR_VOZ=6 -> bastante por encima del piso.
+    assert mv.PISO_RMS < 0.01 * mv.FACTOR_VOZ
+
+
+def test_el_nivel_del_orbe_se_escala_contra_el_umbral(monkeypatch):
+    """Con un microfono flojo la bolita tiene que moverse igual."""
+    ruido = [_tono(0.00001) for _ in range(12)]
+    voz = [_tono(0.004) for _ in range(10)]
+    _, eventos = _grabar_con(monkeypatch, ruido + voz + [_tono(0.00001) for _ in range(40)])
+    amps = [e["amp"] for e in eventos if e.get("event") == "amp"]
+    assert amps, "sin niveles el orbe se queda quieto"
+    assert max(amps) > 0.5, f"la voz apenas movio el medidor: max={max(amps):.3f}"
+
+
+# ---------------------------------------------------------------------------
+# Whisper: la GPU que "carga" pero no transcribe
+#
+# El fallo medido el 2026-09-19: WhisperModel(device="cuda") se construye sin
+# rechistar aunque falte cublas64_12.dll, y revienta despues, al codificar el
+# primer audio de verdad. Resultado visible: la palabra clave te oye, grabas, y
+# no aparece texto por ningun sitio.
+# ---------------------------------------------------------------------------
+
+
+class _WhisperFalso:
+    """Se construye siempre; en cuda falla al transcribir, como el de verdad."""
+
+    def __init__(self, _modelo, device="cpu", compute_type="int8"):
+        self.device = device
+
+    def transcribe(self, _audio, **_kw):
+        if self.device == "cuda":
+            raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+        return iter([type("S", (), {"text": " hola "})()]), None
+
+
+def test_una_gpu_que_no_puede_transcribir_cae_a_cpu(monkeypatch):
+    import faster_whisper
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", _WhisperFalso)
+    eventos = capture(lambda: setattr(test_una_gpu_que_no_puede_transcribir_cae_a_cpu,
+                                      "m", mv.cargar_whisper()))
+    m = test_una_gpu_que_no_puede_transcribir_cae_a_cpu.m
+    assert m.device == "cpu", "tenia que haberse quedado en CPU"
+    mensajes = " ".join(e.get("message", "") for e in eventos)
+    # Y lo DICE: un cambio de GPU a CPU sin avisar es un misterio de 4 segundos
+    # por respuesta que nadie sabe explicar.
+    assert "GPU no puede transcribir" in mensajes, mensajes
+    assert "instalar-voz-gpu" in mensajes, "hay que decir como arreglarlo"
+
+
+def test_la_transcripcion_no_se_pierde_si_la_gpu_falla_a_mitad(monkeypatch):
+    """Caso negativo: el modelo ya cargado peta -> se rehace en CPU y se salva
+    lo que el usuario acaba de decir."""
+    import faster_whisper
+    import numpy as np
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", _WhisperFalso)
+    rec = mv.Recorder()
+    rec.model = _WhisperFalso("x", device="cuda")  # una GPU que ya no va
+    pcm = (np.zeros(16000, dtype=np.int16) + 1000).tobytes()
+    texto = capture(lambda: None) and None
+    texto = rec.transcribe(pcm)
+    assert texto == "hola", texto
+    assert rec.model.device == "cpu"

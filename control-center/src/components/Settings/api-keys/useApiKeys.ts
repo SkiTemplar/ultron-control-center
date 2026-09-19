@@ -27,6 +27,12 @@ export interface UseApiKeysResult {
   toggleVisible: (envVar: string) => void;
   handleSave: () => Promise<void>;
   handleValidate: () => Promise<void>;
+  /** Borra una clave ya guardada. La confirmacion la pide la pantalla. */
+  handleDelete: (envVar: string) => Promise<void>;
+  /** Variable que se esta borrando ahora mismo, o null. */
+  borrando: string | null;
+  /** Ultimo borrado hecho, para poder contarlo en pantalla. */
+  borrado: string | null;
 }
 
 export function useApiKeys(): UseApiKeysResult {
@@ -47,6 +53,8 @@ export function useApiKeys(): UseApiKeysResult {
   // configurados (no contra la lista estatica de campos de esta seccion).
   const [validations, setValidations] = useState<KeyValidation[] | null>(null);
   const [validating, setValidating] = useState(false);
+  const [borrando, setBorrando] = useState<string | null>(null);
+  const [borrado, setBorrado] = useState<string | null>(null);
 
   const handleValidate = useCallback(async () => {
     setValidating(true);
@@ -149,6 +157,35 @@ export function useApiKeys(): UseApiKeysResult {
     }
   }, [fields, loadStatuses]);
 
+  // Borrar una clave. El backend vuelve a exigir `confirmar` y solo acepta
+  // nombres de su lista cerrada, asi que esto no puede tocar PATH ni nada
+  // parecido aunque alguien llamase al comando por su cuenta.
+  const handleDelete = useCallback(
+    async (envVar: string) => {
+      setBorrando(envVar);
+      setError(null);
+      setResult(null);
+      setBorrado(null);
+      try {
+        const msg = await invoke<string>("maria_clave_borrar", {
+          variable: envVar,
+          confirmar: true,
+        });
+        setBorrado(msg);
+        // El campo se vacia: si tenia algo a medio escribir, ya no aplica.
+        setFields((prev) =>
+          prev[envVar] ? { ...prev, [envVar]: { ...prev[envVar], value: "" } } : prev,
+        );
+        await loadStatuses();
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBorrando(null);
+      }
+    },
+    [loadStatuses],
+  );
+
   const savedCount = result?.saved.length ?? 0;
   const errorCount = Object.keys(result?.errors ?? {}).length;
 
@@ -166,5 +203,8 @@ export function useApiKeys(): UseApiKeysResult {
     toggleVisible,
     handleSave,
     handleValidate,
+    handleDelete,
+    borrando,
+    borrado,
   };
 }

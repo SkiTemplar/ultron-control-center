@@ -1,16 +1,16 @@
-# ULTRON v14.8 BACKUP-WATCH — weekly robocopy backup (mirror, overwrite)
+# mar.ia BACKUP-WATCH - copia semanal con robocopy (espejo, sobrescribe)
 #
 # Backs up the user's data sources to $env:BACKUP_ROOT\<src>\ (NO dated subdir).
-# Each run overwrites the previous mirror via robocopy /MIR — single up-to-date
-# snapshot, no history. Logs are still dated (~/.ultron/logs/backup-<DATE>.log).
-# Reads exclusions from ~/.ultron/config/backup-exclusions.txt (gitignore-style).
+# Each run overwrites the previous mirror via robocopy /MIR - single up-to-date
+# snapshot, no history. Logs are still dated (<raiz>/logs/backup-<DATE>.log).
+# Reads exclusions from <raiz>/config/backup-exclusions.txt (gitignore-style).
 # Designed to run via Task Scheduler ONLOGON (weekly trigger). Idempotent and
 # safe: /MIR removes destination files no longer in source.
 #
 # Usage:
 #   weekly-backup.ps1                     # run real backup
 #   weekly-backup.ps1 -DryRun              # log what would happen, no copy
-#   weekly-backup.ps1 -Source .ultron      # restrict to a single source
+#   weekly-backup.ps1 -Source .maria       # restrict to a single source
 #   weekly-backup.ps1 -Status              # print last-run summary, exit
 #
 # -KeepWeeks (default 4) controls how many dated brain.db snapshots are kept
@@ -34,16 +34,31 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# -- Configuration --------------------------------------------------------------
 
 # Resolution order (v15.5.20: backups-modular-ui added the JSON UI layer):
-#   1. ~/.ultron/cockpit/backup-config.json -> { "sources": ["..."] }
+#   1. <raiz>/cockpit/backup-config.json -> { "sources": ["..."] }
 #      (written by Settings -> Backups -> Sources panel)
-#   2. $env:ULTRON_BACKUP_SOURCES (comma-separated, fallback for CLI users)
-#   3. Defaults: .ultron, .ultron-vault, .claude
+#   2. $env:MARIA_BACKUP_SOURCES (o la heredada ULTRON_, separadas por comas)
+#   3. Defaults: la raiz de mar.ia, su vault y .claude
 # Personal trees like Documents / source / your-folder are opt-in via the UI.
-$DefaultSources    = @(".ultron", ".ultron-vault", ".claude")
-$SourcesConfigPath = Join-Path $env:USERPROFILE ".ultron\cockpit\backup-config.json"
+# Raiz de mar.ia. La carpeta pasa a llamarse .maria (2026-09-18) y .ultron
+# queda como enlace de compatibilidad, asi que las dos resuelven al mismo
+# sitio; lo que cambia es el NOMBRE que se ve en la copia y en los mensajes.
+# Mismo orden que maria_paths.rs en el codigo: variable de entorno, .maria, y
+# .ultron mientras siga siendo lo unico que hay.
+$MariaHome = if ($env:MARIA_HOME) {
+    $env:MARIA_HOME
+} elseif (Test-Path (Join-Path $env:USERPROFILE ".maria")) {
+    Join-Path $env:USERPROFILE ".maria"
+} else {
+    Join-Path $env:USERPROFILE ".ultron"
+}
+$MariaName = Split-Path $MariaHome -Leaf
+$VaultName = if (Test-Path (Join-Path $env:USERPROFILE ".maria-vault")) { ".maria-vault" } else { ".ultron-vault" }
+
+$DefaultSources    = @($MariaName, $VaultName, ".claude")
+$SourcesConfigPath = Join-Path $MariaHome "cockpit\backup-config.json"
 $Sources = $null
 if (Test-Path $SourcesConfigPath) {
     try {
@@ -56,8 +71,9 @@ if (Test-Path $SourcesConfigPath) {
     }
 }
 if (-not $Sources) {
-    $Sources = if ($env:ULTRON_BACKUP_SOURCES) {
-        @($env:ULTRON_BACKUP_SOURCES.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $SourcesEnv = if ($env:MARIA_BACKUP_SOURCES) { $env:MARIA_BACKUP_SOURCES } else { $env:ULTRON_BACKUP_SOURCES }
+    $Sources = if ($SourcesEnv) {
+        @($SourcesEnv.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     } else {
         $DefaultSources
     }
@@ -65,8 +81,8 @@ if (-not $Sources) {
 
 # Backup destination root. Resolution order MUST match
 # control-center/src-tauri/src/backup_status.rs::backup_root():
-#   1. ~/.ultron/.tmp/backup-root.txt        (set via Settings -> Backups UI)
-#   2. $env:ULTRON_BACKUP_ROOT               (CLI / Task Scheduler override)
+#   1. <raiz>/.tmp/backup-root.txt           (set via Settings -> Backups UI)
+#   2. $env:MARIA_BACKUP_ROOT                (CLI / Task Scheduler override)
 #   3. D:\BACKUP if mounted                  (legacy convention)
 #   4. $env:USERPROFILE\BACKUP               (fresh-install fallback)
 #
@@ -74,9 +90,9 @@ if (-not $Sources) {
 # destination through the Control Center UI (which writes step 1 only,
 # and sets the env var ONLY in the live Tauri process) any subsequent
 # Force-Backup-Now invocation after a Control Center restart silently
-# fell back to %USERPROFILE%\BACKUP — leaving the configured D:\... empty
+# fell back to %USERPROFILE%\BACKUP - leaving the configured D:\... empty
 # and the "last backup" badge stuck on the old C: mirror.
-$BackupRootFile  = Join-Path $env:USERPROFILE ".ultron\.tmp\backup-root.txt"
+$BackupRootFile  = Join-Path $MariaHome ".tmp\backup-root.txt"
 $BackupRoot      = $null
 if (Test-Path $BackupRootFile) {
     try {
@@ -86,7 +102,11 @@ if (Test-Path $BackupRootFile) {
         Write-Warning "Could not read $BackupRootFile ($_) - falling back to env/defaults."
     }
 }
+if (-not $BackupRoot -and $env:MARIA_BACKUP_ROOT) {
+    $BackupRoot = $env:MARIA_BACKUP_ROOT
+}
 if (-not $BackupRoot -and $env:ULTRON_BACKUP_ROOT) {
+    # Heredada: puede seguir puesta en una tarea programada vieja.
     $BackupRoot = $env:ULTRON_BACKUP_ROOT
 }
 if (-not $BackupRoot -and (Test-Path "D:\BACKUP")) {
@@ -95,11 +115,11 @@ if (-not $BackupRoot -and (Test-Path "D:\BACKUP")) {
 if (-not $BackupRoot) {
     $BackupRoot = Join-Path $env:USERPROFILE "BACKUP"
 }
-$ExclusionsFile  = Join-Path $env:USERPROFILE ".ultron\config\backup-exclusions.txt"
-$LogDir          = Join-Path $env:USERPROFILE ".ultron\logs"
-$StatusFile      = Join-Path $env:USERPROFILE ".ultron\.tmp\backup-last-run.json"
+$ExclusionsFile  = Join-Path $MariaHome "config\backup-exclusions.txt"
+$LogDir          = Join-Path $MariaHome "logs"
+$StatusFile      = Join-Path $MariaHome ".tmp\backup-last-run.json"
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# -- Helpers --------------------------------------------------------------------
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -144,7 +164,7 @@ function Invoke-Robocopy {
     }
     $args = @(
         $SourcePath, $DestPath,
-        "/MIR",        # mirror — match source exactly under dated dest
+        "/MIR",        # mirror - match source exactly under dated dest
         "/R:1",        # 1 retry on locked files
         "/W:5",        # 5s wait between retries
         "/MT:8",       # 8 multi-threaded copies
@@ -187,7 +207,7 @@ function Remove-LegacyDatedBackups {
     }
 }
 
-# ── Status mode (early exit) ──────────────────────────────────────────────────
+# -- Status mode (early exit) --------------------------------------------------
 
 if ($Status) {
     if (Test-Path $StatusFile) {
@@ -198,7 +218,7 @@ if ($Status) {
     exit 0
 }
 
-# ── Pre-flight ────────────────────────────────────────────────────────────────
+# -- Pre-flight ----------------------------------------------------------------
 
 # Verify the parent drive of $BackupRoot exists (e.g. "D:\" if BackupRoot is
 # "D:\BACKUP"). Skip the check when BackupRoot lives under %USERPROFILE%
@@ -215,11 +235,11 @@ $DateStr   = Get-Date -Format "yyyy-MM-dd"
 $LogFile   = Join-Path $LogDir "backup-$DateStr.log"
 
 $exclusions = Read-Exclusions -Path $ExclusionsFile
-Write-Log "v14.8 BACKUP-WATCH start (DryRun=$DryRun, mode=mirror-overwrite)"
-Write-Log "exclusions: $($exclusions.Dirs.Count) dirs · $($exclusions.Files.Count) files"
+Write-Log "mar.ia BACKUP-WATCH start (DryRun=$DryRun, mode=mirror-overwrite)"
+Write-Log "exclusions: $($exclusions.Dirs.Count) dirs - $($exclusions.Files.Count) files"
 Write-Log "destination root: $BackupRoot (one folder per source, mirrored)"
 
-# ── Per-source backup ─────────────────────────────────────────────────────────
+# -- Per-source backup ---------------------------------------------------------
 
 $sourcesToRun = if ($Source) { @($Source) } else { $Sources }
 $results = @{}
@@ -242,7 +262,7 @@ foreach ($src in $sourcesToRun) {
         Write-Log "FAIL: $src robocopy exit code $($r.Code)" "ERROR"
     } else {
         Write-Log "OK: $src robocopy exit code $($r.Code)"
-        # v15.4.7 — touch the destination mtime so the Doctor backup-stale
+        # v15.4.7 - touch the destination mtime so the Doctor backup-stale
         # detector (control-center/src-tauri/src/backup_status.rs) sees a
         # fresh timestamp even when robocopy /MIR had no deltas to apply.
         # Without this, a successful no-op run leaves the badge orange.
@@ -256,13 +276,13 @@ foreach ($src in $sourcesToRun) {
     }
 }
 
-# ── brain.db consistent snapshot (v14.8, MEM-AUD backup 2026-07-27) ──────────
+# -- brain.db consistent snapshot (v14.8, MEM-AUD backup 2026-07-27) ----------
 # robocopy copies brain.db while the memory daemon may be writing, so the
 # mirror copy can be internally inconsistent. VACUUM INTO produces a
 # transactionally consistent snapshot even with concurrent writers. Snapshots
 # are dated and pruned to the newest $KeepWeeks generations.
 
-$BrainDb     = Join-Path $env:USERPROFILE ".ultron\brain.db"
+$BrainDb     = Join-Path $MariaHome "brain.db"
 $SnapshotDir = Join-Path $BackupRoot "brain-snapshots"
 $snapshotOk  = $null
 if (-not $DryRun -and -not $Source -and (Test-Path $BrainDb)) {
@@ -297,7 +317,7 @@ if (-not $DryRun -and -not $Source -and (Test-Path $BrainDb)) {
     }
 }
 
-# ── Retention prune ───────────────────────────────────────────────────────────
+# -- Retention prune -----------------------------------------------------------
 
 if (-not $Source) {
     # Mirror mode does not retain history. Sweep any leftover dated subdirs
@@ -305,7 +325,7 @@ if (-not $Source) {
     Remove-LegacyDatedBackups -Root $BackupRoot
 }
 
-# ── Persist status ────────────────────────────────────────────────────────────
+# -- Persist status ------------------------------------------------------------
 
 $statusPayload = @{
     last_run        = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
@@ -329,6 +349,6 @@ $statusDir = Split-Path $StatusFile -Parent
 if (-not (Test-Path $statusDir)) { New-Item -ItemType Directory -Path $statusDir -Force | Out-Null }
 $statusPayload | ConvertTo-Json -Depth 4 | Set-Content -Path $StatusFile -Encoding UTF8
 
-Write-Log "v14.8 BACKUP-WATCH end · failed=$anyFailed"
+Write-Log "mar.ia BACKUP-WATCH end - failed=$anyFailed"
 
 if ($anyFailed) { exit 1 } else { exit 0 }

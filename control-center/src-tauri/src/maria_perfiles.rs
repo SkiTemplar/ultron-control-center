@@ -37,13 +37,31 @@ fn credencial(provider: &str) -> Option<Vec<std::path::PathBuf>> {
 
 /// Variables de API que mar.ia sabe borrar. Lista cerrada: el nombre acaba en
 /// `reg delete`, asi que aceptar cualquiera seria dejar tocar el registro.
+/// Variables que el boton de borrar puede tocar.
+///
+/// Es una lista CERRADA a proposito: `maria_clave_borrar` escribe en el `.env`
+/// y en el registro del usuario, y no puede aceptar un nombre arbitrario que
+/// venga de la interfaz.
+///
+/// Tiene que cubrir TODO lo que la pantalla de API Keys ensena; si no, el
+/// boton saldria y no haria nada (mandamiento 11). El test
+/// `cubre_todo_el_catalogo_de_la_pantalla` es el que lo sujeta.
 const CLAVES_CONOCIDAS: &[&str] = &[
+    // Providers de IA (Settings > API Keys > primera lista)
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "NVIDIA_NIM_API_KEY",
+    "OPENROUTER_API_KEY",
+    // Investigacion (buscador de papers del TFG)
     "SEMANTIC_SCHOLAR_API_KEY",
     "OPENALEX_API_KEY",
+    "OPENALEX_MAILTO",
+    "UNPAYWALL_EMAIL",
+    // Token de GitHub (su propia tarjeta, mas abajo en la misma pantalla)
     "GITHUB_TOKEN",
 ];
 
@@ -429,5 +447,36 @@ mod tests {
         for v in ["ANTHROPIC_API_KEY", " OPENAI_API_KEY ", "GITHUB_TOKEN"] {
             assert!(clave_conocida(v), "deberia aceptar {v:?}");
         }
+    }
+
+    #[test]
+    fn cubre_todo_el_catalogo_de_la_pantalla() {
+        // El boton de Eliminar sale en TODAS las filas de Settings > API Keys.
+        // Si el catalogo del frontend gana una clave y esta lista no, el boton
+        // apareceria y el backend lo rechazaria con "variable no reconocida":
+        // un boton que no hace nada, que es justo lo que no queremos.
+        //
+        // Por eso el test lee el catalogo de verdad en vez de una copia.
+        let catalogo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/components/Settings/api-keys/key-catalog.ts");
+        let texto = std::fs::read_to_string(&catalogo)
+            .unwrap_or_else(|e| panic!("no pude leer {}: {e}", catalogo.display()));
+
+        let mut faltan: Vec<String> = Vec::new();
+        for linea in texto.lines() {
+            let Some(resto) = linea.trim().strip_prefix("envVar: \"") else {
+                continue;
+            };
+            let Some(nombre) = resto.split('"').next() else {
+                continue;
+            };
+            if !clave_conocida(nombre) {
+                faltan.push(nombre.to_string());
+            }
+        }
+        assert!(
+            faltan.is_empty(),
+            "la pantalla ensena claves que no se pueden borrar: {faltan:?}"
+        );
     }
 }

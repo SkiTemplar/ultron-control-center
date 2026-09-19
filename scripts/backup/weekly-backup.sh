@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # weekly-backup.sh - Linux sibling of weekly-backup.ps1
 #
-# ULTRON v14.7 BACKUP-WATCH — weekly rsync backup (mirror, overwrite).
+# mar.ia BACKUP-WATCH - copia semanal con rsync (espejo, sobrescribe).
 #
-# Backs up the user's data sources to $ULTRON_BACKUP_ROOT/<src>/ (NO
+# Backs up the user's data sources to $MARIA_BACKUP_ROOT/<src>/ (NO
 # dated subdir). Each run overwrites the previous mirror via
 # `rsync -a --delete` — single up-to-date snapshot, no history. Logs
-# are still dated (~/.ultron/logs/backup-<DATE>.log). Reads exclusions
-# from ~/.ultron/config/backup-exclusions.txt (gitignore-style).
+# are still dated (<raiz>/logs/backup-<DATE>.log). Reads exclusions
+# from <raiz>/config/backup-exclusions.txt (gitignore-style).
 # Designed to run via cron / systemd timer. Idempotent and safe:
 # --delete removes destination files no longer in source.
 #
 # Usage:
 #   weekly-backup.sh                    # run real backup
 #   weekly-backup.sh --dry-run           # log what would happen, no copy
-#   weekly-backup.sh --source .ultron    # restrict to a single source
+#   weekly-backup.sh --source .maria     # restrict to a single source
 #   weekly-backup.sh --status            # print last-run summary, exit
 #
 # --keep-weeks is accepted but ignored (kept for backward compat with
@@ -63,17 +63,29 @@ done
 # Mirror the order/contents of the .ps1's $Sources array.
 #
 # Resolution order (v15.5.20: backups-modular-ui added the JSON UI layer):
-#   1. ~/.ultron/cockpit/backup-config.json -> { "sources": ["..."] }
+#   1. <raiz>/cockpit/backup-config.json -> { "sources": ["..."] }
 #      (written by Settings -> Backups -> Sources panel)
-#   2. $ULTRON_BACKUP_SOURCES (comma-separated, fallback for CLI users)
-#   3. Defaults: .ultron, .ultron-vault, .claude
+#   2. $MARIA_BACKUP_SOURCES (o la heredada ULTRON_, separadas por comas)
+#   3. Defaults: la raiz de mar.ia, su vault y .claude
 # Personal trees like Documents / source / your-folder are opt-in via the UI.
+# Raiz de mar.ia: .maria, o .ultron mientras siga siendo lo unico que hay.
+# Mismo criterio que maria_paths.rs.
+if [[ -n "${MARIA_HOME:-}" ]]; then
+    MARIA_HOME_DIR="${MARIA_HOME}"
+elif [[ -d "${HOME}/.maria" ]]; then
+    MARIA_HOME_DIR="${HOME}/.maria"
+else
+    MARIA_HOME_DIR="${HOME}/.ultron"
+fi
+MARIA_NAME="$(basename "${MARIA_HOME_DIR}")"
+if [[ -d "${HOME}/.maria-vault" ]]; then VAULT_NAME=".maria-vault"; else VAULT_NAME=".ultron-vault"; fi
+
 DEFAULT_SOURCES=(
-    ".ultron"
-    ".ultron-vault"
+    "${MARIA_NAME}"
+    "${VAULT_NAME}"
     ".claude"
 )
-SOURCES_CONFIG_PATH="${HOME}/.ultron/cockpit/backup-config.json"
+SOURCES_CONFIG_PATH="${MARIA_HOME_DIR}/cockpit/backup-config.json"
 SOURCES=()
 if [[ -r "${SOURCES_CONFIG_PATH}" ]]; then
     # Extract the "sources" array from JSON via Python (always present in installs);
@@ -94,20 +106,20 @@ except Exception as e:
 " 2>/dev/null)
 fi
 if [[ ${#SOURCES[@]} -eq 0 ]]; then
-    if [[ -n "${ULTRON_BACKUP_SOURCES:-}" ]]; then
-        IFS=', ' read -r -a SOURCES <<< "${ULTRON_BACKUP_SOURCES}"
+    if [[ -n "${MARIA_BACKUP_SOURCES:-${ULTRON_BACKUP_SOURCES:-}}" ]]; then
+        IFS=', ' read -r -a SOURCES <<< "${MARIA_BACKUP_SOURCES:-${ULTRON_BACKUP_SOURCES}}"
     else
         SOURCES=( "${DEFAULT_SOURCES[@]}" )
     fi
 fi
 
-# Backup destination root. Override with $ULTRON_BACKUP_ROOT (e.g.
+# Backup destination root. Override with $MARIA_BACKUP_ROOT (e.g.
 # /mnt/backup). Falls back to "$HOME/BACKUP" so the script still works
 # on a fresh box without env-var setup.
-BACKUP_ROOT="${ULTRON_BACKUP_ROOT:-${HOME}/BACKUP}"
-EXCLUSIONS_FILE="${HOME}/.ultron/config/backup-exclusions.txt"
-LOG_DIR="${HOME}/.ultron/logs"
-STATUS_FILE="${HOME}/.ultron/.tmp/backup-last-run.json"
+BACKUP_ROOT="${MARIA_BACKUP_ROOT:-${ULTRON_BACKUP_ROOT:-${HOME}/BACKUP}}"
+EXCLUSIONS_FILE="${MARIA_HOME_DIR}/config/backup-exclusions.txt"
+LOG_DIR="${MARIA_HOME_DIR}/logs"
+STATUS_FILE="${MARIA_HOME_DIR}/.tmp/backup-last-run.json"
 
 # ── Status mode (early exit) ─────────────────────────────────────────────
 

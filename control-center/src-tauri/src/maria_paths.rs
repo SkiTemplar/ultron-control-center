@@ -74,6 +74,40 @@ pub fn home() -> PathBuf {
     .unwrap_or_else(|| PathBuf::from(DIR_NUEVO))
 }
 
+/// Nombre de la carpeta raiz DENTRO de HOME (".maria" o ".ultron").
+///
+/// Hace falta para los backups, que trabajan con nombres relativos a HOME y no
+/// con rutas absolutas: robocopy copia `~/<nombre>` a `<raiz de backup>/<nombre>`.
+/// Si la raiz esta fuera de HOME (`MARIA_HOME` apuntando a otro disco), se
+/// devuelve el nombre nuevo, que es lo unico sensato como etiqueta.
+#[must_use]
+pub fn nombre_en_home() -> String {
+    let raiz = home();
+    if let Some(h) = dirs::home_dir() {
+        if let Ok(rel) = raiz.strip_prefix(&h) {
+            if let Some(n) = rel.to_str().filter(|n| !n.is_empty()) {
+                return n.to_string();
+            }
+        }
+    }
+    DIR_NUEVO.to_string()
+}
+
+/// Nombre del vault de notas dentro de HOME.
+///
+/// Mismo criterio que la raiz: `.maria-vault` si existe, `.ultron-vault`
+/// mientras sea lo unico que hay. La migracion lo renombra y deja un enlace,
+/// igual que con la carpeta principal.
+#[must_use]
+pub fn nombre_vault_en_home() -> String {
+    let nuevo = format!("{DIR_NUEVO}-vault");
+    let heredado = format!("{DIR_HEREDADO}-vault");
+    match dirs::home_dir() {
+        Some(h) if !h.join(&nuevo).exists() && h.join(&heredado).exists() => heredado,
+        _ => nuevo,
+    }
+}
+
 /// Subcarpeta de la raiz, creandola si hace falta.
 fn sub(rel: &str) -> Result<PathBuf, String> {
     let dir = home().join(rel);
@@ -147,6 +181,23 @@ mod tests {
     #[test]
     fn sin_home_no_inventa_una_ruta() {
         assert_eq!(elegir_raiz(None, None, &nada), None);
+    }
+
+    #[test]
+    fn el_nombre_en_home_es_relativo_y_corto() {
+        // Se usa como nombre de carpeta destino en el disco de backup: si
+        // saliera una ruta absoluta, robocopy crearia un arbol absurdo.
+        let n = nombre_en_home();
+        assert!(!n.is_empty());
+        assert!(!n.contains('/') && !n.contains('\\'), "no puede ser una ruta: {n}");
+        assert!(n.starts_with('.'), "la raiz es una carpeta oculta: {n}");
+    }
+
+    #[test]
+    fn el_vault_sigue_el_mismo_nombre_que_la_raiz() {
+        let v = nombre_vault_en_home();
+        assert!(v.ends_with("-vault"), "{v}");
+        assert!(v == format!("{DIR_NUEVO}-vault") || v == format!("{DIR_HEREDADO}-vault"));
     }
 
     #[test]

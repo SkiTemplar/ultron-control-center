@@ -5,13 +5,15 @@
 import { AnthropicHijackWarning } from "./AnthropicHijackWarning";
 import { KeyFieldRow } from "./KeyFieldRow";
 import { PROVIDER_KEYS } from "./key-catalog";
-import type { EnvKeyStatus, FieldState } from "./types";
+import type { EnvKeyStatus, FieldState, ProviderKeyDef } from "./types";
 
 interface ProviderKeysGroupProps {
   fields: Record<string, FieldState>;
   statuses: Record<string, EnvKeyStatus>;
   onChange: (envVar: string, value: string) => void;
   onToggleVisible: (envVar: string) => void;
+  onDelete: (def: ProviderKeyDef) => void;
+  borrando: string | null;
 }
 
 export function ProviderKeysGroup({
@@ -19,6 +21,8 @@ export function ProviderKeysGroup({
   statuses,
   onChange,
   onToggleVisible,
+  onDelete,
+  borrando,
 }: ProviderKeysGroupProps) {
   return (
     <ul className="flex flex-col gap-3">
@@ -30,6 +34,8 @@ export function ProviderKeysGroup({
           status={statuses[def.envVar]}
           onChange={onChange}
           onToggleVisible={onToggleVisible}
+          onDelete={onDelete}
+          borrando={borrando === def.envVar}
           extra={
             def.envVar === "ANTHROPIC_API_KEY" ? <AnthropicHijackWarning /> : undefined
           }

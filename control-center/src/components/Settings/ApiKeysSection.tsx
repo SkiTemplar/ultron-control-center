@@ -11,12 +11,19 @@
 // api-keys/validation.ts, estado + invoke en api-keys/useApiKeys.ts, y un
 // componente por pieza visual bajo api-keys/.
 
+import { useState } from "react";
 import { GithubTokenCard } from "./api-keys/GithubTokenCard";
 import { ProviderKeysGroup } from "./api-keys/ProviderKeysGroup";
 import { ResearchKeysGroup } from "./api-keys/ResearchKeysGroup";
 import { useApiKeys } from "./api-keys/useApiKeys";
+import type { ProviderKeyDef } from "./api-keys/types";
+import { Confirmar } from "./Confirmar";
+import { EMAIL_ENV_VARS } from "./api-keys/key-catalog";
 
 export function ApiKeysSection() {
+  // Clave pendiente de confirmar. Se guarda la definicion entera porque el
+  // dialogo ensena la etiqueta legible, no solo el nombre de la variable.
+  const [aBorrar, setABorrar] = useState<ProviderKeyDef | null>(null);
   const {
     fields,
     statuses,
@@ -31,6 +38,9 @@ export function ApiKeysSection() {
     toggleVisible,
     handleSave,
     handleValidate,
+    handleDelete,
+    borrando,
+    borrado,
   } = useApiKeys();
 
   return (
@@ -63,6 +73,8 @@ export function ApiKeysSection() {
         statuses={statuses}
         onChange={handleChange}
         onToggleVisible={toggleVisible}
+        onDelete={setABorrar}
+        borrando={borrando}
       />
 
       <ResearchKeysGroup
@@ -70,6 +82,8 @@ export function ApiKeysSection() {
         statuses={statuses}
         onChange={handleChange}
         onToggleVisible={toggleVisible}
+        onDelete={setABorrar}
+        borrando={borrando}
       />
 
       {/* Actions */}
@@ -146,6 +160,43 @@ export function ApiKeysSection() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Confirmacion de borrado. El usuario lo pidio asi (2026-09-19): boton
+          de eliminar Y confirmacion, "para no darle por si acaso". */}
+      {aBorrar && (
+        <Confirmar
+          titulo={`Eliminar ${aBorrar.label}`}
+          detalle={
+            `Se quita ${aBorrar.envVar} del .env de mar.ia y de las variables de ` +
+            `usuario de Windows. ` +
+            (EMAIL_ENV_VARS.has(aBorrar.envVar)
+              ? "Tendrás que volver a escribirlo si lo quieres de vuelta."
+              : "La clave en sí no se puede recuperar: habrá que volver a copiarla del proveedor.") +
+            " Los programas ya abiertos seguirán viéndola hasta que se reinicien."
+          }
+          accion="Eliminar"
+          onCancelar={() => setABorrar(null)}
+          onConfirmar={() => {
+            const def = aBorrar;
+            setABorrar(null);
+            void handleDelete(def.envVar);
+          }}
+        />
+      )}
+
+      {/* Resultado del borrado */}
+      {borrado && (
+        <div
+          className="mt-4 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.06)",
+            border: "1px solid rgba(63,185,80,0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {borrado}
         </div>
       )}
 

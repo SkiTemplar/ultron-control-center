@@ -1,8 +1,8 @@
 // Ajustes → General: el autocompletado global `//maria`.
 //
 // Escribes `//maria <lo que sea>` en cualquier sitio (bloc de notas, un editor,
-// un campo del navegador), pulsas Enter y mar.ia borra lo escrito y deja la
-// respuesta en su lugar.
+// un campo del navegador), pulsas Intro (o Escape) y mar.ia escribe la
+// respuesta DEBAJO. No borra nada de lo que hayas escrito.
 //
 // Va APAGADO de fábrica y esta pantalla dice por qué antes de encenderlo: un
 // hook de teclado global ve lo que tecleas. Aquí se explica exactamente qué se
@@ -44,7 +44,7 @@ export function TecladoSection() {
       setCfg(r);
       setAviso(
         r.enabled
-          ? `activo: escribe «${r.disparador} …» y pulsa Enter en cualquier programa`
+          ? `activo: escribe «${r.disparador} …» y pulsa Intro en cualquier programa`
           : "apagado (deja de escuchar al reiniciar mar.ia)",
       );
     }
@@ -60,8 +60,9 @@ export function TecladoSection() {
         </h2>
         <p className="mt-1 text-[12.5px]" style={{ color: "var(--color-text-secondary)" }}>
           Escribe <code>{cfg.disparador} traduce esto al inglés</code> en el bloc de notas, en
-          un editor o en un campo del navegador y pulsa Enter: mar.ia borra lo que has escrito
-          y deja la respuesta ahí mismo.
+          un editor o en un campo del navegador y pulsa <strong>Intro</strong> (o{" "}
+          <strong>Escape</strong>): mar.ia deja la respuesta en la línea de abajo.
+          Lo que tú has escrito no se toca.
         </p>
       </header>
 
@@ -105,10 +106,17 @@ export function TecladoSection() {
         </span>
         <span>· No se escribe nada en disco, y no sale de este ordenador.</span>
         <span>
-          · La orden la responde el <strong>modelo local</strong>, que se carga al pulsar Enter y
-          se descarga en cuanto contesta. Fuera de eso, la VRAM queda libre.
+          · La orden la responde el <strong>modelo local</strong>, que se carga al lanzarla y se
+          descarga en cuanto contesta. Fuera de eso, la VRAM queda libre.
         </span>
-        <span>· Escape cancela una orden a medias.</span>
+        <span>
+          · La respuesta se <strong>añade</strong>, nunca sustituye: tu texto se queda como está.
+        </span>
+        <span>
+          · Para pegarla usa el portapapeles un instante y lo deja como estaba: lo que tuvieras
+          copiado no se pierde.
+        </span>
+        <span>· ¿Te arrepientes? Borra el disparador con retroceso y no pasa nada.</span>
       </div>
 
       {aviso && (

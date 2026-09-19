@@ -1,16 +1,24 @@
-// ULTRON Control Center — disk-mirror backup status.
+// mar.ia — estado de las copias de seguridad en disco.
 //
-// Reads the mirror destinations under the configured backup root (set up by
-// scripts/backup/weekly-backup.ps1, scheduled via Task Scheduler
-// `ULTRON-Backup-Weekly`). Returns one entry per top-level subdir with
-// the timestamp of the last modification so the UI can flag stale
-// mirrors without recursively walking gigabytes of files.
+// Lee los destinos espejo bajo la raiz de copia configurada (la crea
+// scripts/backup/weekly-backup.ps1, programada como tarea de Windows
+// `MariaBackup-Weekly`). Devuelve una entrada por subcarpeta de primer nivel
+// con la fecha de su ultima modificacion, para que la pantalla marque las
+// copias viejas sin recorrer gigas de ficheros.
 //
-// Backup root resolution order (v15.2 F7):
-//   1. ~/.ultron/.tmp/backup-root.txt (user-configured via Settings UI)
-//   2. $ULTRON_BACKUP_ROOT (env override — matches weekly-backup.ps1)
-//   3. D:\BACKUP if the disk is mounted (common secondary-drive convention)
-//   4. %USERPROFILE%\BACKUP (default for fresh installs)
+// NOMBRES: todo esto decia ULTRON — las carpetas de origen, el fichero de
+// configuracion, las variables de entorno y la tarea programada. El usuario
+// lo pidio el 2026-09-19 ("en los backups, todas las carpetas estan
+// configuradas con lo de Ultron, debe de ser con Maria"). Las rutas se
+// resuelven ahora por `maria_paths`, y las variables `ULTRON_*` se siguen
+// LEYENDO como respaldo: pueden estar puestas en una tarea programada vieja y
+// dejar de mirarlas cambiaria el destino de las copias sin avisar.
+//
+// Orden para decidir la raiz de copia:
+//   1. <raiz de mar.ia>/.tmp/backup-root.txt (lo escribe esta pantalla)
+//   2. $MARIA_BACKUP_ROOT, o $ULTRON_BACKUP_ROOT (heredada)
+//   3. D:\BACKUP si el disco esta montado
+//   4. %USERPROFILE%\BACKUP
 
 use std::fs;
 use std::io::{BufWriter, Write};
@@ -104,14 +112,17 @@ pub fn set_backup_root_inner(payload: SetBackupRootPayload) -> Result<BackupRoot
         if cfg.exists() {
             fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
         }
-        // Also unset the in-process env var so subsequent reads from the same
-        // session don't keep the stale override.
+        // Also unset the in-process env vars so subsequent reads from the
+        // same session don't keep the stale override. Se limpia tambien la
+        // heredada: si quedara puesta, el camino de lectura la cogeria.
+        std::env::remove_var("MARIA_BACKUP_ROOT");
         std::env::remove_var("ULTRON_BACKUP_ROOT");
     } else {
         fs::write(&cfg, &trimmed).map_err(|e| format!("write config: {}", e))?;
         // Mirror into the env var so the scheduled-task wrapper (which we
         // can't restart from here) and any in-process consumer pick it up.
-        std::env::set_var("ULTRON_BACKUP_ROOT", &trimmed);
+        std::env::set_var("MARIA_BACKUP_ROOT", &trimmed);
+        std::env::remove_var("ULTRON_BACKUP_ROOT");
     }
     get_backup_root_inner()
 }
@@ -121,16 +132,29 @@ pub fn set_backup_root_inner(payload: SetBackupRootPayload) -> Result<BackupRoot
 // The Settings UI lists current sources + suggests other top-level $HOME
 // folders the user might want to add. Resolution order mirrors the
 // `weekly-backup.{ps1,sh}` scripts:
-//   1. ~/.ultron/cockpit/backup-config.json -> { "sources": ["..."] }
-//   2. $ULTRON_BACKUP_SOURCES env var (comma-separated)
-//   3. Defaults: [".ultron", ".ultron-vault", ".claude"]
-// All paths are $HOME-relative.
+//   1. <raiz de mar.ia>/cockpit/backup-config.json -> { "sources": ["..."] }
+//   2. $MARIA_BACKUP_SOURCES (o $ULTRON_BACKUP_SOURCES), separadas por comas
+//   3. Por defecto: la raiz de mar.ia, su vault y `.claude`
+// Todas las rutas son relativas a $HOME.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BACKUP_SOURCES: &[&str] = &[".ultron", ".ultron-vault", ".claude"];
+/// Carpetas que se copian si nadie dice otra cosa.
+///
+/// No es una constante porque los nombres dependen de la instalacion: en una
+/// maquina migrada son `.maria` y `.maria-vault`, y en una que todavia no lo
+/// esta, `.ultron` y `.ultron-vault`. Antes estaba escrito a mano con los
+/// nombres viejos, que es lo que hacia que la pantalla de Backups siguiera
+/// diciendo ULTRON despues de la migracion.
+fn default_backup_sources() -> Vec<String> {
+    vec![
+        crate::maria_paths::nombre_en_home(),
+        crate::maria_paths::nombre_vault_en_home(),
+        ".claude".to_string(),
+    ]
+}
 
 fn backup_sources_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".ultron/cockpit/backup-config.json"))
+    Some(crate::maria_paths::home().join("cockpit/backup-config.json"))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -138,7 +162,7 @@ struct BackupSourcesConfig {
     #[serde(default)]
     sources: Vec<String>,
     /// v2.5.2 (backups-redesign): persisted weekly schedule. The
-    /// `set_backup_schedule` command also registers a `UltronBackup-Weekly`
+    /// `set_backup_schedule` command also registers a `MariaBackup-Weekly`
     /// Windows Task Scheduler entry; this field is the durable record the
     /// UI reads back to pre-fill the day/time dropdowns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -182,7 +206,10 @@ fn resolved_sources() -> Vec<String> {
     if let Some(configured) = read_configured_sources() {
         return configured;
     }
-    if let Ok(env_val) = std::env::var("ULTRON_BACKUP_SOURCES") {
+    for var in ["MARIA_BACKUP_SOURCES", "ULTRON_BACKUP_SOURCES"] {
+        let Ok(env_val) = std::env::var(var) else {
+            continue;
+        };
         let from_env: Vec<String> = env_val
             .split(',')
             .map(|s| s.trim().to_string())
@@ -192,10 +219,7 @@ fn resolved_sources() -> Vec<String> {
             return from_env;
         }
     }
-    DEFAULT_BACKUP_SOURCES
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    default_backup_sources()
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -208,7 +232,7 @@ pub struct BackupSourceCandidate {
     pub exists: bool,
     /// True when this source is in the active list (config / env / defaults).
     pub selected: bool,
-    /// True when this source is a default (`.ultron`, `.ultron-vault`, `.claude`).
+    /// True when this source is a default (la raiz de mar.ia, su vault, `.claude`).
     pub is_default: bool,
 }
 
@@ -241,10 +265,7 @@ fn list_home_top_level() -> Vec<String> {
 pub fn get_backup_sources_inner() -> Result<BackupSourcesInfo, String> {
     let configured = read_configured_sources().unwrap_or_default();
     let active = resolved_sources();
-    let defaults: Vec<String> = DEFAULT_BACKUP_SOURCES
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let defaults: Vec<String> = default_backup_sources();
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
 
     let mut candidates: Vec<BackupSourceCandidate> = Vec::new();
@@ -366,6 +387,7 @@ pub fn set_backup_sources_inner(
         if cfg.exists() {
             fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
         }
+        std::env::remove_var("MARIA_BACKUP_SOURCES");
         std::env::remove_var("ULTRON_BACKUP_SOURCES");
     } else {
         let payload_out = BackupSourcesConfig {
@@ -394,10 +416,11 @@ pub fn set_backup_sources_inner(
         fs::rename(&tmp, &cfg).map_err(|e| format!("rename backup-config.json: {}", e))?;
         // Mirror into the env var so any in-process script reads it without
         // re-reading the JSON.
+        std::env::remove_var("ULTRON_BACKUP_SOURCES");
         if cleaned.is_empty() {
-            std::env::remove_var("ULTRON_BACKUP_SOURCES");
+            std::env::remove_var("MARIA_BACKUP_SOURCES");
         } else {
-            std::env::set_var("ULTRON_BACKUP_SOURCES", cleaned.join(","));
+            std::env::set_var("MARIA_BACKUP_SOURCES", cleaned.join(","));
         }
     }
     get_backup_sources_inner()
@@ -409,7 +432,7 @@ pub fn set_backup_sources_inner(
 //
 // The schedule lives in two places:
 //   - The durable record: backup-config.json (`schedule: { day, time }`).
-//   - The Windows scheduled task `UltronBackup-Weekly` (created via
+//   - The Windows scheduled task `MariaBackup-Weekly` (created via
 //     `schtasks /Create /SC WEEKLY ...`). Non-Windows hosts skip the
 //     schtasks call and only persist the preference — the existing weekly
 //     backup script is Windows-only anyway.
@@ -419,7 +442,7 @@ pub fn set_backup_sources_inner(
 pub struct BackupScheduleInfo {
     pub day: String,
     pub time: String,
-    /// True when a `UltronBackup-Weekly` task is registered with the OS.
+    /// True when a `MariaBackup-Weekly` task is registered with the OS.
     /// Non-Windows always reports false.
     pub task_registered: bool,
     /// True when the user has explicitly saved a schedule (vs. the
@@ -465,17 +488,31 @@ fn validate_time(time: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+/// Nombre de la tarea programada de Windows.
+///
+/// El nombre viejo se sigue mirando: si alguien tiene registrada la tarea de
+/// antes, decirle "no hay copia programada" seria mentira. Al guardar un
+/// horario nuevo se borra (ver `register_weekly_task`), para que no corran las
+/// dos.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const TAREA: &str = "MariaBackup-Weekly";
+#[cfg(target_os = "windows")]
+const TAREA_HEREDADA: &str = "UltronBackup-Weekly";
+
+#[cfg(target_os = "windows")]
+fn existe_tarea(nombre: &str) -> bool {
+    // `proc::oculto` ya trae CREATE_NO_WINDOW: sin el, cada sondeo abriria una
+    // consola negra en la cara del usuario.
+    crate::proc::oculto("schtasks.exe")
+        .args(["/Query", "/TN", nombre])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 #[cfg(target_os = "windows")]
 fn task_registered() -> bool {
-    
-    let mut cmd = crate::proc::oculto("schtasks.exe");
-    cmd.args(["/Query", "/TN", "UltronBackup-Weekly"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    cmd.output().map(|o| o.status.success()).unwrap_or(false)
+    existe_tarea(TAREA) || existe_tarea(TAREA_HEREDADA)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -500,8 +537,7 @@ pub fn get_backup_schedule_inner() -> Result<BackupScheduleInfo, String> {
 #[cfg(target_os = "windows")]
 fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
     
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let script_path = home.join(".ultron\\scripts\\backup\\weekly-backup.ps1");
+    let script_path = crate::maria_paths::home().join("scripts\\backup\\weekly-backup.ps1");
     if !script_path.is_file() {
         return Err(format!(
             "weekly-backup.ps1 missing at {}",
@@ -524,7 +560,7 @@ fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
         "/ST",
         time,
         "/TN",
-        "UltronBackup-Weekly",
+        TAREA,
         "/TR",
         &tr,
         "/RL",
@@ -537,6 +573,13 @@ fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     let output = cmd.output().map_err(|e| format!("spawn schtasks: {}", e))?;
+    // Fuera la tarea con el nombre viejo: si se quedara, la copia correria dos
+    // veces y con el horario antiguo.
+    if output.status.success() && existe_tarea(TAREA_HEREDADA) {
+        let _ = crate::proc::oculto("schtasks.exe")
+            .args(["/Delete", "/TN", TAREA_HEREDADA, "/F"])
+            .output();
+    }
     if !output.status.success() {
         return Err(format!(
             "schtasks /Create failed (exit {:?}): {}",
@@ -756,3 +799,43 @@ pub fn backup_status_inner() -> Result<BackupStatusReport, String> {
 //   The existing `backup_status` command already calls `backup_root()`
 //   internally, which now resolves the user-configured override first —
 //   no change needed to that wrapper.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn las_carpetas_por_defecto_llevan_el_nombre_de_maria() {
+        // El usuario lo reporto asi (2026-09-19): "en los backups, todas las
+        // carpetas estan configuradas con lo de Ultron. Debe de ser con
+        // Maria". En una maquina migrada (la suya) no puede salir ni un
+        // `.ultron`: la raiz se llama `.maria` y el vault `.maria-vault`.
+        //
+        // En una maquina SIN migrar los nombres viejos son los correctos, asi
+        // que lo que se exige es coherencia con lo que hay en el disco, no un
+        // literal.
+        let d = default_backup_sources();
+        assert_eq!(d.len(), 3, "raiz, vault y .claude: {d:?}");
+        assert_eq!(d[0], crate::maria_paths::nombre_en_home());
+        assert!(d[1].ends_with("-vault"), "{d:?}");
+        assert_eq!(d[2], ".claude");
+        // Y los dos primeros a juego: raiz `.maria` con vault `.maria-vault`,
+        // no una de cada.
+        let raiz = d[0].trim_start_matches('.');
+        assert!(d[1].contains(raiz), "raiz y vault descuadrados: {d:?}");
+    }
+
+    #[test]
+    fn la_tarea_programada_ya_no_se_llama_ultron() {
+        assert_eq!(TAREA, "MariaBackup-Weekly");
+    }
+
+    #[test]
+    fn la_configuracion_vive_bajo_la_raiz_de_maria() {
+        // Caso negativo del fallo: estas dos rutas se construian a mano con
+        // `.ultron` y por eso la pantalla seguia mostrando el nombre viejo.
+        let raiz = crate::maria_paths::home();
+        let cfg = backup_sources_config_path().expect("ruta de configuracion");
+        assert!(cfg.starts_with(&raiz), "{} no cuelga de {}", cfg.display(), raiz.display());
+    }
+}

@@ -25,7 +25,26 @@ pub(super) fn backup_config_lock() -> &'static Mutex<()> {
 }
 
 pub(super) fn backup_root_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".ultron/.tmp/backup-root.txt"))
+    // Via `maria_paths`, no a mano: la carpeta se llama `.maria` desde el
+    // 2026-09-18 y esta ruta salia con el nombre viejo en la pantalla de
+    // Backups.
+    Some(crate::maria_paths::home().join(".tmp/backup-root.txt"))
+}
+
+/// Raiz de copia pedida por variable de entorno.
+///
+/// `MARIA_BACKUP_ROOT` es la buena; `ULTRON_BACKUP_ROOT` se sigue leyendo
+/// porque puede estar puesta en una tarea programada de antes y quitarla en
+/// silencio mandaria las copias a otro sitio sin avisar.
+fn backup_root_env() -> Option<String> {
+    for var in ["MARIA_BACKUP_ROOT", "ULTRON_BACKUP_ROOT"] {
+        if let Ok(v) = std::env::var(var) {
+            if !v.trim().is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
 }
 
 pub(super) fn read_configured_backup_root() -> Option<String> {
@@ -40,15 +59,13 @@ pub(super) fn read_configured_backup_root() -> Option<String> {
 }
 
 pub(super) fn backup_root() -> PathBuf {
-    // 1. user-configured override (Settings UI writes ~/.ultron/.tmp/backup-root.txt)
+    // 1. user-configured override (Settings UI writes <raiz>/.tmp/backup-root.txt)
     if let Some(s) = read_configured_backup_root() {
         return PathBuf::from(s);
     }
     // 2. env-var (matches weekly-backup.ps1's own resolution path)
-    if let Ok(v) = std::env::var("ULTRON_BACKUP_ROOT") {
-        if !v.is_empty() {
-            return PathBuf::from(v);
-        }
+    if let Some(v) = backup_root_env() {
+        return PathBuf::from(v);
     }
     // 3. D:\BACKUP if available (common secondary-drive convention, v15.1.6)
     let d_drive = PathBuf::from(r"D:\BACKUP");

@@ -104,6 +104,20 @@ fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
                 let text = value.get("text").and_then(|v| v.as_str()).unwrap_or("");
                 let _ = app.emit("maria:voice", serde_json::json!({ "text": text }));
             }
+            // Transcripcion EN VIVO mientras hablas (Vosk). Va marcada como
+            // parcial para que la pantalla la pinte distinta: todavia puede
+            // cambiar, la definitiva llega despues en "transcript".
+            //
+            // El usuario lo pidio el 2026-09-19: "todas mis voces deberian
+            // transcribirse al momento para saber exactamente el mensaje que
+            // le van a dar".
+            "parcial" => {
+                let text = value.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let _ = app.emit(
+                    "maria:voice",
+                    serde_json::json!({ "text": text, "parcial": true }),
+                );
+            }
             // El sidecar PIDE; la app EJECUTA. En un hilo aparte: abrir una
             // aplicacion o consultar la memoria tarda, y este bucle tiene que
             // seguir leyendo eventos (el nivel de microfono llega ~20 veces
@@ -147,6 +161,8 @@ fn run_tool(app: &AppHandle, value: &serde_json::Value) {
     let outcome = match name {
         "abrir_app" => maria_tools::abrir_app(&arg_str("nombre")),
         "recordar" => maria_tools::recordar(&arg_str("consulta")),
+        "estado_del_sistema" => maria_tools::estado_del_sistema(),
+        "mirar_registros" => maria_tools::mirar_registros(&arg_str("fuente")),
         "delegar_a_agente" => {
             let proyecto = arg_str("proyecto");
             maria_tools::delegar_a_agente(
