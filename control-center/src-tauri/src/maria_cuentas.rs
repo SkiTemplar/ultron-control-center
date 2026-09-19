@@ -7,8 +7,10 @@
 //
 // QUE SE LEE Y QUE NO (esto importa):
 //   * Se abre el fichero de credenciales de cada CLI y se saca UNICAMENTE el
-//     correo o el identificador de cuenta. El token NUNCA se copia, ni se
-//     devuelve al frontend, ni se escribe en un log.
+//     correo o el identificador de cuenta. Por AQUI el token no pasa: no se
+//     devuelve al frontend ni se escribe en ningun log.
+//     (Ojo: `maria_perfiles` SI copia el fichero entero, token incluido,
+//     cuando guardas una cuenta con un nombre. Esta dicho alli.)
 //   * De una clave de API solo salen los CUATRO ultimos caracteres y de donde
 //     se leyo (entorno o fichero .env). Nunca la clave.
 //   * Si la CLI no expone la cuenta en ningun sitio conocido, se dice

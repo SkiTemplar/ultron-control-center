@@ -56,6 +56,7 @@ mod maria_local; // mar.ia: el modelo local disponible, sin ocupar VRAM
 mod maria_login; // mar.ia: como se entra en cada proveedor y si ya se entro
 mod maria_cuentas; // mar.ia: que cuentas y claves hay conectadas, y a que correo
 mod maria_criterio; // mar.ia: los parametros con los que la IA local decide
+mod maria_perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
 mod maria_papers; // mar.ia: literatura del TFG (Semantic Scholar + OpenAlex)
 mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo

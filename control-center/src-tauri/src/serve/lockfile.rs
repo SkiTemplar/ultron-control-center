@@ -313,6 +313,17 @@ mod tests {
 
     #[test]
     fn carrera_de_hilos_sobre_huerfano_deja_un_solo_ganador() {
+        // El stub de `is_alive` dice que el huerfano ("old") esta MUERTO y que
+        // cualquier otro token esta VIVO. Eso es lo que pasa de verdad: en
+        // cuanto un hilo reclama, su proceso existe y el lock deja de ser
+        // huerfano para los demas.
+        //
+        // Antes el stub devolvia `false` para todo, asi que el lock recien
+        // reclamado por el ganador parecia huerfano tambien y un segundo hilo
+        // lo retiraba: el test daba "2 ganadores" y fallaba ~1 de cada 3
+        // ejecuciones de la suite completa (solo bajo carga; en aislamiento
+        // pasaba siempre). Era el stub, no la exclusion mutua — comprobado el
+        // 2026-09-19 leyendo el camino del `.retire`.
         for _ in 0..20 {
             let dir = tempfile::tempdir().unwrap();
             let lock = stale_lock(dir.path());
@@ -323,7 +334,8 @@ mod tests {
                     let barrier = barrier.clone();
                     std::thread::spawn(move || {
                         barrier.wait();
-                        claim_lockfile_at(&lock, &format!("t{i}"), |_, _| false).unwrap()
+                        claim_lockfile_at(&lock, &format!("t{i}"), |_, token| token != "old")
+                            .unwrap()
                     })
                 })
                 .collect();
