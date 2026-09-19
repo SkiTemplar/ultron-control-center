@@ -107,7 +107,14 @@ finance = []
 wmi = "0.13"
 # SetPriorityClass(BELOW_NORMAL) para los subcomandos batch de ultron-memory
 # (ya presente transitivamente en Cargo.lock; no añade descarga nueva).
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    # Autocompletado global `//maria` (`maria_teclado`): hook de teclado de
+    # bajo nivel + SendInput para borrar la orden y escribir la respuesta.
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 # ---------------------------------------------------------------------------
 # CI-tuned test profile (applies to `cargo test` and `cargo clippy --profile

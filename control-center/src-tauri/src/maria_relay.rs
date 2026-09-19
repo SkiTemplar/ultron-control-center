@@ -40,22 +40,18 @@ const MAX_TURNO_CHARS: usize = 1_200;
 /// Tiempo maximo por proveedor antes de pasar al siguiente.
 const TIMEOUT_PROVEEDOR: Duration = Duration::from_secs(180);
 
-/// Cuanto vive el modelo local en VRAM DENTRO de un turno. No es la politica
-/// de reposo: al acabar el turno se descarga explicitamente (ver
-/// `descargar_modelo_local`). Esta ventana solo evita recargarlo entre la
-/// eleccion de destino y la respuesta, que son dos llamadas seguidas.
-const KEEP_ALIVE_TURNO: &str = "2m";
-
-/// Suelta el modelo local de la VRAM. Se llama al terminar cada turno:
-/// el usuario pidio "cargar y descargar por cada pregunta" (2026-09-18).
-/// Silencioso a proposito — si Ollama no esta, no hay nada que soltar y el
-/// turno ya ha terminado.
-fn descargar_modelo_local() {
-    let modelo = crate::ollama::toggle::model_name();
-    if let Err(e) = crate::ollama::toggle::deactivate(&modelo) {
-        tracing::debug!(error = %e, "no se pudo descargar el modelo local");
-    }
-}
+/// Cuanto vive el modelo local en VRAM tras una llamada: CERO.
+///
+/// El usuario lo dijo dos veces y sin matices (2026-09-19): "nunca debe estar
+/// en memoria (vram) todo el rato" y "no quiero un keep alive de 2mins". Con
+/// 2m se quedaron 8,65 GB ocupados con mar.ia ya cerrada.
+///
+/// Lo que cuesta: la eleccion de destino y la respuesta son dos llamadas
+/// seguidas, asi que el modelo se carga DOS veces por turno (unos 3 s mas en
+/// caliente). Es el precio de no reservar 8,6 GB, y el usuario ya dijo que le
+/// da igual que tarde un poco mas. La descarga no depende solo de esto:
+/// `EnUso` la fuerza al acabar y el vigilante barre lo que se escape.
+const KEEP_ALIVE_TURNO: &str = "0";
 
 /// Un turno del hilo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -658,9 +654,10 @@ pub fn ask(
     prompt: &str,
     forzado: Option<&crate::maria_models::Eleccion>,
 ) -> Result<RelayAnswer, String> {
+    // Mientras viva este guardia, el modelo cuenta como "en uso"; al soltarlo
+    // se descarga solo, tambien si `ask_inner` sale por un error o un panico.
+    let _en_uso = crate::maria_local::EnUso::nuevo();
     let r = ask_inner(thread_id, prompt, forzado);
-    // Pase lo que pase, la VRAM queda libre: el turno ha terminado.
-    descargar_modelo_local();
     if r.is_ok() {
         crate::maria_threads::touch(thread_id);
     }

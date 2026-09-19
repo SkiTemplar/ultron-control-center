@@ -57,6 +57,7 @@ mod maria_login; // mar.ia: como se entra en cada proveedor y si ya se entro
 mod maria_cuentas; // mar.ia: que cuentas y claves hay conectadas, y a que correo
 mod maria_criterio; // mar.ia: los parametros con los que la IA local decide
 mod maria_perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
+mod maria_teclado; // mar.ia: autocompletado global con `//maria`
 mod maria_papers; // mar.ia: literatura del TFG (Semantic Scholar + OpenAlex)
 mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
@@ -373,7 +374,21 @@ pub fn run() {
             // mar.ia: el servidor de Ollama levantado, el modelo NO cargado.
             // Reintenta, porque al arrancar con Windows mar.ia suele llegar
             // antes que el servicio de Ollama. Ver `maria_local`.
-            std::thread::spawn(crate::maria_local::asegurar_al_arranque);
+            std::thread::spawn(|| {
+                crate::maria_local::asegurar_al_arranque();
+                // Y por si acaso: al abrir, suelta lo que hubiera quedado
+                // cargado de una sesion anterior que no cerro bien.
+                crate::maria_local::descargar();
+            });
+
+            // Vigilante de la VRAM: si nadie esta usando el modelo y sigue
+            // cargado, lo descarga. Es la red para los casos en los que el
+            // proceso no llega a terminar el turno.
+            std::thread::spawn(crate::maria_local::vigilar_vram);
+
+            // Autocompletado global `//maria`. Apagado por defecto: un hook de
+            // teclado no se enciende por sorpresa (ver `maria_teclado`).
+            crate::maria_teclado::arrancar_si_procede();
 
             // La voz, viva desde el arranque: es la que saluda al despertar y
             // la que escucha la palabra clave. Ver `maria_voice`.

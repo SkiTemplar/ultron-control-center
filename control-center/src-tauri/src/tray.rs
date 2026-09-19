@@ -36,52 +36,10 @@
 
 use serde_json::json;
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
-
-use crate::ollama::toggle::{self, OllamaState};
-
-/// Aplica `state` a la entrada de menu de Ollama: texto, marca de check y
-/// si se puede pulsar (deshabilitada mientras `Loading` para no lanzar dos
-/// acciones a la vez). `set_text`/`set_checked`/`set_enabled` son seguros
-/// desde cualquier hilo — Tauri los reenvia internamente al hilo principal.
-fn apply_ollama_state(item: &CheckMenuItem<tauri::Wry>, state: OllamaState, model: &str) {
-    let _ = item.set_text(state.menu_label(model));
-    let _ = item.set_checked(state.is_checked());
-    let _ = item.set_enabled(!matches!(state, OllamaState::Loading));
-}
-
-/// Maneja el clic sobre la entrada de Ollama. Corre en un hilo de fondo
-/// (ver `on_menu_event`): decide activar o desactivar segun el ESTADO
-/// REAL (`toggle::query_state` contra `/api/ps`), NUNCA segun
-/// `item.is_checked()` — en Windows, `muda` invierte la marca del
-/// `CheckMenuItem` en su propio manejador ANTES de despachar el clic a
-/// `on_menu_event` (ver el porque en el doc de
-/// `toggle::action_for_state`), así que leerla aqui daria sistematicamente
-/// la accion contraria. Muestra "cargando…" mientras dura, y al terminar
-/// (con exito o no) refresca el item contra el estado real. Si la accion
-/// falla, se avisa al usuario via toast en vez de callar el error
-/// (mandamiento 11).
-fn handle_ollama_click(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
-    let model = toggle::model_name();
-    let action = toggle::action_for_state(toggle::query_state(&model));
-
-    apply_ollama_state(item, OllamaState::Loading, &model);
-
-    let result = match action {
-        toggle::ToggleAction::Deactivate => toggle::deactivate(&model),
-        toggle::ToggleAction::Activate => toggle::activate(&model),
-    };
-
-    if let Err(e) = result {
-        crate::toast_emit::record_alert_and_maybe_toast(app, "ollama_toggle", "warn", &e);
-    }
-
-    let state = toggle::query_state(&model);
-    apply_ollama_state(item, state, &model);
-}
 
 /// Show + focus + unminimize the main window. Mirrors the helper in
 /// `lib.rs` (kept private there) so the tray module is self-contained.
@@ -117,46 +75,60 @@ fn toggle_main_window(app: &AppHandle) {
 /// the main window has been created (which happens during default
 /// startup — by the time `setup` runs, `get_webview_window("main")`
 /// resolves).
+/// Pone en el menu el estado real del modelo local.
+///
+/// Se llama al construir la bandeja y cada vez que se libera. El texto dice lo
+/// que hay, no lo que deberia haber: si el modelo esta cargado, cuanto ocupa.
+fn refrescar_vram(item: &MenuItem<tauri::Wry>) {
+    let e = crate::maria_local::estado();
+    let (texto, activo) = if !e.installed {
+        ("Modelo local: Ollama no instalado".to_string(), false)
+    } else if !e.server_up {
+        ("Modelo local: servidor caído".to_string(), false)
+    } else if e.model_loaded {
+        (format!("Liberar VRAM ({} cargado)", e.model), true)
+    } else {
+        ("VRAM libre".to_string(), false)
+    };
+    let _ = item.set_text(texto);
+    let _ = item.set_enabled(activo);
+}
+
 pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Menu items. Each gets a stable id so the menu event handler can
     // route by string match. Tauri 2 uses MenuItem::with_id; ids are
     // returned by event.id().as_ref().
     let open_i = MenuItem::with_id(app, "open", "Abrir mar.ia", true, None::<&str>)?;
-    let new_claude_i =
-        MenuItem::with_id(app, "new_claude", "New Claude session", true, None::<&str>)?;
-    let new_codex_i = MenuItem::with_id(app, "new_codex", "New Codex session", true, None::<&str>)?;
-    let plans_i = MenuItem::with_id(app, "open_plans", "Open Plans", true, None::<&str>)?;
-    let memory_i = MenuItem::with_id(app, "open_memory", "Open Memory", true, None::<&str>)?;
+    let chat_i = MenuItem::with_id(app, "open_chat", "Chat", true, None::<&str>)?;
+    let term_i = MenuItem::with_id(app, "open_terminals", "Terminales", true, None::<&str>)?;
+    let mosaico_i = MenuItem::with_id(app, "open_mosaic", "Mosaico", true, None::<&str>)?;
+    let memory_i = MenuItem::with_id(app, "open_memory", "Memoria", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    // Texto/marca provisionales: se resuelven contra el estado real justo
-    // debajo, tras construir la bandeja (ver refresh en segundo plano).
-    // Deshabilitado hasta el primer sondeo para no lanzar una accion sobre
-    // un estado que todavia no se conoce.
-    let ollama_i = CheckMenuItem::with_id(
-        app,
-        "ollama_toggle",
-        "Ollama: comprobando…",
-        false,
-        false,
-        None::<&str>,
-    )?;
+    // Estado del modelo local. Texto provisional: se resuelve contra el estado
+    // real justo despues de construir la bandeja.
+    //
+    // OJO con lo que ya NO esta: el interruptor "Ollama" CARGABA el modelo y lo
+    // dejaba fijo en VRAM (`keep_alive: -1`), que es justo lo contrario de lo
+    // que el usuario pidio el 2026-09-19 ("nunca debe estar en memoria todo el
+    // rato"). En su sitio hay un boton que solo SUELTA.
+    let vram_i = MenuItem::with_id(app, "liberar_vram", "Modelo: comprobando…", false, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    // Clon para el sondeo inicial de abajo: el original se mueve dentro
-    // del closure de `on_menu_event` (los CheckMenuItem son un Arc por
-    // dentro, así que clonar es barato y ambos apuntan al mismo item real).
-    let ollama_i_initial = ollama_i.clone();
+    let quit_i = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
+    // Clon para el refresco de abajo: el original se mueve dentro del closure
+    // de `on_menu_event` (por dentro es un Arc, asi que clonar es barato y los
+    // dos apuntan al mismo item real).
+    let vram_i_refresco = vram_i.clone();
 
     let menu = Menu::with_items(
         app,
         &[
             &open_i,
-            &new_claude_i,
-            &new_codex_i,
-            &plans_i,
+            &chat_i,
+            &term_i,
+            &mosaico_i,
             &memory_i,
             &sep,
-            &ollama_i,
+            &vram_i,
             &sep2,
             &quit_i,
         ],
@@ -185,22 +157,16 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     crate::pty::kill_all_inner();
                     app.exit(0);
                 }
-                "ollama_toggle" => {
-                    // Serializa los clics contra el MISMO guard que usan los
-                    // comandos de AI Router > Modelo local: un doble clic
-                    // rápido, o un clic mientras la UI ya está activando el
-                    // modelo, no lanza una segunda acción en paralelo.
-                    let Some(guard) = toggle::try_acquire_busy() else {
-                        return;
-                    };
-                    let item = ollama_i.clone();
-                    let app_handle = app.clone();
+                "liberar_vram" => {
+                    // Solo suelta. Nunca carga: el modelo entra en VRAM cuando
+                    // se le pregunta algo, no desde un menu.
+                    let item = vram_i.clone();
                     tauri::async_runtime::spawn_blocking(move || {
-                        let _guard = guard; // liberado al terminar el cierre (Drop)
-                        handle_ollama_click(&app_handle, &item);
+                        crate::maria_local::descargar();
+                        refrescar_vram(&item);
                     });
                 }
-                "new_claude" | "new_codex" | "open_plans" | "open_memory" => {
+                "open_chat" | "open_terminals" | "open_mosaic" | "open_memory" => {
                     // Surface the window first so the user sees the
                     // response, then emit. Frontend listens on
                     // "tray-action" and routes to the existing flow
@@ -208,9 +174,9 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     // and memory).
                     focus_main_window(app);
                     let action = match id {
-                        "new_claude" => "new_claude",
-                        "new_codex" => "new_codex",
-                        "open_plans" => "open_plans",
+                        "open_chat" => "open_chat",
+                        "open_terminals" => "open_terminals",
+                        "open_mosaic" => "open_mosaic",
                         "open_memory" => "open_memory",
                         _ => return,
                     };
@@ -234,17 +200,13 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    // Sondeo inicial del estado de Ollama, en segundo plano para no
-    // retrasar el arranque de la app con una llamada de red. El item
-    // arranca deshabilitado ("comprobando…") y este hilo lo deja listo
-    // para usarse en cuanto `/api/ps` responde (o revela que Ollama no
-    // esta disponible).
-    tauri::async_runtime::spawn_blocking(move || {
-        let model = toggle::model_name();
-        let state = toggle::query_state(&model);
-        // query_state nunca devuelve `Loading`: apply_ollama_state ya deja
-        // el item habilitado.
-        apply_ollama_state(&ollama_i_initial, state, &model);
+    // Estado del modelo local, en segundo plano para no retrasar el arranque
+    // con una llamada de red, y luego cada 15 s: el menu de la bandeja es lo
+    // unico que se ve con la ventana minimizada, asi que tiene que decir la
+    // verdad sin que nadie lo abra.
+    tauri::async_runtime::spawn_blocking(move || loop {
+        refrescar_vram(&vram_i_refresco);
+        std::thread::sleep(std::time::Duration::from_secs(15));
     });
 
     // Close-to-tray: intercept the window close request and hide

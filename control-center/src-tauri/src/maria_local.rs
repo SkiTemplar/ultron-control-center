@@ -18,12 +18,88 @@
 // que el servicio de Ollama este listo. Un unico intento fallido dejaba la IA
 // local caida toda la sesion sin decir nada.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
 
 /// Intentos de levantar el servidor al arrancar, con espera creciente.
 const ESPERAS: &[u64] = &[0, 10, 30, 60];
+
+/// Cada cuanto mira el vigilante si hay VRAM ocupada de balde.
+const RONDA_VIGILANTE: Duration = Duration::from_secs(20);
+
+/// Turnos que estan usando el modelo AHORA MISMO.
+///
+/// El usuario fue tajante (2026-09-19): "nunca debe estar en memoria (vram)
+/// todo el rato, solo el momento que se use". Este contador es lo que
+/// distingue "lo esta usando alguien" de "se quedo cargado". Es un contador y
+/// no un booleano porque la voz y el chat pueden pedir a la vez.
+static TURNOS_ACTIVOS: AtomicUsize = AtomicUsize::new(0);
+
+/// Marca que hay un turno usando el modelo. Al soltarse (Drop), lo descarga si
+/// era el ultimo.
+///
+/// Se hace con Drop a proposito: un `return` temprano, un `?` o un panico
+/// dejaban antes el modelo cargado, y eso es justo lo que paso — 8,65 GB
+/// ocupados con la aplicacion ya cerrada.
+pub struct EnUso;
+
+impl EnUso {
+    #[must_use]
+    pub fn nuevo() -> Self {
+        TURNOS_ACTIVOS.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for EnUso {
+    fn drop(&mut self) {
+        if TURNOS_ACTIVOS.fetch_sub(1, Ordering::SeqCst) == 1 {
+            descargar();
+        }
+    }
+}
+
+/// ¿Hay algun turno usando el modelo?
+#[must_use]
+pub fn en_uso() -> bool {
+    TURNOS_ACTIVOS.load(Ordering::SeqCst) > 0
+}
+
+/// Suelta el modelo de la VRAM. Silencioso: si Ollama no esta, no hay nada que
+/// soltar.
+pub fn descargar() {
+    let modelo = crate::ollama::toggle::model_name();
+    if modelo.is_empty() {
+        return;
+    }
+    if let Err(e) = crate::ollama::toggle::deactivate(&modelo) {
+        tracing::debug!(error = %e, "maria-local: no pude descargar el modelo");
+    }
+}
+
+/// Vigilante de la VRAM: cada 20 s, si NADIE esta usando el modelo y sigue
+/// cargado, lo descarga.
+///
+/// Por que hace falta ademas del Drop: el Drop solo corre si el proceso sigue
+/// vivo. Un cierre a mitad de turno, un `taskkill` o una llamada hecha desde
+/// fuera de mar.ia dejaban el modelo cargado hasta que expirara su keep_alive
+/// (2 minutos). Medido el 2026-09-19: 8.926 MiB de VRAM con la aplicacion
+/// cerrada. Este hilo es la red que no depende de terminar bien.
+pub fn vigilar_vram() {
+    loop {
+        std::thread::sleep(RONDA_VIGILANTE);
+        if en_uso() {
+            continue;
+        }
+        let e = estado();
+        if e.model_loaded {
+            tracing::info!(modelo = %e.model, "maria-local: VRAM ocupada sin turno — descargando");
+            descargar();
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct EstadoLocal {
@@ -113,6 +189,42 @@ pub async fn maria_local_unload() -> Result<(), String> {
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(test)]
+mod tests_vram {
+    use super::*;
+
+    #[test]
+    fn el_contador_sube_y_baja_con_el_turno() {
+        let base = TURNOS_ACTIVOS.load(Ordering::SeqCst);
+        {
+            let _t = EnUso::nuevo();
+            assert_eq!(TURNOS_ACTIVOS.load(Ordering::SeqCst), base + 1);
+            assert!(en_uso());
+        }
+        assert_eq!(TURNOS_ACTIVOS.load(Ordering::SeqCst), base);
+    }
+
+    #[test]
+    fn dos_turnos_a_la_vez_no_se_pisan() {
+        // Caso negativo: con un booleano, el primero en terminar descargaba el
+        // modelo mientras el otro seguia usandolo.
+        let base = TURNOS_ACTIVOS.load(Ordering::SeqCst);
+        let a = EnUso::nuevo();
+        let b = EnUso::nuevo();
+        assert_eq!(TURNOS_ACTIVOS.load(Ordering::SeqCst), base + 2);
+        drop(a);
+        assert!(en_uso(), "al soltar uno de dos, sigue en uso");
+        drop(b);
+        assert_eq!(TURNOS_ACTIVOS.load(Ordering::SeqCst), base);
+    }
+
+    #[test]
+    fn la_ronda_del_vigilante_es_corta_pero_no_absurda() {
+        // Muy larga deja la VRAM pillada; muy corta machaca /api/ps sin motivo.
+        assert!(RONDA_VIGILANTE.as_secs() >= 5 && RONDA_VIGILANTE.as_secs() <= 60);
+    }
 }
 
 #[cfg(test)]

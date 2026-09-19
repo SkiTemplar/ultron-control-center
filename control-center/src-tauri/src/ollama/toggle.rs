@@ -99,31 +99,11 @@ pub enum OllamaState {
     /// La API responde pero el modelo no esta cargado (o el servidor esta
     /// parado y el binario si esta instalado: activarlo lo arrancara).
     Unloaded,
-    /// Accion "activar" en curso (arranque de servidor + carga del modelo).
-    Loading,
     /// No se encontro `ollama.exe` ni en PATH ni en la ruta por defecto de
     /// instalacion — Ollama no parece instalado.
     NotInstalled,
     /// Fallo al hablar con la API o respuesta invalida/inesperada.
     Error,
-}
-
-impl OllamaState {
-    /// Texto a mostrar en la entrada de menu para `model`.
-    pub fn menu_label(self, model: &str) -> String {
-        match self {
-            OllamaState::Loaded => format!("Ollama: {model} (activo)"),
-            OllamaState::Unloaded => "Ollama (autocompletado)".to_string(),
-            OllamaState::Loading => "Ollama: cargando…".to_string(),
-            OllamaState::NotInstalled => "Ollama: no instalado".to_string(),
-            OllamaState::Error => "Ollama: error".to_string(),
-        }
-    }
-
-    /// Si la entrada de menu debe mostrarse marcada (modelo activo).
-    pub fn is_checked(self) -> bool {
-        matches!(self, OllamaState::Loaded)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,27 +124,6 @@ impl OllamaState {
 // usuario pensando que el clic no desactivo nada). La fuente de verdad es
 // siempre `query_state` contra `/api/ps`.
 // ---------------------------------------------------------------------------
-
-/// Accion que toca ante un clic/comando "activar-o-desactivar", decidida
-/// a partir de `OllamaState`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToggleAction {
-    Activate,
-    Deactivate,
-}
-
-/// `Loaded` -> desactivar; cualquier otro estado (`Unloaded`,
-/// `NotInstalled`, `Error`, `Loading`) -> activar. Match exhaustivo (sin
-/// `_`) a proposito: es la decision de negocio central de este modulo.
-pub fn action_for_state(state: OllamaState) -> ToggleAction {
-    match state {
-        OllamaState::Loaded => ToggleAction::Deactivate,
-        OllamaState::Unloaded
-        | OllamaState::NotInstalled
-        | OllamaState::Error
-        | OllamaState::Loading => ToggleAction::Activate,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Configuracion
@@ -564,62 +523,6 @@ mod tests {
         let (model, source) = resolve_model_name(None, None);
         assert_eq!(model, DEFAULT_MODEL);
         assert_eq!(source, "default");
-    }
-
-    #[test]
-    fn ollama_state_menu_label_refleja_cada_estado() {
-        let model = "qwen2.5-coder:1.5b-base";
-        assert_eq!(
-            OllamaState::Loaded.menu_label(model),
-            "Ollama: qwen2.5-coder:1.5b-base (activo)"
-        );
-        assert_eq!(
-            OllamaState::Unloaded.menu_label(model),
-            "Ollama (autocompletado)"
-        );
-        assert_eq!(OllamaState::Loading.menu_label(model), "Ollama: cargando…");
-        assert_eq!(
-            OllamaState::NotInstalled.menu_label(model),
-            "Ollama: no instalado"
-        );
-        assert_eq!(OllamaState::Error.menu_label(model), "Ollama: error");
-    }
-
-    #[test]
-    fn action_for_state_desactiva_cuando_esta_cargado() {
-        assert_eq!(
-            action_for_state(OllamaState::Loaded),
-            ToggleAction::Deactivate
-        );
-    }
-
-    /// Caso negativo: NINGUN otro estado debe pedir desactivar — todos
-    /// piden activar. Si esto fallara, un clic con el modelo ya
-    /// descargado (o Ollama sin instalar) intentaria desactivar de nuevo,
-    /// un no-op que oculta el problema real al usuario.
-    #[test]
-    fn action_for_state_activa_en_cualquier_otro_estado() {
-        for state in [
-            OllamaState::Unloaded,
-            OllamaState::NotInstalled,
-            OllamaState::Error,
-            OllamaState::Loading,
-        ] {
-            assert_eq!(
-                action_for_state(state),
-                ToggleAction::Activate,
-                "{state:?} deberia pedir Activate, no Deactivate"
-            );
-        }
-    }
-
-    #[test]
-    fn solo_loaded_se_muestra_marcado() {
-        assert!(OllamaState::Loaded.is_checked());
-        assert!(!OllamaState::Unloaded.is_checked());
-        assert!(!OllamaState::Loading.is_checked());
-        assert!(!OllamaState::NotInstalled.is_checked());
-        assert!(!OllamaState::Error.is_checked());
     }
 
     /// El guard de concurrencia solo deja pasar una accion a la vez, y se

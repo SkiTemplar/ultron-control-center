@@ -7,51 +7,34 @@
 // StrictMode double-mounts don't leak.
 //
 // Backend contract:
-//   - "tray-action": { action: "new_claude" | "new_codex"
-//                            | "open_plans" | "open_memory" }
+//   - "tray-action": { action: "open_chat" | "open_terminals"
+//                            | "open_mosaic" | "open_memory" }
 //
 // Per-project hotkeys are a separate path: the backend emits
 // "project-hotkey-custom" and App.tsx listens for it directly.
 
-import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 /** Tab keys understood by Sidebar — keep in sync with App.tsx. */
 type TabKey =
+  | "chat"
+  | "terminals"
+  | "mosaic"
+  | "memory"
   | "dashboard"
   | "skills"
   | "projects"
   | "mcps"
-  | "plans"
-  | "memory"
   | "settings"
   | "system";
 
-/** Provider keys accepted by the spawn_session backend command. */
-type SessionProvider = "claude" | "codex";
-
 export interface TrayActionPayload {
-  action: "new_claude" | "new_codex" | "open_plans" | "open_memory";
+  action: "open_chat" | "open_terminals" | "open_mosaic" | "open_memory";
 }
 
 export interface TrayEventOptions {
   /** Switches the active tab. Wire this to the App's `setTab` setter. */
   setTab: (tab: TabKey) => void;
-  /**
-   * Optional override for session spawning. Defaults to invoking the
-   * backend `spawn_session` command with no prompt. Pass a custom
-   * implementation if the UI already has session-launch state (recent
-   * prompts, default skill bindings) the tray should respect.
-   */
-  spawnSession?: (provider: SessionProvider) => void | Promise<void>;
-}
-
-async function defaultSpawnSession(provider: SessionProvider): Promise<void> {
-  try {
-    await invoke("spawn_session", { provider, prompt: null });
-  } catch (err) {
-    console.error("[ultron] spawn_session failed", provider, err);
-  }
 }
 
 /**
@@ -67,29 +50,27 @@ async function defaultSpawnSession(provider: SessionProvider): Promise<void> {
 export async function setupTrayEventListeners(
   opts: TrayEventOptions,
 ): Promise<UnlistenFn> {
-  const spawn = opts.spawnSession ?? defaultSpawnSession;
-
   const unlistenTray = await listen<TrayActionPayload>(
     "tray-action",
     (event) => {
       const action = event.payload?.action;
       switch (action) {
-        case "new_claude":
-          void spawn("claude");
+        case "open_chat":
+          opts.setTab("chat");
           break;
-        case "new_codex":
-          void spawn("codex");
+        case "open_terminals":
+          opts.setTab("terminals");
           break;
-        case "open_plans":
-          opts.setTab("plans");
+        case "open_mosaic":
+          opts.setTab("mosaic");
           break;
         case "open_memory":
           opts.setTab("memory");
           break;
         default:
-          // Unknown action — log so future tray menu changes don't
-          // silently no-op when the frontend forgets to update.
-          console.warn("[ultron] unknown tray-action:", action);
+          // Accion desconocida: se avisa para que un cambio en el menu de la
+          // bandeja no se quede en un no-op silencioso.
+          console.warn("[mar.ia] acción de bandeja desconocida:", action);
       }
     },
   );

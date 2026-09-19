@@ -11,6 +11,7 @@ import { McpAccountsSection } from "./McpAccountsSection";
 import { MovilSection } from "./MovilSection";
 import { AccesoProveedores } from "./AccesoProveedores";
 import { CuentasSection } from "./CuentasSection";
+import { TecladoSection } from "./TecladoSection";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
@@ -212,7 +213,15 @@ export function Settings(_props: SettingsProps = {}) {
 
       <div className="mt-5">
         {/* Tab panels */}
-        {section === "general" && <LifecyclePanel />}
+        {section === "general" && (
+          <>
+            <LifecyclePanel />
+            {/* El autocompletado global va aqui, junto al atajo de abrir
+                mar.ia: son las dos cosas que funcionan con la ventana
+                cerrada. */}
+            <TecladoSection />
+          </>
+        )}
         {section === "auth" && (
           <>
             {/* La ficha por proveedor va PRIMERO: es la que cubre los cuatro

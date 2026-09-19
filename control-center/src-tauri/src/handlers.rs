@@ -236,6 +236,8 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_perfiles::maria_perfil_borrar,
         maria_perfiles::maria_cuenta_cerrar_sesion,
         maria_perfiles::maria_clave_borrar,
+        maria_teclado::maria_teclado_get,
+        maria_teclado::maria_teclado_set,
         maria_login::maria_login_open,
         maria_papers::maria_papers_search,
         maria_local::maria_local_unload,
