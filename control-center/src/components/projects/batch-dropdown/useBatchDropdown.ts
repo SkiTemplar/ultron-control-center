@@ -244,7 +244,7 @@ export function useBatchDropdown(
         onResult?.({
           kind: "ok",
           title: `Deleted: ${name}`,
-          body: "Batch script removed from ~/.ultron/batches/",
+          body: "Batch script removed from ~/.maria/batches/",
         });
         await refresh();
       } catch (e: unknown) {

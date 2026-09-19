@@ -1,4 +1,4 @@
-// ULTRON Control Center — Hooks viewer (v2.9 REDESIGN).
+// mar.ia — Hooks viewer (v2.9 REDESIGN).
 //
 // the user's brief (v2.9 sprint):
 //   1. Mismas categorías colapsables que Skills / Agents / Rules — sidebar

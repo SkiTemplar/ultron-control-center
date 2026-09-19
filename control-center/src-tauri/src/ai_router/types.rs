@@ -2,7 +2,7 @@
 //
 // Contains all the public/crate-visible structs, enums, and constants that
 // the other submódulos share.  Storage-path helpers also live here because
-// they are pure functions over the types and `ultron_root`.
+// they are pure functions over the types and `maria_root`.
 
 use std::collections::HashMap;
 use std::fs;
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ultron_root;
+use crate::maria_root;
 
 // ---------------------------------------------------------------------------
 // Retry / backoff — FailReason
@@ -473,7 +473,7 @@ pub struct UsageSummary {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn router_dir() -> Result<PathBuf, String> {
-    let p = ultron_root()?.join("cockpit").join("ai-router");
+    let p = maria_root()?.join("cockpit").join("ai-router");
     fs::create_dir_all(&p).map_err(|e| format!("create ai-router dir: {}", e))?;
     Ok(p)
 }
@@ -494,7 +494,7 @@ pub(crate) fn metrics_path() -> Result<PathBuf, String> {
 /// LiveSessionMonitor via plain file reads (no Tauri command needed).
 /// Lives under `~/.ultron/logs/` alongside the hook JSONL streams.
 pub(crate) fn route_decisions_path() -> Result<PathBuf, String> {
-    let dir = ultron_root()?.join("logs");
+    let dir = maria_root()?.join("logs");
     fs::create_dir_all(&dir).map_err(|e| format!("create logs dir: {}", e))?;
     Ok(dir.join("route-decisions.jsonl"))
 }

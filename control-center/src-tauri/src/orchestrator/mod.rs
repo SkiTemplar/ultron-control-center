@@ -102,7 +102,7 @@ pub fn personalities_detect(prompt: String) -> Result<personality::ToneDetection
 // ---------------------------------------------------------------------------
 
 fn tone_status_path() -> Result<std::path::PathBuf, String> {
-    Ok(crate::ultron_root()?
+    Ok(crate::maria_root()?
         .join("cockpit")
         .join("tone-status.json"))
 }

@@ -1,10 +1,10 @@
-// ULTRON Control Center — pestana Conversations (navegador de conversaciones).
+// mar.ia — pestana Conversations (navegador de conversaciones).
 //
 // Por que existe (2026-09-17): la pestana Sessions sabe LISTAR las sesiones de
 // Claude Code, pero no ensenar ninguna. Encontrar "esa conversacion de hace
 // tres semanas" obligaba a recordar la palabra exacta (el filtro era un
 // `String.includes`) y abrirla significaba relanzar la CLI en una terminal
-// externa a ciegas. Aqui la conversacion se LEE dentro de ULTRON, agrupada por
+// externa a ciegas. Aqui la conversacion se LEE dentro de mar.ia, agrupada por
 // fecha y con busqueda ordenada por relevancia, y se continua desde el propio
 // hilo.
 //

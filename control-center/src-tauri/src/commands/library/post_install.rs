@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::memory::model::{MemoryCandidate, MemoryType, Scope};
 use crate::memory::service::MemoryService;
-use crate::ultron_root;
+use crate::maria_root;
 
 /// Outcome of the post-install integration step. Serialized to the frontend so
 /// the Library UI can show "catalog synced + 1 memory proposed" feedback.
@@ -50,7 +50,7 @@ pub struct PostInstallReport {
 
 /// Absolute path to the bundled `sync-registry.js`.
 fn sync_registry_script() -> Result<PathBuf, String> {
-    let p = ultron_root()?
+    let p = maria_root()?
         .join("cockpit")
         .join("skill-lazy")
         .join("sync-registry.js");

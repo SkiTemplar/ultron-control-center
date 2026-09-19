@@ -26,7 +26,7 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-use crate::ultron_root;
+use crate::maria_root;
 
 // ---------------------------------------------------------------------------
 // Process-wide write lock
@@ -82,7 +82,7 @@ pub struct AutoTagRequest {
 // ---------------------------------------------------------------------------
 
 fn tags_path() -> Result<PathBuf, String> {
-    let dir = ultron_root()?.join("cockpit");
+    let dir = maria_root()?.join("cockpit");
     fs::create_dir_all(&dir).map_err(|e| format!("create cockpit dir: {}", e))?;
     Ok(dir.join("sessions-tags.jsonl"))
 }

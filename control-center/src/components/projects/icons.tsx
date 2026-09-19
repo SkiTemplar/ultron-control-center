@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 — Shared inline SVG icons for the Projects workspace.
+// mar.ia 2.0 — Shared inline SVG icons for the Projects workspace.
 //
 // We avoid lucide-react to keep bundle size small (the rest of the codebase
 // follows the same convention; see Projects.tsx for prior art). 14×14 stroked

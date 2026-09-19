@@ -108,7 +108,7 @@ export function BoardToolbar({
       {/* v2.6.2 — Archive Done + Show Archived toolbar buttons. Per the
           user's request, a button bulk-removes all Done cards and archives
           them into named groups. Archives live under
-          ~/.ultron/cockpit/projects/<id>/archives/<name>.json. */}
+          ~/.maria/cockpit/projects/<id>/archives/<name>.json. */}
       {(() => {
         const doneCount = board.cards.filter((c) => {
           const col = board.columns.find((x) => x.id === c.column_id);

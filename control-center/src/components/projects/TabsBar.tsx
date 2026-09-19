@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 — Projects browser-style tab strip
+// mar.ia 2.0 — Projects browser-style tab strip
 //
 // Renders the fixed "Projects" home tab + N project tabs. Supports drag-reorder
 // (HTML5 DnD), middle-click close, and `×` close. (La confirmación por PTYs

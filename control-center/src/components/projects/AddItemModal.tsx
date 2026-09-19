@@ -97,7 +97,7 @@ export function AddItemModal({
                   type="text"
                   value={iPath}
                   onChange={(e) => setIPath(e.target.value)}
-                  placeholder={iKind === "exe" ? "C:/Program Files/MyGame/MyGame.exe" : "~/.ultron/control-center"}
+                  placeholder={iKind === "exe" ? "C:/Program Files/MyGame/MyGame.exe" : "~/.maria/control-center"}
                   className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                   style={{
                     background: "var(--color-surface-2)",
@@ -158,7 +158,7 @@ export function AddItemModal({
                   type="text"
                   value={iCwd}
                   onChange={(e) => setICwd(e.target.value)}
-                  placeholder={itemTarget.path ?? "~/.ultron"}
+                  placeholder={itemTarget.path ?? "~/.maria"}
                   className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                   style={{
                     background: "var(--color-surface-2)",

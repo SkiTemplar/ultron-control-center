@@ -6,7 +6,7 @@
 // el elegido se queda sin cuota se releva al siguiente. Cada turno lleva la
 // marca de quien lo contesto, y cuando hay relevo se dice por que.
 //
-// El hilo es de mar.ia (jsonl en ~/.ultron/cockpit/maria/threads). Ningun
+// El hilo es de mar.ia (jsonl en ~/.maria/cockpit/maria/threads). Ningun
 // proveedor lee la sesion del otro: se les traspasa el contexto. Ver el
 // modulo Rust `maria_relay` para el limite exacto.
 //

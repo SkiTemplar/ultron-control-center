@@ -177,7 +177,7 @@ export type CreateProjectResult = {
 };
 
 // v2.6.2 — kanban archive types. Done cards can be moved into named archive
-// groups under ~/.ultron/cockpit/projects/<project_id>/archives/<name>.json.
+// groups under ~/.maria/cockpit/projects/<project_id>/archives/<name>.json.
 // The list summary keeps the body slim (no cards) so the toolbar grid renders
 // quickly; the full payload is fetched on box click.
 export type KanbanArchiveSummary = {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getUltronRoot } from "../../lib/paths";
+import { getMariaRoot } from "../../lib/paths";
 import { useRoutingTitle } from "../../lib/button-prompts";
 import type { Grouped, FixProvider, OnDismissRow } from "./types";
 import { severityStyle } from "./severity";
@@ -42,10 +42,10 @@ export function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
       const { getPrompt } = await import("../../lib/button-prompts");
       const alertBlock = buildFixAlertBlock(g);
       const prompt = await getPrompt("notif.fix_one", { alert_block: alertBlock });
-      // cwd = ~/.ultron so the spawned shell starts where the relevant
+      // cwd = ~/.maria so the spawned shell starts where the relevant
       // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
       // alert from C:\Users\<user>\ has zero context.
-      const cwd = await getUltronRoot().catch(() => null);
+      const cwd = await getMariaRoot().catch(() => null);
       // v2.0: no AI Router. The provider is whatever the user picked
       // on the per-row Fix toggle; model/agent are the provider's defaults.
       await invoke("spawn_session", {

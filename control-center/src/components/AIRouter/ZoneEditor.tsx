@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Zone Editor
+// mar.ia — AI Router: Zone Editor
 //
 // Permite ver y editar la cadena primary → [fallbacks] de cada zona de routing.
 // Aviso visual (warning badge) cuando un provider de la cadena tiene key ausente
@@ -232,7 +232,7 @@ export function ZoneEditor() {
       {/* Nota de pie */}
       <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
         Los cambios llaman a ai_router_save_zone() y se persisten en
-        ~/.ultron/cockpit/ai-router/zones.json. El routing activo usa esos
+        ~/.maria/cockpit/ai-router/zones.json. El routing activo usa esos
         valores en la siguiente invocación.
       </p>
     </div>

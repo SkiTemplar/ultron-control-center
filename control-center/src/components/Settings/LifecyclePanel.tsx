@@ -81,13 +81,13 @@ function HotkeyEditor() {
     >
       <div className="flex items-baseline justify-between">
         <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-          Open ULTRON hotkey
+          Atajo para abrir mar.ia
         </div>
         <span
           className="text-[10.5px]"
           style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
         >
-          ~/.ultron/.tmp/hotkey.txt
+          ~/.maria/.tmp/hotkey.txt
         </span>
       </div>
       <p
@@ -95,7 +95,7 @@ function HotkeyEditor() {
         style={{ color: "var(--color-text-secondary)" }}
       >
         Press this combination in any Windows app to show/hide the Control
-        Center. Format: <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+U</span>,
+        Center. Format: <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+M</span>,
         <span style={{ fontFamily: "var(--font-mono)" }}> Ctrl+Shift+F12</span>, etc.
         Needs at least one modifier.
       </p>
@@ -107,7 +107,7 @@ function HotkeyEditor() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onCapture}
-          placeholder="Ctrl+Alt+U"
+          placeholder="Ctrl+Alt+M"
           className="rounded px-3 py-1.5 text-[12.5px]"
           style={{
             background: "var(--color-surface-1)",
@@ -248,8 +248,8 @@ export function LifecyclePanel() {
   async function closeControlCenter(reason: "rebuild" | "manual") {
     const msg =
       reason === "rebuild"
-        ? "Close ULTRON Control Center now?\n\nFrees the file lock on control-center.exe so the rebuild can replace it."
-        : "Close ULTRON Control Center?\n\nFully exits the app. Global hotkeys stop working until you relaunch.";
+        ? "Close mar.ia now?\n\nFrees the file lock on control-center.exe so the rebuild can replace it."
+        : "Close mar.ia?\n\nFully exits the app. Global hotkeys stop working until you relaunch.";
     const ok = await confirmDialog(msg, { title: "Close Control Center", kind: "warning" });
     if (!ok) return;
     try {

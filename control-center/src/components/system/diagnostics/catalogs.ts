@@ -130,7 +130,7 @@ export const COMMON_ERRORS: CommonError[] = [
     category: "Storage",
     severity: "info",
     title: ".ultron disk usage high",
-    symptom: "~/.ultron folder has grown large; old diagnostics, sessions or logs piling up.",
+    symptom: "~/.maria folder has grown large; old diagnostics, sessions or logs piling up.",
     checkId: "ultron-disk-usage",
     primaryFixKind: "pc-clear-temp",
     primaryFixLabel: "Clear %TEMP%",

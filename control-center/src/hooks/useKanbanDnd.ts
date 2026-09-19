@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 — HTML5 DnD helpers for Kanban
+// mar.ia 2.0 — HTML5 DnD helpers for Kanban
 //
 // Two tiny hook factories that expose the props needed for draggable cards
 // and droppable columns. No external library; relies on the Tauri DnD fix

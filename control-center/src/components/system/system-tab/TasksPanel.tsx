@@ -1,6 +1,6 @@
-// System → Tasks — ULTRON scheduled tasks (wiring 2026-08-11, audit 08-09 #35).
+// System → Tasks — mar.ia scheduled tasks (wiring 2026-08-11, audit 08-09 #35).
 //
-// Windows Task Scheduler surface for ULTRON's OWN tasks (watchdog Qdrant,
+// Windows Task Scheduler surface for mar.ia's OWN tasks (watchdog Qdrant,
 // backups, daily diagnostic…): state, last result, next run, run-now, trigger
 // edit and delete. The backend gate lives in src-tauri/src/system.rs: mutating
 // actions only accept ULTRON-* task names, and everything shells out to
@@ -316,8 +316,8 @@ export function TasksPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
           {tasks.length > 0
-            ? `${tasks.length} tareas ULTRON en el Task Scheduler de Windows.`
-            : "Tareas programadas de ULTRON (watchdog, backups, diagnóstico)."}
+            ? `${tasks.length} tareas mar.ia en el Task Scheduler de Windows.`
+            : "Tareas programadas de mar.ia (watchdog, backups, diagnóstico)."}
         </p>
         <button
           type="button"
@@ -365,7 +365,7 @@ export function TasksPanel() {
             color: "var(--color-text-tertiary)",
           }}
         >
-          No ULTRON scheduled tasks found.
+          No mar.ia scheduled tasks found.
         </div>
       )}
 

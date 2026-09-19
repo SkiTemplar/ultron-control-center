@@ -9,7 +9,7 @@
  *      `ultron-toast` Tauri event listener inside PopupHost — no frontend
  *      component ever emitted a popup directly.
  *
- *   2. `record_ui_alert` (Rust command) — appends to ~/.ultron/alerts.jsonl.
+ *   2. `record_ui_alert` (Rust command) — appends to ~/.maria/alerts.jsonl.
  *      Used by App.tsx's global error handler, `runQuiet`, and UpdateBanner.
  *      It produces ZERO immediate feedback: the entry only surfaces after
  *      the Notifications tab's 15 s poll, and never pops a toast.

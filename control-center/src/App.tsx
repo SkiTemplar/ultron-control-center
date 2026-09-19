@@ -173,9 +173,9 @@ function AppInner() {
     };
   }, []);
 
-  // In-app keyboard shortcuts. The OS-wide Ctrl+Alt+U lives in the Rust
+  // In-app keyboard shortcuts. The OS-wide Ctrl+Alt+M lives in the Rust
   // setup; the bindings below are window-scoped. Bindings now live in
-  // ~/.ultron/.tmp/in-app-shortcuts.json and are editable via Settings →
+  // ~/.maria/.tmp/in-app-shortcuts.json and are editable via Settings →
   // General → In-app shortcuts. The map below is a runtime mirror we
   // refresh on mount + whenever Settings persists a change (via the
   // "in-app-shortcuts-updated" event the Settings panel emits).
@@ -368,7 +368,7 @@ function AppInner() {
 
   const globalStatus = computeGlobalStatus(alerts);
 
-  // v15.3.7 — Command palette gets the full ULTRON system surface.
+  // v15.3.7 — Command palette gets the full mar.ia system surface.
   // Maintenance commands are pulled dynamically from the backend so the
   // palette stays in sync with whatever `list_maintenance_commands_inner`
   // returns (no hardcoded duplicate list). Everything else is static.
@@ -451,7 +451,7 @@ function AppInner() {
       group: "Actions",
       run: async () => {
         const ok = await confirmDialog(
-          "Close ULTRON Control Center? Global hotkeys stop until you relaunch.",
+          "Close mar.ia? Global hotkeys stop until you relaunch.",
           { title: "Close Control Center", kind: "warning" },
         );
         if (ok) void runQuiet("Close Control Center", "close_control_center");
@@ -518,13 +518,13 @@ function AppInner() {
     });
     list.push({
       id: "sys.uninstall",
-      label: "Uninstall ULTRON",
+      label: "Desinstalar mar.ia",
       description: "Run the uninstall script in a new window (asks for confirmation).",
       group: "System",
       run: async () => {
         const ok = await confirmDialog(
-          "Open the uninstaller? This walks you through removing ULTRON.",
-          { title: "Uninstall ULTRON", kind: "warning" },
+          "Open the uninstaller? This walks you through removing mar.ia.",
+          { title: "Desinstalar mar.ia", kind: "warning" },
         );
         if (ok)
           void runQuiet("Uninstall", "run_app_lifecycle", { kind: "uninstall" });

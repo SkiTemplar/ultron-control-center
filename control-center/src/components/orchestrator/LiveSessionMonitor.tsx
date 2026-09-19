@@ -1,4 +1,4 @@
-// ULTRON Control Center — LiveSessionMonitor (panel global de orquestación).
+// mar.ia — LiveSessionMonitor (panel global de orquestación).
 //
 // Visor EN VIVO de la orquestación. No teclea nada: muestra, en tiempo real, lo
 // que el orquestador ya hace automático vía hooks:

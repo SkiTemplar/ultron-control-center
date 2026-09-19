@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.7.2 — Skills viewer with Active/Disabled/All tabs.
+// mar.ia 2.7.2 — Skills viewer with Active/Disabled/All tabs.
 //
 // Changes vs 2.7.1:
 //   - Three filter tabs: Active (default) · Disabled · All — each with a count badge.
@@ -223,7 +223,7 @@ export function Skills() {
         {scope === "all" && (
           <p className="text-[11px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
             En <b>All</b> el conteo de «activas» incluye las skills de los plugins
-            de terceros (vienen activas de fábrica). Tus skills propias de ULTRON
+            de terceros (vienen activas de fábrica). Tus skills propias de mar.ia
             —el núcleo lazy que tú gestionas— están en el scope <b>Global</b>.
           </p>
         )}

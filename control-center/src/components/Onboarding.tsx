@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 //
 // The very first time the Control Center opens (no `ultron_onboarding_seen`
 // key in localStorage) this centered modal explains, in plain English, what
-// ULTRON is and what the core jargon means — before the user lands on the
+// mar.ia is and what the core jargon means — before the user lands on the
 // Dashboard and gets hit with terms with zero context.
 //
 // Detection is frontend-only: a single localStorage flag. No Rust changes.
@@ -106,7 +106,7 @@ export function Onboarding() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Welcome to ULTRON"
+      aria-label="Te doy la bienvenida a mar.ia"
       style={{
         position: "fixed",
         inset: 0,
@@ -154,10 +154,10 @@ export function Onboarding() {
             lineHeight: 1.25,
           }}
         >
-          This is the ULTRON Control Center
+          This is the mar.ia
         </h1>
 
-        {/* What is ULTRON */}
+        {/* What is mar.ia */}
         <p
           style={{
             marginTop: 10,
@@ -166,7 +166,7 @@ export function Onboarding() {
             color: "var(--color-text-secondary)",
           }}
         >
-          ULTRON is a personal command center for Claude Code. From this one
+          mar.ia is a personal command center for Claude Code. From this one
           app you manage your skills, agents, memory, projects and your
           system — instead of juggling scattered config files and terminals.
         </p>
@@ -229,7 +229,7 @@ export function Onboarding() {
         >
           Where to start: the <strong style={{ color: "var(--color-text-secondary)" }}>Dashboard</strong> gives you
           the live system status; head to <strong style={{ color: "var(--color-text-secondary)" }}>Settings</strong> to
-          configure ULTRON to your taste.
+          configure mar.ia to your taste.
         </p>
 
         {/* Action */}

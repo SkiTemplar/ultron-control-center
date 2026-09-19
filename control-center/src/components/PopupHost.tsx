@@ -1,5 +1,5 @@
 /**
- * PopupHost — in-app popup system for ULTRON Control Center.
+ * PopupHost — in-app popup system for mar.ia.
  *
  * Renders a vertical stack of toasts and confirm prompts in the bottom-left
  * corner. Replaces:

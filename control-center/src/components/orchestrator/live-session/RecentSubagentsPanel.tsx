@@ -1,4 +1,4 @@
-// ULTRON Control Center — sección "Subagentes recientes" del panel LiveSessionMonitor.
+// mar.ia — sección "Subagentes recientes" del panel LiveSessionMonitor.
 // Subagentes (Task tool) ya TERMINADOS (SubagentStop harvest), cosechados por el
 // hook al finalizar. Complementa "Agentes delegados" (delegaciones de la app +
 // eventos workflow:* en vivo).

@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Dashboard sub-tab
+// mar.ia — AI Router: Dashboard sub-tab
 //
 // Overview: savings + model routing at a glance + inline proxy card.
 //   - A compact summary strip (providers-with-key, real fallback rate,

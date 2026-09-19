@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.9.5 — Agents viewer (aligned with Skills/Rules UI).
+// mar.ia 2.9.5 — Agents viewer (aligned with Skills/Rules UI).
 //
 // Brings Agents to full parity with the Skills and Rules layout:
 //   - Same 2-pane layout: category sidebar chips + content grid + AgentDetailPane.

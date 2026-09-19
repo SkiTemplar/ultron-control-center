@@ -1,8 +1,8 @@
-// ULTRON Control Center — Settings > API Keys
+// mar.ia — Settings > API Keys
 //
 // Two subsections:
 //   1. AI provider keys  — persisted via `set_env_vars_keys` (setx, User scope).
-//   2. GitHub token      — persisted via `set_github_token` (~/.ultron/.env).
+//   2. GitHub token      — persisted via `set_github_token` (~/.maria/.env).
 //
 // SECURITY: values are masked by default. Never logged or serialised outside
 // the invoke call to the backend.
@@ -222,7 +222,7 @@ export function ApiKeysSection() {
               fontSize: 11,
             }}
           >
-            ~/.ultron/batches/set-api-keys.ps1
+            ~/.maria/batches/set-api-keys.ps1
           </code>{" "}
           desde la pestaña Projects &rsaquo; Run batch.
         </p>

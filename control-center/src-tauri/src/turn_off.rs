@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::ultron_root;
+use crate::maria_root;
 
 /// Horas mínimas aceptadas al programar el apagado.
 pub const MIN_HOURS: f64 = 0.1;
@@ -55,7 +55,7 @@ struct TurnOffRecord {
 }
 
 fn turn_off_state_path() -> Result<PathBuf, String> {
-    Ok(ultron_root()?.join("cockpit").join("turn-off.json"))
+    Ok(maria_root()?.join("cockpit").join("turn-off.json"))
 }
 
 /// Valida el rango de horas y devuelve los segundos (redondeados) que se le

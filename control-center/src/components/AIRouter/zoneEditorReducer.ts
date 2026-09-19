@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Zone Editor reducer + tipos locales
+// mar.ia — AI Router: Zone Editor reducer + tipos locales
 //
 // Extraído de ZoneEditor.tsx (cat7: mantener ficheros < 800 líneas). Lógica de
 // estado pura + los tipos locales que comparten los sub-componentes del editor.

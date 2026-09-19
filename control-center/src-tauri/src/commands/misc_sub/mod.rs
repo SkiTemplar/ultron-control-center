@@ -1,7 +1,7 @@
 // commands/misc_sub — Miscellaneous domain command wrappers
 //
 // Groups:
-//   misc            — Root helpers (ultron_root_str, home_dir, logs, usage,
+//   misc            — Root helpers (maria_root_str, home_dir, logs, usage,
 //                     activity timeline, cost, vscode launcher)
 //   alerts          — Alerts/changelog read/write
 //   mcps            — MCP server management

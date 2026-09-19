@@ -14,7 +14,7 @@ use serde_json::Value;
 const VALID_STATES: &[&str] = &["none", "confirmed", "discarded"];
 
 fn portrait_path() -> Result<PathBuf, String> {
-    Ok(crate::ultron_root()?
+    Ok(crate::maria_root()?
         .join("cockpit")
         .join("memory-portrait")
         .join("portrait.json"))
@@ -81,7 +81,7 @@ pub fn memory_portrait_mark(claim_id: String, state: String) -> Result<Value, St
 /// `memory_portrait_get` hasta que cambie `generated_at`.
 #[tauri::command]
 pub fn memory_portrait_regenerate() -> Result<String, String> {
-    let root = crate::ultron_root()?;
+    let root = crate::maria_root()?;
     let script = root.join("scripts").join("memory-portrait.mjs");
     if !script.exists() {
         return Err(format!("no existe {}", script.display()));

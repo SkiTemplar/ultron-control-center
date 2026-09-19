@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::ultron_root;
+use crate::maria_root;
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 /// sessions-tags schema: v1 = {session_id, tags, generated_at};
@@ -152,7 +152,7 @@ fn run_migrations_at(cockpit: &Path, app_version: &str, dry: bool) -> MigrationR
 }
 
 fn cockpit_dir() -> Result<PathBuf, String> {
-    Ok(ultron_root()?.join("cockpit"))
+    Ok(maria_root()?.join("cockpit"))
 }
 
 /// Run migrations at boot. Best-effort: a failure here must not block startup.

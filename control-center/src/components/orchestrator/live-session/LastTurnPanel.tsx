@@ -1,4 +1,4 @@
-// ULTRON Control Center — sección "Ultimo turno" del panel LiveSessionMonitor.
+// mar.ia — sección "Ultimo turno" del panel LiveSessionMonitor.
 // Muestra el prompt, intent/workflow, agentes sugeridos, skills aceptadas y
 // memoria inyectada del último turno orquestado (o el aviso de "sin actividad").
 

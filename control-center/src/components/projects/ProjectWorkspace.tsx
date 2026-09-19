@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 — Per-project workspace (Dashboard V2)
+// mar.ia 2.0 — Per-project workspace (Dashboard V2)
 //
 // Layout:
 //   1. Identity bar — back button + project name/path + detach

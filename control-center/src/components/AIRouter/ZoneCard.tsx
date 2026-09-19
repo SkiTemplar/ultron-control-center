@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: tarjeta de zona
+// mar.ia — AI Router: tarjeta de zona
 //
 // Extraído de ZoneEditor.tsx (cat7: mantener ficheros < 800 líneas). Renderiza
 // una zona de routing (cabecera + cadena primary → fallbacks) con su modo de

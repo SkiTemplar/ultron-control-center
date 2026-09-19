@@ -1,4 +1,4 @@
-// ULTRON Control Center — hook de eventos en vivo de delegación de agentes.
+// mar.ia — hook de eventos en vivo de delegación de agentes.
 // Escucha workflow:delegating/delegated (eventos ligeros del backend) y
 // mantiene una lista acotada (MAX_LIVE_EVENTS) con prepend, más reciente primero.
 

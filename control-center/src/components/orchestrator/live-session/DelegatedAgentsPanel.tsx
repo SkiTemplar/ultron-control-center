@@ -1,4 +1,4 @@
-// ULTRON Control Center — sección "Agentes delegados" del panel LiveSessionMonitor.
+// mar.ia — sección "Agentes delegados" del panel LiveSessionMonitor.
 // Combina eventos en vivo (workflow:delegating/delegated, esta sesión) con las
 // delegaciones persistidas en delegations.jsonl (feed compartido).
 

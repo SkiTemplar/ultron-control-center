@@ -1,4 +1,4 @@
-// ULTRON Control Center — sección "Routing reciente" del panel LiveSessionMonitor.
+// mar.ia — sección "Routing reciente" del panel LiveSessionMonitor.
 // Timeline de decisiones del dispatcher (skills aceptadas/omitidas + confianza),
 // ya filtradas a mensajes "interesantes" (isRelevantRoutingMsg) por el llamador.
 

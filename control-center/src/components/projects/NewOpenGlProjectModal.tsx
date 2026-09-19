@@ -1,4 +1,4 @@
-// ULTRON Control Center — New OpenGL Project (vcpkg) modal.
+// mar.ia — New OpenGL Project (vcpkg) modal.
 //
 // Replaces the legacy `crear_proyecto.bat` script: pick a parent folder, type
 // a name, choose Simple vs. Context, hit Create. The Tauri backend command

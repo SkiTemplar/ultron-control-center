@@ -9,8 +9,8 @@ use crate::{activity_timeline, cost_watchdog, instructions, logs, usage};
 /// `src/lib/paths.ts` invokes this so the frontend never has to hardcode
 /// `C:\Users\<name>\.ultron` to compute child paths.
 #[tauri::command]
-pub fn ultron_root_str() -> Result<String, String> {
-    Ok(crate::ultron_root()?.to_string_lossy().to_string())
+pub fn maria_root_str() -> Result<String, String> {
+    Ok(crate::maria_root()?.to_string_lossy().to_string())
 }
 
 /// Frontend-facing helper: returns the absolute path to the user's home

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AlertEntry } from "../types";
-import { getUltronRoot } from "../lib/paths";
+import { getMariaRoot } from "../lib/paths";
 import { confirmDialog } from "../lib/dialog";
 import { useRoutingTitle } from "../lib/button-prompts";
 
@@ -31,7 +31,7 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   // mask while the disk delete is in flight (and as a soft hide for
   // alerts the backend couldn't physically remove — e.g. malformed lines
   // whose fingerprint we can't reproduce). The authoritative source is
-  // always `~/.ultron/alerts.jsonl`.
+  // always `~/.maria/alerts.jsonl`.
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
   const [deleting, setDeleting] = useState(false);
   // Bulk "Fix all" state. Lifted to the parent because the buttons live
@@ -136,10 +136,10 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
       const { getPrompt } = await import("../lib/button-prompts");
       const bulkBlock = buildBulkAlertsBlock(actionableGroups);
       const prompt = await getPrompt("notif.fix_all", { bulk_block: bulkBlock });
-      // cwd = ~/.ultron so the spawned shell starts where the relevant
+      // cwd = ~/.maria so the spawned shell starts where the relevant
       // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
       // alert from C:\Users\<user>\ has zero context.
-      const cwd = await getUltronRoot().catch(() => null);
+      const cwd = await getMariaRoot().catch(() => null);
       // v2.0: no AI Router. Provider is the bulk Fix toggle's pick;
       // model/agent are the provider's defaults.
       await invoke("spawn_session", {
@@ -277,7 +277,7 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
                   }
                 }}
                 disabled={infoVisible.length === 0 || deleting}
-                title="Permanently delete the visible info notifications from ~/.ultron/alerts.jsonl"
+                title="Permanently delete the visible info notifications from ~/.maria/alerts.jsonl"
                 className="text-[11.5px] transition-colors disabled:opacity-30"
                 style={{ color: "var(--color-text-tertiary)" }}
               >

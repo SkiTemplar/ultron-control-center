@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 — Project Kanban board
+// mar.ia 2.0 — Project Kanban board
 //
 // Loads the per-project KanbanBoard, renders columns + cards, supports HTML5
 // drag-and-drop between columns with optimistic UI + rollback on backend
@@ -78,7 +78,7 @@ export default function ProjectBoard({ projectId }: Props) {
     <>
       {/* v2.x: lightweight breadcrumb so it's clear this kanban is scoped to
           the project — distinct from the global Plans tab (which lives at
-          ~/.ultron/plans/PLANS.json). The Plans tab now holds cross-project
+          ~/.maria/plans/PLANS.json). The Plans tab now holds cross-project
           personal items only. */}
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">

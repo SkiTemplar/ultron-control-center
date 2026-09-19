@@ -138,7 +138,7 @@ export function usePlans() {
   }
 
   // Spawn a Claude session targeted at one of four plan workflows.
-  // cwd = ~/.ultron/instructions/plans/ so Claude auto-reads the GUIDE.md
+  // cwd = ~/.maria/instructions/plans/ so Claude auto-reads the GUIDE.md
   // and knows the schema, status names, atomic-write rules, etc. — saves
   // a re-discovery pass each turn.
   async function spawnClaudePlanFlow(
@@ -237,7 +237,7 @@ export function usePlans() {
           plan_priority: plan.priority,
           plan_description: plan.description ?? "",
         },
-        cwd: null, // ULTRON cwd (current)
+        cwd: null, // mar.ia cwd (current)
       });
     } catch (e) {
       setError(String(e));

@@ -33,7 +33,7 @@ export function AiModal({
           value={description}
           onChange={(e) => onChange(e.target.value)}
           rows={6}
-          placeholder="e.g. Before every Bash tool call, log the command being run to ~/.ultron/.tmp/bash-audit.jsonl"
+          placeholder="e.g. Before every Bash tool call, log the command being run to ~/.maria/.tmp/bash-audit.jsonl"
           className="mb-3 w-full rounded px-2 py-1 text-[12px]"
           style={{
             background: "var(--color-surface-2)",

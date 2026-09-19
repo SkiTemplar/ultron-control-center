@@ -1,6 +1,6 @@
 // Control Center — Memory -> Retrato (2026-09-16).
 //
-// Qué sabe ULTRON del usuario: resumen, afirmaciones por bloque con sus
+// Qué sabe mar.ia del usuario: resumen, afirmaciones por bloque con sus
 // fuentes, proyectos, opinión y trato. El retrato lo genera
 // scripts/memory-portrait.mjs (claude -p Sonnet) en
 // cockpit/memory-portrait/portrait.json; se regenera solo cada 7 días desde

@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Provider Catalog
+// mar.ia — AI Router: Provider Catalog
 //
 // Table of all known providers showing:
 //   - Name and id
@@ -379,7 +379,7 @@ export function ProviderCatalog() {
         Health checks call ai_router_health() — a lightweight ping to each
         provider. API key state and cost figures come from the backend
         (ai_router_list_providers) and reflect the real configuration in
-        ~/.ultron/cockpit/ai-router/providers.json.
+        ~/.maria/cockpit/ai-router/providers.json.
       </p>
     </div>
   );

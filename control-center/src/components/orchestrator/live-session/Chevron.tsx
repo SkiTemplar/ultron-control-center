@@ -1,4 +1,4 @@
-// ULTRON Control Center — chevron de colapso (inline SVG) del panel LiveSessionMonitor.
+// mar.ia — chevron de colapso (inline SVG) del panel LiveSessionMonitor.
 
 export function Chevron({ open }: { open: boolean }) {
   return (

@@ -1,7 +1,7 @@
 // System → Turn Off — apagado programado del PC.
 //
 // El plazo lo cumple Windows (`shutdown.exe`), no un timer de la app: por
-// eso el plan persiste en ~/.ultron/cockpit/turn-off.json y, al reabrir el
+// eso el plan persiste en ~/.maria/cockpit/turn-off.json y, al reabrir el
 // Control Center, este panel repinta el estado real consultando
 // `turn_off_status` en vez de asumir que no hay nada programado.
 //

@@ -1,4 +1,4 @@
-// ULTRON Control Center — helpers compartidos del dominio "orquestación".
+// mar.ia — helpers compartidos del dominio "orquestación".
 //
 // Extraídos para que el panel global en vivo (LiveSessionMonitor) y las tarjetas
 // por sesión (SessionCard) compartan tintes, formato y etiquetas SIN duplicar.

@@ -2,7 +2,7 @@
 //
 // Envuelve la aplicacion entera: capas de fondo (rejilla de plano, barrido,
 // viñeta) detras, y una barra superior de telemetria delante. Las pestañas
-// heredadas de ULTRON se pintan dentro sin cambiar una linea de su codigo:
+// heredadas de mar.ia se pintan dentro sin cambiar una linea de su codigo:
 // su aspecto cambia porque los tokens de color (styles.css) ahora son los del
 // HUD.
 //

@@ -1,23 +1,22 @@
 // Path helpers for the frontend.
 //
-// The Tauri backend owns the canonical knowledge of where the user's home
-// directory and the ULTRON root live (see `ultron_root()` in lib.rs).
-// Frontend code MUST go through these helpers instead of hardcoding
-// `C:\Users\<name>\.ultron` or `~/.claude` so the app stays portable
-// across user accounts and OSes.
+// El backend es el que sabe donde estan el home del usuario y la raiz de
+// mar.ia (`maria_root()` en lib.rs, que a su vez pregunta a `maria_paths`).
+// El frontend NUNCA construye `C:\Users\<nombre>\.maria` a mano: asi la
+// aplicacion sigue funcionando en otra cuenta, otro disco u otro sistema.
 //
 // Both helpers cache the result for the lifetime of the page so repeated
 // calls don't roundtrip through the Tauri bridge.
 
 import { invoke } from "@tauri-apps/api/core";
 
-let ultronRootCache: string | null = null;
+let mariaRootCache: string | null = null;
 let homeDirCache: string | null = null;
 
-export async function getUltronRoot(): Promise<string> {
-  if (ultronRootCache !== null) return ultronRootCache;
-  const root = await invoke<string>("ultron_root_str");
-  ultronRootCache = root;
+export async function getMariaRoot(): Promise<string> {
+  if (mariaRootCache !== null) return mariaRootCache;
+  const root = await invoke<string>("maria_root_str");
+  mariaRootCache = root;
   return root;
 }
 

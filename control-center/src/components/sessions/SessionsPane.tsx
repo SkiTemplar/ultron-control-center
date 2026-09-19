@@ -1,4 +1,4 @@
-// ULTRON Control Center — Monitor de sesiones activas ("Sesiones").
+// mar.ia — Monitor de sesiones activas ("Sesiones").
 //
 // Dashboard READ-ONLY que muestra todas las sesiones de Claude Code en curso.
 // El usuario lanza muchas terminales en paralelo y necesita distinguirlas de un

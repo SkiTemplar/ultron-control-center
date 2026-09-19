@@ -40,7 +40,7 @@ pub async fn generate_mcp_from_prompt(
 /// Honors the user's CLAUDE.md rule of always invoking python via `uv run`.
 #[tauri::command]
 pub async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo>, String> {
-    let script_path = crate::ultron_root()?.join("scripts/cockpit/mcp_health_check.py");
+    let script_path = crate::maria_root()?.join("scripts/cockpit/mcp_health_check.py");
     let script_str = script_path.to_string_lossy().to_string();
 
     // Use uv run python for project-managed env (per CLAUDE.md global rule).

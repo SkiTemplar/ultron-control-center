@@ -1,4 +1,4 @@
-// ULTRON Control Center — tipos locales del panel LiveSessionMonitor
+// mar.ia — tipos locales del panel LiveSessionMonitor
 // (eventos en vivo de delegación + preview manual de orquestación).
 // Extraídos de LiveSessionMonitor.tsx (cat7.4: >800 líneas) sin cambiar forma.
 

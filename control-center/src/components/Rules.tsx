@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.6 — Rules viewer (FULL REDESIGN, aligned with
+// mar.ia 2.6 — Rules viewer (FULL REDESIGN, aligned with
 // Skills/Agents).
 //
 // Same big-tile card grid as Skills + Agents, with a lime accent to

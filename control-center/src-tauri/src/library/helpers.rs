@@ -68,7 +68,7 @@ pub(super) fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> Result<(), Stri
     Ok(())
 }
 
-pub(super) fn ultron_root() -> Result<PathBuf, String> {
+pub(super) fn maria_root() -> Result<PathBuf, String> {
     dirs::home_dir()
         .map(|h| h.join(".ultron"))
         .ok_or_else(|| "No HOME dir".to_string())

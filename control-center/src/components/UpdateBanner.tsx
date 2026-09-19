@@ -152,7 +152,7 @@ export function UpdateBanner() {
         />
         <div className="min-w-0">
           <div className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
-            ULTRON {info.latest_version} is out — you have {info.current_version}.
+            mar.ia {info.latest_version} is out — you have {info.current_version}.
           </div>
           <div
             className="mt-0.5 truncate text-[11.5px]"

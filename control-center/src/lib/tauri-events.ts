@@ -1,4 +1,4 @@
-// ULTRON Control Center — Tauri event listeners
+// mar.ia — Tauri event listeners
 //
 // Wires the backend tray events to the React shell. Call
 // `setupTrayEventListeners` once from the root component (e.g. inside

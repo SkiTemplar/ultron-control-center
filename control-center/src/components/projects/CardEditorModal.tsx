@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 — Card create/edit modal
+// mar.ia 2.0 — Card create/edit modal
 //
 // Fields: title, description (markdown textarea), agent (text input —
 // agent-picker dropdown integrates in sub-commit 7), prompt template with

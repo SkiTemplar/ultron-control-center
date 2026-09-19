@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use super::gh_helpers::clone_repo;
-use super::helpers::ultron_root;
+use super::helpers::maria_root;
 use super::types::{AiInstallResult, CopyFile, InstallReport, InstallStep, TargetScope};
 
 // ---------------------------------------------------------------------------
@@ -477,7 +477,7 @@ pub async fn install_via_ai_inner(
         .ok_or_else(|| format!("could not parse GitHub URL: {repo_url}"))?;
 
     // --- Step 2: prepare temp dir ---
-    let temp_base = ultron_root()?.join("cockpit").join("temp-install");
+    let temp_base = maria_root()?.join("cockpit").join("temp-install");
     let dir_name = format!(
         "{}-{}",
         sanitize_dir_name(&owner),

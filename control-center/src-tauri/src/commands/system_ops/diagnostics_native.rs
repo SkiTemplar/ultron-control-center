@@ -20,7 +20,7 @@ const ANALYZE_PROMPT_PREFIX: &str = "You are an expert SRE. Given the following 
 // ---------------------------------------------------------------------------
 
 fn diagnostics_dir() -> Result<PathBuf, String> {
-    Ok(crate::ultron_root()?.join("cockpit").join("diagnostics"))
+    Ok(crate::maria_root()?.join("cockpit").join("diagnostics"))
 }
 
 fn write_atomic(path: &Path, body: &[u8]) -> Result<(), String> {
@@ -158,7 +158,7 @@ pub struct ScheduleConfig {
 const TASK_NAME: &str = "ULTRON-Daily-Diagnostic";
 
 fn schedule_config_path() -> Result<PathBuf, String> {
-    Ok(crate::ultron_root()?
+    Ok(crate::maria_root()?
         .join("cockpit")
         .join("diagnostic-schedule.json"))
 }

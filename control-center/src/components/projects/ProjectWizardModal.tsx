@@ -7,7 +7,7 @@ import type { ProjectExecutable, ProjectShell, SessionProvider } from "../../typ
 /// Preset accent colours. Picked to stay legible both as a card tint (very
 /// low alpha) and as a Claude Code accent on a black terminal.
 const PROJECT_SWATCHES = [
-  "#e0263c", // ULTRON red
+  "#e0263c", // rojo de marca
   "#38bdf8", // sky
   "#3ddc84", // green
   "#f5a524", // amber

@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { LEARN_SECTIONS, type LearnSection } from "../lib/learn-content";
 
-// Learn — sección viva para dominar ULTRON (skills, agentes, comandos,
+// Learn — sección viva para dominar mar.ia (skills, agentes, comandos,
 // prompting, memoria, AI routing, workflows, hooks, codegraph). El contenido
 // vive en lib/learn-content.ts (generado por workflow + editable a mano).
 
@@ -61,7 +61,7 @@ export function Learn() {
             Learn
           </h1>
           <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            Domar a ULTRON: técnicas, comandos y flujos.
+            Domar a mar.ia: técnicas, comandos y flujos.
           </p>
         </div>
         <input

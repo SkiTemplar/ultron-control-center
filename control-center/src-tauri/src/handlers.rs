@@ -11,7 +11,7 @@ use crate::*;
 pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // -- misc / system status --
-        commands::misc::ultron_root_str,
+        commands::misc::maria_root_str,
         commands::misc::home_dir_str,
         commands::misc::instruction_path,
         commands::misc::claude_usage,
@@ -226,6 +226,10 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_models::maria_models_catalog,
         maria_local::maria_local_status,
         maria_login::maria_login_status,
+        maria_cuentas::maria_cuentas_informe,
+        maria_criterio::maria_criterio_get,
+        maria_criterio::maria_criterio_set,
+        maria_criterio::maria_criterio_reset,
         maria_login::maria_login_open,
         maria_papers::maria_papers_search,
         maria_local::maria_local_unload,

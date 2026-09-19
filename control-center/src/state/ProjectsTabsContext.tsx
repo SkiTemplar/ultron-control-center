@@ -1,7 +1,7 @@
-// ULTRON Control Center 2.0 — Projects tabs global state
+// mar.ia 2.0 — Projects tabs global state
 //
 // React Context that owns the list of open tabs (Projects home + N projects),
-// the current selection, and persistence to `~/.ultron/cockpit/open-tabs.json`
+// the current selection, and persistence to `~/.maria/cockpit/open-tabs.json`
 // via the `tabs_load` / `tabs_save` Tauri commands.
 //
 // V1 redesign: per-project sub-tabs were removed (the workspace is now a flat

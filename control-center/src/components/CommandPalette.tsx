@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tab } from "./Sidebar";
 
 // Lightweight in-app command palette (Ctrl+K). Surfaces tab navigation
-// and every system-wide action ULTRON exposes. Lives outside any tab so
+// and every system-wide action mar.ia exposes. Lives outside any tab so
 // it works everywhere without leaking state between tabs.
 //
 // v15.3.7: palette expanded from ~20 entries to a full system command

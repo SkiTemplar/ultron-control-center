@@ -6,7 +6,7 @@ export const NAME_RE = /^[a-z0-9][a-z0-9_-]{1,60}$/;
 
 // Tiempo máximo desde last_checked antes de considerar el estado como "stale"
 // y sustituir el badge coloreado por un indicador neutro.
-// El cache en disco (~/.ultron/.tmp/mcp-health.json) puede tener días de
+// El cache en disco (~/.maria/.tmp/mcp-health.json) puede tener días de
 // antigüedad: mostrar ese estado como "connected" sería falso.
 export const STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 horas
 

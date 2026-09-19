@@ -569,14 +569,19 @@ fn plan_para_tarea(
 ", c.provider, ms.join("; "))
         })
         .collect();
+    // El criterio es EDITABLE desde la pantalla Router: lo que el usuario
+    // escriba ahi entra aqui tal cual. Si se quedara clavado en el codigo, esa
+    // pantalla no serviria para nada.
+    let criterio = crate::maria_criterio::cargar();
+    let reglas = crate::maria_criterio::como_prompt(&criterio);
     let instruccion = format!(
         "Decide QUIEN resuelve esta peticion, CON QUE MODELO y CON CUANTO          ESFUERZO.
          Responde en UNA linea con tres palabras separadas por espacios:          proveedor modelo esfuerzo.
          Proveedores: {proveedores}. Esfuerzo: bajo, medio o alto.
          Modelos por proveedor:
 {catalogo}
-         Criterio: lo trivial (saludos, conversiones, preguntas cortas,          ordenes del PC) va a 'local' o al modelo mas pequeno con esfuerzo          bajo; buscar en internet o mirar imagenes va a 'gemini'; scripts y          automatizacion a 'codex'; programar en un proyecto, arquitectura o          textos largos a 'claude' con el modelo grande y esfuerzo alto.
-
+         Criterio:
+{reglas}
          Peticion: {prompt}"
     );
     let body = serde_json::json!({
@@ -698,13 +703,18 @@ fn ask_inner(
     // local segun la tarea: es gratis y evita gastar una peticion de Opus en
     // algo trivial. Si el usuario lo ha fijado a mano, manda el usuario.
     let manual = forzado.filter(|f| cfg.order.iter().any(|o| *o == f.provider));
+    // El criterio puede apagar la decision del local (p. ej. con Ollama
+    // caido): entonces manda el orden de relevo y no se pierde un segundo
+    // preguntando a un modelo que no esta.
+    let decide_local = crate::maria_criterio::cargar().decide_la_local;
     let (orden, plan) = match manual {
         Some(f) => {
             let mut orden = vec![f.provider.clone()];
             orden.extend(cfg.order.iter().filter(|o| **o != f.provider).cloned());
             (orden, Some(f.clone()))
         }
-        None => plan_para_tarea(prompt, &cfg),
+        None if decide_local => plan_para_tarea(prompt, &cfg),
+        None => (cfg.order.clone(), None),
     };
     let decided_by = if manual.is_some() { "manual" } else { "local" };
     let chosen_by_local = if manual.is_some() {

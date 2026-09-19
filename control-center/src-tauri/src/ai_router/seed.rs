@@ -32,33 +32,6 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             ],
             cli_command: None,
         },
-                Provider {
-            id: "codex".into(),
-            name: "OpenAI Codex (gpt-5)".into(),
-            cost_per_mtok: 10.0,
-            supports: vec![
-                ProviderClass::Light,
-                ProviderClass::Medium,
-                ProviderClass::Heavy,
-            ],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: Some("https://api.openai.com/v1/models".into()),
-            kind: ProviderKind::Cloud,
-            key_env_var: "OPENAI_API_KEY".into(),
-            base_url: "https://api.openai.com".into(),
-            // (2026-09-11, corregido tras revisión) este provider es Cloud vía
-            // OPENAI_API_KEY — la API HTTP real de OpenAI, DISTINTA de la
-            // suscripción ChatGPT que usa 'codex-cli'. terra/sol/astra son alias
-            // internos de la app ChatGPT, NO ids validos en la API publica de
-            // OpenAI, así que NO se tocan aquí (una versión anterior de este
-            // cambio los aplicó también a este provider por error; revertido).
-            // Sigue en gpt-5 porque no hay evidencia de un id real de API
-            // vigente para reemplazarlo, y hoy está deshabilitado por falta de
-            // key (compute_key_status -> Missing) — sin efecto funcional.
-            default_model: "gpt-5".into(),
-            models: vec!["gpt-5".into(), "gpt-4o".into(), "gpt-4o-mini".into()],
-            cli_command: None,
-        },
         Provider {
             id: "gemini".into(),
             name: "Google Gemini".into(),
@@ -113,8 +86,11 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             cli_command: None,
         },
                 // ----------------------------------------------------------------
-        // CLI providers — authenticate via OAuth subscription, no API key.
-        // Install: `npm install -g @openai/codex` / `npm install -g @google/gemini-cli`
+        // Proveedor por suscripcion: entra con la cuenta de ChatGPT, sin clave
+        // de API. El `codex` de pago por API se retiro el 2026-09-19 (mar.ia
+        // solo usa suscripciones y el modelo local), igual que `gemini-cli`,
+        // cuyo OAuth individual Google cerro el 18/06/2026.
+        // Instalar: `npm install -g @openai/codex`
         // ----------------------------------------------------------------
         Provider {
             id: "codex-cli".into(),
@@ -148,25 +124,6 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
                 "gpt-6-astra".into(),
             ],
             cli_command: Some("codex".into()),
-        },
-        Provider {
-            id: "gemini-cli".into(),
-            name: "Google Gemini CLI (gemini-2.5-flash via OAuth)".into(),
-            cost_per_mtok: 0.0,
-            supports: vec![
-                ProviderClass::Trivial,
-                ProviderClass::Light,
-                ProviderClass::Medium,
-                ProviderClass::Heavy,
-            ],
-            api_key_status: ApiKeyStatus::Configured,
-            health_endpoint: None,
-            kind: ProviderKind::Cli,
-            key_env_var: String::new(),
-            base_url: String::new(),
-            default_model: "gemini-2.5-flash".into(),
-            models: vec!["gemini-2.5-flash".into()],
-            cli_command: Some("gemini".into()),
         },
     ]
 }
@@ -239,7 +196,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                     // El 'codex' cloud (OPENAI_API_KEY) conserva su id de API
                     // real (gpt-5); terra/sol/astra son alias de suscripción
                     // ChatGPT, exclusivos de 'codex-cli' (ver ese provider).
-                    provider_id: "codex".into(),
+                    provider_id: "codex-cli".into(),
                     model: "gpt-5".into(),
                     max_tokens: 4096,
                 },

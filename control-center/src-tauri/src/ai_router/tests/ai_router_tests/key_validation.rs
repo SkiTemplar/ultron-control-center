@@ -116,18 +116,21 @@ fn detect_cli_result_is_stable_across_calls() {
 
 #[test]
 fn seed_providers_includes_cli_providers() {
+    // Solo queda UNA CLI de suscripcion: `gemini-cli` salio del seed el
+    // 2026-09-19 porque Google cerro su OAuth individual el 18/06/2026 y ese
+    // id ya no puede autenticarse con nada.
     let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
     assert!(ids.iter().any(|id| id == "codex-cli"), "missing codex-cli");
     assert!(
-        ids.iter().any(|id| id == "gemini-cli"),
-        "missing gemini-cli"
+        !ids.iter().any(|id| id == "gemini-cli"),
+        "gemini-cli volvio al catalogo"
     );
 }
 
 #[test]
 fn cli_providers_have_correct_metadata() {
     for p in seed_providers() {
-        if p.id == "codex-cli" || p.id == "gemini-cli" {
+        if p.id == "codex-cli" {
             assert_eq!(p.kind, ProviderKind::Cli, "{} must have kind=Cli", p.id);
             assert!(
                 p.cli_command.is_some(),

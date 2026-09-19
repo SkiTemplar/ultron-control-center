@@ -1,4 +1,4 @@
-// ULTRON Control Center — Editor de CLAUDE.md por proyecto (modal).
+// mar.ia — Editor de CLAUDE.md por proyecto (modal).
 //
 // Wiring 2026-08-11 (audit 08-09 #39): project_claude_md_load/save y
 // project_create_claude_md existían desde v2.9.x sin registrar ni consumir —

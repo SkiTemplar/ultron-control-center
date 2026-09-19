@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Metrics Dashboard (rediseño funcional 2026-05-30)
+// mar.ia — AI Router: Metrics Dashboard (rediseño funcional 2026-05-30)
 //
 // Stats REALES (antes salían a cero por un bug de diseño: la tabla agrupaba por
 // task-class pero el backend keyea por provider/modelo). Ahora:

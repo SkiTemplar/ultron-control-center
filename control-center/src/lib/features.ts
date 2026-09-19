@@ -1,7 +1,7 @@
-// ULTRON Control Center — Feature toggles hook
+// mar.ia — Feature toggles hook
 //
 // Mirrors the Rust `Features` struct in `src-tauri/src/features.rs`. The
-// installer writes `~/.ultron/cockpit/features.json`; the backend reads it
+// installer writes `~/.maria/cockpit/features.json`; the backend reads it
 // and we surface the result through `useFeatures()`.
 //
 // Cache strategy: we keep a module-level state + a Set of subscribers so
@@ -111,7 +111,7 @@ export function useFeatures(): {
 
 // saveFeatures()/save_features eliminados 2026-07-20 (audit cat8): la sección
 // Settings→Features nunca se construyó y eran dead code inalcanzable. Los
-// toggles se gobiernan editando ~/.ultron/cockpit/features.json a mano (el
+// toggles se gobiernan editando ~/.maria/cockpit/features.json a mano (el
 // installer lo escribe; refresh() lo relee).
 
 /** Keys that map 1:1 to a sidebar item. Used by Sidebar.tsx for filtering. */

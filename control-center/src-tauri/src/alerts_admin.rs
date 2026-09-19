@@ -82,14 +82,14 @@ pub(crate) fn alerts_lock() -> &'static Mutex<()> {
 // Paths
 // ---------------------------------------------------------------------------
 
-fn ultron_root() -> Result<PathBuf, String> {
+fn maria_root() -> Result<PathBuf, String> {
     dirs::home_dir()
         .map(|h| h.join(".ultron"))
         .ok_or_else(|| "No HOME dir".to_string())
 }
 
 fn alerts_path() -> Result<PathBuf, String> {
-    Ok(ultron_root()?.join("alerts.jsonl"))
+    Ok(maria_root()?.join("alerts.jsonl"))
 }
 
 // ---------------------------------------------------------------------------

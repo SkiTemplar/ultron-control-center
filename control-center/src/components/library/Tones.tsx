@@ -1,6 +1,6 @@
 // Library → Tones — Personalities v1 (diseño del usuario, 2026-08-12/13).
 //
-// Editor de los tonos de ~/.ultron/personality.json (visibles/editables) +
+// Editor de los tonos de ~/.maria/personality.json (visibles/editables) +
 // playground de detección estilo Routing: escribes un prompt y ves QUÉ tono
 // detectaría el orchestrate del sidecar y POR QUÉ (señales matcheadas por
 // tono). Backend: personalities_load / personalities_save / personalities_detect.
@@ -180,7 +180,7 @@ export function Tones() {
     try {
       await invoke("personalities_save", { file: next });
       setFile(next);
-      setInfo("Guardado en ~/.ultron/personality.json");
+      setInfo("Guardado en ~/.maria/personality.json");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -565,7 +565,7 @@ export function Tones() {
       </div>
 
       <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-        Archivo: ~/.ultron/personality.json (local, fuera del repo público). La
+        Archivo: ~/.maria/personality.json (local, fuera del repo público). La
         detección corre dentro del orchestrate del sidecar en cada prompt — sin
         hooks nuevos ni latencia extra.
       </p>

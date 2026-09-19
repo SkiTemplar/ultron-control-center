@@ -1,11 +1,11 @@
-// ULTRON Control Center — sección "Historial de workflows" del LiveSessionMonitor.
+// mar.ia — sección "Historial de workflows" del LiveSessionMonitor.
 //
 // Wiring 2026-08-11 (audit 08-09 #32): workflow-runs.db se inicializaba en cada
 // boot pero sus comandos jamás se registraron y NADA escribía — tabla vacía
 // para siempre. Ahora el escritor es la delegación síncrona (delegate.rs abre
 // un run "delegate:<agent>" y lo cierra con status/summary), y esta sección es
 // el punto de consumo: últimos runs + workflows disponibles (built-in + YAML de
-// ~/.ultron/cockpit/workflows/ vía workflow_load_user_defined).
+// ~/.maria/cockpit/workflows/ vía workflow_load_user_defined).
 //
 // Backend: workflow_get_runs / workflow_load_user_defined (registrados hoy).
 

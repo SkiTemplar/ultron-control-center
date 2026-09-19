@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router shared TypeScript types
+// mar.ia — AI Router shared TypeScript types
 //
 // These mirror the Rust structs in the src-tauri/src/ai_router/ module.
 // Keep this file in sync with the backend whenever types evolve.

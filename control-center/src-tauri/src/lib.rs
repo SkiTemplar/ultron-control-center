@@ -2,7 +2,7 @@
 //
 // v15.4 architectural split: every `#[tauri::command]` wrapper lives under
 // `commands/<group>.rs` grouped by domain. This file owns runtime plumbing
-// only — module declarations, the `ultron_root` helper, plugin setup,
+// only — module declarations, the `maria_root` helper, plugin setup,
 // hotkey + tray registration, and the `generate_handler!` dispatcher.
 //
 // Adding a new command:
@@ -54,6 +54,8 @@ pub mod proc; // mar.ia: lanzar procesos sin abrir ventanas de consola (lo usa t
 mod maria_paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
 mod maria_local; // mar.ia: el modelo local disponible, sin ocupar VRAM
 mod maria_login; // mar.ia: como se entra en cada proveedor y si ya se entro
+mod maria_cuentas; // mar.ia: que cuentas y claves hay conectadas, y a que correo
+mod maria_criterio; // mar.ia: los parametros con los que la IA local decide
 mod maria_papers; // mar.ia: literatura del TFG (Semantic Scholar + OpenAlex)
 mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
@@ -112,17 +114,18 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 // Shared helpers used across command groups
 // ---------------------------------------------------------------------------
 
-/// Absolute path to `~/.ultron`. Exposed at crate level so any command
-/// group can resolve ULTRON-rooted paths without re-implementing the
-/// HOME lookup.
-pub(crate) fn ultron_root() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|h| h.join(".ultron"))
-        .ok_or_else(|| "No HOME dir".to_string())
+/// Raiz de mar.ia. Expuesta a nivel de crate para que cualquier grupo de
+/// comandos resuelva rutas sin repetir la busqueda del HOME.
+///
+/// Delega en `maria_paths::home()`: antes construia `~/.ultron` a mano, que
+/// era la ultima traza FUNCIONAL del nombre viejo — todo lo calculado asi
+/// apuntaba al enlace de compatibilidad en vez de a la carpeta real.
+pub(crate) fn maria_root() -> Result<PathBuf, String> {
+    Ok(crate::maria_paths::home())
 }
 
 /// Show / hide the main webview window. Bound to the user's main toggle
-/// hotkey (default Ctrl+Alt+U) via the global-shortcut plugin handler.
+/// hotkey (default Ctrl+Alt+M) via the global-shortcut plugin handler.
 fn toggle_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         match window.is_visible() {
@@ -306,15 +309,15 @@ pub fn run() {
             // KIRKARDO 23 P2: migrate legacy workflows-old.json → YAML if present.
             crate::workflow_loader::migrate_legacy_json_if_present();
 
-            // Persisted main toggle hotkey (Ctrl+Alt+U by default).
+            // Atajo global para abrir/ocultar mar.ia. Por defecto Ctrl+Alt+M.
             let shortcut_handle = app.global_shortcut();
             let spec = hotkeys::load_hotkey_spec();
             let shortcut = hotkeys::parse_hotkey(&spec).unwrap_or_else(|e| {
                 tracing::warn!(
                     hotkey = %spec, error = %e,
-                    "persisted hotkey rejected — falling back to Ctrl+Alt+U"
+                    "atajo guardado invalido — se usa Ctrl+Alt+M"
                 );
-                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyU)
+                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM)
             });
             if let Err(e) = shortcut_handle.register(shortcut) {
                 tracing::error!(error = %e, "global shortcut register failed");
@@ -374,6 +377,16 @@ pub fn run() {
             // La voz, viva desde el arranque: es la que saluda al despertar y
             // la que escucha la palabra clave. Ver `maria_voice`.
             crate::maria_voice::arrancar_al_inicio(app.handle().clone());
+
+            // Limpieza del catalogo de proveedores al arrancar. `load_providers`
+            // es quien purga los retirados (groq, deepseek, claude-haiku) y
+            // repara las zonas que los apuntaban, pero solo corria al abrir la
+            // pestana Router: quien no entrara ahi seguia con nueve proveedores
+            // en el fichero (comprobado el 2026-09-19). Ahora pasa siempre.
+            std::thread::spawn(|| match crate::ai_router::store::load_providers() {
+                Ok(ps) => tracing::info!(n = ps.len(), "catalogo de proveedores al dia"),
+                Err(e) => tracing::warn!(error = %e, "no pude revisar el catalogo"),
+            });
 
             // Webapp del movil. Solo si el usuario la dejo encendida: no se
             // abre un puerto por iniciativa propia (ver `maria_web`).
@@ -547,7 +560,7 @@ fn qdrant_auto_launch() {
 // ---------------------------------------------------------------------------
 
 fn persist_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
-    let dir = ultron_root()
+    let dir = maria_root()
         .map(|p| p.join("cockpit").join("diagnostics"))
         .map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&dir)?;
@@ -558,7 +571,7 @@ fn persist_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::R
 }
 
 fn emit_alert_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
-    let path = ultron_root()
+    let path = maria_root()
         .map(|p| p.join("cockpit").join("alerts.jsonl"))
         .map_err(std::io::Error::other)?;
     if let Some(parent) = path.parent() {

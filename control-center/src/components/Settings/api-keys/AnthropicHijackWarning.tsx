@@ -22,7 +22,7 @@ export function AnthropicHijackWarning() {
       que la herede factura por token contra la API en vez de contra tu
       suscripción, y desactiva los conectores de claude.ai (mensaje literal de
       Claude Code 2.1.270: "claude.ai connectors are disabled because
-      ANTHROPIC_API_KEY or another auth source is set"). ULTRON ya se
+      ANTHROPIC_API_KEY or another auth source is set"). mar.ia ya se
       defiende en dos sitios: el PTY que lanza <code style={{ fontFamily: "var(--font-mono)" }}>claude</code>{" "}
       (<code style={{ fontFamily: "var(--font-mono)" }}>pty/spawn.rs::strip_api_key_for_claude</code>) y
       el hook de resumen de sesión anterior (

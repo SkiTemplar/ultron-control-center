@@ -1,4 +1,4 @@
-// ULTRON Control Center — Zona Sesiones.
+// mar.ia — Zona Sesiones.
 //
 // Envuelve las dos vistas de sesiones bajo la pestaña "Sessions" sin tocar el
 // componente de lanzamiento existente:

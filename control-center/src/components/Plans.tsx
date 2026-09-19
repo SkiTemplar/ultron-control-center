@@ -2,7 +2,7 @@ import { type DragEvent as ReactDragEvent } from "react";
 
 // Plans tab — read/write PLANS.json. Kanban (Open / In progress / Blocked /
 // Resolved) + create/edit/delete + clean-resolved bulk + "Open resolution
-// session" per card that spawns Claude in the ULTRON cwd with the plan
+// session" per card that spawns Claude in the mar.ia cwd with the plan
 // context preseeded as the first prompt.
 
 import { usePlans } from "./plans/usePlans";
@@ -110,7 +110,7 @@ export function Plans() {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            ~/.ultron/plans/PLANS.json - {totalActive} items - updated {report?.updated_at?.slice(0, 19) ?? "-"}
+            ~/.maria/plans/PLANS.json - {totalActive} items - updated {report?.updated_at?.slice(0, 19) ?? "-"}
           </p>
         </div>
         <div className="flex items-center gap-2">

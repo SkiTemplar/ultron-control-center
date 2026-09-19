@@ -1,4 +1,4 @@
-// ULTRON Control Center — Micro GitHub Desktop (modal).
+// mar.ia — Micro GitHub Desktop (modal).
 //
 // Surface completo de Git para un proyecto, abierto sobre el panel "Repositorio"
 // de ProjectWorkspace. A diferencia del resumen compacto (branch + Pull/Push),

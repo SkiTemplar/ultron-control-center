@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Zone Editor filas y selects
+// mar.ia — AI Router: Zone Editor filas y selects
 //
 // Extraído de ZoneEditor.tsx (cat7: mantener ficheros < 800 líneas). Helpers
 // visuales puros: badge de aviso, selects de provider/modelo y la fila de

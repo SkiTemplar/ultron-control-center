@@ -43,7 +43,7 @@ export function TriggerButton({
         }}
         aria-expanded={open}
         aria-haspopup="menu"
-        title="Ejecutar un script de ~/.ultron/batches/"
+        title="Ejecutar un script de ~/.maria/batches/"
       >
         <div
           className="flex h-8 w-8 items-center justify-center rounded-md"
@@ -142,7 +142,7 @@ export function TriggerButton({
       style={triggerStyle}
       onMouseEnter={handleTriggerEnter}
       onMouseLeave={handleTriggerLeave}
-      title="Execute a pre-approved script from ~/.ultron/batches/"
+      title="Execute a pre-approved script from ~/.maria/batches/"
       aria-expanded={open}
       aria-haspopup="menu"
     >

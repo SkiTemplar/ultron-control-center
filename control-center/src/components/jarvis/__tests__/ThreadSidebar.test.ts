@@ -62,12 +62,12 @@ describe("agrupar", () => {
 describe("filtrar", () => {
   const lista = [
     hilo({ id: "a", title: "router y dns" }),
-    hilo({ id: "b", title: "memoria", folder: "ultron" }),
+    hilo({ id: "b", title: "memoria", folder: "trabajo" }),
   ];
 
   it("busca en el título y en la carpeta", () => {
     expect(filtrar(lista, "dns").map((h) => h.id)).toEqual(["a"]);
-    expect(filtrar(lista, "ULTRON").map((h) => h.id)).toEqual(["b"]);
+    expect(filtrar(lista, "TRABAJO").map((h) => h.id)).toEqual(["b"]);
     expect(filtrar(lista, "  ").map((h) => h.id)).toEqual(["a", "b"]);
   });
 

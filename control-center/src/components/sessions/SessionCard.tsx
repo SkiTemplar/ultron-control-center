@@ -1,4 +1,4 @@
-// ULTRON Control Center — Monitor de sesiones activas: tarjeta individual.
+// mar.ia — Monitor de sesiones activas: tarjeta individual.
 //
 // Muestra el estado en vivo de una sesión Claude Code:
 //   - Badge de estado con color semántico
@@ -517,7 +517,7 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
           title={
             canOpenProject
               ? `Abrir proyecto ${project_name} en Projects`
-              : "Proyecto no registrado en ULTRON — registralo desde la pestaña Projects"
+              : "Proyecto no registrado en mar.ia — registralo desde la pestaña Projects"
           }
           className="rounded px-2 py-1 text-[10.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
           style={{

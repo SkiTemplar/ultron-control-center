@@ -66,7 +66,7 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 // ---------------------------------------------------------------------------
 // Main toggle hotkey: parsing + persistence
 //
-// Persisted at ~/.ultron/.tmp/hotkey.txt as a plain `Ctrl+Alt+U`-style string
+// Persisted at <raiz>/.tmp/hotkey.txt as a plain `Ctrl+Alt+M`-style string
 // so the user can hand-edit the file without booting the app. Both lib.rs
 // setup() and the `commands::hotkeys` group share these helpers — single
 // source of truth for parser + storage.
@@ -77,7 +77,7 @@ pub fn hotkey_config_path() -> Option<PathBuf> {
 }
 
 pub fn parse_hotkey(spec: &str) -> Result<Shortcut, String> {
-    // Accepts strings like "Ctrl+Alt+U", "Ctrl+Shift+F12", "Alt+Space".
+    // Accepts strings like "Ctrl+Alt+M", "Ctrl+Shift+F12", "Alt+Space".
     // Permissive on whitespace and case to match what the user types.
     let parts: Vec<String> = spec
         .split('+')
@@ -195,7 +195,9 @@ pub fn load_hotkey_spec() -> String {
             }
         }
     }
-    "Ctrl+Alt+U".to_string()
+    // M de mar.ia. Antes era U (de ULTRON), que ya no significa nada aqui
+    // y encima chocaba con el subrayado de varias aplicaciones.
+    "Ctrl+Alt+M".to_string()
 }
 
 pub fn save_hotkey_spec(spec: &str) -> Result<(), String> {

@@ -1,5 +1,5 @@
 // Settings/api-keys/GithubTokenCard.tsx — subseccion del token de GitHub,
-// persistido aparte via `set_github_token` (~/.ultron/.env), no via
+// persistido aparte via `set_github_token` (~/.maria/.env), no via
 // `set_env_vars_keys` (setx).
 
 import { useCallback, useState } from "react";
@@ -81,7 +81,7 @@ export function GithubTokenCard() {
               border: "1px solid var(--color-border)",
             }}
           >
-            ~/.ultron/.env
+            ~/.maria/.env
           </code>{" "}
           y se aplica al proceso actual sin reiniciar.
         </p>

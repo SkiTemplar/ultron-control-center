@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Error Boundary
+// mar.ia — AI Router: Error Boundary
 //
 // Catches any unhandled React render error inside the AI Router sub-tree
 // (e.g. an unexpected shape from the backend) and renders a friendly

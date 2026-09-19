@@ -49,7 +49,7 @@ pub struct TimelineSummary {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-fn ultron_root() -> Option<PathBuf> {
+fn maria_root() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron"))
 }
 
@@ -530,7 +530,7 @@ fn ingest_alerts(root: &Path, out: &mut Vec<TimelineEvent>) {
 /// `days`: how many days of history to include (e.g. 7, 30). Values outside
 /// 1..=365 are clamped to 30.
 pub fn compute_activity_timeline_inner(days: u32) -> Result<TimelineSummary, String> {
-    let root = ultron_root().ok_or_else(|| "no HOME".to_string())?;
+    let root = maria_root().ok_or_else(|| "no HOME".to_string())?;
     let window = if days == 0 || days > 365 { 30 } else { days };
     let cutoff = cutoff_day(window);
 

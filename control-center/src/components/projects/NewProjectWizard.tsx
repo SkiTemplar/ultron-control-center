@@ -1,6 +1,6 @@
-// ULTRON Control Center — asistente "Nuevo proyecto" (Projects tab).
+// mar.ia — asistente "Nuevo proyecto" (Projects tab).
 //
-// Envuelve el CLI `~/.ultron/scripts/project-create.mjs` (via el comando
+// Envuelve el CLI `~/.maria/scripts/project-create.mjs` (via el comando
 // Tauri `project_create_cli`, ver src/lib/project-create-cli.ts) en un
 // stepper de 6 pasos: Tipo -> Asignatura (solo asignaturas) -> Subcarpeta ->
 // Nombre -> Plantilla -> Opciones -> (Crear) -> Resultado. El objetivo es

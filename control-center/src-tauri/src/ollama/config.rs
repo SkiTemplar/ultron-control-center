@@ -26,7 +26,7 @@ struct StoredConfig {
 /// debe tener el efecto secundario de crear `cockpit/ollama/` en cada
 /// arranque solo por preguntar si hay algo persistido).
 fn config_path_readonly() -> Result<PathBuf, String> {
-    Ok(crate::ultron_root()?
+    Ok(crate::maria_root()?
         .join("cockpit")
         .join("ollama")
         .join("config.json"))
@@ -35,7 +35,7 @@ fn config_path_readonly() -> Result<PathBuf, String> {
 /// Ruta al fichero de config, creando el directorio si hace falta — solo
 /// para la escritura (`write_configured_model`).
 fn config_path_for_write() -> Result<PathBuf, String> {
-    let dir = crate::ultron_root()?.join("cockpit").join("ollama");
+    let dir = crate::maria_root()?.join("cockpit").join("ollama");
     fs::create_dir_all(&dir).map_err(|e| format!("crear {}: {e}", dir.display()))?;
     Ok(dir.join("config.json"))
 }

@@ -3,14 +3,14 @@
 //! that powers the Library -> Catalog sub-tab.
 
 use crate::library;
-use crate::ultron_root;
+use crate::maria_root;
 
 /// Raw JSON payload of `~/.ultron/cockpit/curated-catalog.json`. Returned
 /// as a `serde_json::Value` so the schema can evolve in the file without
 /// requiring a backend recompile — the frontend tolerates unknown keys.
 #[tauri::command]
 pub fn read_curated_catalog() -> Result<serde_json::Value, String> {
-    let path = ultron_root()?.join("cockpit").join("curated-catalog.json");
+    let path = maria_root()?.join("cockpit").join("curated-catalog.json");
     if !path.exists() {
         // Empty schema: frontend renders the "no domains" empty state and
         // a "create a catalog" hint instead of crashing.

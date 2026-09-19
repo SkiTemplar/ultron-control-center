@@ -1,4 +1,4 @@
-// ULTRON Control Center — sección "Previsualizar orquestacion" del panel
+// mar.ia — sección "Previsualizar orquestacion" del panel
 // LiveSessionMonitor (F2.1 — la insignia): qué haría el orquestador con un
 // prompt dado, SIN ejecutar nada. invoke('orchestrate_prompt').
 
@@ -177,7 +177,7 @@ export function OrchestrationPreviewPanel() {
                     color: "#a855f7",
                     border: "1px solid rgba(168,85,247,0.3)",
                   }}
-                  title="Modo ULTRON sugerido por el paso de mejora"
+                  title="Modo mar.ia sugerido por el paso de mejora"
                 >
                   {preview.prompt_plan.suggested_mode}
                 </span>

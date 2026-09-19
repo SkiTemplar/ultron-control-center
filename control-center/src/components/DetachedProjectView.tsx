@@ -1,4 +1,4 @@
-// ULTRON Control Center — Ventana detached de un proyecto.
+// mar.ia — Ventana detached de un proyecto.
 //
 // Renderizado por main.tsx cuando la URL es /detached/project?id=...
 // Muestra solo el workspace del proyecto (sin sidebar ni chrome de la app

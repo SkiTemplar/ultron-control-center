@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Proxy free-tier control (unified)
+// mar.ia — AI Router: Proxy free-tier control (unified)
 //
 // Single source of truth for the free-tier proxy toggle. Previously this lived
 // duplicated in two places (AIRouterIndex + Usage's ProxyControlCard); both are
@@ -285,16 +285,16 @@ export function ProxyControl() {
           >
             <span style={{ fontWeight: 600, color: "var(--color-text)" }}>Modo light.</span> El
             binario gestionado no está disponible y no se pudo lanzar el script. Arranca el proxy
-            manualmente: <code className="font-mono">node ~/.ultron/proxy/ultron-proxy.mjs</code>.
-            Guía completa en <code className="font-mono">~/.ultron/proxy/HOWTO.md</code>.
+            manualmente: <code className="font-mono">node ~/.maria/proxy/ultron-proxy.mjs</code>.
+            Guía completa en <code className="font-mono">~/.maria/proxy/HOWTO.md</code>.
           </div>
         )}
       </div>
 
       <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-        Estado en <code className="font-mono">~/.ultron/cockpit/proxy-state.json</code>.
+        Estado en <code className="font-mono">~/.maria/cockpit/proxy-state.json</code>.
         Sesiones nuevas aplican <code className="font-mono">ANTHROPIC_BASE_URL</code>.
-        Logs en <code className="font-mono">~/.ultron/proxy/proxy.log</code>.
+        Logs en <code className="font-mono">~/.maria/proxy/proxy.log</code>.
       </p>
     </div>
   );

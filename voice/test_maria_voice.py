@@ -282,3 +282,20 @@ def test_emit_no_revienta_si_la_tuberia_se_cierra():
         mv.sys.stdout = original
     assert mv.SALIDA_ROTA.is_set()
     mv.SALIDA_ROTA.clear()
+
+def test_si_el_modelo_local_no_esta_maria_lo_dice_en_voz_alta(monkeypatch):
+    """Caso negativo del turno de voz: con Ollama caido, mar.ia se quedaba
+    MUDA — hablabas y no pasaba nada. Ahora avisa y vuelve a idle."""
+    def caido(*_a, **_k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(mv, "ask_llm", caido)
+    dicho = []
+    eventos = capture(lambda: mv.process_text("que hora es", dicho.append))
+
+    estados = [e["state"] for e in eventos if e.get("event") == "state"]
+    respuestas = [e["text"] for e in eventos if e.get("event") == "reply"]
+    assert estados[-1] == "idle", f"se quedo colgada en {estados}"
+    assert respuestas, "no dijo nada"
+    assert "Ollama" in respuestas[0]
+    assert dicho and "Ollama" in dicho[0], "no lo dijo en voz alta"

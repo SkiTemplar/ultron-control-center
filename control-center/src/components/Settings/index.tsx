@@ -10,6 +10,7 @@ import { ApiKeysSection } from "./ApiKeysSection";
 import { McpAccountsSection } from "./McpAccountsSection";
 import { MovilSection } from "./MovilSection";
 import { AccesoProveedores } from "./AccesoProveedores";
+import { CuentasSection } from "./CuentasSection";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
@@ -98,7 +99,7 @@ export function Settings(_props: SettingsProps = {}) {
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">Settings</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            Edit ~/.claude/settings.json · automatic backups to ~/.ultron/backups/control-center-settings
+            Edit ~/.claude/settings.json · automatic backups to ~/.maria/backups/control-center-settings
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -157,7 +158,7 @@ export function Settings(_props: SettingsProps = {}) {
       >
         {[
           { id: "general" as Section, label: "General" },
-          { id: "auth" as Section, label: "Auth" },
+          { id: "auth" as Section, label: "Cuentas" },
           { id: "api-keys" as Section, label: "API Keys" },
           { id: "mcp-accounts" as Section, label: "MCP Accounts" },
           { id: "movil" as Section, label: "Móvil" },
@@ -217,6 +218,10 @@ export function Settings(_props: SettingsProps = {}) {
             {/* La ficha por proveedor va PRIMERO: es la que cubre los cuatro
                 caminos (incluido Gemini/Antigravity). AuthStatus se queda
                 debajo porque trae el detalle de caducidad de Claude y Codex. */}
+            {/* Primero QUIEN eres en cada sitio (lo que evita trabajar con la
+                cuenta equivocada), luego COMO se entra, y al final el detalle
+                de caducidad de las credenciales. */}
+            <CuentasSection />
             <AccesoProveedores />
             <AuthStatus onRecheck={load} />
           </>

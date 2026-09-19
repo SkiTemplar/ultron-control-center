@@ -236,7 +236,7 @@ export const GITHUB_TOKEN_TUTORIAL: KeyTutorial = {
     "Cópialo (empieza por ghp_ / github_pat_ / gho_ / ghs_ / ghu_) y pégalo aquí.",
   ],
   usedFor: "AI Router y los workflows que acceden a la API de GitHub.",
-  ifMissing: "Esas llamadas a la API de GitHub fallan con 401/403; el resto de ULTRON sigue funcionando.",
+  ifMissing: "Esas llamadas a la API de GitHub fallan con 401/403; el resto de mar.ia sigue funcionando.",
   sourceUrl: "https://github.com/settings/tokens",
   sourceLabel: "github.com/settings/tokens",
 };

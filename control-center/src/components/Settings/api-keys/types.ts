@@ -1,9 +1,9 @@
 // Settings/api-keys/types.ts — tipos compartidos entre el hook, la seccion
 // y los componentes de fila. Sin datos ni logica, solo formas.
 
-/** Mini-tutorial por clave: pasos cortos, para qué la usa ULTRON y qué pasa
+/** Mini-tutorial por clave: pasos cortos, para qué la usa mar.ia y qué pasa
  *  si falta. Todo dato verificado contra la fuente oficial en `sourceUrl`
- *  (o contra el propio código de ULTRON cuando el dato es "qué zona la usa").
+ *  (o contra el propio código de mar.ia cuando el dato es "qué zona la usa").
  */
 export interface KeyTutorial {
   steps: string[];

@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::library::library::RepoHit;
-use crate::ultron_root;
+use crate::maria_root;
 
 // ---------------------------------------------------------------------------
 // Public types (mirrored on the TypeScript side)
@@ -440,7 +440,7 @@ fn score_deps(
 const CACHE_TTL_SECS: u64 = 3600; // 1 hour
 
 fn cache_path() -> Result<PathBuf, String> {
-    Ok(ultron_root()?
+    Ok(maria_root()?
         .join("cockpit")
         .join("library-catalog-compat.json"))
 }

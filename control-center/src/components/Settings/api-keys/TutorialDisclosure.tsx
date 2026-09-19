@@ -32,7 +32,7 @@ export function TutorialDisclosure({ tutorial }: TutorialDisclosureProps) {
         </ol>
         <p className="mt-2">
           <span className="font-medium" style={{ color: "var(--color-text)" }}>
-            Para qué la usa ULTRON:
+            Para qué la usa mar.ia:
           </span>{" "}
           {tutorial.usedFor}
         </p>

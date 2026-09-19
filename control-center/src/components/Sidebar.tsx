@@ -51,7 +51,7 @@ type Item = {
    * without breaking workflows that currently land on, e.g., Personal
    * (Tio Gilito) or Changelog.
    *
-   * Tiering rationale (~/.ultron/sessions/<date>/routing.jsonl, 21 days):
+   * Tiering rationale (~/.maria/sessions/<date>/routing.jsonl, 21 days):
    *   primary  — Dashboard, Usage, Notifications, System, MCPs, Skills,
    *              Agents, Memory, Sessions, Projects, Plans, Personal,
    *              Settings.
@@ -66,7 +66,7 @@ type Item = {
 };
 
 const SECTIONS: { heading: string; items: Item[] }[] = [
-  // mar.ia (2026-09-18): las secciones heredadas de ULTRON se reordenan y se
+  // mar.ia (2026-09-18): las secciones heredadas de mar.ia se reordenan y se
   // pasan a castellano, que es el idioma del sistema. NO se borra ninguna
   // pestana: las de poco uso bajan al grupo "mas" (plegable) y siguen a un
   // clic, ademas de estar en la paleta de comandos. El usuario pidio
@@ -418,7 +418,7 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
         })()}
 
         {/* v15.4 — the standalone "Features" modal was deduplicated. Los
-            toggles se gobiernan editando ~/.ultron/cockpit/features.json
+            toggles se gobiernan editando ~/.maria/cockpit/features.json
             (la sección Settings→Features nunca se construyó; dead code
             eliminado 2026-07-20, audit cat8). */}
       </nav>

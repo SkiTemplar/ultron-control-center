@@ -23,7 +23,7 @@
 // Synonyms
 // ---------------------------------------------------------------------------
 //
-// Embedded copy of ~/.ultron/cockpit/query-synonyms.json. That file lives
+// Embedded copy of ~/.maria/cockpit/query-synonyms.json. That file lives
 // outside the bundled frontend (it is consumed by the cockpit Python tools),
 // so we keep an in-tree mirror to avoid a backend round-trip on every search.
 // Keep this in sync if the cockpit file grows — it is intentionally small.
@@ -46,7 +46,7 @@ const SYNONYM_SOURCE: Record<string, string> = {
   auth: "auth OR supabase OR GoTrue OR RLS OR cookie OR session",
   ssr: "ssr OR nextjs OR ServerComponent OR ServerAction OR hydration",
   database: "database OR supabase OR RLS OR migration OR schema OR SQL",
-  skill: "skill OR SKILL OR persona OR routing OR ULTRON",
+  skill: "skill OR SKILL OR persona OR routing OR mar.ia",
   hook: "hook OR SessionStart OR PostToolUse OR Stop OR UserPrompt",
   memory: "memory OR vault OR brain OR INDEX OR decay OR session",
   agent: "agent OR subagent OR dispatch OR parallel OR fork",

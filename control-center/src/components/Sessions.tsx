@@ -1,4 +1,4 @@
-// ULTRON Control Center — Sessions tab.
+// mar.ia — Sessions tab.
 //
 // v2.9.5 (P1 2026-05-27) — Redesign botones + buscador global + auto-tags.
 //
@@ -10,7 +10,7 @@
 //     short_title / preview / tags en TODAS las sesiones de TODOS los workspaces.
 //   - Auto-tag: chips de tags debajo del título en cada card. Click en chip filtra.
 //     Botón "Auto-tag all" en header (bulk via sessions_bulk_auto_tag).
-//     Tags persisten en ~/.ultron/cockpit/sessions-tags.jsonl (carga en mount).
+//     Tags persisten en ~/.maria/cockpit/sessions-tags.jsonl (carga en mount).
 //
 // Iconos: Plus (New), Sliders (Custom), Share2 (Send Context), Tag (auto-tag),
 //         Search (buscador), RefreshCw, History, Plus (create project badge).
@@ -138,7 +138,7 @@ export function Sessions() {
   // Bulk auto-tag — header "Auto-tag all" button. Builds one AutoTagRequest
   // per loaded session (id + preview as first_prompt) and hands the batch to
   // the backend, which generates tags via the "summarize" zone and persists
-  // them to ~/.ultron/cockpit/sessions-tags.jsonl.
+  // them to ~/.maria/cockpit/sessions-tags.jsonl.
   // ---------------------------------------------------------------------------
 
   const [autoTagging, setAutoTagging] = useState(false);

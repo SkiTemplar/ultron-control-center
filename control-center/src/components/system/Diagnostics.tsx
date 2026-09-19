@@ -8,7 +8,7 @@
 //   1. Header: buscador "Search common errors..." + filtro por categoría
 //   2. COMMON_ERRORS: 13 errores conocidos con icono severidad, título corto,
 //      síntoma, botón Diagnose (corre check específico) + botón Fix
-//   3. Recent Fixes: historial local (~/.ultron/cockpit/fix-history.jsonl)
+//   3. Recent Fixes: historial local (~/.maria/cockpit/fix-history.jsonl)
 //   4. App Health (kept — compacto)
 //   5. Toolbox Windows (collapsible, al fondo — ya existía)
 //   6. Event Log con fixes sugeridos (kept)

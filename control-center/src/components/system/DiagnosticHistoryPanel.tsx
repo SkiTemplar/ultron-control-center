@@ -1,7 +1,7 @@
 // Control Center 2.0 — Phase 6 history panel.
 //
 // Lists past diagnostic runs (persisted under
-// ~/.ultron/cockpit/diagnostics/<ts>.json). Clicking an entry loads the
+// ~/.maria/cockpit/diagnostics/<ts>.json). Clicking an entry loads the
 // full report into the parent <Diagnostics /> view.
 
 import { useEffect, useState } from "react";

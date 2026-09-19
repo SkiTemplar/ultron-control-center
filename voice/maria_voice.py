@@ -31,7 +31,7 @@ un hijo con tuberias muere con su padre, sin puertos huerfanos.
     {"event":"log","message":"..."}        diagnostico, no va al orbe
 
 El estado NO se acumula aqui: la memoria, las skills y los agentes siguen
-viviendo en ULTRON. Este proceso solo convierte voz en intencion y devuelve voz.
+viviendo en mar.ia. Este proceso solo convierte voz en intencion y devuelve voz.
 """
 
 from __future__ import annotations
@@ -176,31 +176,27 @@ def _envolvente_al_hablar(text: str, parar: "threading.Event") -> None:
 
 
 def speak(text: str) -> None:
-    """Dice `text` con la voz del sistema.
+    """Dice `text` en voz alta.
 
-    SAPI en vez de una libreria: cero dependencias nuevas, voces españolas ya
-    instaladas en Windows y el mismo patron de PowerShell desacoplado que usa
-    notify-relay.js. Kokoro llegara despues, que suena mucho mejor.
+    El trabajo lo hace `hablar.ps1`, que elige el mejor motor disponible:
+    Piper (neuronal, si esta instalado) > WinRT (voces Laura/Pablo) > SAPI.
+    Antes se llamaba a SAPI directamente con la voz "Helena Desktop", que es la
+    mas vieja de las tres que hay en español en esta maquina y la que sonaba a
+    robot (el usuario lo pidio el 2026-09-19).
+
+    El texto viaja por STDIN, no por la linea de comandos: asi no hay comillas
+    que escapar y una frase no puede inyectar nada en el script.
 
     Mientras habla se manda una envolvente al orbe (ver
     `_envolvente_al_hablar`) para que se vea que esta hablando.
     """
     if not text.strip():
         return
-    # Las comillas simples se duplican para que el texto no pueda inyectar
-    # codigo en el script (mismo saneado que psLiteral en notify-relay.js).
-    literal = text.replace("'", "''")
-    script = (
-        "Add-Type -AssemblyName System.Speech; "
-        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-        "$es = $s.GetInstalledVoices() | Where-Object { "
-        "$_.VoiceInfo.Culture.Name -like 'es*' -and $_.Enabled } | Select-Object -First 1; "
-        "if ($es) { $s.SelectVoice($es.VoiceInfo.Name) }; "
-        f"$s.Speak('{literal}')"
-    )
-    # CREATE_NO_WINDOW: sin esto, cada frase hablada abre y cierra una consola
-    # en pantalla (reportado por el usuario el 2026-09-18). `-WindowStyle
-    # Hidden` no basta: la ventana llega a crearse igual.
+    script = pathlib.Path(__file__).resolve().parent / "hablar.ps1"
+    if not script.exists():
+        log(f"no encuentro {script}: sin voz")
+        return
+
     creationflags = 0x0800_0000 if sys.platform == "win32" else 0
     parar = threading.Event()
     animacion = threading.Thread(
@@ -208,13 +204,20 @@ def speak(text: str) -> None:
     )
     animacion.start()
     try:
-        subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-             "-ExecutionPolicy", "Bypass", "-Command", script],
-            check=False,
+        res = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-File", str(script)],
+            input=text,
+            text=True,
+            encoding="utf-8",
             capture_output=True,
             creationflags=creationflags,
+            timeout=120,
         )
+        if res.returncode != 0:
+            log(f"la voz fallo: {(res.stderr or '').strip()[:200]}")
+    except subprocess.TimeoutExpired:
+        log("la voz tardo demasiado y se corto")
     finally:
         # La animacion se corta con la voz, pase lo que pase: dejarla viva
         # tras un fallo dejaria el orbe latiendo en silencio para siempre.
@@ -227,9 +230,9 @@ def speak(text: str) -> None:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = (
-    "Eres mar.ia, la asistente local de este PC. Respondes en español de España, "
+    "Eres mar.ia, la asistente local de este PC. Respondes en espanol de Espana, "
     "en una o dos frases como mucho, porque tu respuesta se lee en voz alta. "
-    "Cuando el usuario pida una accion sobre el ordenador o sobre ULTRON, usa una "
+    "Cuando el usuario pida una accion sobre el ordenador o sobre el sistema, usa una "
     "herramienta en vez de describir lo que harias. Si la orden no esta clara, "
     "pregunta una sola cosa concreta."
 )
@@ -382,7 +385,7 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "delegar_a_agente",
             "description": (
-                "Manda una tarea de programacion o analisis a ULTRON para que la "
+                "Manda una tarea de programacion o analisis a un agente para que la "
                 "ejecute un agente de Claude/Codex/Gemini."
             ),
             "parameters": {
@@ -399,7 +402,7 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "recordar",
-            "description": "Busca en la memoria de ULTRON algo que se hablo antes.",
+            "description": "Busca en tu memoria algo que se hablo antes.",
             "parameters": {
                 "type": "object",
                 "properties": {"consulta": {"type": "string"}},
@@ -569,7 +572,22 @@ def process_text(text: str, speak_fn: Callable[[str], None]) -> None:
     """
     emit("transcript", text=text)
 
-    message = ask_llm(text, TOOLS, KEEP_ALIVE_POR_TURNO)
+    # Quien contesta por voz es SIEMPRE el modelo local: la voz no pasa por el
+    # relevo de proveedores (eso es el chat). Si Ollama no esta, antes se
+    # quedaba MUDA — el usuario hablaba y no pasaba nada. Ahora lo dice.
+    try:
+        message = ask_llm(text, TOOLS, KEEP_ALIVE_POR_TURNO)
+    except Exception as e:  # urllib lanza de muchas formas distintas
+        log(f"el modelo local no contesta: {e}")
+        aviso = (
+            "No puedo pensar ahora mismo: el modelo local no responde. "
+            "Comprueba que Ollama este en marcha."
+        )
+        emit("reply", text=aviso)
+        emit("state", state="speaking")
+        speak_fn(aviso)
+        emit("state", state="idle")
+        return
     calls = message.get("tool_calls") or []
     for call in calls:
         fn = call.get("function", {})

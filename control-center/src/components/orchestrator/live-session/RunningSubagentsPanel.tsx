@@ -1,4 +1,4 @@
-// ULTRON Control Center — sección "Subagentes activos" del panel LiveSessionMonitor.
+// mar.ia — sección "Subagentes activos" del panel LiveSessionMonitor.
 // Subagentes EN VUELO (SubagentStart sin SubagentStop): el "en vivo" real.
 // El backend reduce el log de ciclo de vida por agent_id.
 

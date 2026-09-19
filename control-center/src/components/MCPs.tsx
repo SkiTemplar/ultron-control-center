@@ -640,7 +640,7 @@ export function MCPs() {
                 color: "var(--color-text-primary)",
               }}
             >
-              ~/.ultron/backups/control-center-settings/
+              ~/.maria/backups/control-center-settings/
             </code>
             .
           </p>

@@ -5,7 +5,7 @@
 //   - Browser   : <MemoryBrowser/>   — curate already-governed memories.
 //   - Inspector : <MemoryInspector/> — recall trace: why each memory was
 //                 injected/discarded (wiring 2026-08-10, audit 08-09 #34).
-//   - Retrato   : <MemoryPortrait/>  — qué sabe ULTRON del usuario (2026-09-16).
+//   - Retrato   : <MemoryPortrait/>  — qué sabe mar.ia del usuario (2026-09-16).
 //
 // The Sidebar still routes to a single `memory` tab; this component owns the
 // inner sub-tab switch. Black, minimal, hard-edge — colours from

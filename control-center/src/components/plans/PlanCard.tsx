@@ -31,7 +31,7 @@ export function PlanCard({
 }) {
   const openSessionTitle = useRoutingTitle(
     "plans.resolve_one",
-    "Open an AI session in ULTRON with this plan as the initial prompt.",
+    "Open an AI session in mar.ia with this plan as the initial prompt.",
   );
   return (
     <div

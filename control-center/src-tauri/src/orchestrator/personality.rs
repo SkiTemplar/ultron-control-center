@@ -97,7 +97,7 @@ pub struct ToneDetection {
 pub fn personality_path() -> PathBuf {
     // Sin HOME (imposible en la práctica) el load fallará la lectura y el
     // detector servirá seeds en memoria — nunca panic en el hot path.
-    crate::ultron_root()
+    crate::maria_root()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("personality.json")
 }

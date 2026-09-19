@@ -1,5 +1,5 @@
 // Wrappers tipados del comando Tauri `project_create_cli`, que a su vez
-// lanza `~/.ultron/scripts/project-create.mjs <subcomando> --json`.
+// lanza `~/.maria/scripts/project-create.mjs <subcomando> --json`.
 //
 // Contrato del script (fuente de verdad: el otro agente que lo escribe en
 // paralelo — este fichero programa contra el contrato, no contra su

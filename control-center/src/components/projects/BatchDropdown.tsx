@@ -1,7 +1,7 @@
-// ULTRON Control Center - BatchDropdown
+// mar.ia - BatchDropdown
 //
 // Boton "Run batch" para el header del tab Projects. Lista los .bat / .cmd /
-// .ps1 que la AI (o el usuario) deja en `~/.ultron/batches/` cuando hay un
+// .ps1 que la AI (o el usuario) deja en `~/.maria/batches/` cuando hay un
 // comando que el sandbox no puede ejecutar (instalaciones interactivas,
 // elevacion, etc.). Un click en un item invoca `execute_batch` en el backend
 // y muestra el stdout/stderr resultante como toast inline.

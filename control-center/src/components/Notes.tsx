@@ -1,7 +1,7 @@
-// ULTRON Control Center 2.6 — Global Notes tab (card-v26-fb-005)
+// mar.ia 2.6 — Global Notes tab (card-v26-fb-005)
 //
 // Cross-project markdown notes. File-per-note at
-// `~/.ultron/cockpit/notes/<slug>.md`. Two-pane layout:
+// `~/.maria/cockpit/notes/<slug>.md`. Two-pane layout:
 //   - left: list of notes sorted by modified time
 //   - right: edit (textarea) or preview (Markdown) for the selected note
 
@@ -537,7 +537,7 @@ export function Notes() {
                   style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
                   title={selected.slug}
                 >
-                  ~/.ultron/cockpit/notes/{selected.slug}.md
+                  ~/.maria/cockpit/notes/{selected.slug}.md
                 </div>
               </div>
               <div className="flex items-center gap-1.5">

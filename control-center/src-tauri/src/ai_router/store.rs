@@ -162,6 +162,26 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
         if merge_missing_seed_providers(&mut loaded) {
             mutated = true;
         }
+        // Y al reves (2026-09-19): el fichero conservaba groq, deepseek y
+        // claude-haiku aunque el seed ya no los trae, asi que seguian
+        // apareciendo en la lista como si se pudieran usar. mar.ia solo tiene
+        // los de suscripcion y el local.
+        if drop_retired_providers(&mut loaded) {
+            mutated = true;
+            // Las zonas que apuntaran a los retirados se reparan a la vez: si
+            // no, quedan con un primary que no existe.
+            if let Ok(zonas_path) = zones_path() {
+                if zonas_path.exists() {
+                    if let Ok(mut zonas) = read_json::<Vec<Zone>>(&zonas_path) {
+                        let vigentes: Vec<String> =
+                            loaded.iter().map(|p| p.id.clone()).collect();
+                        if repair_zones_after_drop(&mut zonas, &vigentes) {
+                            let _ = write_json(&zonas_path, &zonas);
+                        }
+                    }
+                }
+            }
+        }
         if mutated {
             let _ = write_json(&path, &loaded);
         }
@@ -193,6 +213,62 @@ pub(crate) fn merge_missing_seed_providers(providers: &mut Vec<Provider>) -> boo
     for sp in seed_providers() {
         if !have.contains(&sp.id) {
             providers.push(sp);
+            mutated = true;
+        }
+    }
+    mutated
+}
+
+/// Quita del catalogo persistido los proveedores que ya no estan en el seed.
+///
+/// `merge_missing_seed_providers` solo AÑADE, asi que un `providers.json`
+/// escrito antes de la limpieza conservaba groq, deepseek y claude-haiku para
+/// siempre: el usuario los veia en la lista y los daba por disponibles
+/// (comprobado en esta maquina el 2026-09-19 — 9 proveedores en el fichero, 4
+/// en el seed). mar.ia se queda solo con los de suscripcion y el local.
+///
+/// Pura (sin I/O) para poder probarla.
+pub(crate) fn drop_retired_providers(providers: &mut Vec<Provider>) -> bool {
+    let vigentes: std::collections::HashSet<String> =
+        seed_providers().into_iter().map(|p| p.id).collect();
+    let antes = providers.len();
+    providers.retain(|p| vigentes.contains(&p.id));
+    antes != providers.len()
+}
+
+/// Repara las zonas que apunten a un proveedor retirado.
+///
+/// Si no se hace a la vez que la limpieza del catalogo, una zona se queda con
+/// un `primary` que no existe y la llamada falla en tiempo de ejecucion con un
+/// "proveedor desconocido" que no dice nada. Los fallbacks retirados se caen;
+/// un primary retirado se sustituye por el primer fallback vigente y, si no
+/// queda ninguno, por el modelo local. Pura.
+pub(crate) fn repair_zones_after_drop(zones: &mut [Zone], vigentes: &[String]) -> bool {
+    let ok = |id: &str| vigentes.iter().any(|v| v == id);
+    let mut mutated = false;
+    for z in zones.iter_mut() {
+        let antes = z.fallbacks.len();
+        z.fallbacks.retain(|f| ok(&f.provider_id));
+        // Y sin repetidos: al fundir dos proveedores en uno, la misma zona se
+        // quedaba con el mismo fallback tres veces y el relevo lo intentaba
+        // tres veces seguidas.
+        let mut vistos: std::collections::HashSet<String> = std::collections::HashSet::new();
+        z.fallbacks.retain(|f| vistos.insert(f.provider_id.clone()));
+        if z.fallbacks.len() != antes {
+            mutated = true;
+        }
+        if !ok(&z.primary.provider_id) {
+            match z.fallbacks.first().cloned() {
+                Some(nuevo) => {
+                    z.primary = nuevo;
+                    z.fallbacks.remove(0);
+                }
+                None => {
+                    // Sin nadie vigente, el local: siempre esta y no gasta cuota.
+                    z.primary.provider_id = "ollama".to_string();
+                    z.primary.model = crate::ollama::toggle::model_name();
+                }
+            }
             mutated = true;
         }
     }
@@ -793,7 +869,10 @@ mod codex_gpt5_migration_tests {
 
 #[cfg(test)]
 mod provider_seed_merge_tests {
-    use super::{merge_missing_seed_providers, seed_providers};
+    use super::{
+        drop_retired_providers, merge_missing_seed_providers, repair_zones_after_drop,
+        seed_providers,
+    };
     use crate::ai_router::types::{ApiKeyStatus, Provider, ProviderClass, ProviderKind};
 
     fn bare(id: &str) -> Provider {
@@ -846,6 +925,90 @@ mod provider_seed_merge_tests {
         assert_eq!(providers[0].id, "claude");
         assert_eq!(providers.len(), seed_providers().len());
     }
+
+    #[test]
+    fn se_van_los_proveedores_retirados() {
+        // Caso real: el fichero de esta maquina tenia 9 proveedores y el seed
+        // 4. Los tres retirados seguian saliendo en la lista.
+        let mut ps = seed_providers();
+        let mut fantasma = ps[0].clone();
+        fantasma.id = "groq".into();
+        ps.push(fantasma);
+        assert!(drop_retired_providers(&mut ps));
+        assert!(!ps.iter().any(|p| p.id == "groq"));
+        assert_eq!(ps.len(), seed_providers().len());
+    }
+
+    #[test]
+    fn una_zona_no_repite_el_mismo_fallback() {
+        use crate::ai_router::types::{Zone, ZoneAssignment};
+        let asign = |id: &str| ZoneAssignment {
+            provider_id: id.to_string(),
+            model: "m".to_string(),
+            max_tokens: 1024,
+        };
+        let mut zonas = vec![Zone {
+            id: "code-edit".into(),
+            label: "Code edit".into(),
+            category: "code".into(),
+            primary: asign("claude"),
+            fallbacks: vec![asign("codex-cli"), asign("codex-cli"), asign("codex-cli")],
+            system_prompt: None,
+        }];
+        let vigentes = vec!["claude".to_string(), "codex-cli".to_string()];
+        assert!(repair_zones_after_drop(&mut zonas, &vigentes));
+        assert_eq!(zonas[0].fallbacks.len(), 1);
+    }
+
+    #[test]
+    fn un_catalogo_ya_limpio_no_se_toca() {
+        // Caso negativo: si devolviera true siempre, se reescribiria el
+        // fichero en cada arranque sin motivo.
+        let mut ps = seed_providers();
+        assert!(!drop_retired_providers(&mut ps));
+    }
+
+    #[test]
+    fn una_zona_que_apunta_a_un_retirado_se_repara() {
+        use crate::ai_router::types::{Zone, ZoneAssignment};
+        let asign = |id: &str| ZoneAssignment {
+            provider_id: id.to_string(),
+            model: "m".to_string(),
+            max_tokens: 1024,
+        };
+        let mut zonas = vec![Zone {
+            id: "chat".into(),
+            label: "Chat".into(),
+            category: "general".into(),
+            primary: asign("groq"),
+            fallbacks: vec![asign("deepseek"), asign("claude")],
+            system_prompt: None,
+        }];
+        let vigentes = vec!["claude".to_string(), "ollama".to_string()];
+        assert!(repair_zones_after_drop(&mut zonas, &vigentes));
+        assert_eq!(zonas[0].primary.provider_id, "claude");
+        assert!(zonas[0].fallbacks.is_empty());
+    }
+
+    #[test]
+    fn sin_ningun_fallback_vigente_la_zona_cae_al_local() {
+        use crate::ai_router::types::{Zone, ZoneAssignment};
+        let mut zonas = vec![Zone {
+            id: "chat".into(),
+            label: "Chat".into(),
+            category: "general".into(),
+            primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "m".into(),
+                max_tokens: 512,
+            },
+            fallbacks: vec![],
+            system_prompt: None,
+        }];
+        assert!(repair_zones_after_drop(&mut zonas, &["ollama".to_string()]));
+        assert_eq!(zonas[0].primary.provider_id, "ollama");
+    }
+
 }
 
 #[cfg(test)]
@@ -930,4 +1093,5 @@ mod provider_model_migration_tests {
         assert_eq!(providers[0].default_model, "openai/gpt-oss-20b");
         assert_eq!(providers[1].default_model, "gemini-2.5-pro");
     }
+
 }

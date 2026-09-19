@@ -102,7 +102,7 @@ fn derive_next_action(
     tasks: &[MemoryItem],
     active_workflows: &[WorkflowRun],
 ) -> Option<String> {
-    let root = crate::ultron_root().ok();
+    let root = crate::maria_root().ok();
 
     if let (Some(root), Some(proj)) = (root.as_deref(), project) {
         if let Some(card) = kanban_signal::kanban_next_action(root, proj) {
@@ -172,7 +172,7 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     // muertas ("npx tauri build", "# TODO Rebuild"). Fallback a memoria elegible
     // (reciente + no-completada) solo si el proyecto no tiene kanban.
     let now = now_secs();
-    let root = crate::ultron_root().ok();
+    let root = crate::maria_root().ok();
     let open_tasks: Vec<ResumeMemory> = match (root.as_deref(), proj) {
         (Some(root), Some(p)) => match kanban_signal::kanban_open_tasks(root, p, 8) {
             Some(titles) => titles

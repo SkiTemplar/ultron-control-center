@@ -81,7 +81,7 @@ pub fn calcular_veredicto(
 // ---------------------------------------------------------------------------
 
 fn ruta_catalogo() -> Result<PathBuf, String> {
-    Ok(crate::ultron_root()?
+    Ok(crate::maria_root()?
         .join("docs")
         .join("research")
         .join("patrones-texto-ia.json"))

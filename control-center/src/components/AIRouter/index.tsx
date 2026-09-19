@@ -1,24 +1,29 @@
-// ULTRON Control Center — AI Router (top-level page)
+// mar.ia — Router.
 //
-// Two sub-tabs as of 2026-06-07:
+// Dos vistas y ninguna más (2026-09-19, el usuario: «es muy liosa, y no sé cuál
+// tengo configurada, ni a qué cuenta/correo»):
 //
-//   Dashboard  — savings + per-model usage + proxy toggle (RouterDashboard)
-//   Providers  — provider catalog: health + key state + cost (ProviderCatalog)
+//   Proveedores — quién puede contestar, con qué cuenta, cómo se paga y qué le
+//                 queda. En el orden en que se prueban.
+//   Criterio    — con qué se guía el modelo local para repartir el trabajo.
+//                 Sustituye a las «zonas»: una línea por tipo de tarea en vez
+//                 de nueve cadenas primary→fallback con modelo y max_tokens.
 //
-// Removed tabs:
-//   Zones  — "no aportan nada, fatal" (2026-06-06). Backend logic untouched.
-//   Keys   — moved to Settings (handled by the Settings agent).
-//   Proxy  — folded into Dashboard as an inline card.
-//
-// Tauri commands consumed live inside the sub-components; see each file.
+// Lo que se quitó de la pantalla y por qué:
+//   Dashboard  — «ahorro» y «uso por modelo» comparaban contra precios de API
+//                que ya no se usan (todo va por suscripción o local), así que
+//                la cifra no significaba nada. El consumo real de la ventana de
+//                5 h se ve ahora en la fila de cada proveedor.
+//   Zonas      — siguen existiendo para las llamadas internas de la app
+//                (`cockpit/ai-router/zones.json`); no se editan aquí.
+//   Proxy      — es una herramienta de depuración; vive en Sistema.
 
 import { useState } from "react";
-import { ProviderCatalog } from "./ProviderCatalog";
-import { RouterDashboard } from "./RouterDashboard";
-import { ZoneEditor } from "./ZoneEditor";
+import { CriterioPanel } from "./CriterioPanel";
+import { ProveedoresPanel } from "./ProveedoresPanel";
 import { AIRouterErrorBoundary } from "./AIRouterErrorBoundary";
 
-// Re-export shared types so callers can import from the barrel.
+// Se reexportan los tipos compartidos para no romper a quien importe del barril.
 export type {
   ProviderClass,
   Provider,
@@ -28,21 +33,23 @@ export type {
   TestResult,
 } from "./types";
 
-type RouterSubTab = "dashboard" | "providers" | "zones";
+type Vista = "proveedores" | "criterio";
 
-const SUB_TABS: { id: RouterSubTab; label: string; hint: string }[] = [
-  { id: "dashboard", label: "Dashboard", hint: "Ahorro, uso por modelo y proxy" },
-  { id: "providers", label: "Providers", hint: "Salud, coste y estado de keys" },
-  { id: "zones", label: "Zonas", hint: "Ver y editar la cadena primary → fallbacks por zona" },
+const VISTAS: { id: Vista; label: string; hint: string }[] = [
+  {
+    id: "proveedores",
+    label: "Proveedores",
+    hint: "Quién contesta, con qué cuenta y qué le queda",
+  },
+  { id: "criterio", label: "Criterio", hint: "Con qué se guía mar.ia para repartir el trabajo" },
 ];
 
 export function AIRouterPage() {
-  const [subTab, setSubTab] = useState<RouterSubTab>("dashboard");
-  const active = SUB_TABS.find((t) => t.id === subTab) ?? SUB_TABS[0];
+  const [vista, setVista] = useState<Vista>("proveedores");
+  const activa = VISTAS.find((v) => v.id === vista) ?? VISTAS[0];
 
   return (
     <div className="flex h-full flex-col" style={{ background: "var(--color-bg)" }}>
-      {/* Header */}
       <div
         className="border-b px-6 py-4"
         style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
@@ -50,44 +57,43 @@ export function AIRouterPage() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-[17px] font-semibold" style={{ color: "var(--color-text)" }}>
-              AI Router
+              Router
             </h1>
             <p className="mt-0.5 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-              {active.hint}
-            </p>
-            <p className="mt-1 text-[11px]" style={{ color: "var(--color-warning, #b58900)" }}>
-              Alcance: el router solo afecta a las llamadas de esta app (zonas). Las sesiones de
-              Claude Code CLI hablan directo con Anthropic y NO pasan por aquí.
+              {activa.hint}
             </p>
           </div>
           <div
             className="inline-flex flex-wrap rounded p-0.5"
-            style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border-strong)" }}
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
           >
-            {SUB_TABS.map((t) => (
+            {VISTAS.map((v) => (
               <button
-                key={t.id}
+                key={v.id}
                 type="button"
-                onClick={() => setSubTab(t.id)}
-                className="rounded px-4 py-1.5 text-[12px] font-medium transition-colors"
+                onClick={() => setVista(v.id)}
+                className="rounded px-4 text-[12.5px] font-medium transition-colors"
                 style={{
-                  background: subTab === t.id ? "var(--color-surface-3)" : "transparent",
-                  color: subTab === t.id ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  minHeight: 34,
+                  background: vista === v.id ? "var(--color-surface-3)" : "transparent",
+                  color: vista === v.id ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  cursor: "pointer",
                 }}
               >
-                {t.label}
+                {v.label}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex-1 overflow-auto">
         <AIRouterErrorBoundary>
-          {subTab === "dashboard" && <RouterDashboard />}
-          {subTab === "providers" && <ProviderCatalog />}
-          {subTab === "zones" && <ZoneEditor />}
+          {vista === "proveedores" && <ProveedoresPanel />}
+          {vista === "criterio" && <CriterioPanel />}
         </AIRouterErrorBoundary>
       </div>
     </div>

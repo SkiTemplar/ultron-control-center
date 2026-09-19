@@ -1,4 +1,4 @@
-// ULTRON Control Center — AI Router: Modelo local (Ollama)
+// mar.ia — AI Router: Modelo local (Ollama)
 //
 // Seccion de gestion del modelo local usado como autocompletado de codigo
 // (interruptor de bandeja + extension de VS Code, ver
@@ -575,7 +575,7 @@ export function OllamaControl() {
 
       <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
         Interruptor rapido tambien disponible en la bandeja del sistema. Config persistida en{" "}
-        <code className="font-mono">~/.ultron/cockpit/ollama/config.json</code>.
+        <code className="font-mono">~/.maria/cockpit/ollama/config.json</code>.
       </p>
     </div>
   );

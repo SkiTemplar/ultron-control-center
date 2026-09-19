@@ -1,5 +1,5 @@
 // Estado y orquestacion del asistente "Nuevo proyecto": envuelve el CLI
-// `~/.ultron/scripts/project-create.mjs` (via el comando Tauri
+// `~/.maria/scripts/project-create.mjs` (via el comando Tauri
 // `project_create_cli`, ver src/lib/project-create-cli.ts) para el stepper
 // de 6 pasos descrito en ../NewProjectWizard.tsx.
 //

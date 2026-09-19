@@ -65,9 +65,12 @@ fn seed_providers_includes_all_targets() {
     // claude-haiku salieron del seed, asi que esta prueba ya no puede
     // exigirlos.
     let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
-    for expected in ["claude", "codex", "gemini", "ollama"] {
+    // `codex-cli` es la via de SUSCRIPCION (cuenta de ChatGPT); el `codex` de
+    // pago por API salio del seed el 2026-09-19.
+    for expected in ["claude", "codex-cli", "gemini", "ollama"] {
         assert!(ids.iter().any(|id| id == expected), "missing {}", expected);
     }
+    assert_eq!(ids.len(), 4, "el catalogo deberia tener solo esos cuatro: {ids:?}");
 }
 
 #[test]
@@ -75,7 +78,7 @@ fn seed_providers_no_trae_los_proveedores_retirados() {
     // Caso negativo: si alguno vuelve a colarse en el seed, reaparece en la
     // lista de la interfaz y el usuario vuelve a tener que quitarlo a mano.
     let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
-    for retirado in ["groq", "deepseek", "claude-haiku"] {
+    for retirado in ["groq", "deepseek", "claude-haiku", "codex", "gemini-cli"] {
         assert!(
             !ids.iter().any(|id| id == retirado),
             "{retirado} volvio al catalogo"
