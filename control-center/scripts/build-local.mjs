@@ -51,3 +51,18 @@ if (hasFinance) {
 // Sin este paso cada build:local dejaba el sidecar desplegado stale: los hooks
 // corrían un binario viejo y el check 7.7 del harness volvía a rojo.
 run("node", ["scripts/deploy-sidecar.mjs"]);
+
+// (2026-09-19) El lanzador del menú de inicio, siempre apuntando a ESTE build.
+// Sin esto, el menú seguía abriendo el binario del repo viejo y el usuario
+// creía que mar.ia "no se había actualizado". No corta el build si falla: un
+// acceso directo no vale una compilación entera.
+if (process.platform === "win32") {
+  const r = spawnSync(
+    "powershell",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "../scripts/instalar-lanzador.ps1"],
+    { stdio: "inherit", env, shell: true },
+  );
+  if (r.status !== 0) {
+    console.warn("[build:local] aviso: no pude refrescar el lanzador del menú de inicio.");
+  }
+}
