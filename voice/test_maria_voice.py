@@ -376,6 +376,30 @@ def test_una_sala_en_silencio_no_se_confunde_con_voz(monkeypatch):
     assert pcm == b"", "el ruido de sala no es voz"
 
 
+def test_sin_oir_nada_se_rinde_pronto(monkeypatch):
+    """El fallo reportado: "se queda todo el rato escuchando".
+
+    Con el microfono mudo o una activacion por error, la toma se cerraba a los
+    30 s. Ahora se rinde a los SIN_VOZ_S y lo dice.
+    """
+    import time as _t
+
+    monkeypatch.setattr(mv, "SIN_VOZ_S", 0.4)
+    monkeypatch.setattr(mv, "MAX_UTTERANCE_S", 30)
+    t0 = _t.monotonic()
+    pcm, eventos = _grabar_con(monkeypatch, [_tono(0.00001) for _ in range(12)])
+    tardado = _t.monotonic() - t0
+    assert pcm == b""
+    assert tardado < 5, f"tardo {tardado:.1f}s en rendirse"
+    mensajes = " ".join(e.get("message", "") for e in eventos)
+    assert "sin oir nada" in mensajes, mensajes
+
+
+def test_dos_segundos_de_silencio_cierran_la_toma():
+    """Lo que pidio el usuario: "cuando deje de hablar unos 2 segundos, pare"."""
+    assert 1500 <= mv.SILENCE_MS <= 2500, mv.SILENCE_MS
+
+
 def test_el_umbral_se_calcula_con_el_ruido_medido(monkeypatch):
     """Una sala ruidosa sube el liston; una silenciosa se queda en el piso."""
     ruidosa = [_tono(0.01) for _ in range(12)]

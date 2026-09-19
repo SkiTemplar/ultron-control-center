@@ -82,11 +82,17 @@ WAKE_HITS = ("maria", "mar ia", "maría")
 
 SAMPLE_RATE = 16_000
 FRAME_MS = 30
-# Silencio que da por terminada la orden. 900 ms deja respirar sin cortar a
-# mitad de frase; por debajo de ~700 ms corta a quien piensa mientras habla.
-SILENCE_MS = 900
+# Silencio que da por terminada la orden. Lo pidio el usuario asi el
+# 2026-09-19: "cuando deje de hablar unos 2 segundos, pare de escucharme y
+# responda". Antes eran 900 ms.
+SILENCE_MS = 2000
 # Tope duro: si algo se queda enganchado, no grabamos indefinidamente.
 MAX_UTTERANCE_S = 30
+# Y un tope MUY anterior para cuando no se ha oido ni una palabra. Este es el
+# que arregla el "se queda todo el rato escuchando" (2026-09-19): sin el, un
+# microfono mudo o una activacion por error tenian al orbe escuchando los 30 s
+# enteros antes de rendirse. Ocho segundos son de sobra para empezar a hablar.
+SIN_VOZ_S = 8
 
 # --- cuando hay voz y cuando no --------------------------------------------
 # Esto ERA un umbral fijo (SILENCE_RMS = 0.012) y era el fallo: el usuario
@@ -534,7 +540,11 @@ class Recorder:
                     if silence_frames >= needed_silence:
                         break
 
-                if time.monotonic() - started > MAX_UTTERANCE_S:
+                transcurrido = time.monotonic() - started
+                if not voiced and transcurrido > SIN_VOZ_S:
+                    log(f"{SIN_VOZ_S} s sin oir nada; dejo de escuchar")
+                    break
+                if transcurrido > MAX_UTTERANCE_S:
                     log("tope de duracion alcanzado; corto la grabacion")
                     break
 

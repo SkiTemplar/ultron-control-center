@@ -271,9 +271,46 @@ export function MariaHome({
   amp: number;
   onNavigate: (t: Tab) => void;
 }) {
+  // Dictado: lo que mar.ia va entendiendo se escribe en la caja de la orden
+  // segun hablas. El usuario lo pidio el 2026-09-19 ("que salga la
+  // transcripcion en vivo de lo que voy diciendo, que se escriba en el chat"):
+  // sin verlo, no hay forma de saber si te ha entendido o si no te oye.
+  useEffect(() => {
+    if (!caption) return;
+    if (captionParcial) {
+      // Solo si la caja esta libre o ya la lleva el dictado.
+      if (dictando.current || prompt === "") {
+        dictando.current = true;
+        setPrompt(caption);
+      }
+    } else if (dictando.current) {
+      // Llego algo que NO es un parcial: o la transcripcion definitiva o ya la
+      // respuesta de mar.ia. La caja se suelta. Sin esto, la respuesta acababa
+      // escrita en el sitio donde se escriben las ordenes, que confunde: parece
+      // pendiente de enviar. La frase definitiva se lee bajo el orbe.
+      dictando.current = false;
+      setPrompt("");
+    }
+    // `prompt` a proposito fuera de las dependencias: este efecto reacciona a
+    // lo que se oye, no a lo que se teclea.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caption, captionParcial]);
+
+  // Al terminar el turno la caja se limpia: lo dictado ya lo ha respondido la
+  // voz, y dejarlo ahi haria creer que esta pendiente de enviar.
+  useEffect(() => {
+    if (voiceState === "idle" && dictando.current) {
+      dictando.current = false;
+      setPrompt("");
+    }
+  }, [voiceState]);
+
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [prompt, setPrompt] = useState("");
+  // Lo que hay en la caja lo escribio el dictado, no el usuario. Sirve para
+  // no pisar algo que el estuviera tecleando.
+  const dictando = useRef(false);
   const [relayState, setRelayState] = useState<Record<string, ProviderState>>({});
   const [relayOrder, setRelayOrder] = useState<string[]>([]);
   const [claudeWindow, setClaudeWindow] = useState<WindowUsage | null>(null);
@@ -522,8 +559,11 @@ export function MariaHome({
         <span className="hud-label">&gt;</span>
         <input
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="escribe una orden…"
+          onChange={(e) => {
+            dictando.current = false;
+            setPrompt(e.target.value);
+          }}
+          placeholder={voiceState === "listening" ? "te escucho…" : "escribe una orden…"}
           aria-label="orden escrita"
           className="hud-panel flex-1 px-3 py-2 text-[12px]"
           style={{
