@@ -5,21 +5,21 @@
 // antigravity". El problema real era que la pantalla de Auth solo conocia
 // Claude y Codex, y para Gemini no habia nada — justo el que cambio.
 //
-// ESTADO VERIFICADO (2026-09-19, comprobado en la web y en esta maquina):
+// ESTADO VERIFICADO (2026-09-20, comprobado en esta maquina):
 //   * Google corto el OAuth de Gemini CLI para cuentas individuales el
 //     2026-06-18 ("This client is no longer supported for Gemini Code Assist
-//     for individuals"). El binario `gemini` sigue instalado y sirve, pero
-//     SOLO con clave de API; el camino con cuenta Google es Antigravity CLI
-//     (`agy`), que aqui no esta instalado.
-//   * `~/.gemini/oauth_creds.json` existe en esta maquina pero es de ANTES del
-//     corte: su presencia no significa que se pueda entrar. Por eso Gemini no
-//     se marca como "dentro" por tener ese fichero.
+//     for individuals").
+//   * Antigravity (`agy`) SI esta instalado y responde: `agy models` lista los
+//     modelos y `agy -p "..."` contesta.
+//   * Gemini sale de la lista el 2026-09-20 por peticion del usuario ("quitar
+//     gemini por agy"): tener dos fichas para lo mismo, una de ellas muerta,
+//     solo servia para equivocarse.
 //
 // LIMITE DECLARADO (mandamiento 13): "dentro" significa cosas distintas segun
 // el proveedor y cada ficha lo dice. En Claude y Codex se comprueba el fichero
-// de credenciales real; en Gemini, que haya clave de API; en Antigravity, solo
-// si el binario esta. NO se valida contra el servidor: eso gastaria cuota en
-// cada refresco de la pantalla.
+// de credenciales real; en Antigravity, solo que el binario este (su sesion no
+// se guarda en ningun fichero legible desde aqui). NO se valida contra el
+// servidor: eso gastaria cuota en cada refresco de la pantalla.
 
 use serde::Serialize;
 
@@ -43,33 +43,13 @@ pub struct AccesoProveedor {
     pub note: String,
 }
 
-fn en_path(bin: &str) -> bool {
+pub fn en_path(bin: &str) -> bool {
     crate::proc::oculto(if cfg!(windows) { "where" } else { "which" })
         .arg(bin)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// ¿Hay clave de Gemini a mano? Se mira el entorno y el `.env` de mar.ia, que
-/// es de donde la lee el router (dotenvy).
-fn hay_clave_gemini() -> bool {
-    for var in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        if std::env::var(var).map(|v| !v.trim().is_empty()).unwrap_or(false) {
-            return true;
-        }
-    }
-    let env_file = crate::maria_paths::home().join(".env");
-    std::fs::read_to_string(env_file)
-        .map(|t| {
-            t.lines().any(|l| {
-                let l = l.trim();
-                (l.starts_with("GEMINI_API_KEY=") || l.starts_with("GOOGLE_API_KEY="))
-                    && l.split_once('=').is_some_and(|(_, v)| !v.trim().is_empty())
-            })
-        })
         .unwrap_or(false)
 }
 
@@ -103,20 +83,6 @@ pub fn accesos() -> Vec<AccesoProveedor> {
             command: "codex login".into(),
             url: "https://chatgpt.com/codex".into(),
             note: String::new(),
-        },
-        AccesoProveedor {
-            provider: "gemini".into(),
-            label: "Gemini".into(),
-            installed: en_path("gemini"),
-            logged_in: hay_clave_gemini(),
-            how_checked: "hay GEMINI_API_KEY (o GOOGLE_API_KEY) en el entorno o en .env".into(),
-            how_to: "Crea una clave en AI Studio y pégala en Ajustes → API Keys.".into(),
-            command: String::new(),
-            url: "https://aistudio.google.com/app/apikey".into(),
-            note: "Entrar con la cuenta de Google ya NO funciona: Google cortó el OAuth \
-                   de Gemini CLI para cuentas individuales el 18/06/2026. Con suscripción, \
-                   el camino es Antigravity (abajo)."
-                .into(),
         },
         AccesoProveedor {
             provider: "antigravity".into(),
@@ -171,7 +137,7 @@ mod tests {
     #[test]
     fn estan_los_cuatro_caminos() {
         let ids: Vec<String> = accesos().into_iter().map(|a| a.provider).collect();
-        assert_eq!(ids, vec!["claude", "codex", "gemini", "antigravity"]);
+        assert_eq!(ids, vec!["claude", "codex", "antigravity"]);
     }
 
     #[test]
@@ -188,14 +154,12 @@ mod tests {
     }
 
     #[test]
-    fn gemini_no_manda_al_login_muerto() {
-        // Caso negativo: mandar al OAuth de Gemini CLI es mandar a una puerta
-        // cerrada desde el 18/06/2026. La ficha tiene que llevar a la clave de
-        // API y avisar de Antigravity.
-        let g = accesos().into_iter().find(|a| a.provider == "gemini").unwrap();
-        assert!(g.url.contains("aistudio.google.com"), "url: {}", g.url);
-        assert!(g.note.to_lowercase().contains("antigravity"));
-        assert!(!g.url.contains("codeassist"));
+    fn no_queda_ninguna_ficha_de_gemini() {
+        // Caso negativo del cambio del 2026-09-20: Gemini sale del programa.
+        // Si volviera a aparecer una ficha suya estariamos mandando al usuario
+        // a un login que Google cerro el 18/06/2026.
+        assert!(accesos().iter().all(|a| a.provider != "gemini"));
+        assert!(accesos().iter().all(|a| !a.label.to_lowercase().contains("gemini")));
     }
 
     #[test]

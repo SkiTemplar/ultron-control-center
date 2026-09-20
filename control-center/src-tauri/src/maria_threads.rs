@@ -230,6 +230,9 @@ pub fn create(folder: Option<String>) -> Result<ThreadMeta, String> {
 /// peticion de Claude. Si el modelo no esta o contesta cualquier cosa, se
 /// queda el titulo de respaldo — nunca falla la operacion por esto.
 pub fn autotitulo(id: &str) -> String {
+    // Cuenta como turno: el vigilante de la VRAM no puede descargar el modelo
+    // en mitad de esto, y al salir se descarga solo.
+    let _en_uso = crate::maria_local::EnUso::nuevo();
     let respaldo = titulo_de_respaldo(id);
     let Ok(turnos) = crate::maria_relay::read_thread(id) else {
         return respaldo;
@@ -275,6 +278,68 @@ pub fn autotitulo(id: &str) -> String {
     match crudo.map(|t| limpia_titulo(&t)) {
         Some(t) if !t.is_empty() => t,
         _ => respaldo,
+    }
+}
+
+/// ¿Le falta titulo de verdad a esta conversacion?
+///
+/// "De verdad" = el campo `title` esta vacio en disco. Lo que se ve en la
+/// lista cuando esta vacio es el PRIMER MENSAJE recortado, que se lee pero no
+/// es un resumen: cuatro conversaciones que empiezan parecido salen con cuatro
+/// filas iguales. El usuario lo pidio el 2026-09-20: "que las conversaciones
+/// tengan un titulo (resumen) legible".
+#[must_use]
+pub fn necesita_titulo(id: &str) -> bool {
+    let sin_titulo = load_raw()
+        .iter()
+        .find(|t| t.id == id)
+        .map(|t| t.title.trim().is_empty())
+        .unwrap_or(true);
+    if !sin_titulo {
+        return false;
+    }
+    // Con un solo turno no hay nada que resumir todavia.
+    crate::maria_relay::read_thread(id).map(|t| t.len() >= 2).unwrap_or(false)
+}
+
+/// Titula una conversacion si le hace falta. Devuelve el titulo puesto.
+///
+/// Se llama al terminar cada turno del relevo, asi que cubre TODAS las vias:
+/// el chat, la voz, el movil y el autocompletado. Antes solo titulaba la
+/// pantalla de chat y el resto se quedaba sin resumen.
+pub fn titular_si_hace_falta(id: &str) -> Option<String> {
+    if !necesita_titulo(id) {
+        return None;
+    }
+    let titulo = autotitulo(id);
+    if titulo.trim().is_empty() {
+        return None;
+    }
+    let valor = titulo.clone();
+    let _ = con_ficha(id, move |m| m.title = valor);
+    Some(titulo)
+}
+
+/// Pasa por las conversaciones viejas que se quedaron sin titulo.
+///
+/// Se lanza al arrancar, en su propio hilo y de una en una: titular carga el
+/// modelo local, y hacerlo en paralelo con seis conversaciones seria meter
+/// seis veces el modelo en VRAM.
+pub fn titular_pendientes(tope: usize) {
+    let ids: Vec<String> = load_raw()
+        .into_iter()
+        .filter(|t| t.title.trim().is_empty())
+        .map(|t| t.id)
+        .take(tope)
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    tracing::info!(cuantas = ids.len(), "titulando conversaciones sin nombre");
+    for id in ids {
+        if let Some(t) = titular_si_hace_falta(&id) {
+            tracing::debug!(hilo = %id, titulo = %t, "titulada");
+        }
     }
 }
 

@@ -85,7 +85,7 @@ type ProviderState = { status: string; detail: string; at: string; answered: num
 const PROVIDER_LABEL: Record<string, string> = {
   claude: "claude",
   codex: "codex",
-  gemini: "gemini",
+  antigravity: "antigravity",
   local: "local",
 };
 
@@ -106,7 +106,7 @@ type Aviso = { ts: number; text: string; tono: "info" | "error" };
 const PROVEEDOR_HINT: Record<string, string> = {
   claude: "programar en un proyecto, arquitectura, textos largos",
   codex: "scripts sueltos y automatización",
-  gemini: "buscar en internet y trabajar con imágenes",
+  antigravity: "los modelos de Google (Gemini) por la suscripción",
   local: "gratis y sin cuota; lo trivial y las órdenes del PC",
 };
 
@@ -278,7 +278,10 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       case "/migrar": {
         const p = parseProvider(arg);
         if (!p) {
-          avisar(`«${arg || "(vacío)"}» no es un proveedor: claude, codex, gemini o local`, "error");
+          avisar(
+            `«${arg || "(vacío)"}» no es un proveedor: claude, codex, antigravity o local`,
+            "error",
+          );
           return;
         }
         setForzado(p);
@@ -370,7 +373,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         const estado = await invoke<Record<string, ProviderState>>("maria_relay_state").catch(
           () => ({}) as Record<string, ProviderState>,
         );
-        const orden = config?.order ?? ["claude", "codex", "gemini", "local"];
+        const orden = config?.order ?? ["claude", "codex", "antigravity", "local"];
         const lineas = orden.map((p) => {
           const e = estado[p];
           if (!e) return `${p} — sin datos todavía`;

@@ -155,17 +155,29 @@ fn strip_api_key_for_claude(cmd: &mut CommandBuilder, provider: &str) {
 /// to our PTY (UAC always opens a fresh console window).
 ///
 /// Note: `gemini` was removed 2026-06-19 — Google cut the free-tier OAuth.
+/// Its replacement, `antigravity`, runs the `agy` binary (2026-09-20).
+/// Nombre del ejecutable de un proveedor.
+///
+/// Casi siempre coincide con el id, pero Antigravity se identifica como
+/// `antigravity` en el resto del programa y su binario se llama `agy`.
+fn binario(provider: &str) -> &str {
+    match provider {
+        "antigravity" => "agy",
+        otro => otro,
+    }
+}
+
 pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, String> {
     let trimmed = provider.trim();
     if trimmed.is_empty() {
         return Err("provider is empty".to_string());
     }
     match trimmed {
-        // mar.ia (2026-09-18): "gemini" entra aqui para que la terminal
-        // embebida pueda lanzar las TRES CLIs de suscripcion. La rama ya era
-        // generica (sondea el nombre en PATH y lo ejecuta), asi que no
-        // necesita un caso propio.
-        "claude" | "codex" | "gemini" => {
+        // mar.ia: las TRES CLIs de suscripcion comparten rama (sondea el
+        // nombre en PATH y lo ejecuta). "antigravity" se ejecuta como `agy`,
+        // que es como se llama su binario — ver `binario()`.
+        "claude" | "codex" | "antigravity" => {
+            let trimmed = binario(trimmed);
             // v2.6 bug fix: pre-validate the binary exists on PATH. Without
             // this, codex just opens a PTY that immediately dies because
             // cmd.exe ran but the shim wasn't found — the user sees a blank

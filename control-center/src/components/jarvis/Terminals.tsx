@@ -18,6 +18,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { HudSelect } from "./HudSelect";
 import {
   ajustar,
+  ajustarCuandoEsteListo,
   montarTerminal,
   PROVEEDORES,
   type Catalogo,
@@ -101,7 +102,7 @@ export function Terminals() {
       caja.style.zIndex = visible ? "1" : "0";
     }
 
-    ajustar(entrada, id);
+    ajustarCuandoEsteListo(entrada, id);
     entrada.term.focus();
   }, []);
 
@@ -114,12 +115,21 @@ export function Terminals() {
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    // Amortiguado igual que en el mosaico: una rafaga de avisos deja la
+    // interfaz de texto de codex partida.
+    let pendiente = 0;
     const ro = new ResizeObserver(() => {
-      const entrada = terminales.current.get(activa);
-      if (entrada) ajustar(entrada, activa);
+      window.clearTimeout(pendiente);
+      pendiente = window.setTimeout(() => {
+        const entrada = terminales.current.get(activa);
+        if (entrada) ajustar(entrada, activa);
+      }, 120);
     });
     ro.observe(host);
-    return () => ro.disconnect();
+    return () => {
+      window.clearTimeout(pendiente);
+      ro.disconnect();
+    };
   }, [activa]);
 
   // Al desmontar la pestana se sueltan los listeners, NO los PTY: el usuario

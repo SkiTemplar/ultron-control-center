@@ -112,8 +112,18 @@ FACTOR_VOZ = 6.0
 # Piso de seguridad, por si el ruido medido fuese cero absoluto (silencio
 # digital). -80 dBFS: cualquier voz real lo pasa.
 PISO_RMS = 0.0001
-# Cuanto se escucha antes de hablar para medir el ruido de la sala.
-CALIBRADO_MS = 300
+# El ruido de la sala se estima con el frame MAS FLOJO visto hasta ahora, no
+# con los primeros 300 ms.
+#
+# Por que: si empiezas a hablar en el mismo instante en que se abre el
+# microfono (que es lo normal con ctrl+espacio), esos 300 ms son TU VOZ. El
+# umbral salia entonces seis veces por encima de tu propio volumen, no se
+# detectaba voz en toda la toma y el orbe se quedaba en "te escucho" hasta el
+# tope. Reportado el 2026-09-20: "Maria se queda en listening todo el rato".
+#
+# Con el minimo continuo, el umbral solo puede BAJAR segun avanza la toma, asi
+# que una toma que empieza hablando se corrige sola en cuanto hay una pausa.
+SUELO_INICIAL = 0.002
 
 
 # Turno en marcha (grabando, pensando o hablando). Lo consulta el escuchador
@@ -479,14 +489,16 @@ class Recorder:
             vivo = None
 
         frames: list[bytes] = []
-        niveles: list[float] = []
         silence_frames = 0
         voiced = False
         ultimo_parcial = ""
         needed_silence = SILENCE_MS // FRAME_MS
-        calibrado_frames = max(1, CALIBRADO_MS // FRAME_MS)
         block = int(SAMPLE_RATE * FRAME_MS / 1000)
-        umbral = PISO_RMS
+        # Suelo de ruido: arranca alto y baja con cada frame mas flojo.
+        ruido = SUELO_INICIAL
+        # Frame mas fuerte visto. Con el suelo se decide si hubo voz.
+        pico = 0.0
+        umbral = max(ruido * FACTOR_VOZ, PISO_RMS)
         started = time.monotonic()
 
         with sd.RawInputStream(
@@ -508,14 +520,20 @@ class Recorder:
                 # numero fijo: si no, con este microfono la bolita no se movia.
                 emit("amp", amp=min(1.0, rms / (umbral * 4)))
 
-                if not voiced and len(niveles) < calibrado_frames:
-                    # Calibrado: los primeros 300 ms son la sala, no tu.
-                    niveles.append(rms)
-                    if len(niveles) == calibrado_frames:
-                        ruido = float(np.median(niveles))
-                        umbral = max(ruido * FACTOR_VOZ, PISO_RMS)
-                        log(f"ruido de sala {ruido:.5f} -> umbral {umbral:.5f}")
-                    continue
+                # El suelo de ruido solo baja: el frame mas flojo de la toma
+                # es la mejor estimacion de "la sala callada".
+                if rms < ruido:
+                    ruido = rms
+                    umbral = max(ruido * FACTOR_VOZ, PISO_RMS)
+
+                # Y la decision de "aqui ha habido voz" se REHACE con el umbral
+                # de ahora, no con el que hubiera cuando paso el frame. Es lo
+                # que permite empezar a hablar en el mismo instante en que se
+                # abre el microfono: mientras hablas el suelo esta alto y no
+                # cuenta como voz, pero en cuanto callas el suelo baja, el
+                # umbral baja con el y el pico que ya habia pasado se reconoce
+                # hacia atras.
+                pico = max(pico, rms)
 
                 hay_texto = False
                 if vivo is not None:
@@ -532,8 +550,11 @@ class Recorder:
                     except Exception:  # noqa: BLE001 - el parcial es un extra
                         vivo = None
 
-                if rms >= umbral or hay_texto:
+                if hay_texto:
                     voiced = True
+                if pico >= umbral:
+                    voiced = True
+                if rms >= umbral or hay_texto:
                     silence_frames = 0
                 elif voiced:
                     silence_frames += 1
@@ -548,6 +569,7 @@ class Recorder:
                     log("tope de duracion alcanzado; corto la grabacion")
                     break
 
+        log(f"suelo de ruido {ruido:.5f} -> umbral {umbral:.5f}, voz={voiced}")
         # `voiced` exige que haya habido algo por encima del ruido de sala: si
         # se pulsa la tecla y no se dice nada, no se manda silencio a
         # transcribir (Whisper alucina texto sobre el silencio).

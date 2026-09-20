@@ -27,10 +27,10 @@ fn credencial(provider: &str) -> Option<Vec<std::path::PathBuf>> {
         "codex" => Some(vec![home.join(".codex").join("auth.json")]),
         // Gemini guarda el token y la lista de cuentas por separado: si solo se
         // borrara uno, la CLI se queda en un estado a medias.
-        "gemini" => Some(vec![
-            home.join(".gemini").join("oauth_creds.json"),
-            home.join(".gemini").join("google_accounts.json"),
-        ]),
+        // Antigravity (`agy`) NO aparece aqui a proposito: no guarda la
+        // sesion en un fichero conocido, asi que no se puede copiar ni
+        // restaurar. Cambiar de cuenta ahi se hace desde la propia CLI.
+        // Gemini salio el 2026-09-20 junto con el proveedor.
         _ => None,
     }
 }
@@ -182,7 +182,7 @@ fn ficheros_perfil(dir: &std::path::Path, nombre: &str, n: usize) -> Vec<std::pa
 #[tauri::command]
 pub async fn maria_perfiles_listar() -> Result<Vec<Perfil>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        ["claude", "codex", "gemini"]
+        ["claude", "codex"]
             .iter()
             .flat_map(|p| listar_de(p))
             .collect()
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn solo_hay_credenciales_para_los_proveedores_con_sesion() {
-        for p in ["claude", "codex", "gemini"] {
+        for p in ["claude", "codex"] {
             assert!(credencial(p).is_some(), "falta {p}");
         }
         // El local no tiene sesion, y un proveedor inventado tampoco.
@@ -414,11 +414,15 @@ mod tests {
     }
 
     #[test]
-    fn gemini_guarda_dos_ficheros() {
-        // Si solo se copiara uno, la CLI se queda con el token de una cuenta y
-        // la lista de otra.
-        assert_eq!(credencial("gemini").unwrap().len(), 2);
+    fn solo_hay_perfiles_de_quien_guarda_la_sesion_en_un_fichero() {
+        // Claude y Codex si: se puede copiar y restaurar su credencial.
         assert_eq!(credencial("claude").unwrap().len(), 1);
+        assert_eq!(credencial("codex").unwrap().len(), 1);
+        // Antigravity no guarda la sesion en ningun fichero conocido, asi que
+        // no se puede ofrecer cambiar de cuenta: prometerlo seria un boton que
+        // no hace nada. Gemini salio del programa el 2026-09-20.
+        assert!(credencial("antigravity").is_none());
+        assert!(credencial("gemini").is_none());
     }
 
     #[test]

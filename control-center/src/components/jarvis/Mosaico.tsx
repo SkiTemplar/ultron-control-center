@@ -15,6 +15,7 @@
 // cosas a la vez" que se pidio.
 
 import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Conversations } from "../Conversations";
 import { MariaChat } from "./MariaChat";
 import { TerminalPane } from "./TerminalPane";
@@ -31,10 +32,16 @@ import {
   MIN_COLUMNAS,
   mover,
   quitar,
+  sincronizar,
   type Disposicion,
   type Panel,
   type TipoPanel,
 } from "./mosaicoState";
+
+/** Una terminal viva, tal y como la devuelve `maria_term_list`. */
+type TermInfo = { id: string; provider: string; running: boolean; model: string };
+/** Una conversacion, tal y como la devuelve `maria_threads_list`. */
+type HiloInfo = { id: string; title: string; closed: boolean; turns: number };
 
 const TIPOS: TipoPanel[] = ["chat", "terminal", "conversaciones"];
 
@@ -51,6 +58,25 @@ export function Mosaico() {
     guardar(typeof localStorage === "undefined" ? null : localStorage, disp);
   }, [disp]);
 
+  /** Trae al mosaico lo que ya este abierto: cada terminal viva y las
+   *  conversaciones sin cerrar. Se hace al entrar y con el boton de recargar.
+   *
+   *  Las conversaciones se limitan a las mas recientes: el mosaico tiene nueve
+   *  huecos y meterle treinta hilos no ayuda a nadie. */
+  const sincronizarAbierto = useCallback(async () => {
+    const [terms, hilos] = await Promise.all([
+      invoke<TermInfo[]>("maria_term_list").catch(() => [] as TermInfo[]),
+      invoke<HiloInfo[]>("maria_threads_list").catch(() => [] as HiloInfo[]),
+    ]);
+    const vivas = terms.filter((t) => t.running).map((t) => t.id);
+    const abiertos = hilos.filter((h) => !h.closed && h.turns > 0).slice(0, 3).map((h) => h.id);
+    setDisp((d) => sincronizar(sincronizar(d, "terminal", vivas), "chat", abiertos));
+  }, []);
+
+  useEffect(() => {
+    void sincronizarAbierto();
+  }, [sincronizarAbierto]);
+
   const fijarRefDe = useCallback((key: string, ref: string) => {
     setDisp((d) => fijarRef(d, key, ref));
   }, []);
@@ -62,6 +88,16 @@ export function Mosaico() {
           mosaico · varias cosas a la vez
         </h1>
         <span className="flex-1" />
+
+        <button
+          type="button"
+          onClick={() => void sincronizarAbierto()}
+          title="trae al mosaico las terminales y conversaciones que tengas abiertas"
+          className="hud-panel px-2 text-[11px]"
+          style={{ minHeight: 26, color: "var(--color-text-secondary)", cursor: "pointer" }}
+        >
+          traer lo abierto
+        </button>
 
         {TIPOS.map((t) => (
           <button

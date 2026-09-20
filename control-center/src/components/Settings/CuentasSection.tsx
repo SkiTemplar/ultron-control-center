@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Confirmar } from "./Confirmar";
+import { BotonRefrescar } from "./BotonRefrescar";
 
 type TipoAcceso = "Suscripcion" | "ClaveApi" | "Local" | "SinAcceso";
 
@@ -49,7 +50,8 @@ type Pendiente = {
 const CLAVES: Record<string, string[]> = {
   claude: ["ANTHROPIC_API_KEY"],
   codex: ["OPENAI_API_KEY"],
-  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  // Antigravity va por suscripcion: no tiene clave de API que borrar.
+  antigravity: [],
 };
 
 const TIPO: Record<TipoAcceso, { texto: string; color: string; nota: string }> = {
@@ -85,16 +87,18 @@ export function CuentasSection() {
   const [guardando, setGuardando] = useState<string | null>(null);
   const [nombreNuevo, setNombreNuevo] = useState("");
 
+  // El error del informe SUBE: lo enseña el boton de refrescar. Los perfiles
+  // son secundarios, asi que su fallo no tumba la pantalla entera.
   const cargar = useCallback(async () => {
-    const [i, ps] = await Promise.all([
-      invoke<Informe>("maria_cuentas_informe").catch((e) => {
-        setError(String(e));
-        return null;
-      }),
-      invoke<Perfil[]>("maria_perfiles_listar").catch(() => []),
-    ]);
-    if (i) setInforme(i);
+    const ps = await invoke<Perfil[]>("maria_perfiles_listar").catch(() => []);
     setPerfiles(ps ?? []);
+    try {
+      setInforme(await invoke<Informe>("maria_cuentas_informe"));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
   }, []);
 
   /** Lanza una acción y refresca. Todo lo destructivo pasa por aquí. */
@@ -133,14 +137,10 @@ export function CuentasSection() {
               : `${informe.correos.length} correos distintos`}
         </span>
         <span className="flex-1" />
-        <button
-          type="button"
-          onClick={() => void cargar()}
-          className="hud-panel px-3 text-[12px]"
-          style={{ minHeight: 34, color: "var(--color-accent)", cursor: "pointer" }}
-        >
-          volver a comprobar
-        </button>
+        <BotonRefrescar
+          onRefrescar={cargar}
+          title="vuelve a leer que cuenta y que clave tiene cada proveedor"
+        />
       </header>
 
       {/* Lo más importante arriba: si hay dos correos, que se vea antes que

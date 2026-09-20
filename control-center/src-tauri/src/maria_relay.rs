@@ -118,10 +118,15 @@ impl Default for RelayConfig {
         Self {
             // Claude primero (es la suscripcion con mas contexto), el modelo
             // local el ultimo: es gratis pero el mas flojo, asi que hace de red.
+            //
+            // Gemini salio el 2026-09-20 y entro Antigravity (`agy`) en su
+            // sitio, por peticion del usuario ("quitar gemini por agy"). La CLI
+            // de Gemini pedia una cuenta que aqui ya no esta viva; Antigravity
+            // da los mismos modelos de Google con la suscripcion que si hay.
             order: vec![
                 "claude".into(),
                 "codex".into(),
-                "gemini".into(),
+                "antigravity".into(),
                 "local".into(),
             ],
             disabled: Vec::new(),
@@ -163,11 +168,26 @@ pub struct ProviderState {
 pub type RelayState = std::collections::BTreeMap<String, ProviderState>;
 
 pub fn load_state() -> RelayState {
-    state_path()
+    let bruto: RelayState = state_path()
         .ok()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    limpiar_estado(bruto, &load_config().order)
+}
+
+/// Quita del estado los proveedores que ya no existen.
+///
+/// El estado es PEGAJOSO a proposito (dice lo ultimo que paso de verdad), y
+/// eso tiene un efecto feo: un proveedor retirado se queda para siempre en
+/// rojo en la pantalla. Con Gemini fuera (2026-09-20) la lista enseñaba un
+/// error eterno de una CLI que ya no se llama. Pura y testeada.
+#[must_use]
+pub fn limpiar_estado(estado: RelayState, orden: &[String]) -> RelayState {
+    estado
+        .into_iter()
+        .filter(|(p, _)| p == "local" || orden.iter().any(|o| o == p))
+        .collect()
 }
 
 fn save_state(state: &RelayState) {
@@ -193,10 +213,33 @@ pub fn load_config() -> RelayConfig {
     let Ok(path) = config_path() else {
         return RelayConfig::default();
     };
-    std::fs::read_to_string(path)
+    let cfg: RelayConfig = std::fs::read_to_string(path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    migrar_gemini(cfg)
+}
+
+/// Sustituye `gemini` por `antigravity` en una configuracion ya guardada.
+///
+/// Sin esto, quien tuviera el orden guardado (que es el caso normal: se guarda
+/// al tocar la pantalla del Router) seguiria con un proveedor que ya no se sabe
+/// invocar y el relevo le daria error para siempre. Pura y testeada.
+#[must_use]
+pub fn migrar_gemini(mut cfg: RelayConfig) -> RelayConfig {
+    let cambia = |v: &mut Vec<String>| {
+        for p in v.iter_mut() {
+            if p == "gemini" {
+                *p = "antigravity".to_string();
+            }
+        }
+        // Por si la lista ya tenia los dos.
+        let mut vistos = std::collections::HashSet::new();
+        v.retain(|p| vistos.insert(p.clone()));
+    };
+    cambia(&mut cfg.order);
+    cambia(&mut cfg.disabled);
+    cfg
 }
 
 /// Ruta del hilo. El id se valida: es un nombre de fichero, no una ruta.
@@ -310,24 +353,57 @@ pub fn build_context(turns: &[Turn], memoria: Option<&str>) -> String {
 /// `stdin` indica si el prompt se manda por la entrada estandar (mas seguro:
 /// no hay limite de longitud de linea de comandos ni escapado que se pueda
 /// colar).
-fn cli_invocation(provider: &str) -> Option<(&'static str, Vec<String>, bool)> {
+/// Como se llama a la CLI de un proveedor.
+///
+/// El orden importa y por eso hay DOS listas de banderas. `-p` se come el
+/// siguiente argumento como prompt, asi que todo lo que venga del catalogo de
+/// modelos (`-m`, `--model`) tiene que ir ANTES. Con una sola lista pasaba
+/// esto (medido el 2026-09-20):
+///
+///     gemini -p -m gemini-2.5-flash "que hora es"
+///     -> Not enough arguments following: p
+///
+/// y por eso el relevo daba error en Gemini SIEMPRE, sin importar la pregunta.
+pub struct Invocacion {
+    pub bin: &'static str,
+    /// Subcomando y banderas fijas. Van primero.
+    pub antes: Vec<String>,
+    /// Banderas que tienen que quedar pegadas al prompt. Van las ultimas.
+    pub despues: Vec<String>,
+    /// El prompt entra por stdin en vez de como argumento.
+    pub por_stdin: bool,
+}
+
+fn cli_invocation(provider: &str) -> Option<Invocacion> {
     match provider {
-        // `claude -p` imprime la respuesta y sale.
-        "claude" => Some(("claude", vec!["-p".into()], true)),
+        // `claude -p` lee el prompt de stdin, imprime la respuesta y sale.
+        "claude" => Some(Invocacion {
+            bin: "claude",
+            antes: Vec::new(),
+            despues: vec!["-p".into()],
+            por_stdin: true,
+        }),
         // `codex exec -` lee el prompt de stdin; sandbox de solo lectura.
-        "codex" => Some((
-            "codex",
-            vec![
+        "codex" => Some(Invocacion {
+            bin: "codex",
+            antes: vec![
                 "exec".into(),
                 "-".into(),
                 "--sandbox".into(),
                 "read-only".into(),
                 "--skip-git-repo-check".into(),
             ],
-            true,
-        )),
-        // `gemini -p <prompt>` no lee stdin en modo no interactivo.
-        "gemini" => Some(("gemini", vec!["-p".into()], false)),
+            despues: Vec::new(),
+            por_stdin: true,
+        }),
+        // Antigravity: `agy --model <id> -p <prompt>`. El prompt va como
+        // argumento y SIEMPRE detras de `-p` (la propia CLI lo avisa si no).
+        "antigravity" => Some(Invocacion {
+            bin: "agy",
+            antes: Vec::new(),
+            despues: vec!["-p".into()],
+            por_stdin: false,
+        }),
         _ => None,
     }
 }
@@ -360,9 +436,10 @@ fn run_cli(
     model: &str,
     effort: &str,
 ) -> Result<String, (String, bool)> {
-    let Some((bin, args, por_stdin)) = cli_invocation(provider) else {
+    let Some(inv) = cli_invocation(provider) else {
         return Err((format!("no se como invocar {provider}"), false));
     };
+    let (bin, por_stdin) = (inv.bin, inv.por_stdin);
     if !cli_disponible(bin) {
         return Err((format!("{bin} no esta instalada"), false));
     }
@@ -386,7 +463,8 @@ fn run_cli(
     } else {
         crate::proc::oculto(bin)
     };
-    for a in args.iter().chain(extra.iter()) {
+    // subcomando -> modelo/esfuerzo -> la bandera del prompt -> el prompt.
+    for a in inv.antes.iter().chain(extra.iter()).chain(inv.despues.iter()) {
         cmd.arg(a);
     }
     if !por_stdin {
@@ -554,7 +632,7 @@ fn plan_para_tarea(
     let proveedores = cfg.order.join(", ");
     let catalogo: String = crate::maria_models::catalogo_vivo()
         .iter()
-        .filter(|c| cfg.order.iter().any(|o| *o == c.provider))
+        .filter(|c| cfg.order.contains(&c.provider))
         .map(|c| {
             let ms: Vec<String> = c
                 .models
@@ -660,6 +738,15 @@ pub fn ask(
     let r = ask_inner(thread_id, prompt, forzado);
     if r.is_ok() {
         crate::maria_threads::touch(thread_id);
+        // Y ponerle nombre si aun no lo tiene. En su propio hilo: la respuesta
+        // ya esta lista y no puede esperar a que el modelo local redacte un
+        // titulo. Aqui, y no en la pantalla de chat, para que tambien lo
+        // tengan las conversaciones que nacen por voz, por el movil o por
+        // `//maria`.
+        let hilo = thread_id.to_string();
+        std::thread::spawn(move || {
+            crate::maria_threads::titular_si_hace_falta(&hilo);
+        });
     }
     r
 }
@@ -699,7 +786,7 @@ fn ask_inner(
     // Quien atiende, con que modelo y con cuanto esfuerzo lo decide el modelo
     // local segun la tarea: es gratis y evita gastar una peticion de Opus en
     // algo trivial. Si el usuario lo ha fijado a mano, manda el usuario.
-    let manual = forzado.filter(|f| cfg.order.iter().any(|o| *o == f.provider));
+    let manual = forzado.filter(|f| cfg.order.contains(&f.provider));
     // El criterio puede apagar la decision del local (p. ej. con Ollama
     // caido): entonces manda el orden de relevo y no se pierde un segundo
     // preguntando a un modelo que no esta.
@@ -966,8 +1053,8 @@ mod tests {
     fn acepta_la_eleccion_del_modelo_local() {
         let conocidos: Vec<String> = RelayConfig::default().order;
         assert_eq!(parse_choice("claude", &conocidos).as_deref(), Some("claude"));
-        assert_eq!(parse_choice("  GEMINI
-", &conocidos).as_deref(), Some("gemini"));
+        assert_eq!(parse_choice("  ANTIGRAVITY
+", &conocidos).as_deref(), Some("antigravity"));
         assert_eq!(
             parse_choice("Yo usaria local para esto", &conocidos).as_deref(),
             Some("local")
@@ -993,11 +1080,79 @@ mod tests {
 
     #[test]
     fn cada_proveedor_de_cli_sabe_como_invocarse() {
-        for p in ["claude", "codex", "gemini"] {
+        for p in ["claude", "codex", "antigravity"] {
             let inv = cli_invocation(p);
             assert!(inv.is_some(), "sin invocacion para {p}");
         }
         // El local NO va por CLI: se resuelve por HTTP contra Ollama.
         assert!(cli_invocation("local").is_none());
+        // Gemini salio del relevo el 2026-09-20.
+        assert!(cli_invocation("gemini").is_none());
+    }
+
+    #[test]
+    fn la_bandera_del_prompt_va_la_ultima() {
+        // El fallo de verdad (medido el 2026-09-20): `-p` se come el siguiente
+        // argumento como prompt. Con las banderas del modelo detras salia
+        //     gemini -p -m gemini-2.5-flash "..."  -> "Not enough arguments
+        //     following: p"
+        // y el relevo daba error SIEMPRE en ese proveedor. Todo lo que lleve
+        // `-p` tiene que llevarlo en `despues`, nunca en `antes`.
+        for p in ["claude", "codex", "antigravity"] {
+            let inv = cli_invocation(p).expect(p);
+            assert!(
+                !inv.antes.iter().any(|a| a == "-p" || a == "--prompt"),
+                "{p} pone la bandera del prompt antes del modelo"
+            );
+        }
+        let agy = cli_invocation("antigravity").expect("antigravity");
+        assert_eq!(agy.bin, "agy");
+        assert_eq!(agy.despues, vec!["-p".to_string()]);
+        assert!(!agy.por_stdin, "agy recibe el prompt como argumento");
+    }
+
+    #[test]
+    fn el_estado_no_ensena_proveedores_retirados() {
+        // Caso real: relay-state.json guardaba el ultimo error de Gemini con
+        // fecha del 2026-09-19 y la pantalla lo seguia pintando en rojo
+        // despues de quitarlo. Un error de algo que ya no existe no es
+        // informacion, es ruido.
+        let mut estado = RelayState::new();
+        for p in ["claude", "gemini", "local"] {
+            estado.insert(p.to_string(), ProviderState::default());
+        }
+        let orden = vec!["claude".to_string(), "antigravity".to_string()];
+        let limpio = limpiar_estado(estado, &orden);
+        assert!(limpio.contains_key("claude"));
+        // El local no esta en el orden y aun asi se queda: siempre existe.
+        assert!(limpio.contains_key("local"));
+        assert!(!limpio.contains_key("gemini"), "gemini seguia en el estado");
+    }
+
+    #[test]
+    fn una_configuracion_vieja_con_gemini_se_migra() {
+        // Caso real: el orden se guarda al tocar la pantalla del Router, asi
+        // que casi todo el mundo tiene un relay.json con "gemini" dentro. Sin
+        // migrarlo, el relevo intentaria un proveedor que ya no sabe invocar.
+        let vieja = RelayConfig {
+            order: vec!["claude".into(), "gemini".into(), "local".into()],
+            disabled: vec!["gemini".into()],
+        };
+        let nueva = migrar_gemini(vieja);
+        assert_eq!(nueva.order, vec!["claude", "antigravity", "local"]);
+        assert_eq!(nueva.disabled, vec!["antigravity"]);
+    }
+
+    #[test]
+    fn migrar_no_duplica_si_ya_estaban_los_dos() {
+        // Caso negativo: si alguien ya habia añadido antigravity a mano, la
+        // migracion no puede dejar el proveedor dos veces en la cadena (se
+        // intentaria dos veces y se contaria dos veces el fallo).
+        let mezcla = RelayConfig {
+            order: vec!["antigravity".into(), "gemini".into(), "local".into()],
+            disabled: Vec::new(),
+        };
+        let nueva = migrar_gemini(mezcla);
+        assert_eq!(nueva.order, vec!["antigravity", "local"]);
     }
 }

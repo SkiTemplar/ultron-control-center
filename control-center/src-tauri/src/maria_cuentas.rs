@@ -301,44 +301,38 @@ fn cuenta_codex(home: &std::path::Path) -> Cuenta {
     }
 }
 
-fn cuenta_gemini(home: &std::path::Path) -> Cuenta {
-    let cuentas = home.join(".gemini").join("google_accounts.json");
-    let (mut account, mut source) = (String::new(), String::new());
-    if let Some(v) = json_de(&cuentas) {
-        if let Some((c, ruta)) = correo_en(&v) {
-            account = c;
-            source = format!("{} ({ruta})", cuentas.display());
-        }
-    }
-
-    let clave = variable("GEMINI_API_KEY").or_else(|| variable("GOOGLE_API_KEY"));
+fn cuenta_antigravity() -> Cuenta {
+    // Antigravity (`agy`) sustituye a Gemini desde el 2026-09-20. No guarda la
+    // sesion en un fichero que se pueda leer desde aqui (ni en ~/.antigravity
+    // ni en AppData/Local/agy, comprobado), asi que NO se puede decir con que
+    // correo esta entrado. Antes que inventarlo, se dice que no se sabe.
+    //
+    // Lo que si se comprueba es si esta instalada, que es lo que decide si el
+    // relevo puede contar con ella.
+    let instalada = crate::maria_login::en_path("agy");
     let mut warnings = Vec::new();
-    // Dato verificado: Google corto el OAuth de Gemini CLI para cuentas
-    // individuales el 18/06/2026. Una sesion guardada de antes NO sirve.
-    if !account.is_empty() && clave.is_none() {
-        warnings.push(format!(
-            "hay una sesión guardada de {account}, pero Google cerró el acceso de Gemini CLI \
-             con cuenta individual el 18/06/2026: sin clave de API no sirve. Usa Antigravity \
-             o una clave de AI Studio."
-        ));
+    if !instalada {
+        warnings.push(
+            "Antigravity no esta instalada: el relevo se la salta. Instalala desde              antigravity.google y entra con `agy`."
+                .to_string(),
+        );
     }
-    let tipo = if clave.is_some() {
-        TipoAcceso::ClaveApi
-    } else {
-        TipoAcceso::SinAcceso
-    };
-
     Cuenta {
-        provider: "gemini".into(),
-        label: "Gemini".into(),
-        tipo,
-        account,
-        source: if source.is_empty() {
-            cuentas.display().to_string()
+        provider: "antigravity".into(),
+        label: "Antigravity (agy)".into(),
+        tipo: if instalada {
+            TipoAcceso::Suscripcion
         } else {
-            source
+            TipoAcceso::SinAcceso
         },
-        key_tail: clave.map(|(v, _)| cola_de_clave(&v)).unwrap_or_default(),
+        // Deliberadamente vacio: no hay de donde sacar el correo.
+        account: String::new(),
+        source: if instalada {
+            "agy (la CLI no expone con qué cuenta has entrado)".into()
+        } else {
+            "agy no esta en el PATH".into()
+        },
+        key_tail: String::new(),
         warnings,
     }
 }
@@ -367,7 +361,7 @@ pub fn informe() -> InformeCuentas {
     let cuentas = vec![
         cuenta_claude(&home),
         cuenta_codex(&home),
-        cuenta_gemini(&home),
+        cuenta_antigravity(),
         cuenta_local(),
     ];
     let correos = correos_distintos(&cuentas);
@@ -412,8 +406,10 @@ mod tests {
     }
 
     #[test]
-    fn encuentra_la_cuenta_activa_de_gemini() {
-        // Forma real de ~/.gemini/google_accounts.json.
+    fn encuentra_la_cuenta_activa_en_un_json_de_google() {
+        // Forma real de ~/.gemini/google_accounts.json. Gemini ya no esta en
+        // el informe, pero `correo_en` sigue mirando esa forma: es la misma
+        // que usan otros ficheros de sesion de Google.
         let v = json!({"active": "yo@gmail.com", "old": ["otro@gmail.com"]});
         assert_eq!(correo_en(&v).map(|(c, _)| c).as_deref(), Some("yo@gmail.com"));
     }
@@ -528,10 +524,21 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_no_se_inventa_el_correo() {
+        // La CLI no expone con que cuenta has entrado. Enseñar uno seria
+        // justo el error que el usuario quiere evitar ("para no equivocarme
+        // con el de compañeros").
+        let c = cuenta_antigravity();
+        assert_eq!(c.provider, "antigravity");
+        assert!(c.account.is_empty(), "no hay de donde sacarlo: {}", c.account);
+        assert!(c.key_tail.is_empty());
+    }
+
+    #[test]
     fn el_informe_cubre_los_cuatro_proveedores_y_no_filtra_nada() {
         let i = informe();
         let ids: Vec<&str> = i.cuentas.iter().map(|c| c.provider.as_str()).collect();
-        assert_eq!(ids, vec!["claude", "codex", "gemini", "local"]);
+        assert_eq!(ids, vec!["claude", "codex", "antigravity", "local"]);
         for c in &i.cuentas {
             // Nada que se parezca a un token puede salir de aqui.
             assert!(c.key_tail.chars().count() <= 5, "cola larga: {}", c.key_tail);

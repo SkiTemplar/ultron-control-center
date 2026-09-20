@@ -63,6 +63,7 @@ mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
 mod maria_term; // mar.ia: terminales embebidas (claude/codex/gemini/powershell)
+mod maria_tailscale; // mar.ia: por que la direccion .ts.net da 404
 mod maria_web; // mar.ia: webapp del movil (servidor local + avisos por ntfy)
 mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
 mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
@@ -128,19 +129,34 @@ pub(crate) fn maria_root() -> Result<PathBuf, String> {
 
 /// Show / hide the main webview window. Bound to the user's main toggle
 /// hotkey (default Ctrl+Alt+M) via the global-shortcut plugin handler.
+/// Lo que hace el atajo global (Ctrl+Alt+M por defecto): traer mar.ia
+/// **en Ajustes**, y esconderla si ya la estabas mirando.
+///
+/// Antes solo ocultaba y mostraba la ventana, y por eso el usuario decia que
+/// "no va" (2026-09-20): lo que pidio el 2026-09-19 fue "cambia su apertura
+/// rapida [la de Ajustes] a ctrl+alt+m", y pulsarlo con la ventana delante lo
+/// unico que hacia era esconderla.
+///
+/// La regla es la que se espera de un atajo asi:
+///   * mar.ia no esta delante -> se trae, y se abre en Ajustes.
+///   * mar.ia esta delante    -> se esconde (sigue siendo un interruptor).
 fn toggle_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        match window.is_visible() {
-            Ok(true) => {
-                let _ = window.hide();
-            }
-            _ => {
-                let _ = window.show();
-                let _ = window.set_focus();
-                let _ = window.unminimize();
-            }
-        }
+    let Some(window) = app.get_webview_window("main") else {
+        tracing::error!("atajo global: no encuentro la ventana 'main'");
+        return;
+    };
+    let visible = window.is_visible().unwrap_or(false);
+    let enfocada = window.is_focused().unwrap_or(false);
+    if visible && enfocada {
+        let _ = window.hide();
+        return;
     }
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    // Mismo canal que usa la bandeja: la pantalla ya sabe cambiar de pestaña
+    // con esto.
+    let _ = app.emit("tray-action", serde_json::json!({ "action": "open_settings" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +405,14 @@ pub fn run() {
             // Autocompletado global `//maria`. Apagado por defecto: un hook de
             // teclado no se enciende por sorpresa (ver `maria_teclado`).
             crate::maria_teclado::arrancar_si_procede();
+
+            // Conversaciones viejas sin nombre: se les pone uno con el modelo
+            // local, de una en una y sin prisa. Espera un poco para no pelear
+            // con el arranque de Ollama.
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(45));
+                crate::maria_threads::titular_pendientes(20);
+            });
 
             // La voz, viva desde el arranque: es la que saluda al despertar y
             // la que escucha la palabra clave. Ver `maria_voice`.

@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { BotonRefrescar } from "./BotonRefrescar";
 
 type WebConfig = {
   enabled: boolean;
@@ -199,6 +200,7 @@ export function MovilSection() {
           {" "}en el PC; te da un <code>https://….ts.net</code> que pegar en la app. En la misma
           red, usa directamente el enlace de arriba (lo sirve el propio PC).
         </p>
+        <TailscaleDiagnostico />
         <p className="hud-label">
           orígenes aceptados por la API: {(borrador.allowed_origins ?? []).join(", ") || "ninguno"}
         </p>
@@ -263,6 +265,82 @@ export function MovilSection() {
         >
           {error}
         </p>
+      )}
+    </div>
+  );
+}
+
+/** Por qué la dirección de Tailscale contesta 404.
+ *
+ *  El usuario lo reportó el 2026-09-20: "al hacer el comando para tailscale
+ *  sale error 404". Un 404 ahí puede ser Tailscale sin conectar, el `serve`
+ *  sin configurar o mar.ia sin escuchar, y las tres cosas se ven igual desde
+ *  el móvil. Esto las separa y dice cuál es. */
+type Diagnostico = {
+  instalado: boolean;
+  conectado: boolean;
+  estado: string;
+  sirviendo: boolean;
+  serve: string;
+  maria_escucha: boolean;
+  puerto: number;
+  comando: string;
+  siguiente_paso: string;
+};
+
+function Marca({ ok, texto }: { ok: boolean; texto: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[11.5px]">
+      <span style={{ color: ok ? "var(--color-success)" : "var(--color-danger)" }}>
+        {ok ? "●" : "○"}
+      </span>
+      <span style={{ color: "var(--color-text-secondary)" }}>{texto}</span>
+    </span>
+  );
+}
+
+function TailscaleDiagnostico() {
+  const [d, setD] = useState<Diagnostico | null>(null);
+
+  const mirar = useCallback(async () => {
+    setD(await invoke<Diagnostico>("maria_tailscale_diagnostico"));
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <BotonRefrescar
+        onRefrescar={mirar}
+        etiqueta="comprobar Tailscale"
+        trabajando="mirando…"
+        title="dice por qué la dirección .ts.net contesta 404"
+      />
+      {d && (
+        <div
+          className="flex flex-col gap-1 px-3 py-2"
+          style={{ border: "1px solid var(--color-border)" }}
+        >
+          <Marca ok={d.instalado} texto="Tailscale instalado" />
+          <Marca ok={d.conectado} texto="Tailscale conectado a tu red" />
+          <Marca ok={d.maria_escucha} texto={`mar.ia escuchando en el puerto ${d.puerto}`} />
+          <Marca ok={d.sirviendo} texto="puerto publicado con serve" />
+          {d.siguiente_paso ? (
+            <p className="mt-1 text-[12px]" style={{ color: "var(--color-warning, #f8a000)" }}>
+              {d.siguiente_paso}
+            </p>
+          ) : (
+            <p className="mt-1 text-[12px]" style={{ color: "var(--color-success)" }}>
+              Todo en orden: la dirección .ts.net debería responder.
+            </p>
+          )}
+          {d.serve && (
+            <pre
+              className="mt-1 overflow-x-auto text-[10.5px]"
+              style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
+            >
+              {d.serve}
+            </pre>
+          )}
+        </div>
       )}
     </div>
   );

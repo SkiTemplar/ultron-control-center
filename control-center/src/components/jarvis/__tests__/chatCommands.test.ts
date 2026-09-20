@@ -59,7 +59,9 @@ describe("parseLine", () => {
 describe("parseProvider", () => {
   it("acepta los proveedores del catálogo", () => {
     expect(parseProvider("claude")).toBe("claude");
-    expect(parseProvider("  GEMINI ")).toBe("gemini");
+    expect(parseProvider("  ANTIGRAVITY ")).toBe("antigravity");
+    // Gemini salio del relevo el 2026-09-20: ya no es un proveedor valido.
+    expect(parseProvider("gemini")).toBeNull();
   });
 
   it("rechaza un proveedor inventado", () => {
@@ -92,6 +94,6 @@ describe("helpText", () => {
     const lineas = helpText().split("\n");
     expect(lineas).toHaveLength(COMMANDS.length);
     expect(lineas[0]).toContain("/nueva");
-    expect(helpText()).toContain("/migrar <claude|codex|gemini|local>");
+    expect(helpText()).toContain("/migrar <claude|codex|antigravity|local>");
   });
 });

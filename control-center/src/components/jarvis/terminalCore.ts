@@ -17,7 +17,7 @@ import "@xterm/xterm/css/xterm.css";
 export const PROVEEDORES = [
   { id: "claude", label: "claude" },
   { id: "codex", label: "codex" },
-  { id: "gemini", label: "gemini" },
+  { id: "antigravity", label: "antigravity (agy)" },
   { id: "powershell", label: "powershell" },
 ] as const;
 
@@ -136,7 +136,19 @@ export async function montarTerminal(
   };
 }
 
-/** Ajusta el xterm al tamano del contenedor y se lo dice al PTY. */
+/** Ultimo tamano enviado al PTY, por sesion. */
+const ULTIMO_TAMANO = new Map<string, string>();
+
+/** Ajusta el xterm al tamano del contenedor y se lo dice al PTY.
+ *
+ *  Solo avisa al PTY si el tamano ha CAMBIADO de verdad. Importa: cada aviso
+ *  es un SIGWINCH para la CLI de dentro, y las que pintan interfaz de texto
+ *  (codex, con su cuadro de entrada) se redibujan enteras con cada uno. El
+ *  observador de tamano del navegador dispara en rafagas durante una
+ *  animacion o al abrir un panel, y esas rafagas dejaban el cuadro de texto
+ *  partido a la mitad. Reportado el 2026-09-20: "en la zona de terminales, al
+ *  menos con codex se bugea un poco... el cuadro de texto se bugea".
+ */
 export function ajustar(m: TerminalMontado, id: string) {
   try {
     m.fit.fit();
@@ -144,7 +156,37 @@ export function ajustar(m: TerminalMontado, id: string) {
     // fit() falla si el contenedor mide 0 (panel oculto): no es un error.
     return;
   }
-  void invoke("maria_term_resize", { id, rows: m.term.rows, cols: m.term.cols }).catch(
-    () => undefined,
-  );
+  const { rows, cols } = m.term;
+  // Un tamano absurdo es el sintoma de medir un contenedor a medio montar:
+  // mandarselo al PTY le deja la pantalla rota hasta el siguiente ajuste.
+  if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows < 2 || cols < 10) {
+    return;
+  }
+  const clave = `${rows}x${cols}`;
+  if (ULTIMO_TAMANO.get(id) === clave) return;
+  ULTIMO_TAMANO.set(id, clave);
+  void invoke("maria_term_resize", { id, rows, cols }).catch(() => undefined);
+}
+
+/** Se olvida del tamano de una sesion (al cerrarla o desmontarla). */
+export function olvidarTamano(id: string) {
+  ULTIMO_TAMANO.delete(id);
+}
+
+/** Ajusta cuando el navegador ya ha hecho el hueco y tiene las fuentes.
+ *
+ *  Un `fit()` justo despues de `term.open()` mide con la fuente aun sin
+ *  cargar: sale un numero de columnas que no es el real y la CLI pinta a ese
+ *  ancho equivocado. Se repite en el siguiente fotograma y una vez mas cuando
+ *  las fuentes estan listas.
+ */
+export function ajustarCuandoEsteListo(m: TerminalMontado, id: string) {
+  ajustar(m, id);
+  requestAnimationFrame(() => ajustar(m, id));
+  const fuentes = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
+  if (fuentes?.ready) {
+    void fuentes.ready.then(() => ajustar(m, id));
+  } else {
+    window.setTimeout(() => ajustar(m, id), 150);
+  }
 }

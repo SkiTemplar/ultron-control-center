@@ -376,6 +376,20 @@ def test_una_sala_en_silencio_no_se_confunde_con_voz(monkeypatch):
     assert pcm == b"", "el ruido de sala no es voz"
 
 
+def test_hablar_desde_el_primer_instante_tambien_se_detecta(monkeypatch):
+    """El fallo de "se queda en listening todo el rato".
+
+    Con ctrl+espacio se empieza a hablar en el mismo instante en que se abre el
+    microfono. Si el ruido de sala se midiera con los primeros 300 ms, esos
+    300 ms serian la propia voz: el umbral quedaria por encima de ella, nunca
+    se detectaria voz y la toma se tiraria entera tras el tope.
+    """
+    voz = [_tono(0.004) for _ in range(25)]          # hablando desde el frame 0
+    silencio = [_tono(0.00001) for _ in range(80)]   # y te callas
+    pcm, _ = _grabar_con(monkeypatch, voz + silencio)
+    assert pcm, "hablar desde el primer frame tiene que contar como voz"
+
+
 def test_sin_oir_nada_se_rinde_pronto(monkeypatch):
     """El fallo reportado: "se queda todo el rato escuchando".
 

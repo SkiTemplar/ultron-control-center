@@ -9,6 +9,7 @@ import {
   MAX_PANELES,
   mover,
   quitar,
+  sincronizar,
   type Disposicion,
 } from "../mosaicoState";
 
@@ -111,5 +112,49 @@ describe("cargar / guardar", () => {
 
   it("sin almacenamiento, guardar no lanza", () => {
     expect(() => guardar(null, disposicionPorDefecto())).not.toThrow();
+  });
+});
+
+describe("sincronizar", () => {
+  const vacio: Disposicion = { columnas: 2, paneles: [] };
+
+  it("mete una terminal por cada sesion abierta", () => {
+    const d = sincronizar(vacio, "terminal", ["t1", "t2"]);
+    expect(d.paneles.map((p) => p.ref)).toEqual(["t1", "t2"]);
+    expect(d.paneles.every((p) => p.tipo === "terminal")).toBe(true);
+  });
+
+  it("aprovecha los paneles vacios del tipo antes de crear otros", () => {
+    // La disposicion de fabrica trae un chat y una terminal sin asignar: la
+    // terminal abierta tiene que caer ahi, no en un panel nuevo.
+    const d = sincronizar(disposicionPorDefecto(), "terminal", ["t1"]);
+    expect(d.paneles).toHaveLength(2);
+    expect(d.paneles.find((p) => p.tipo === "terminal")?.ref).toBe("t1");
+  });
+
+  it("no duplica lo que ya esta puesto", () => {
+    const una = sincronizar(vacio, "terminal", ["t1"]);
+    const otra = sincronizar(una, "terminal", ["t1"]);
+    expect(otra.paneles).toHaveLength(1);
+  });
+
+  it("no pasa del tope de paneles", () => {
+    const muchas = Array.from({ length: MAX_PANELES + 4 }, (_, i) => `t${i}`);
+    const d = sincronizar(vacio, "terminal", muchas);
+    expect(d.paneles.length).toBe(MAX_PANELES);
+  });
+
+  it("no toca la disposicion de entrada", () => {
+    // Caso negativo: si mutara, React no veria el cambio y el mosaico se
+    // quedaria igual en pantalla aunque el estado fuese otro.
+    const antes = disposicionPorDefecto();
+    const copia = JSON.stringify(antes);
+    sincronizar(antes, "terminal", ["t1"]);
+    expect(JSON.stringify(antes)).toBe(copia);
+  });
+
+  it("sin nada abierto se queda como estaba", () => {
+    const antes = disposicionPorDefecto();
+    expect(sincronizar(antes, "terminal", [])).toBe(antes);
   });
 });

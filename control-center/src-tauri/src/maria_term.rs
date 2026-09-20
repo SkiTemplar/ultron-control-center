@@ -16,7 +16,7 @@ use tauri::AppHandle;
 /// Proveedores que la pestana puede abrir. Lista cerrada a proposito: el
 /// nombre viaja desde el frontend hasta un `CommandBuilder`, y aceptar
 /// cualquier cadena seria dejar que la interfaz ejecute lo que quiera.
-const PERMITIDOS: &[&str] = &["claude", "codex", "gemini", "powershell"];
+const PERMITIDOS: &[&str] = &["claude", "codex", "antigravity", "powershell"];
 
 #[derive(Debug, Serialize)]
 pub struct TermInfo {
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn acepta_los_proveedores_de_la_lista() {
-        for p in ["claude", "codex", "gemini", "powershell", " claude "] {
+        for p in ["claude", "codex", "antigravity", "powershell", " claude "] {
             assert!(proveedor_permitido(p), "deberia aceptar {p:?}");
         }
     }

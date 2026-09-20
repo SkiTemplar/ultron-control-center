@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { BotonRefrescar } from "./BotonRefrescar";
 
 type Acceso = {
   provider: string;
@@ -27,12 +28,16 @@ export function AccesoProveedores() {
   const [error, setError] = useState<string | null>(null);
   const [copiado, setCopiado] = useState<string | null>(null);
 
+  // Deja que el error suba: el boton de refrescar lo enseña. Antes se
+  // tragaba en un `catch` y el usuario veia el boton sin reaccionar.
   const cargar = useCallback(async () => {
-    const a = await invoke<Acceso[]>("maria_login_status").catch((e) => {
+    try {
+      setAccesos(await invoke<Acceso[]>("maria_login_status"));
+      setError(null);
+    } catch (e) {
       setError(String(e));
-      return null;
-    });
-    if (a) setAccesos(a);
+      throw e;
+    }
   }, []);
 
   useEffect(() => {
@@ -49,14 +54,10 @@ export function AccesoProveedores() {
         <h2 className="hud-label" style={{ fontSize: 12 }}>
           acceso a los proveedores
         </h2>
-        <button
-          type="button"
-          onClick={() => void cargar()}
-          className="hud-panel px-3 text-[12px]"
-          style={{ minHeight: 34, color: "var(--color-accent)", cursor: "pointer" }}
-        >
-          volver a comprobar
-        </button>
+        <BotonRefrescar
+          onRefrescar={cargar}
+          title="vuelve a mirar si cada CLI esta instalada y con sesion"
+        />
       </header>
 
       {accesos.map((a) => (

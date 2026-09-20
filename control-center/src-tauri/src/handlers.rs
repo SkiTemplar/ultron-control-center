@@ -260,6 +260,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_term::maria_term_resize,
         maria_term::maria_term_kill,
         maria_term::maria_term_list,
+        maria_tailscale::maria_tailscale_diagnostico,
         maria_web::maria_web_status,
         maria_web::maria_web_set,
         maria_web::maria_web_test_notify,

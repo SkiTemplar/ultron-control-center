@@ -103,6 +103,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let term_i = MenuItem::with_id(app, "open_terminals", "Terminales", true, None::<&str>)?;
     let mosaico_i = MenuItem::with_id(app, "open_mosaic", "Mosaico", true, None::<&str>)?;
     let memory_i = MenuItem::with_id(app, "open_memory", "Memoria", true, None::<&str>)?;
+    let settings_i = MenuItem::with_id(app, "open_settings", "Ajustes", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     // Estado del modelo local. Texto provisional: se resuelve contra el estado
     // real justo despues de construir la bandeja.
@@ -127,6 +128,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             &term_i,
             &mosaico_i,
             &memory_i,
+            &settings_i,
             &sep,
             &vram_i,
             &sep2,
@@ -166,7 +168,8 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         refrescar_vram(&item);
                     });
                 }
-                "open_chat" | "open_terminals" | "open_mosaic" | "open_memory" => {
+                "open_chat" | "open_terminals" | "open_mosaic" | "open_memory"
+                | "open_settings" => {
                     // Surface the window first so the user sees the
                     // response, then emit. Frontend listens on
                     // "tray-action" and routes to the existing flow
@@ -178,6 +181,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         "open_terminals" => "open_terminals",
                         "open_mosaic" => "open_mosaic",
                         "open_memory" => "open_memory",
+                        "open_settings" => "open_settings",
                         _ => return,
                     };
                     let _ = app.emit("tray-action", json!({ "action": action }));

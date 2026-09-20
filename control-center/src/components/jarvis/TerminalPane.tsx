@@ -13,6 +13,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { HudSelect } from "./HudSelect";
 import {
   ajustar,
+  ajustarCuandoEsteListo,
+  olvidarTamano,
   montarTerminal,
   PROVEEDORES,
   type Catalogo,
@@ -62,13 +64,14 @@ export function TerminalPane({ sessionId, onSession }: Props) {
         return;
       }
       montado.current = m;
-      ajustar(m, sessionId);
+      ajustarCuandoEsteListo(m, sessionId);
       m.term.focus();
     })();
     return () => {
       cancelado = true;
       montado.current?.soltar();
       montado.current = null;
+      olvidarTamano(sessionId);
       caja.replaceChildren();
     };
   }, [sessionId]);
@@ -77,11 +80,20 @@ export function TerminalPane({ sessionId, onSession }: Props) {
   useEffect(() => {
     const caja = cajaRef.current;
     if (!caja || !sessionId) return;
+    // Amortiguado: el observador dispara en rafaga mientras se anima un
+    // panel. Sin esto, cada fotograma era un SIGWINCH para la CLI de dentro.
+    let pendiente = 0;
     const ro = new ResizeObserver(() => {
-      if (montado.current) ajustar(montado.current, sessionId);
+      window.clearTimeout(pendiente);
+      pendiente = window.setTimeout(() => {
+        if (montado.current) ajustar(montado.current, sessionId);
+      }, 120);
     });
     ro.observe(caja);
-    return () => ro.disconnect();
+    return () => {
+      window.clearTimeout(pendiente);
+      ro.disconnect();
+    };
   }, [sessionId]);
 
   const modelos: ModeloInfo[] =

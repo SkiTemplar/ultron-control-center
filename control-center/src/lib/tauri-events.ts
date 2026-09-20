@@ -8,7 +8,11 @@
 //
 // Backend contract:
 //   - "tray-action": { action: "open_chat" | "open_terminals"
-//                            | "open_mosaic" | "open_memory" }
+//                            | "open_mosaic" | "open_memory"
+//                            | "open_settings" }
+//
+// "open_settings" lo emite tambien el atajo global (Ctrl+Alt+M): es la forma
+// de que la ventana se abra ya en Ajustes.
 //
 // Per-project hotkeys are a separate path: the backend emits
 // "project-hotkey-custom" and App.tsx listens for it directly.
@@ -29,7 +33,12 @@ type TabKey =
   | "system";
 
 export interface TrayActionPayload {
-  action: "open_chat" | "open_terminals" | "open_mosaic" | "open_memory";
+  action:
+    | "open_chat"
+    | "open_terminals"
+    | "open_mosaic"
+    | "open_memory"
+    | "open_settings";
 }
 
 export interface TrayEventOptions {
@@ -66,6 +75,9 @@ export async function setupTrayEventListeners(
           break;
         case "open_memory":
           opts.setTab("memory");
+          break;
+        case "open_settings":
+          opts.setTab("settings");
           break;
         default:
           // Accion desconocida: se avisa para que un cambio en el menu de la

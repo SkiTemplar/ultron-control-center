@@ -21,7 +21,9 @@ export type Disposicion = {
   paneles: Panel[];
 };
 
-export const MAX_PANELES = 6;
+// Sube a 9 (3x3) desde el 2026-09-20: al entrar, el mosaico trae ya todo lo
+// que tengas abierto, y con seis huecos se quedaban terminales fuera.
+export const MAX_PANELES = 9;
 export const MIN_COLUMNAS = 1;
 export const MAX_COLUMNAS = 3;
 
@@ -40,6 +42,42 @@ export function disposicionPorDefecto(): Disposicion {
       { key: "p2", tipo: "terminal", ref: "" },
     ],
   };
+}
+
+/** Mete en el mosaico lo que ya esta abierto fuera de el.
+ *
+ *  `refs` son las cosas vivas de un tipo (ids de terminal, ids de
+ *  conversacion). Por cada una que no este ya en un panel:
+ *    1. se reutiliza un panel de ese tipo que este sin asignar, y
+ *    2. si no hay, se crea uno nuevo mientras quepa.
+ *
+ *  El usuario lo pidio el 2026-09-20: "todas las terminales y conversaciones
+ *  abiertas, al entrar en mosaico, que esten". Antes el mosaico arrancaba con
+ *  dos paneles vacios y habia que volver a elegirlo todo a mano.
+ *
+ *  Pura: devuelve una disposicion nueva y no toca la de entrada. */
+export function sincronizar(
+  d: Disposicion,
+  tipo: TipoPanel,
+  refs: string[],
+): Disposicion {
+  const yaPuestas = new Set(
+    d.paneles.filter((p) => p.tipo === tipo && p.ref).map((p) => p.ref),
+  );
+  const faltan = refs.filter((r) => r && !yaPuestas.has(r));
+  if (faltan.length === 0) return d;
+
+  const paneles = d.paneles.map((p) => ({ ...p }));
+  for (const ref of faltan) {
+    const hueco = paneles.find((p) => p.tipo === tipo && !p.ref);
+    if (hueco) {
+      hueco.ref = ref;
+      continue;
+    }
+    if (paneles.length >= MAX_PANELES) break; // no caben mas
+    paneles.push({ key: nuevaClave(paneles), tipo, ref });
+  }
+  return { ...d, paneles };
 }
 
 let contador = 0;

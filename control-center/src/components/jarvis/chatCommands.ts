@@ -9,7 +9,7 @@
 // decida a quien asignarla.
 
 /** Proveedores que pueden atender el chat. Mismo catalogo que el relevo. */
-export const PROVIDERS = ["claude", "codex", "gemini", "local"] as const;
+export const PROVIDERS = ["claude", "codex", "antigravity", "local"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 export type SlashCommand = {
@@ -25,7 +25,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/cerrar", args: "", desc: "cierra esta conversación y le pone título" },
   {
     name: "/migrar",
-    args: "<claude|codex|gemini|local>",
+    args: "<claude|codex|antigravity|local>",
     desc: "manda lo que escribas a ese proveedor",
   },
   { name: "/analizar", args: "", desc: "vuelve a dejar que mar.ia elija proveedor y modelo" },

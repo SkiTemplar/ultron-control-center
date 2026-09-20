@@ -81,7 +81,7 @@ function HotkeyEditor() {
     >
       <div className="flex items-baseline justify-between">
         <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-          Atajo para abrir mar.ia
+          Atajo para abrir mar.ia en Ajustes
         </div>
         <span
           className="text-[10.5px]"
@@ -94,10 +94,11 @@ function HotkeyEditor() {
         className="mt-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Press this combination in any Windows app to show/hide the Control
-        Center. Format: <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+M</span>,
-        <span style={{ fontFamily: "var(--font-mono)" }}> Ctrl+Shift+F12</span>, etc.
-        Needs at least one modifier.
+        Púlsalo en cualquier programa de Windows y mar.ia se pone delante, abierta en
+        Ajustes. Si ya la tenías delante, se esconde. Formato:{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+M</span>,{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Shift+F12</span>… Necesita al
+        menos un modificador.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">

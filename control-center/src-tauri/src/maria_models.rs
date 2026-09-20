@@ -98,20 +98,53 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
         },
         CatalogoProveedor {
             provider: "codex".into(),
-            models: vec![
-                m("gpt-5-codex", "gpt-5-codex", "scripts, automatizacion, cambios de codigo"),
-                m("gpt-5", "gpt-5", "razonamiento general fuera de codigo"),
-            ],
-            default_model: "gpt-5-codex".into(),
+            // OJO con clavar un modelo aqui: con una cuenta de ChatGPT (la
+            // suscripcion, no la API) el servidor RECHAZA los ids que no
+            // toquen. Medido el 2026-09-20:
+            //
+            //   -m gpt-5-codex -> 400 "not supported when using Codex with a
+            //                     ChatGPT account"
+            //   -m gpt-5       -> 400, lo mismo
+            //   sin -m         -> contesta
+            //
+            // Eso es lo que tenia el relevo dando error en Codex. Por eso el
+            // modelo por defecto es VACIO: sin `-m`, la CLI usa el que tenga
+            // vigente y esto no vuelve a caducar solo.
+            models: vec![m(
+                "gpt-5.6-terra",
+                "gpt-5.6 terra",
+                "el que trae la CLI hoy; si algun dia da error 400, deja el automatico",
+            )],
+            default_model: String::new(),
             effort_mode: ModoEsfuerzo::Bandera,
         },
         CatalogoProveedor {
-            provider: "gemini".into(),
+            // Antigravity (`agy`) sustituye a Gemini desde el 2026-09-20:
+            // misma familia de modelos de Google, pero por la suscripcion que
+            // el usuario tiene viva.
+            provider: "antigravity".into(),
             models: vec![
-                m("gemini-2.5-flash", "flash", "rapido y barato: busquedas, resumenes"),
-                m("gemini-2.5-pro", "pro", "documentos largos, imagenes, analisis"),
+                m(
+                    "gemini-3.8-flash-medium",
+                    "Gemini 3.8 Flash",
+                    "rapido y barato: busquedas, resumenes",
+                ),
+                m(
+                    "gemini-3.1-pro-high",
+                    "Gemini 3.1 Pro",
+                    "documentos largos y analisis, mas lento",
+                ),
+                m(
+                    "claude-opus-4-6-thinking",
+                    "Claude Opus 4.6",
+                    "lo dificil, si Claude directo se quedo sin cuota",
+                ),
             ],
-            default_model: "gemini-2.5-flash".into(),
+            // Vacio = el que traiga la CLI. Mismo motivo que en Codex.
+            default_model: String::new(),
+            // El nivel de esfuerzo va DENTRO del id del modelo
+            // (`-low` / `-medium` / `-high`), asi que no se manda bandera
+            // aparte: se elige eligiendo modelo.
             effort_mode: ModoEsfuerzo::SinControl,
         },
         CatalogoProveedor {
@@ -215,9 +248,9 @@ pub fn argumentos(provider: &str, model: &str, effort: &str) -> Vec<String> {
             args.push("-c".into());
             args.push(format!("model_reasoning_effort=\"{nivel}\""));
         }
-        "gemini" => {
+        "antigravity" => {
             if !model.is_empty() {
-                args.push("-m".into());
+                args.push("--model".into());
                 args.push(model.to_string());
             }
         }
@@ -237,7 +270,8 @@ pub fn argumentos_interactivos(provider: &str, model: &str) -> Vec<String> {
     }
     match provider {
         "claude" => vec!["--model".into(), model.to_string()],
-        "codex" | "gemini" => vec!["-m".into(), model.to_string()],
+        "codex" => vec!["-m".into(), model.to_string()],
+        "antigravity" => vec!["--model".into(), model.to_string()],
         _ => Vec::new(),
     }
 }
@@ -289,7 +323,29 @@ mod tests {
     #[test]
     fn el_catalogo_cubre_los_cuatro_proveedores() {
         let ids: Vec<String> = catalogo().into_iter().map(|c| c.provider).collect();
-        assert_eq!(ids, vec!["claude", "codex", "gemini", "local"]);
+        assert_eq!(ids, vec!["claude", "codex", "antigravity", "local"]);
+    }
+
+    #[test]
+    fn ni_codex_ni_antigravity_clavan_un_modelo_por_defecto() {
+        // Un id de modelo clavado CADUCA y entonces el proveedor entero deja de
+        // responder. Paso el 2026-09-20: `-m gpt-5-codex` empezo a devolver
+        // 400 ("not supported when using Codex with a ChatGPT account") y el
+        // relevo daba error en Codex para cualquier pregunta.
+        //
+        // Con el modelo por defecto vacio no se manda `-m` y la CLI usa el
+        // suyo, que siempre es uno vigente.
+        for p in ["codex", "antigravity"] {
+            let c = catalogo()
+                .into_iter()
+                .find(|c| c.provider == p)
+                .unwrap_or_else(|| panic!("falta {p} en el catalogo"));
+            assert!(
+                c.default_model.is_empty(),
+                "{p} clava el modelo {:?}: volvera a caducar",
+                c.default_model
+            );
+        }
     }
 
     #[test]
@@ -321,12 +377,12 @@ mod tests {
     fn cada_cli_recibe_solo_lo_que_entiende() {
         assert_eq!(argumentos("claude", "opus", "alto"), vec!["--model", "opus"]);
         assert_eq!(
-            argumentos("codex", "gpt-5", "alto"),
-            vec!["-m", "gpt-5", "-c", "model_reasoning_effort=\"high\""]
+            argumentos("codex", "gpt-5.6-terra", "alto"),
+            vec!["-m", "gpt-5.6-terra", "-c", "model_reasoning_effort=\"high\""]
         );
         assert_eq!(
-            argumentos("gemini", "gemini-2.5-pro", "alto"),
-            vec!["-m", "gemini-2.5-pro"]
+            argumentos("antigravity", "gemini-3.1-pro-high", "alto"),
+            vec!["--model", "gemini-3.1-pro-high"]
         );
         // El local no va por CLI.
         assert!(argumentos("local", "qwen3.5:9b", "alto").is_empty());
