@@ -41,7 +41,7 @@ def test_emit_no_escapa_los_acentos():
 
 def test_acuse_describe_la_herramienta_pedida():
     calls = [{"function": {"name": "abrir_app", "arguments": {"nombre": "Spotify"}}}]
-    assert mv.acknowledge(calls) == "Vale, abro spotify."
+    assert mv.acknowledge(calls) == "Ok, opening spotify."
 
 
 def test_acuse_encadena_varias_acciones():
@@ -49,7 +49,7 @@ def test_acuse_encadena_varias_acciones():
         {"function": {"name": "abrir_app", "arguments": {"nombre": "Spotify"}}},
         {"function": {"name": "recordar", "arguments": {"consulta": "el plan"}}},
     ]
-    assert mv.acknowledge(calls) == "Vale, abro spotify y lo busco en la memoria."
+    assert mv.acknowledge(calls) == "Ok, opening spotify and looking it up in memory."
 
 
 def test_acuse_vacio_cuando_no_hay_herramientas():
@@ -62,7 +62,9 @@ def test_el_acuse_no_afirma_que_este_hecho():
     # Regla dura: describe la intencion, nunca el resultado. Quien confirma es
     # la app cuando ejecuta de verdad.
     frase = mv.acknowledge([{"function": {"name": "abrir_app", "arguments": {"nombre": "Edge"}}}])
-    for pasado in ("he abierto", "abierto", "hecho", "listo"):
+    # mar.ia contesta en ingles desde el 2026-09-21, asi que se vigilan las
+    # formas en pasado de los dos idiomas.
+    for pasado in ("he abierto", "abierto", "hecho", "listo", "opened", "done", "ready"):
         assert pasado not in frase.lower()
 
 
@@ -91,7 +93,7 @@ def test_la_transcripcion_vacia_no_llama_al_modelo():
     # Y NO se queda mudo: dice que no ha oido nada. Antes volvia a "idle" en
     # silencio y desde fuera parecia que se habia colgado escuchando.
     avisos = [e.get("text", "") for e in eventos if e.get("event") == "transcript"]
-    assert any("no he o" in a.lower() for a in avisos), avisos
+    assert any("heard nothing" in a.lower() for a in avisos), avisos
 
 
 def test_el_turno_completo_emite_transcripcion_respuesta_y_estados():
@@ -191,7 +193,7 @@ def test_el_saludo_cambia_con_la_hora(monkeypatch):
     def reloj(hora):
         return lambda *_: _t.struct_time((2026, 9, 19, hora, 0, 0, 4, 262, 0))
 
-    for hora, esperado in [(9, "Buenos días"), (16, "Buenas tardes"), (23, "Buenas noches")]:
+    for hora, esperado in [(9, "Good morning"), (16, "Good afternoon"), (23, "Good evening")]:
         monkeypatch.setattr(mv.time, "localtime", reloj(hora))
         frase = mv.saludo_de_bienvenida()
         assert frase.startswith(esperado), f"a las {hora}: {frase}"
@@ -390,6 +392,60 @@ def test_hablar_desde_el_primer_instante_tambien_se_detecta(monkeypatch):
     assert pcm, "hablar desde el primer frame tiene que contar como voz"
 
 
+class VoskPegajoso:
+    """Imita el defecto real de Vosk: `PartialResult()` NO se vacia.
+
+    Una vez reconocida una palabra, el parcial sigue devolviendo el mismo
+    texto en todos los frames siguientes, tambien en los de silencio, hasta
+    que la libreria decide cerrar la frase (y con audio flojo puede no
+    cerrarla nunca).
+    """
+
+    def __init__(self):
+        self.visto = False
+
+    def AcceptWaveform(self, _f):  # noqa: N802 - el nombre lo pone vosk
+        return False
+
+    def PartialResult(self):  # noqa: N802
+        import json as _j
+
+        self.visto = True
+        return _j.dumps({"partial": "hola maria"})
+
+    def Result(self):  # noqa: N802
+        import json as _j
+
+        return _j.dumps({"text": "hola maria"})
+
+
+def test_el_parcial_pegado_de_vosk_no_impide_cortar(monkeypatch):
+    """El fallo reportado el 2026-09-21: "se queda escuchando y no se corta
+    nunca... luego me responde como a los 2 minutos".
+
+    Eran los 30 s del tope duro + Whisper en CPU. La toma no se cerraba porque
+    el texto parcial de Vosk contaba como "hay voz ahora mismo" en cada frame.
+    Un parcial que no cambia es memoria de lo ya dicho, no voz nueva.
+    """
+    import sounddevice as sd
+
+    bloques = [_tono(0.004) for _ in range(20)] + [_tono(0.00001) for _ in range(120)]
+    monkeypatch.setattr(sd, "RawInputStream", lambda **_k: StreamFalso(bloques))
+    monkeypatch.setattr(mv, "modelo_vosk", lambda: object())
+    monkeypatch.setattr(mv, "reconocedor_libre", lambda _m: VoskPegajoso())
+    monkeypatch.setattr(mv, "MAX_UTTERANCE_S", 30)
+
+    rec = mv.Recorder()
+    caja = {}
+    capture(lambda: caja.setdefault("pcm", rec.record_utterance()))
+    pcm = caja["pcm"]
+    assert pcm, "habia voz: no puede salir vacia"
+    # 20 frames de voz + 66 de silencio (2 s) + margen. Si contara el parcial
+    # pegado como voz, se iria a los 1000 frames del tope duro.
+    frames = len(pcm) // 960
+    assert frames < 140, f"no corto con el silencio: {frames} frames grabados"
+
+
 def test_sin_oir_nada_se_rinde_pronto(monkeypatch):
     """El fallo reportado: "se queda todo el rato escuchando".
 
@@ -420,7 +476,7 @@ def test_el_umbral_se_calcula_con_el_ruido_medido(monkeypatch):
     monkeypatch.setattr(mv, "MAX_UTTERANCE_S", 1.0)
     _, eventos = _grabar_con(monkeypatch, ruidosa)
     linea = [e.get("message", "") for e in eventos if e.get("event") == "log"]
-    umbral = [m for m in linea if "umbral" in m]
+    umbral = [m for m in linea if "corte" in m]
     assert umbral, f"no se registro el calibrado: {linea}"
     # ruido ~0,01 * FACTOR_VOZ=6 -> bastante por encima del piso.
     assert mv.PISO_RMS < 0.01 * mv.FACTOR_VOZ

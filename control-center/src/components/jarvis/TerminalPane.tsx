@@ -96,8 +96,11 @@ export function TerminalPane({ sessionId, onSession }: Props) {
     };
   }, [sessionId]);
 
-  const modelos: ModeloInfo[] =
-    catalogo?.providers.find((c) => c.provider === proveedor)?.models ?? [];
+  const fichaProveedor = catalogo?.providers.find((c) => c.provider === proveedor);
+  const modelos: ModeloInfo[] = fichaProveedor?.models ?? [];
+  // Una lista de un solo modelo parece un fallo y casi nunca lo es (la cuenta
+  // de ChatGPT solo admite el suyo). La explicacion va al lado de la lista.
+  const notaModelos = fichaProveedor?.nota ?? "";
 
   async function abrir() {
     setError(null);
@@ -135,6 +138,15 @@ export function TerminalPane({ sessionId, onSession }: Props) {
             opciones={modelos.map((m) => ({ id: m.id, label: m.label, hint: m.para }))}
             onChange={setModelo}
           />
+          {notaModelos && (
+            <span
+              className="max-w-[260px] text-[10.5px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)" }}
+              title={notaModelos}
+            >
+              {notaModelos}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => void abrir()}

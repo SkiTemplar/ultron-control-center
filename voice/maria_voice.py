@@ -66,6 +66,17 @@ LLM_MODEL = "qwen3.5:9b"
 # al abrirse): lo que se descarga es el modelo, no el servicio.
 KEEP_ALIVE_POR_TURNO = "0"
 
+# --- idioma ----------------------------------------------------------------
+# mar.ia CONTESTA en ingles. Lo pidio el usuario el 2026-09-21: "haz que maria
+# solo me hable en ingles, ya que la voz se escucha mejor" — las voces inglesas
+# de Windows (Zira, Mark) suenan bastante mejor que las españolas en esta
+# maquina.
+#
+# Lo que NO cambia: se le sigue HABLANDO en español. Son dos idiomas distintos
+# a proposito, uno por sentido:
+IDIOMA_ESCUCHA = "es"   # lo que transcribe Whisper de lo que dices tu
+IDIOMA_RESPUESTA = "en"  # en lo que contesta y con lo que se locuta
+
 # --- palabra clave ---------------------------------------------------------
 # Vosk (Apache-2.0) con el modelo pequeno de español: 58 MB en disco, corre en
 # CPU y no pide cuenta, clave ni periodo de prueba. Se descarto Porcupine
@@ -124,6 +135,11 @@ PISO_RMS = 0.0001
 # Con el minimo continuo, el umbral solo puede BAJAR segun avanza la toma, asi
 # que una toma que empieza hablando se corrige sola en cuanto hay una pausa.
 SUELO_INICIAL = 0.002
+# Por debajo de esta fraccion del PICO de la toma, se considera que ya no
+# hablas. Es lo que decide cuando cortar, y va contra el pico y no contra el
+# ruido a proposito: el silencio entre frases esta ~16 dB por debajo de la voz,
+# pase lo que pase con la ganancia del microfono.
+FRACCION_SILENCIO = 0.15
 
 
 # Turno en marcha (grabando, pensando o hablando). Lo consulta el escuchador
@@ -242,7 +258,7 @@ def speak(text: str) -> None:
     try:
         res = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-             "-File", str(script)],
+             "-File", str(script), "-Idioma", IDIOMA_RESPUESTA],
             input=text,
             text=True,
             encoding="utf-8",
@@ -266,19 +282,19 @@ def speak(text: str) -> None:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = (
-    "Eres mar.ia, la asistente local de este PC. Respondes en espanol de Espana, "
-    "en una o dos frases como mucho, porque tu respuesta se lee en voz alta. "
-    "Cuando el usuario pida una accion sobre el ordenador o sobre el sistema, usa una "
-    "herramienta en vez de describir lo que harias. Si la orden no esta clara, "
-    "pregunta una sola cosa concreta."
+    "You are mar.ia, the local assistant on this PC. The user speaks to you in "
+    "Spanish; you ALWAYS answer in English, in one or two sentences at most, "
+    "because your answer is read out loud. When the user asks for an action on "
+    "the computer or the system, call a tool instead of describing what you "
+    "would do. If the request is unclear, ask one concrete question."
 )
 
 # Dias y meses a mano: el sidecar no fija el locale del sistema, y con el locale
 # por defecto `strftime("%A")` sale en ingles.
-DIAS = ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo")
+DIAS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MESES = (
-    "enero", "febrero", "marzo", "abril", "mayo", "junio",
-    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
 )
 
 
@@ -295,21 +311,18 @@ def contexto_de_ahora() -> str:
     import platform
 
     ahora = datetime.datetime.now().astimezone()
-    fecha = (
-        f"{DIAS[ahora.weekday()]} {ahora.day} de {MESES[ahora.month - 1]} "
-        f"de {ahora.year}"
-    )
+    fecha = f"{DIAS[ahora.weekday()]} {ahora.day} {MESES[ahora.month - 1]} {ahora.year}"
     try:
         equipo = platform.node() or "este PC"
         usuario = getpass.getuser()
     except Exception:  # noqa: BLE001 - el contexto nunca puede tumbar un turno
         equipo, usuario = "este PC", "el usuario"
     return (
-        f"Contexto real de AHORA MISMO (uselo, no lo deduzcas): "
-        f"hoy es {fecha}; son las {ahora:%H:%M} ({ahora.tzname()}); "
-        f"el equipo se llama {equipo} y la sesion es de {usuario}. "
-        f"Para cualquier otro dato del ordenador o de la red, usa la "
-        f"herramienta estado_del_sistema; para errores y avisos, mirar_registros."
+        f"Real context RIGHT NOW (use it, do not guess): "
+        f"today is {fecha}; the time is {ahora:%H:%M} ({ahora.tzname()}); "
+        f"the machine is called {equipo} and the session belongs to {usuario}. "
+        f"For any other fact about the computer or the network use the "
+        f"estado_del_sistema tool; for errors and warnings, mirar_registros."
     )
 
 
@@ -352,6 +365,17 @@ _VOSK_MODELO: Any | None = None
 _VOSK_LOCK = threading.Lock()
 
 
+def reconocedor_libre(modelo: Any) -> Any:
+    """Reconocedor de gramatica libre, para la transcripcion en vivo.
+
+    Funcion aparte para poder sustituirla en las pruebas: el comportamiento
+    pegajoso de `PartialResult` es justo lo que hay que poder imitar.
+    """
+    from vosk import KaldiRecognizer
+
+    return KaldiRecognizer(modelo, SAMPLE_RATE)
+
+
 def modelo_vosk() -> Any:
     """El modelo pequeno de Vosk, cargado una sola vez.
 
@@ -378,23 +402,35 @@ MODELO_STT = "large-v3-turbo"
 def _registrar_dlls_cuda() -> None:
     """Deja a la vista cuBLAS y cuDNN si estan instalados como paquetes de pip.
 
-    `scripts/instalar-voz-gpu.ps1` los mete en site-packages/nvidia/*/bin, y ahi
-    Windows no los busca solo: desde Python 3.8 las DLL de extension se cargan
-    solo desde los directorios registrados a mano. Sin esto, instalar los
-    paquetes no serviria de nada y la GPU seguiria sin poder transcribir.
+    `scripts/instalar-voz-gpu.ps1` los mete en site-packages/nvidia/*/bin, donde
+    Windows no los busca solo.
+
+    Se hace por DOS vias, y hacen falta las dos:
+
+      * `os.add_dll_directory` — la via moderna, pero solo la consulta quien
+        carga con `LOAD_LIBRARY_SEARCH_USER_DIRS`.
+      * el PATH del proceso — CTranslate2 (el motor de faster-whisper) pide
+        `cublas64_12.dll` por nombre y con la busqueda estandar, que NO mira
+        los directorios de la via anterior. Medido el 2026-09-21: con los
+        paquetes ya instalados y `add_dll_directory` puesto, seguia diciendo
+        "Library cublas64_12.dll is not found or cannot be loaded"; añadiendo
+        la carpeta al PATH, carga.
 
     Silencioso a proposito: si no estan, se sigue por CPU.
     """
-    if not hasattr(os, "add_dll_directory"):
-        return
     base = pathlib.Path(sys.executable).parent.parent / "Lib" / "site-packages" / "nvidia"
-    for sub in ("cublas", "cudnn"):
+    for sub in ("cublas", "cudnn", "cuda_nvrtc"):
         carpeta = base / sub / "bin"
-        if carpeta.is_dir():
+        if not carpeta.is_dir():
+            continue
+        if hasattr(os, "add_dll_directory"):
             try:
                 os.add_dll_directory(str(carpeta))
             except OSError:
                 pass
+        actual = os.environ.get("PATH", "")
+        if str(carpeta) not in actual:
+            os.environ["PATH"] = f"{carpeta}{os.pathsep}{actual}"
 
 
 def cargar_whisper(forzar_cpu: bool = False) -> Any:
@@ -481,9 +517,7 @@ class Recorder:
         import sounddevice as sd
 
         try:
-            from vosk import KaldiRecognizer
-
-            vivo = KaldiRecognizer(modelo_vosk(), SAMPLE_RATE)
+            vivo = reconocedor_libre(modelo_vosk())
         except Exception as exc:  # noqa: BLE001 - sin parciales se sigue grabando
             log(f"sin transcripcion en vivo ({exc})")
             vivo = None
@@ -498,6 +532,8 @@ class Recorder:
         ruido = SUELO_INICIAL
         # Frame mas fuerte visto. Con el suelo se decide si hubo voz.
         pico = 0.0
+        # Vosk ha llegado a reconocer algo en algun momento de la toma.
+        hubo_texto = False
         umbral = max(ruido * FACTOR_VOZ, PISO_RMS)
         started = time.monotonic()
 
@@ -535,7 +571,18 @@ class Recorder:
                 # hacia atras.
                 pico = max(pico, rms)
 
-                hay_texto = False
+                # Texto nuevo de Vosk en ESTE frame.
+                #
+                # OJO con la diferencia, que es el fallo que costo dos dias:
+                # `PartialResult()` NO se vacia. Una vez reconocida una
+                # palabra, devuelve el mismo texto en todos los frames
+                # siguientes, tambien en los de silencio. Usarlo como "hay voz
+                # ahora" dejaba el contador de silencio a cero para siempre y
+                # la toma no se cerraba nunca: 30 s de tope + Whisper en CPU =
+                # los dos minutos que reporto el usuario el 2026-09-21.
+                #
+                # Lo que si es señal de voz AHORA es que el parcial CREZCA.
+                texto_nuevo = False
                 if vivo is not None:
                     try:
                         if vivo.AcceptWaveform(pcm):
@@ -543,18 +590,24 @@ class Recorder:
                         else:
                             trozo = json.loads(vivo.PartialResult()).get("partial", "")
                         trozo = (trozo or "").strip()
-                        hay_texto = bool(trozo)
+                        if trozo:
+                            hubo_texto = True
                         if trozo and trozo != ultimo_parcial:
                             ultimo_parcial = trozo
+                            texto_nuevo = True
                             emit("parcial", text=trozo)
                     except Exception:  # noqa: BLE001 - el parcial es un extra
                         vivo = None
 
-                if hay_texto:
+                # Umbral de corte: una fraccion del pico de la toma. Contra el
+                # pico y no contra el ruido, porque el ruido medido acaba
+                # siendo casi cero (hay microsilencios entre silabas) y
+                # entonces cualquier respiracion contaba como voz.
+                umbral_corte = max(pico * FRACCION_SILENCIO, umbral)
+
+                if pico >= umbral or hubo_texto:
                     voiced = True
-                if pico >= umbral:
-                    voiced = True
-                if rms >= umbral or hay_texto:
+                if rms >= umbral_corte or texto_nuevo:
                     silence_frames = 0
                 elif voiced:
                     silence_frames += 1
@@ -569,7 +622,10 @@ class Recorder:
                     log("tope de duracion alcanzado; corto la grabacion")
                     break
 
-        log(f"suelo de ruido {ruido:.5f} -> umbral {umbral:.5f}, voz={voiced}")
+        log(
+            f"suelo {ruido:.5f} pico {pico:.5f} -> corte "
+            f"{max(pico * FRACCION_SILENCIO, umbral):.5f}, voz={voiced}"
+        )
         # `voiced` exige que haya habido algo por encima del ruido de sala: si
         # se pulsa la tecla y no se dice nada, no se manda silencio a
         # transcribir (Whisper alucina texto sobre el silencio).
@@ -590,7 +646,7 @@ class Recorder:
 
         def intento(modelo: Any) -> str:
             segments, _info = modelo.transcribe(
-                audio, language="es", vad_filter=True, beam_size=1
+                audio, language=IDIOMA_ESCUCHA, vad_filter=True, beam_size=1
             )
             return " ".join(seg.text.strip() for seg in segments).strip()
 
@@ -808,16 +864,16 @@ def acknowledge(calls: list[dict[str, Any]]) -> str:
         name = fn.get("name", "")
         args = fn.get("arguments", {}) or {}
         if name == "abrir_app":
-            partes.append(f"abro {args.get('nombre', 'la aplicación')}")
+            partes.append(f"opening {args.get('nombre', 'the app')}")
         elif name == "delegar_a_agente":
-            partes.append("se lo paso a un agente")
+            partes.append("handing it to an agent")
         elif name == "recordar":
-            partes.append("lo busco en la memoria")
+            partes.append("looking it up in memory")
         elif name:
             partes.append(name.replace("_", " "))
     if not partes:
         return ""
-    return ("Vale, " + " y ".join(partes) + ".").capitalize()
+    return ("OK, " + " and ".join(partes) + ".").capitalize()
 
 
 def handle_utterance(rec: Recorder, speak_fn: Callable[[str], None]) -> None:
@@ -831,7 +887,7 @@ def handle_utterance(rec: Recorder, speak_fn: Callable[[str], None]) -> None:
     pcm = rec.record_utterance()
     if not pcm:
         emit("state", state="idle")
-        emit("transcript", text="(no he oído nada: revisa el micrófono)")
+        emit("transcript", text="(I heard nothing: check the microphone)")
         log("grabacion vacia: ninguna muestra por encima del umbral")
         return
 
@@ -839,7 +895,7 @@ def handle_utterance(rec: Recorder, speak_fn: Callable[[str], None]) -> None:
     text = rec.transcribe(pcm)
     if not text:
         emit("state", state="idle")
-        emit("transcript", text="(no he entendido lo que has dicho)")
+        emit("transcript", text="(I could not make out what you said)")
         log("whisper no devolvio texto para una toma con voz")
         return
     process_text(text, speak_fn)
@@ -865,8 +921,8 @@ def process_text(text: str, speak_fn: Callable[[str], None]) -> None:
     except Exception as e:  # urllib lanza de muchas formas distintas
         log(f"el modelo local no contesta: {e}")
         aviso = (
-            "No puedo pensar ahora mismo: el modelo local no responde. "
-            "Comprueba que Ollama este en marcha."
+            "I cannot think right now: the local model is not answering. "
+            "Check that Ollama is running."
         )
         emit("reply", text=aviso)
         emit("state", state="speaking")
@@ -898,12 +954,12 @@ def saludo_de_bienvenida() -> str:
     cortesia."""
     hora = time.localtime().tm_hour
     if 6 <= hora < 13:
-        momento = "Buenos días"
+        momento = "Good morning"
     elif 13 <= hora < 21:
-        momento = "Buenas tardes"
+        momento = "Good afternoon"
     else:
-        momento = "Buenas noches"
-    return f"{momento}. mar.ia en línea, te escucho."
+        momento = "Good evening"
+    return f"{momento}. mar.ia online, I am listening."
 
 
 def main() -> int:

@@ -26,7 +26,13 @@ export const PROVEEDORES = [
  *  ofreciendo un modelo que la CLI ya no acepta. */
 export type ModeloInfo = { id: string; label: string; para: string };
 export type Catalogo = {
-  providers: Array<{ provider: string; models: ModeloInfo[]; default_model: string }>;
+  providers: Array<{
+    provider: string;
+    models: ModeloInfo[];
+    default_model: string;
+    /** Por que la lista es la que es. Vacio = no hay nada que explicar. */
+    nota?: string;
+  }>;
 };
 
 export type TermInfo = { id: string; provider: string; running: boolean; model: string };

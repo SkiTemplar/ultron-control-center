@@ -11,7 +11,7 @@
 #      modelo .onnx. Es el unico que no suena a robot. Se instala con
 #      scripts\instalar-voz-piper.ps1; no viene de serie porque son ~80 MB.
 #   2. WinRT (Laura / Pablo) - el motor moderno de Windows. Tiene voces en
-#      español que System.Speech NO expone: en esta maquina, "Helena Desktop"
+#      espanol que System.Speech NO expone: en esta maquina, "Helena Desktop"
 #      (la que se usaba) es la version vieja y peor de las tres.
 #   3. System.Speech / SAPI - el respaldo de toda la vida.
 #
@@ -22,6 +22,12 @@ param(
     # Porcentaje sobre la velocidad normal. Negativo = mas pausado, que es lo
     # que hace que no suene atropellado.
     [int]$Velocidad = -8,
+    # Idioma de la voz: en | es. Por defecto ingles (peticion del usuario el
+    # 2026-09-21: "haz que maria solo me hable en ingles, ya que la voz se
+    # escucha mejor" - las voces inglesas de Windows suenan bastante mejor que
+    # las espanolas en esta maquina).
+    [ValidateSet('en', 'es')]
+    [string]$Idioma = 'en',
     # Fuerza un motor concreto: piper | winrt | sapi. Vacio = el mejor que haya.
     [string]$Motor = ""
 )
@@ -79,12 +85,15 @@ function Hablar-WinRT([string]$t, [int]$vel) {
         $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media, ContentType=WindowsRuntime]
         $syn = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer
 
-        # Preferencia medida a oido en esta maquina: Laura > Pablo > Helena.
+        # Preferencia medida a oido en esta maquina:
+        #   ingles -> Zira > Mark > David
+        #   espanol -> Laura > Pablo > Helena
         $voces = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices |
-            Where-Object { $_.Language -like 'es*' }
+            Where-Object { $_.Language -like ($Idioma + '*') }
         if (-not $voces) { return $false }
         $voz = $null
-        foreach ($pref in @('Laura', 'Pablo', 'Helena')) {
+        $preferidas = if ($Idioma -eq 'en') { @('Zira', 'Mark', 'David') } else { @('Laura', 'Pablo', 'Helena') }
+        foreach ($pref in $preferidas) {
             if (-not $voz) { $voz = $voces | Where-Object { $_.DisplayName -match $pref } | Select-Object -First 1 }
         }
         if (-not $voz) { $voz = $voces | Select-Object -First 1 }
@@ -94,8 +103,11 @@ function Hablar-WinRT([string]$t, [int]$vel) {
         # punto. Es lo que quita la sensacion de lectura atropellada.
         $escapado = [System.Security.SecurityElement]::Escape($t)
         $escapado = $escapado -replace '\. ', '. <break time="180ms"/>'
+        # La etiqueta de idioma tiene que casar con la voz: con una voz en
+        # ingles y xml:lang="es-ES" el motor lee con acento equivocado.
+        $etiqueta = if ($Idioma -eq 'en') { 'en-US' } else { 'es-ES' }
         $ssml = @"
-<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-ES">
+<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="$etiqueta">
 <prosody rate="$vel%">$escapado</prosody>
 </speak>
 "@
@@ -125,7 +137,7 @@ function Hablar-Sapi([string]$t, [int]$vel) {
     Add-Type -AssemblyName System.Speech
     $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
     $es = $s.GetInstalledVoices() |
-        Where-Object { $_.VoiceInfo.Culture.Name -like 'es*' -and $_.Enabled } |
+        Where-Object { $_.VoiceInfo.Culture.Name -like ($Idioma + '*') -and $_.Enabled } |
         Select-Object -First 1
     if ($es) { $s.SelectVoice($es.VoiceInfo.Name) }
     # La escala de SAPI va de -10 a 10; el porcentaje se traduce a esa escala.

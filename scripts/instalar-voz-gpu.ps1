@@ -48,9 +48,19 @@ if ($DryRun) {
 }
 
 Write-Output "Instalando $($paquetes -join ', ') (unos 700 MB, tarda un rato)..."
-& $py -m pip install --upgrade @paquetes
+
+# El entorno de la voz esta creado con `uv`, que NO instala pip dentro. Por eso
+# `python -m pip` falla con "No module named pip" (medido el 2026-09-21). Se
+# usa `uv pip install --python <venv>`, que es la forma de meter paquetes en un
+# entorno de uv; si uv no estuviera, se cae a pip por si el entorno es clasico.
+$uv = Get-Command uv -ErrorAction SilentlyContinue
+if ($uv) {
+    & $uv.Source pip install --python $py --upgrade @paquetes
+} else {
+    & $py -m pip install --upgrade @paquetes
+}
 if ($LASTEXITCODE -ne 0) {
-    throw "pip fallo con codigo $LASTEXITCODE."
+    throw "la instalacion fallo con codigo $LASTEXITCODE."
 }
 
 # Comprobacion REAL, no "se instalo el paquete": se transcribe un segundo de

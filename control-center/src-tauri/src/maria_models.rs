@@ -56,6 +56,14 @@ pub struct CatalogoProveedor {
     /// El que se usa si nadie elige.
     pub default_model: String,
     pub effort_mode: ModoEsfuerzo,
+    /// Por que la lista es la que es. Se ensena junto al selector.
+    ///
+    /// Existe porque una lista corta parece un error y no lo es: el usuario
+    /// reporto el 2026-09-21 "de codex solo sale el terra" pensando que
+    /// faltaban modelos. Faltan, pero porque su cuenta no los admite, y eso
+    /// hay que decirlo donde se ve la lista.
+    #[serde(default)]
+    pub nota: String,
 }
 
 /// Eleccion completa para un turno.
@@ -95,6 +103,7 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
             ],
             default_model: "sonnet".into(),
             effort_mode: ModoEsfuerzo::EnElPrompt,
+            nota: String::new(),
         },
         CatalogoProveedor {
             provider: "codex".into(),
@@ -117,6 +126,10 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
             )],
             default_model: String::new(),
             effort_mode: ModoEsfuerzo::Bandera,
+            nota: "Con una cuenta de ChatGPT (suscripción) la CLI solo acepta su modelo \
+                   vigente: probados el 2026-09-21, `gpt-5`, `gpt-5.6` y `codex-mini-latest` \
+                   devuelven error 400. No falta nada: es el límite de la cuenta."
+                .into(),
         },
         CatalogoProveedor {
             // Antigravity (`agy`) sustituye a Gemini desde el 2026-09-20:
@@ -134,11 +147,6 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
                     "Gemini 3.1 Pro",
                     "documentos largos y analisis, mas lento",
                 ),
-                m(
-                    "claude-opus-4-6-thinking",
-                    "Claude Opus 4.6",
-                    "lo dificil, si Claude directo se quedo sin cuota",
-                ),
             ],
             // Vacio = el que traiga la CLI. Mismo motivo que en Codex.
             default_model: String::new(),
@@ -146,6 +154,15 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
             // (`-low` / `-medium` / `-high`), asi que no se manda bandera
             // aparte: se elige eligiendo modelo.
             effort_mode: ModoEsfuerzo::SinControl,
+            // `agy models` lista tambien Claude Opus 4.6 y Sonnet 4.6. Se
+            // dejan FUERA a proposito: verlos aqui confunde (el usuario los
+            // señalo el 2026-09-21 al abrir la lista de Antigravity) y
+            // duplicarian al proveedor `claude`, que ya va el primero de la
+            // cadena. Para Claude, se usa Claude.
+            nota: "Solo los modelos de Google. Antigravity también sirve Claude, pero para eso \
+                   está el proveedor claude: tenerlo dos veces solo gasta la misma cuota por \
+                   dos caminos."
+                .into(),
         },
         CatalogoProveedor {
             provider: "local".into(),
@@ -154,6 +171,7 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
             models: Vec::new(),
             default_model: String::new(),
             effort_mode: ModoEsfuerzo::Razonamiento,
+            nota: String::new(),
         },
     ]
 }
@@ -345,6 +363,42 @@ mod tests {
                 "{p} clava el modelo {:?}: volvera a caducar",
                 c.default_model
             );
+        }
+    }
+
+    #[test]
+    fn antigravity_no_ofrece_modelos_de_anthropic() {
+        // El usuario lo señalo el 2026-09-21: "la de agy abro los modelos y
+        // sale opus 4.6 entre ellos". `agy models` los sirve de verdad, pero
+        // enseñarlos ahi confunde y duplica al proveedor `claude`, que ya va
+        // el primero de la cadena: la misma cuota por dos caminos.
+        let agy = catalogo()
+            .into_iter()
+            .find(|c| c.provider == "antigravity")
+            .expect("falta antigravity");
+        for m in &agy.models {
+            let id = m.id.to_lowercase();
+            assert!(!id.contains("claude"), "modelo de Anthropic en agy: {}", m.id);
+            assert!(!id.contains("opus"), "modelo de Anthropic en agy: {}", m.id);
+            assert!(!id.contains("sonnet"), "modelo de Anthropic en agy: {}", m.id);
+        }
+        assert!(!agy.models.is_empty(), "sin modelos no hay nada que elegir");
+    }
+
+    #[test]
+    fn una_lista_corta_se_explica() {
+        // Caso negativo del mandamiento 11 aplicado a la interfaz: si un
+        // proveedor ofrece un solo modelo, tiene que decir POR QUE. Sin nota,
+        // el usuario lo lee como que falta algo (y eso fue exactamente lo que
+        // paso con codex).
+        for c in catalogo() {
+            if c.models.len() == 1 {
+                assert!(
+                    !c.nota.trim().is_empty(),
+                    "{} ofrece un solo modelo y no explica por que",
+                    c.provider
+                );
+            }
         }
     }
 
