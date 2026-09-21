@@ -349,6 +349,9 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::projects::git_stage,
         commands::projects::git_unstage,
         commands::projects::git_commit,
+        // Lo llama el panel Cambios del chat (`jarvis/PanelLateral.tsx`), que
+        // desde el 2026-09-22 deja preparar, descartar y confirmar sin salir.
+        commands::projects::git_discard_file,
         commands::projects::git_log_full,
         commands::projects::codegraph_is_indexed,
         commands::projects::codegraph_summary,

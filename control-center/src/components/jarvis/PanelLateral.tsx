@@ -12,11 +12,13 @@
 //   * ficheros  — la carpeta de trabajo (o el proyecto): ver lo que han dejado
 //                 los agentes sin salir del chat.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { confirmDialog } from "../../lib/dialog";
 import { Artefacto } from "./Artefacto";
 import { Markdown, type ArtefactoRef } from "./Markdown";
+import { siguientePestana } from "./panelLateralNav";
 
 export type PanelId = "artefacto" | "cambios" | "web" | "ficheros";
 
@@ -82,12 +84,24 @@ function Vacio({ children }: { children: React.ReactNode }) {
 // Cambios
 // --------------------------------------------------------------------------
 
-function Cambios({ proyecto, refresco }: { proyecto: string; refresco: number }) {
+function Cambios({
+  proyecto,
+  refresco,
+  onAviso,
+}: {
+  proyecto: string;
+  refresco: number;
+  onAviso: (t: string, tono?: "info" | "error") => void;
+}) {
   const [cambios, setCambios] = useState<Cambio[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>("");
   const [cargando, setCargando] = useState(false);
+  /** Mensaje del commit. Vive aqui: al cerrar el panel se pierde a proposito. */
+  const [mensaje, setMensaje] = useState("");
+  /** Hay una operacion de git en marcha: nada de dos a la vez sobre el repo. */
+  const [ocupado, setOcupado] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!proyecto) return;
@@ -122,6 +136,43 @@ function Cambios({ proyecto, refresco }: { proyecto: string; refresco: number })
     [proyecto],
   );
 
+  // Una operacion de git, y a releer. Mismo patron que `runOp` de RepoModal
+  // (components/projects/RepoModal.tsx), que es donde estas tres llamadas
+  // llevan funcionando desde el micro GitHub Desktop: aqui no se inventa
+  // nada, se pone a mano en la superficie donde ya se ve el diff.
+  const correr = useCallback(
+    async (fn: () => Promise<unknown>, hecho?: string) => {
+      setOcupado(true);
+      try {
+        await fn();
+        await cargar();
+        if (hecho) onAviso(hecho);
+      } catch (e) {
+        onAviso(String(e), "error");
+      } finally {
+        setOcupado(false);
+      }
+    },
+    [cargar, onAviso],
+  );
+
+  /** Descartar es lo unico de aqui que no tiene vuelta atras: se pregunta. */
+  const descartar = useCallback(
+    async (c: Cambio) => {
+      const ok = await confirmDialog(
+        `Descartar los cambios de «${c.path}»? Vuelve a como está en el último commit y lo que hubiera se pierde.`,
+        { title: "Descartar cambios", kind: "warning", okLabel: "Descartar" },
+      );
+      if (!ok) return;
+      await correr(
+        () => invoke("git_discard_file", { path: proyecto, file: c.path }),
+        `«${c.path}» vuelve a como estaba`,
+      );
+      setAbierto((a) => (a === c.path ? null : a));
+    },
+    [correr, proyecto],
+  );
+
   if (!proyecto) {
     return (
       <Vacio>
@@ -134,6 +185,8 @@ function Cambios({ proyecto, refresco }: { proyecto: string; refresco: number })
   if (error) return <Vacio>no pude leer los cambios: {error}</Vacio>;
   if (!cambios) return <p className="hud-label hud-pulse p-4">leyendo el repositorio…</p>;
 
+  const preparados = cambios.filter((c) => c.staged).length;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
@@ -142,10 +195,31 @@ function Cambios({ proyecto, refresco }: { proyecto: string; refresco: number })
       >
         <span className="hud-label truncate" title={proyecto}>
           {cambios.length} fichero{cambios.length === 1 ? "" : "s"} con cambios
+          {preparados > 0 ? ` · ${preparados} preparado${preparados === 1 ? "" : "s"}` : ""}
         </span>
-        <button type="button" className="cc-bloque-boton" onClick={() => void cargar()}>
-          {cargando ? "leyendo…" : "refrescar"}
-        </button>
+        <span className="flex shrink-0 gap-1.5">
+          <button
+            type="button"
+            className="cc-bloque-boton"
+            disabled={ocupado || cambios.length === 0}
+            title="preparar todos los cambios (git add -A)"
+            onClick={() => void correr(() => invoke("git_stage", { path: proyecto, files: [] }))}
+          >
+            preparar todo
+          </button>
+          <button
+            type="button"
+            className="cc-bloque-boton"
+            disabled={ocupado || preparados === 0}
+            title="quitar todos del preparado; los cambios no se tocan"
+            onClick={() => void correr(() => invoke("git_unstage", { path: proyecto, files: [] }))}
+          >
+            quitar todo
+          </button>
+          <button type="button" className="cc-bloque-boton" onClick={() => void cargar()}>
+            {cargando ? "leyendo…" : "refrescar"}
+          </button>
+        </span>
       </div>
       {cambios.length === 0 ? (
         <Vacio>el árbol de trabajo está limpio: nada que revisar.</Vacio>
@@ -155,29 +229,101 @@ function Cambios({ proyecto, refresco }: { proyecto: string; refresco: number })
             {cambios.map((c) => {
               const e = estadoDe(c);
               return (
-                <li key={c.path}>
+                <li
+                  key={c.path}
+                  className="cc-fila-fichero group flex items-center gap-2 px-3 py-1 text-[11.5px]"
+                  style={{
+                    background: abierto === c.path ? "var(--color-surface-3)" : "transparent",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={c.staged}
+                    disabled={ocupado}
+                    aria-label={`${c.staged ? "quitar de preparado" : "preparar"} ${c.path}`}
+                    title={c.staged ? "quitar de preparado" : "preparar para el commit"}
+                    onChange={() =>
+                      void correr(() =>
+                        invoke(c.staged ? "git_unstage" : "git_stage", {
+                          path: proyecto,
+                          files: [c.path],
+                        }),
+                      )
+                    }
+                  />
                   <button
                     type="button"
                     onClick={() => void abrir(c)}
-                    className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11.5px]"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     style={{
-                      background: abierto === c.path ? "var(--color-surface-3)" : "transparent",
                       color: "var(--color-text)",
+                      background: "none",
                       border: "none",
                       cursor: "pointer",
-                      fontFamily: "var(--font-mono)",
+                      fontFamily: "inherit",
                     }}
                     title={`${e.texto}${c.staged ? " · preparado" : ""}`}
                   >
                     <span style={{ color: e.color, width: 12 }}>{e.letra}</span>
                     <span className="min-w-0 flex-1 truncate">{c.path}</span>
                   </button>
+                  {/* Sin seguir no se ofrece: descartarlo seria borrarlo y git
+                      no tendria de donde recuperarlo (lo rechaza tambien el
+                      backend, `git_discard_file`). */}
+                  {!c.untracked && (
+                    <button
+                      type="button"
+                      className="cc-bloque-boton shrink-0"
+                      disabled={ocupado}
+                      aria-label={`descartar los cambios de ${c.path}`}
+                      title="descartar: vuelve a como estaba en el último commit"
+                      onClick={() => void descartar(c)}
+                    >
+                      descartar
+                    </button>
+                  )}
                 </li>
               );
             })}
           </ul>
           <div className="min-h-0 flex-1 overflow-auto">
             {abierto ? <Diff texto={diff || "…"} /> : <Vacio>elige un fichero para ver su diff.</Vacio>}
+          </div>
+          {/* La barra de confirmar, abajo: revisar el diff y guardarlo sin
+              pasar por Proyectos -> Repo, que era el pendiente nº3 de
+              docs/PARIDAD-CLAUDE-DESKTOP.md. */}
+          <div
+            className="flex shrink-0 flex-col gap-1.5 border-t px-3 py-2"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <textarea
+              value={mensaje}
+              onChange={(ev) => setMensaje(ev.target.value)}
+              placeholder="qué has cambiado y por qué…"
+              aria-label="mensaje del commit"
+              rows={2}
+              className="hud-panel w-full resize-none px-2 py-1.5 text-[11.5px]"
+              style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)", outline: "none" }}
+            />
+            <button
+              type="button"
+              className="cc-bloque-boton"
+              disabled={ocupado || preparados === 0 || !mensaje.trim()}
+              title={
+                preparados === 0
+                  ? "marca antes qué ficheros entran en el commit"
+                  : "git commit de lo preparado"
+              }
+              onClick={() =>
+                void correr(async () => {
+                  await invoke("git_commit", { path: proyecto, message: mensaje });
+                  setMensaje("");
+                }, `commit hecho con ${preparados} fichero${preparados === 1 ? "" : "s"}`)
+              }
+            >
+              confirmar {preparados > 0 ? `(${preparados})` : ""}
+            </button>
           </div>
         </div>
       )}
@@ -460,6 +606,18 @@ export function PanelLateral({
   const pestañas: PanelId[] = artefacto
     ? ["artefacto", "cambios", "web", "ficheros"]
     : ["cambios", "web", "ficheros"];
+  const activa = Math.max(0, pestañas.indexOf(panel));
+  const botones = useRef<Array<HTMLButtonElement | null>>([]);
+
+  /** Flechas por la tira de pestañas (patrón de tabs con tabIndex móvil). */
+  function teclaPestana(e: React.KeyboardEvent<HTMLButtonElement>) {
+    const destino = siguientePestana(e.key, activa, pestañas.length);
+    if (destino === null) return; // el resto de teclas siguen su camino
+    e.preventDefault();
+    onPanel(pestañas[destino]);
+    botones.current[destino]?.focus();
+  }
+
   return (
     <aside
       className="flex h-full min-w-0 flex-col border-l"
@@ -469,15 +627,21 @@ export function PanelLateral({
       <div
         className="flex items-center justify-between border-b"
         style={{ borderColor: "var(--color-border)" }}
-        role="tablist"
       >
-        <div className="flex">
-          {pestañas.map((p) => (
+        <div className="flex" role="tablist" aria-label="paneles del chat">
+          {pestañas.map((p, i) => (
             <button
               key={p}
               type="button"
               role="tab"
+              ref={(el) => {
+                botones.current[i] = el;
+              }}
               aria-selected={panel === p}
+              // tabIndex movil: al tabular se entra a la pestaña activa y
+              // desde ahi se recorren con las flechas, no con mas tabulador.
+              tabIndex={i === activa ? 0 : -1}
+              onKeyDown={teclaPestana}
               onClick={() => onPanel(p)}
               className="px-3 py-1.5 text-[11px] uppercase"
               style={{
@@ -502,7 +666,9 @@ export function PanelLateral({
         {panel === "artefacto" && artefacto && (
           <Artefacto artefacto={artefacto} threadId={threadId} onAviso={onAviso} />
         )}
-        {panel === "cambios" && <Cambios proyecto={proyecto} refresco={refresco} />}
+        {panel === "cambios" && (
+          <Cambios proyecto={proyecto} refresco={refresco} onAviso={onAviso} />
+        )}
         {panel === "web" && <Web onAviso={onAviso} />}
         {panel === "ficheros" && (
           <Ficheros threadId={threadId} refresco={refresco} onArtefacto={onArtefacto} />

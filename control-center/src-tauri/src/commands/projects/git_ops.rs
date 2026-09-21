@@ -269,6 +269,57 @@ pub fn git_commit(path: String, message: String) -> Result<String, String> {
     run_git(&["commit", "-m", &message], &path)
 }
 
+/// Descarta los cambios de UN fichero: lo deja como esta en HEAD, preparado o
+/// no. Es la unica operacion irreversible del panel Cambios (2026-09-22).
+///
+/// Dos puertas antes de tocar nada, porque no hay punto de control al que
+/// volver:
+///
+///  1. El fichero tiene que estar SEGUIDO. Descartar uno sin seguir seria
+///     borrarlo, y git no tiene de donde recuperarlo: eso no lo hace este
+///     comando, lo hace el usuario desde el explorador si de verdad quiere.
+///  2. El fichero tiene que existir en HEAD. Uno recien anadido al indice
+///     tampoco tiene version anterior a la que volver — mismo caso.
+///
+/// La interfaz ademas lo pide con `confirmDialog` diciendo el nombre. Aqui se
+/// cierra la puerta igualmente: la comprobacion no puede vivir solo en React.
+#[tauri::command]
+pub fn git_discard_file(path: String, file: String) -> Result<String, String> {
+    if file.trim().is_empty() {
+        return Err("no se ha dicho qué fichero descartar".to_string());
+    }
+    // `ls-files --error-unmatch` sale con codigo != 0 si git no conoce la ruta.
+    let seguido = crate::proc::oculto("git")
+        .args(["ls-files", "--error-unmatch", "--", &file])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?
+        .status
+        .success();
+    if !seguido {
+        return Err(format!(
+            "«{file}» no está en git todavía: descartarlo sería borrarlo y no \
+             habría de dónde recuperarlo. Bórralo tú si es lo que quieres."
+        ));
+    }
+    let en_head = crate::proc::oculto("git")
+        .args(["cat-file", "-e", &format!("HEAD:{file}")])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?
+        .status
+        .success();
+    if !en_head {
+        return Err(format!(
+            "«{file}» es nuevo: no hay versión anterior a la que volver. \
+             Quítalo de preparado y bórralo tú si no lo quieres."
+        ));
+    }
+    // `checkout HEAD --` pisa indice Y arbol de trabajo: sin el `HEAD`, lo
+    // preparado sobreviviria y el fichero seguiria saliendo como cambiado.
+    run_git(&["checkout", "HEAD", "--", &file], &path)
+}
+
 /// One commit in the history list.
 #[derive(serde::Serialize)]
 pub struct GitCommit {
@@ -413,6 +464,95 @@ pub fn codegraph_init_project(path: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Repo de usar y tirar en un tempdir. No toca nada del disco real: el
+    /// directorio se borra al soltar el `TempDir` que devuelve.
+    fn repo_de_prueba() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ruta = dir.path().to_string_lossy().to_string();
+        for args in [
+            vec!["init", "--quiet"],
+            vec!["config", "user.email", "pruebas@example.invalid"],
+            vec!["config", "user.name", "pruebas"],
+            // Sin esto el test depende del `core.autocrlf` de quien lo ejecute:
+            // en Windows git devolveria "original\r\n" al restaurar.
+            vec!["config", "core.autocrlf", "false"],
+        ] {
+            run_git(&args, &ruta).expect("preparar el repo");
+        }
+        std::fs::write(dir.path().join("uno.txt"), "original\n").expect("escribir");
+        run_git(&["add", "uno.txt"], &ruta).expect("add");
+        run_git(&["commit", "-m", "primero", "--quiet"], &ruta).expect("commit");
+        (dir, ruta)
+    }
+
+    #[test]
+    fn descartar_devuelve_el_fichero_a_como_estaba() {
+        let (dir, ruta) = repo_de_prueba();
+        std::fs::write(dir.path().join("uno.txt"), "destrozado\n").expect("escribir");
+        assert_eq!(
+            git_changes(ruta.clone()).expect("status").len(),
+            1,
+            "el fichero deberia salir como cambiado antes de descartar"
+        );
+
+        git_discard_file(ruta.clone(), "uno.txt".into()).expect("descartar");
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("uno.txt")).expect("leer"),
+            "original\n"
+        );
+        assert!(
+            git_changes(ruta).expect("status").is_empty(),
+            "el arbol de trabajo tiene que quedar limpio"
+        );
+    }
+
+    #[test]
+    fn descartar_tambien_deshace_lo_que_ya_estaba_preparado() {
+        // `git checkout -- fichero` (sin HEAD) restaura desde el INDICE: con el
+        // cambio preparado no deshacia nada y el fichero seguia saliendo como
+        // cambiado. Por eso el comando pasa `HEAD` explicitamente.
+        let (dir, ruta) = repo_de_prueba();
+        std::fs::write(dir.path().join("uno.txt"), "destrozado\n").expect("escribir");
+        git_stage(ruta.clone(), vec!["uno.txt".into()]).expect("stage");
+
+        git_discard_file(ruta.clone(), "uno.txt".into()).expect("descartar");
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("uno.txt")).expect("leer"),
+            "original\n"
+        );
+        assert!(git_changes(ruta).expect("status").is_empty());
+    }
+
+    #[test]
+    fn descartar_un_fichero_sin_seguir_falla_en_vez_de_borrarlo() {
+        // Caso negativo, y el que justifica las dos puertas: git no tiene copia
+        // de un fichero sin seguir, asi que "descartarlo" seria una perdida
+        // irreversible. Tiene que fallar Y dejar el fichero donde estaba.
+        let (dir, ruta) = repo_de_prueba();
+        let suelto = dir.path().join("nuevo.txt");
+        std::fs::write(&suelto, "sin guardar en ningun sitio\n").expect("escribir");
+
+        let err = git_discard_file(ruta.clone(), "nuevo.txt".into())
+            .expect_err("un fichero sin seguir no se descarta");
+        assert!(err.contains("no está en git"), "mensaje raro: {err}");
+        assert!(suelto.exists(), "no se puede haber borrado el fichero");
+
+        // Y tampoco si esta solo preparado: no existe en HEAD.
+        git_stage(ruta.clone(), vec!["nuevo.txt".into()]).expect("stage");
+        let err = git_discard_file(ruta, "nuevo.txt".into())
+            .expect_err("un fichero nuevo preparado tampoco tiene version anterior");
+        assert!(err.contains("es nuevo"), "mensaje raro: {err}");
+        assert!(suelto.exists(), "no se puede haber borrado el fichero");
+    }
+
+    #[test]
+    fn descartar_sin_fichero_no_hace_nada() {
+        let (_dir, ruta) = repo_de_prueba();
+        assert!(git_discard_file(ruta, "   ".into()).is_err());
+    }
 
     #[test]
     fn repo_state_cache_roundtrip_and_ttl() {
