@@ -496,8 +496,15 @@ fn spawn_qdrant_exe() -> Option<std::process::Child> {
         return None;
     }
 
+    // Solo en la interfaz local. Por defecto Qdrant escucha en 0.0.0.0 y sin
+    // clave: la memoria entera quedaba legible desde cualquier equipo de la red
+    // (visto el 2026-09-21: "listening on: 0.0.0.0:6333"). Quien necesite otra
+    // cosa lo dice con la variable, que aqui se respeta.
+    let host = std::env::var("QDRANT__SERVICE__HOST").unwrap_or_else(|_| "127.0.0.1".into());
+
     match std::process::Command::new(&qdrant_exe)
         .current_dir(&qdrant_dir)
+        .env("QDRANT__SERVICE__HOST", host)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {

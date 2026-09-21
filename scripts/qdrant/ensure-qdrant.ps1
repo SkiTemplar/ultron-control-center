@@ -91,6 +91,9 @@ if (Test-Path $nativeExe) {
     $logFile = Join-Path $tmpDir 'qdrant-native.log'
     $errFile = Join-Path $tmpDir 'qdrant-native.err'
 
+    # Solo interfaz local: por defecto Qdrant escucha en 0.0.0.0 y sin clave.
+    if (-not $env:QDRANT__SERVICE__HOST) { $env:QDRANT__SERVICE__HOST = '127.0.0.1' }
+
     try {
         Start-Process -FilePath $nativeExe `
             -WorkingDirectory $nativeDir `

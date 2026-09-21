@@ -1,4 +1,4 @@
-# CLAUDE.md — ULTRON Control Center
+# CLAUDE.md — mar.ia
 
 Instrucciones de proyecto para trabajar en este repo. Se carga automáticamente cada sesión. **Mantener conciso y veraz** (cuesta contexto en cada sesión).
 
@@ -10,8 +10,7 @@ Instrucciones de proyecto para trabajar en este repo. Se carga automáticamente 
 
 ## Build y ejecución — GOTCHAS (causan la mayoría de líos)
 
-- **`npm run build:local`** (desde `control-center/`) = build de esta máquina: incluye la pestaña **Finance** (`VITE_FINANCE=1`) + `--features finance`; `qdrant` ya es feature por defecto. **Úsalo para el binario de escritorio.**
-- **`npm run build:app`** = build público (SIN Finance). No usar para el escritorio local.
+- **`npm run build:local`** (desde `control-center/`) = el build de escritorio: cierra la app, `tauri build`, despliega el sidecar en `~/.maria/bin/` y deja el lanzador apuntando a este repo. **Es el único camino para el binario.** (`build:app` = lo mismo sin sidecar ni lanzador. Finanzas ya no existe: sus fuentes nunca estuvieron en este fork.)
 - **NUNCA `cargo build --release` para el binario de la app.** Observado el 2026-09-19: ese binario abre la ventana contra `http://localhost:1420` y se ve `ERR_CONNECTION_REFUSED` (el frontend embebido solo queda bien cuando compila el CLI de Tauri). Mismo código, `npm run build:local` → funciona. `cargo build` sí vale para `--bin ultron-memory` y para `cargo check`/`cargo test`.
 - **El lanzador**: `scripts/instalar-lanzador.ps1` deja UN solo acceso directo («mar.ia», menú de inicio + escritorio) apuntando a este repo, borra los que apunten a otro `control-center.exe` y arregla la entrada de arranque. Se ejecuta solo al final de `build:local`. Antes había un «ULTRON Control Center» en el menú apuntando al repo viejo (`~/.maria/control-center/…`) y abría la versión antigua.
 - **EL .EXE SE BLOQUEA SI ULTRON ESTÁ ABIERTO**: si la app corre, el `build` construye el frontend pero **NO relinka el binario Rust** → los cambios de Rust no entran. **Cerrar ULTRON antes de buildear.** ("Stale binary" = parece que no se aplicó pero es el .exe viejo: verificar HEAD + rebuild antes de re-implementar.)
@@ -19,7 +18,14 @@ Instrucciones de proyecto para trabajar en este repo. Se carga automáticamente 
 - **Proveedores del relevo (2026-09-20)**: `claude`, `codex`, `antigravity` (binario `agy`) y `local`. Gemini fuera: su OAuth individual murió el 18/06/2026 y Antigravity da los mismos modelos de Google con la suscripción viva. **No clavar ids de modelo** en `maria_models::catalogo()` para codex ni antigravity — con cuenta ChatGPT, `-m gpt-5-codex` devuelve 400 ("not supported when using Codex with a ChatGPT account") y el proveedor entero cae; el `default_model` vacío deja elegir a la CLI. Y en `cli_invocation`, la bandera del prompt (`-p`) va SIEMPRE la última: `-p` se come el argumento siguiente, así que `-m modelo` delante la rompe.
 - Scripts `.ps1`: **ASCII puro** (sin em-dash) — PowerShell 5.1 rompe el parser si no.
 - **Tokens (2026-09-06)**: subagentes y workflows en Sonnet por defecto (`CLAUDE_CODE_SUBAGENT_MODEL` en settings); Fable solo en la sesión principal. Nunca un `Workflow` sin `model` explícito en cada `agent()`: 14 subagentes en Fable fueron el 85 % del gasto de un día. `/clear` por tarea y `/compact` antes de 100 k.
-- test: `cd control-center && npx vitest run --silent` (suite que lanza el hook `run-project-tests` tras editar código; 57 tests, ~15 s. `cargo test` no cabe en el tope de 120 s: se lanza a mano).
+- test: `cd control-center && npx vitest run --silent` (suite que lanza el hook `run-project-tests` tras editar código; 151 tests, ~5 s. `cargo test --lib`: 920 tests, se lanza a mano). `serve::lockfile::…carrera_de_hilos…` falla de forma intermitente bajo carga en Windows; aislado pasa.
+
+## Mapa del código
+
+- `control-center/src/components/jarvis/` — orbe, chat, terminales, mosaico.
+- `control-center/src-tauri/src/maria/` — lo propio de mar.ia (`relay`, `voice`, `web`, `term`, `threads`, `teclado`, `cuentas`, `perfiles`, `apagado`, `arranque`, `paths`…). Antes eran 19 ficheros `maria_*.rs` sueltos.
+- `control-center/src-tauri/src/handlers.rs` — registro de comandos. **Regla: comando que se registra, comando que tiene llamador en la interfaz** (248 a 2026-09-21; el compilador no avisa de los huérfanos porque viven en módulos `pub`).
+- `docs/AUDITORIA.md` — qué se retiró en la reestructuración de 2026-09-21, por qué, y la deuda que queda.
 
 ## Memoria (sistema propio — NO Mem0)
 

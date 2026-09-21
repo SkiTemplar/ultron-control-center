@@ -94,6 +94,7 @@ if [ -x "${NATIVE_BIN}" ]; then
     # after this script exits, mirroring Start-Process -WindowStyle Hidden.
     if ! (
         cd "${NATIVE_DIR}" && \
+        QDRANT__SERVICE__HOST="${QDRANT__SERVICE__HOST:-127.0.0.1}" \
         nohup setsid "${NATIVE_BIN}" --config-path "${NATIVE_CFG}" \
             >"${LOG_FILE}" 2>"${ERR_FILE}" </dev/null &
     ); then

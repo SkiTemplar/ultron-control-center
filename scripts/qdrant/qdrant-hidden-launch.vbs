@@ -53,4 +53,8 @@ If Len(cfg) > 0 Then
 End If
 
 ' window-style 0 = vbHide, wait-on-return = False (fire-and-forget). No console ever.
+' Solo interfaz local: por defecto Qdrant escucha en 0.0.0.0 y sin clave.
+If Len(sh.Environment("PROCESS")("QDRANT__SERVICE__HOST")) = 0 Then
+    sh.Environment("PROCESS")("QDRANT__SERVICE__HOST") = "127.0.0.1"
+End If
 sh.Run cmd, 0, False
