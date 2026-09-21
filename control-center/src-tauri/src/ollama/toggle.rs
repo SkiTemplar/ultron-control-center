@@ -292,5 +292,4 @@ mod tests {
         assert_eq!(model, DEFAULT_MODEL);
         assert_eq!(source, "default");
     }
-
 }

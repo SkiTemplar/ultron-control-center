@@ -144,7 +144,7 @@ impl Default for RelayConfig {
 }
 
 fn maria_dir() -> Result<PathBuf, String> {
-    let dir = crate::maria_paths::cockpit("maria")?;
+    let dir = crate::maria::paths::cockpit("maria")?;
     std::fs::create_dir_all(dir.join("threads")).map_err(|e| format!("crear carpeta: {e}"))?;
     Ok(dir)
 }
@@ -261,7 +261,9 @@ fn thread_path(thread_id: &str) -> Result<PathBuf, String> {
     {
         return Err(format!("id de hilo invalido: {thread_id:?}"));
     }
-    Ok(maria_dir()?.join("threads").join(format!("{thread_id}.jsonl")))
+    Ok(maria_dir()?
+        .join("threads")
+        .join(format!("{thread_id}.jsonl")))
 }
 
 pub fn append_turn(thread_id: &str, turn: &Turn) -> Result<(), String> {
@@ -548,7 +550,7 @@ pub fn necesita_cmd(ruta: &str) -> bool {
 /// Lanza una CLI con el prompt y espera su salida.
 ///
 /// `model` y `effort` se traducen a lo que esa CLI entiende de verdad (ver
-/// `maria_models::argumentos`); lo que no soporta, no se le manda.
+/// `crate::maria::models::argumentos`); lo que no soporta, no se le manda.
 fn run_cli(
     provider: &str,
     prompt: &str,
@@ -562,9 +564,9 @@ fn run_cli(
     let Some(ruta) = ruta_de_cli(bin) else {
         return Err((format!("{bin} no esta instalada"), false));
     };
-    let extra = crate::maria_models::argumentos(provider, model, effort);
+    let extra = crate::maria::models::argumentos(provider, model, effort);
     // Claude no tiene bandera de esfuerzo: se le pide en el propio mensaje.
-    let prefijo = crate::maria_models::prefijo_esfuerzo(provider, effort);
+    let prefijo = crate::maria::models::prefijo_esfuerzo(provider, effort);
     let prompt_owned;
     let prompt = if prefijo.is_empty() {
         prompt
@@ -585,15 +587,24 @@ fn run_cli(
         crate::proc::oculto(&ruta)
     };
     // subcomando -> modelo/esfuerzo -> la bandera del prompt -> el prompt.
-    for a in inv.antes.iter().chain(extra.iter()).chain(inv.despues.iter()) {
+    for a in inv
+        .antes
+        .iter()
+        .chain(extra.iter())
+        .chain(inv.despues.iter())
+    {
         cmd.arg(a);
     }
     if !por_stdin {
         cmd.arg(prompt);
     }
-    cmd.stdin(if por_stdin { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdin(if por_stdin {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    })
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -651,7 +662,7 @@ fn run_local(prompt: &str, effort: &str) -> Result<String, (String, bool)> {
     let body = serde_json::json!({
         "model": crate::ollama::toggle::model_name(),
         "stream": false,
-        "think": crate::maria_models::razonar_en_local(effort),
+        "think": crate::maria::models::razonar_en_local(effort),
         // Ventana corta DENTRO del turno (la eleccion de destino y la
         // respuesta son dos llamadas seguidas). Al terminar `ask` se descarga
         // a mano con `descargar_modelo_local`: asi la VRAM queda libre entre
@@ -722,11 +733,11 @@ pub fn parse_choice(raw: &str, known: &[String]) -> Option<String> {
 /// catalogo. Lo que no cuadre se cae a un valor sensato en vez de acabar en
 /// una linea de comandos.
 #[must_use]
-pub fn parse_plan(raw: &str, known: &[String]) -> Option<crate::maria_models::Eleccion> {
+pub fn parse_plan(raw: &str, known: &[String]) -> Option<crate::maria::models::Eleccion> {
     let provider = parse_choice(raw, known)?;
     let limpio = raw.to_lowercase();
     // Modelo: la primera palabra del catalogo de ESE proveedor que aparezca.
-    let catalogo = crate::maria_models::catalogo_vivo();
+    let catalogo = crate::maria::models::catalogo_vivo();
     let modelos: Vec<String> = catalogo
         .iter()
         .find(|c| c.provider == provider)
@@ -736,14 +747,14 @@ pub fn parse_plan(raw: &str, known: &[String]) -> Option<crate::maria_models::El
         .iter()
         .find(|id| limpio.contains(&id.to_lowercase()))
         .cloned()
-        .unwrap_or_else(|| crate::maria_models::modelo_por_defecto(&provider));
+        .unwrap_or_else(|| crate::maria::models::modelo_por_defecto(&provider));
     // Esfuerzo: se busca la palabra tal cual; si no viene, medio.
     let effort = ["alto", "bajo", "high", "low", "medio", "medium"]
         .iter()
         .find(|p| limpio.contains(*p))
-        .map(|p| crate::maria_models::normaliza_esfuerzo(p))
+        .map(|p| crate::maria::models::normaliza_esfuerzo(p))
         .unwrap_or_else(|| "medio".to_string());
-    Some(crate::maria_models::Eleccion {
+    Some(crate::maria::models::Eleccion {
         provider,
         model,
         effort,
@@ -759,9 +770,9 @@ pub fn parse_plan(raw: &str, known: &[String]) -> Option<crate::maria_models::El
 fn plan_para_tarea(
     prompt: &str,
     cfg: &RelayConfig,
-) -> (Vec<String>, Option<crate::maria_models::Eleccion>) {
+) -> (Vec<String>, Option<crate::maria::models::Eleccion>) {
     let proveedores = cfg.order.join(", ");
-    let catalogo: String = crate::maria_models::catalogo_vivo()
+    let catalogo: String = crate::maria::models::catalogo_vivo()
         .iter()
         .filter(|c| cfg.order.contains(&c.provider))
         .map(|c| {
@@ -770,15 +781,19 @@ fn plan_para_tarea(
                 .iter()
                 .map(|m| format!("{} ({})", m.id, m.para))
                 .collect();
-            format!("- {}: {}
-", c.provider, ms.join("; "))
+            format!(
+                "- {}: {}
+",
+                c.provider,
+                ms.join("; ")
+            )
         })
         .collect();
     // El criterio es EDITABLE desde la pantalla Router: lo que el usuario
     // escriba ahi entra aqui tal cual. Si se quedara clavado en el codigo, esa
     // pantalla no serviria para nada.
-    let criterio = crate::maria_criterio::cargar();
-    let reglas = crate::maria_criterio::como_prompt(&criterio);
+    let criterio = crate::maria::criterio::cargar();
+    let reglas = crate::maria::criterio::como_prompt(&criterio);
     let instruccion = format!(
         "Decide QUIEN resuelve esta peticion, CON QUE MODELO y CON CUANTO          ESFUERZO.
          Responde en UNA linea con tres palabras separadas por espacios:          proveedor modelo esfuerzo.
@@ -861,14 +876,14 @@ fn memoria_para(prompt: &str) -> Option<String> {
 pub fn ask(
     thread_id: &str,
     prompt: &str,
-    forzado: Option<&crate::maria_models::Eleccion>,
+    forzado: Option<&crate::maria::models::Eleccion>,
 ) -> Result<RelayAnswer, String> {
     // Mientras viva este guardia, el modelo cuenta como "en uso"; al soltarlo
     // se descarga solo, tambien si `ask_inner` sale por un error o un panico.
-    let _en_uso = crate::maria_local::EnUso::nuevo();
+    let _en_uso = crate::maria::local::EnUso::nuevo();
     let r = ask_inner(thread_id, prompt, forzado);
     if r.is_ok() {
-        crate::maria_threads::touch(thread_id);
+        crate::maria::threads::touch(thread_id);
         // Y ponerle nombre si aun no lo tiene. En su propio hilo: la respuesta
         // ya esta lista y no puede esperar a que el modelo local redacte un
         // titulo. Aqui, y no en la pantalla de chat, para que tambien lo
@@ -876,7 +891,7 @@ pub fn ask(
         // `//maria`.
         let hilo = thread_id.to_string();
         std::thread::spawn(move || {
-            crate::maria_threads::titular_si_hace_falta(&hilo);
+            crate::maria::threads::titular_si_hace_falta(&hilo);
         });
     }
     r
@@ -885,7 +900,7 @@ pub fn ask(
 fn ask_inner(
     thread_id: &str,
     prompt: &str,
-    forzado: Option<&crate::maria_models::Eleccion>,
+    forzado: Option<&crate::maria::models::Eleccion>,
 ) -> Result<RelayAnswer, String> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
@@ -924,18 +939,18 @@ fn ask_inner(
     //   4. el relevo decide
     match intencion_de_proveedor(prompt, &cfg.order) {
         Some(IntencionProveedor::Fijar(p)) => {
-            let _ = crate::maria_threads::fijar_provider(thread_id, &p);
+            let _ = crate::maria::threads::fijar_provider(thread_id, &p);
         }
         Some(IntencionProveedor::Soltar) => {
-            let _ = crate::maria_threads::fijar_provider(thread_id, "");
+            let _ = crate::maria::threads::fijar_provider(thread_id, "");
         }
         None => {}
     }
-    let pegado = crate::maria_threads::provider_de(thread_id);
+    let pegado = crate::maria::threads::provider_de(thread_id);
     let del_hilo = (!pegado.is_empty() && cfg.order.contains(&pegado)).then(|| {
-        crate::maria_models::Eleccion {
+        crate::maria::models::Eleccion {
             provider: pegado.clone(),
-            model: crate::maria_models::modelo_por_defecto(&pegado),
+            model: crate::maria::models::modelo_por_defecto(&pegado),
             effort: "medio".into(),
         }
     });
@@ -944,14 +959,14 @@ fn ask_inner(
     // cambio en el desplegable vale para los mensajes siguientes, no solo
     // para este.
     if let Some(f) = forzado {
-        let _ = crate::maria_threads::fijar_provider(thread_id, &f.provider);
+        let _ = crate::maria::threads::fijar_provider(thread_id, &f.provider);
     }
     let manual = elegido_a_mano.filter(|f| cfg.order.contains(&f.provider));
     let manual = manual.as_ref();
     // El criterio puede apagar la decision del local (p. ej. con Ollama
     // caido): entonces manda el orden de relevo y no se pierde un segundo
     // preguntando a un modelo que no esta.
-    let decide_local = crate::maria_criterio::cargar().decide_la_local;
+    let decide_local = crate::maria::criterio::cargar().decide_la_local;
     let (orden, plan) = match manual {
         Some(f) => {
             let mut orden = vec![f.provider.clone()];
@@ -987,15 +1002,15 @@ fn ask_inner(
         // otro, ese otro usa su modelo por defecto — pedirle "opus" a Gemini
         // seria pedirle un modelo que no tiene.
         let mismo = plan.as_ref().is_some_and(|p| {
-            p.provider == *provider && crate::maria_models::modelo_valido(provider, &p.model)
+            p.provider == *provider && crate::maria::models::modelo_valido(provider, &p.model)
         });
         let (modelo, esfuerzo) = match plan.as_ref().filter(|_| mismo) {
             Some(p) => (
                 p.model.clone(),
-                crate::maria_models::normaliza_esfuerzo(&p.effort),
+                crate::maria::models::normaliza_esfuerzo(&p.effort),
             ),
             None => (
-                crate::maria_models::modelo_por_defecto(provider),
+                crate::maria::models::modelo_por_defecto(provider),
                 "medio".to_string(),
             ),
         };
@@ -1035,9 +1050,9 @@ fn ask_inner(
                 if cuota {
                     // Se aprende el tope practico de la ventana: el consumo
                     // que habia justo cuando el proveedor dijo basta.
-                    let w = crate::maria_quota::claude_window();
+                    let w = crate::maria::quota::claude_window();
                     if provider == "claude" {
-                        crate::maria_quota::record_ceiling("claude", w.tokens);
+                        crate::maria::quota::record_ceiling("claude", w.tokens);
                     }
                 }
                 record_attempt(&mut state, provider, kind, &detail);
@@ -1075,15 +1090,16 @@ pub async fn maria_relay_ask(
 ) -> Result<RelayAnswer, String> {
     // Un proveedor fijado a mano puede venir sin modelo: entonces se usa el
     // que ESE proveedor tenga por defecto, no el de otro.
-    let forzado = provider
-        .filter(|p| !p.trim().is_empty())
-        .map(|p| crate::maria_models::Eleccion {
-            model: model
-                .filter(|m| !m.trim().is_empty())
-                .unwrap_or_else(|| crate::maria_models::modelo_por_defecto(&p)),
-            effort: crate::maria_models::normaliza_esfuerzo(&effort.unwrap_or_default()),
-            provider: p,
-        });
+    let forzado =
+        provider
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| crate::maria::models::Eleccion {
+                model: model
+                    .filter(|m| !m.trim().is_empty())
+                    .unwrap_or_else(|| crate::maria::models::modelo_por_defecto(&p)),
+                effort: crate::maria::models::normaliza_esfuerzo(&effort.unwrap_or_default()),
+                provider: p,
+            });
     // Bloqueante (procesos + red) fuera del hilo async de Tauri.
     tauri::async_runtime::spawn_blocking(move || ask(&thread_id, &prompt, forzado.as_ref()))
         .await
@@ -1205,9 +1221,19 @@ mod tests {
     #[test]
     fn acepta_la_eleccion_del_modelo_local() {
         let conocidos: Vec<String> = RelayConfig::default().order;
-        assert_eq!(parse_choice("claude", &conocidos).as_deref(), Some("claude"));
-        assert_eq!(parse_choice("  ANTIGRAVITY
-", &conocidos).as_deref(), Some("antigravity"));
+        assert_eq!(
+            parse_choice("claude", &conocidos).as_deref(),
+            Some("claude")
+        );
+        assert_eq!(
+            parse_choice(
+                "  ANTIGRAVITY
+",
+                &conocidos
+            )
+            .as_deref(),
+            Some("antigravity")
+        );
         assert_eq!(
             parse_choice("Yo usaria local para esto", &conocidos).as_deref(),
             Some("local")
@@ -1291,7 +1317,10 @@ mod tests {
     #[test]
     fn sin_extension_vale_la_primera() {
         // En Linux los binarios no llevan extension: no se puede exigir una.
-        assert_eq!(elegir_ruta("/usr/local/bin/claude\n"), Some("/usr/local/bin/claude"));
+        assert_eq!(
+            elegir_ruta("/usr/local/bin/claude\n"),
+            Some("/usr/local/bin/claude")
+        );
         assert_eq!(elegir_ruta("   \n\n"), None);
     }
 
@@ -1371,7 +1400,10 @@ mod tests {
     fn un_parrafo_largo_no_es_una_orden() {
         // Una instruccion de cambio es corta. En un texto largo el nombre de
         // un proveedor es casi siempre una mencion.
-        let largo = format!("usa codex {}", "y ademas analiza todo esto con calma ".repeat(6));
+        let largo = format!(
+            "usa codex {}",
+            "y ademas analiza todo esto con calma ".repeat(6)
+        );
         assert!(largo.chars().count() > 120);
         assert_eq!(intencion_de_proveedor(&largo, &conocidos()), None);
     }

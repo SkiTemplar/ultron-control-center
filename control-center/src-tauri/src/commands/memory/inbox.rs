@@ -7,8 +7,8 @@
 // it from the dense index (retire-from-index).
 
 use crate::memory::{
-    auto_approve, qdrant_index, Actor, BulkDeprecateResult, MemoryCandidate,
-    MemoryItem, MemoryService, MemoryStats, MemoryType, Status,
+    auto_approve, qdrant_index, Actor, BulkDeprecateResult, MemoryCandidate, MemoryItem,
+    MemoryService, MemoryStats, MemoryType, Status,
 };
 
 // ---------------------------------------------------------------------------

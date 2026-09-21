@@ -31,8 +31,7 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 pub use launch::{
-    launch_all_items_inner, launch_item_inner, open_project_inner,
-    project_open_app_inner,
+    launch_all_items_inner, launch_item_inner, open_project_inner, project_open_app_inner,
 };
 pub use read_ops::list_projects_inner;
 pub use scan::{
@@ -44,6 +43,6 @@ pub use types::{
     UpdateProjectResult,
 };
 pub use write_ops::{
-    add_launcher_item_inner, remove_launcher_item_inner,
-    set_default_provider_inner, touch_project_inner, update_project_inner,
+    add_launcher_item_inner, remove_launcher_item_inner, set_default_provider_inner,
+    touch_project_inner, update_project_inner,
 };

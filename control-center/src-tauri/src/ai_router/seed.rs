@@ -56,7 +56,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             models: vec!["gemini-2.5-flash".into(), "gemini-2.5-pro".into()],
             cli_command: None,
         },
-                Provider {
+        Provider {
             id: "ollama".into(),
             name: "Ollama (local)".into(),
             cost_per_mtok: 0.0,
@@ -85,7 +85,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             ],
             cli_command: None,
         },
-                // ----------------------------------------------------------------
+        // ----------------------------------------------------------------
         // Proveedor por suscripcion: entra con la cuenta de ChatGPT, sin clave
         // de API. El `codex` de pago por API se retiro el 2026-09-19 (mar.ia
         // solo usa suscripciones y el modelo local), igual que `gemini-cli`,
@@ -161,7 +161,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             fallbacks: vec![
                 ZoneAssignment {
                     provider_id: "ollama".into(),
-                model: "qwen3.5:9b".into(),
+                    model: "qwen3.5:9b".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {
@@ -202,7 +202,7 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 },
                 ZoneAssignment {
                     provider_id: "codex-cli".into(),
-                model: "gpt-5.6-terra".into(),
+                    model: "gpt-5.6-terra".into(),
                     max_tokens: 4096,
                 },
             ],

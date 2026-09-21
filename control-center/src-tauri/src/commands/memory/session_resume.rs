@@ -95,10 +95,7 @@ fn now_secs() -> i64 {
 /// del git log no es una acción (el head ya viaja en su propia línea del
 /// resume) y enmascaraba el caso honesto "sin tarea fijada" — el render JS
 /// tiene un mensaje explícito para `None`.
-fn derive_next_action(
-    project: Option<&str>,
-    tasks: &[MemoryItem],
-) -> Option<String> {
+fn derive_next_action(project: Option<&str>, tasks: &[MemoryItem]) -> Option<String> {
     let root = crate::maria_root().ok();
 
     if let (Some(root), Some(proj)) = (root.as_deref(), project) {

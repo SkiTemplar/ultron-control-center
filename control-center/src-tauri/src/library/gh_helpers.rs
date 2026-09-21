@@ -5,7 +5,6 @@
 //! annoying in v2.5.1 ("se lanza una terminal que no se quita"). Setting
 //! `CREATE_NO_WINDOW` (0x0800_0000) keeps the spawn fully invisible.
 
-
 pub(super) fn gh_command(args: &[String]) -> std::process::Command {
     let mut cmd = crate::proc::oculto("gh");
     cmd.args(args);

@@ -64,11 +64,7 @@ fn spawn_console(dir: &Path, _kind: &str) -> Result<(), String> {
     // Linux/macOS: mejor esfuerzo con los emuladores mas comunes. La card
     // muestra el error si ninguno existe (mandamiento 11: nada de no-ops).
     for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
-        if crate::proc::oculto(term)
-            .current_dir(dir)
-            .spawn()
-            .is_ok()
-        {
+        if crate::proc::oculto(term).current_dir(dir).spawn().is_ok() {
             return Ok(());
         }
     }

@@ -72,7 +72,10 @@ fn leer_valor(clave: &str, nombre: &str) -> Option<String> {
     texto
         .lines()
         .find(|l| l.trim_start().starts_with(nombre))
-        .and_then(|l| l.split_once("REG_SZ").or_else(|| l.split_once("REG_BINARY")))
+        .and_then(|l| {
+            l.split_once("REG_SZ")
+                .or_else(|| l.split_once("REG_BINARY"))
+        })
         .map(|(_, v)| v.trim().to_string())
 }
 
@@ -106,11 +109,7 @@ fn primer_byte_aprobado() -> Option<u8> {
 
 /// Decide la frase de diagnostico. Pura: se testea sin registro.
 #[must_use]
-pub fn problema_de(
-    registrado: bool,
-    apunta_aqui: bool,
-    bloqueado: bool,
-) -> String {
+pub fn problema_de(registrado: bool, apunta_aqui: bool, bloqueado: bool) -> String {
     if !registrado {
         return "No está configurado para arrancar con Windows.".into();
     }
@@ -157,7 +156,9 @@ pub fn fijar(activar: bool) -> Result<EstadoArranque, String> {
     if activar {
         let valor = comando_esperado();
         let ok = crate::proc::oculto("reg.exe")
-            .args(["add", CLAVE_RUN, "/v", VALOR, "/t", "REG_SZ", "/d", &valor, "/f"])
+            .args([
+                "add", CLAVE_RUN, "/v", VALOR, "/t", "REG_SZ", "/d", &valor, "/f",
+            ])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
@@ -239,6 +240,9 @@ mod tests {
         // automatico de una apertura a mano y enfoca la ventana sin que nadie
         // se lo haya pedido.
         assert!(comando_esperado().contains(BANDERA));
-        assert!(comando_esperado().starts_with('"'), "la ruta va entrecomillada");
+        assert!(
+            comando_esperado().starts_with('"'),
+            "la ruta va entrecomillada"
+        );
     }
 }

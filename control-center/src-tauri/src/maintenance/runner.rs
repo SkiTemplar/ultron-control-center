@@ -3,7 +3,6 @@
 // `run_backup_now_inner` is a dedicated "force backup" entry point that
 // re-reads the configured destination from disk on every invocation.
 
-
 use serde::Serialize;
 
 use super::commands::{backup_script, build_cmd};

@@ -22,7 +22,7 @@ pub async fn auth_status() -> Result<auth::AuthStatusReport, String> {
 // resolves on success.
 #[tauri::command]
 pub async fn close_control_center(app: tauri::AppHandle) -> Result<(), String> {
-    crate::maria_apagado::apagar();
+    crate::maria::apagado::apagar();
     app.exit(0);
     Ok(())
 }

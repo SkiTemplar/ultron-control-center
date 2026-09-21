@@ -52,9 +52,7 @@ pub use providers::{primary_model_for_zone, route};
 pub use store::CLI_CACHE;
 
 // Types used directly in this file's Tauri command bodies.
-use types::{
-    KeyValidation, Provider, ProviderKind,
-};
+use types::{KeyValidation, Provider, ProviderKind};
 
 // ---------------------------------------------------------------------------
 // validate_agent — checks that an agent file exists on disk.

@@ -44,26 +44,6 @@ mod library;
 mod logs;
 mod maintenance;
 mod maria; // mar.ia: puente de estado de voz hacia las ventanas
-mod maria_quota; // mar.ia: consumo real por ventana movil
-mod maria_sysinfo; // mar.ia: consumo real por ventana movil
-pub mod proc; // mar.ia: lanzar procesos sin abrir ventanas de consola (lo usa tambien el sidecar)
-mod maria_paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
-mod maria_local; // mar.ia: el modelo local disponible, sin ocupar VRAM
-mod maria_login; // mar.ia: como se entra en cada proveedor y si ya se entro
-mod maria_cuentas; // mar.ia: que cuentas y claves hay conectadas, y a que correo
-mod maria_criterio; // mar.ia: los parametros con los que la IA local decide
-mod maria_perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
-mod maria_teclado; // mar.ia: autocompletado global con `//maria`
-mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
-mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
-mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
-mod maria_term; // mar.ia: terminales embebidas (claude/codex/gemini/powershell)
-mod maria_apagado; // mar.ia: cerrar de verdad (quien para a quien)
-mod maria_arranque; // mar.ia: arrancar con Windows, y por que no arranca
-mod maria_tailscale; // mar.ia: por que la direccion .ts.net da 404
-mod maria_web; // mar.ia: webapp del movil (servidor local + avisos por ntfy)
-mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
-mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod migration;
@@ -71,6 +51,7 @@ mod ollama; // modelo local (autocompletado): interruptor de bandeja + seccion A
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod plugin_state;
 mod plugins_info;
+pub mod proc; // mar.ia: lanzar procesos sin abrir ventanas de consola (lo usa tambien el sidecar)
 mod project_context;
 mod project_hotkeys;
 mod projects;
@@ -108,11 +89,11 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 /// Raiz de mar.ia. Expuesta a nivel de crate para que cualquier grupo de
 /// comandos resuelva rutas sin repetir la busqueda del HOME.
 ///
-/// Delega en `maria_paths::home()`: antes construia `~/.ultron` a mano, que
+/// Delega en `maria::paths::home()`: antes construia `~/.ultron` a mano, que
 /// era la ultima traza FUNCIONAL del nombre viejo — todo lo calculado asi
 /// apuntaba al enlace de compatibilidad en vez de a la carpeta real.
 pub(crate) fn maria_root() -> Result<PathBuf, String> {
-    Ok(crate::maria_paths::home())
+    Ok(crate::maria::paths::home())
 }
 
 /// Show / hide the main webview window. Bound to the user's main toggle
@@ -144,7 +125,10 @@ fn toggle_window(app: &tauri::AppHandle) {
     let _ = window.set_focus();
     // Mismo canal que usa la bandeja: la pantalla ya sabe cambiar de pestaña
     // con esto.
-    let _ = app.emit("tray-action", serde_json::json!({ "action": "open_settings" }));
+    let _ = app.emit(
+        "tray-action",
+        serde_json::json!({ "action": "open_settings" }),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +221,7 @@ pub fn run() {
                     // (pulsar graba, soltar cierra la toma), asi que se
                     // atiende antes del filtro de `Pressed`.
                     let pressed = event.state() == ShortcutState::Pressed;
-                    if maria_voice::handle_ptt(shortcut, pressed) {
+                    if maria::voice::handle_ptt(shortcut, pressed) {
                         return;
                     }
                     if pressed {
@@ -317,7 +301,7 @@ pub fn run() {
             // atajo GLOBAL: mientras mar.ia corra, esa combinacion deja de
             // llegar a las demas aplicaciones. Se cambia en
             // ~/.ultron/.tmp/maria-ptt.txt.
-            let ptt_spec = maria_voice::ptt_spec();
+            let ptt_spec = maria::voice::ptt_spec();
             match hotkeys::parse_hotkey(&ptt_spec) {
                 Ok(ptt) => {
                     if let Err(e) = shortcut_handle.register(ptt) {
@@ -363,32 +347,32 @@ pub fn run() {
             // Reintenta, porque al arrancar con Windows mar.ia suele llegar
             // antes que el servicio de Ollama. Ver `maria_local`.
             std::thread::spawn(|| {
-                crate::maria_local::asegurar_al_arranque();
+                crate::maria::local::asegurar_al_arranque();
                 // Y por si acaso: al abrir, suelta lo que hubiera quedado
                 // cargado de una sesion anterior que no cerro bien.
-                crate::maria_local::descargar();
+                crate::maria::local::descargar();
             });
 
             // Vigilante de la VRAM: si nadie esta usando el modelo y sigue
             // cargado, lo descarga. Es la red para los casos en los que el
             // proceso no llega a terminar el turno.
-            std::thread::spawn(crate::maria_local::vigilar_vram);
+            std::thread::spawn(crate::maria::local::vigilar_vram);
 
             // Autocompletado global `//maria`. Apagado por defecto: un hook de
             // teclado no se enciende por sorpresa (ver `maria_teclado`).
-            crate::maria_teclado::arrancar_si_procede();
+            crate::maria::teclado::arrancar_si_procede();
 
             // Conversaciones viejas sin nombre: se les pone uno con el modelo
             // local, de una en una y sin prisa. Espera un poco para no pelear
             // con el arranque de Ollama.
             std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_secs(45));
-                crate::maria_threads::titular_pendientes(20);
+                crate::maria::threads::titular_pendientes(20);
             });
 
             // La voz, viva desde el arranque: es la que saluda al despertar y
             // la que escucha la palabra clave. Ver `maria_voice`.
-            crate::maria_voice::arrancar_al_inicio(app.handle().clone());
+            crate::maria::voice::arrancar_al_inicio(app.handle().clone());
 
             // Limpieza del catalogo de proveedores al arrancar. `load_providers`
             // es quien purga los retirados (groq, deepseek, claude-haiku) y
@@ -403,11 +387,11 @@ pub fn run() {
             // Webapp del movil. Solo si el usuario la dejo encendida: no se
             // abre un puerto por iniciativa propia (ver `maria_web`).
             std::thread::spawn(|| {
-                let cfg = crate::maria_web::load_config();
+                let cfg = crate::maria::web::load_config();
                 if !cfg.enabled {
                     return;
                 }
-                match crate::maria_web::start(&cfg) {
+                match crate::maria::web::start(&cfg) {
                     Ok(()) => tracing::info!(puerto = cfg.port, "maria-web: arrancada"),
                     Err(e) => tracing::warn!(error = %e, "maria-web: no pude arrancar"),
                 }
@@ -447,7 +431,7 @@ pub fn run() {
                 // Cierre completo, no solo el proxy: la voz (y su TTS), el
                 // hook de teclado, el servidor del movil, las terminales y lo
                 // que hayamos arrancado nosotros. Ver `maria_apagado`.
-                crate::maria_apagado::apagar();
+                crate::maria::apagado::apagar();
             }
         })
         .build(tauri::generate_context!())
@@ -462,7 +446,7 @@ pub fn run() {
                 // Idempotente: si ya se apago por `Destroyed`, esto no hace
                 // nada. Cubre Alt+F4 en una ventana secundaria, el Salir de la
                 // bandeja y el `app.exit(0)` de cualquier comando.
-                crate::maria_apagado::apagar();
+                crate::maria::apagado::apagar();
             }
         });
 }
@@ -490,18 +474,18 @@ fn qdrant_is_running() -> bool {
 /// Attempt to spawn the bundled Qdrant binary detached with no console
 /// window.  The executable path is read from `ULTRON_QDRANT_EXE` (its working
 /// dir from `ULTRON_QDRANT_DIR`), falling back to `qdrant-native/` under la
-/// raiz de mar.ia (`maria_paths::home()` — `.maria`, o `.ultron` en una
+/// raiz de mar.ia (`maria::paths::home()` — `.maria`, o `.ultron` en una
 /// instalacion sin migrar).  Returns the child handle on success, or logs and
 /// returns `None`.
 #[cfg(target_os = "windows")]
 fn spawn_qdrant_exe() -> Option<std::process::Child> {
     use std::os::windows::process::CommandExt;
 
-    let home = crate::maria_paths::home().to_string_lossy().to_string();
+    let home = crate::maria::paths::home().to_string_lossy().to_string();
     let qdrant_exe = std::env::var("ULTRON_QDRANT_EXE")
         .unwrap_or_else(|_| format!(r"{home}\qdrant-native\qdrant.exe"));
-    let qdrant_dir = std::env::var("ULTRON_QDRANT_DIR")
-        .unwrap_or_else(|_| format!(r"{home}\qdrant-native"));
+    let qdrant_dir =
+        std::env::var("ULTRON_QDRANT_DIR").unwrap_or_else(|_| format!(r"{home}\qdrant-native"));
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     if !std::path::Path::new(&qdrant_exe).exists() {
@@ -546,7 +530,7 @@ fn qdrant_auto_launch() {
     // corriendo, asi que este proceso es nuestro y hay que cerrarlo al salir.
     // Si ya estaba (la rama de arriba), es del usuario y no se toca.
     if let Some(child) = spawn_qdrant_exe() {
-        crate::maria_apagado::registrar("qdrant", child.id());
+        crate::maria::apagado::registrar("qdrant", child.id());
     }
 
     // Give Qdrant time to bind the port before re-probing.

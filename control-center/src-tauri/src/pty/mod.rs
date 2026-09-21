@@ -25,7 +25,5 @@ pub(crate) mod spawn;
 mod tests;
 pub(crate) mod types;
 
-pub use ops::{
-    kill_inner, list_inner, resize_inner, spawn_inner, subscribe_inner, write_inner,
-};
+pub use ops::{kill_inner, list_inner, resize_inner, spawn_inner, subscribe_inner, write_inner};
 pub use registry::kill_all_inner;

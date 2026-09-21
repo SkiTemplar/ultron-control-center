@@ -49,7 +49,7 @@ pub struct Diagnostico {
 }
 
 fn ejecutable() -> Option<String> {
-    if crate::maria_login::en_path("tailscale") {
+    if crate::maria::login::en_path("tailscale") {
         return Some("tailscale".into());
     }
     RUTAS
@@ -129,7 +129,7 @@ pub async fn maria_tailscale_diagnostico() -> Result<Diagnostico, String> {
 
 #[must_use]
 pub fn diagnostico() -> Diagnostico {
-    let puerto = crate::maria_web::load_config().port;
+    let puerto = crate::maria::web::load_config().port;
     let maria_escucha = puerto_escucha(puerto);
     let Some(exe) = ejecutable() else {
         return Diagnostico {

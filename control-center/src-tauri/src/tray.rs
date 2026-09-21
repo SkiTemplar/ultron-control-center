@@ -80,7 +80,7 @@ fn toggle_main_window(app: &AppHandle) {
 /// Se llama al construir la bandeja y cada vez que se libera. El texto dice lo
 /// que hay, no lo que deberia haber: si el modelo esta cargado, cuanto ocupa.
 fn refrescar_vram(item: &MenuItem<tauri::Wry>) {
-    let e = crate::maria_local::estado();
+    let e = crate::maria::local::estado();
     let (texto, activo) = if !e.installed {
         ("Modelo local: Ollama no instalado".to_string(), false)
     } else if !e.server_up {
@@ -112,7 +112,13 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // dejaba fijo en VRAM (`keep_alive: -1`), que es justo lo contrario de lo
     // que el usuario pidio el 2026-09-19 ("nunca debe estar en memoria todo el
     // rato"). En su sitio hay un boton que solo SUELTA.
-    let vram_i = MenuItem::with_id(app, "liberar_vram", "Modelo: comprobando…", false, None::<&str>)?;
+    let vram_i = MenuItem::with_id(
+        app,
+        "liberar_vram",
+        "Modelo: comprobando…",
+        false,
+        None::<&str>,
+    )?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit_i = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
     // Clon para el refresco de abajo: el original se mueve dentro del closure
@@ -158,7 +164,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 "quit" => {
                     // El apagado completo ANTES de `exit`: asi se garantiza
                     // que la voz deja de sonar aunque Tauri tarde en bajar.
-                    crate::maria_apagado::apagar();
+                    crate::maria::apagado::apagar();
                     app.exit(0);
                 }
                 "liberar_vram" => {
@@ -166,7 +172,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     // se le pregunta algo, no desde un menu.
                     let item = vram_i.clone();
                     tauri::async_runtime::spawn_blocking(move || {
-                        crate::maria_local::descargar();
+                        crate::maria::local::descargar();
                         refrescar_vram(&item);
                     });
                 }

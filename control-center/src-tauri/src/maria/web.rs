@@ -109,7 +109,7 @@ pub struct WebStatus {
 static SERVIDOR: Lazy<Mutex<Option<std::sync::Arc<Server>>>> = Lazy::new(|| Mutex::new(None));
 
 fn maria_dir() -> Result<std::path::PathBuf, String> {
-    crate::maria_paths::cockpit("maria")
+    crate::maria::paths::cockpit("maria")
 }
 
 fn config_path() -> Result<std::path::PathBuf, String> {
@@ -218,10 +218,10 @@ pub fn ruta_de(url: &str) -> &str {
 // Ficheros de la webapp (embebidos: el .exe tiene que funcionar solo)
 // ---------------------------------------------------------------------------
 
-const INDEX_HTML: &str = include_str!("../webapp/index.html");
-const APP_JS: &str = include_str!("../webapp/app.js");
-const APP_CSS: &str = include_str!("../webapp/app.css");
-const MANIFEST: &str = include_str!("../webapp/manifest.webmanifest");
+const INDEX_HTML: &str = include_str!("../../webapp/index.html");
+const APP_JS: &str = include_str!("../../webapp/app.js");
+const APP_CSS: &str = include_str!("../../webapp/app.css");
+const MANIFEST: &str = include_str!("../../webapp/manifest.webmanifest");
 
 /// Fichero estatico de una ruta, con su tipo. Pura: se testea sin servidor.
 #[must_use]
@@ -276,7 +276,7 @@ fn leer_cuerpo(req: &mut Request) -> serde_json::Value {
 
 /// Avisos recientes de `<raiz>/alerts.jsonl`, los ultimos `max`.
 fn avisos(max: usize) -> Vec<serde_json::Value> {
-    let path = crate::maria_paths::home().join("alerts.jsonl");
+    let path = crate::maria::paths::home().join("alerts.jsonl");
     let Ok(texto) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
@@ -318,7 +318,10 @@ fn atender(mut req: Request) {
             resp = resp
                 .with_header(header("access-control-allow-origin", &o))
                 .with_header(header("access-control-allow-methods", "GET, POST, OPTIONS"))
-                .with_header(header("access-control-allow-headers", "content-type, x-maria-token"))
+                .with_header(header(
+                    "access-control-allow-headers",
+                    "content-type, x-maria-token",
+                ))
                 .with_header(header("access-control-max-age", "600"))
                 .with_header(header("vary", "Origin"));
         }
@@ -347,22 +350,22 @@ fn atender(mut req: Request) {
 
     match (metodo.as_str(), ruta.as_str()) {
         ("GET", "/api/estado") => {
-            let tel = crate::maria_sysinfo::telemetry();
+            let tel = crate::maria::sysinfo::telemetry();
             let cuerpo = serde_json::json!({
                 "telemetria": tel,
-                "proveedores": crate::maria_relay::load_state(),
-                "relevo": crate::maria_relay::load_config(),
-                "cuota_claude": crate::maria_quota::claude_window(),
+                "proveedores": crate::maria::relay::load_state(),
+                "relevo": crate::maria::relay::load_config(),
+                "cuota_claude": crate::maria::quota::claude_window(),
             });
             responder_json(req, 200, &cuerpo);
         }
         ("GET", "/api/hilos") => {
-            let hilos = crate::maria_threads::list();
+            let hilos = crate::maria::threads::list();
             responder_json(req, 200, &serde_json::json!({ "hilos": hilos }));
         }
         ("GET", "/api/hilo") => {
             let id = query_param(&url, "id").unwrap_or_default();
-            match crate::maria_relay::read_thread(&id) {
+            match crate::maria::relay::read_thread(&id) {
                 Ok(turnos) => responder_json(req, 200, &serde_json::json!({ "turnos": turnos })),
                 Err(e) => error_json(req, 400, &e),
             }
@@ -389,14 +392,14 @@ fn atender(mut req: Request) {
                 .get("provider")
                 .and_then(|v| v.as_str())
                 .filter(|p| !p.trim().is_empty())
-                .map(|p| crate::maria_models::Eleccion {
+                .map(|p| crate::maria::models::Eleccion {
                     model: cuerpo
                         .get("model")
                         .and_then(|v| v.as_str())
                         .filter(|m| !m.trim().is_empty())
                         .map(str::to_string)
-                        .unwrap_or_else(|| crate::maria_models::modelo_por_defecto(p)),
-                    effort: crate::maria_models::normaliza_esfuerzo(
+                        .unwrap_or_else(|| crate::maria::models::modelo_por_defecto(p)),
+                    effort: crate::maria::models::normaliza_esfuerzo(
                         cuerpo.get("effort").and_then(|v| v.as_str()).unwrap_or(""),
                     ),
                     provider: p.to_string(),
@@ -404,7 +407,7 @@ fn atender(mut req: Request) {
             // Sin hilo, se abre uno: el movil no deberia tener que crear nada.
             let hilo = match hilo.filter(|h| !h.trim().is_empty()) {
                 Some(h) => h,
-                None => match crate::maria_threads::create(Some("móvil".into())) {
+                None => match crate::maria::threads::create(Some("móvil".into())) {
                     Ok(m) => m.id,
                     Err(e) => {
                         error_json(req, 500, &e);
@@ -412,7 +415,7 @@ fn atender(mut req: Request) {
                     }
                 },
             };
-            match crate::maria_relay::ask(&hilo, &prompt, forzado.as_ref()) {
+            match crate::maria::relay::ask(&hilo, &prompt, forzado.as_ref()) {
                 Ok(r) => responder_json(
                     req,
                     200,
@@ -438,7 +441,7 @@ fn atender(mut req: Request) {
                 return;
             }
             let payload = serde_json::json!({ "cmd": "say", "text": texto });
-            match crate::maria_voice::send_line(&payload.to_string()) {
+            match crate::maria::voice::send_line(&payload.to_string()) {
                 Ok(()) => responder_json(req, 200, &serde_json::json!({ "ok": true })),
                 Err(e) => error_json(req, 503, &e),
             }
@@ -524,10 +527,7 @@ pub fn stop() {
 }
 
 pub fn running() -> bool {
-    SERVIDOR
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .is_some()
+    SERVIDOR.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 /// Manda un aviso al movil por ntfy.
@@ -633,7 +633,10 @@ mod tests {
 
     #[test]
     fn saca_parametros_de_la_query() {
-        assert_eq!(query_param("/api/hilo?id=hilo-1", "id").as_deref(), Some("hilo-1"));
+        assert_eq!(
+            query_param("/api/hilo?id=hilo-1", "id").as_deref(),
+            Some("hilo-1")
+        );
         assert_eq!(query_param("/?t=abc&x=1", "t").as_deref(), Some("abc"));
         assert_eq!(query_param("/api/estado", "t"), None);
         assert_eq!(query_param("/api/estado?t=", "t").as_deref(), Some(""));
@@ -655,7 +658,13 @@ mod tests {
 
     #[test]
     fn sirve_los_estaticos_que_existen() {
-        for r in ["/", "/index.html", "/app.js", "/app.css", "/manifest.webmanifest"] {
+        for r in [
+            "/",
+            "/index.html",
+            "/app.js",
+            "/app.css",
+            "/manifest.webmanifest",
+        ] {
             let (cuerpo, tipo) = estatico(r).unwrap_or_else(|| panic!("falta {r}"));
             assert!(!cuerpo.is_empty(), "{r} vacio");
             assert!(tipo.contains("charset"), "{r} sin charset");

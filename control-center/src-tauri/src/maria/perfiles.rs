@@ -90,8 +90,7 @@ pub fn nombre_valido(nombre: &str) -> bool {
     let n = nombre.trim();
     !n.is_empty()
         && n.len() <= 48
-        && n
-            .chars()
+        && n.chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ')
 }
 
@@ -99,7 +98,7 @@ fn carpeta(provider: &str) -> Result<std::path::PathBuf, String> {
     if credencial(provider).is_none() {
         return Err(format!("proveedor desconocido: {provider}"));
     }
-    let dir = crate::maria_paths::home().join("cuentas").join(provider);
+    let dir = crate::maria::paths::home().join("cuentas").join(provider);
     std::fs::create_dir_all(&dir).map_err(|e| format!("crear carpeta: {e}"))?;
     Ok(dir)
 }
@@ -120,7 +119,7 @@ fn correo_de(dir: &std::path::Path, nombre: &str) -> String {
     std::fs::read_to_string(f)
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| crate::maria_cuentas::correo_en(&v).map(|(c, _)| c))
+        .and_then(|v| crate::maria::cuentas::correo_en(&v).map(|(c, _)| c))
         .unwrap_or_default()
 }
 
@@ -129,7 +128,7 @@ fn listar_de(provider: &str) -> Vec<Perfil> {
     let Ok(dir) = carpeta(provider) else {
         return Vec::new();
     };
-    let activo = crate::maria_cuentas::informe()
+    let activo = crate::maria::cuentas::informe()
         .cuentas
         .into_iter()
         .find(|c| c.provider == provider)
@@ -197,7 +196,8 @@ pub async fn maria_perfil_guardar(provider: String, nombre: String) -> Result<Pe
     if !nombre_valido(&nombre) {
         return Err("nombre inválido: letras, números, guiones y espacios (máx. 48)".into());
     }
-    let origen = credencial(&provider).ok_or_else(|| format!("proveedor desconocido: {provider}"))?;
+    let origen =
+        credencial(&provider).ok_or_else(|| format!("proveedor desconocido: {provider}"))?;
     if !origen[0].exists() {
         return Err(format!(
             "no hay sesión activa de {provider} que guardar (falta {})",
@@ -230,7 +230,8 @@ pub async fn maria_perfil_activar(provider: String, nombre: String) -> Result<St
     if !nombre_valido(&nombre) {
         return Err("nombre inválido".into());
     }
-    let destino = credencial(&provider).ok_or_else(|| format!("proveedor desconocido: {provider}"))?;
+    let destino =
+        credencial(&provider).ok_or_else(|| format!("proveedor desconocido: {provider}"))?;
     let dir = carpeta(&provider)?;
     let origen = ficheros_perfil(&dir, nombre.trim(), destino.len());
     if !origen[0].exists() {
@@ -329,7 +330,7 @@ pub async fn maria_clave_borrar(variable: String, confirmar: bool) -> Result<Str
     let mut hecho: Vec<String> = Vec::new();
 
     // 1. El .env de mar.ia.
-    let env_file = crate::maria_paths::home().join(".env");
+    let env_file = crate::maria::paths::home().join(".env");
     if let Ok(texto) = std::fs::read_to_string(&env_file) {
         let filtrado: Vec<&str> = texto
             .lines()
@@ -369,7 +370,9 @@ pub async fn maria_clave_borrar(variable: String, confirmar: bool) -> Result<Str
     // 3. Lo que queda en ESTE proceso y en el sistema no se puede tocar.
     let en_proceso = std::env::var(&var).map(|v| !v.is_empty()).unwrap_or(false);
     if hecho.is_empty() && !en_proceso {
-        return Err(format!("{var} no estaba definida en ningún sitio que pueda tocar"));
+        return Err(format!(
+            "{var} no estaba definida en ningún sitio que pueda tocar"
+        ));
     }
     if en_proceso {
         hecho.push(
@@ -398,7 +401,15 @@ mod tests {
         // Caso negativo: el nombre acaba en una ruta de fichero que se BORRA y
         // se SOBRESCRIBE. Sin este filtro, "../../.claude/.credentials" seria
         // una forma de pisar cualquier cosa.
-        for n in ["../secreto", "a/b", "a\\b", "", "   ", "a:b", &"x".repeat(49)] {
+        for n in [
+            "../secreto",
+            "a/b",
+            "a\\b",
+            "",
+            "   ",
+            "a:b",
+            &"x".repeat(49),
+        ] {
             assert!(!nombre_valido(n), "no deberia aceptar {n:?}");
         }
     }

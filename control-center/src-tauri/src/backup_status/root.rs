@@ -28,7 +28,7 @@ pub(super) fn backup_root_config_path() -> Option<PathBuf> {
     // Via `maria_paths`, no a mano: la carpeta se llama `.maria` desde el
     // 2026-09-18 y esta ruta salia con el nombre viejo en la pantalla de
     // Backups.
-    Some(crate::maria_paths::home().join(".tmp/backup-root.txt"))
+    Some(crate::maria::paths::home().join(".tmp/backup-root.txt"))
 }
 
 /// Raiz de copia pedida por variable de entorno.

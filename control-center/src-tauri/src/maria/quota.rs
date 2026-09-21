@@ -43,7 +43,7 @@ pub struct WindowUsage {
 }
 
 fn ceiling_path() -> Option<PathBuf> {
-    crate::maria_paths::cockpit("maria")
+    crate::maria::paths::cockpit("maria")
         .ok()
         .map(|d| d.join("quota-ceiling.json"))
 }

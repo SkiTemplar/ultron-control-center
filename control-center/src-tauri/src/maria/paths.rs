@@ -66,11 +66,9 @@ pub fn home() -> PathBuf {
     let env_home = std::env::var("MARIA_HOME")
         .ok()
         .or_else(|| std::env::var("ULTRON_HOME").ok());
-    elegir_raiz(
-        env_home.as_deref(),
-        dirs::home_dir().as_deref(),
-        &|p| p.exists(),
-    )
+    elegir_raiz(env_home.as_deref(), dirs::home_dir().as_deref(), &|p| {
+        p.exists()
+    })
     .unwrap_or_else(|| PathBuf::from(DIR_NUEVO))
 }
 
@@ -169,13 +167,19 @@ mod tests {
         // nada.
         let home = Path::new("C:/Users/x");
         let existe = |_: &Path| true;
-        assert_eq!(elegir_raiz(None, Some(home), &existe), Some(home.join(DIR_NUEVO)));
+        assert_eq!(
+            elegir_raiz(None, Some(home), &existe),
+            Some(home.join(DIR_NUEVO))
+        );
     }
 
     #[test]
     fn instalacion_nueva_estrena_el_nombre_nuevo() {
         let home = Path::new("C:/Users/x");
-        assert_eq!(elegir_raiz(None, Some(home), &nada), Some(home.join(DIR_NUEVO)));
+        assert_eq!(
+            elegir_raiz(None, Some(home), &nada),
+            Some(home.join(DIR_NUEVO))
+        );
     }
 
     #[test]
@@ -189,7 +193,10 @@ mod tests {
         // saliera una ruta absoluta, robocopy crearia un arbol absurdo.
         let n = nombre_en_home();
         assert!(!n.is_empty());
-        assert!(!n.contains('/') && !n.contains('\\'), "no puede ser una ruta: {n}");
+        assert!(
+            !n.contains('/') && !n.contains('\\'),
+            "no puede ser una ruta: {n}"
+        );
         assert!(n.starts_with('.'), "la raiz es una carpeta oculta: {n}");
     }
 

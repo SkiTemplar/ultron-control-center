@@ -147,14 +147,14 @@ pub fn set_backup_root_inner(payload: SetBackupRootPayload) -> Result<BackupRoot
 /// diciendo ULTRON despues de la migracion.
 fn default_backup_sources() -> Vec<String> {
     vec![
-        crate::maria_paths::nombre_en_home(),
-        crate::maria_paths::nombre_vault_en_home(),
+        crate::maria::paths::nombre_en_home(),
+        crate::maria::paths::nombre_vault_en_home(),
         ".claude".to_string(),
     ]
 }
 
 fn backup_sources_config_path() -> Option<PathBuf> {
-    Some(crate::maria_paths::home().join("cockpit/backup-config.json"))
+    Some(crate::maria::paths::home().join("cockpit/backup-config.json"))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -536,8 +536,7 @@ pub fn get_backup_schedule_inner() -> Result<BackupScheduleInfo, String> {
 
 #[cfg(target_os = "windows")]
 fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
-    
-    let script_path = crate::maria_paths::home().join("scripts\\backup\\weekly-backup.ps1");
+    let script_path = crate::maria::paths::home().join("scripts\\backup\\weekly-backup.ps1");
     if !script_path.is_file() {
         return Err(format!(
             "weekly-backup.ps1 missing at {}",
@@ -552,20 +551,8 @@ fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
     // is exactly the upsert semantics the UI wants.
     let mut cmd = crate::proc::oculto("schtasks.exe");
     cmd.args([
-        "/Create",
-        "/SC",
-        "WEEKLY",
-        "/D",
-        day,
-        "/ST",
-        time,
-        "/TN",
-        TAREA,
-        "/TR",
-        &tr,
-        "/RL",
-        "LIMITED",
-        "/F",
+        "/Create", "/SC", "WEEKLY", "/D", day, "/ST", time, "/TN", TAREA, "/TR", &tr, "/RL",
+        "LIMITED", "/F",
     ]);
     #[cfg(windows)]
     {
@@ -816,7 +803,7 @@ mod tests {
         // literal.
         let d = default_backup_sources();
         assert_eq!(d.len(), 3, "raiz, vault y .claude: {d:?}");
-        assert_eq!(d[0], crate::maria_paths::nombre_en_home());
+        assert_eq!(d[0], crate::maria::paths::nombre_en_home());
         assert!(d[1].ends_with("-vault"), "{d:?}");
         assert_eq!(d[2], ".claude");
         // Y los dos primeros a juego: raiz `.maria` con vault `.maria-vault`,
@@ -834,8 +821,13 @@ mod tests {
     fn la_configuracion_vive_bajo_la_raiz_de_maria() {
         // Caso negativo del fallo: estas dos rutas se construian a mano con
         // `.ultron` y por eso la pantalla seguia mostrando el nombre viejo.
-        let raiz = crate::maria_paths::home();
+        let raiz = crate::maria::paths::home();
         let cfg = backup_sources_config_path().expect("ruta de configuracion");
-        assert!(cfg.starts_with(&raiz), "{} no cuelga de {}", cfg.display(), raiz.display());
+        assert!(
+            cfg.starts_with(&raiz),
+            "{} no cuelga de {}",
+            cfg.display(),
+            raiz.display()
+        );
     }
 }

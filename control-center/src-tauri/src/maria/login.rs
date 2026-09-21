@@ -143,8 +143,16 @@ mod tests {
     #[test]
     fn cada_ficha_dice_como_entrar_y_adonde() {
         for a in accesos() {
-            assert!(!a.how_to.trim().is_empty(), "{} sin instrucciones", a.provider);
-            assert!(a.url.starts_with("https://"), "{} sin url https", a.provider);
+            assert!(
+                !a.how_to.trim().is_empty(),
+                "{} sin instrucciones",
+                a.provider
+            );
+            assert!(
+                a.url.starts_with("https://"),
+                "{} sin url https",
+                a.provider
+            );
             assert!(
                 !a.how_checked.trim().is_empty(),
                 "{} no explica que comprueba",
@@ -159,7 +167,9 @@ mod tests {
         // Si volviera a aparecer una ficha suya estariamos mandando al usuario
         // a un login que Google cerro el 18/06/2026.
         assert!(accesos().iter().all(|a| a.provider != "gemini"));
-        assert!(accesos().iter().all(|a| !a.label.to_lowercase().contains("gemini")));
+        assert!(accesos()
+            .iter()
+            .all(|a| !a.label.to_lowercase().contains("gemini")));
     }
 
     #[test]

@@ -99,7 +99,7 @@ impl Default for Criterio {
 }
 
 fn ruta() -> Result<std::path::PathBuf, String> {
-    Ok(crate::maria_paths::cockpit("maria")?.join("criterio.json"))
+    Ok(crate::maria::paths::cockpit("maria")?.join("criterio.json"))
 }
 
 #[must_use]
@@ -173,7 +173,7 @@ pub async fn maria_criterio_get() -> Result<Criterio, String> {
 
 #[tauri::command]
 pub async fn maria_criterio_set(criterio: Criterio) -> Result<Criterio, String> {
-    let validos: Vec<String> = crate::maria_relay::load_config().order;
+    let validos: Vec<String> = crate::maria::relay::load_config().order;
     let limpio = solo_proveedores_validos(&criterio, &validos);
     guardar(&limpio)?;
     Ok(limpio)
@@ -242,13 +242,21 @@ mod tests {
         // propusiera un destino que ya no existe en cada turno.
         let c = Criterio {
             decide_la_local: true,
-            reglas: vec![regla("a", "claude"), regla("b", "groq"), regla("c", "local")],
+            reglas: vec![
+                regla("a", "claude"),
+                regla("b", "groq"),
+                regla("c", "local"),
+            ],
             nota: String::new(),
         };
         let validos = vec!["claude".to_string(), "local".to_string()];
         let limpio = solo_proveedores_validos(&c, &validos);
         assert_eq!(
-            limpio.reglas.iter().map(|r| r.provider.as_str()).collect::<Vec<_>>(),
+            limpio
+                .reglas
+                .iter()
+                .map(|r| r.provider.as_str())
+                .collect::<Vec<_>>(),
             vec!["claude", "local"]
         );
     }

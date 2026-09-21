@@ -95,7 +95,6 @@ pub async fn event_log_recent(
 #[cfg(target_os = "windows")]
 fn query_event_log(limit: u32, scope: EventLogScope) -> Result<Vec<EventLogEntry>, String> {
     use std::os::windows::process::CommandExt;
-    
 
     let xpath = build_xpath(scope);
 

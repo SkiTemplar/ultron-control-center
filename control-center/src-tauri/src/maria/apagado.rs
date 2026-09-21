@@ -123,13 +123,13 @@ pub fn apagar() {
     tracing::info!("apagado: empieza");
 
     // 2. La voz, lo primero: es lo unico que puede seguir sonando.
-    crate::maria_voice::parar_para_apagado();
+    crate::maria::voice::parar_para_apagado();
 
     // 3. El hook de teclado deja de escribir en otros programas.
-    crate::maria_teclado::parar();
+    crate::maria::teclado::parar();
 
     // 4. El servidor del movil deja de aceptar peticiones.
-    crate::maria_web::stop();
+    crate::maria::web::stop();
 
     // 5. Las terminales embebidas.
     crate::pty::kill_all_inner();
@@ -141,7 +141,12 @@ pub fn apagar() {
     };
     for p in pendientes {
         let ok = matar_arbol(p.pid);
-        tracing::info!(proceso = p.nombre, pid = p.pid, ok, "apagado: proceso propio");
+        tracing::info!(
+            proceso = p.nombre,
+            pid = p.pid,
+            ok,
+            "apagado: proceso propio"
+        );
     }
 
     tracing::info!("apagado: terminado");

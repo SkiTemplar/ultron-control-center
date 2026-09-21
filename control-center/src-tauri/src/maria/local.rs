@@ -169,7 +169,10 @@ pub fn asegurar_al_arranque() {
             ),
         }
     }
-    tracing::error!("maria-local: ollama no arranco tras {} intentos", ESPERAS.len());
+    tracing::error!(
+        "maria-local: ollama no arranco tras {} intentos",
+        ESPERAS.len()
+    );
 }
 
 /// Estado del modelo local para la interfaz.
@@ -225,7 +228,10 @@ mod tests {
         // El primer intento tiene que ser inmediato: si el servidor ya esta
         // arriba, arrancar la app no puede costar 10 segundos de espera.
         assert_eq!(ESPERAS.first(), Some(&0));
-        assert!(ESPERAS.len() >= 3, "un solo intento deja la IA caida toda la sesion");
+        assert!(
+            ESPERAS.len() >= 3,
+            "un solo intento deja la IA caida toda la sesion"
+        );
         // Y las esperas tienen que crecer, no repetirse.
         for par in ESPERAS.windows(2) {
             assert!(par[1] > par[0], "esperas no crecientes: {ESPERAS:?}");
@@ -238,7 +244,10 @@ mod tests {
         // Un true aqui haria creer a la interfaz que hay 6,6 GB ocupados.
         let e = estado();
         if !e.server_up {
-            assert!(!e.model_loaded, "sin servidor no puede haber modelo cargado");
+            assert!(
+                !e.model_loaded,
+                "sin servidor no puede haber modelo cargado"
+            );
         }
     }
 }

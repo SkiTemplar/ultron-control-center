@@ -20,10 +20,16 @@ pub struct ToolOutcome {
 
 impl ToolOutcome {
     fn ok(say: impl Into<String>) -> Self {
-        Self { ok: true, say: say.into() }
+        Self {
+            ok: true,
+            say: say.into(),
+        }
     }
     fn fail(say: impl Into<String>) -> Self {
-        Self { ok: false, say: say.into() }
+        Self {
+            ok: false,
+            say: say.into(),
+        }
     }
 }
 
@@ -81,17 +87,10 @@ pub fn abrir_app(nombre: &str) -> ToolOutcome {
 /// Va por el daemon, que ya tiene los modelos calientes. Si no responde, se
 /// dice — no se finge que no hay recuerdos.
 pub fn recordar(consulta: &str) -> ToolOutcome {
-    let Some(value) = crate::daemon_client::recall(
-        consulta,
-        3,
-        None,
-        true,
-        false,
-        Duration::from_secs(12),
-    ) else {
-        return ToolOutcome::fail(
-            "No he podido consultar la memoria: el daemon no responde.",
-        );
+    let Some(value) =
+        crate::daemon_client::recall(consulta, 3, None, true, false, Duration::from_secs(12))
+    else {
+        return ToolOutcome::fail("No he podido consultar la memoria: el daemon no responde.");
     };
 
     // El pack trae los items en `memories`; cada uno con titulo y resumen.
@@ -130,7 +129,7 @@ pub fn recordar(consulta: &str) -> ToolOutcome {
 /// hay salida a la red.
 #[must_use]
 pub fn estado_del_sistema() -> ToolOutcome {
-    let t = crate::maria_sysinfo::telemetry();
+    let t = crate::maria::sysinfo::telemetry();
     let cpu = t
         .cpu_pct
         .map(|c| format!("{c:.0} por ciento de CPU"))
@@ -184,9 +183,12 @@ pub fn mirar_registros(fuente: &str) -> ToolOutcome {
 
 /// Ultimas lineas con pinta de problema en los logs de mar.ia.
 fn registros_de_maria() -> ToolOutcome {
-    let dir = crate::maria_paths::home().join("logs");
+    let dir = crate::maria::paths::home().join("logs");
     let Ok(entradas) = std::fs::read_dir(&dir) else {
-        return ToolOutcome::fail(format!("No encuentro la carpeta de registros en {}.", dir.display()));
+        return ToolOutcome::fail(format!(
+            "No encuentro la carpeta de registros en {}.",
+            dir.display()
+        ));
     };
     // El fichero tocado mas recientemente: es donde esta lo de ahora.
     let mut ficheros: Vec<(std::time::SystemTime, std::path::PathBuf)> = entradas
@@ -261,7 +263,10 @@ fn registros_de_windows() -> ToolOutcome {
     if lineas.is_empty() {
         return ToolOutcome::ok("Windows no ha registrado errores recientes.");
     }
-    ToolOutcome::ok(format!("Últimos errores de Windows: {}", lineas.join(" | ")))
+    ToolOutcome::ok(format!(
+        "Últimos errores de Windows: {}",
+        lineas.join(" | ")
+    ))
 }
 
 #[cfg(not(windows))]
@@ -316,7 +321,13 @@ mod tests {
 
     #[test]
     fn acepta_nombres_de_aplicacion_normales() {
-        for n in ["Spotify", "Visual Studio Code", "obs-studio", "7zip", "Notepad++"] {
+        for n in [
+            "Spotify",
+            "Visual Studio Code",
+            "obs-studio",
+            "7zip",
+            "Notepad++",
+        ] {
             assert!(is_safe_app_name(n), "deberia aceptar {n}");
         }
     }

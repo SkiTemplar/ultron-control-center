@@ -176,7 +176,7 @@ fn variable(nombre: &str) -> Option<(String, String)> {
             return Some((v.trim().to_string(), "variable de entorno".into()));
         }
     }
-    let env_file = crate::maria_paths::home().join(".env");
+    let env_file = crate::maria::paths::home().join(".env");
     let texto = std::fs::read_to_string(&env_file).ok()?;
     for linea in texto.lines() {
         let linea = linea.trim();
@@ -253,9 +253,10 @@ fn cuenta_codex(home: &std::path::Path) -> Cuenta {
             // Codex guarda el correo dentro del id_token.
             for clave in ["id_token", "tokens"] {
                 let nodo = v.get(clave);
-                let token = nodo
-                    .and_then(|n| n.as_str())
-                    .or_else(|| nodo.and_then(|n| n.get("id_token")).and_then(|t| t.as_str()));
+                let token = nodo.and_then(|n| n.as_str()).or_else(|| {
+                    nodo.and_then(|n| n.get("id_token"))
+                        .and_then(|t| t.as_str())
+                });
                 if let Some(c) = token.and_then(correo_en_jwt) {
                     account = c;
                     source = format!("{} (id_token)", auth.display());
@@ -309,7 +310,7 @@ fn cuenta_antigravity() -> Cuenta {
     //
     // Lo que si se comprueba es si esta instalada, que es lo que decide si el
     // relevo puede contar con ella.
-    let instalada = crate::maria_login::en_path("agy");
+    let instalada = crate::maria::login::en_path("agy");
     let mut warnings = Vec::new();
     if !instalada {
         warnings.push(
@@ -338,7 +339,7 @@ fn cuenta_antigravity() -> Cuenta {
 }
 
 fn cuenta_local() -> Cuenta {
-    let e = crate::maria_local::estado();
+    let e = crate::maria::local::estado();
     Cuenta {
         provider: "local".into(),
         label: "Modelo local".into(),
@@ -399,7 +400,10 @@ mod tests {
             (json!({"email": "yo@ejemplo.com"}), "yo@ejemplo.com"),
             (json!({"account": {"email": "a@b.c"}}), "a@b.c"),
             (json!({"oauthAccount": {"emailAddress": "x@y.z"}}), "x@y.z"),
-            (json!({"active_account": "cuenta@google.com"}), "cuenta@google.com"),
+            (
+                json!({"active_account": "cuenta@google.com"}),
+                "cuenta@google.com",
+            ),
         ] {
             assert_eq!(correo_en(&v).map(|(c, _)| c).as_deref(), Some(esperado));
         }
@@ -411,7 +415,10 @@ mod tests {
         // el informe, pero `correo_en` sigue mirando esa forma: es la misma
         // que usan otros ficheros de sesion de Google.
         let v = json!({"active": "yo@gmail.com", "old": ["otro@gmail.com"]});
-        assert_eq!(correo_en(&v).map(|(c, _)| c).as_deref(), Some("yo@gmail.com"));
+        assert_eq!(
+            correo_en(&v).map(|(c, _)| c).as_deref(),
+            Some("yo@gmail.com")
+        );
     }
 
     #[test]
@@ -475,7 +482,11 @@ mod tests {
 
     #[test]
     fn detecta_que_hay_varios_correos() {
-        let cs = vec![cuenta("yo@a.com"), cuenta("companero@b.com"), cuenta("YO@a.com")];
+        let cs = vec![
+            cuenta("yo@a.com"),
+            cuenta("companero@b.com"),
+            cuenta("YO@a.com"),
+        ];
         // El mismo correo en distinta caja no cuenta dos veces.
         assert_eq!(correos_distintos(&cs), vec!["yo@a.com", "companero@b.com"]);
     }
@@ -510,7 +521,11 @@ mod tests {
                 c.provider,
                 c.tipo,
                 correo,
-                if c.key_tail.is_empty() { "-" } else { &c.key_tail },
+                if c.key_tail.is_empty() {
+                    "-"
+                } else {
+                    &c.key_tail
+                },
                 c.warnings.len()
             );
             for w in &c.warnings {
@@ -530,7 +545,11 @@ mod tests {
         // con el de compañeros").
         let c = cuenta_antigravity();
         assert_eq!(c.provider, "antigravity");
-        assert!(c.account.is_empty(), "no hay de donde sacarlo: {}", c.account);
+        assert!(
+            c.account.is_empty(),
+            "no hay de donde sacarlo: {}",
+            c.account
+        );
         assert!(c.key_tail.is_empty());
     }
 
@@ -541,8 +560,16 @@ mod tests {
         assert_eq!(ids, vec!["claude", "codex", "antigravity", "local"]);
         for c in &i.cuentas {
             // Nada que se parezca a un token puede salir de aqui.
-            assert!(c.key_tail.chars().count() <= 5, "cola larga: {}", c.key_tail);
-            assert!(!c.account.contains("sk-"), "parece una clave: {}", c.account);
+            assert!(
+                c.key_tail.chars().count() <= 5,
+                "cola larga: {}",
+                c.key_tail
+            );
+            assert!(
+                !c.account.contains("sk-"),
+                "parece una clave: {}",
+                c.account
+            );
         }
     }
 }

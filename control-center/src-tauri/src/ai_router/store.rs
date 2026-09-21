@@ -173,8 +173,7 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
             if let Ok(zonas_path) = zones_path() {
                 if zonas_path.exists() {
                     if let Ok(mut zonas) = read_json::<Vec<Zone>>(&zonas_path) {
-                        let vigentes: Vec<String> =
-                            loaded.iter().map(|p| p.id.clone()).collect();
+                        let vigentes: Vec<String> = loaded.iter().map(|p| p.id.clone()).collect();
                         if repair_zones_after_drop(&mut zonas, &vigentes) {
                             let _ = write_json(&zonas_path, &zonas);
                         }
@@ -207,8 +206,7 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
 ///
 /// Pure (no I/O) so the merge is unit-testable.
 pub(crate) fn merge_missing_seed_providers(providers: &mut Vec<Provider>) -> bool {
-    let have: std::collections::HashSet<String> =
-        providers.iter().map(|p| p.id.clone()).collect();
+    let have: std::collections::HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
     let mut mutated = false;
     for sp in seed_providers() {
         if !have.contains(&sp.id) {
@@ -867,8 +865,10 @@ mod provider_seed_merge_tests {
     fn adds_the_missing_claude_provider() {
         // El caso real (2026-09-17): providers.json sin 'claude' mientras
         // zones.json lo tenia como primary de code-edit y code-review.
-        let mut providers: Vec<Provider> =
-            seed_providers().into_iter().filter(|p| p.id != "claude").collect();
+        let mut providers: Vec<Provider> = seed_providers()
+            .into_iter()
+            .filter(|p| p.id != "claude")
+            .collect();
         assert!(!providers.iter().any(|p| p.id == "claude"));
         assert!(merge_missing_seed_providers(&mut providers));
         assert!(providers.iter().any(|p| p.id == "claude"));
@@ -979,7 +979,6 @@ mod provider_seed_merge_tests {
         assert!(repair_zones_after_drop(&mut zonas, &["ollama".to_string()]));
         assert_eq!(zonas[0].primary.provider_id, "ollama");
     }
-
 }
 
 #[cfg(test)]
@@ -1064,5 +1063,4 @@ mod provider_model_migration_tests {
         assert_eq!(providers[0].default_model, "openai/gpt-oss-20b");
         assert_eq!(providers[1].default_model, "gemini-2.5-pro");
     }
-
 }

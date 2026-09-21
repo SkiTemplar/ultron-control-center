@@ -1,12 +1,12 @@
-<h1 align="center">ULTRON Control Center</h1>
+<h1 align="center">mar.ia</h1>
 
 <p align="center">
-  <em>Una capa de memoria gobernada, enrutado multi-LLM y orquestacion de
-  skills/agentes para <a href="https://claude.com/claude-code">Claude Code</a>.</em>
+  <em>Asistente de escritorio para quien trabaja con varias IA a la vez: un chat con
+  relevo entre proveedores, voz, terminales embebidas y memoria gobernada sobre
+  <a href="https://claude.com/claude-code">Claude Code</a>.</em>
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-15.8.0-555">
   <img alt="stack" src="https://img.shields.io/badge/Tauri_2-%2B_React_19-555">
   <img alt="backend" src="https://img.shields.io/badge/backend-Rust_2021-555">
   <img alt="memoria" src="https://img.shields.io/badge/memoria-SQLite_%2B_Qdrant-555">
@@ -14,22 +14,36 @@
   <img alt="licencia" src="https://img.shields.io/badge/licencia-MIT-555">
 </p>
 
-Cockpit personal de escritorio (Tauri 2 + React 19) construido sobre la CLI de
-Claude Code. Vive bajo `~/.ultron/` y reune tres piezas: **memoria gobernada**,
-**AI Router** y un **orquestador de skills/agentes**. No reemplaza a Claude
-Code: lo envuelve con estado persistente, inspeccionable y versionable.
+mar.ia es un fork de [ULTRON Control Center](https://github.com/SkiTemplar/ultron-control-center).
+Conserva su núcleo —memoria gobernada, enrutado de skills/agentes y AI Router— y
+le pone delante un asistente: una pantalla principal con orbe y voz, un chat que
+pasa el mismo hilo de un proveedor a otro, terminales dentro de la ventana y una
+webapp para el móvil. Vive en `~/.maria/` (`~/.ultron` queda como enlace de
+compatibilidad).
 
-> Repositorio MIT de un solo mantenedor, pensado para publicarse (hoy la
-> visibilidad la decide el mantenedor: si puedes leer esto en GitHub, ya es
-> publico). No es un producto comercial ni un SaaS. Esta documentacion
-> describe el sistema tal y como esta en el disco; no contiene secretos ni
-> datos personales (la informacion personal vive solo en ficheros locales
-> fuera de control de versiones).
+Esta rama (`maria-core`) es el resultado de una auditoría funcional completa:
+se retiró todo lo que no tenía uso real o no era trabajo de un asistente. El
+detalle, con la evidencia de cada decisión, está en
+[`docs/AUDITORIA.md`](docs/AUDITORIA.md).
 
-- **Version**: 15.8.0 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
-- **Plataforma**: Windows 11 (objetivo principal); Linux x86_64 compila pero el
-  flujo end-to-end no esta verificado por el autor.
+- **Plataforma**: Windows 11. Linux compila, pero la voz, el atajo `//maria` y
+  el lanzador son solo Windows.
 - **Licencia**: MIT (ver [`LICENSE`](LICENSE)).
+
+---
+
+## Qué hace
+
+| Bloque | Pantallas | Para qué |
+|---|---|---|
+| **Asistente** | mar.ia (orbe), Chat, Conversaciones, Terminales, Mosaico | Hablar o escribir a la IA. El chat mantiene UN hilo y lo releva entre `claude`, `codex`, `antigravity` y el modelo local según cuota y disponibilidad. Terminales y mosaico para tener varias CLIs a la vista. |
+| **Cerebro** | Memoria, Skills y agentes, MCPs, Router | Lo que la IA sabe y puede usar: memoria con inbox de aprobación, catálogo de skills/agentes con carga bajo demanda, servidores MCP y el router de llamadas internas. |
+| **Trabajo** | Proyectos, Sesiones, Consumo, Sistema | Lanzar sesiones por proyecto con su tablero, vigilar las sesiones vivas de Claude Code, ver el gasto real y diagnosticar el equipo. |
+
+Además: voz (palabra clave, pulsar-para-hablar, Whisper por GPU), autocompletado
+global `//maria` en cualquier programa, webapp móvil (PWA) que habla solo con
+este PC, y hooks de Claude Code que dan memoria y contexto a **todas** las
+sesiones, no solo a las que se abren desde la app.
 
 ---
 
@@ -248,7 +262,7 @@ Binarios sidecar declarados en `control-center/src-tauri/Cargo.toml`:
 ```bash
 # desde control-center/
 npm install
-npm run build:app   # = kill-app + tauri build (genera el ejecutable de escritorio)
+npm run build:local # = cierra la app + tauri build + despliega el sidecar + lanzador
 ```
 
 Otros scripts utiles (en `control-center/package.json`):
@@ -274,7 +288,7 @@ npm test       # vitest (frontend)
 ├── qdrant_storage/           # datos persistidos por Qdrant
 ├── control-center/           # la app Tauri 2 + React 19
 │   ├── src/                  # frontend React/TS (componentes, tabs)
-│   │   └── components/       # Dashboard, AIRouter, Library, Projects, ...
+│   │   └── components/       # jarvis (orbe, chat, terminales), AIRouter, Library, Projects, ...
 │   └── src-tauri/
 │       └── src/
 │           ├── memory/       # kernel de memoria (service, sqlite_store,
@@ -283,6 +297,8 @@ npm test       # vitest (frontend)
 │           │                 # projects, system_ops, ...)
 │           ├── ai_router/    # AI Router (mod/exec/health/providers/seed/store/types)
 │           ├── orchestrator/ # mod/orchestrate/ranking/rules/types_model
+│           ├── maria/        # lo propio de mar.ia: relay, voice, web, term,
+│           │                 # threads, teclado, cuentas, apagado, arranque...
 │           └── bin/          # sidecar ultron-memory
 ├── cockpit/                  # config + estado en JSON/markdown
 │   └── ai-router/            # providers.json, zones.json, metrics.json
@@ -290,7 +306,6 @@ npm test       # vitest (frontend)
 │                             # auto-siembra desde los seeds compilados)
 ├── hooks/                    # hooks de ciclo de vida
 ├── skills/                   # skills core (SKILL.md; catalogo curado no se publica)
-├── plans/  projects/         # planes y proyectos
 ├── sessions/                 # logs de sesion / telemetria de routing
 └── docs/                     # documentacion ampliada
 ```
@@ -312,18 +327,14 @@ npm test       # vitest (frontend)
   playground de deteccion. `personality.json` local (gitignored) con seeds
   publicables compilados; limite duro: el tono solo aplica al chat, jamas a
   artefactos.
-- **Detector de texto IA** (apoyo TFG): hook PostToolUse que avisa cuando la
-  prosa escrita "canta" a IA + Lab de patrones deterministas sobre el catalogo
-  de investigacion; matcher con CLI y banco de casos. Senala, no reescribe.
-- **UI (Control Center, v15.8.0)**: barra lateral con Dashboard, Usage, AI Router,
-  System (con sub-tabs de Hooks/Schedules), MCPs,
-  Library (sub-tabs Skills/Agents/Rules/**Updates**), **Memory**, Notes,
-  Learn, Sessions, Projects, Finance (solo build local con `VITE_FINANCE=1`),
-  Settings y Notifications. La pestana **Memory**
-  esta **viva** (re-anadida 2026-06-04, `Sidebar.tsx`): expone el inbox de
-  candidatos (aprobar/rechazar/editar) y la salud de `brain.db`; el kernel de
-  memoria sigue siendo solo-backend, pero su gobierno human-in-the-loop se hace
-  desde esta pestana (ademas de los comandos).
+- **Interfaz (mar.ia)**: barra lateral en tres bloques —Asistente (mar.ia,
+  Chat, Conversaciones, Terminales, Mosaico), Cerebro (Memoria, Skills y
+  agentes, MCPs, Router) y Trabajo (Proyectos, Sesiones, Consumo, Sistema)—
+  con Avisos y Ajustes al pie. 248 comandos Tauri, todos con llamador en la
+  interfaz. Lo retirado en la auditoría de 2026-09-21 (Panel, Notas, Planes,
+  Aprender, Laboratorio, Novedades, Finanzas, inventario de aplicaciones,
+  apagado programado, comprobador de actualizaciones, proxy free-tier) está
+  razonado en [`docs/AUDITORIA.md`](docs/AUDITORIA.md).
 
 ---
 

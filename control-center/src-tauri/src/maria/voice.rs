@@ -51,7 +51,9 @@ fn voice_script() -> Result<std::path::PathBuf, String> {
     // apuntando al sitio equivocado en cuanto se definiera.
     for var in ["MARIA_REPO", "ULTRON_REPO"] {
         if let Ok(dir) = std::env::var(var) {
-            let p = std::path::Path::new(&dir).join("voice").join("maria_voice.py");
+            let p = std::path::Path::new(&dir)
+                .join("voice")
+                .join("maria_voice.py");
             if p.exists() {
                 return Ok(p);
             }
@@ -102,7 +104,7 @@ fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
         // Con la aplicacion cerrandose, lo que llegue tarde se tira: ni
         // eventos a una ventana que ya no esta, ni herramientas que abran
         // programas despues de cerrar.
-        if crate::maria_apagado::apagando() {
+        if crate::maria::apagado::apagando() {
             continue;
         }
         let kind = value.get("event").and_then(|v| v.as_str()).unwrap_or("");
@@ -110,25 +112,28 @@ fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
             // El orbe solo entiende state/amp/text: se traduce aqui para no
             // atarlo al protocolo del sidecar.
             "state" => {
-                let state = value.get("state").and_then(|v| v.as_str()).unwrap_or("idle");
-                ESCUCHANDO.store(
-                    state == "listening",
-                    std::sync::atomic::Ordering::SeqCst,
-                );
-                let _ = app.emit(
-                    "maria:voice",
-                    serde_json::json!({ "state": state }),
-                );
+                let state = value
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("idle");
+                ESCUCHANDO.store(state == "listening", std::sync::atomic::Ordering::SeqCst);
+                let _ = app.emit("maria:voice", serde_json::json!({ "state": state }));
             }
             // Microfono encendido o apagado. Es un eje aparte del estado: se
             // puede estar en reposo con el microfono abierto (esperando la
             // palabra clave) o cerrado del todo.
             "mic" => {
-                let on = value.get("on").and_then(serde_json::Value::as_bool).unwrap_or(false);
+                let on = value
+                    .get("on")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
                 let _ = app.emit("maria:voice", serde_json::json!({ "mic": on }));
             }
             "amp" => {
-                let amp = value.get("amp").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+                let amp = value
+                    .get("amp")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.0);
                 let _ = app.emit("maria:voice", serde_json::json!({ "amp": amp }));
             }
             "transcript" | "reply" => {
@@ -159,7 +164,10 @@ fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
                 std::thread::spawn(move || run_tool(&app_for_tool, &value));
             }
             "error" => {
-                let msg = value.get("message").and_then(|v| v.as_str()).unwrap_or("error");
+                let msg = value
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("error");
                 crate::toast_emit::record_alert_and_maybe_toast(&app, "maria_voice", "warn", msg);
             }
             "log" | "pong" => {
@@ -178,10 +186,13 @@ fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
 /// Ejecuta una herramienta pedida por la voz y devuelve el resultado REAL
 /// para que mar.ia lo diga. Nada de dar por hecho lo que no se ha hecho.
 fn run_tool(app: &AppHandle, value: &serde_json::Value) {
-    use crate::maria_tools;
+    use crate::maria::tools;
 
     let name = value.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let args = value.get("args").cloned().unwrap_or(serde_json::Value::Null);
+    let args = value
+        .get("args")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     let arg_str = |k: &str| -> String {
         args.get(k)
             .and_then(|v| v.as_str())
@@ -190,13 +201,13 @@ fn run_tool(app: &AppHandle, value: &serde_json::Value) {
     };
 
     let outcome = match name {
-        "abrir_app" => maria_tools::abrir_app(&arg_str("nombre")),
-        "recordar" => maria_tools::recordar(&arg_str("consulta")),
-        "estado_del_sistema" => maria_tools::estado_del_sistema(),
-        "mirar_registros" => maria_tools::mirar_registros(&arg_str("fuente")),
+        "abrir_app" => tools::abrir_app(&arg_str("nombre")),
+        "recordar" => tools::recordar(&arg_str("consulta")),
+        "estado_del_sistema" => tools::estado_del_sistema(),
+        "mirar_registros" => tools::mirar_registros(&arg_str("fuente")),
         "delegar_a_agente" => {
             let proyecto = arg_str("proyecto");
-            maria_tools::delegar_a_agente(
+            tools::delegar_a_agente(
                 app,
                 &arg_str("tarea"),
                 Some(proyecto.as_str()).filter(|p| !p.is_empty()),
@@ -206,7 +217,7 @@ fn run_tool(app: &AppHandle, value: &serde_json::Value) {
             // Una herramienta que el modelo se invente no puede acabar en
             // silencio: se dice que no existe.
             tracing::warn!(tool = %otra, "herramienta desconocida pedida por la voz");
-            maria_tools::ToolOutcome {
+            tools::ToolOutcome {
                 ok: false,
                 say: format!("No sé hacer eso todavía: {otra}."),
             }
@@ -252,7 +263,9 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
     // El stderr del sidecar va a un fichero, no a /dev/null: cuando la voz no
     // arrancaba (2026-09-19) el motivo estaba justo ahi y se estaba tirando a
     // la basura. Si el fichero no se puede abrir, se sigue sin el.
-    let log = crate::maria_paths::home().join("logs").join("maria-voz.log");
+    let log = crate::maria::paths::home()
+        .join("logs")
+        .join("maria-voz.log");
     let _ = std::fs::create_dir_all(log.parent().unwrap_or(&log));
     let stderr = std::fs::OpenOptions::new()
         .create(true)
@@ -273,16 +286,19 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
 
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("no pude lanzar el sidecar de voz ({}): {e}", python.display()))?;
+    let mut child = command.spawn().map_err(|e| {
+        format!(
+            "no pude lanzar el sidecar de voz ({}): {e}",
+            python.display()
+        )
+    })?;
     let stdin = child.stdin.take().ok_or("el hijo no expone stdin")?;
     let stdout = child.stdout.take().ok_or("el hijo no expone stdout")?;
 
     // El PID queda apuntado como propio: al cerrar hay que matar su ARBOL,
     // porque el sidecar lanza PowerShell para sintetizar y ese nieto es el
     // que seguia hablando con la aplicacion ya cerrada.
-    crate::maria_apagado::registrar("sidecar de voz", child.id());
+    crate::maria::apagado::registrar("sidecar de voz", child.id());
     *guard = Some(VoiceProc { child, stdin });
     drop(guard);
 
@@ -307,13 +323,13 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
 /// tiene que estar viva igual, que es justo lo que pide un saludo "al
 /// despertar".
 pub fn arrancar_al_inicio(app: AppHandle) {
-    std::thread::spawn(move || {
-        match tauri::async_runtime::block_on(maria_voice_start(app)) {
+    std::thread::spawn(
+        move || match tauri::async_runtime::block_on(maria_voice_start(app)) {
             Ok(true) => tracing::info!("maria-voz: sidecar arrancado"),
             Ok(false) => tracing::info!("maria-voz: ya estaba arrancado"),
             Err(e) => tracing::error!(error = %e, "maria-voz: no pude arrancar la voz"),
-        }
-    });
+        },
+    );
 }
 
 /// ¿Esta activada la palabra clave? Por defecto SI: mar.ia responde a su
@@ -321,7 +337,11 @@ pub fn arrancar_al_inicio(app: AppHandle) {
 /// ejemplo, en clase o en una reunion).
 pub fn wake_enabled() -> bool {
     dirs::home_dir()
-        .map(|_| crate::maria_paths::home().join(".tmp").join("maria-wake.txt"))
+        .map(|_| {
+            crate::maria::paths::home()
+                .join(".tmp")
+                .join("maria-wake.txt")
+        })
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|s| s.trim() != "0")
         .unwrap_or(true)
@@ -340,8 +360,11 @@ pub async fn maria_voice_wake_status() -> Result<bool, String> {
 /// Enciende o apaga la escucha por palabra clave, y lo recuerda.
 #[tauri::command]
 pub async fn maria_voice_wake(enabled: bool) -> Result<bool, String> {
-    if let Some(p) = dirs::home_dir().map(|_| crate::maria_paths::home().join(".tmp").join("maria-wake.txt"))
-    {
+    if let Some(p) = dirs::home_dir().map(|_| {
+        crate::maria::paths::home()
+            .join(".tmp")
+            .join("maria-wake.txt")
+    }) {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -376,11 +399,7 @@ pub async fn maria_voice_ask(text: String) -> Result<(), String> {
 /// HABLAR con mar.ia ya cerrada. Es el fallo que reporto el usuario el
 /// 2026-09-21.
 pub fn parar_para_apagado() {
-    let Some(mut proc) = VOICE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
-    else {
+    let Some(mut proc) = VOICE.lock().unwrap_or_else(|e| e.into_inner()).take() else {
         return;
     };
     let pid = proc.child.id();
@@ -389,10 +408,10 @@ pub fn parar_para_apagado() {
     let _ = proc.stdin.flush();
     std::thread::sleep(std::time::Duration::from_millis(300));
     // Y por las malas, con el arbol entero.
-    crate::maria_apagado::matar_propio(pid);
+    crate::maria::apagado::matar_propio(pid);
     let _ = proc.child.kill();
     let _ = proc.child.wait();
-    crate::maria_apagado::olvidar(pid);
+    crate::maria::apagado::olvidar(pid);
     tracing::info!(pid, "apagado: voz parada");
 }
 
@@ -413,7 +432,11 @@ pub async fn maria_voice_running() -> Result<bool, String> {
 pub const DEFAULT_PTT: &str = "Ctrl+Space";
 
 fn ptt_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|_| crate::maria_paths::home().join(".tmp").join("maria-ptt.txt"))
+    dirs::home_dir().map(|_| {
+        crate::maria::paths::home()
+            .join(".tmp")
+            .join("maria-ptt.txt")
+    })
 }
 
 /// Combinacion de pulsar-para-hablar. Fichero de texto plano, igual que el
@@ -430,10 +453,7 @@ pub fn ptt_spec() -> String {
 ///
 /// Pulsar graba; SOLTAR cierra la toma y transcribe (`stop`), que no es lo
 /// mismo que cancelar: soltar la tecla no puede tirar lo que acabas de decir.
-pub fn handle_ptt(
-    shortcut: &tauri_plugin_global_shortcut::Shortcut,
-    pressed: bool,
-) -> bool {
+pub fn handle_ptt(shortcut: &tauri_plugin_global_shortcut::Shortcut, pressed: bool) -> bool {
     let Ok(expected) = crate::hotkeys::parse_hotkey(&ptt_spec()) else {
         return false;
     };
@@ -511,6 +531,9 @@ mod tests {
     fn sin_sidecar_las_ordenes_fallan_con_mensaje_claro() {
         // Caso negativo: nada de silencio si el sidecar no esta arrancado.
         let err = send_line(r#"{"cmd":"listen"}"#).unwrap_err();
-        assert!(err.contains("no esta arrancado"), "mensaje inesperado: {err}");
+        assert!(
+            err.contains("no esta arrancado"),
+            "mensaje inesperado: {err}"
+        );
     }
 }

@@ -330,7 +330,10 @@ mod tests {
 
         assert_eq!(page.turns[0].role, "user");
         assert_eq!(page.turns[0].text.as_deref(), Some("arregla el login"));
-        assert_eq!(page.turns[0].timestamp.as_deref(), Some("2026-09-01T10:00:00Z"));
+        assert_eq!(
+            page.turns[0].timestamp.as_deref(),
+            Some("2026-09-01T10:00:00Z")
+        );
 
         assert_eq!(page.turns[1].role, "assistant");
         assert_eq!(page.turns[1].model.as_deref(), Some("claude-opus-5"));

@@ -70,7 +70,11 @@ fn seed_providers_includes_all_targets() {
     for expected in ["claude", "codex-cli", "gemini", "ollama"] {
         assert!(ids.iter().any(|id| id == expected), "missing {}", expected);
     }
-    assert_eq!(ids.len(), 4, "el catalogo deberia tener solo esos cuatro: {ids:?}");
+    assert_eq!(
+        ids.len(),
+        4,
+        "el catalogo deberia tener solo esos cuatro: {ids:?}"
+    );
 }
 
 #[test]

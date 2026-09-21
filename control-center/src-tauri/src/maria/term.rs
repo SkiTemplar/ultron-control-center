@@ -30,9 +30,8 @@ pub struct TermInfo {
 /// Modelo con el que se abrio cada terminal, para poder enseñarlo en la
 /// pestana. El PTY no lo guarda (es una sesion interactiva, no una llamada),
 /// asi que se apunta aqui al abrirla.
-static MODELOS: once_cell::sync::Lazy<
-    std::sync::Mutex<std::collections::HashMap<String, String>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static MODELOS: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 fn apuntar_modelo(id: &str, modelo: &str) {
     if modelo.is_empty() {
@@ -59,7 +58,7 @@ pub fn proveedor_permitido(p: &str) -> bool {
 
 /// Carpeta de trabajo por defecto de una terminal nueva.
 fn cwd_por_defecto() -> String {
-    crate::maria_paths::home().to_string_lossy().to_string()
+    crate::maria::paths::home().to_string_lossy().to_string()
 }
 
 /// Abre una terminal y devuelve su id.
@@ -76,14 +75,14 @@ pub async fn maria_term_open(
     // El modelo se valida contra el catalogo antes de acercarse a una linea de
     // comandos (mismo motivo que la lista blanca de proveedores).
     let modelo = model.map(|m| m.trim().to_string()).unwrap_or_default();
-    if !crate::maria_models::modelo_valido(&provider, &modelo) {
+    if !crate::maria::models::modelo_valido(&provider, &modelo) {
         return Err(format!("{provider} no tiene el modelo {modelo}"));
     }
     let carpeta = cwd
         .filter(|c| !c.trim().is_empty())
         .unwrap_or_else(cwd_por_defecto);
     let modelo_apuntar = modelo.clone();
-    let extra = crate::maria_models::argumentos_interactivos(&provider, &modelo);
+    let extra = crate::maria::models::argumentos_interactivos(&provider, &modelo);
     // Bloqueante (sondeo de PATH + spawn) fuera del hilo async de Tauri.
     let id = tauri::async_runtime::spawn_blocking(move || {
         crate::pty::spawn_inner(

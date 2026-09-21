@@ -114,7 +114,11 @@ pub fn telemetry() -> HudTelemetry {
         cpu_pct,
         ram_used_gb: usada,
         ram_total_gb: total,
-        ram_pct: if total > 0.0 { usada / total * 100.0 } else { 0.0 },
+        ram_pct: if total > 0.0 {
+            usada / total * 100.0
+        } else {
+            0.0
+        },
         disk_free_gb: libre,
         disk_total_gb: disco_total,
         disk_pct: if disco_total > 0.0 {
@@ -141,7 +145,11 @@ mod tests {
     #[test]
     fn la_telemetria_devuelve_memoria_real() {
         let t = telemetry();
-        assert!(t.ram_total_gb > 0.5, "RAM total sospechosa: {}", t.ram_total_gb);
+        assert!(
+            t.ram_total_gb > 0.5,
+            "RAM total sospechosa: {}",
+            t.ram_total_gb
+        );
         assert!(t.ram_used_gb > 0.0 && t.ram_used_gb <= t.ram_total_gb);
         assert!((0.0..=100.0).contains(&t.ram_pct));
     }
@@ -149,7 +157,11 @@ mod tests {
     #[test]
     fn el_disco_del_sistema_tiene_tamano() {
         let t = telemetry();
-        assert!(t.disk_total_gb > 1.0, "disco sin tamano: {}", t.disk_total_gb);
+        assert!(
+            t.disk_total_gb > 1.0,
+            "disco sin tamano: {}",
+            t.disk_total_gb
+        );
         assert!(t.disk_free_gb <= t.disk_total_gb);
     }
 

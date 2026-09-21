@@ -22,6 +22,5 @@ pub use install_gh::install_from_github_inner;
 pub use pinning::{pin_agent_inner, pinned_load, unpin_agent_inner};
 pub use search::search_github_inner;
 pub use types::{
-    AgentCreateSpec, LibraryKind, PinnedAgents, RemoteItem, SkillCreateSpec,
-    TargetScope,
+    AgentCreateSpec, LibraryKind, PinnedAgents, RemoteItem, SkillCreateSpec, TargetScope,
 };

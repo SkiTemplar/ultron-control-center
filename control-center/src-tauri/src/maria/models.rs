@@ -97,9 +97,17 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
         CatalogoProveedor {
             provider: "claude".into(),
             models: vec![
-                m("haiku", "haiku", "preguntas cortas, resumenes, cosas triviales"),
+                m(
+                    "haiku",
+                    "haiku",
+                    "preguntas cortas, resumenes, cosas triviales",
+                ),
                 m("sonnet", "sonnet", "trabajo normal de codigo y texto"),
-                m("opus", "opus", "arquitectura, problemas dificiles, textos largos"),
+                m(
+                    "opus",
+                    "opus",
+                    "arquitectura, problemas dificiles, textos largos",
+                ),
             ],
             default_model: "sonnet".into(),
             effort_mode: ModoEsfuerzo::EnElPrompt,
@@ -378,9 +386,17 @@ mod tests {
             .expect("falta antigravity");
         for m in &agy.models {
             let id = m.id.to_lowercase();
-            assert!(!id.contains("claude"), "modelo de Anthropic en agy: {}", m.id);
+            assert!(
+                !id.contains("claude"),
+                "modelo de Anthropic en agy: {}",
+                m.id
+            );
             assert!(!id.contains("opus"), "modelo de Anthropic en agy: {}", m.id);
-            assert!(!id.contains("sonnet"), "modelo de Anthropic en agy: {}", m.id);
+            assert!(
+                !id.contains("sonnet"),
+                "modelo de Anthropic en agy: {}",
+                m.id
+            );
         }
         assert!(!agy.models.is_empty(), "sin modelos no hay nada que elegir");
     }
@@ -405,7 +421,10 @@ mod tests {
     #[test]
     fn claude_ofrece_haiku_sonnet_y_opus() {
         let c = catalogo();
-        let claude = c.iter().find(|c| c.provider == "claude").expect("falta claude");
+        let claude = c
+            .iter()
+            .find(|c| c.provider == "claude")
+            .expect("falta claude");
         let ids: Vec<&str> = claude.models.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["haiku", "sonnet", "opus"]);
     }
@@ -429,10 +448,18 @@ mod tests {
 
     #[test]
     fn cada_cli_recibe_solo_lo_que_entiende() {
-        assert_eq!(argumentos("claude", "opus", "alto"), vec!["--model", "opus"]);
+        assert_eq!(
+            argumentos("claude", "opus", "alto"),
+            vec!["--model", "opus"]
+        );
         assert_eq!(
             argumentos("codex", "gpt-5.6-terra", "alto"),
-            vec!["-m", "gpt-5.6-terra", "-c", "model_reasoning_effort=\"high\""]
+            vec![
+                "-m",
+                "gpt-5.6-terra",
+                "-c",
+                "model_reasoning_effort=\"high\""
+            ]
         );
         assert_eq!(
             argumentos("antigravity", "gemini-3.1-pro-high", "alto"),
@@ -461,7 +488,11 @@ mod tests {
         // Caso negativo: meter esta frase en Codex o Gemini seria ensuciar el
         // prompt con una instruccion que ahi no hace nada.
         for p in ["codex", "gemini", "local"] {
-            assert_eq!(prefijo_esfuerzo(p, "alto"), "", "{p} no deberia llevar prefijo");
+            assert_eq!(
+                prefijo_esfuerzo(p, "alto"),
+                "",
+                "{p} no deberia llevar prefijo"
+            );
         }
     }
 
@@ -471,7 +502,10 @@ mod tests {
             argumentos_interactivos("claude", "opus"),
             vec!["--model", "opus"]
         );
-        assert_eq!(argumentos_interactivos("codex", "gpt-5"), vec!["-m", "gpt-5"]);
+        assert_eq!(
+            argumentos_interactivos("codex", "gpt-5"),
+            vec!["-m", "gpt-5"]
+        );
         // Caso negativo: sin modelo no se emite bandera, y powershell no
         // entiende ninguna.
         assert!(argumentos_interactivos("claude", "").is_empty());

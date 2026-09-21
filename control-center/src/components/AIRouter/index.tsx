@@ -24,15 +24,6 @@ import { ProveedoresPanel } from "./ProveedoresPanel";
 import { AIRouterErrorBoundary } from "./AIRouterErrorBoundary";
 
 // Se reexportan los tipos compartidos para no romper a quien importe del barril.
-export type {
-  ProviderClass,
-  Provider,
-  ZoneAssignment,
-  Zone,
-  RouterMetrics as RouterMetricsData,
-  TestResult,
-} from "./types";
-
 type Vista = "proveedores" | "criterio";
 
 const VISTAS: { id: Vista; label: string; hint: string }[] = [

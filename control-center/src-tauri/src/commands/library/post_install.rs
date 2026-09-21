@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::maria_root;
 use crate::memory::model::{MemoryCandidate, MemoryType, Scope};
 use crate::memory::service::MemoryService;
-use crate::maria_root;
 
 /// Outcome of the post-install integration step. Serialized to the frontend so
 /// the Library UI can show "catalog synced + 1 memory proposed" feedback.

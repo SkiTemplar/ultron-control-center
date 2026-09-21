@@ -58,7 +58,7 @@ impl Default for ConfigTeclado {
 }
 
 fn ruta() -> Result<std::path::PathBuf, String> {
-    Ok(crate::maria_paths::cockpit("maria")?.join("teclado.json"))
+    Ok(crate::maria::paths::cockpit("maria")?.join("teclado.json"))
 }
 
 #[must_use]
@@ -234,7 +234,7 @@ impl Buffer {
 /// `EnUso` es lo que garantiza lo que pidio el usuario: el modelo entra en VRAM
 /// aqui y sale al terminar esta funcion, pase lo que pase.
 fn responder(orden: &str) -> Result<String, String> {
-    let _en_uso = crate::maria_local::EnUso::nuevo();
+    let _en_uso = crate::maria::local::EnUso::nuevo();
     let modelo = crate::ollama::toggle::model_name();
     let body = serde_json::json!({
         "model": modelo,
@@ -291,12 +291,12 @@ mod win {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, GetKeyState, GetKeyboardState, MapVirtualKeyW, SendInput, ToUnicode,
         INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC,
-        VK_BACK, VK_CAPITAL, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_MENU, VK_RCONTROL,
-        VK_ESCAPE, VK_RETURN, VK_RMENU, VK_RSHIFT, VK_SHIFT,
+        VK_BACK, VK_CAPITAL, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_MENU,
+        VK_RCONTROL, VK_RETURN, VK_RMENU, VK_RSHIFT, VK_SHIFT,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT,
-        MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
+        CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG,
+        WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
 
     static BUFFER: Mutex<Option<Buffer>> = Mutex::new(None);
@@ -320,8 +320,15 @@ mod win {
             // Se parte del estado del sistema y se corrigen los modificadores.
             GetKeyboardState(estado.as_mut_ptr());
             for m in [
-                VK_SHIFT, VK_LSHIFT, VK_RSHIFT, VK_CONTROL, VK_LCONTROL, VK_RCONTROL, VK_MENU,
-                VK_LMENU, VK_RMENU,
+                VK_SHIFT,
+                VK_LSHIFT,
+                VK_RSHIFT,
+                VK_CONTROL,
+                VK_LCONTROL,
+                VK_RCONTROL,
+                VK_MENU,
+                VK_LMENU,
+                VK_RMENU,
             ] {
                 let pulsada = (GetAsyncKeyState(m as i32) as u16 & 0x8000) != 0;
                 estado[m as usize] = if pulsada { 0x80 } else { 0 };
@@ -335,7 +342,11 @@ mod win {
         let n = unsafe {
             ToUnicode(
                 vk,
-                if scan == 0 { MapVirtualKeyW(vk, MAPVK_VK_TO_VSC) } else { scan },
+                if scan == 0 {
+                    MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+                } else {
+                    scan
+                },
                 estado.as_ptr(),
                 buf.as_mut_ptr(),
                 buf.len() as i32,
@@ -548,8 +559,7 @@ mod win {
 
     /// Hay una orden en marcha. Evita dos respuestas pisandose si se pulsa
     /// Intro dos veces seguidas mientras la primera todavia escribe.
-    static RESPONDIENDO: std::sync::atomic::AtomicBool =
-        std::sync::atomic::AtomicBool::new(false);
+    static RESPONDIENDO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     unsafe extern "system" fn hook(codigo: i32, w: WPARAM, l: LPARAM) -> LRESULT {
         // Con la aplicacion cerrandose, el hook no toca nada: escribir en la

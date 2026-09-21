@@ -71,7 +71,7 @@ impl ThreadMeta {
 }
 
 fn maria_dir() -> Result<PathBuf, String> {
-    let dir = crate::maria_paths::cockpit("maria")?;
+    let dir = crate::maria::paths::cockpit("maria")?;
     std::fs::create_dir_all(dir.join("threads")).map_err(|e| format!("crear carpeta: {e}"))?;
     Ok(dir)
 }
@@ -136,7 +136,7 @@ pub fn list() -> Vec<ThreadMeta> {
         }
         // Hilo sin ficha: de la version anterior o creado a mano.
         let mut m = ThreadMeta::nueva(id.clone(), String::new());
-        if let Ok(turnos) = crate::maria_relay::read_thread(&id) {
+        if let Ok(turnos) = crate::maria::relay::read_thread(&id) {
             if let Some(primero) = turnos.first() {
                 m.created = primero.ts.clone();
             }
@@ -151,7 +151,7 @@ pub fn list() -> Vec<ThreadMeta> {
         let _ = save_raw(&lista);
     }
     for m in &mut lista {
-        m.turns = crate::maria_relay::read_thread(&m.id)
+        m.turns = crate::maria::relay::read_thread(&m.id)
             .map(|t| t.len())
             .unwrap_or(0);
         if m.title.trim().is_empty() {
@@ -166,7 +166,7 @@ pub fn list() -> Vec<ThreadMeta> {
 /// local no haya generado uno mejor — nunca se deja la lista con filas sin
 /// nombre, que es justo lo que el usuario no podia distinguir.
 fn titulo_de_respaldo(id: &str) -> String {
-    let Ok(turnos) = crate::maria_relay::read_thread(id) else {
+    let Ok(turnos) = crate::maria::relay::read_thread(id) else {
         return "conversación".into();
     };
     match turnos.iter().find(|t| t.role == "user") {
@@ -242,9 +242,9 @@ pub fn create(folder: Option<String>) -> Result<ThreadMeta, String> {
 pub fn autotitulo(id: &str) -> String {
     // Cuenta como turno: el vigilante de la VRAM no puede descargar el modelo
     // en mitad de esto, y al salir se descarga solo.
-    let _en_uso = crate::maria_local::EnUso::nuevo();
+    let _en_uso = crate::maria::local::EnUso::nuevo();
     let respaldo = titulo_de_respaldo(id);
-    let Ok(turnos) = crate::maria_relay::read_thread(id) else {
+    let Ok(turnos) = crate::maria::relay::read_thread(id) else {
         return respaldo;
     };
     if turnos.is_empty() {
@@ -309,7 +309,9 @@ pub fn necesita_titulo(id: &str) -> bool {
         return false;
     }
     // Con un solo turno no hay nada que resumir todavia.
-    crate::maria_relay::read_thread(id).map(|t| t.len() >= 2).unwrap_or(false)
+    crate::maria::relay::read_thread(id)
+        .map(|t| t.len() >= 2)
+        .unwrap_or(false)
 }
 
 /// Titula una conversacion si le hace falta. Devuelve el titulo puesto.
@@ -363,9 +365,7 @@ pub fn limpia_titulo(crudo: &str) -> String {
         .find(|l| !l.is_empty())
         .unwrap_or("");
     let limpio = primera
-        .trim_matches(|c: char| {
-            c == '"' || c == '\'' || c == '\u{ab}' || c == '\u{bb}' || c == '.'
-        })
+        .trim_matches(|c: char| c == '"' || c == '\'' || c == '\u{ab}' || c == '\u{bb}' || c == '.')
         .trim();
     // Un modelo despistado contesta con un parrafo: eso no es un titulo.
     if limpio.is_empty() || limpio.chars().count() > 60 {
@@ -509,9 +509,15 @@ mod tests {
 
     #[test]
     fn limpia_el_titulo_que_devuelve_el_modelo() {
-        assert_eq!(limpia_titulo("\"Ajustes del router\""), "Ajustes del router");
+        assert_eq!(
+            limpia_titulo("\"Ajustes del router\""),
+            "Ajustes del router"
+        );
         assert_eq!(limpia_titulo("Ajustes del router.\n"), "Ajustes del router");
-        assert_eq!(limpia_titulo("\u{ab}Memoria y recall\u{bb}"), "Memoria y recall");
+        assert_eq!(
+            limpia_titulo("\u{ab}Memoria y recall\u{bb}"),
+            "Memoria y recall"
+        );
     }
 
     #[test]
