@@ -18,7 +18,7 @@
  * decision al modelo con la norma delante, que es justo lo que faltaba.
  *
  * SINCRONO A PROPOSITO: un hook `async` corre fire-and-forget y su stdout se
- * descarta, asi que el aviso no llegaria nunca (misma razon que ai-text-warn).
+ * descarta, asi que el aviso no llegaria nunca.
  *
  * Fail-safe total: cualquier error -> exit 0 sin salida. Jamas rompe un Write.
  */

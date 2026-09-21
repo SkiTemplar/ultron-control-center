@@ -59,22 +59,6 @@
       "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado, nunca auto-promueve. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
     },
     {
-      "id": "ai-text-warn",
-      "event": "PostToolUse",
-      "matcher": "Write|Edit",
-      "command": "node ~/.ultron/hooks/scripts/ai-text-warn.js",
-      "script": "~/.ultron/hooks/scripts/ai-text-warn.js",
-      "timeout_s": 10,
-      "async": false,
-      "checksum_sha256": "66444e825179e7e29633dcf69904a782f5cc06f9eae4954b1957f4d6343807c5",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Detector de texto-IA en el flujo de escritura (card pp97cd): tras un Write/Edit de prosa (.md .tex .txt .rst) ejecuta el matcher del catalogo patrones-texto-ia.json (misma fuente que el Lab) y, si el texto nuevo tiene señales, avisa al modelo con patron+señal+correccion via additionalContext. SINCRONO a proposito (un async descarta el stdout). Solo avisa, nunca bloquea; excluye memoria del asistente, docs research y scratchpad."
-    },
-    {
       "id": "guardrails-post",
       "event": "PostToolUse",
       "matcher": "Write|Edit",
