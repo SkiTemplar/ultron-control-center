@@ -9,7 +9,6 @@ use serde::Serialize;
 
 use crate::commands::memory::kanban_signal;
 use crate::memory::{MemoryItem, MemoryService, MemoryType};
-use crate::workflow_runs::{list_runs_inner, RunStatus, WorkflowRun};
 
 /// Compact memory shape for the resume context (summary only, lazy content).
 #[derive(Debug, Clone, Serialize)]
@@ -24,7 +23,6 @@ pub struct ResumeMemory {
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionResume {
     pub project_id: Option<String>,
-    pub active_workflows: Vec<WorkflowRun>,
     pub decisions: Vec<ResumeMemory>,  // active, recent
     pub open_tasks: Vec<ResumeMemory>, // active
     pub pinned: Vec<ResumeMemory>,     // user-pinned, always surfaced
@@ -100,7 +98,6 @@ fn now_secs() -> i64 {
 fn derive_next_action(
     project: Option<&str>,
     tasks: &[MemoryItem],
-    active_workflows: &[WorkflowRun],
 ) -> Option<String> {
     let root = crate::maria_root().ok();
 
@@ -117,11 +114,6 @@ fn derive_next_action(
         .find_map(|t| {
             let s = t.summary.as_deref()?;
             kanban_signal::memory_task_eligible(s, t.updated_at, now).then(|| s.to_string())
-        })
-        .or_else(|| {
-            active_workflows
-                .first()
-                .map(|w| format!("continue workflow {}", w.workflow_id))
         })
 }
 
@@ -147,13 +139,6 @@ fn eligible_memory_tasks(raw: &[MemoryItem], proj: Option<&str>, now: i64) -> Ve
 /// Sync core of session resume — reused by the CLI sidecar (`ultron-memory
 /// resume`) and the Tauri command. Loads only MINIMAL, bounded slices.
 pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume, String> {
-    // Active (running) workflows for the project — bounded list.
-    let active_workflows: Vec<WorkflowRun> = list_runs_inner(None, project_id.clone(), 50)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|r| r.status == RunStatus::Running)
-        .collect();
-
     // Over-fetch (the store lists newest-first without project filter), then
     // narrow to the requested project + global items.
     let proj = project_id.as_deref();
@@ -200,7 +185,7 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     ));
     let stats = MemoryService::stats().map_err(|e| e.to_string())?;
 
-    let next_action = derive_next_action(proj, &raw_tasks, &active_workflows);
+    let next_action = derive_next_action(proj, &raw_tasks);
 
     let mut warnings = Vec::new();
     if stats.candidates_pending > 0 {
@@ -212,7 +197,6 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
 
     Ok(SessionResume {
         project_id,
-        active_workflows,
         decisions,
         open_tasks,
         pinned,

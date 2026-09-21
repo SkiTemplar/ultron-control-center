@@ -67,9 +67,3 @@ pub(super) fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> Result<(), Stri
     std::fs::rename(&tmp, target).map_err(|e| format!("rename: {e}"))?;
     Ok(())
 }
-
-pub(super) fn maria_root() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|h| h.join(".ultron"))
-        .ok_or_else(|| "No HOME dir".to_string())
-}

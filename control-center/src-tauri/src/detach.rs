@@ -97,23 +97,6 @@ pub fn detach_project_window_inner(
     })
 }
 
-pub fn reattach_project_window_inner(app: &AppHandle, project_id: String) -> Result<(), String> {
-    if project_id.is_empty() {
-        return Err("project_id no puede estar vacio".to_string());
-    }
-    let label = window_label(&project_id);
-    if let Some(window) = app.get_webview_window(&label) {
-        window
-            .close()
-            .map_err(|e| format!("cerrar ventana '{label}': {e}"))?;
-    }
-    Ok(())
-}
-
-pub fn is_detached(app: &AppHandle, project_id: &str) -> bool {
-    app.get_webview_window(&window_label(project_id)).is_some()
-}
-
 fn urlencoded(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {

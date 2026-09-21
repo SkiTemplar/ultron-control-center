@@ -519,14 +519,6 @@ pub struct AnalyzeCompatArgs {
     pub force_refresh: bool,
 }
 
-/// Analyse `items` for compatibility with the stack detected in the cwd +
-/// CLAUDE.md.  Results are cached for 1 h at
-/// `~/.ultron/cockpit/library-catalog-compat.json`.
-#[tauri::command]
-pub fn analyze_catalog_compat(args: AnalyzeCompatArgs) -> Vec<CompatReport> {
-    analyze_catalog_compat_inner(args.items, args.force_refresh)
-}
-
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------

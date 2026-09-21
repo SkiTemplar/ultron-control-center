@@ -445,18 +445,6 @@ pub async fn maria_thread_autotitle(thread_id: String) -> Result<String, String>
     .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
-/// Fija (o suelta, con cadena vacia) el proveedor de una conversacion.
-#[tauri::command]
-pub async fn maria_thread_provider(
-    thread_id: String,
-    provider: String,
-) -> Result<String, String> {
-    let limpio = provider.trim().to_string();
-    let valor = limpio.clone();
-    con_ficha(&thread_id, move |m| m.provider = valor)?;
-    Ok(limpio)
-}
-
 /// Fija el proveedor de una conversacion desde dentro de Rust (sincrono).
 pub fn fijar_provider(thread_id: &str, provider: &str) -> Result<(), String> {
     let valor = provider.trim().to_string();

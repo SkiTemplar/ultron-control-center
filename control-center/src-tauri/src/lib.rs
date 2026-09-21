@@ -28,7 +28,6 @@ mod button_prompts;
 mod claude_sessions;
 mod claude_theme;
 mod commands_registry;
-mod cost_watchdog;
 pub mod daemon_client; // cliente del daemon: una sola copia de los modelos
 mod detach;
 mod diagnostics_native;
@@ -55,7 +54,6 @@ mod maria_cuentas; // mar.ia: que cuentas y claves hay conectadas, y a que corre
 mod maria_criterio; // mar.ia: los parametros con los que la IA local decide
 mod maria_perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
 mod maria_teclado; // mar.ia: autocompletado global con `//maria`
-mod maria_papers; // mar.ia: literatura del TFG (Semantic Scholar + OpenAlex)
 mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
@@ -94,8 +92,6 @@ mod test_support;
 mod toast_emit;
 mod tray;
 mod usage;
-mod workflow_loader;
-mod workflow_runs;
 
 pub mod commands;
 
@@ -294,12 +290,6 @@ pub fn run() {
                 }
             }
 
-            // KIRKARDO 23 P2: initialise the workflow-runs SQLite DB (WAL +
-            // indices). Idempotent — no-op when table already exists.
-            if let Err(e) = crate::workflow_runs::init_db() {
-                tracing::error!(error = %e, "workflow_runs init_db failed");
-            }
-
             // MEMORY KERNEL Fase A: initialise the canonical memory DB
             // (~/.ultron/brain.db): memory_items + memory_events +
             // memory_candidates + FTS5, and best-effort import of kg.jsonl.
@@ -308,9 +298,6 @@ pub fn run() {
             if let Err(e) = crate::memory::sqlite_store::SqliteStore::init() {
                 tracing::error!(error = %e, "memory brain.db init failed");
             }
-
-            // KIRKARDO 23 P2: migrate legacy workflows-old.json → YAML if present.
-            crate::workflow_loader::migrate_legacy_json_if_present();
 
             // Atajo global para abrir/ocultar mar.ia. Por defecto Ctrl+Alt+M.
             let shortcut_handle = app.global_shortcut();

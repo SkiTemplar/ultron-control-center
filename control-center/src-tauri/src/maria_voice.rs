@@ -337,29 +337,6 @@ pub async fn maria_voice_wake_status() -> Result<bool, String> {
     Ok(wake_enabled())
 }
 
-/// Empieza o corta la escucha activa desde la interfaz.
-///
-/// Es el mismo conmutador que ctrl+espacio, pero con boton: `true` abre la
-/// toma, `false` la cierra y manda lo dicho. Hace falta como comando propio
-/// porque el boton de microfono de la pantalla tiene que poder cortar una
-/// toma en marcha, no solo encender el detector de palabra clave.
-#[tauri::command]
-pub async fn maria_voice_escucha(activar: bool) -> Result<bool, String> {
-    send_line(if activar {
-        r#"{"cmd":"listen"}"#
-    } else {
-        r#"{"cmd":"stop"}"#
-    })?;
-    Ok(activar)
-}
-
-/// ¿Hay escucha activa ahora? Para que la pantalla pinte el boton bien al
-/// montarse, sin esperar al primer evento.
-#[tauri::command]
-pub async fn maria_voice_escuchando() -> Result<bool, String> {
-    Ok(escuchando())
-}
-
 /// Enciende o apaga la escucha por palabra clave, y lo recuerda.
 #[tauri::command]
 pub async fn maria_voice_wake(enabled: bool) -> Result<bool, String> {
@@ -379,12 +356,6 @@ pub async fn maria_voice_wake(enabled: bool) -> Result<bool, String> {
     Ok(enabled)
 }
 
-/// Pide una escucha (atajo de teclado o boton del orbe).
-#[tauri::command]
-pub async fn maria_voice_listen() -> Result<(), String> {
-    send_line(r#"{"cmd":"listen"}"#)
-}
-
 /// Turno escrito: mismo camino que la voz, sin microfono. Lo usa la linea de
 /// comando de la pantalla principal.
 #[tauri::command]
@@ -395,29 +366,6 @@ pub async fn maria_voice_ask(text: String) -> Result<(), String> {
     }
     let payload = serde_json::json!({ "cmd": "ask", "text": texto });
     send_line(&payload.to_string())
-}
-
-/// Aborta la escucha o la respuesta en curso.
-#[tauri::command]
-pub async fn maria_voice_cancel() -> Result<(), String> {
-    send_line(r#"{"cmd":"cancel"}"#)
-}
-
-/// Para el sidecar y libera el microfono.
-#[tauri::command]
-pub async fn maria_voice_stop() -> Result<bool, String> {
-    let mut guard = VOICE.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(mut proc) = guard.take() else {
-        return Ok(false);
-    };
-    // Cierre ordenado y, si no responde, a la fuerza: un microfono abierto no
-    // se queda colgado porque el hijo ignore la orden.
-    let _ = proc.stdin.write_all(b"{\"cmd\":\"shutdown\"}\n");
-    let _ = proc.stdin.flush();
-    std::thread::sleep(std::time::Duration::from_millis(400));
-    let _ = proc.child.kill();
-    let _ = proc.child.wait();
-    Ok(true)
 }
 
 /// Para la voz al cerrar la aplicacion: ordenadamente y, si no, a la fuerza.

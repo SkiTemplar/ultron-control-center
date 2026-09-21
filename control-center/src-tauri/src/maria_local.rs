@@ -180,17 +180,6 @@ pub async fn maria_local_status() -> Result<EstadoLocal, String> {
         .map_err(|e| format!("spawn_blocking: {e}"))
 }
 
-/// Descarga el modelo de la VRAM ahora mismo (boton "liberar" de la interfaz).
-#[tauri::command]
-pub async fn maria_local_unload() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let modelo = crate::ollama::toggle::model_name();
-        crate::ollama::toggle::deactivate(&modelo)
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
 #[cfg(test)]
 mod tests_vram {
     use super::*;

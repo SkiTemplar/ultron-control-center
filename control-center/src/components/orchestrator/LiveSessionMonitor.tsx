@@ -22,7 +22,6 @@ import { Chevron } from "./live-session/Chevron";
 import { DelegatedAgentsPanel } from "./live-session/DelegatedAgentsPanel";
 import { LastTurnPanel } from "./live-session/LastTurnPanel";
 import { OrchestrationPreviewPanel } from "./live-session/OrchestrationPreviewPanel";
-import { WorkflowRunsPanel } from "./live-session/WorkflowRunsPanel";
 import { RecentSubagentsPanel } from "./live-session/RecentSubagentsPanel";
 import { RoutingRecentPanel } from "./live-session/RoutingRecentPanel";
 import { RunningSubagentsPanel } from "./live-session/RunningSubagentsPanel";
@@ -118,7 +117,6 @@ export default function LiveSessionMonitor({
 
           <DelegatedAgentsPanel liveEvents={liveEvents} delegations={feed?.delegations ?? []} />
 
-          <WorkflowRunsPanel />
 
           <RunningSubagentsPanel runningSubagents={feed?.running_subagents ?? []} />
 

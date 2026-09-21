@@ -40,13 +40,6 @@ pub async fn delete_alert_entries(fingerprints: Vec<String>) -> Result<usize, St
     alerts_admin::delete_alerts_by_fingerprints(fingerprints)
 }
 
-#[tauri::command]
-pub async fn read_changelog(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
-    let path = crate::maria_root()?.join("cockpit/changelog.ndjson");
-    let lim = limit.unwrap_or(100).clamp(1, 2000);
-    read_jsonl_tail::<serde_json::Value>(path, lim)
-}
-
 /// Append a UI-side alert to alerts.jsonl so Notifications picks it up.
 /// Used by the frontend's window.onerror / onunhandledrejection so failures
 /// in the webview don't get swallowed silently — they show up alongside

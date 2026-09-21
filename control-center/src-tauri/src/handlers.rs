@@ -101,7 +101,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // Write side (2026-08-15) — every mutator snapshots the DB first.
         // AI auto-categorisation: propose (read-only) then apply.
         // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
-        commands::memory::memory_health,
         // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
         // -- MEMORY KERNEL Fase B: unified hybrid recall + dense reindex --
         // -- MEMORY KERNEL: Memory Inbox + governance + Retrieval Inspector --
@@ -176,12 +175,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::batches::batches_requeue,
         commands::batches::batches_dismiss_queue,
         // -- mar.ia: orbe + estado de voz --
-        maria::maria_open_main,
-        maria::maria_voice_state,
         maria_voice::maria_voice_start,
-        maria_voice::maria_voice_listen,
-        maria_voice::maria_voice_cancel,
-        maria_voice::maria_voice_stop,
         maria_voice::maria_voice_running,
         maria_voice::maria_voice_wake,
         maria_voice::maria_voice_ask,
@@ -203,13 +197,10 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_teclado::maria_teclado_get,
         maria_teclado::maria_teclado_set,
         maria_login::maria_login_open,
-        maria_papers::maria_papers_search,
-        maria_local::maria_local_unload,
         maria_relay::maria_relay_ask,
         maria_relay::maria_relay_thread,
         maria_relay::maria_relay_state,
         maria_relay::maria_relay_config,
-        maria_relay::maria_relay_save_config,
         maria_threads::maria_threads_list,
         maria_threads::maria_thread_create,
         maria_threads::maria_thread_pin,
@@ -218,19 +209,15 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria_threads::maria_thread_close,
         maria_threads::maria_thread_autotitle,
         maria_threads::maria_thread_delete,
-        maria_threads::maria_thread_provider,
         maria_term::maria_term_open,
         maria_term::maria_term_subscribe,
         maria_term::maria_term_write,
         maria_term::maria_term_resize,
         maria_term::maria_term_kill,
         maria_term::maria_term_list,
-        maria_apagado::maria_procesos_propios,
         maria_arranque::maria_arranque_estado,
         maria_arranque::maria_arranque_set,
-        maria_voice::maria_voice_escucha,
         maria_voice::maria_voice_wake_status,
-        maria_voice::maria_voice_escuchando,
         maria_tailscale::maria_tailscale_diagnostico,
         maria_web::maria_web_status,
         maria_web::maria_web_set,
@@ -390,7 +377,5 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         //    sin registrar y la tabla se creaba vacía en cada boot. El
         //    escritor real es delegate.rs; el historial vive en el
         //    LiveSessionMonitor) --
-        commands::workflows::workflow_get_runs,
-        commands::workflows::workflow_load_user_defined,
     ]
 }

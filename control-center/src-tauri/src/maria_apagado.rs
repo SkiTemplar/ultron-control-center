@@ -75,15 +75,6 @@ pub fn olvidar(pid: u32) {
     g.retain(|p| p.pid != pid);
 }
 
-/// Lo que hay registrado ahora mismo. Para la pantalla de diagnostico.
-#[must_use]
-pub fn registrados() -> Vec<Propio> {
-    PROPIOS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-}
-
 /// Mata un proceso propio y su arbol. Publico para quien tenga su propio
 /// handle y quiera asegurarse de llevarse a los nietos.
 pub fn matar_propio(pid: u32) -> bool {
@@ -156,71 +147,7 @@ pub fn apagar() {
     tracing::info!("apagado: terminado");
 }
 
-/// Lo que mar.ia tiene abierto y le tocaria cerrar.
-///
-/// Punto de consumo del registro: sin esto, "estos procesos son mios" seria
-/// un dato que nadie mira (mandamiento 12). Lo pinta Ajustes > Sistema.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ProcesoPropio {
-    pub nombre: String,
-    pub pid: u32,
-    /// Sigue vivo ahora mismo.
-    pub vivo: bool,
-}
-
-/// ¿Vive ese PID? Sin matar nada: `taskkill` con `/F` no, aqui solo se mira.
-#[cfg(windows)]
-fn vive(pid: u32) -> bool {
-    crate::proc::oculto("tasklist.exe")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-        .unwrap_or(false)
-}
-
 #[cfg(not(windows))]
 fn vive(pid: u32) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
-}
-
-#[tauri::command]
-pub async fn maria_procesos_propios() -> Result<Vec<ProcesoPropio>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        registrados()
-            .into_iter()
-            .map(|p| ProcesoPropio {
-                nombre: p.nombre.to_string(),
-                pid: p.pid,
-                vivo: vive(p.pid),
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn registrar_es_idempotente_por_pid() {
-        olvidar(424_242);
-        registrar("prueba", 424_242);
-        registrar("prueba", 424_242);
-        let n = registrados().iter().filter(|p| p.pid == 424_242).count();
-        assert_eq!(n, 1, "el mismo pid no puede apuntarse dos veces");
-        olvidar(424_242);
-        assert!(registrados().iter().all(|p| p.pid != 424_242));
-    }
-
-    #[test]
-    fn el_pid_cero_no_se_registra() {
-        // Caso negativo, y de los peligrosos: en Windows el PID 0 es el
-        // proceso inactivo del sistema. Registrarlo seria pedir un taskkill
-        // contra el nucleo.
-        let antes = registrados().len();
-        registrar("basura", 0);
-        assert_eq!(registrados().len(), antes);
-    }
 }

@@ -53,7 +53,7 @@ pub use store::CLI_CACHE;
 
 // Types used directly in this file's Tauri command bodies.
 use types::{
-    KeyValidation, Provider, ProviderKind, Zone,
+    KeyValidation, Provider, ProviderKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -80,11 +80,6 @@ pub fn validate_agent(agent_id: &str) -> bool {
 // Tauri commands — declared here so generate_handler! in lib.rs resolves
 // `ai_router::ai_router_*` directly (macro-generated companions included).
 // ---------------------------------------------------------------------------
-
-#[tauri::command]
-pub fn ai_router_list_zones() -> Result<Vec<Zone>, String> {
-    store::load_zones()
-}
 
 #[tauri::command]
 pub fn ai_router_list_providers() -> Result<Vec<Provider>, String> {

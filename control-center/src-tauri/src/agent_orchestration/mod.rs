@@ -37,5 +37,5 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 pub use delegation_log::list_delegations_inner;
-pub use types::{DelegationLogEntry, WorkflowDefinition, WorkflowStep};
+pub use types::DelegationLogEntry;
 pub use workflows::list_workflows_inner;

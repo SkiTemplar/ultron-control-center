@@ -1107,14 +1107,6 @@ pub async fn maria_relay_config() -> Result<RelayConfig, String> {
     Ok(load_config())
 }
 
-#[tauri::command]
-pub async fn maria_relay_save_config(config: RelayConfig) -> Result<RelayConfig, String> {
-    let path = config_path()?;
-    let text = serde_json::to_string_pretty(&config).map_err(|e| format!("serializar: {e}"))?;
-    std::fs::write(&path, text).map_err(|e| format!("guardar relay.json: {e}"))?;
-    Ok(config)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
