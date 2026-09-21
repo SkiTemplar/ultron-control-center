@@ -22,7 +22,24 @@ type Regla = {
   cuando: string;
 };
 
-type Criterio = { decide_la_local: boolean; reglas: Regla[]; nota: string };
+type Criterio = {
+  decide_la_local: boolean;
+  reglas: Regla[];
+  nota: string;
+  /** Claude sin hooks ni MCP en los turnos del chat (medido: 12,2 s -> ~4,5 s). */
+  claude_ligero: boolean;
+  /** Segundos que el modelo local sigue en VRAM tras contestar. 0 = se suelta. */
+  local_residente_s: number;
+};
+
+/** Opciones de residencia del modelo local. Los numeros de la etiqueta estan
+ *  medidos el 2026-09-21 con qwen3.5:9b en esta maquina. */
+const RESIDENCIAS: Array<{ s: number; label: string }> = [
+  { s: 0, label: "soltar al responder (VRAM libre; ~4 s por respuesta)" },
+  { s: 60, label: "1 min cargada (siguientes respuestas ~0,4 s)" },
+  { s: 300, label: "5 min cargada" },
+  { s: 900, label: "15 min cargada" },
+];
 
 type ModeloInfo = { id: string; label: string; para: string };
 type Catalogo = {
@@ -127,6 +144,52 @@ export function CriterioPanel() {
             : "desactivado: se usa el orden de relevo sin preguntarle (útil si Ollama está caído)"}
         </span>
       </label>
+
+      <section
+        className="flex flex-col gap-2 rounded-md p-3"
+        style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+        aria-label="velocidad"
+      >
+        <span className="hud-label">velocidad</span>
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={criterio.claude_ligero}
+            onChange={(e) => void guardar({ ...criterio, claude_ligero: e.target.checked })}
+          />
+          <span>Claude ligero en el chat</span>
+          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            {criterio.claude_ligero
+              ? "sin hooks ni MCP de Claude Code: ~4,5 s por mensaje en vez de ~12 s"
+              : "con todo Claude Code (hooks y MCP): más lento, pero puede usar tus conectores"}
+          </span>
+        </label>
+        <label className="flex flex-wrap items-center gap-2 text-[13px]">
+          <span>IA local en memoria</span>
+          <select
+            value={criterio.local_residente_s}
+            onChange={(e) =>
+              void guardar({ ...criterio, local_residente_s: Number(e.target.value) })
+            }
+            className="px-2 text-[13px]"
+            style={{
+              minHeight: 30,
+              background: "var(--color-surface-1)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {RESIDENCIAS.map((r) => (
+              <option key={r.s} value={r.s}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            el 87 % de lo que tarda la IA local es cargar el modelo; al cerrar mar.ia se suelta siempre
+          </span>
+        </label>
+      </section>
 
       <div className="flex flex-col gap-2">
         {criterio.reglas.map((r, i) => (

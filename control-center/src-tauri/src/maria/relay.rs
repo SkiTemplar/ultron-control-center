@@ -20,7 +20,7 @@
 // contexto, no una sesion compartida. El proveedor nuevo sabe lo que se
 // hablo porque se le cuenta, no porque lea la sesion del anterior.
 
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -52,6 +52,27 @@ const TIMEOUT_PROVEEDOR: Duration = Duration::from_secs(180);
 /// da igual que tarde un poco mas. La descarga no depende solo de esto:
 /// `EnUso` la fuerza al acabar y el vigilante barre lo que se escape.
 const KEEP_ALIVE_TURNO: &str = "0";
+
+/// `keep_alive` de la RESPUESTA del modelo local.
+///
+/// Sin residencia es "0" y manda `EnUso`. Con residencia se le da a Ollama un
+/// margen por encima del plazo: quien descarga es el vigilante de `local.rs`,
+/// y el plazo de Ollama queda de red por si mar.ia muere antes.
+fn keep_alive_respuesta() -> String {
+    match crate::maria::criterio::cargar().local_residente_s {
+        0 => KEEP_ALIVE_TURNO.to_string(),
+        s => format!("{}s", s.saturating_add(45)),
+    }
+}
+
+/// Lo maximo que un mensaje espera a la memoria antes de salir sin ella.
+const ESPERA_MEMORIA: Duration = Duration::from_millis(2_000);
+
+/// Ventana de la llamada de DECISION, cuando la hay: lo justo para que la
+/// respuesta que viene detras no vuelva a cargar el modelo (la doble carga
+/// eran unos 3 s por turno). No deja nada residente: `EnUso` descarga al acabar
+/// el turno, conteste quien conteste.
+const KEEP_ALIVE_DECISION: &str = "20s";
 
 /// Tope de tokens de la respuesta del modelo local: NINGUNO (`-1` = hasta
 /// donde llegue la ventana de contexto).
@@ -172,6 +193,13 @@ pub struct ProviderState {
     /// Veces que ha contestado desde que se lleva la cuenta.
     #[serde(default)]
     pub answered: u64,
+    /// Hasta cuando se le deja en paz tras quedarse sin cuota (RFC 3339; vacio
+    /// = disponible). Ver `enrutado::enfriar_hasta`.
+    #[serde(default)]
+    pub cooldown_until: String,
+    /// Avisos de cuota seguidos, para alargar el plazo si insiste.
+    #[serde(default)]
+    pub quota_strikes: u32,
 }
 
 pub type RelayState = std::collections::BTreeMap<String, ProviderState>;
@@ -215,7 +243,17 @@ fn record_attempt(state: &mut RelayState, provider: &str, status: &str, detail: 
     entry.at = chrono::Utc::now().to_rfc3339();
     if status == "ok" {
         entry.answered += 1;
+        entry.cooldown_until.clear();
+        entry.quota_strikes = 0;
     }
+}
+
+/// Apunta que el proveedor se quedo sin cuota y hasta cuando se le salta.
+fn enfriar(state: &mut RelayState, provider: &str, detail: &str) {
+    let entry = state.entry(provider.to_string()).or_default();
+    let hasta = super::enrutado::enfriar_hasta(detail, entry.quota_strikes, chrono::Utc::now());
+    entry.cooldown_until = hasta.to_rfc3339();
+    entry.quota_strikes = entry.quota_strikes.saturating_add(1);
 }
 
 pub fn load_config() -> RelayConfig {
@@ -491,6 +529,30 @@ fn cli_invocation(provider: &str) -> Option<Invocacion> {
 /// Hace falta la RUTA y no solo saber si existe, porque de su extension
 /// depende como hay que lanzarlo (ver `run_cli`).
 fn ruta_de_cli(cmd: &str) -> Option<String> {
+    // `where` es un proceso mas por mensaje (50-100 ms en Windows) para una
+    // respuesta que no cambia mientras la aplicacion esta abierta. Solo se
+    // recuerdan los aciertos: si la CLI no estaba y el usuario la instala, el
+    // siguiente mensaje la encuentra.
+    static RUTAS: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> =
+        std::sync::Mutex::new(None);
+    if let Some(r) = RUTAS
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(cmd).cloned()))
+    {
+        if std::path::Path::new(&r).exists() {
+            return Some(r);
+        }
+    }
+    let ruta = ruta_de_cli_sin_cache(cmd)?;
+    if let Ok(mut g) = RUTAS.lock() {
+        g.get_or_insert_with(std::collections::HashMap::new)
+            .insert(cmd.to_string(), ruta.clone());
+    }
+    Some(ruta)
+}
+
+fn ruta_de_cli_sin_cache(cmd: &str) -> Option<String> {
     let salida = crate::proc::oculto(if cfg!(windows) { "where" } else { "which" })
         .arg(cmd)
         .output()
@@ -547,15 +609,173 @@ pub fn necesita_cmd(ruta: &str) -> bool {
     bajo.ends_with(".cmd") || bajo.ends_with(".bat")
 }
 
-/// Lanza una CLI con el prompt y espera su salida.
+/// Ficheros que acompanan al mensaje (arrastrados, pegados o elegidos).
+#[derive(Debug, Clone, Default)]
+pub struct Adjuntos {
+    pub rutas: Vec<PathBuf>,
+}
+
+const EXT_IMAGEN: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
+/// Tope de texto que se incrusta por fichero cuando contesta el modelo local,
+/// que no tiene herramientas para abrirlo por su cuenta.
+const MAX_ADJUNTO_LOCAL: usize = 24_000;
+
+impl Adjuntos {
+    #[must_use]
+    pub fn vacio(&self) -> bool {
+        self.rutas.is_empty()
+    }
+
+    #[must_use]
+    pub fn imagenes(&self) -> Vec<&PathBuf> {
+        self.rutas
+            .iter()
+            .filter(|r| {
+                r.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| EXT_IMAGEN.contains(&e.to_lowercase().as_str()))
+            })
+            .collect()
+    }
+
+    /// Carpetas a las que hay que dar acceso a la CLI, sin repetir.
+    #[must_use]
+    pub fn carpetas(&self) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = Vec::new();
+        for r in &self.rutas {
+            if let Some(d) = r.parent() {
+                if !out.iter().any(|o| o == d) {
+                    out.push(d.to_path_buf());
+                }
+            }
+        }
+        out
+    }
+
+    /// Linea que se guarda en el hilo junto al mensaje del usuario.
+    #[must_use]
+    pub fn etiqueta(&self) -> String {
+        if self.vacio() {
+            return String::new();
+        }
+        let nombres: Vec<&str> = self
+            .rutas
+            .iter()
+            .filter_map(|r| r.file_name().and_then(|n| n.to_str()))
+            .collect();
+        format!("\n\n_adjuntos: {}_", nombres.join(", "))
+    }
+
+    /// Lo que se anade al mensaje para una CLI con herramientas: las rutas.
+    #[must_use]
+    pub fn como_rutas(&self) -> String {
+        if self.vacio() {
+            return String::new();
+        }
+        let lista: Vec<String> = self
+            .rutas
+            .iter()
+            .map(|r| format!("- {}", r.display()))
+            .collect();
+        format!(
+            "\n\n[archivos adjuntos — abrelos con tus herramientas antes de contestar]\n{}\n",
+            lista.join("\n")
+        )
+    }
+
+    /// Lo que se anade al mensaje para el modelo local: el texto, incrustado.
+    #[must_use]
+    pub fn como_texto(&self) -> String {
+        let mut out = String::new();
+        for r in &self.rutas {
+            let nombre = r.file_name().and_then(|n| n.to_str()).unwrap_or("adjunto");
+            match std::fs::read_to_string(r) {
+                Ok(t) => out.push_str(&format!(
+                    "\n\n[adjunto: {nombre}]\n{}\n",
+                    recorta(&t, MAX_ADJUNTO_LOCAL)
+                )),
+                Err(_) => out.push_str(&format!(
+                    "\n\n[adjunto: {nombre} — no es texto y este modelo no puede abrirlo]\n"
+                )),
+            }
+        }
+        out
+    }
+}
+
+/// Ficheros de ajustes para el modo ligero de Claude. Van como RUTA y no como
+/// JSON en linea: asi da igual quien cite que al pasar el argumento.
+fn ficheros_claude_ligero() -> Option<(PathBuf, PathBuf)> {
+    let dir = maria_dir().ok()?;
+    let ajustes = dir.join("claude-ligero.json");
+    let sin_mcp = dir.join("claude-sin-mcp.json");
+    if !ajustes.exists() {
+        std::fs::write(&ajustes, r#"{"disableAllHooks":true}"#).ok()?;
+    }
+    if !sin_mcp.exists() {
+        std::fs::write(&sin_mcp, r#"{"mcpServers":{}}"#).ok()?;
+    }
+    Some((ajustes, sin_mcp))
+}
+
+/// Texto nuevo que trae una linea del `stream-json` de Claude, y el resultado
+/// final si la linea es la de cierre. Pura: se testea con lineas reales.
+#[must_use]
+pub fn leer_linea_claude(linea: &str) -> (Option<String>, Option<Result<String, String>>) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(linea) else {
+        return (None, None);
+    };
+    match v.get("type").and_then(|t| t.as_str()) {
+        Some("stream_event") => {
+            let delta = v
+                .pointer("/event/delta/text")
+                .and_then(|t| t.as_str())
+                .filter(|_| {
+                    v.pointer("/event/delta/type").and_then(|t| t.as_str()) == Some("text_delta")
+                })
+                .map(str::to_string);
+            (delta, None)
+        }
+        Some("result") => {
+            let texto = v
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let mal = v.get("is_error").and_then(serde_json::Value::as_bool) == Some(true);
+            (None, Some(if mal { Err(texto) } else { Ok(texto) }))
+        }
+        _ => (None, None),
+    }
+}
+
+/// Parte de `pendiente` que ya es UTF-8 completo; el resto se queda esperando
+/// al trozo siguiente (un caracter de varios bytes puede llegar partido).
+fn texto_completo(pendiente: &mut Vec<u8>) -> String {
+    let corte = match std::str::from_utf8(pendiente) {
+        Ok(_) => pendiente.len(),
+        Err(e) => e.valid_up_to(),
+    };
+    let listo: Vec<u8> = pendiente.drain(..corte).collect();
+    String::from_utf8_lossy(&listo).into_owned()
+}
+
+/// Lanza una CLI con el prompt y va emitiendo su salida segun llega.
 ///
 /// `model` y `effort` se traducen a lo que esa CLI entiende de verdad (ver
 /// `crate::maria::models::argumentos`); lo que no soporta, no se le manda.
+/// Devuelve el texto completo. Si el usuario para el turno, devuelve lo que
+/// hubiera hasta ese momento (o un error si no habia nada).
 fn run_cli(
+    thread_id: &str,
     provider: &str,
     prompt: &str,
     model: &str,
     effort: &str,
+    ligero: bool,
+    adjuntos: &Adjuntos,
 ) -> Result<String, (String, bool)> {
     let Some(inv) = cli_invocation(provider) else {
         return Err((format!("no se como invocar {provider}"), false));
@@ -564,16 +784,46 @@ fn run_cli(
     let Some(ruta) = ruta_de_cli(bin) else {
         return Err((format!("{bin} no esta instalada"), false));
     };
-    let extra = crate::maria::models::argumentos(provider, model, effort);
+    let mut extra = crate::maria::models::argumentos(provider, model, effort);
+    let es_claude = provider == "claude";
+    if es_claude {
+        // Salida por eventos: es lo que permite pintar la respuesta a medida.
+        for a in [
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+        ] {
+            extra.push(a.into());
+        }
+        if ligero {
+            if let Some((ajustes, sin_mcp)) = ficheros_claude_ligero() {
+                extra.push("--settings".into());
+                extra.push(ajustes.to_string_lossy().into_owned());
+                extra.push("--strict-mcp-config".into());
+                extra.push("--mcp-config".into());
+                extra.push(sin_mcp.to_string_lossy().into_owned());
+            }
+        }
+    }
+    match provider {
+        "claude" | "antigravity" => {
+            for d in adjuntos.carpetas() {
+                extra.push("--add-dir".into());
+                extra.push(d.to_string_lossy().into_owned());
+            }
+        }
+        "codex" => {
+            for img in adjuntos.imagenes() {
+                extra.push("-i".into());
+                extra.push(img.to_string_lossy().into_owned());
+            }
+        }
+        _ => {}
+    }
     // Claude no tiene bandera de esfuerzo: se le pide en el propio mensaje.
     let prefijo = crate::maria::models::prefijo_esfuerzo(provider, effort);
-    let prompt_owned;
-    let prompt = if prefijo.is_empty() {
-        prompt
-    } else {
-        prompt_owned = format!("{prefijo}{prompt}");
-        &prompt_owned
-    };
+    let prompt = format!("{prefijo}{prompt}{}", adjuntos.como_rutas());
 
     // Un shim de npm (.cmd) va por `cmd /C`; un .exe nativo, DIRECTO.
     // La diferencia no es cosmetica: cmd.exe trunca los argumentos en el
@@ -596,7 +846,7 @@ fn run_cli(
         cmd.arg(a);
     }
     if !por_stdin {
-        cmd.arg(prompt);
+        cmd.arg(&prompt);
     }
     cmd.stdin(if por_stdin {
         Stdio::piped()
@@ -612,7 +862,7 @@ fn run_cli(
     }
     // La CLI de Claude baja de plan si ve ANTHROPIC_API_KEY: se limpia para el
     // hijo (mismo motivo que strip_api_key_for_claude en pty/spawn.rs).
-    if provider == "claude" {
+    if es_claude {
         cmd.env_remove("ANTHROPIC_API_KEY");
     }
 
@@ -625,64 +875,133 @@ fn run_cli(
         }
     }
 
-    // Espera acotada: un proveedor colgado no puede bloquear el relevo.
-    let inicio = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if inicio.elapsed() > TIMEOUT_PROVEEDOR {
-                    let _ = child.kill();
-                    return Err((format!("{provider} no respondio a tiempo"), false));
+    // Un hilo por tuberia: leer las dos a la vez evita que el hijo se quede
+    // bloqueado con stderr lleno mientras aqui solo se mira stdout.
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    if let Some(mut out) = child.stdout.take() {
+        std::thread::spawn(move || {
+            let mut buf = [0_u8; 4096];
+            while let Ok(n) = out.read(&mut buf) {
+                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                    break;
                 }
-                std::thread::sleep(Duration::from_millis(120));
             }
-            Err(e) => return Err((format!("esperando a {provider}: {e}"), false)),
+        });
+    }
+    let err_hilo = child.stderr.take().map(|mut e| {
+        std::thread::spawn(move || {
+            let mut t = String::new();
+            let _ = e.read_to_string(&mut t);
+            t
+        })
+    });
+
+    let inicio = std::time::Instant::now();
+    let mut pendiente: Vec<u8> = Vec::new();
+    let mut texto = String::new();
+    let mut final_claude: Option<Result<String, String>> = None;
+    let mut parado = false;
+    loop {
+        match rx.recv_timeout(Duration::from_millis(80)) {
+            Ok(trozo) => {
+                pendiente.extend_from_slice(&trozo);
+                if es_claude {
+                    while let Some(pos) = pendiente.iter().position(|b| *b == b'\n') {
+                        let linea: Vec<u8> = pendiente.drain(..=pos).collect();
+                        let (delta, fin) = leer_linea_claude(&String::from_utf8_lossy(&linea));
+                        if let Some(d) = delta {
+                            crate::maria::flujo::trozo(thread_id, provider, &d, false);
+                            texto.push_str(&d);
+                        }
+                        if fin.is_some() {
+                            final_claude = fin;
+                        }
+                    }
+                } else {
+                    let nuevo = texto_completo(&mut pendiente);
+                    crate::maria::flujo::trozo(thread_id, provider, &nuevo, false);
+                    texto.push_str(&nuevo);
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if crate::maria::flujo::cancelado(thread_id) {
+            let _ = child.kill();
+            parado = true;
+            break;
+        }
+        if inicio.elapsed() > TIMEOUT_PROVEEDOR {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err((format!("{provider} no respondio a tiempo"), false));
         }
     }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| (format!("salida de {provider}: {e}"), false))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let estado = child
+        .wait()
+        .map_err(|e| (format!("esperando a {provider}: {e}"), false))?;
+    let stderr = err_hilo
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
 
-    if out.status.success() && !stdout.is_empty() {
-        return Ok(stdout);
+    if parado {
+        let t = texto.trim().to_string();
+        return if t.is_empty() {
+            Err(("parado".into(), false))
+        } else {
+            Ok(t)
+        };
     }
-    let motivo = if stderr.is_empty() { stdout } else { stderr };
+    let salida = match final_claude {
+        Some(Ok(t)) if !t.is_empty() => t,
+        Some(Err(e)) => {
+            let cuota = is_quota_error(&e);
+            return Err((recorta(&e, 300), cuota));
+        }
+        _ => texto.trim().to_string(),
+    };
+    if estado.success() && !salida.is_empty() {
+        return Ok(salida);
+    }
+    let motivo = if stderr.is_empty() { salida } else { stderr };
     let cuota = is_quota_error(&motivo);
     Err((recorta(&motivo, 300), cuota))
 }
 
+/// Tiempo maximo de una respuesta del modelo local. Mas largo que el de las
+/// CLI: aqui no hay otro proveedor esperando detras, es el ultimo recurso, y
+/// una respuesta larga a 30 tokens/s pasa de los tres minutos sin estar colgada.
+const TIMEOUT_LOCAL: Duration = Duration::from_secs(600);
+
 /// Modelo local por Ollama. Ultimo recurso: sin cuota que agotar.
 ///
 /// El esfuerzo se traduce a `think`: razonar cuesta segundos y tokens, asi que
-/// solo se enciende con esfuerzo alto.
-fn run_local(prompt: &str, effort: &str) -> Result<String, (String, bool)> {
+/// solo se enciende con esfuerzo alto. La respuesta llega por `stream`: se va
+/// emitiendo token a token y se puede parar cerrando la conexion.
+fn run_local(
+    thread_id: &str,
+    prompt: &str,
+    effort: &str,
+    adjuntos: &Adjuntos,
+) -> Result<String, (String, bool)> {
+    let prompt = format!("{prompt}{}", adjuntos.como_texto());
     let body = serde_json::json!({
         "model": crate::ollama::toggle::model_name(),
-        "stream": false,
+        "stream": true,
         "think": crate::maria::models::razonar_en_local(effort),
-        // Ventana corta DENTRO del turno (la eleccion de destino y la
-        // respuesta son dos llamadas seguidas). Al terminar `ask` se descarga
-        // a mano con `descargar_modelo_local`: asi la VRAM queda libre entre
-        // preguntas sin recargar el modelo dos veces en la misma.
-        "keep_alive": KEEP_ALIVE_TURNO,
+        // La VRAM se suelta al acabar el turno (`EnUso`), no aqui: ver
+        // `KEEP_ALIVE_TURNO`.
+        "keep_alive": keep_alive_respuesta(),
         "messages": [{ "role": "user", "content": prompt }],
-        // SIN tope de salida (`-1` = hasta donde llegue el contexto).
-        //
-        // Aqui estaba el truncado que reporto el usuario el 2026-09-21 ("en el
-        // chat local, una respuesta larga se corta; Codex las devuelve
-        // enteras"). No era el modelo ni la interfaz: eran estos 600 tokens,
-        // unas 450 palabras. Codex no pasa por aqui y por eso no se cortaba.
-        //
-        // El limite real pasa a ser la ventana de contexto, que es el limite
-        // honesto: cuando se agota, el modelo para porque no le cabe mas, no
-        // porque se lo hayamos cortado nosotros a mitad de frase.
+        // SIN tope de salida (`-1` = hasta donde llegue el contexto). Aqui
+        // estaba el truncado que reporto el usuario el 2026-09-21: un
+        // `num_predict: 600`, unas 450 palabras.
         "options": { "num_ctx": 8192, "num_predict": SIN_TOPE_DE_SALIDA },
     });
     let client = reqwest::blocking::Client::builder()
-        .timeout(TIMEOUT_PROVEEDOR)
+        .timeout(TIMEOUT_LOCAL)
         .build()
         .map_err(|e| (format!("cliente http: {e}"), false))?;
     let resp = client
@@ -690,20 +1009,38 @@ fn run_local(prompt: &str, effort: &str) -> Result<String, (String, bool)> {
         .json(&body)
         .send()
         .map_err(|e| (format!("ollama no responde: {e}"), false))?;
-    let v: serde_json::Value = resp
-        .json()
-        .map_err(|e| (format!("respuesta de ollama ilegible: {e}"), false))?;
-    let text = v
-        .get("message")
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if text.is_empty() {
-        return Err(("el modelo local devolvio una respuesta vacia".into(), false));
+
+    let mut texto = String::new();
+    for linea in BufReader::new(resp).lines() {
+        let Ok(linea) = linea else { break };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&linea) else {
+            continue;
+        };
+        if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
+            return Err((format!("ollama: {}", recorta(e, 200)), false));
+        }
+        if let Some(d) = v.pointer("/message/content").and_then(|c| c.as_str()) {
+            crate::maria::flujo::trozo(thread_id, "local", d, false);
+            texto.push_str(d);
+        }
+        // Soltar `resp` cierra la conexion y Ollama deja de generar.
+        if crate::maria::flujo::cancelado(thread_id) {
+            break;
+        }
+        if v.get("done").and_then(serde_json::Value::as_bool) == Some(true) {
+            break;
+        }
     }
-    Ok(text)
+    let texto = texto.trim().to_string();
+    if texto.is_empty() {
+        let motivo = if crate::maria::flujo::cancelado(thread_id) {
+            "parado"
+        } else {
+            "el modelo local devolvio una respuesta vacia"
+        };
+        return Err((motivo.into(), false));
+    }
+    Ok(texto)
 }
 
 /// Proveedor que el modelo local propone para una tarea, validado.
@@ -808,7 +1145,7 @@ fn plan_para_tarea(
         "model": crate::ollama::toggle::model_name(),
         "stream": false,
         "think": false,
-        "keep_alive": KEEP_ALIVE_TURNO,
+        "keep_alive": KEEP_ALIVE_DECISION,
         "messages": [{ "role": "user", "content": instruccion }],
         "options": { "num_ctx": 4096, "num_predict": 24, "temperature": 0 },
     });
@@ -841,6 +1178,42 @@ fn plan_para_tarea(
         // usa el orden configurado y el modelo por defecto de cada CLI.
         None => (cfg.order.clone(), None),
     }
+}
+
+/// Plan decidido SIN modelo: senales lexicas + las reglas del criterio.
+///
+/// None = no esta claro, o el usuario no tiene regla para esa clase, o la regla
+/// apunta a un proveedor que no esta en el orden: entonces decide el local como
+/// siempre. Ver `enrutado`.
+fn plan_rapido(
+    prompt: &str,
+    cfg: &RelayConfig,
+    adjuntos: &Adjuntos,
+) -> Option<(Vec<String>, Option<crate::maria::models::Eleccion>)> {
+    let clase = super::enrutado::clasificar(prompt, !adjuntos.imagenes().is_empty())?;
+    let criterio = crate::maria::criterio::solo_proveedores_validos(
+        &crate::maria::criterio::cargar(),
+        &cfg.order,
+    );
+    let regla = super::enrutado::regla_para(clase, &criterio)?;
+    // Una imagen no puede acabar en el modelo que no ve.
+    if regla.provider == "local" && !adjuntos.imagenes().is_empty() {
+        return None;
+    }
+    let model = if crate::maria::models::modelo_valido(&regla.provider, &regla.model) {
+        regla.model.clone()
+    } else {
+        crate::maria::models::modelo_por_defecto(&regla.provider)
+    };
+    let plan = crate::maria::models::Eleccion {
+        provider: regla.provider.clone(),
+        model,
+        effort: crate::maria::models::normaliza_esfuerzo(&regla.effort),
+    };
+    tracing::info!(clase = ?clase, proveedor = %plan.provider, "destino por reglas, sin consultar al local");
+    let mut orden = vec![plan.provider.clone()];
+    orden.extend(cfg.order.iter().filter(|o| **o != plan.provider).cloned());
+    Some((orden, Some(plan)))
 }
 
 /// Memoria relevante para este turno, via daemon de ULTRON. Mismo recall que
@@ -878,10 +1251,24 @@ pub fn ask(
     prompt: &str,
     forzado: Option<&crate::maria::models::Eleccion>,
 ) -> Result<RelayAnswer, String> {
+    ask_con(thread_id, prompt, forzado, &Adjuntos::default())
+}
+
+/// Como `ask`, con ficheros adjuntos al mensaje.
+pub fn ask_con(
+    thread_id: &str,
+    prompt: &str,
+    forzado: Option<&crate::maria::models::Eleccion>,
+    adjuntos: &Adjuntos,
+) -> Result<RelayAnswer, String> {
     // Mientras viva este guardia, el modelo cuenta como "en uso"; al soltarlo
     // se descarga solo, tambien si `ask_inner` sale por un error o un panico.
     let _en_uso = crate::maria::local::EnUso::nuevo();
-    let r = ask_inner(thread_id, prompt, forzado);
+    // Una orden de parar es de UN turno: ni hereda la del anterior ni deja la
+    // suya para el siguiente.
+    crate::maria::flujo::limpiar(thread_id);
+    let r = ask_inner(thread_id, prompt, forzado, adjuntos);
+    crate::maria::flujo::limpiar(thread_id);
     if r.is_ok() {
         crate::maria::threads::touch(thread_id);
         // Y ponerle nombre si aun no lo tiene. En su propio hilo: la respuesta
@@ -901,6 +1288,7 @@ fn ask_inner(
     thread_id: &str,
     prompt: &str,
     forzado: Option<&crate::maria::models::Eleccion>,
+    adjuntos: &Adjuntos,
 ) -> Result<RelayAnswer, String> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
@@ -908,12 +1296,16 @@ fn ask_inner(
     }
     let cfg = load_config();
     let turns = read_thread(thread_id)?;
-    let contexto = build_context(&turns, memoria_para(prompt).as_deref());
-    let completo = if contexto.is_empty() {
-        prompt.to_string()
-    } else {
-        format!("{contexto}[mensaje actual]\n{prompt}")
-    };
+    // La memoria se pide YA, en su hilo: hasta 8 s de recall que antes se
+    // esperaban en fila delante de la decision de destino. Ahora corren a la
+    // vez y se recoge justo antes de montar el paquete.
+    let (tx_mem, rx_mem) = std::sync::mpsc::channel::<Option<String>>();
+    {
+        let p = prompt.to_string();
+        std::thread::spawn(move || {
+            let _ = tx_mem.send(memoria_para(&p));
+        });
+    }
 
     append_turn(
         thread_id,
@@ -923,7 +1315,10 @@ fn ask_inner(
             provider: String::new(),
             model: String::new(),
             effort: String::new(),
-            text: prompt.to_string(),
+            // Los nombres de los adjuntos quedan en el hilo: al releer la
+            // conversacion (o al traspasarla a otro proveedor) se sabe que
+            // los hubo.
+            text: format!("{prompt}{}", adjuntos.etiqueta()),
         },
     )?;
 
@@ -966,17 +1361,73 @@ fn ask_inner(
     // El criterio puede apagar la decision del local (p. ej. con Ollama
     // caido): entonces manda el orden de relevo y no se pierde un segundo
     // preguntando a un modelo que no esta.
-    let decide_local = crate::maria::criterio::cargar().decide_la_local;
+    let ajustes = crate::maria::criterio::cargar();
+    let decide_local = ajustes.decide_la_local;
+    let mut por_reglas = false;
     let (orden, plan) = match manual {
         Some(f) => {
             let mut orden = vec![f.provider.clone()];
             orden.extend(cfg.order.iter().filter(|o| **o != f.provider).cloned());
             (orden, Some(f.clone()))
         }
-        None if decide_local => plan_para_tarea(prompt, &cfg),
-        None => (cfg.order.clone(), None),
+        None => match plan_rapido(prompt, &cfg, adjuntos) {
+            Some(rapido) => {
+                por_reglas = true;
+                rapido
+            }
+            None if decide_local => plan_para_tarea(prompt, &cfg),
+            None => (cfg.order.clone(), None),
+        },
     };
-    let decided_by = if manual.is_some() { "manual" } else { "local" };
+    let decided_by = if manual.is_some() {
+        "manual"
+    } else if por_reglas {
+        "reglas"
+    } else {
+        "local"
+    };
+
+    // Quien acaba de quedarse sin cuota pasa al final hasta que venza su
+    // plazo. Solo se respeta tal cual lo que el usuario fija A MANO en este
+    // turno: si pide Claude, se intenta Claude.
+    let ahora = chrono::Utc::now();
+    let frios: Vec<String> = orden
+        .iter()
+        .filter(|p| p.as_str() != "local")
+        .filter(|p| forzado.is_none_or(|f| f.provider != **p))
+        .filter(|p| {
+            state
+                .get(p.as_str())
+                .is_some_and(|e| super::enrutado::enfriando(&e.cooldown_until, ahora))
+        })
+        .cloned()
+        .collect();
+    for p in &frios {
+        let hasta = state
+            .get(p)
+            .map(|e| e.cooldown_until.clone())
+            .unwrap_or_default();
+        skipped.push(SkipReason {
+            provider: p.clone(),
+            kind: "enfriando".into(),
+            detail: format!("sin cuota; se le vuelve a preguntar a partir de {hasta}"),
+        });
+    }
+    let orden = super::enrutado::ordenar_por_disponibilidad(&orden, &frios);
+
+    // Con el daemon caliente la memoria llega en 100-300 ms y ya esta aqui. Si
+    // el sistema de memoria esta degradado (Qdrant caido, daemon frio) no se
+    // le regalan 8 s a cada mensaje: se contesta sin ella y se dice en el log.
+    let memoria = rx_mem.recv_timeout(ESPERA_MEMORIA).ok().flatten();
+    if memoria.is_none() {
+        tracing::debug!("turno sin memoria: no llego a tiempo o no habia nada");
+    }
+    let contexto = build_context(&turns, memoria.as_deref());
+    let completo = if contexto.is_empty() {
+        prompt.to_string()
+    } else {
+        format!("{contexto}[mensaje actual]\n{prompt}")
+    };
     let chosen_by_local = if manual.is_some() {
         None
     } else {
@@ -1014,10 +1465,21 @@ fn ask_inner(
                 "medio".to_string(),
             ),
         };
+        // Lo que hubiera pintado un proveedor que al final no contesto no es
+        // de este: la pantalla lo descarta.
+        crate::maria::flujo::trozo(thread_id, provider, "", true);
         let intento = if provider == "local" {
-            run_local(&completo, &esfuerzo)
+            run_local(thread_id, &completo, &esfuerzo, adjuntos)
         } else {
-            run_cli(provider, &completo, &modelo, &esfuerzo)
+            run_cli(
+                thread_id,
+                provider,
+                &completo,
+                &modelo,
+                &esfuerzo,
+                ajustes.claude_ligero,
+                adjuntos,
+            )
         };
         match intento {
             Ok(text) => {
@@ -1046,8 +1508,14 @@ fn ask_inner(
                 });
             }
             Err((detail, cuota)) => {
+                // Parar no es un fallo del proveedor: ni se anota ni se releva.
+                if crate::maria::flujo::cancelado(thread_id) {
+                    save_state(&state);
+                    return Err("parado".into());
+                }
                 let kind = if cuota { "cuota" } else { "error" };
                 if cuota {
+                    enfriar(&mut state, provider, &detail);
                     // Se aprende el tope practico de la ventana: el consumo
                     // que habia justo cuando el proveedor dijo basta.
                     let w = crate::maria::quota::claude_window();
@@ -1087,6 +1555,7 @@ pub async fn maria_relay_ask(
     provider: Option<String>,
     model: Option<String>,
     effort: Option<String>,
+    adjuntos: Option<Vec<String>>,
 ) -> Result<RelayAnswer, String> {
     // Un proveedor fijado a mano puede venir sin modelo: entonces se usa el
     // que ESE proveedor tenga por defecto, no el de otro.
@@ -1101,9 +1570,19 @@ pub async fn maria_relay_ask(
                 provider: p,
             });
     // Bloqueante (procesos + red) fuera del hilo async de Tauri.
-    tauri::async_runtime::spawn_blocking(move || ask(&thread_id, &prompt, forzado.as_ref()))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
+    let adjuntos = Adjuntos {
+        rutas: adjuntos
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|p| p.is_file())
+            .collect(),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        ask_con(&thread_id, &prompt, forzado.as_ref(), &adjuntos)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 #[tauri::command]
@@ -1458,5 +1937,115 @@ mod tests {
         };
         let nueva = migrar_gemini(mezcla);
         assert_eq!(nueva.order, vec!["antigravity", "local"]);
+    }
+
+    #[test]
+    fn una_linea_de_streaming_de_claude_da_solo_el_texto_nuevo() {
+        let linea = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hola"}}}"#;
+        assert_eq!(leer_linea_claude(linea), (Some("Hola".into()), None));
+        // El razonamiento viaja por otro tipo de delta y no es respuesta.
+        let piensa = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","text":"mmm"}}}"#;
+        assert_eq!(leer_linea_claude(piensa), (None, None));
+    }
+
+    #[test]
+    fn la_linea_de_cierre_de_claude_distingue_exito_de_error() {
+        let ok = r#"{"type":"result","subtype":"success","is_error":false,"result":" Hola. "}"#;
+        assert_eq!(leer_linea_claude(ok), (None, Some(Ok("Hola.".into()))));
+        let mal = r#"{"type":"result","is_error":true,"result":"Claude usage limit reached"}"#;
+        assert_eq!(
+            leer_linea_claude(mal),
+            (None, Some(Err("Claude usage limit reached".into())))
+        );
+        assert_eq!(leer_linea_claude("no es json"), (None, None));
+    }
+
+    #[test]
+    fn un_caracter_partido_entre_trozos_no_se_rompe() {
+        // "ñ" son dos bytes: llega el primero, luego el segundo.
+        let bytes = "año".as_bytes();
+        let mut pendiente = bytes[..2].to_vec();
+        assert_eq!(texto_completo(&mut pendiente), "a");
+        pendiente.extend_from_slice(&bytes[2..]);
+        assert_eq!(texto_completo(&mut pendiente), "ño");
+        assert!(pendiente.is_empty());
+    }
+
+    #[test]
+    fn los_adjuntos_separan_imagenes_y_no_repiten_carpetas() {
+        let a = Adjuntos {
+            rutas: vec![
+                PathBuf::from("C:/x/foto.PNG"),
+                PathBuf::from("C:/x/notas.md"),
+                PathBuf::from("C:/y/plano.jpg"),
+            ],
+        };
+        assert_eq!(a.imagenes().len(), 2);
+        assert_eq!(a.carpetas().len(), 2);
+        assert!(a.como_rutas().contains("notas.md"));
+        assert!(Adjuntos::default().como_rutas().is_empty());
+    }
+
+    #[test]
+    fn un_ok_borra_el_enfriamiento_y_un_aviso_de_cuota_lo_pone() {
+        let mut st = RelayState::new();
+        enfriar(
+            &mut st,
+            "claude",
+            "usage limit reached, try again in 30 minutes",
+        );
+        let e = st.get("claude").unwrap().clone();
+        assert_eq!(e.quota_strikes, 1);
+        assert!(super::super::enrutado::enfriando(
+            &e.cooldown_until,
+            chrono::Utc::now()
+        ));
+        record_attempt(&mut st, "claude", "ok", "contesto");
+        let e = st.get("claude").unwrap();
+        assert!(e.cooldown_until.is_empty());
+        assert_eq!(e.quota_strikes, 0);
+    }
+
+    /// Prueba REAL del relevo (gasta una peticion minima de cada proveedor y
+    /// carga el modelo local). No corre en CI: `cargo test -- --ignored relevo_real`.
+    #[test]
+    #[ignore = "toca proveedores reales"]
+    fn relevo_real_mide_las_dos_rutas() {
+        let hilo = format!("prueba-relevo-{}", chrono::Utc::now().timestamp());
+        let t0 = std::time::Instant::now();
+        let r = ask(&hilo, "hola, que tal", None).expect("alguien contesta");
+        println!(
+            "[trivial] {} ms · decidio={} · contesto={} · saltados={:?}",
+            t0.elapsed().as_millis(),
+            r.decided_by,
+            r.provider,
+            r.skipped
+                .iter()
+                .map(|s| format!("{}:{}", s.provider, s.kind))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            r.decided_by, "reglas",
+            "un saludo no debe consultar al modelo local"
+        );
+
+        let forzado = crate::maria::models::Eleccion {
+            provider: "claude".into(),
+            model: crate::maria::models::modelo_por_defecto("claude"),
+            effort: "bajo".into(),
+        };
+        let t1 = std::time::Instant::now();
+        let r = ask(&hilo, "responde solo con la palabra: listo", Some(&forzado))
+            .expect("alguien contesta");
+        println!(
+            "[claude forzado] {} ms · contesto={} · texto={:?}",
+            t1.elapsed().as_millis(),
+            r.provider,
+            r.text.chars().take(40).collect::<String>()
+        );
+        if let Ok(p) = thread_path(&hilo) {
+            let _ = std::fs::remove_file(p);
+        }
+        let _ = crate::maria::threads::fijar_provider(&hilo, "");
     }
 }

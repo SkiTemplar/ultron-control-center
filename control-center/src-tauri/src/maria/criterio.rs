@@ -45,6 +45,18 @@ pub struct Criterio {
     /// Una linea libre del usuario. Va tal cual al prompt de decision.
     #[serde(default)]
     pub nota: String,
+    /// Claude SIN los hooks ni los MCP de Claude Code en los turnos del chat.
+    /// Medido el 2026-09-21 con la misma pregunta: 12,2 s con todo, 4,3-5,0 s
+    /// sin ello, misma respuesta y la cache de prompt intacta. La memoria no se
+    /// pierde: el relevo ya la inyecta por su cuenta.
+    #[serde(default = "si")]
+    pub claude_ligero: bool,
+    /// Segundos que el modelo local se queda en VRAM tras contestar. 0 = se
+    /// suelta al acabar el turno (lo que pidio el usuario el 2026-09-19 y el
+    /// valor por defecto). Medido el 2026-09-21: de los 4,2 s de un "hola",
+    /// 3,7 s son cargar el modelo; con el modelo ya dentro son 0,4 s.
+    #[serde(default)]
+    pub local_residente_s: u32,
 }
 
 fn si() -> bool {
@@ -66,15 +78,20 @@ impl Default for Criterio {
                 },
                 Regla {
                     tarea: "buscar y ver imágenes".into(),
-                    provider: "gemini".into(),
-                    model: "gemini-2.5-flash".into(),
+                    // Antigravity, no Gemini: la CLI de Gemini salio el 2026-09-20 y
+                    // esta regla seguia mandando a un proveedor que ya no existe
+                    // (se filtraba en silencio y la clase se quedaba sin regla).
+                    provider: "antigravity".into(),
+                    model: String::new(),
                     effort: "medio".into(),
                     cuando: "hace falta internet, documentos largos o mirar una imagen".into(),
                 },
                 Regla {
                     tarea: "scripts y automatización".into(),
                     provider: "codex".into(),
-                    model: "gpt-5-codex".into(),
+                    // Sin modelo clavado: con cuenta de ChatGPT, `-m gpt-5-codex`
+                    // devuelve 400 y tumba el proveedor entero.
+                    model: String::new(),
                     effort: "medio".into(),
                     cuando: "un script suelto, un comando o automatizar algo del sistema".into(),
                 },
@@ -94,6 +111,8 @@ impl Default for Criterio {
                 },
             ],
             nota: String::new(),
+            claude_ligero: true,
+            local_residente_s: 0,
         }
     }
 }
@@ -163,6 +182,8 @@ pub fn solo_proveedores_validos(c: &Criterio, validos: &[String]) -> Criterio {
             .cloned()
             .collect(),
         nota: c.nota.clone(),
+        claude_ligero: c.claude_ligero,
+        local_residente_s: c.local_residente_s,
     }
 }
 
@@ -205,7 +226,7 @@ mod tests {
     fn el_criterio_de_fabrica_cubre_los_cuatro_proveedores() {
         let c = Criterio::default();
         let ps: Vec<&str> = c.reglas.iter().map(|r| r.provider.as_str()).collect();
-        for esperado in ["local", "gemini", "codex", "claude"] {
+        for esperado in ["local", "antigravity", "codex", "claude"] {
             assert!(ps.contains(&esperado), "falta {esperado} en {ps:?}");
         }
         assert!(c.decide_la_local);
@@ -247,7 +268,7 @@ mod tests {
                 regla("b", "groq"),
                 regla("c", "local"),
             ],
-            nota: String::new(),
+            ..Criterio::default()
         };
         let validos = vec!["claude".to_string(), "local".to_string()];
         let limpio = solo_proveedores_validos(&c, &validos);

@@ -321,6 +321,9 @@ pub fn run() {
                 tracing::error!(error = %e, "custom project hotkeys init failed");
             }
 
+            // El relevo emite la respuesta segun llega: necesita por donde.
+            crate::maria::flujo::fijar_app(app.handle().clone());
+
             // Tray + close-to-tray.
             if let Err(e) = tray::init_tray(app.handle()) {
                 tracing::error!(error = %e, "tray init failed");

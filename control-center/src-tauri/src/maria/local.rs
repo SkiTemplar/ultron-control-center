@@ -18,7 +18,7 @@
 // que el servicio de Ollama este listo. Un unico intento fallido dejaba la IA
 // local caida toda la sesion sin decir nada.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -36,6 +36,27 @@ const RONDA_VIGILANTE: Duration = Duration::from_secs(20);
 /// distingue "lo esta usando alguien" de "se quedo cargado". Es un contador y
 /// no un booleano porque la voz y el chat pueden pedir a la vez.
 static TURNOS_ACTIVOS: AtomicUsize = AtomicUsize::new(0);
+
+/// Cuando acabo el ultimo turno que uso el modelo (ms desde epoch; 0 = nunca).
+static ULTIMO_USO_MS: AtomicU64 = AtomicU64::new(0);
+
+fn ahora_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+/// Segundos de residencia que ha elegido el usuario (0 = soltar al acabar).
+fn residencia_s() -> u64 {
+    u64::from(crate::maria::criterio::cargar().local_residente_s)
+}
+
+/// ¿Toca soltar ya? Pura: `ultimo`/`ahora` en ms, `residencia` en s.
+#[must_use]
+pub fn toca_descargar(ultimo: u64, ahora: u64, residencia: u64) -> bool {
+    residencia == 0 || ahora.saturating_sub(ultimo) >= residencia * 1000
+}
 
 /// Marca que hay un turno usando el modelo. Al soltarse (Drop), lo descarga si
 /// era el ultimo.
@@ -56,7 +77,13 @@ impl EnUso {
 impl Drop for EnUso {
     fn drop(&mut self) {
         if TURNOS_ACTIVOS.fetch_sub(1, Ordering::SeqCst) == 1 {
-            descargar();
+            ULTIMO_USO_MS.store(ahora_ms(), Ordering::SeqCst);
+            // Sin residencia se suelta aqui mismo, como siempre. Con ella, se
+            // deja al vigilante: la pregunta siguiente llega con el modelo
+            // dentro (0,4 s en vez de 4,2 s) y la VRAM se libera sola al callar.
+            if residencia_s() == 0 {
+                descargar();
+            }
         }
     }
 }
@@ -90,7 +117,13 @@ pub fn descargar() {
 pub fn vigilar_vram() {
     loop {
         std::thread::sleep(RONDA_VIGILANTE);
-        if en_uso() {
+        if en_uso()
+            || !toca_descargar(
+                ULTIMO_USO_MS.load(Ordering::SeqCst),
+                ahora_ms(),
+                residencia_s(),
+            )
+        {
             continue;
         }
         let e = estado();
@@ -210,6 +243,20 @@ mod tests_vram {
         assert!(en_uso(), "al soltar uno de dos, sigue en uso");
         drop(b);
         assert_eq!(TURNOS_ACTIVOS.load(Ordering::SeqCst), base);
+    }
+
+    #[test]
+    fn sin_residencia_se_suelta_siempre_y_con_ella_se_espera_el_plazo() {
+        assert!(toca_descargar(1_000, 1_001, 0), "0 = soltar al acabar");
+        assert!(
+            !toca_descargar(1_000, 30_000, 60),
+            "a los 29 s de 60 no toca"
+        );
+        assert!(toca_descargar(1_000, 61_000, 60));
+        assert!(
+            toca_descargar(0, 5_000_000, 60),
+            "nunca usado y cargado: fuera"
+        );
     }
 
     #[test]

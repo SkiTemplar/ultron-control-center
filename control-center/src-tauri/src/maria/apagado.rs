@@ -134,6 +134,11 @@ pub fn apagar() {
     // 5. Las terminales embebidas.
     crate::pty::kill_all_inner();
 
+    // La VRAM, libre. Con residencia del modelo local (Router -> Criterio) el
+    // modelo puede seguir cargado cuando se cierra: Ollama no es nuestro y se
+    // queda, pero lo que mar.ia cargo en la GPU se va con mar.ia.
+    crate::maria::local::descargar();
+
     // 6. Lo que hayamos arrancado y siga vivo.
     let pendientes = {
         let mut g = PROPIOS.lock().unwrap_or_else(|e| e.into_inner());

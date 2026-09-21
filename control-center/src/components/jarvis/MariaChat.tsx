@@ -15,6 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { BotonMicrofono } from "./BotonMicrofono";
 import { BotonCopiar } from "./BotonCopiar";
 import { useHistorialEnviados } from "../../lib/useHistorialEnviados";
@@ -45,6 +47,23 @@ type Turn = {
   effort?: string;
   text: string;
 };
+
+/** Fichero adjunto ya guardado en disco: lo que viaja al relevo es la ruta. */
+type Adjunto = { nombre: string; ruta: string };
+
+/** Lo que emite el relevo mientras un proveedor escribe (`maria/flujo.rs`). */
+type Trozo = { thread_id: string; provider: string; texto: string; reinicia: boolean };
+
+/** Bytes -> base64 por bloques: `btoa(String.fromCharCode(...todo))` revienta
+ *  la pila con ficheros de pocos MB. */
+function aBase64(bytes: Uint8Array): string {
+  let bin = "";
+  const BLOQUE = 0x8000;
+  for (let i = 0; i < bytes.length; i += BLOQUE) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + BLOQUE));
+  }
+  return btoa(bin);
+}
 
 /** Catalogo de modelos que sirve el backend (`maria_models_catalog`). */
 type ModeloInfo = { id: string; label: string; para: string };
@@ -158,6 +177,13 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   const [ultimo, setUltimo] = useState<{ model: string; effort: string } | null>(null);
   const [query, setQuery] = useState("");
   const [sugerido, setSugerido] = useState(0);
+  /** Respuesta que se esta escribiendo ahora mismo (eventos del relevo). */
+  const [enVivo, setEnVivo] = useState<{ provider: string; texto: string } | null>(null);
+  /** Ficheros que acompañaran al proximo mensaje. */
+  const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
+  const [arrastrando, setArrastrando] = useState(false);
+  const threadIdRef = useRef(threadId);
+  threadIdRef.current = threadId;
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -183,6 +209,57 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
 
   const avisar = useCallback((text: string, tono: Aviso["tono"] = "info") => {
     setAvisos((prev) => [...prev.slice(-4), { ts: Date.now(), text, tono }]);
+  }, []);
+
+  // La respuesta, segun se escribe. Un `reinicia` llega al cambiar de
+  // proveedor: lo que hubiera a medias era de uno que no termino.
+  useEffect(() => {
+    const p = listen<Trozo>("maria://relay-trozo", (ev) => {
+      const t = ev.payload;
+      if (!t || t.thread_id !== threadIdRef.current) return;
+      setEnVivo((prev) =>
+        t.reinicia || !prev || prev.provider !== t.provider
+          ? { provider: t.provider, texto: t.reinicia ? "" : t.texto }
+          : { provider: prev.provider, texto: prev.texto + t.texto },
+      );
+    });
+    return () => {
+      void p.then((off) => off());
+    };
+  }, []);
+
+  /** Guarda en disco lo soltado o pegado y lo apunta como adjunto. */
+  const adjuntarFicheros = useCallback(
+    async (files: File[]) => {
+      const hilo = threadIdRef.current;
+      if (!hilo || files.length === 0) return;
+      for (const f of files) {
+        try {
+          const datos = aBase64(new Uint8Array(await f.arrayBuffer()));
+          const ruta = await invoke<string>("maria_adjunto_guardar", {
+            threadId: hilo,
+            nombre: f.name || "pegado.png",
+            datosBase64: datos,
+          });
+          setAdjuntos((prev) => [...prev, { nombre: f.name || "pegado.png", ruta }]);
+        } catch (e) {
+          avisar(`no pude adjuntar ${f.name}: ${String(e)}`, "error");
+        }
+      }
+    },
+    [avisar],
+  );
+
+  /** El clip: elegir con el dialogo de Windows. Trae ruta, no hay que copiar. */
+  const elegirFicheros = useCallback(async () => {
+    const sel = await openDialog({ multiple: true, title: "Adjuntar al mensaje" }).catch(
+      () => null,
+    );
+    const rutas = Array.isArray(sel) ? sel : sel ? [sel] : [];
+    setAdjuntos((prev) => [
+      ...prev,
+      ...rutas.map((ruta) => ({ nombre: ruta.split(/[\\/]/).pop() || ruta, ruta })),
+    ]);
   }, []);
 
   const recargarLista = useCallback(async () => {
@@ -410,12 +487,22 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     setBusy(true);
     setLastSkips([]);
     setLastChoice(null);
+    setEnVivo(null);
+    const enviados = adjuntos;
+    setAdjuntos([]);
     const eraVacia = turns.length === 0;
     // Optimista: el turno del usuario se ve al instante; el backend lo
     // persiste igualmente, asi que al recargar el hilo no se duplica.
     setTurns((prev) => [
       ...prev,
-      { ts: new Date().toISOString(), role: "user", provider: "", text: texto },
+      {
+        ts: new Date().toISOString(),
+        role: "user",
+        provider: "",
+        text: enviados.length
+          ? `${texto}\n\n_adjuntos: ${enviados.map((a) => a.nombre).join(", ")}_`
+          : texto,
+      },
     ]);
     try {
       const ans = await invoke<RelayAnswer>("maria_relay_ask", {
@@ -424,6 +511,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         provider: forzado,
         model: modeloFijo,
         effort: esfuerzoFijo,
+        adjuntos: enviados.map((a) => a.ruta),
       });
       setLastSkips(ans.skipped ?? []);
       setLastChoice(ans.chosen_by_local ?? null);
@@ -449,8 +537,11 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         void recargarLista();
       }
     } catch (e) {
-      avisar(String(e), "error");
+      // Parar antes de que llegue una sola palabra no es un error.
+      if (String(e).includes("parado")) avisar("parado");
+      else avisar(String(e), "error");
     } finally {
+      setEnVivo(null);
       setBusy(false);
     }
   }
@@ -514,7 +605,23 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   }
 
   return (
-    <div className="flex h-full min-w-0">
+    <div
+      className="flex h-full min-w-0"
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes("Files")) {
+          e.preventDefault();
+          setArrastrando(true);
+        }
+      }}
+      onDragLeave={() => setArrastrando(false)}
+      onDrop={(e) => {
+        if (!e.dataTransfer?.files?.length) return;
+        e.preventDefault();
+        setArrastrando(false);
+        void adjuntarFicheros(Array.from(e.dataTransfer.files));
+      }}
+      style={arrastrando ? { outline: "1px dashed var(--color-accent)", outlineOffset: -4 } : undefined}
+    >
       {!compacto && (
         <ThreadSidebar
           threads={threads}
@@ -710,7 +817,32 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               </article>
             ))}
 
-            {busy && <p className="hud-label hud-pulse py-2">consultando a los proveedores…</p>}
+            {busy && enVivo?.texto && (
+              <article className="mb-3" aria-live="polite">
+                <div className="hud-label mb-1" style={{ color: "var(--color-accent)" }}>
+                  {enVivo.provider} · escribiendo…
+                </div>
+                <div
+                  className="rounded-none px-3 py-2 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                    color: "var(--color-text)",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <div className="cc-markdown">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{enVivo.texto}</ReactMarkdown>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {busy && !enVivo?.texto && (
+              <p className="hud-label hud-pulse py-2">
+                {enVivo ? `esperando a ${enVivo.provider}…` : "eligiendo quién contesta…"}
+              </p>
+            )}
 
             {lastChoice && (
               <p className="hud-label py-1">
@@ -789,6 +921,29 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
             </ul>
           )}
 
+          {adjuntos.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="ficheros adjuntos">
+              {adjuntos.map((a, i) => (
+                <li
+                  key={`${a.ruta}-${i}`}
+                  className="hud-panel flex items-center gap-1.5 px-2 py-1 text-[11px]"
+                  style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}
+                  title={a.ruta}
+                >
+                  <span className="max-w-[220px] truncate">{a.nombre}</span>
+                  <button
+                    type="button"
+                    aria-label={`quitar ${a.nombre}`}
+                    onClick={() => setAdjuntos((prev) => prev.filter((_, j) => j !== i))}
+                    style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           <form
             className="mt-3 flex items-center gap-2"
             onSubmit={(e) => {
@@ -800,9 +955,32 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                 única forma de encender o apagar la escucha sin adivinar
                 (pedido el 2026-09-21). */}
             <BotonMicrofono micOn={mic} voz={voiceState} onError={(m) => avisar(m, "error")} />
+            <button
+              type="button"
+              onClick={() => void elegirFicheros()}
+              disabled={busy}
+              className="hud-panel px-2.5 text-[12px]"
+              style={{
+                minHeight: 34,
+                color: "var(--color-text-secondary)",
+                fontFamily: "var(--font-mono)",
+                cursor: busy ? "default" : "pointer",
+              }}
+              title="adjuntar ficheros o imágenes (también puedes arrastrarlos o pegarlos)"
+              aria-label="adjuntar ficheros"
+            >
+              +
+            </button>
             <span className="hud-label">&gt;</span>
             <input
               ref={inputRef}
+              onPaste={(e) => {
+                const files = Array.from(e.clipboardData?.files ?? []);
+                if (files.length > 0) {
+                  e.preventDefault();
+                  void adjuntarFicheros(files);
+                }
+              }}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={onKeyDown}
@@ -817,6 +995,22 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                 opacity: busy ? 0.6 : 1,
               }}
             />
+            {busy && (
+              <button
+                type="button"
+                onClick={() => void invoke("maria_relay_cancel", { threadId })}
+                className="hud-panel px-3 text-[12px]"
+                style={{
+                  minHeight: 34,
+                  color: "var(--color-danger)",
+                  fontFamily: "var(--font-mono)",
+                  cursor: "pointer",
+                }}
+                title="para la respuesta; se conserva lo que ya hubiera escrito"
+              >
+                parar
+              </button>
+            )}
           </form>
         </div>
       </div>

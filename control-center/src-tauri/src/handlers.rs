@@ -198,6 +198,8 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria::teclado::maria_teclado_set,
         maria::login::maria_login_open,
         maria::relay::maria_relay_ask,
+        maria::flujo::maria_relay_cancel,
+        maria::adjuntos::maria_adjunto_guardar,
         maria::relay::maria_relay_thread,
         maria::relay::maria_relay_state,
         maria::relay::maria_relay_config,

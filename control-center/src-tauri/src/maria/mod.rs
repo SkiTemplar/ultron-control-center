@@ -5,10 +5,13 @@
 // duplicaba la cara del asistente y obligaba a mantener dos caminos de
 // arranque del microfono.
 
+pub(crate) mod adjuntos; // mar.ia: ficheros arrastrados o pegados en el chat
 pub(crate) mod apagado; // mar.ia: cerrar de verdad (quien para a quien)
 pub(crate) mod arranque; // mar.ia: arrancar con Windows, y por que no arranca
 pub(crate) mod criterio; // mar.ia: los parametros con los que la IA local decide
-pub(crate) mod cuentas; // mar.ia: que cuentas y claves hay conectadas, y a que correo
+pub(crate) mod cuentas;
+pub(crate) mod enrutado; // mar.ia: decidir destino sin modelo y enfriar a quien no tiene cuota
+pub(crate) mod flujo; // mar.ia: respuesta en streaming y boton de parar // mar.ia: que cuentas y claves hay conectadas, y a que correo
 pub(crate) mod local; // mar.ia: el modelo local disponible, sin ocupar VRAM
 pub(crate) mod login; // mar.ia: como se entra en cada proveedor y si ya se entro
 pub(crate) mod models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
