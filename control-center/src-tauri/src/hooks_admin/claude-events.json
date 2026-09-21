@@ -1,0 +1,278 @@
+{
+  "_que_es": "Catalogo UNICO de eventos de hook de Claude Code. Lo lee Rust (hooks_admin/validation.rs, con include_str!) y la interfaz (por el comando hooks_event_catalog). No duplicar esta lista en ningun otro sitio: eso es lo que hizo que el desplegable ofreciera 30 eventos y el backend aceptara 9.",
+  "_de_donde_sale": "Del binario instalado de la CLI, no de la documentacion: el array de los 33 eventos que despacha, la tabla interna que declara el matcher de cada uno (fieldToMatch + values) y el conjunto que decide con que separadores se puede escribir ese matcher.",
+  "_campo": "Contra que valor del payload se compara el matcher. null = el evento NO compara nada: cualquier matcher casa siempre, asi que la interfaz ni lo ofrece (seria un campo que no hace nada, mandamiento 11).",
+  "_valores": "Sugerencias del enum cuando el campo tiene uno cerrado. Vacio = texto libre (un nombre de herramienta, de agente, de servidor MCP o de modelo).",
+  "_relajado": "true = el matcher literal admite tambien coma, espacio y guion como separadores. false = SOLO la barra vertical y [a-zA-Z0-9_]; cualquier otra cosa deja de ser una lista literal y se interpreta como expresion regular. Importa para StopFailure, que es el unico evento con matcher fuera del conjunto relajado.",
+  "_ojo_filechanged": "FileChanged aparece con campo null a proposito: el codigo que saca el valor a comparar llama a una funcion VACIA, asi que devuelve undefined y el matcher se ignora entero. No es un olvido nuestro.",
+  "cli": "2.1.278",
+  "comprobado": "2026-09-22",
+  "eventos": [
+    {
+      "nombre": "PreToolUse",
+      "campo": "tool_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PostToolUse",
+      "campo": "tool_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PostToolUseFailure",
+      "campo": "tool_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PostToolBatch",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "Notification",
+      "campo": "notification_type",
+      "valores": [
+        "permission_prompt",
+        "idle_prompt",
+        "auth_success",
+        "elicitation_dialog",
+        "agent_needs_input",
+        "agent_completed",
+        "elicitation_url_dialog",
+        "worker_permission_prompt",
+        "push_notification",
+        "computer_use_enter",
+        "computer_use_exit",
+        "quota_auto_resume_fired",
+        "quota_auto_resume_stale",
+        "quota_auto_resume_disabled",
+        "model_refusal_fallback",
+        "elicitation_complete",
+        "elicitation_response"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "UserPromptSubmit",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "UserPromptExpansion",
+      "campo": "command_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "SessionStart",
+      "campo": "source",
+      "valores": [
+        "startup",
+        "resume",
+        "clear",
+        "compact",
+        "fork"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "SessionEnd",
+      "campo": "reason",
+      "valores": [
+        "clear",
+        "resume",
+        "logout",
+        "prompt_input_exit",
+        "other"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "Stop",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "StopFailure",
+      "campo": "error",
+      "valores": [
+        "rate_limit",
+        "overloaded",
+        "authentication_failed",
+        "oauth_org_not_allowed",
+        "account_on_hold",
+        "verification_required",
+        "billing_error",
+        "invalid_request",
+        "model_not_found",
+        "server_error",
+        "max_output_tokens",
+        "cloud_credential_error",
+        "unknown"
+      ],
+      "relajado": false
+    },
+    {
+      "nombre": "SubagentStart",
+      "campo": "agent_type",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "SubagentStop",
+      "campo": "agent_type",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PreCompact",
+      "campo": "trigger",
+      "valores": [
+        "manual",
+        "auto"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "PostCompact",
+      "campo": "trigger",
+      "valores": [
+        "manual",
+        "auto"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "PreModelSwitch",
+      "campo": "to_model",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PostModelSwitch",
+      "campo": "to_model",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PermissionRequest",
+      "campo": "tool_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "PermissionDenied",
+      "campo": "tool_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "Setup",
+      "campo": "trigger",
+      "valores": [
+        "init",
+        "maintenance"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "TeammateIdle",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "TaskCreated",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "TaskCompleted",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "Elicitation",
+      "campo": "mcp_server_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "ElicitationResult",
+      "campo": "mcp_server_name",
+      "valores": [],
+      "relajado": true
+    },
+    {
+      "nombre": "ConfigChange",
+      "campo": "source",
+      "valores": [
+        "user_settings",
+        "project_settings",
+        "local_settings",
+        "policy_settings",
+        "skills"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "WorktreeCreate",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "WorktreeRemove",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "InstructionsLoaded",
+      "campo": "load_reason",
+      "valores": [
+        "session_start",
+        "nested_traversal",
+        "path_glob_match",
+        "include",
+        "compact"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "CwdChanged",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "FileChanged",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    },
+    {
+      "nombre": "DirectoryAdded",
+      "campo": "source",
+      "valores": [
+        "slash_command",
+        "register_repo_root"
+      ],
+      "relajado": true
+    },
+    {
+      "nombre": "MessageDisplay",
+      "campo": null,
+      "valores": [],
+      "relajado": false
+    }
+  ]
+}

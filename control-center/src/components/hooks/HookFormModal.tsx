@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { EVENT_OPTIONS } from "./constants";
+import type { EventoHook } from "./constants";
 import type { HookRecord, HookMutationResult } from "./types";
 
 export function HookFormModal({
@@ -19,6 +19,24 @@ export function HookFormModal({
   const [command, setCommand] = useState<string>(initial?.command ?? "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Los eventos los sirve el backend: es la MISMA lista que valida `add_hook`.
+  // Sin catalogo no se inventa uno de repuesto — eso es lo que hacia que el
+  // desplegable ofreciera eventos que el backend rechazaba.
+  const [eventos, setEventos] = useState<EventoHook[] | null>(null);
+
+  useEffect(() => {
+    void invoke<EventoHook[]>("hooks_event_catalog")
+      .then((l) => setEventos(l ?? []))
+      .catch((e) => {
+        setEventos([]);
+        setErr(`No pude leer el catálogo de eventos: ${String(e)}`);
+      });
+  }, []);
+
+  const ficha = useMemo(
+    () => eventos?.find((x) => x.nombre === event) ?? null,
+    [eventos, event],
+  );
 
   async function submit() {
     if (!command.trim()) {
@@ -81,9 +99,9 @@ export function HookFormModal({
               border: "1px solid var(--color-border)",
             }}
           >
-            {EVENT_OPTIONS.map((e) => (
-              <option key={e} value={e}>
-                {e}
+            {(eventos ?? []).map((e) => (
+              <option key={e.nombre} value={e.nombre}>
+                {e.nombre}
               </option>
             ))}
           </select>
@@ -94,22 +112,43 @@ export function HookFormModal({
           )}
         </label>
 
-        <label className="mb-3 block text-[12px]">
-          <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
-            Matcher (optional regex — e.g. "Bash", "Read|Glob|Grep", "mcp__.*")
-          </div>
-          <input
-            type="text"
-            value={matcher}
-            onChange={(e) => setMatcher(e.target.value)}
-            className="w-full rounded px-2 py-1"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-            }}
-          />
-        </label>
+        {/* El matcher solo aparece cuando el evento compara algo de verdad. En
+            los que no (Stop, UserPromptSubmit, TaskCreated…) cualquier matcher
+            casa siempre: ofrecer la caja seria prometer un filtro que no
+            existe. */}
+        {ficha?.campo ? (
+          <label className="mb-3 block text-[12px]">
+            <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
+              Matcher (opcional) — se compara contra <code>{ficha.campo}</code>
+              {ficha.relajado ? ", separando con | , o espacio" : ", separando SOLO con |"}
+            </div>
+            <input
+              type="text"
+              list={ficha.valores.length > 0 ? "hook-matcher-valores" : undefined}
+              value={matcher}
+              onChange={(e) => setMatcher(e.target.value)}
+              className="w-full rounded px-2 py-1"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+              }}
+            />
+            {ficha.valores.length > 0 && (
+              <datalist id="hook-matcher-valores">
+                {ficha.valores.map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
+            )}
+          </label>
+        ) : (
+          ficha && (
+            <div className="mb-3 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+              {ficha.nombre} no compara ningún campo: no admite matcher, se dispara siempre.
+            </div>
+          )
+        )}
 
         <label className="mb-3 block text-[12px]">
           <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>

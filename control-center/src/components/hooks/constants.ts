@@ -1,49 +1,26 @@
 // Constants, color helpers, and name-derivation utilities for Hooks viewer.
 
-// 0.6: superficie REAL de eventos de hook de Claude Code (~30, no 9). Antes solo
-// se modelaban 9 -> no se podian ver ni crear hooks de los ~21 restantes.
-export const EVENT_OPTIONS: readonly string[] = [
-  // Sesion / ciclo de vida
-  "SessionStart",
-  "SessionEnd",
-  "Setup",
-  // Prompt
-  "UserPromptSubmit",
-  "UserPromptExpansion",
-  // Tools
-  "PreToolUse",
-  "PostToolUse",
-  "PostToolUseFailure",
-  "PostToolBatch",
-  "PermissionRequest",
-  "PermissionDenied",
-  // Subagentes / tareas
-  "SubagentStart",
-  "SubagentStop",
-  "TaskCreated",
-  "TaskCompleted",
-  "TeammateIdle",
-  // Fin de turno
-  "Stop",
-  "StopFailure",
-  // Display / notificaciones
-  "Notification",
-  "MessageDisplay",
-  // Entorno / ficheros
-  "InstructionsLoaded",
-  "ConfigChange",
-  "CwdChanged",
-  "FileChanged",
-  // Worktrees
-  "WorktreeCreate",
-  "WorktreeRemove",
-  // Compactacion
-  "PreCompact",
-  "PostCompact",
-  // MCP elicitation
-  "Elicitation",
-  "ElicitationResult",
-] as const;
+/**
+ * Un evento de hook, tal y como lo sirve el backend (`hooks_event_catalog`).
+ *
+ * La lista de eventos YA NO VIVE AQUI (2026-09-22). Habia dos y no se parecian:
+ * este fichero ofrecia 30 y `hooks_admin/validation.rs` aceptaba 9, asi que
+ * elegir PostToolUseFailure en el desplegable devolvia
+ * "event 'X' is not supported" — un boton que no hace nada. Ahora la unica
+ * lista es `hooks_admin/claude-events.json`, que Rust incrusta y sirve por este
+ * comando: no pueden divergir porque solo hay una.
+ */
+export type EventoHook = {
+  nombre: string;
+  /** Campo del payload contra el que se compara el matcher. `null` = el evento
+   *  no compara nada, cualquier matcher casaria siempre y por eso no se ofrece. */
+  campo: string | null;
+  /** Valores del enum, si el campo tiene uno cerrado. Vacio = texto libre. */
+  valores: string[];
+  /** El matcher literal admite tambien coma, espacio y guion. Si es `false`,
+   *  solo la barra vertical. */
+  relajado: boolean;
+};
 
 export const DEFAULT_PAYLOAD = `{
   "tool_name": "Bash",

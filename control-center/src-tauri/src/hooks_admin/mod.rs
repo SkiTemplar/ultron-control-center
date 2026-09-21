@@ -4,7 +4,8 @@
 //
 // Module layout:
 //   types.rs        — Public DTOs (Hook, HooksList, HookMutationResult, ...)
-//   validation.rs   — Input validation: ALLOWED_EVENTS, validate_command/event/matcher
+//   validation.rs   — Input validation: catalogo de eventos (claude-events.json),
+//                     validate_command/event/matcher
 //   io.rs           — Settings I/O: read, flatten, mutate, discover plugin hooks
 //   commands.rs     — Public inner functions called from Tauri command wrappers
 //   naming.rs       — Auto-naming: analyze_hook_name, bulk_analyze, cache helpers
@@ -35,3 +36,4 @@ pub use types::{
     HookDescription, HookFiresReport, HookLastFired, HookMutationResult, HookNameResult,
     HookTestResult, HooksList,
 };
+pub use validation::{eventos, Evento};

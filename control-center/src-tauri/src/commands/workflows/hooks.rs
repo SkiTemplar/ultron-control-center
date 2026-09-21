@@ -6,6 +6,15 @@ pub async fn list_hooks() -> Result<hooks_admin::HooksList, String> {
     hooks_admin::list_hooks_inner()
 }
 
+/// Catalogo de eventos de hook: nombre, contra que campo compara su matcher,
+/// que valores admite y con que separadores. Es la MISMA lista que valida
+/// `add_hook`, para que el desplegable no pueda volver a ofrecer un evento que
+/// el backend rechaza (2026-09-22).
+#[tauri::command]
+pub async fn hooks_event_catalog() -> Vec<hooks_admin::Evento> {
+    hooks_admin::eventos().to_vec()
+}
+
 /// Assign a human-readable kebab-case name to a single hook.
 /// Uses AI Router (utility zone) with heuristic fallback.
 /// Results are cached in ~/.ultron/cockpit/hooks-names.json.

@@ -305,6 +305,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // -- plans --
         // -- hooks --
         commands::hooks::list_hooks,
+        commands::hooks::hooks_event_catalog,
         commands::hooks::add_hook,
         commands::hooks::update_hook,
         commands::hooks::toggle_hook,
