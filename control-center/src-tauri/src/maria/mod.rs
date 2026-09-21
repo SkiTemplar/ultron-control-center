@@ -16,6 +16,7 @@ pub(crate) mod cuentas;
 pub(crate) mod encargos; // mar.ia: varios agentes a la vez sobre una carpeta y un tablero comunes
 pub(crate) mod enrutado; // mar.ia: decidir destino sin modelo y enfriar a quien no tiene cuota
 pub(crate) mod flujo; // mar.ia: respuesta en streaming y boton de parar // mar.ia: que cuentas y claves hay conectadas, y a que correo
+pub mod interno; // mar.ia: llamadas internas a un modelo, por la via del relevo
 pub(crate) mod local;
 pub(crate) mod local_agente; // mar.ia: el modelo local con herramientas // mar.ia: el modelo local disponible, sin ocupar VRAM
 pub(crate) mod login; // mar.ia: como se entra en cada proveedor y si ya se entro

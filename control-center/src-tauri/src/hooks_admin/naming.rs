@@ -212,7 +212,7 @@ pub fn analyze_hook_name_inner(id: String) -> Result<HookNameResult, String> {
         .ok_or_else(|| format!("hook '{}' not found", id))?;
 
     let prompt = build_naming_prompt(&hook.id, &hook.event, &hook.command);
-    let (name, strategy) = match crate::ai_router::route("utility", &prompt) {
+    let (name, strategy) = match crate::maria::interno::route("utility", &prompt) {
         Ok(raw) => {
             let n = parse_ai_name(&raw);
             if n.len() >= 3 && n.contains('-') {

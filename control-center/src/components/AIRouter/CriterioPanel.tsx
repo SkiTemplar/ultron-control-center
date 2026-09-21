@@ -556,9 +556,10 @@ export function CriterioPanel() {
       </details>
 
       <p className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-        Alcance: esto gobierna el chat, la voz y la app del móvil. Las llamadas internas que
-        hace la aplicación siguen usando sus propias zonas (<code>cockpit/ai-router/zones.json</code>),
-        que no se editan desde aquí.
+        Alcance: esto gobierna el chat, la voz, la app del móvil y los encargos. Las llamadas
+        internas de la aplicación (titular una conversación, resumir una sesión, extraer
+        recuerdos) usan el mismo orden de relevo, con tres reglas propias: nunca con acceso total,
+        el modelo local primero y, si toca Claude, su modelo más barato.
       </p>
     </div>
   );

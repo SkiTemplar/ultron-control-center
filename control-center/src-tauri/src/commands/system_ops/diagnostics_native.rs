@@ -300,54 +300,6 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
             }
         }
 
-        "ai-router-no-keys" => {
-            // Check: at least one cloud provider has a usable API key.
-            let has_any = [
-                "ANTHROPIC_API_KEY",
-                "OPENAI_API_KEY",
-                "GEMINI_API_KEY",
-                "GROQ_API_KEY",
-                "DEEPSEEK_API_KEY",
-            ]
-            .iter()
-            .any(|k| {
-                std::env::var(k)
-                    .map(|v| {
-                        !v.trim().is_empty() && !v.contains("your-key") && !v.starts_with("xxx")
-                    })
-                    .unwrap_or(false)
-            });
-            if has_any {
-                DiagnosticCheckResult {
-                    status: "ok".into(),
-                    details: "At least one AI provider API key is configured.".into(),
-                    suggested_fix: None,
-                }
-            } else {
-                DiagnosticCheckResult {
-                    status: "warn".into(),
-                    details: "No cloud provider API keys detected in the environment.".into(),
-                    suggested_fix: Some(
-                        "Set ANTHROPIC_API_KEY (or GROQ/GEMINI/OPENAI) in Settings > API Keys."
-                            .into(),
-                    ),
-                }
-            }
-        }
-
-        "node-not-found" => match which::which("node") {
-            Ok(p) => DiagnosticCheckResult {
-                status: "ok".into(),
-                details: format!("Node.js found at {}", p.display()),
-                suggested_fix: None,
-            },
-            Err(_) => DiagnosticCheckResult {
-                status: "fail".into(),
-                details: "node not found on PATH.".into(),
-                suggested_fix: Some("Download Node.js from https://nodejs.org".into()),
-            },
-        },
-
         "qdrant-binary-missing" => {
             let found = which::which("qdrant").is_ok()
                 || dirs::home_dir()

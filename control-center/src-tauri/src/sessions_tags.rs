@@ -288,7 +288,7 @@ fn generate_tags(session_id: &str, first_prompt: Option<&str>) -> Result<Vec<Str
     // "summarize" zone uses Groq (free) → Gemini fallback. If neither key is
     // available, route() returns Err. We treat that as "no tags" rather than
     // propagating the error up to the UI, because tagging is best-effort.
-    match crate::ai_router::route("summarize", &full_prompt) {
+    match crate::maria::interno::route("summarize", &full_prompt) {
         Ok(response) => Ok(parse_tags_from_response(&response)),
         Err(_) => {
             // No keys configured or all providers offline — silently return empty.

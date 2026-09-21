@@ -4,13 +4,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { EMAIL_ENV_VARS, PROVIDER_KEYS, RESEARCH_KEYS } from "./key-catalog";
+import { EMAIL_ENV_VARS, RESEARCH_KEYS } from "./key-catalog";
 import { isPlausibleEmail } from "./validation";
 import type {
   EnvKeysSaveResult,
   EnvKeyStatus,
   FieldState,
-  KeyValidation,
 } from "./types";
 
 export interface UseApiKeysResult {
@@ -19,14 +18,11 @@ export interface UseApiKeysResult {
   saving: boolean;
   result: EnvKeysSaveResult | null;
   error: string | null;
-  validations: KeyValidation[] | null;
-  validating: boolean;
   savedCount: number;
   errorCount: number;
   handleChange: (envVar: string, value: string) => void;
   toggleVisible: (envVar: string) => void;
   handleSave: () => Promise<void>;
-  handleValidate: () => Promise<void>;
   /** Borra una clave ya guardada. La confirmacion la pide la pantalla. */
   handleDelete: (envVar: string) => Promise<void>;
   /** Variable que se esta borrando ahora mismo, o null. */
@@ -38,7 +34,7 @@ export interface UseApiKeysResult {
 export function useApiKeys(): UseApiKeysResult {
   const [fields, setFields] = useState<Record<string, FieldState>>(() =>
     Object.fromEntries(
-      [...PROVIDER_KEYS, ...RESEARCH_KEYS].map((p) => [
+      RESEARCH_KEYS.map((p) => [
         p.envVar,
         { value: "", visible: false },
       ]),
@@ -51,23 +47,9 @@ export function useApiKeys(): UseApiKeysResult {
   const [statuses, setStatuses] = useState<Record<string, EnvKeyStatus>>({});
   // cat14.5: validacion real de keys/CLIs del router contra los providers
   // configurados (no contra la lista estatica de campos de esta seccion).
-  const [validations, setValidations] = useState<KeyValidation[] | null>(null);
-  const [validating, setValidating] = useState(false);
   const [borrando, setBorrando] = useState<string | null>(null);
   const [borrado, setBorrado] = useState<string | null>(null);
 
-  const handleValidate = useCallback(async () => {
-    setValidating(true);
-    setError(null);
-    try {
-      const rows = await invoke<KeyValidation[]>("ai_router_validate_keys");
-      setValidations(rows);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setValidating(false);
-    }
-  }, []);
 
   const loadStatuses = useCallback(async () => {
     try {
@@ -195,14 +177,11 @@ export function useApiKeys(): UseApiKeysResult {
     saving,
     result,
     error,
-    validations,
-    validating,
     savedCount,
     errorCount,
     handleChange,
     toggleVisible,
     handleSave,
-    handleValidate,
     handleDelete,
     borrando,
     borrado,

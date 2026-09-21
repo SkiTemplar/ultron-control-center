@@ -382,9 +382,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         features::read_features,
         // -- AI Router (zone -> provider routing, providers catalog, --
         // -- health checks, metrics, end-to-end zone test) --
-        ai_router::ai_router_list_providers,
         // P1 2026-05-27: key-aware routing — validate keys + disabled list
-        ai_router::ai_router_validate_keys,
         // -- quota watchdog (P0 2026-05-27 — 98% auto-fallback) --
         // -- proxy free-tier lifecycle (NVIDIA NIM via claude-code-proxy) --
         // -- Ollama (modelo local) — AI Router > Modelo local; el interruptor

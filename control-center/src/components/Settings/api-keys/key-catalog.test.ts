@@ -3,7 +3,7 @@
 // claves de email de RESEARCH_KEYS estan marcadas como no secretas.
 
 import { describe, expect, it } from "vitest";
-import { EMAIL_ENV_VARS, PROVIDER_KEYS, RESEARCH_KEYS } from "./key-catalog";
+import { EMAIL_ENV_VARS, RESEARCH_KEYS } from "./key-catalog";
 import type { ProviderKeyDef, ResearchKeyDef } from "./types";
 
 function expectValidTutorial(def: ProviderKeyDef) {
@@ -18,23 +18,6 @@ function expectValidTutorial(def: ProviderKeyDef) {
   expect(def.tutorial.sourceUrl.startsWith("https://")).toBe(true);
   expect(def.tutorial.sourceLabel.trim().length).toBeGreaterThan(0);
 }
-
-describe("PROVIDER_KEYS", () => {
-  it("no esta vacio", () => {
-    expect(PROVIDER_KEYS.length).toBeGreaterThan(0);
-  });
-
-  it("cada clave tiene envVar, docsUrl https y tutorial no vacio", () => {
-    for (const def of PROVIDER_KEYS) {
-      expectValidTutorial(def);
-    }
-  });
-
-  it("no tiene envVar duplicados", () => {
-    const envVars = PROVIDER_KEYS.map((d) => d.envVar);
-    expect(new Set(envVars).size).toBe(envVars.length);
-  });
-});
 
 describe("RESEARCH_KEYS", () => {
   it("no esta vacio", () => {

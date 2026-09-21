@@ -7,7 +7,6 @@ export * from "./core";
 export * from "./usage";
 export * from "./settings";
 export * from "./system";
-export * from "./ai-router";
 export * from "./skills-agents";
 export * from "./mcp";
 export * from "./auth";

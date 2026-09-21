@@ -127,7 +127,8 @@ pub async fn summarize_session_activity(session_id: String) -> Result<String, St
         let prompt = format!(
             "Resume en UNA sola frase, en español, qué está haciendo esta sesión:\n\n{text}"
         );
-        let summary = crate::ai_router::route("summarize", &prompt).map_err(|e| e.to_string())?;
+        let summary =
+            crate::maria::interno::route("summarize", &prompt).map_err(|e| e.to_string())?;
 
         let summary = summary.trim().to_string();
         cache_put(&session_id, h, &summary);

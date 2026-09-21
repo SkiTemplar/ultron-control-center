@@ -25,8 +25,6 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use crate::ai_router::health::http_client;
-
 use super::config;
 
 /// Modelo por defecto cuando no hay override de entorno ni modelo
@@ -36,6 +34,14 @@ const DEFAULT_MODEL: &str = "qwen2.5-coder:1.5b-base";
 /// Host de la API REST de Ollama. Fijo a loopback: es donde escucha por
 /// defecto y este interruptor no necesita hablar con una instancia remota.
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
+
+/// Cliente HTTP para los sondeos cortos del servidor de Ollama.
+fn http_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("build http client: {e}"))
+}
 
 /// Tiempo maximo de espera a que `ollama serve`, lanzado en segundo plano,
 /// empiece a responder en `/api/ps`.

@@ -144,7 +144,7 @@ pub fn capture_session(
     // ultron, 93 en procedural-terrain) y salían en el pack como memoria.
     // Un router vacío o caído se registra en la estrategia y no propone nada.
     let (facts, router_used, strategy): (Vec<Fact>, bool, &str) =
-        match crate::ai_router::route(CAPTURE_ZONE, &extraction_prompt(trimmed)) {
+        match crate::maria::interno::route(CAPTURE_ZONE, &extraction_prompt(trimmed)) {
             Ok(resp) => {
                 let parsed = parse_facts(&resp);
                 if parsed.is_empty() {

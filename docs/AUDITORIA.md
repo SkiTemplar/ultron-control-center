@@ -141,19 +141,28 @@ reinicie.
 Esto no se ha tocado, a propósito: cada punto es una decisión de diseño que
 debe tomarse entre los dos, no una limpieza.
 
-1. **Dos sistemas de proveedores en paralelo.** El *AI Router* (4,7 mil líneas:
-   zonas, claves de API, groq/gemini/ollama) atiende las llamadas internas
-   —titular conversaciones, resumir sesiones, nombrar hooks, extraer memoria—
-   y el *relevo* atiende el chat con las CLIs de suscripción. La pestaña
-   «Router» ya solo configura el relevo; las zonas del AI Router no tienen
-   pantalla. Lo razonable es que las llamadas internas vayan por el relevo
-   (modelo local primero) y el AI Router desaparezca. Es el recorte grande que
-   falta.
-2. **Capa Python heredada** (`scripts/cockpit/`, 46 ficheros, 21 mil líneas):
-   el CLI `ultron.ps1` y sus `doctor`, `health`, `brain_index`… de la era 15.x.
-   Buena parte está superada por Rust (`diagnostics_native`, `ultron-memory
-   doctor`), pero el instalador y la documentación la referencian por todas
-   partes. Hay que decidir qué sobrevive y desmontarla con el instalador delante.
+1. ~~Dos sistemas de proveedores en paralelo.~~ **Resuelto el 2026-09-21: el AI
+   Router se ha retirado.** Decidido con datos de esta instalación: ninguna
+   clave de API configurada (solo `GITHUB_TOKEN`), así que dos de sus cuatro
+   proveedores —gemini y claude por API— no podían contestar nunca; 4 llamadas
+   ese día y 0 con éxito; y la interfaz usaba 1 solo de sus comandos. Sus seis
+   llamadores (titular, resumir sesiones, nombrar hooks, tareas y captura de
+   memoria, resumen de cambios de plugins) van ahora por `maria/interno.rs`, que
+   es el relevo con tres reglas propias: nunca con acceso total, el modelo local
+   primero y `haiku` si toca Claude. Probado de verdad: zona ligera → local en
+   3,1 s; zona de código → Claude en 4,9 s; VRAM a 0 al acabar. Con él se van
+   las claves de proveedores de Ajustes → API Keys (nada las consumía) y el
+   diagnóstico que avisaba para siempre de «AI Router sin claves».
+2. ~~Capa Python heredada.~~ **Decidido el 2026-09-21: se queda.** El análisis de
+   alcance (desde lo que de verdad se ejecuta: backend Rust, hooks,
+   instaladores, CI, pre-commit) dice que **44 de sus 46 scripts tienen llamador
+   vivo**, y no residual: el propio backend invoca `scan_projects.py`,
+   `launch_project.py`, `project_editor.py`, `mcp_health_check.py`,
+   `skill_sync_security.py`, `skill_vault.py`, `registry_sync.py`, `doctor.py`
+   y `deadwood_scanner.py`, y el enrutador de skills llama a `embed_skills.py`.
+   La auditoría inicial la daba por «en buena parte superada por Rust» y era
+   falso. Desmontarla sería reescribir unas diez funciones para no ganar nada.
+   Solo salen los dos sin llamador: `system_diagnose.ps1` y `windows-tweaks.ps1`.
 3. **Hooks: 38 registros en el manifiesto, 20 activos en esta máquina.** Seis
    procesos de Node por cada prompt enviado en la configuración completa. La
    plantilla pública (`templates/settings-hooks.json`) y el manifiesto

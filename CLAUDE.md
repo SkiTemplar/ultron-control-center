@@ -43,9 +43,11 @@ Instrucciones de proyecto para trabajar en este repo. Se carga automáticamente 
 - Harnesses: `node cockpit/skill-lazy/_verify_final.js` y `_accuracy_at3.js` deben quedar verdes tras tocar routing.
 - Antes de delegar a un agente, verificar que existe en `~/.claude/agents/` (si no, no-op silencioso).
 
-## AI Router
+## Llamadas internas a un modelo
 
-- `ai_router/` (modulo; `route()` en `ai_router/providers/routing.rs`, re-exportada por `mod.rs`): `route(zone, prompt)` real con cadena primary→fallback. **Política CLI-first (2026-06-08): las zonas de código arrancan por CLI** (codex-cli); el resto usa **groq como primary + gemini cloud como fallback** (gemini-cli se retiró el 2026-06-19: Google cortó el free-tier OAuth). `code-fast-local` se queda en ollama por ser offline. Editar en `seed_zones()` + `cockpit/ai-router/zones.json`. Keys desde Settings → API Keys o `~/.ultron/.env` (dotenvy). Métrica honesta = `real_fallback_rate` (NO `attempt_failure_rate`). **OJO: el router NO rutea el Claude Code CLI** (esta sesión habla directo con Anthropic); solo afecta a las llamadas que hace la app Tauri.
+- El **AI Router se retiró el 2026-09-21** (4,7 mil líneas: zonas, claves de API, métricas). En esta instalación no había ninguna clave, dos de sus cuatro proveedores no podían contestar y llevaba 0 éxitos de 4 llamadas. No reintroducirlo.
+- Titular, resumir, nombrar hooks y extraer recuerdos van por `maria/interno.rs::route(zona, prompt)`: mismo orden y enfriamiento que el relevo del chat, con tres reglas propias — **nunca con acceso total**, el **modelo local primero** (levanta `ollama serve` si hace falta y suelta la VRAM al acabar) y, si toca Claude, **`haiku`**. Lo usa también el sidecar `ultron-memory` que lanzan los hooks.
+- La capa Python `scripts/cockpit/` **se queda**: 44 de sus 46 scripts tienen llamador vivo y el backend Rust la invoca (proyectos, salud de MCP, sincronía de skills, enrutador de skills). Análisis de alcance en `docs/AUDITORIA.md`.
 
 ## Cómo trabajar aquí (los 13 mandamientos Kirkardo)
 

@@ -24,7 +24,7 @@
 //      and no Qdrant.
 //
 // The AI Router contract (verified against the ai_router/ module):
-//   `crate::ai_router::route(zone_id: &str, prompt: &str) -> Result<String, String>`
+//   `crate::maria::interno::route(zone_id: &str, prompt: &str) -> Result<String, String>`
 // It returns plain assistant text. There is no temperature / response_schema
 // parameter yet, so we ask for JSON in the prompt and parse it tolerantly:
 // models love to wrap JSON in prose or ```json fences, so we extract the first
@@ -400,7 +400,7 @@ fn call_json<T: DeserializeOwned>(zone: &str, prompt: &str) -> Option<T> {
     if cfg!(test) {
         return None;
     }
-    match crate::ai_router::route(zone, prompt) {
+    match crate::maria::interno::route(zone, prompt) {
         Ok(text) => parse_json_tolerant::<T>(&text),
         Err(e) => {
             eprintln!("[memory::ai_tasks] route({zone}) failed: {e}");

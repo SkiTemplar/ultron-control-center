@@ -222,6 +222,15 @@ fn save_state(state: &RelayState) {
     }
 }
 
+/// Deja a un proveedor enfriando desde fuera del bucle del chat (las llamadas
+/// internas tambien se topan con la cuota, y el chat debe enterarse).
+pub(crate) fn enfriar_proveedor(provider: &str, detalle: &str) {
+    let mut state = load_state();
+    enfriar(&mut state, provider, detalle);
+    record_attempt(&mut state, provider, "cuota", detalle);
+    save_state(&state);
+}
+
 /// Anota el resultado de un intento conservando el contador de respuestas.
 fn record_attempt(state: &mut RelayState, provider: &str, status: &str, detail: &str) {
     let entry = state.entry(provider.to_string()).or_default();

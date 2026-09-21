@@ -503,7 +503,7 @@ pub fn plugin_changelog_summary_inner(
          Be specific. Output only the bullet points, no preamble."
     );
 
-    match crate::ai_router::route("light", &prompt) {
+    match crate::maria::interno::route("light", &prompt) {
         Ok(summary) => Ok(summary),
         Err(_) => Ok(format!(
             "Recent commits (AI summary unavailable):\n{commits_text}"

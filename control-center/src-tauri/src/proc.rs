@@ -74,3 +74,89 @@ mod tests {
         assert_eq!(CREATE_NO_WINDOW, 134_217_728);
     }
 }
+
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+/// Run a prepared `Command` with piped stdio and a wall-clock timeout.
+///
+/// `stdin_input`, when `Some`, is written to the child's stdin on a
+/// background thread and the handle is then dropped to close the pipe (EOF)
+/// — `codex exec -` blocks reading stdin until EOF, so writing synchronously
+/// before draining stdout/stderr would deadlock once the prompt exceeds the
+/// OS pipe buffer. `None` keeps stdin closed (`Stdio::null()`), as before.
+///
+/// stdout/stderr are drained on background threads (so a chatty child can
+/// never deadlock on a full pipe), and on timeout the child is killed and an
+/// `ErrorKind::TimedOut` error returned.
+pub(crate) fn run_with_timeout(
+    mut cmd: std::process::Command,
+    timeout: Duration,
+    stdin_input: Option<&str>,
+) -> std::io::Result<std::process::Output> {
+    use std::io::{Read, Write};
+
+    let stdin_mode = if stdin_input.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    };
+    let mut child = cmd
+        .stdin(stdin_mode)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(input) = stdin_input {
+        if let Some(mut stdin) = child.stdin.take() {
+            let payload = input.as_bytes().to_vec();
+            std::thread::spawn(move || {
+                let _ = stdin.write_all(&payload);
+                // `stdin` drops here, closing the pipe so the child sees EOF.
+            });
+        }
+    }
+
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(ref mut p) = stdout_pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(ref mut p) = stderr_pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait()? {
+            Some(status) => break status,
+            None if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = out_reader.join();
+                let _ = err_reader.join();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("CLI call exceeded {}s timeout", timeout.as_secs()),
+                ));
+            }
+            None => std::thread::sleep(Duration::from_millis(100)),
+        }
+    };
+
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}

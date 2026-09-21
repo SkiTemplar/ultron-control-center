@@ -18,7 +18,6 @@
 mod activity_timeline;
 mod agent_orchestration;
 mod agents;
-mod ai_router;
 mod alerts_admin;
 mod auth;
 mod backup_status;
@@ -376,16 +375,6 @@ pub fn run() {
             // La voz, viva desde el arranque: es la que saluda al despertar y
             // la que escucha la palabra clave. Ver `maria_voice`.
             crate::maria::voice::arrancar_al_inicio(app.handle().clone());
-
-            // Limpieza del catalogo de proveedores al arrancar. `load_providers`
-            // es quien purga los retirados (groq, deepseek, claude-haiku) y
-            // repara las zonas que los apuntaban, pero solo corria al abrir la
-            // pestana Router: quien no entrara ahi seguia con nueve proveedores
-            // en el fichero (comprobado el 2026-09-19). Ahora pasa siempre.
-            std::thread::spawn(|| match crate::ai_router::store::load_providers() {
-                Ok(ps) => tracing::info!(n = ps.len(), "catalogo de proveedores al dia"),
-                Err(e) => tracing::warn!(error = %e, "no pude revisar el catalogo"),
-            });
 
             // Webapp del movil. Solo si el usuario la dejo encendida: no se
             // abre un puerto por iniciativa propia (ver `maria_web`).

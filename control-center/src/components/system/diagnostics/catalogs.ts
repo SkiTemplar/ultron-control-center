@@ -19,17 +19,6 @@ export const COMMON_ERRORS: CommonError[] = [
     extraFixes: [],
   },
   {
-    id: "ai-router-no-keys",
-    category: "AI / Claude",
-    severity: "warning",
-    title: "AI Router: no providers configured",
-    symptom: "AI Router falls back to Claude-only mode; Codex / Gemini routing never triggers.",
-    checkId: "ai-router-no-keys",
-    primaryFixKind: null,
-    primaryFixLabel: "Open Settings > API Keys",
-    extraFixes: [],
-  },
-  {
     id: "node-not-found",
     category: "AI / Claude",
     severity: "critical",

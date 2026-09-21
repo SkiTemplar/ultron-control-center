@@ -15,7 +15,7 @@
 </p>
 
 mar.ia es un fork de [ULTRON Control Center](https://github.com/SkiTemplar/ultron-control-center).
-Conserva su núcleo —memoria gobernada, enrutado de skills/agentes y AI Router— y
+Conserva su núcleo —memoria gobernada y enrutado de skills/agentes— y
 le pone delante un asistente: una pantalla principal con orbe y voz, un chat que
 pasa el mismo hilo de un proveedor a otro, terminales dentro de la ventana y una
 webapp para el móvil. Vive en `~/.maria/` (`~/.ultron` queda como enlace de
@@ -37,7 +37,7 @@ detalle, con la evidencia de cada decisión, está en
 | Bloque | Pantallas | Para qué |
 |---|---|---|
 | **Asistente** | mar.ia (orbe), Chat, Conversaciones, Terminales, Mosaico | Hablar o escribir a la IA. El chat mantiene UN hilo y lo releva entre `claude`, `codex`, `antigravity` y el modelo local según cuota y disponibilidad. Terminales y mosaico para tener varias CLIs a la vista. |
-| **Cerebro** | Memoria, Skills y agentes, MCPs, Router | Lo que la IA sabe y puede usar: memoria con inbox de aprobación, catálogo de skills/agentes con carga bajo demanda, servidores MCP y el router de llamadas internas. |
+| **Cerebro** | Memoria, Skills y agentes, MCPs, Router | Lo que la IA sabe y puede usar: memoria con inbox de aprobación, catálogo de skills/agentes con carga bajo demanda, servidores MCP y el criterio con el que se reparte el trabajo entre proveedores. |
 | **Trabajo** | Proyectos, Sesiones, Consumo, Sistema | Lanzar sesiones por proyecto con su tablero, vigilar las sesiones vivas de Claude Code, ver el gasto real y diagnosticar el equipo. |
 
 Además: voz (palabra clave, pulsar-para-hablar, Whisper por GPU), autocompletado
@@ -96,8 +96,9 @@ Las rutas per-maquina se documentan en
   nunca se auto-escribe memoria activa.
 - **Redaccion + dedupe** en el write-path — secretos/PII fuera, duplicados por
   `content_hash` fuera, antes de persistir o embeber.
-- **AI Router** — cadena primario -> fallbacks por zona, deteccion de claves y
-  telemetria de uso/ahorro; routing directo en Rust (sin sidecar LiteLLM).
+- **Relevo de proveedores** — un solo hilo que pasa entre `claude`, `codex`,
+  `antigravity` y el modelo local segun cuota y tipo de tarea; las llamadas
+  internas de la app van por la misma via (`maria/interno.rs`).
 - **Orquestador por reglas** — mapea prompt -> intent -> workflow -> agentes ->
   memorias; reserva el modelo grande solo para la cola ambigua.
 - **Tonos / personalidades** — deteccion determinista del tono del chat
@@ -121,7 +122,7 @@ JSON + markdown) que puedes inspeccionar, versionar y editar a mano.
 |---|---|
 | **Memoria gobernada** | `~/.ultron/brain.db` (SQLite) es la **unica fuente de verdad**. Toda escritura pasa por un unico servicio que ademas registra un evento de auditoria. Las capturas automaticas nunca escriben memoria activa directamente: proponen candidatos a un inbox que el humano aprueba o rechaza. |
 | **Recall hibrido** | Fusion de dos fuentes con Reciprocal Rank Fusion (RRF): **denso** (vectores E5 1024d en Qdrant) + **sparse** (FTS5/BM25 sobre `brain.db`). Degrada a solo-sparse si Qdrant/E5 no estan disponibles. |
-| **AI Router** | Catalogo de proveedores + zonas con cadena primario -> fallbacks, deteccion de claves, telemetria de uso/ahorro. Sin sidecar LiteLLM: routing directo en Rust. |
+| **Relevo** | Un hilo de conversacion propio que se traspasa entre las CLI de suscripcion y el modelo local; enfriamiento por cuota, sesion continua por proveedor y destino por reglas editables. Sin claves de API. |
 | **Orquestador** | Mapea un prompt (posiblemente vago) a intent -> workflow -> agentes a delegar -> memorias relevantes -> restricciones, mediante reglas (no usa el modelo grande para lo que resuelven reglas/triggers). |
 
 ---
@@ -191,20 +192,19 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 - El inbox se gestiona desde `commands/memory/inbox.rs`
   (`memory_inbox_list`, `approve_candidate`, `reject_candidate`).
 
-### AI Router: zonas, proveedores, fallback y telemetria
+### Relevo: quien contesta, y las llamadas internas
 
-- Backend en el modulo `ai_router/` (mod.rs + exec.rs + providers/ + seed.rs + store.rs). Estado en tres JSON bajo
-  `~/.ultron/cockpit/ai-router/`: `providers.json` (catalogo), `zones.json`
-  (zonas con `primary` + `fallbacks`), `metrics.json` (contadores + ahorro).
-- `route(zone, prompt)` recorre la cadena **primario -> fallbacks**, salta
-  proveedores sin clave API utilizable, registra latencia/tokens/ahorro en la
-  telemetria y devuelve `Result<String, String>` (errores verbatim, nunca panic,
-  cap de 10s).
-- Wrappers por proveedor: **anthropic** (claude-haiku), **codex** (OpenAI-compat),
-  **gemini**, **groq**, **ollama** (local, sin clave), **deepseek**. Los health
-  checks usan sondas baratas y no gastan tokens; las invocaciones de test si.
-- Zonas por defecto incluyen `chat`, `code-edit`, `code-review`, `research-web`,
-  `code-fast-local`, entre otras.
+El chat, la voz, el movil y los encargos pasan por `maria/relay.rs`: un hilo
+canonico propio (`threads/<id>.jsonl`), destino decidido por reglas lexicas que
+casan con el criterio editable (`maria/enrutado.rs`) y, solo en lo ambiguo, por
+el modelo local; enfriamiento de quien se queda sin cuota; y sesion reanudada de
+cada CLI mientras conteste la misma (`maria/cli.rs`).
+
+Las llamadas internas de la aplicacion (titular, resumir, nombrar hooks, extraer
+recuerdos — tambien desde el sidecar de memoria) usan `maria/interno.rs`: el
+mismo relevo con tres reglas propias — nunca con acceso total, el modelo local
+primero y `haiku` si toca Claude. El antiguo AI Router (zonas, claves de API,
+metricas) se retiro el 2026-09-21; ver `docs/AUDITORIA.md`.
 
 ### Orquestador: deteccion automatica de skills/agentes
 
@@ -250,7 +250,7 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 | Embeddings | E5 (denso) via `crate::qdrant::embed_e5` dentro de `ultron-memory` |
 | Sidecar CLI hooks | `ultron-memory` (logica canonica reusada por los hooks Node) |
 | Scripting OS | PowerShell 5.1+ / scripts en `cockpit/` |
-| Runtimes LLM | Claude Code (principal); Codex CLI opcional. Gemini CLI retirado 2026-06-19 (Google corto el free-tier OAuth); Gemini queda solo como fallback cloud del AI Router |
+| Runtimes LLM | Claude Code (principal); Codex CLI opcional. Gemini CLI retirado 2026-06-19 (Google corto el free-tier OAuth); Antigravity (`agy`) da los modelos de Google por suscripcion |
 
 Binarios sidecar declarados en `control-center/src-tauri/Cargo.toml`:
 `ultron-memory` (requiere la feature `qdrant`).
@@ -295,7 +295,6 @@ npm test       # vitest (frontend)
 │           │                 # qdrant_index, capture, redaction, texthash, ...)
 │           ├── commands/     # comandos Tauri por dominio (memory, ai_router,
 │           │                 # projects, system_ops, ...)
-│           ├── ai_router/    # AI Router (mod/exec/health/providers/seed/store/types)
 │           ├── orchestrator/ # mod/orchestrate/ranking/rules/types_model
 │           ├── maria/        # lo propio de mar.ia: relay, voice, web, term,
 │           │                 # threads, teclado, cuentas, apagado, arranque...
@@ -320,8 +319,8 @@ npm test       # vitest (frontend)
   secretos y dedupe por content_hash cableados y testeados.
 - **Captura automatica**: Stop hook -> `capture_session` -> candidatos al inbox
   gobernado; aprobacion/rechazo humano via comandos de inbox.
-- **AI Router**: routing real con cadena primario/fallback, deteccion de claves
-  y telemetria de uso/ahorro; sin sidecar LiteLLM.
+- **Relevo**: chat, voz, movil, encargos y llamadas internas por la misma via;
+  sin claves de API. El AI Router se retiro el 2026-09-21.
 - **Tonos**: deteccion determinista en el orchestrate (paridad JS/Rust del
   detector verificada con gate 16/16); editor visual en Library -> Tones y
   playground de deteccion. `personality.json` local (gitignored) con seeds

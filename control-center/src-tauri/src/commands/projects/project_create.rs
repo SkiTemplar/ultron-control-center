@@ -18,7 +18,7 @@ use std::time::Duration;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use crate::ai_router::exec::run_with_timeout;
+use crate::proc::run_with_timeout;
 
 /// Subcomandos que el contrato de `project-create.mjs` reconoce. Cualquier
 /// otro primer argumento se rechaza ANTES de tocar `std::process::Command`

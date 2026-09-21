@@ -13,7 +13,6 @@
 
 import { useState } from "react";
 import { GithubTokenCard } from "./api-keys/GithubTokenCard";
-import { ProviderKeysGroup } from "./api-keys/ProviderKeysGroup";
 import { ResearchKeysGroup } from "./api-keys/ResearchKeysGroup";
 import { useApiKeys } from "./api-keys/useApiKeys";
 import type { ProviderKeyDef } from "./api-keys/types";
@@ -30,14 +29,11 @@ export function ApiKeysSection() {
     saving,
     result,
     error,
-    validations,
-    validating,
     savedCount,
     errorCount,
     handleChange,
     toggleVisible,
     handleSave,
-    handleValidate,
     handleDelete,
     borrando,
     borrado,
@@ -68,15 +64,6 @@ export function ApiKeysSection() {
         </p>
       </div>
 
-      <ProviderKeysGroup
-        fields={fields}
-        statuses={statuses}
-        onChange={handleChange}
-        onToggleVisible={toggleVisible}
-        onDelete={setABorrar}
-        borrando={borrando}
-      />
-
       <ResearchKeysGroup
         fields={fields}
         statuses={statuses}
@@ -100,20 +87,6 @@ export function ApiKeysSection() {
         >
           {saving ? "Guardando…" : "Save all"}
         </button>
-        <button
-          type="button"
-          onClick={() => void handleValidate()}
-          disabled={validating}
-          className="rounded px-4 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50"
-          style={{
-            background: "var(--color-surface-1)",
-            border: "1px solid var(--color-border-strong)",
-            color: "var(--color-text-secondary)",
-          }}
-          title="Comprueba cada provider del router: key presente / CLI instalada"
-        >
-          {validating ? "Validando…" : "Validar keys del router"}
-        </button>
         <span
           className="text-[11.5px]"
           style={{ color: "var(--color-text-faint)" }}
@@ -121,47 +94,6 @@ export function ApiKeysSection() {
           Solo se envían los campos con valor.
         </span>
       </div>
-
-      {/* cat14.5: resultado de la validacion por provider del router */}
-      {validations && (
-        <div
-          className="mt-4 rounded p-3"
-          style={{
-            background: "var(--color-surface-1)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <p
-            className="mb-2 text-[11px] font-semibold uppercase tracking-wide"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Providers del router ({validations.filter((v) => v.has_key).length}/
-            {validations.length} OK)
-          </p>
-          <ul className="flex flex-col gap-1">
-            {validations.map((v) => (
-              <li key={v.provider_id} className="flex items-center gap-2 text-[12px]">
-                <span style={{ color: v.has_key ? "var(--color-success)" : "var(--color-danger)" }}>
-                  {v.has_key ? "●" : "○"}
-                </span>
-                <span style={{ fontFamily: "var(--font-mono)" }}>{v.provider_id}</span>
-                <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-                  {v.source}
-                </span>
-                {v.warning && (
-                  <span
-                    className="min-w-0 flex-1 truncate text-[10.5px]"
-                    style={{ color: "var(--color-warning, #f8a000)" }}
-                    title={v.warning}
-                  >
-                    {v.warning}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Confirmacion de borrado. El usuario lo pidio asi (2026-09-19): boton
           de eliminar Y confirmacion, "para no darle por si acaso". */}

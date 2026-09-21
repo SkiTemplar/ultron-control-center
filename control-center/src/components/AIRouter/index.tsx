@@ -14,9 +14,8 @@
 //                que ya no se usan (todo va por suscripción o local), así que
 //                la cifra no significaba nada. El consumo real de la ventana de
 //                5 h se ve ahora en la fila de cada proveedor.
-//   Zonas      — siguen existiendo para las llamadas internas de la app
-//                (`cockpit/ai-router/zones.json`); no se editan aquí.
-//   Proxy      — es una herramienta de depuración; vive en Sistema.
+//   Zonas      — se retiraron con el AI Router (2026-09-21). Las llamadas
+//                internas de la app van por el relevo: `maria/interno.rs`.
 
 import { useState } from "react";
 import { CriterioPanel } from "./CriterioPanel";

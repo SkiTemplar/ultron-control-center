@@ -7,7 +7,6 @@ export * from "./types/core";
 export * from "./types/usage";
 export * from "./types/settings";
 export * from "./types/system";
-export * from "./types/ai-router";
 export * from "./types/skills-agents";
 export * from "./types/mcp";
 export * from "./types/auth";
