@@ -40,8 +40,6 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -60,7 +58,6 @@ thiserror = "1"
 serde_yaml = "0.9"
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "2", features = ["deflate"] }
 # Load .env files at startup so users can store provider API keys in
 # ~/.ultron/.env or ~/.ultron/control-center/.env without exporting to shell.
 dotenvy = "0.15"
@@ -85,7 +82,6 @@ fastembed = { version = "4", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
-mockall = "0.13"
 
 [features]
 # Enable local Qdrant semantic recall by default so embed_e5() uses the real
@@ -98,10 +94,6 @@ hybrid_recall = []
 # Enable local Qdrant semantic recall. Pulls in fastembed (ONNX runtime +
 # MultilingualE5Large, first-use download).
 qdrant = ["dep:fastembed"]
-# Enable the Finance tab (reads the local KutxaBank finanzas.db).
-# finance.rs is excluded from the public repo via .gitignore; this feature
-# flag keeps the binary buildable without that file present.
-finance = []
 
 [target."cfg(windows)".dependencies]
 wmi = "0.13"

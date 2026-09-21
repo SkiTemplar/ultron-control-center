@@ -56,9 +56,6 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "global-shortcut:default",
-    "process:default",
-    "process:allow-restart",
-    "process:allow-exit",
     {
       "identifier": "shell:allow-execute",
       "allow": [

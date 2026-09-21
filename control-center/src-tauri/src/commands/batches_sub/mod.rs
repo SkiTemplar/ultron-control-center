@@ -7,8 +7,6 @@
 
 pub mod batches;
 pub mod detach;
-pub mod opengl_project;
 
 pub use batches::*;
 pub use detach::*;
-pub use opengl_project::*;

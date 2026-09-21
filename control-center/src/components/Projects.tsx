@@ -23,7 +23,6 @@ import type {
   KanbanBoard,
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
-import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
 import { NewProjectWizard } from "./projects/NewProjectWizard";
 import { ProjectCard } from "./projects/ProjectCard";
 import { ProjectRow } from "./projects/ProjectRow";
@@ -106,7 +105,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [openglModalOpen, setOpenglModalOpen] = useState(false);
   const [newProjectWizardOpen, setNewProjectWizardOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
@@ -503,13 +501,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           >
             + Nuevo proyecto
           </button>
-          <button type="button" onClick={() => setOpenglModalOpen(true)}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-            style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
-            title="Scaffold a new OpenGL/vcpkg project"
-          >
-            + OpenGL Project
-          </button>
           <button type="button" onClick={scan} disabled={scanning}
             className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
             style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
@@ -740,16 +731,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         onCreated={(projectPath) => {
           setLastAction({ success: true, stdout: `Proyecto creado en ${projectPath}`, stderr: "", exit_code: 0 });
           void scan();
-        }}
-      />
-
-      {/* OpenGL scaffolder modal */}
-      <NewOpenGlProjectModal
-        open={openglModalOpen}
-        onClose={() => setOpenglModalOpen(false)}
-        onCreated={(projectPath) => {
-          setLastAction({ success: true, stdout: `OpenGL project created at ${projectPath}`, stderr: "", exit_code: 0 });
-          void load();
         }}
       />
     </div>

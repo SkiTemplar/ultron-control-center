@@ -9,18 +9,14 @@
 //   lifecycle         — Auth status, close app
 //   turn_off          — Scheduled shutdown (shutdown.exe, Windows-only)
 
-pub mod apps;
 pub mod diagnostics_native;
 pub mod event_log;
 pub mod lifecycle;
 pub mod settings;
 pub mod system;
-pub mod turn_off;
 
-pub use apps::*;
 pub use diagnostics_native::*;
 pub use event_log::*;
 pub use lifecycle::*;
 pub use settings::*;
 pub use system::*;
-pub use turn_off::*;

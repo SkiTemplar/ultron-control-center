@@ -94,12 +94,6 @@ pub struct SpawnFlags {
     /// even if the default ever changes back.
     #[serde(default)]
     pub paste_only: bool,
-    /// Cuando true, la sesion se enruta por el proxy free-tier local en
-    /// lugar de usar la API de Anthropic directamente. El wrapper PS1
-    /// setea `ANTHROPIC_BASE_URL=http://127.0.0.1:8082` y el token dummy
-    /// `ANTHROPIC_AUTH_TOKEN=fcc-local` antes de invocar `claude`.
-    #[serde(default)]
-    pub free_tier: bool,
     /// Optional subagent slug (filename stem under `~/.claude/agents/`).
     /// When set, `spawn_session_inner` prepends a `[USE AGENT: <slug>]`
     /// directive to the prompt so the Claude session opens with the right
@@ -394,11 +388,6 @@ pub async fn spawn_session_inner(
         // prompt with the short `seed` banner and the user pastes garbage
         // into the AI CLI.
         "respectClipboard": flags.respect_clipboard,
-        // free_tier: activo cuando el caller lo pide explicitamente O cuando el
-        // proxy-state persistido esta habilitado (auto-ON al 98% de cuota).
-        // Esto cierra el hueco donde el auto-ON activaba el toggle en la UI pero
-        // los spawns sin free_tier=true seguian saliendo por Anthropic directo.
-        "freeTier": flags.free_tier || crate::proxy::read_proxy_state_enabled(),
         // Ruta a un settings JSON con el tema del proyecto; cadena vacía = sin
         // tema propio y la sesión conserva el que el usuario tenga puesto.
         // Va como RUTA y no como JSON inline porque PowerShell 5.1 destruye las

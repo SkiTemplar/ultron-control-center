@@ -23,15 +23,12 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // -- Lab TFG (wiring 2026-08-12): deteccion determinista de patrones
         //    de texto IA sobre el catalogo docs/research/patrones-texto-ia.json.
         //    Consume la pestana Lab (Detector + Catalogo). --
-        tfg_lab::tfg_catalog_load,
-        tfg_lab::tfg_detect,
         // -- external editor (v2.6 Library redesign) --
         commands::external_editor::open_in_vscode,
         commands::external_editor::read_text_file,
         // -- alerts / changelog --
         commands::alerts::read_alerts,
         commands::alerts::delete_alert_entries,
-        commands::alerts::read_changelog,
         commands::alerts::record_ui_alert,
         // -- MCPs --
         commands::mcps::list_mcps,
@@ -69,7 +66,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::maintenance::run_maintenance_command,
         commands::maintenance::run_backup_now,
         commands::maintenance::run_app_lifecycle,
-        update_checker::check_for_updates,
         // -- projects + launcher --
         commands::projects::open_project_in_ide,
         commands::projects::list_projects,
@@ -101,41 +97,9 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::projects::remove_launcher_item,
         commands::projects::launch_item,
         commands::projects::launch_all_items,
-        // -- FINANCE: native dashboard + write path of the Bank/finanzas project --
-        // Requires --features finance (local-only; finance/ excluded from public repo).
         // Read side.
-        #[cfg(feature = "finance")]
-        finance::finance_overview,
-        #[cfg(feature = "finance")]
-        finance::finance_categorias_list,
-        #[cfg(feature = "finance")]
-        finance::finance_sync,
-        #[cfg(feature = "finance")]
-        finance::finance_open_setup,
         // Write side (2026-08-15) — every mutator snapshots the DB first.
-        #[cfg(feature = "finance")]
-        finance::finance_fondo_upsert,
-        #[cfg(feature = "finance")]
-        finance::finance_fondo_delete,
-        #[cfg(feature = "finance")]
-        finance::finance_fondos_clear,
-        #[cfg(feature = "finance")]
-        finance::finance_fondo_aportar,
-        #[cfg(feature = "finance")]
-        finance::finance_recalibrar_saldo,
-        #[cfg(feature = "finance")]
-        finance::finance_set_limite,
-        #[cfg(feature = "finance")]
-        finance::finance_set_config,
-        #[cfg(feature = "finance")]
-        finance::finance_movimiento_set_categoria,
-        #[cfg(feature = "finance")]
-        finance::finance_backup_db,
         // AI auto-categorisation: propose (read-only) then apply.
-        #[cfg(feature = "finance")]
-        finance::finance_ai_rank,
-        #[cfg(feature = "finance")]
-        finance::finance_ai_rank_apply,
         // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
         commands::memory::memory_health,
         // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
@@ -274,12 +238,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // -- project detach / reattach (ventanas independientes) --
         commands::detach::detach_project_window,
         // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
-        commands::opengl_project::create_opengl_project,
         // -- global notes (memory context pipeline) --
-        commands::notes::notes_list_global,
-        commands::notes::notes_load_global,
-        commands::notes::notes_save_global,
-        commands::notes::notes_delete_global,
         // -- local Knowledge Graph editor (Control Center-owned, v2.6 fb-047) --
         // kg commands des-registrados: lógica viva en src/kg.rs (create/delete entity, search).
         // memory_graph (unified search + tree snapshot) borrado entero 2026-07-04 (0 callers).
@@ -319,14 +278,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::system::delete_scheduled_task,
         // -- Turn Off: apagado programado via shutdown.exe (Windows-only;
         //    panel System -> Turn Off) --
-        commands::turn_off::turn_off_schedule,
-        commands::turn_off::turn_off_cancel,
-        commands::turn_off::turn_off_status,
         // -- installed apps --
-        commands::apps::list_installed_apps,
-        commands::apps::open_app_folder,
-        commands::apps::uninstall_app,
-        commands::apps::categorize_apps_with_ai,
         // -- auth + lifecycle --
         commands::lifecycle::auth_status,
         commands::lifecycle::close_control_center,
@@ -341,13 +293,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // -- windows event log (system/diagnostics + dashboard crash card) --
         commands::event_log::event_log_recent,
         // -- plans --
-        commands::plans::list_plans,
-        commands::plans::patch_plan_status,
-        commands::plans::add_plan,
-        commands::plans::update_plan,
-        commands::plans::delete_plan,
-        commands::plans::clean_resolved_plans,
-        commands::plans::auto_archive_resolved_plans,
         // -- hooks --
         commands::hooks::list_hooks,
         commands::hooks::add_hook,
@@ -432,39 +377,20 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         features::read_features,
         // -- AI Router (zone -> provider routing, providers catalog, --
         // -- health checks, metrics, end-to-end zone test) --
-        ai_router::ai_router_list_zones,
-        ai_router::ai_router_save_zone,
         ai_router::ai_router_list_providers,
-        ai_router::ai_router_health,
-        ai_router::ai_router_metrics,
-        ai_router::ai_router_usage_summary,
         // P1 2026-05-27: key-aware routing — validate keys + disabled list
         ai_router::ai_router_validate_keys,
         // -- quota watchdog (P0 2026-05-27 — 98% auto-fallback) --
         // -- proxy free-tier lifecycle (NVIDIA NIM via claude-code-proxy) --
-        proxy::proxy_health,
-        proxy::proxy_state_enabled,
-        proxy::proxy_set_enabled,
         // -- Ollama (modelo local) — AI Router > Modelo local; el interruptor
         // -- simple de la bandeja no pasa por aqui, habla directo con
         // -- ollama::toggle. --
-        ollama::commands::ollama_status,
-        ollama::commands::ollama_activate,
-        ollama::commands::ollama_deactivate,
-        ollama::commands::ollama_set_model,
-        ollama::commands::ollama_benchmark,
-        ollama::commands::ollama_pull,
-        ollama::commands::ollama_delete,
         // -- workflow YAML composability + SQLite run history (KIRKARDO 23
         //    P2; wiring 2026-08-11, audit #32: los 6 llevaban desde jun-26
         //    sin registrar y la tabla se creaba vacía en cada boot. El
         //    escritor real es delegate.rs; el historial vive en el
         //    LiveSessionMonitor) --
-        commands::workflows::workflow_record_run,
-        commands::workflows::workflow_update_run,
         commands::workflows::workflow_get_runs,
         commands::workflows::workflow_load_user_defined,
-        commands::workflows::workflow_set_state,
-        commands::workflows::workflow_get_state,
     ]
 }

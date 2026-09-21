@@ -547,19 +547,6 @@ pub(crate) fn migrate_codex_gpt5_model(zones: &mut [Zone]) -> bool {
     mutated
 }
 
-/// Persist a single zone: replaces the entry with matching `id`, or appends if
-/// not found. Preserves all other zones and writes atomically.
-pub fn save_zone(zone: Zone) -> Result<(), String> {
-    let path = zones_path()?;
-    let mut zones = load_zones()?;
-    if let Some(existing) = zones.iter_mut().find(|z| z.id == zone.id) {
-        *existing = zone;
-    } else {
-        zones.push(zone);
-    }
-    write_json(&path, &zones)
-}
-
 pub(crate) fn load_metrics() -> Result<RouterMetrics, String> {
     let path = metrics_path()?;
     if path.exists() {
@@ -569,22 +556,6 @@ pub(crate) fn load_metrics() -> Result<RouterMetrics, String> {
         write_json(&path, &m)?;
         Ok(m)
     }
-}
-
-pub(crate) fn mask_key(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || looks_like_placeholder(trimmed) {
-        return None;
-    }
-    if trimmed.len() <= 8 {
-        return Some("*".repeat(trimmed.len()));
-    }
-    Some(format!(
-        "{}{}{}",
-        &trimmed[..4],
-        "*".repeat(trimmed.len() - 8),
-        &trimmed[trimmed.len() - 4..]
-    ))
 }
 
 #[cfg(test)]

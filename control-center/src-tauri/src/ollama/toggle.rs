@@ -21,7 +21,6 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -51,60 +50,6 @@ const SERVE_POLL_INTERVAL: Duration = Duration::from_millis(300);
 /// resto del AI Router para sondeos de salud — por eso usa su propio
 /// cliente HTTP en vez de `ai_router::health::http_client()`.
 const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
-
-// ---------------------------------------------------------------------------
-// Guard de concurrencia — compartido entre la bandeja y los comandos
-// ---------------------------------------------------------------------------
-
-/// `true` mientras hay una accion de Ollama (activar/desactivar/cambiar
-/// modelo/pull/delete/benchmark) en curso. No se manipula directamente
-/// fuera de este modulo — usar `try_acquire_busy`.
-static OLLAMA_BUSY: AtomicBool = AtomicBool::new(false);
-
-/// RAII: libera `OLLAMA_BUSY` al salir de scope, incluso si el cierre que
-/// lo sostiene entra en panic (p. ej. dentro de `spawn_blocking`). Evita
-/// que un fallo a medio camino deje el guard atascado en `true`.
-pub struct BusyGuard(());
-
-impl Drop for BusyGuard {
-    fn drop(&mut self) {
-        OLLAMA_BUSY.store(false, Ordering::SeqCst);
-    }
-}
-
-/// Intenta tomar el guard de concurrencia de Ollama. `Some(guard)` si se
-/// ha tomado — mantener `guard` vivo mientras dure la accion; se libera
-/// solo al soltarlo (fin de scope). `None` si ya habia una accion en
-/// curso: el llamador debe devolver un error explicito, nunca ignorar el
-/// clic/comando en silencio.
-pub fn try_acquire_busy() -> Option<BusyGuard> {
-    OLLAMA_BUSY
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .ok()
-        .map(|_| BusyGuard(()))
-}
-
-// ---------------------------------------------------------------------------
-// Estado del interruptor
-// ---------------------------------------------------------------------------
-
-/// Estado visible del interruptor. `tray.rs` lo traduce a texto + marca de
-/// check de la entrada de menu; nunca hay un estado "silencioso" que deje
-/// al usuario sin pista de lo que pasa (mandamiento 11: nada de no-op
-/// silencioso).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OllamaState {
-    /// El modelo esta cargado en memoria segun `/api/ps`.
-    Loaded,
-    /// La API responde pero el modelo no esta cargado (o el servidor esta
-    /// parado y el binario si esta instalado: activarlo lo arrancara).
-    Unloaded,
-    /// No se encontro `ollama.exe` ni en PATH ni en la ruta por defecto de
-    /// instalacion — Ollama no parece instalado.
-    NotInstalled,
-    /// Fallo al hablar con la API o respuesta invalida/inesperada.
-    Error,
-}
 
 // ---------------------------------------------------------------------------
 // Decision de accion activar/desactivar — SIEMPRE a partir del estado
@@ -162,17 +107,6 @@ pub fn model_name() -> String {
     .0
 }
 
-/// De donde sale el modelo que devuelve `model_name`: `"env"`, `"config"`
-/// o `"default"`. Solo para mostrarlo en la UI (AI Router > Modelo local)
-/// — no cambia comportamiento.
-pub fn model_name_source() -> &'static str {
-    resolve_model_name(
-        std::env::var("ULTRON_OLLAMA_MODEL").ok(),
-        config::read_configured_model(),
-    )
-    .1
-}
-
 fn ps_url() -> String {
     format!("{OLLAMA_BASE_URL}/api/ps")
 }
@@ -184,38 +118,6 @@ fn generate_url() -> String {
 // ---------------------------------------------------------------------------
 // Parseo de /api/ps y construccion de cuerpos de peticion (puro, testeable)
 // ---------------------------------------------------------------------------
-
-/// Comprueba si `model` aparece entre los modelos cargados que devuelve
-/// `GET /api/ps`. Ollama expone el nombre en el campo `name` (y, en
-/// versiones recientes, tambien en `model`); se comprueban ambos para no
-/// depender de una version concreta del daemon. Si el JSON es invalido se
-/// devuelve `Err`; si es valido pero no trae `models` (o esta vacio), se
-/// interpreta como "ningun modelo cargado" (`Ok(false)`).
-fn model_loaded_in_ps(body: &str, model: &str) -> Result<bool, String> {
-    let parsed: Value =
-        serde_json::from_str(body).map_err(|e| format!("JSON de /api/ps invalido: {e}"))?;
-    let empty = Vec::new();
-    let models = parsed
-        .get("models")
-        .and_then(Value::as_array)
-        .unwrap_or(&empty);
-    let found = models.iter().any(|m| {
-        m.get("name").and_then(Value::as_str) == Some(model)
-            || m.get("model").and_then(Value::as_str) == Some(model)
-    });
-    Ok(found)
-}
-
-/// Cuerpo de `POST /api/generate` para cargar `model` en memoria y
-/// fijarlo ahi (`keep_alive: -1` = no descargar nunca hasta que se pida
-/// explicitamente).
-fn load_body(model: &str) -> Value {
-    json!({
-        "model": model,
-        "prompt": "",
-        "keep_alive": -1,
-    })
-}
 
 /// Cuerpo de `POST /api/generate` para descargar `model` de memoria de
 /// forma inmediata (`keep_alive: 0`).
@@ -264,37 +166,6 @@ fn load_client() -> Result<reqwest::blocking::Client, String> {
 // ---------------------------------------------------------------------------
 // Consulta de estado (bloqueante — llamar desde un hilo de fondo)
 // ---------------------------------------------------------------------------
-
-/// Consulta `/api/ps` y determina el estado actual del interruptor para
-/// `model`. Nunca falla de forma silenciosa: si la API no responde,
-/// distingue entre "no instalado" (binario no encontrado) y "error"
-/// (instalado pero algo fue mal), para que el menu no se quede en un
-/// estado ambiguo.
-pub fn query_state(model: &str) -> OllamaState {
-    let client = match http_client() {
-        Ok(c) => c,
-        Err(_) => return OllamaState::Error,
-    };
-    match client.get(ps_url()).send() {
-        Ok(resp) if resp.status().is_success() => {
-            let body = resp.text().unwrap_or_default();
-            match model_loaded_in_ps(&body, model) {
-                Ok(true) => OllamaState::Loaded,
-                Ok(false) => OllamaState::Unloaded,
-                Err(_) => OllamaState::Error,
-            }
-        }
-        _ => {
-            if is_installed() {
-                // Instalado pero el servidor esta parado: activar lo
-                // arrancara, así que se trata igual que "descargado".
-                OllamaState::Unloaded
-            } else {
-                OllamaState::NotInstalled
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Arranque del servidor
@@ -349,30 +220,6 @@ pub fn ensure_server_running() -> Result<(), String> {
 // Activar / desactivar (bloqueantes — llamar desde un hilo de fondo)
 // ---------------------------------------------------------------------------
 
-/// Activa el autocompletado: arranca el servidor si hace falta y carga
-/// `model` en memoria de forma fija (`keep_alive: -1`). Bloqueante — la
-/// carga en frio puede tardar decenas de segundos, así que el llamador
-/// debe ejecutar esto en un hilo de fondo (p. ej.
-/// `tauri::async_runtime::spawn_blocking`) para no congelar el hilo del
-/// menu.
-pub fn activate(model: &str) -> Result<(), String> {
-    ensure_server_running()?;
-    let client = load_client()?;
-    let resp = client
-        .post(generate_url())
-        .json(&load_body(model))
-        .send()
-        .map_err(|e| format!("fallo al cargar el modelo '{model}': {e}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().unwrap_or_default();
-        return Err(format!(
-            "ollama devolvio {status} al cargar '{model}': {text}"
-        ));
-    }
-    Ok(())
-}
-
 /// Desactiva el autocompletado: descarga `model` de memoria
 /// (`keep_alive: 0`). No detiene el proceso `ollama serve`.
 pub fn deactivate(model: &str) -> Result<(), String> {
@@ -401,69 +248,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn model_loaded_in_ps_detecta_modelo_presente_por_name() {
-        let body = r#"{"models":[{"name":"qwen2.5-coder:1.5b-base","size":123}]}"#;
-        assert_eq!(
-            model_loaded_in_ps(body, "qwen2.5-coder:1.5b-base"),
-            Ok(true)
-        );
-    }
-
-    #[test]
-    fn model_loaded_in_ps_detecta_modelo_presente_por_model() {
-        let body = r#"{"models":[{"model":"qwen2.5-coder:1.5b-base"}]}"#;
-        assert_eq!(
-            model_loaded_in_ps(body, "qwen2.5-coder:1.5b-base"),
-            Ok(true)
-        );
-    }
-
-    #[test]
-    fn model_loaded_in_ps_devuelve_false_cuando_el_modelo_no_esta() {
-        let body = r#"{"models":[{"name":"otro-modelo:latest"}]}"#;
-        assert_eq!(
-            model_loaded_in_ps(body, "qwen2.5-coder:1.5b-base"),
-            Ok(false)
-        );
-    }
-
-    #[test]
-    fn model_loaded_in_ps_devuelve_false_con_lista_vacia() {
-        let body = r#"{"models":[]}"#;
-        assert_eq!(
-            model_loaded_in_ps(body, "qwen2.5-coder:1.5b-base"),
-            Ok(false)
-        );
-    }
-
-    #[test]
-    fn model_loaded_in_ps_devuelve_false_sin_campo_models() {
-        let body = r#"{}"#;
-        assert_eq!(
-            model_loaded_in_ps(body, "qwen2.5-coder:1.5b-base"),
-            Ok(false)
-        );
-    }
-
-    /// Caso negativo: JSON malformado debe propagar un error, no un falso
-    /// "no cargado" silencioso.
-    #[test]
-    fn model_loaded_in_ps_falla_con_json_invalido() {
-        let body = "esto no es JSON";
-        let result = model_loaded_in_ps(body, "qwen2.5-coder:1.5b-base");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("invalido"));
-    }
-
-    #[test]
-    fn load_body_fija_keep_alive_indefinido() {
-        let body = load_body("qwen2.5-coder:1.5b-base");
-        assert_eq!(body["model"], "qwen2.5-coder:1.5b-base");
-        assert_eq!(body["prompt"], "");
-        assert_eq!(body["keep_alive"], -1);
-    }
-
-    #[test]
     fn unload_body_fija_keep_alive_cero() {
         let body = unload_body("qwen2.5-coder:1.5b-base");
         assert_eq!(body["model"], "qwen2.5-coder:1.5b-base");
@@ -471,22 +255,6 @@ mod tests {
         // La peticion de descarga no debe llevar prompt: no se pide
         // inferencia, solo liberar memoria.
         assert!(body.get("prompt").is_none());
-    }
-
-    /// Las variantes de `ULTRON_OLLAMA_MODEL` que resuelve `model_name`
-    /// cuando esta definida (unico caso que no depende del fichero de
-    /// config persistido, así que es seguro probarlo contra el entorno
-    /// real sin tocar disco). `std::env::set_var` es estado de proceso
-    /// compartido y `cargo test` corre los tests en paralelo, así que se
-    /// agrupan en un unico test para no correr una carrera de datos sobre
-    /// la misma variable.
-    #[test]
-    fn model_name_respeta_la_variable_de_entorno_cuando_esta_definida() {
-        std::env::set_var("ULTRON_OLLAMA_MODEL", "otro-modelo:latest");
-        assert_eq!(model_name(), "otro-modelo:latest");
-        assert_eq!(model_name_source(), "env");
-
-        std::env::remove_var("ULTRON_OLLAMA_MODEL");
     }
 
     // -- resolve_model_name: precedencia pura, sin tocar entorno ni disco --
@@ -525,27 +293,4 @@ mod tests {
         assert_eq!(source, "default");
     }
 
-    /// El guard de concurrencia solo deja pasar una accion a la vez, y se
-    /// libera solo al soltar el guard (no antes, no automaticamente por
-    /// otra razon).
-    #[test]
-    fn busy_guard_serializa_acciones() {
-        let first = try_acquire_busy();
-        assert!(first.is_some(), "el primer intento debe tomar el guard");
-
-        let second = try_acquire_busy();
-        assert!(
-            second.is_none(),
-            "un segundo intento mientras el primero sigue vivo debe fallar"
-        );
-
-        drop(first);
-
-        let third = try_acquire_busy();
-        assert!(
-            third.is_some(),
-            "tras soltar el guard, un nuevo intento debe poder tomarlo"
-        );
-        drop(third);
-    }
 }

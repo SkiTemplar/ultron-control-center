@@ -8,20 +8,18 @@ export function SystemHeader({
   setSubTab: (t: SystemSubTab) => void;
 }) {
   const TABS: { id: SystemSubTab; label: string }[] = [
-    { id: "diagnostics", label: "Diagnostics & Fixes" },
-    { id: "apps", label: "Apps" },
-    { id: "tasks", label: "Tasks" },
-    { id: "turn_off", label: "Turn Off" },
+    { id: "diagnostics", label: "Diagnóstico y arreglos" },
+    { id: "tasks", label: "Tareas programadas" },
   ];
   return (
     <header className="mb-5 flex flex-wrap items-baseline justify-between gap-4 px-10 pt-8">
       <div className="min-w-0">
-        <h1 className="text-[22px] font-semibold leading-tight">System</h1>
+        <h1 className="text-[22px] font-semibold leading-tight">Sistema</h1>
         <p
           className="mt-1 text-[13.5px]"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Installed apps grouped by usage · on-demand PC diagnostics with one-click fixes.
+          Salud del equipo y de los servicios de mar.ia.
         </p>
         <div
           className="mt-3 inline-flex rounded p-0.5"

@@ -34,7 +34,6 @@ type Props = {
 // secondary ones the sidebar keeps under "More". "Navigate (More)" labels
 // mirror the Sidebar grouping so power users see them together.
 const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
-  { id: "dashboard", label: "Go to Dashboard", group: "Navigate" },
   { id: "usage", label: "Go to Usage", group: "Navigate" },
   { id: "notifications", label: "Go to Notifications", group: "Navigate" },
   { id: "system", label: "Go to System", group: "Navigate" },
@@ -47,11 +46,8 @@ const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "conversations", label: "Go to Conversations", group: "Navigate" },
   { id: "sessions", label: "Go to Sessions", group: "Navigate" },
   { id: "projects", label: "Go to Projects", group: "Navigate" },
-  { id: "finance", label: "Go to Finance", group: "Navigate" },
   { id: "memory", label: "Go to Memory", group: "Navigate" },
-  { id: "plans", label: "Go to Plans", group: "Navigate" },
   { id: "settings", label: "Go to Settings", group: "Navigate" },
-  { id: "changelog", label: "Go to Changelog", group: "Navigate (More)" },
 ];
 
 // Tiny in-order fuzzy scorer. Returns a positive score when every char of

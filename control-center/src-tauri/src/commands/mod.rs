@@ -38,7 +38,6 @@ pub mod workflows;
 
 pub use batches_sub::batches;
 pub use batches_sub::detach;
-pub use batches_sub::opengl_project;
 
 pub use kanban_sub::kanban;
 
@@ -57,7 +56,6 @@ pub use misc_sub::misc;
 pub use misc_sub::slash_commands as commands_registry;
 
 pub use notes_sub::button_prompts;
-pub use notes_sub::notes;
 
 pub use projects::agents;
 // `projects` sub-dir module already exposed via `pub mod projects` above.
@@ -69,17 +67,14 @@ pub use sessions_sub::session_transcript;
 pub use sessions_sub::sessions;
 pub use sessions_sub::tabs;
 
-pub use system_ops::apps;
 pub use system_ops::diagnostics_native;
 pub use system_ops::event_log;
 pub use system_ops::lifecycle;
 pub use system_ops::settings;
 pub use system_ops::system;
-pub use system_ops::turn_off;
 
 pub use workflows::hooks;
 pub use workflows::maintenance;
-pub use workflows::plans;
 pub use workflows::rules;
 // workflow_runs sub-module is accessed via commands::workflows::workflow_* in generate_handler!
 

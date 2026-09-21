@@ -9,12 +9,10 @@
 
 pub mod hooks;
 pub mod maintenance;
-pub mod plans;
 pub mod rules;
 pub mod workflow_runs;
 
 pub use hooks::*;
 pub use maintenance::*;
-pub use plans::*;
 pub use rules::*;
 pub use workflow_runs::*;

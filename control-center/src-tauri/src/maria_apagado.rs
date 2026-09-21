@@ -5,8 +5,8 @@
 // aunque ya esta cerrada", y "incluso cerrando desde el icono minimizado
 // quedan procesos abiertos".
 //
-// Lo que habia: al salir solo se hacia `pty::kill_all_inner()` (las terminales)
-// y `proxy_stop_inner()`. Todo lo demas sobrevivia — el sidecar de voz el
+// Lo que habia: al salir solo se hacia `pty::kill_all_inner()` (las
+// terminales). Todo lo demas sobrevivia — el sidecar de voz el
 // primero, y con el su PowerShell de sintesis, que es quien seguia hablando.
 //
 // PROPIEDAD (ownership), que es la parte que no se puede improvisar:
@@ -16,7 +16,6 @@
 //     * el hook de teclado de `//maria`
 //     * el servidor del movil
 //     * las terminales embebidas (PTY)
-//     * el proxy de free-tier
 //
 //   NUESTRO SOLO SI LO ARRANCAMOS NOSOTROS:
 //     * Qdrant — `qdrant_auto_launch` lo levanta unicamente si no estaba. Si
@@ -124,8 +123,7 @@ fn matar_arbol(pid: u32) -> bool {
 ///   3. teclado global (`//maria`)
 ///   4. servidor del movil
 ///   5. terminales embebidas
-///   6. proxy
-///   7. procesos propios que queden (Qdrant si lo arrancamos nosotros)
+///   6. procesos propios que queden (Qdrant si lo arrancamos nosotros)
 pub fn apagar() {
     if APAGANDO.swap(true, Ordering::SeqCst) {
         tracing::debug!("apagado: ya estaba en marcha");
@@ -145,10 +143,7 @@ pub fn apagar() {
     // 5. Las terminales embebidas.
     crate::pty::kill_all_inner();
 
-    // 6. El proxy de free-tier.
-    let _ = crate::proxy::proxy_stop_inner();
-
-    // 7. Lo que hayamos arrancado y siga vivo.
+    // 6. Lo que hayamos arrancado y siga vivo.
     let pendientes = {
         let mut g = PROPIOS.lock().unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *g)

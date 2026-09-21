@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Card, SmallButton } from "./dashboard/Card";
+import { Card, SmallButton } from "./ui/Card";
 
 type ClaimState = "none" | "confirmed" | "discarded";
 

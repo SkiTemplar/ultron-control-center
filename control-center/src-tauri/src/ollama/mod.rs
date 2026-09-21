@@ -32,8 +32,5 @@
 // y `generate_handler!` dejaria de encontrarlos (mismo aviso que deja
 // `ai_router/mod.rs` sobre su propio caso).
 
-pub mod api;
-pub mod benchmark;
-pub mod commands;
 pub mod config;
 pub mod toggle;

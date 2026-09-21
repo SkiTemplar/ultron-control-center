@@ -1,17 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirmDialog } from "./lib/dialog";
 import { notify } from "./lib/notify";
 import { Sidebar, type Tab } from "./components/Sidebar";
-import { Dashboard } from "./components/Dashboard";
-import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Library, type LibrarySubTab } from "./components/Library";
-import { Notes } from "./components/Notes";
-import { Learn } from "./components/Learn";
-import { Lab } from "./components/Lab";
 import { SessionsZone } from "./components/sessions/SessionsZone";
 import { Conversations } from "./components/Conversations";
 import { HudBackground, HudTopBar, useVoice } from "./components/jarvis/HudFrame";
@@ -27,39 +22,14 @@ import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsConte
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
-import { Plans } from "./components/Plans";
-// Finance is a local-only feature (personal KutxaBank data; Finance.tsx is
-// excluded from the public repo via .gitignore). Enable at build time with
-// the env var VITE_FINANCE=1. When the flag is absent the lazy import is
-// never attempted and the Finance tab is hidden in the Sidebar.
-const FINANCE_ENABLED = import.meta.env.VITE_FINANCE === "1";
-// import.meta.glob (build-time): Vite empaqueta Finance.tsx en su propio chunk
-// CUANDO el archivo esta presente (build local). Cuando Finance.tsx esta ausente
-// (repo publico) el glob resuelve a un mapa vacio -> sin error de build y sin
-// fetch en runtime de un modulo inexistente. Esto sustituye el anterior
-// @vite-ignore + ruta-en-variable, que le decia a Vite que NO empaquetara el
-// chunk y provocaba un 404 en runtime ("Failed to fetch dynamically imported
-// module .../assets/components/Finance") al abrir la pestana Finance.
-const financeLoaders = import.meta.glob("./components/Finance.tsx");
-const financeLoader = financeLoaders["./components/Finance.tsx"];
-const FinanceLazy =
-  FINANCE_ENABLED && financeLoader
-    ? React.lazy(() =>
-        financeLoader().then((m) => ({
-          default: (m as { Finance: React.ComponentType }).Finance,
-        })),
-      )
-    : null;
 import { MemoryTab } from "./components/MemoryTab";
 import { PopupHost } from "./components/PopupHost";
-import { Onboarding } from "./components/Onboarding";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
-import { UpdateBanner } from "./components/UpdateBanner";
 import { computeGlobalStatus } from "./lib/status";
 import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { setupTrayEventListeners } from "./lib/tauri-events";
-import type { AlertEntry, ChangelogEntry } from "./types";
+import type { AlertEntry } from "./types";
 
 export default function App() {
   return (
@@ -72,7 +42,6 @@ export default function App() {
 function AppInner() {
   const [tab, setTab] = useState<Tab>("home");
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
-  const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Estado de la voz: alimenta el reactor de la barra y la pantalla principal.
   const {
@@ -128,12 +97,6 @@ function AppInner() {
       setAlerts(al);
     } catch {
       setAlerts([]);
-    }
-    try {
-      const cl = (await invoke("read_changelog", { limit: 100 })) as ChangelogEntry[];
-      setChangelog(cl);
-    } catch {
-      setChangelog([]);
     }
   }
 
@@ -346,12 +309,10 @@ function AppInner() {
       if (isTypingTarget(document.activeElement)) return;
 
       const TAB_ACTIONS: [string, Tab][] = [
-        ["tab.dashboard", "dashboard"],
         ["tab.usage", "usage"],
         ["tab.notifications", "notifications"],
         ["tab.sessions", "sessions"],
         ["tab.projects", "projects"],
-        ["tab.plans", "plans"],
         // tab.memory estaba definido en in_app_shortcuts.rs (Alt+7) pero
         // faltaba aqui: el atajo existia y no hacia nada (2026-09-17).
         ["tab.memory", "memory"],
@@ -430,8 +391,8 @@ function AppInner() {
     // -- Actions (refresh / settings / close) -------------------------
     list.push({
       id: "refresh",
-      label: "Refresh dashboard data",
-      description: "Re-pull alerts and changelog.",
+      label: "Refrescar avisos",
+      description: "Vuelve a leer los avisos del sistema.",
       group: "Actions",
       shortcut: "Ctrl+R",
       run: () => void refreshAll(),
@@ -599,22 +560,10 @@ function AppInner() {
         onGoBack={goBackToProject}
       />
       <main className="min-w-0 flex-1 overflow-auto">
-        <UpdateBanner />
-        <TabErrorBoundary tab="dashboard">
-          {tab === "dashboard" && (
-            <Dashboard
-              globalStatus={globalStatus}
-              onNavigate={setTab}
-            />
-          )}
-        </TabErrorBoundary>
         <TabErrorBoundary tab="notifications">
           {tab === "notifications" && (
             <Notifications alerts={alerts} onDeleted={refreshAll} />
           )}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="changelog">
-          {tab === "changelog" && <Changelog entries={changelog} />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="mcps">
           {tab === "mcps" && <MCPs />}
@@ -629,11 +578,6 @@ function AppInner() {
               initial={tab === "library" ? undefined : (tab as LibrarySubTab)}
             />
           )}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="notes">
-          {tab === "notes" && <Notes />}
-          {tab === "learn" && <Learn />}
-          {tab === "lab" && <Lab />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="home">
           {tab === "home" && (
@@ -681,23 +625,11 @@ function AppInner() {
         <TabErrorBoundary tab="projects">
           {tab === "projects" && <ProjectsPane />}
         </TabErrorBoundary>
-        {FINANCE_ENABLED && FinanceLazy && (
-          <TabErrorBoundary tab="finance">
-            {tab === "finance" && (
-              <React.Suspense fallback={null}>
-                <FinanceLazy />
-              </React.Suspense>
-            )}
-          </TabErrorBoundary>
-        )}
         <TabErrorBoundary tab="memory">
           {tab === "memory" && <MemoryTab />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="system">
           {tab === "system" && <System />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="plans">
-          {tab === "plans" && <Plans />}
         </TabErrorBoundary>
       </main>
       </div>
@@ -709,7 +641,6 @@ function AppInner() {
         extraActions={extraPaletteActions}
       />
       <PopupHost />
-      <Onboarding />
     </div>
   );
 }

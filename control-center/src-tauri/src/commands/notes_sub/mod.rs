@@ -6,7 +6,5 @@
 //   button_prompts — Button prompts catalog list/update/reset/get
 
 pub mod button_prompts;
-pub mod notes;
 
 pub use button_prompts::*;
-pub use notes::*;

@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Card, SmallButton } from "./dashboard/Card";
+import { Card, SmallButton } from "./ui/Card";
 
 // ---------------------------------------------------------------------------
 // Types (mirror the Rust serde shapes — snake_case keys; `kind` -> `type`)

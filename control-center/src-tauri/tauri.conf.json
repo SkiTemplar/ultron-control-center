@@ -33,7 +33,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": [
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,18 +43,5 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "updater": {
-      "_comment": "DISABLED until a real Ed25519 pubkey is generated (see docs/RELEASE-PROCESS.md). With a placeholder pubkey the updater plugin would accept anything signed by anyone. Re-enable by replacing <TAURI_PUBKEY_HERE> below AND re-adding the four updater:allow-* permissions to capabilities/default.json.",
-      "active": false,
-      "endpoints": [
-        "https://github.com/SkiTemplar/ultron/releases/latest/download/latest.json"
-      ],
-      "pubkey": "<TAURI_PUBKEY_HERE>",
-      "windows": {
-        "installMode": "passive"
-      }
-    }
   }
 }

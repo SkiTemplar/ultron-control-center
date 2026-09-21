@@ -2,21 +2,11 @@ import { useState } from "react";
 import { Diagnostics } from "./system/Diagnostics";
 import { type SystemSubTab } from "./system/system-tab/types";
 import { SystemHeader } from "./system/system-tab/SystemHeader";
-import { AppsPanel } from "./system/system-tab/AppsPanel";
 import { TasksPanel } from "./system/system-tab/TasksPanel";
-import { TurnOffPanel } from "./system/system-tab/TurnOffPanel";
 
-// v2.7 cleanup (internal audit 2026-05-24):
-//   - Bloatware sub-tab DROPPED: most catalog entries weren't present on his
-//     box. He wants the same card-driven layout applied to his REAL apps so
-//     he can spot abandoned installs instead.
-//   - Troubleshooting sub-tab DROPPED: merged into Diagnostics under the
-//     new "Diagnostics & Fixes" tab.
-//   - Apps panel REDESIGNED: Library-style cartillas grouped by usage
-//     category (Development / Games / Media / Productivity / System / Other)
-//     with bigger type + horizontal cards. Each app exposes Folder + Uninstall.
-//   - Hooks sub-tab REMOVED from System: Hooks now lives exclusively in
-//     Library (Library > Hooks). Keeping it in two places caused confusion.
+// Sistema: diagnóstico del equipo y tareas programadas. El inventario de
+// aplicaciones instaladas y el apagado programado se retiraron en 2026-09-21:
+// Windows ya hace ambas cosas y no son trabajo de un asistente.
 
 export function System() {
   const [subTab, setSubTab] = useState<SystemSubTab>("diagnostics");
@@ -25,10 +15,8 @@ export function System() {
     <div className="pb-8">
       <SystemHeader subTab={subTab} setSubTab={setSubTab} />
       <div className="px-10">
-        {subTab === "apps" && <AppsPanel />}
         {subTab === "diagnostics" && <Diagnostics />}
         {subTab === "tasks" && <TasksPanel />}
-        {subTab === "turn_off" && <TurnOffPanel />}
       </div>
     </div>
   );

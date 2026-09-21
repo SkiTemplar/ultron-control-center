@@ -34,13 +34,10 @@ mod detach;
 mod diagnostics_native;
 mod env_keys;
 mod features;
-#[cfg(feature = "finance")]
-mod finance;
 mod handlers;
 mod hooks_admin;
 mod hotkeys;
 mod in_app_shortcuts;
-mod installed_apps;
 mod instructions;
 mod kanban;
 mod kg;
@@ -72,17 +69,13 @@ mod maria_voice; // mar.ia: supervisor del sidecar de voz (stdin/stdout JSON)
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod migration;
-mod notes;
 mod ollama; // modelo local (autocompletado): interruptor de bandeja + seccion AI Router
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
-mod plans;
 mod plugin_state;
 mod plugins_info;
 mod project_context;
 mod project_hotkeys;
 mod projects;
-mod proxy;
-mod tfg_heuristics;
 // pty: runtime PTY interno (RunBatch kanban, delegate, tray, lifecycle). El
 // terminal embebido y sus comandos Tauri (pty_spawn/pty_kill/pty_list) se
 // retiraron 2026-07; NO borrar este modulo — sigue teniendo consumidores Rust.
@@ -98,11 +91,8 @@ mod system;
 mod tabs;
 #[cfg(test)]
 mod test_support;
-mod tfg_lab; // Lab TFG — deteccion determinista de patrones de texto IA (docs/research)
 mod toast_emit;
 mod tray;
-mod turn_off;
-mod update_checker;
 mod usage;
 mod workflow_loader;
 mod workflow_runs;
@@ -240,13 +230,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        // v15.3 auto-updater: the plugin reads `plugins.updater.endpoints`
-        // and `plugins.updater.pubkey` from tauri.conf.json and exposes the
-        // JS-side `check()` / `downloadAndInstall()` API used by Settings
-        // -> App lifecycle -> "Check for updates". The companion process
-        // plugin exposes `relaunch()` for the post-install restart prompt.
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--from-autostart"]),
@@ -467,21 +450,6 @@ pub fn run() {
                     }
                     Ok(_) => {} // already warm — nothing to do
                     Err(e) => tracing::warn!(error = %e, "catalog warm skipped"),
-                }
-            });
-
-            // v15.4.2 — fire a startup update check. We spawn it on a
-            // background thread + sleep 6s so the webview has time to
-            // paint and the event listener is wired before we emit.
-            // Network failures stay silent (no banner on transient
-            // errors); only a real `has_update == true` triggers
-            // `update-available` on the frontend.
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(6));
-                let info = update_checker::check_for_updates_inner();
-                if info.has_update {
-                    let _ = app_handle.emit("update-available", &info);
                 }
             });
 

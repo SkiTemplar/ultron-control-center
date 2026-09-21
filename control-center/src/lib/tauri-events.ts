@@ -25,7 +25,7 @@ type TabKey =
   | "terminals"
   | "mosaic"
   | "memory"
-  | "dashboard"
+
   | "skills"
   | "projects"
   | "mcps"

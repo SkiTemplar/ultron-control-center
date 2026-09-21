@@ -32,14 +32,6 @@ fn config_path_readonly() -> Result<PathBuf, String> {
         .join("config.json"))
 }
 
-/// Ruta al fichero de config, creando el directorio si hace falta — solo
-/// para la escritura (`write_configured_model`).
-fn config_path_for_write() -> Result<PathBuf, String> {
-    let dir = crate::maria_root()?.join("cockpit").join("ollama");
-    fs::create_dir_all(&dir).map_err(|e| format!("crear {}: {e}", dir.display()))?;
-    Ok(dir.join("config.json"))
-}
-
 /// Parseo puro del contenido del fichero de config — separado de la
 /// lectura en disco para poder testearlo sin tocar el sistema de
 /// ficheros. `None` si el JSON es invalido, no trae `model`, o `model`
@@ -60,21 +52,6 @@ pub fn read_configured_model() -> Option<String> {
     let path = config_path_readonly().ok()?;
     let body = fs::read_to_string(&path).ok()?;
     parse_configured_model(&body)
-}
-
-/// Persiste `model` como el elegido desde la UI. Escritura atomica
-/// (tmp + rename) para no dejar el fichero a medias si la app se cierra a
-/// la vez que se guarda.
-pub fn write_configured_model(model: &str) -> Result<(), String> {
-    let path = config_path_for_write()?;
-    let body = serde_json::to_vec_pretty(&StoredConfig {
-        model: model.to_string(),
-    })
-    .map_err(|e| format!("serializar config de ollama: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, &body).map_err(|e| format!("escribir {}: {e}", tmp.display()))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("renombrar a {}: {e}", path.display()))?;
-    Ok(())
 }
 
 #[cfg(test)]

@@ -43,38 +43,6 @@ pub fn is_safe_app_name(name: &str) -> bool {
         .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_' | '+'))
 }
 
-/// Busca el ejecutable principal dentro de una carpeta de instalacion.
-///
-/// Heuristica deliberadamente pobre: el .exe cuyo nombre mas se parezca al de
-/// la aplicacion. Si no hay nada claro se devuelve None y el llamante cae a
-/// Start-Process, que sabe resolver alias del sistema y apps de la Store.
-fn exe_in(dir: &std::path::Path, app_name: &str) -> Option<std::path::PathBuf> {
-    let needle = app_name.to_lowercase().replace(' ', "");
-    let mut best: Option<(usize, std::path::PathBuf)> = None;
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()).map(str::to_lowercase) != Some("exe".into()) {
-            continue;
-        }
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_lowercase();
-        let score = if stem == needle {
-            0
-        } else if needle.contains(&stem) || stem.contains(&needle) {
-            1
-        } else {
-            continue;
-        };
-        if best.as_ref().map(|(s, _)| score < *s).unwrap_or(true) {
-            best = Some((score, path));
-        }
-    }
-    best.map(|(_, p)| p)
-}
-
 /// Abre una aplicacion por nombre.
 pub fn abrir_app(nombre: &str) -> ToolOutcome {
     if !is_safe_app_name(nombre) {
@@ -82,19 +50,7 @@ pub fn abrir_app(nombre: &str) -> ToolOutcome {
     }
     let nombre = nombre.trim();
 
-    // 1) Inventario ya cacheado -> ejecutable directo, sin shell de por medio.
-    if let Some(app) = crate::installed_apps::find_cached_app(nombre) {
-        if let Some(dir) = app.install_location.as_deref().filter(|d| !d.is_empty()) {
-            if let Some(exe) = exe_in(std::path::Path::new(dir), &app.name) {
-                return match crate::proc::oculto(&exe).spawn() {
-                    Ok(_) => ToolOutcome::ok(format!("Abriendo {}.", app.name)),
-                    Err(e) => ToolOutcome::fail(format!("No pude abrir {}: {e}.", app.name)),
-                };
-            }
-        }
-    }
-
-    // 2) Start-Process: resuelve alias del sistema, apps de la Store y lo que
+    // Start-Process: resuelve alias del sistema, apps de la Store y lo que
     //    este en el PATH. El nombre viaja como argumento suelto (argv), no
     //    concatenado en una linea de comandos.
     let mut cmd = crate::proc::oculto("powershell.exe");
@@ -392,24 +348,6 @@ mod tests {
         let out = abrir_app("spotify & calc");
         assert!(!out.ok);
         assert!(out.say.contains("no me cuadra"), "mensaje: {}", out.say);
-    }
-
-    #[test]
-    fn elige_el_ejecutable_que_se_parece_al_nombre() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        for f in ["unins000.exe", "Spotify.exe", "crashpad_handler.exe"] {
-            std::fs::write(dir.path().join(f), "").expect("write");
-        }
-        let exe = exe_in(dir.path(), "Spotify").expect("encuentra el exe");
-        assert_eq!(exe.file_name().unwrap(), "Spotify.exe");
-    }
-
-    #[test]
-    fn sin_ejecutable_parecido_no_inventa_uno() {
-        // Caso negativo: mejor caer a Start-Process que abrir el desinstalador.
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("unins000.exe"), "").expect("write");
-        assert!(exe_in(dir.path(), "Spotify").is_none());
     }
 
     #[test]

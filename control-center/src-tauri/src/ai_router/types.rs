@@ -426,48 +426,6 @@ pub struct KeyValidation {
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ProviderUsageRow {
-    pub provider_id: String,
-    pub provider_label: String,
-    pub key_env_var: String,
-    pub key_present: bool,
-    pub key_masked: Option<String>,
-    pub call_count: u64,
-    pub success_count: u64,
-    pub total_tokens: u64,
-    pub latency_ms_avg: u64,
-    pub primary_for_zones: Vec<String>,
-    pub fallback_for_zones: Vec<String>,
-    pub free_tier_limit: Option<u64>,
-    pub free_tier_used_today: u64,
-    pub last_error: Option<String>,
-    pub last_error_at: Option<String>,
-    pub consecutive_failures: u64,
-    pub cooldown_until: Option<String>,
-    pub free_tier_pct: Option<f64>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct UsageSummary {
-    pub providers: Vec<ProviderUsageRow>,
-    /// EMA (α=0.1) over the 0/1 per-attempt success/failure stream.
-    pub fallback_rate: f64,
-    /// Same value as `fallback_rate`, renamed for clarity.
-    pub attempt_failure_rate: f64,
-    /// Fraction of ALL completed route() calls where the winning provider was
-    /// NOT the primary (cumulative; includes history from retired providers).
-    pub real_fallback_rate: f64,
-    pub real_fallback_count: u64,
-    pub routes_total: u64,
-    /// Same fraction but only over the last `recent_window` routes — the
-    /// actionable health signal, immune to retired-provider history.
-    pub real_fallback_rate_recent: f64,
-    /// Number of routes actually present in the recent window (0..=window cap).
-    pub recent_window: u64,
-    pub zone_chains: HashMap<String, Vec<String>>,
-}
-
 // ---------------------------------------------------------------------------
 // Storage layout — path helpers
 // ---------------------------------------------------------------------------
