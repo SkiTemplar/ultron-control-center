@@ -1,6 +1,6 @@
 // commands/memory/catalog.rs — agent/skill catalog commands (Auto-routing #7)
 
-use crate::memory::catalog::{self, CatalogHit};
+use crate::memory::catalog;
 
 /// (Re)index BOTH `~/.claude/agents/*.md` and the enabled skills (global +
 /// project + plugin) into the `ultron_catalog` Qdrant collection (E5).
@@ -43,22 +43,6 @@ pub async fn catalog_reindex_skills() -> Result<serde_json::Value, String> {
             "errors": errors,
             "collection": catalog::CATALOG_COLLECTION,
         }))
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
-/// Semantic catalog search — maps a prompt to the best specialist agent(s) to
-/// delegate to. `entity = "agent"` filters to agents (None = any).
-#[tauri::command]
-pub async fn catalog_search(
-    query: String,
-    entity: Option<String>,
-    limit: Option<u32>,
-) -> Result<Vec<CatalogHit>, String> {
-    let k = limit.unwrap_or(5);
-    tauri::async_runtime::spawn_blocking(move || {
-        Ok(catalog::search_catalog(&query, entity.as_deref(), k))
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

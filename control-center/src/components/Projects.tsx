@@ -555,7 +555,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         <input type="text" placeholder="Search id, name, path, language, tag, item…"
           value={query} onChange={(e) => setQuery(e.target.value)}
           className="flex-1 rounded px-3 py-1.5 text-[12.5px]"
-          style={{ background: "var(--color-surface-2)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)", outline: "none", minWidth: 280 }}
+          style={{ background: "var(--color-surface-2)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)", outline: "none", minWidth: "min(280px, 100%)" }}
         />
         <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em]" style={{ color: "var(--color-text-tertiary)" }}>
           Sort
@@ -646,7 +646,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
             busyItem={busyItem} launchingAll={launchingAll}
           />
         ) : viewMode === "cards" ? (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))" }}>
             {filtered.map((p) => (
               <ProjectCard key={p.id} p={p} stats={stats[p.id] ?? null}
                 onOpenWorkspace={() => openInWorkspace(p.id, p.name ?? p.id)}

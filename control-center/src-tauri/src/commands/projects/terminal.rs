@@ -8,6 +8,14 @@
 
 use std::path::Path;
 
+/// Script de elevacion. Es una CONSTANTE a proposito: la ruta del proyecto
+/// llega por `ULTRON_TERM_DIR` y PowerShell la expande como valor, asi que no
+/// hay nada que escapar y una ruta con comillas no puede inyectar codigo.
+/// El test `admin_script_carries_no_path` guarda esta propiedad.
+#[cfg_attr(not(windows), allow(dead_code))]
+const ADMIN_SCRIPT: &str = "Start-Process powershell.exe -Verb RunAs \
+     -WorkingDirectory $env:ULTRON_TERM_DIR -ArgumentList '-NoExit'";
+
 /// Abre una consola externa en `path`. `shell` viene de
 /// `Project.default_shell`; `None`/desconocido degrada a PowerShell normal.
 #[tauri::command]
@@ -36,11 +44,23 @@ fn spawn_console(dir: &Path, kind: &str) -> Result<(), String> {
             // Elevacion via Start-Process -Verb RunAs: el UAC prompt es el
             // punto de consentimiento; la ventana elevada abre en el dir
             // del proyecto y se queda abierta (-NoExit).
+            //
+            // La ruta viaja por VARIABLE DE ENTORNO, nunca interpolada en el
+            // script (auditoria de seguridad 2026-09-21, HIGH). La version
+            // anterior metia `dir` dentro de un `-Command` que a su vez
+            // llevaba un `-ArgumentList '...'` anidado: una ruta con comilla
+            // simple cerraba el literal y el resto se ejecutaba como codigo
+            // PowerShell. Basta con registrar (o dejar que el auto-scan
+            // registre) un proyecto en una carpeta llamada `it's-a-test`.
+            //
+            // Con la ruta en el entorno, el texto de -Command es constante y
+            // no hay nada que escapar: PowerShell expande $env:... como valor,
+            // no como sintaxis.
             let mut c = std::process::Command::new("powershell.exe");
-            c.arg("-NoProfile").arg("-Command").arg(format!(
-                "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoExit','-Command','Set-Location -LiteralPath \"{}\"'",
-                dir.display()
-            ));
+            c.arg("-NoProfile")
+                .arg("-Command")
+                .arg(ADMIN_SCRIPT)
+                .env("ULTRON_TERM_DIR", dir);
             c
         }
         // "powershell" y cualquier valor desconocido: PowerShell normal.
@@ -87,5 +107,25 @@ mod tests {
         let err = open_project_terminal("Z:\\definitely\\not\\a\\dir".into(), None)
             .expect_err("nonexistent path must be rejected");
         assert!(err.contains("not a directory"));
+    }
+
+    /// Regresion (auditoria 2026-09-21, HIGH): la ruta del proyecto se
+    /// interpolaba dentro de un `-Command` con un `-ArgumentList '...'`
+    /// anidado, asi que una carpeta llamada `it's-a-test` cerraba el literal
+    /// y el resto corria como PowerShell. El script tiene que seguir siendo
+    /// constante: la ruta va por entorno, no por texto.
+    #[test]
+    fn admin_script_carries_no_path() {
+        assert!(
+            ADMIN_SCRIPT.contains("$env:ULTRON_TERM_DIR"),
+            "la ruta debe llegar por variable de entorno"
+        );
+        assert!(
+            !ADMIN_SCRIPT.contains("Set-Location"),
+            "Set-Location con la ruta embebida era justo el vector de inyeccion"
+        );
+        // Un formateador no puede volver a colar datos: sin marcadores de
+        // sustitucion, el script no admite interpolacion.
+        assert!(!ADMIN_SCRIPT.contains("{}"), "el script no admite formateo");
     }
 }

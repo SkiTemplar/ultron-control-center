@@ -5,11 +5,17 @@
 // aquí se ven los cambios archivo por archivo, su diff, se hace stage/unstage,
 // se escribe el mensaje y se commitea, y se consulta el historial.
 //
-// Backend: git_changes / git_diff_file / git_stage / git_unstage / git_commit /
-// git_log_full / git_pull / git_push / git_fetch / git_repo_state (git_ops.rs).
+// Backend: git_repo_snapshot / git_diff_file / git_stage / git_unstage /
+// git_commit / git_log_full / git_pull / git_push / git_fetch (git_ops.rs).
 // Read-write, pero solo sobre el repo del proyecto (path acotado).
+//
+// Rendimiento (2026-09-21): el panel hacía 4 llamadas a git por cada casilla
+// marcada (state + changes + log + resumen del padre) y bloqueaba la lista
+// entera mientras tanto. Ahora: un único `git_repo_snapshot` por refresco,
+// historial perezoso, marcado optimista sin bloquear la lista y refrescos
+// coalescidos.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type GitFileChange = {
@@ -38,6 +44,8 @@ type RepoState = {
   dirty_count: number;
 };
 
+type RepoSnapshot = { state: RepoState; changes: GitFileChange[] };
+
 type Tab = "changes" | "history";
 
 interface RepoModalProps {
@@ -46,6 +54,9 @@ interface RepoModalProps {
   /** Llamado tras commit/pull/push para que el padre refresque su resumen. */
   onChanged?: () => void;
 }
+
+/** Ventana de coalescencia: varias casillas seguidas = un solo refresco. */
+const REFRESH_DEBOUNCE_MS = 120;
 
 /** Etiqueta corta y color para el estado de un archivo. */
 function statusBadge(c: GitFileChange): { label: string; color: string } {
@@ -78,40 +89,69 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
   const [tab, setTab] = useState<Tab>("changes");
   const [state, setState] = useState<RepoState | null>(null);
   const [changes, setChanges] = useState<GitFileChange[]>([]);
-  const [log, setLog] = useState<GitCommit[]>([]);
+  const [log, setLog] = useState<GitCommit[] | null>(null);
   const [selected, setSelected] = useState<GitFileChange | null>(null);
   const [diff, setDiff] = useState<string>("");
   const [commitMsg, setCommitMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Archivos con un stage/unstage en vuelo: solo se bloquea su casilla. */
+  const [pending, setPending] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    };
+  }, []);
+
+  /** Estado + archivos en UNA llamada (un solo `git status` en el backend). */
   const refresh = useCallback(async () => {
-    setError(null);
     try {
-      const [st, ch] = await Promise.all([
-        invoke<RepoState>("git_repo_state", { path }),
-        invoke<GitFileChange[]>("git_changes", { path }),
-      ]);
-      setState(st);
-      setChanges(ch);
+      const snap = await invoke<RepoSnapshot>("git_repo_snapshot", { path });
+      if (!alive.current) return;
+      setState(snap.state);
+      setChanges(snap.changes);
+      setError(null);
     } catch (e) {
-      setError(String(e));
+      if (alive.current) setError(String(e));
     }
   }, [path]);
 
+  /**
+   * Refresco coalescido: N acciones seguidas = 1 solo `git status` aquí y un
+   * solo aviso al padre (que dispara su propio `git_repo_state`).
+   */
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      void refresh();
+      onChanged?.();
+    }, REFRESH_DEBOUNCE_MS);
+  }, [refresh, onChanged]);
+
   const loadLog = useCallback(async () => {
     try {
-      setLog(await invoke<GitCommit[]>("git_log_full", { path, limit: 50 }));
+      const l = await invoke<GitCommit[]>("git_log_full", { path, limit: 50 });
+      if (alive.current) setLog(l);
     } catch (e) {
-      setError(String(e));
+      if (alive.current) setError(String(e));
     }
   }, [path]);
 
   useEffect(() => {
     void refresh();
-    void loadLog();
-  }, [refresh, loadLog]);
+  }, [refresh]);
+
+  // Historial perezoso: el `git log` solo se paga al abrir la pestaña. Antes se
+  // lanzaba al abrir el modal y tras CADA stage/unstage.
+  useEffect(() => {
+    if (tab === "history" && log === null) void loadLog();
+  }, [tab, log, loadLog]);
 
   const openDiff = useCallback(
     async (c: GitFileChange) => {
@@ -123,48 +163,94 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
           file: c.path,
           staged: c.staged,
         });
+        if (!alive.current) return;
         setDiff(d.trim() ? d : "(sin diferencias que mostrar)");
       } catch (e) {
-        setDiff(`Error al leer el diff: ${String(e)}`);
+        if (alive.current) setDiff(`Error al leer el diff: ${String(e)}`);
       }
     },
     [path],
   );
 
-  // Run a git op, then refresh local + parent. `okMsg` shown briefly on success.
+  // Operación "pesada" (commit/pull/push/fetch/stage masivo): bloquea la barra,
+  // refresca estado y avisa al padre. `okMsg` se muestra al terminar bien.
   const runOp = useCallback(
-    async (fn: () => Promise<unknown>, okMsg?: string) => {
+    async (fn: () => Promise<unknown>, okMsg?: string, alsoLog = false) => {
       setBusy(true);
       setError(null);
       setInfo(null);
       try {
         await fn();
         await refresh();
-        await loadLog();
+        // El historial solo se recarga si cambió (commit/pull) y está visible.
+        if (alsoLog) {
+          if (tab === "history") await loadLog();
+          else setLog(null);
+        }
         onChanged?.();
-        if (okMsg) setInfo(okMsg);
+        if (okMsg && alive.current) setInfo(okMsg);
       } catch (e) {
-        setError(String(e));
+        if (alive.current) setError(String(e));
       } finally {
-        setBusy(false);
+        if (alive.current) setBusy(false);
       }
     },
-    [refresh, loadLog, onChanged],
+    [refresh, loadLog, onChanged, tab],
   );
 
-  const stage = (files: string[]) => invoke("git_stage", { path, files });
-  const unstage = (files: string[]) => invoke("git_unstage", { path, files });
+  // Marcado de UN archivo: pinta la casilla al instante (optimista), lanza el
+  // git y deja que el refresco coalescido confirme. No bloquea la lista.
+  const toggleFile = useCallback(
+    async (c: GitFileChange) => {
+      const next = !c.staged;
+      setPending((p) => [...p, c.path]);
+      setChanges((prev) =>
+        prev.map((f) => (f.path === c.path ? { ...f, staged: next } : f)),
+      );
+      setError(null);
+      try {
+        await invoke(next ? "git_stage" : "git_unstage", { path, files: [c.path] });
+        scheduleRefresh();
+      } catch (e) {
+        if (!alive.current) return;
+        setError(String(e));
+        // Revierte el optimismo: el estado real manda.
+        setChanges((prev) =>
+          prev.map((f) => (f.path === c.path ? { ...f, staged: c.staged } : f)),
+        );
+      } finally {
+        if (alive.current) setPending((p) => p.filter((x) => x !== c.path));
+      }
+    },
+    [path, scheduleRefresh],
+  );
 
   const stagedCount = changes.filter((c) => c.staged).length;
   const hasRemote = !!state?.remote;
 
+  // Un <div> por línea: memoizado para no rehacer el diff entero en cada
+  // render del modal (marcar una casilla re-renderiza el componente).
+  const diffLines = useMemo(
+    () =>
+      diff.split("\n").map((line, i) => (
+        <div key={i} style={{ color: diffLineColor(line) ?? "var(--color-text-secondary)" }}>
+          {line || " "}
+        </div>
+      )),
+    [diff],
+  );
+
   const doCommit = () =>
-    runOp(async () => {
-      await invoke("git_commit", { path, message: commitMsg });
-      setCommitMsg("");
-      setSelected(null);
-      setDiff("");
-    }, "Commit creado");
+    runOp(
+      async () => {
+        await invoke("git_commit", { path, message: commitMsg });
+        setCommitMsg("");
+        setSelected(null);
+        setDiff("");
+      },
+      "Commit creado",
+      true,
+    );
 
   return (
     <div
@@ -209,7 +295,7 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
             {hasRemote && (
               <button
                 type="button"
-                onClick={() => void runOp(() => invoke("git_pull", { path }), "Pull OK")}
+                onClick={() => void runOp(() => invoke("git_pull", { path }), "Pull OK", true)}
                 disabled={busy}
                 className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
                 style={{ background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.35)", color: "#3b82f6" }}
@@ -282,7 +368,7 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    onClick={() => void runOp(() => stage([]))}
+                    onClick={() => void runOp(() => invoke("git_stage", { path, files: [] }))}
                     disabled={busy || changes.length === 0}
                     className="rounded px-1.5 py-0.5 text-[10px] disabled:opacity-40"
                     style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
@@ -292,7 +378,7 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void runOp(() => unstage([]))}
+                    onClick={() => void runOp(() => invoke("git_unstage", { path, files: [] }))}
                     disabled={busy || stagedCount === 0}
                     className="rounded px-1.5 py-0.5 text-[10px] disabled:opacity-40"
                     style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
@@ -314,17 +400,15 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
                     const isSel = selected?.path === c.path;
                     return (
                       <div
-                        key={`${c.path}-${c.staged}`}
+                        key={c.path}
                         className="flex items-center gap-1.5 rounded px-1.5 py-1"
                         style={{ background: isSel ? "var(--color-surface-3)" : "transparent" }}
                       >
                         <input
                           type="checkbox"
                           checked={c.staged}
-                          disabled={busy}
-                          onChange={() =>
-                            void runOp(() => (c.staged ? unstage([c.path]) : stage([c.path])))
-                          }
+                          disabled={busy || pending.includes(c.path)}
+                          onChange={() => void toggleFile(c)}
                           title={c.staged ? "Quitar del stage" : "Añadir al stage"}
                         />
                         <button
@@ -379,11 +463,7 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
             <div className="min-h-0 flex-1 overflow-auto">
               {selected ? (
                 <pre className="m-0 p-3 text-[11px] leading-[1.45]" style={{ fontFamily: "var(--font-mono)", whiteSpace: "pre" }}>
-                  {diff.split("\n").map((line, i) => (
-                    <div key={i} style={{ color: diffLineColor(line) ?? "var(--color-text-secondary)" }}>
-                      {line || " "}
-                    </div>
-                  ))}
+                  {diffLines}
                 </pre>
               ) : (
                 <p className="p-4 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
@@ -395,7 +475,11 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
         ) : (
           /* History tab */
           <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
-            {log.length === 0 ? (
+            {log === null ? (
+              <p className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                Cargando historial…
+              </p>
+            ) : log.length === 0 ? (
               <p className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
                 Sin commits.
               </p>

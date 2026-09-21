@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ActivityTab } from "./usage/ActivityTab";
 import type { UsageReport } from "../types";
 import { DailyBars, HourHisto, ModelTable, WindowCard } from "./usage/StatParts";
+import { PlanLimitsCard } from "./usage/PlanLimitsCard";
 
 // Anthropic plan rolls over a different time/day.
 type ResetConfig = { weekday: number; hour: number; minute: number };
@@ -247,54 +248,18 @@ function WeeklyResetCard() {
 // Window card (today / 7d / 30d)
 // ---------------------------------------------------------------------------
 
-function SubscriptionLimitCard({ onOpen, busy }: { onOpen: () => void; busy: boolean }) {
-  return (
-    <div
-      className="mb-6 flex items-center justify-between gap-4 rounded p-4"
-      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
-    >
-      <div>
-        <div
-          className="text-[10px] font-medium uppercase tracking-[0.06em]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Límite de suscripción
-        </div>
-        <p className="mt-1 text-[12.5px]" style={{ color: "var(--color-text-secondary)" }}>
-          Abre una sesión Claude con{" "}
-          <span style={{ fontFamily: "var(--font-mono, monospace)" }}>/usage</span>{" "}
-          para ver el % restante de tu ventana de 5h y uso semanal.
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={busy}
-        className="shrink-0 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-        style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
-      >
-        {busy ? "Abriendo…" : "Abrir /usage"}
-      </button>
-    </div>
-  );
-}
-
-
-
 // ---------------------------------------------------------------------------
 // Tab "Overview" — Claude usage stats + quota
 // ---------------------------------------------------------------------------
 
 type OverviewTabProps = {
   data: UsageReport | null;
-  onOpenUsage: () => void;
-  usageBusy: boolean;
 };
 
-function OverviewTab({ data, onOpenUsage, usageBusy }: OverviewTabProps) {
+function OverviewTab({ data }: OverviewTabProps) {
   return (
     <div>
-      <SubscriptionLimitCard onOpen={onOpenUsage} busy={usageBusy} />
+      <PlanLimitsCard />
 
       {/* Cache freshness warning */}
       {data && data.cache_age_days !== null && data.cache_age_days > 1 && (
@@ -440,7 +405,6 @@ export function Usage() {
   const [data, setData] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [usageBusy, setUsageBusy] = useState(false);
   // Wiring 2026-08-11 (audit 08-09 #43): pestaña Activity con el timeline de
   // actividad de todo el sistema (compute_activity_timeline).
   const [tab, setTab] = useState<"overview" | "activity">("overview");
@@ -455,28 +419,6 @@ export function Usage() {
       setError(String(e));
     } finally {
       setLoading(false);
-    }
-  }
-
-  // Spawns a Claude session in a Windows Terminal tab and seeds the prompt
-  // with `/usage` so the user lands directly on the live usage dashboard.
-  // The local stats-cache.json gets refreshed by Claude itself as a side
-  // effect, so we reload our view too once the user comes back.
-  async function openClaudeUsage() {
-    setUsageBusy(true);
-    setError(null);
-    try {
-      const { resolveAndSpawn } = await import("../lib/button-prompts");
-      await resolveAndSpawn({
-        key: "usage.refresh_with_claude",
-        cwd: null,
-      });
-      // Give Claude a beat to refresh the cache before we reload.
-      setTimeout(load, 4000);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setUsageBusy(false);
     }
   }
 
@@ -568,11 +510,7 @@ export function Usage() {
       )}
 
       {tab === "overview" && (
-        <OverviewTab
-          data={data}
-          onOpenUsage={openClaudeUsage}
-          usageBusy={usageBusy}
-        />
+        <OverviewTab data={data} />
       )}
       {tab === "activity" && <ActivityTab />}
     </div>

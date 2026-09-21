@@ -198,3 +198,20 @@ export type KanbanArchive = {
     archived_from_column_id: string;
   }>;
 };
+
+// ---------------------------------------------------------------------------
+// Bitácora del proyecto (ver src-tauri/src/projects/session_log.rs)
+// ---------------------------------------------------------------------------
+
+export type SessionLogEntry = {
+  session_id: string;
+  started_at: string | null;
+  duration_min: number | null;
+  model: string | null;
+  generated_at: string | null;
+  headline: string | null;
+  pending_count: number;
+  sections: string[];
+  file_mtime: number;
+  degraded: boolean;
+};

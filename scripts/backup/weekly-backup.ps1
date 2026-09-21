@@ -151,7 +151,15 @@ function Invoke-Robocopy {
         "/NP",         # no progress %
         "/NDL",        # no directory list
         "/NJH",        # no job header
-        "/NJS",        # no job summary (we capture summary ourselves via exit code)
+        # /XJD skips directory junctions. Windows keeps legacy XP compatibility
+        # junctions inside Documents ("Mis videos", "Mis imagenes", "Mi musica")
+        # that carry a deny ACL to prevent enumeration loops. robocopy counted
+        # them as 3 failed directories on every run, which turned a healthy
+        # backup into exit code 9 -> task exit 1. They hold no data of their own.
+        "/XJD",
+        # /NJS was dropped on 2026-09-21: without the job summary, the per-file
+        # ERROR lines and the failure count never reached the log, so an exit 9
+        # could not be diagnosed at all. The summary is a handful of lines.
         "/LOG+:$LogPath"
     )
     if ($DryRunFlag) { $args += "/L" }
@@ -159,7 +167,7 @@ function Invoke-Robocopy {
     if ($ExcludeFiles.Count -gt 0) { $args += "/XF"; $args += $ExcludeFiles }
 
     Write-Log "robocopy $SourcePath -> $DestPath ($(if($DryRunFlag){'DRY-RUN'}else{'COPY'}))"
-    & robocopy @args | Out-Null
+    & robocopy @args 2>&1 | Out-Null
     return @{ Code = $LASTEXITCODE; Skipped = $false }
 }
 
@@ -213,6 +221,11 @@ if (-not (Test-Path $BackupRoot)) { New-Item -ItemType Directory -Path $BackupRo
 
 $DateStr   = Get-Date -Format "yyyy-MM-dd"
 $LogFile   = Join-Path $LogDir "backup-$DateStr.log"
+# robocopy writes its /LOG+ output in the OEM codepage while Write-Log uses
+# Tee-Object (UTF-16LE on PS 5.1). Sharing one file produced an unreadable
+# mix of both encodings, which hid the real per-file errors behind exit 9.
+# Keep the two streams in separate files so both stay greppable.
+$RoboLogFile = Join-Path $LogDir "backup-$DateStr.robocopy.log"
 
 $exclusions = Read-Exclusions -Path $ExclusionsFile
 Write-Log "v14.8 BACKUP-WATCH start (DryRun=$DryRun, mode=mirror-overwrite)"
@@ -235,7 +248,7 @@ foreach ($src in $sourcesToRun) {
     if (-not (Test-Path $destAbs)) { New-Item -ItemType Directory -Path $destAbs -Force | Out-Null }
     $r = Invoke-Robocopy -SourcePath $srcAbs -DestPath $destAbs `
         -ExcludeDirs $exclusions.Dirs -ExcludeFiles $exclusions.Files `
-        -LogPath $LogFile -DryRunFlag:$DryRun
+        -LogPath $RoboLogFile -DryRunFlag:$DryRun
     $results[$src] = $r
     if (-not (Test-RobocopyOk -Code $r.Code) -and -not $r.Skipped) {
         $anyFailed = $true
@@ -314,6 +327,7 @@ $statusPayload = @{
     sources         = $sourcesToRun
     results         = @{}
     log             = $LogFile
+    robocopy_log    = $RoboLogFile
     backup_root     = $BackupRoot
     keep_weeks      = $KeepWeeks
     brain_snapshot  = $snapshotOk

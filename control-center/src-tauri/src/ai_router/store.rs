@@ -150,7 +150,10 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
     let path = providers_path()?;
     let mut providers: Vec<Provider> = if path.exists() {
         let mut loaded: Vec<Provider> = read_json(&path)?;
-        if migrate_stale_provider_models(&mut loaded) {
+        let bumped = migrate_stale_provider_models(&mut loaded);
+        let merged = merge_missing_seed_providers(&mut loaded);
+        let loopback = migrate_ollama_loopback(&mut loaded);
+        if bumped || merged || loopback {
             let _ = write_json(&path, &loaded);
         }
         loaded
@@ -163,6 +166,90 @@ pub fn load_providers() -> Result<Vec<Provider>, String> {
         p.api_key_status = compute_key_status(p);
     }
     Ok(providers)
+}
+
+/// Añade al catálogo persistido los proveedores del seed que le faltan,
+/// emparejando por id. Devuelve `true` cuando añadió algo, para que quien
+/// llama persista el fichero.
+///
+/// `migrate_stale_provider_models` repara los MODELOS de un proveedor que ya
+/// está en el fichero, pero no puede hacer nada con un proveedor AUSENTE, y un
+/// `providers.json` escrito antes de que el seed ganara una entrada no la
+/// recibía jamás. Medido en esta máquina el 2026-09-21: el fichero tenía 8
+/// proveedores y el seed 9 — faltaba `claude`, que era el primary de
+/// `code-edit` y `code-review` desde la decisión del 2026-06-24. Las dos zonas
+/// llamaban a un proveedor inexistente, fallaban y caían al fallback en cada
+/// petición, y el salto se contabilizaba como `real_fallback_rate`.
+///
+/// Solo AÑADE: una entrada que el operador ya editó conserva su coste, sus
+/// modelos y su `base_url` intactos (de esa deriva se encarga
+/// `migrate_stale_provider_models`, acotada a valores conocidos como
+/// obsoletos). Respeta el orden y añade al final, así que el catálogo nunca se
+/// reordena bajo la UI.
+///
+/// Pura (sin E/S) para poder probarla.
+/// Adaptada de la rama `maria-core` del espejo público (2026-09-21).
+pub(crate) fn merge_missing_seed_providers(providers: &mut Vec<Provider>) -> bool {
+    let have: HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
+    let mut mutated = false;
+    for sp in seed_providers() {
+        if !have.contains(&sp.id) {
+            providers.push(sp);
+            mutated = true;
+        }
+    }
+    mutated
+}
+
+/// Repara las zonas cuyo `primary` o cuyos `fallbacks` apunten a un proveedor
+/// que no está en el catálogo.
+///
+/// Sin esto, una zona con un `primary` inexistente no falla al cargar: falla
+/// en tiempo de ejecución, una llamada más tarde, con un "proveedor
+/// desconocido" que no dice de dónde viene. Los fallbacks muertos se caen; un
+/// primary muerto se sustituye por el primer fallback vigente y, si no queda
+/// ninguno, por el modelo local, que siempre está y no gasta cuota.
+///
+/// También quita fallbacks repetidos: al fundir dos proveedores en uno, una
+/// zona acababa con el mismo fallback tres veces y la cadena lo intentaba tres
+/// veces seguidas.
+///
+/// La deduplicación es por la pareja (proveedor, modelo), NO por proveedor.
+/// `maria-core` deduplica solo por `provider_id`, y aquí eso destruiría la
+/// cadena de `chat`, que repite `groq` a propósito con dos modelos distintos:
+/// la cuota de Groq es POR MODELO, así que el 120b en cooldown por 429 deja
+/// al 20b con su propio bucket intacto. Colapsar esa pareja devolvería el
+/// sistema al fallo medido el 2026-09-07, cuando la captura se quedaba sin
+/// proveedor tras 266 llamadas en un día.
+///
+/// Pura. Adaptada de `repair_zones_after_drop` de la rama `maria-core`.
+pub(crate) fn repair_zones_against_catalog(zones: &mut [Zone], catalogo: &[String]) -> bool {
+    let vigente = |id: &str| catalogo.iter().any(|v| v == id);
+    let mut mutated = false;
+    for z in zones.iter_mut() {
+        let antes = z.fallbacks.len();
+        z.fallbacks.retain(|f| vigente(&f.provider_id));
+        let mut vistos: HashSet<(String, String)> = HashSet::new();
+        z.fallbacks
+            .retain(|f| vistos.insert((f.provider_id.clone(), f.model.clone())));
+        if z.fallbacks.len() != antes {
+            mutated = true;
+        }
+        if !vigente(&z.primary.provider_id) {
+            match z.fallbacks.first().cloned() {
+                Some(nuevo) => {
+                    z.primary = nuevo;
+                    z.fallbacks.remove(0);
+                }
+                None => {
+                    z.primary.provider_id = "ollama".to_string();
+                    z.primary.model = crate::ollama::toggle::model_name();
+                }
+            }
+            mutated = true;
+        }
+    }
+    mutated
 }
 
 /// Bump provider catalog entries (`default_model` + `models`) that predate a
@@ -267,11 +354,40 @@ pub fn load_zones() -> Result<Vec<Zone>, String> {
         if migrate_gemini_flash_model(&mut zones) {
             mutated = true;
         }
+        // Poda de zonas sin consumidor (2026-09-21). Ver `retire_unused_zones`.
+        if retire_unused_zones(&mut zones) {
+            mutated = true;
+        }
         // codex gpt-5/gpt-5.5 -> modelo de la semilla por zona (2026-09-11):
         // terra/sol/astra verificados vivos vía `codex exec -m <modelo>`.
         // Generalizada para leer el objetivo de seed_zones() en vez de un par
         // OLD/NEW fijo (ver doc de la función). Idempotente.
         if migrate_codex_gpt5_model(&mut zones) {
+            mutated = true;
+        }
+        // CLI-first en las zonas de codigo (2026-09-21): un zones.json escrito
+        // bajo la decision del 2026-06-24 apunta su primary a 'claude', que
+        // nunca llego a providers.json. Ver `migrate_code_zones_to_cli`.
+        if migrate_code_zones_to_cli(&mut zones) {
+            mutated = true;
+        }
+        // Reparacion de cadenas mutiladas (2026-09-21). DESPUES de las
+        // migraciones puntuales: primero cada una deja su zona como quiere, y
+        // luego se comprueba que no falte ningun eslabon del seed. Ver
+        // `restore_missing_seed_fallbacks`.
+        if restore_missing_seed_fallbacks(&mut zones) {
+            mutated = true;
+        }
+        // Red de seguridad, la ULTIMA: por muchas migraciones puntuales que se
+        // acumulen arriba, ninguna zona puede quedar apuntando a un proveedor
+        // que no esta en el catalogo. Lo de 'claude' vivio tres meses
+        // precisamente porque nadie comprobaba esta invariante al cargar.
+        let catalogo: Vec<String> = load_providers()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        if !catalogo.is_empty() && repair_zones_against_catalog(&mut zones, &catalogo) {
             mutated = true;
         }
         if mutated {
@@ -283,6 +399,123 @@ pub fn load_zones() -> Result<Vec<Zone>, String> {
         write_json(&path, &seeded)?;
         Ok(seeded)
     }
+}
+
+/// Cambia el `localhost` del proveedor `ollama` por `127.0.0.1` en un
+/// `providers.json` ya escrito.
+///
+/// Ollama escucha solo en IPv4 (`TCP 127.0.0.1:11434 LISTENING`), pero
+/// `localhost` resuelve antes a `::1`: cada petición paga el rechazo de IPv6
+/// hasta que happy-eyeballs reintenta por IPv4. Medido el 2026-09-21: 207 ms
+/// frente a 2,5 ms, y el coste se paga DOS VECES por invocación porque
+/// `call_ollama` sondea `/api/tags` antes de `/api/generate`. Funcionar,
+/// funciona — por eso nadie lo vio.
+///
+/// Acotada a `ollama` y a un `base_url`/`health_endpoint` que sigan diciendo
+/// `localhost`: una URL que el operador haya apuntado a otra máquina no se
+/// toca. `migrate_stale_provider_models` no sirve aquí porque solo repara
+/// modelos, nunca URLs.
+///
+/// Pura (sin E/S) para poder probarla.
+pub(crate) fn migrate_ollama_loopback(providers: &mut [Provider]) -> bool {
+    let mut mutated = false;
+    for p in providers.iter_mut().filter(|p| p.id == "ollama") {
+        if p.base_url.contains("//localhost:") {
+            p.base_url = p.base_url.replace("//localhost:", "//127.0.0.1:");
+            mutated = true;
+        }
+        if let Some(h) = p.health_endpoint.as_mut() {
+            if h.contains("//localhost:") {
+                *h = h.replace("//localhost:", "//127.0.0.1:");
+                mutated = true;
+            }
+        }
+    }
+    mutated
+}
+
+/// Devuelve a la cadena los fallbacks del seed que se perdieron por el camino.
+///
+/// `load_zones` fusiona zonas AUSENTES, pero nunca repara una cadena mutilada.
+/// Hasta el 2026-09-16 `retire_gemini_cli` deduplicaba por `provider_id`
+/// ignorando el modelo, así que en cada carga borraba el `groq:gpt-oss-20b` de
+/// la zona `chat` — su primary ya era groq. Cuando la dedup se corrigió a
+/// `provider::model` el bug dejó de morder, pero los `zones.json` ya dañados
+/// se quedaron sin ese eslabón: verificado en esta máquina el 2026-09-21, la
+/// cadena de `chat` era `groq:120b | gemini` y el seed dice
+/// `groq:120b | groq:20b | gemini`.
+///
+/// Eso importa porque la cuota de Groq es POR MODELO: con el 120b en cooldown
+/// por 429, el 20b conserva su propio bucket. Sin él, la cadena salta directa
+/// a las 20 peticiones diarias de Gemini y la captura se queda sin proveedor
+/// (medido el 2026-09-07 con 266 llamadas a `chat` en un día).
+///
+/// Cada fallback que falta se reinserta en el índice que ocupa en el seed, de
+/// modo que el orden de la estrategia se respeta. Lo que el operador haya
+/// añadido por su cuenta no se toca ni se reordena.
+///
+/// Límite declarado: si el operador quitó a propósito un fallback que el seed
+/// define, esta migración se lo devuelve. Se asume porque la pérdida conocida
+/// viene de un bug, no de una elección, y el seed es la fuente de verdad.
+///
+/// Pura (sin E/S) para poder probarla.
+pub(crate) fn restore_missing_seed_fallbacks(zones: &mut [Zone]) -> bool {
+    let seed = seed_zones();
+    let mut mutated = false;
+    for z in zones.iter_mut() {
+        let Some(sz) = seed.iter().find(|s| s.id == z.id) else {
+            continue;
+        };
+        for (idx, sf) in sz.fallbacks.iter().enumerate() {
+            let ya_esta = z.primary.provider_id == sf.provider_id && z.primary.model == sf.model
+                || z.fallbacks
+                    .iter()
+                    .any(|f| f.provider_id == sf.provider_id && f.model == sf.model);
+            if ya_esta {
+                continue;
+            }
+            let pos = idx.min(z.fallbacks.len());
+            z.fallbacks.insert(pos, sf.clone());
+            mutated = true;
+        }
+    }
+    mutated
+}
+
+/// Lleva las zonas de código al primary CLI que marca el seed, para un
+/// `zones.json` escrito bajo la decisión del 2026-06-24 (`claude` de primary).
+///
+/// Acotada a las zonas de categoría `code` cuyo primary sea exactamente
+/// `claude`: una elección distinta del operador no se toca. El objetivo sale
+/// de `seed_zones()`, no de una constante, para que no vuelva a haber dos
+/// sitios con la política escrita.
+///
+/// Si `claude` desapareciera del primary del seed y la zona ya estuviera
+/// migrada, la función no muta nada: es idempotente.
+///
+/// Pura (sin E/S) para poder probarla.
+pub(crate) fn migrate_code_zones_to_cli(zones: &mut [Zone]) -> bool {
+    let seed = seed_zones();
+    let mut mutated = false;
+    for z in zones.iter_mut() {
+        if z.primary.provider_id != "claude" {
+            continue;
+        }
+        let Some(sz) = seed.iter().find(|s| s.id == z.id) else {
+            continue;
+        };
+        if sz.category != "code" || sz.primary.provider_id == "claude" {
+            continue;
+        }
+        // El primary saliente baja a fallback solo si aporta algo que la
+        // cadena no tenga ya: si no, se descarta y la cadena no engorda.
+        let entrante = sz.primary.clone();
+        z.fallbacks
+            .retain(|f| f.provider_id != entrante.provider_id);
+        z.primary = entrante;
+        mutated = true;
+    }
+    mutated
 }
 
 /// Retire the dead `gemini-cli` provider from every zone chain: replace it with
@@ -320,6 +553,30 @@ pub(crate) fn retire_gemini_cli(zones: &mut [Zone]) -> bool {
         }
     }
     mutated
+}
+
+/// Zonas retiradas el 2026-09-21 por no tener ningún llamante en el código:
+/// ninguna aparecía en un `ai_router::route("<id>", …)`, ni en un comando Tauri,
+/// ni en la UI (la pestaña AI Router lista y edita zonas, pero no lanza
+/// peticiones por zona). Una zona configurada que nadie invoca es configuración
+/// que miente sobre lo que el sistema hace: se mantenía en la UI, en los
+/// providers a validar y en la tabla de la documentación.
+///
+/// `code-fast-local` era además la única ruta a Ollama (0 rutas en
+/// metrics.json); el wrapper local sigue vivo como fallback de `light`.
+const RETIRED_ZONE_IDS: [&str; 3] = ["research-web", "routing-decision", "code-fast-local"];
+
+/// Borrar del `zones.json` ya escrito las zonas de `RETIRED_ZONE_IDS`.
+///
+/// Sin esto la poda de `seed_zones` no llegaría a ninguna instalación existente:
+/// la semilla solo corre cuando el fichero todavía no existe. Idempotente — un
+/// `zones.json` que ya no las tiene no dispara escritura.
+///
+/// Pura (sin I/O) para que la migración sea testeable.
+pub(crate) fn retire_unused_zones(zones: &mut Vec<Zone>) -> bool {
+    let before = zones.len();
+    zones.retain(|z| !RETIRED_ZONE_IDS.contains(&z.id.as_str()));
+    zones.len() != before
 }
 
 /// Bump the cloud `gemini` provider's model from the retired `gemini-3.8-flash`
@@ -528,6 +785,61 @@ mod retire_tests {
         assert!(retire_gemini_cli(&mut zones));
         assert_eq!(zones[0].fallbacks.len(), 1);
         assert_eq!(zones[0].fallbacks[0].provider_id, "gemini");
+    }
+}
+
+#[cfg(test)]
+mod retire_unused_zones_tests {
+    use super::retire_unused_zones;
+    use crate::ai_router::types::{Zone, ZoneAssignment};
+
+    fn zone(id: &str) -> Zone {
+        Zone {
+            id: id.into(),
+            label: id.into(),
+            category: "chat".into(),
+            primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "openai/gpt-oss-20b".into(),
+                max_tokens: 512,
+            },
+            fallbacks: vec![],
+            system_prompt: None,
+        }
+    }
+
+    #[test]
+    fn drops_the_three_zones_without_a_caller() {
+        let mut zones = vec![
+            zone("chat"),
+            zone("research-web"),
+            zone("summarize"),
+            zone("routing-decision"),
+            zone("code-fast-local"),
+            zone("light"),
+        ];
+        assert!(retire_unused_zones(&mut zones));
+        let ids: Vec<&str> = zones.iter().map(|z| z.id.as_str()).collect();
+        assert_eq!(ids, vec!["chat", "summarize", "light"]);
+    }
+
+    #[test]
+    fn keeps_every_zone_that_has_a_caller() {
+        // Caso negativo: la migracion no debe tocar las zonas vivas ni
+        // reescribir el fichero cuando no hay nada que podar.
+        let mut zones = vec![
+            zone("chat"),
+            zone("code-edit"),
+            zone("code-review"),
+            zone("summarize"),
+            zone("utility"),
+            zone("light"),
+        ];
+        assert!(
+            !retire_unused_zones(&mut zones),
+            "sin zonas retiradas no debe haber mutacion"
+        );
+        assert_eq!(zones.len(), 6);
     }
 }
 

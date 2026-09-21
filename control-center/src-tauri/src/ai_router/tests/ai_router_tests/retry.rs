@@ -72,7 +72,13 @@ fn call_cli_codex_includes_sandbox_read_only_flag() {
 
     let _guard = path_lock();
 
-    let tmp = std::env::temp_dir().join("ultron_test_codex_sandbox");
+    // Per-process directory: path_lock() only serialises threads inside ONE
+    // test binary. Two concurrent `cargo test` runs (the hooks runner plus a
+    // manual one) shared this fixed name, so one run's File::create truncated
+    // the stub the other was executing — cmd.exe reads a .cmd line by line,
+    // so the rewrite desynchronised it mid-script.
+    let tmp =
+        std::env::temp_dir().join(format!("ultron_test_codex_sandbox_{}", std::process::id()));
     std::fs::create_dir_all(&tmp).expect("create tmp dir");
 
     // .cmd, not .bat: resolve_windows_cli_program() probes .cmd first (it is
@@ -182,7 +188,14 @@ fn call_cli_codex_preserves_a_prompt_with_shell_metacharacters_via_stdin() {
 
     let _guard = path_lock();
 
-    let tmp = std::env::temp_dir().join("ultron_test_codex_stdin_roundtrip");
+    // Per-process directory — same reason as in the sandbox test above: a
+    // concurrent `cargo test` rewriting this stub left the markers in place
+    // but skipped the `findstr "^"` line, which is exactly the empty stdin
+    // this test reported on 2026-09-18.
+    let tmp = std::env::temp_dir().join(format!(
+        "ultron_test_codex_stdin_roundtrip_{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&tmp).expect("create tmp dir");
 
     // Echoes argv (so we can still see --sandbox/--model) AND stdin verbatim

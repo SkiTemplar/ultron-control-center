@@ -89,10 +89,10 @@
       "medium"
     ],
     "api_key_status": "configured",
-    "health_endpoint": "http://localhost:11434/api/tags",
+    "health_endpoint": "http://127.0.0.1:11434/api/tags",
     "kind": "local",
     "key_env_var": "",
-    "base_url": "http://localhost:11434",
+    "base_url": "http://127.0.0.1:11434",
     "default_model": "qwen2.5-coder:32b",
     "models": [
       "qwen2.5-coder:7b",
@@ -159,5 +159,26 @@
       "gemini-2.5-flash"
     ],
     "cli_command": "gemini"
+  },
+  {
+    "id": "claude",
+    "name": "Anthropic Claude (Sonnet)",
+    "cost_per_mtok": 9.0,
+    "supports": [
+      "light",
+      "medium",
+      "heavy"
+    ],
+    "api_key_status": "missing",
+    "health_endpoint": "https://api.anthropic.com/v1/models",
+    "kind": "cloud",
+    "key_env_var": "ANTHROPIC_API_KEY",
+    "base_url": "https://api.anthropic.com",
+    "default_model": "claude-sonnet-5",
+    "models": [
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-fable-5"
+    ]
   }
 ]

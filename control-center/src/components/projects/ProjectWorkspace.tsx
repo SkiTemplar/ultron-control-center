@@ -20,12 +20,23 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Bot, Folder, Play, ExternalLink, GitBranch, Share2, Terminal, BookOpen } from "./icons";
+import {
+  Bot,
+  Folder,
+  Play,
+  ExternalLink,
+  GitBranch,
+  Share2,
+  Terminal,
+  BookOpen,
+  History,
+} from "./icons";
 import { ClaudeMdModal } from "./ClaudeMdModal";
+import { SessionLogModal } from "./SessionLogModal";
 import ProjectBoard from "./ProjectBoard";
 import { RepoModal } from "./RepoModal";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
-import type { ProjectInfo, SessionProvider } from "../../types";
+import type { ProjectInfo, SessionLogEntry, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
 import { getPrompt } from "../../lib/button-prompts";
 // GitStatus vivia en RepoPanelWidget (borrado 2026-07); este era su unico consumidor real.
@@ -200,6 +211,11 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
   const [repoModalOpen, setRepoModalOpen] = useState(false);
   const [claudeMdOpen, setClaudeMdOpen] = useState(false);
+  // La bitacora se lee al abrir el workspace, no al abrir el modal: su
+  // titular es justo el dato que se quiere de un vistazo ("que fue lo ultimo
+  // que trabaje aqui"), asi que vive en el subtitulo del boton.
+  const [sessionLog, setSessionLog] = useState<SessionLogEntry[] | null>(null);
+  const [sessionLogOpen, setSessionLogOpen] = useState(false);
   const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
   // cat2.5 (2026-06-10): resumen REAL del grafo leido del codegraph.db por la
   // app (codegraph_summary) — antes solo se comprobaba que el fichero existia.
@@ -215,6 +231,27 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const tabsCtx = useProjectsTabs();
 
   // Load project meta from registry
+  // Bitacora: se pide al entrar al proyecto porque su titular se enseña en el
+  // boton. El listado no trae los cuerpos de los resumenes, asi que son unos
+  // cientos de bytes aunque el proyecto lleve decenas de sesiones.
+  useEffect(() => {
+    let cancelled = false;
+    setSessionLog(null);
+    (async () => {
+      try {
+        const log = (await invoke("project_session_log", { projectId })) as SessionLogEntry[];
+        if (!cancelled) setSessionLog(log);
+      } catch {
+        // Un fallo aqui no puede tumbar el workspace: la tarjeta se queda
+        // sin titular y el modal enseña el error si se abre.
+        if (!cancelled) setSessionLog([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -446,6 +483,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
       }`
     : "Sin repositorio git — click para crear";
 
+  // El titular de la ultima sesion, recortado para que quepa bajo el boton.
+  // Sin resumenes se dice por que, en vez de dejar la tarjeta muda: el
+  // generador solo escribe el resumen de una sesion al abrir la siguiente.
+  const sessionLogSub = !sessionLog
+    ? "Cargando…"
+    : sessionLog.length === 0
+    ? "Sin resúmenes todavía"
+    : (sessionLog[0].headline ?? "Resumen sin temas").slice(0, 46);
+
   const repoTitle = git.state?.is_repo
     ? "Ver cambios, commit e historial (micro GitHub Desktop)"
     : "git init en este directorio";
@@ -637,6 +683,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
             title={repoTitle}
           />
           <PrimaryCard
+            icon={<History size={16} />}
+            label="Bitácora"
+            sub={sessionLogSub}
+            tint="var(--color-text-secondary)"
+            onClick={() => setSessionLogOpen(true)}
+            disabled={!meta}
+            title="Historial de sesiones resumidas: que se trabajo, que se decidio y que quedo pendiente"
+          />
+          <PrimaryCard
             icon={<BookOpen size={16} />}
             label="CLAUDE.md"
             sub="Instrucciones del proyecto"
@@ -674,6 +729,14 @@ export default function ProjectWorkspace({ projectId }: Props) {
           path={meta.path}
           onClose={() => setRepoModalOpen(false)}
           onChanged={() => void refreshGit(meta.path)}
+        />
+      )}
+
+      {sessionLogOpen && meta && (
+        <SessionLogModal
+          projectId={projectId}
+          projectName={projectInfo?.name ?? projectId}
+          onClose={() => setSessionLogOpen(false)}
         />
       )}
 

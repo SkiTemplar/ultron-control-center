@@ -10,15 +10,18 @@
 //   registry.rs   — Registry I/O helpers: load, atomic write, path helpers
 //   read_ops.rs   — list_projects_inner, load_items_for
 //   write_ops.rs  — create, update, delete, touch, launcher-item mutations
+//   ide.rs        — resolve an IDE slug to an installed launcher + spawn it
 //   launch.rs     — open_project, launch_item, launch_all, open_in_ide, dispatch,
 //                   project_open_app (FRENTE D)
 //   scan.rs       — scan_projects_inner + emit-aware wrappers
 
+pub(crate) mod ide;
 pub(crate) mod launch;
 pub(crate) mod normalise;
 pub(crate) mod read_ops;
 pub(crate) mod registry;
 pub(crate) mod scan;
+pub(crate) mod session_log;
 pub(crate) mod types;
 pub(crate) mod write_ops;
 

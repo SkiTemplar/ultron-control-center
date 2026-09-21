@@ -59,9 +59,9 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
         "Copia la key generada y pégala aquí.",
       ],
       usedFor:
-        "Primaria de la zona research-web (grounding) y relevo de chat, code-review, summarize, routing-decision, utility y light (cockpit/ai-router/zones.json).",
+        "Relevo de chat, code-review, summarize, utility y light (cockpit/ai-router/zones.json).",
       ifMissing:
-        "research-web cae a Groq sin grounding real; el resto de zonas pierde su red de seguridad si Groq falla.",
+        "Esas zonas pierden su red de seguridad si Groq falla; light todavía cae a Ollama local.",
       sourceUrl: "https://aistudio.google.com/app/apikey",
       sourceLabel: "aistudio.google.com",
     },
@@ -78,8 +78,8 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
         "Pégala aquí.",
       ],
       usedFor:
-        "Motor primario de chat, summarize, routing-decision, utility y light — el titular del AI Router hoy (cockpit/ai-router/zones.json).",
-      ifMissing: "Esas cinco zonas caen a Gemini (o a Ollama local en light).",
+        "Motor primario de chat, summarize, utility y light — el titular del AI Router hoy (cockpit/ai-router/zones.json).",
+      ifMissing: "Esas cuatro zonas caen a Gemini (o a Ollama local en light).",
       sourceUrl: "https://console.groq.com/keys",
       sourceLabel: "console.groq.com",
     },

@@ -19,6 +19,11 @@ export interface OllamaGenerateRequest {
   prompt: string;
   raw: true;
   stream: false;
+  /** Cuanto mantiene Ollama el modelo residente tras responder. Sin este
+   *  campo rige el default del servidor (5 min) y el modelo se descarga entre
+   *  rafagas de escritura: cada sugerencia vuelve al camino frio, que el
+   *  timeout de completado nunca llega a esperar. */
+  keep_alive: string;
   options: OllamaGenerateOptions;
 }
 
@@ -72,7 +77,13 @@ export interface BuildRequestParams {
   maxPrefixChars: number;
   maxSuffixChars: number;
   numPredict?: number;
+  keepAlive?: string;
 }
+
+/** Valor por defecto de `keep_alive`: el modelo sigue residente media hora
+ *  desde la ultima peticion, asi que una sesion de edicion normal siempre lo
+ *  encuentra caliente (~50 ms) en vez de pagar la carga en frio (~10 s). */
+export const DEFAULT_KEEP_ALIVE = "30m";
 
 /** Construye el cuerpo de `/api/generate` a partir del contexto ya recortado. */
 export function buildGenerateRequest(params: BuildRequestParams): OllamaGenerateRequest {
@@ -83,11 +94,29 @@ export function buildGenerateRequest(params: BuildRequestParams): OllamaGenerate
     prompt: buildFimPrompt(trimmedPrefix, trimmedSuffix),
     raw: true,
     stream: false,
+    keep_alive: params.keepAlive ?? DEFAULT_KEEP_ALIVE,
     options: {
       num_predict: params.numPredict ?? 48,
       temperature: 0,
       stop: ["\n"],
     },
+  };
+}
+
+/**
+ * Peticion de calentamiento: carga el modelo en RAM sin generar tokens
+ * (`num_predict: 0`). Se lanza con un timeout propio y largo, porque la carga
+ * en frio de un modelo de 1 GB ronda los 10 s en este equipo, muy por encima
+ * del timeout con el que se pide una sugerencia.
+ */
+export function buildWarmupRequest(model: string, keepAlive?: string): OllamaGenerateRequest {
+  return {
+    model,
+    prompt: "",
+    raw: true,
+    stream: false,
+    keep_alive: keepAlive ?? DEFAULT_KEEP_ALIVE,
+    options: { num_predict: 0, temperature: 0, stop: [] },
   };
 }
 
@@ -189,6 +218,150 @@ interface OllamaPsResponse {
  * `null` si el JSON es invalido, no trae `models`, o la lista esta vacia
  * (ningun modelo cargado ahora mismo).
  */
+// ---------------------------------------------------------------------------
+// Motor de autocompletado activo.
+//
+// VS Code deja que varias extensiones registren un proveedor de ghost text a
+// la vez y muestra la propuesta de una de ellas sin criterio estable, asi que
+// tener Copilot y Ollama Tab compitiendo da un resultado impredecible: no se
+// sabe cual escribio la sugerencia. Aqui el motor es EXCLUYENTE y de una sola
+// fuente de verdad (`ollamaTab.engine`): elegir uno apaga el otro.
+// ---------------------------------------------------------------------------
+
+/** `off` = sin ghost text; `copilot` = GitHub Copilot; `low`/`mid`/`high` =
+ *  modelo local, de menos a mas VRAM. */
+export type Engine = "off" | "copilot" | "low" | "mid" | "high";
+
+export const LOCAL_ENGINES: readonly Engine[] = ["low", "mid", "high"];
+
+export interface EngineModels {
+  low: string;
+  mid: string;
+  high: string;
+}
+
+export interface EngineResolution {
+  /** Modelo de Ollama que sirve las sugerencias, o null si el motor no es local. */
+  model: string | null;
+  /** Modelos locales que deben soltarse de VRAM al activar este motor. */
+  unload: string[];
+  /** Si el proveedor de Ollama Tab debe responder. */
+  ollamaEnabled: boolean;
+  /** Si Copilot debe tener el autocompletado inline activo. */
+  copilotEnabled: boolean;
+}
+
+/**
+ * Traduce el motor elegido a la configuracion completa que hay que aplicar.
+ * El campo `unload` es lo que hace practicable tener los dos modelos
+ * instalados: solo el del motor activo ocupa VRAM (8 GB en este equipo, de los
+ * que ~3 ya estan tomados), el otro se descarga con `keep_alive: 0`.
+ */
+export function resolveEngine(engine: Engine, models: EngineModels): EngineResolution {
+  const all = [models.low, models.mid, models.high];
+  const others = (active: string): string[] => all.filter((m) => m !== active);
+
+  switch (engine) {
+    case "low":
+      return { model: models.low, unload: others(models.low), ollamaEnabled: true, copilotEnabled: false };
+    case "mid":
+      return { model: models.mid, unload: others(models.mid), ollamaEnabled: true, copilotEnabled: false };
+    case "high":
+      return { model: models.high, unload: others(models.high), ollamaEnabled: true, copilotEnabled: false };
+    case "copilot":
+      return { model: null, unload: all, ollamaEnabled: false, copilotEnabled: true };
+    case "off":
+    default:
+      return { model: null, unload: all, ollamaEnabled: false, copilotEnabled: false };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Presupuesto de VRAM.
+// ---------------------------------------------------------------------------
+
+/** Margen sobre el tamano del modelo: el contexto y los buffers del runtime no
+ *  entran en el peso del fichero, y quedarse al limite empuja capas a la CPU. */
+const VRAM_MARGIN = 1.15;
+
+export interface VramCheck {
+  freeMb: number;
+  neededMb: number;
+}
+
+/**
+ * Tamano en MB que `/api/tags` declara para un modelo, o null si no aparece.
+ * Sirve para decidir si el modelo cabe ANTES de intentar cargarlo.
+ */
+export function modelSizeMb(tagsBody: string, model: string): number | null {
+  let parsed: { models?: { name?: string; model?: string; size?: number }[] };
+  try {
+    parsed = JSON.parse(tagsBody) as typeof parsed;
+  } catch {
+    return null;
+  }
+  const entry = (parsed.models ?? []).find((m) => m.name === model || m.model === model);
+  if (!entry || typeof entry.size !== "number") return null;
+  return Math.round(entry.size / 1_000_000);
+}
+
+/**
+ * Aviso cuando el modelo no cabe en la VRAM libre. Devuelve null si cabe (o si
+ * no hay datos para juzgarlo: sin GPU NVIDIA, `nvidia-smi` ausente o modelo
+ * desconocido, se deja pasar en vez de bloquear por una sospecha).
+ */
+export function vramWarning({ freeMb, neededMb }: VramCheck): string | null {
+  if (!Number.isFinite(freeMb) || !Number.isFinite(neededMb) || neededMb <= 0) return null;
+  const budget = Math.round(neededMb * VRAM_MARGIN);
+  if (freeMb >= budget) return null;
+  return `Quedan ${freeMb} MB de VRAM libres y este modelo necesita ~${budget} MB. Ollama descargara capas a la CPU y las sugerencias iran lentas.`;
+}
+
+export interface EngineStatusParams {
+  engine: Engine;
+  model: string | null;
+  suggestionCount: number;
+}
+
+/**
+ * Etiqueta de la barra de estado. Nombra SIEMPRE el motor activo: con dos
+ * fuentes posibles de ghost text, saber cual escribio la sugerencia es el dato
+ * que se mira de un vistazo.
+ */
+export function formatEngineStatus({ engine, model, suggestionCount }: EngineStatusParams): string {
+  if (engine === "off") return "Sin autocompletado";
+  if (engine === "copilot") return "Copilot";
+  const name = model ?? "?";
+  return `Ollama ${engine} · ${name} · ${suggestionCount}`;
+}
+
+/** Nombres de los modelos que `/api/ps` declara cargados ahora mismo. */
+export function loadedModelNames(body: string): string[] {
+  let parsed: OllamaPsResponse;
+  try {
+    parsed = JSON.parse(body) as OllamaPsResponse;
+  } catch {
+    return [];
+  }
+  return (parsed.models ?? [])
+    .map((entry) => entry.name ?? entry.model ?? null)
+    .filter((name): name is string => typeof name === "string" && name.length > 0);
+}
+
+/**
+ * True si `model` figura entre los cargados. Ollama devuelve el nombre con
+ * etiqueta (`qwen2.5-coder:1.5b-base`); un ajuste escrito sin etiqueta se
+ * acepta comparando solo la parte anterior a los dos puntos, para no dar por
+ * frio un modelo que si esta en RAM.
+ */
+export function isModelLoaded(body: string, model: string): boolean {
+  const wanted = model.trim();
+  if (!wanted) return false;
+  return loadedModelNames(body).some(
+    (name) => name === wanted || name.split(":")[0] === wanted.split(":")[0],
+  );
+}
+
 export function firstLoadedModelName(body: string): string | null {
   let parsed: OllamaPsResponse;
   try {

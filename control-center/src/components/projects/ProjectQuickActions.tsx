@@ -120,12 +120,28 @@ export function ProjectQuickActions({
 
   async function handleFolder() {
     if (!p.path) return;
-    try { await openPath(p.path); } catch { /* silencioso */ }
+    setAppError(null);
+    try {
+      await openPath(p.path);
+    } catch (e) {
+      setAppError(String(e));
+    }
   }
 
+  // Mandamiento 11: nada de no-op silencioso. Cada acción de esta tarjeta
+  // enseña su error en la propia tarjeta vía setAppError. Hasta el
+  // 2026-09-21 solo lo hacían handleIde y handleOpenApp; las otras cuatro
+  // tragaban la excepción con un `catch { /* silencioso */ }`, así que un
+  // lanzador mal configurado o un ejecutable movido no daban señal alguna:
+  // el botón se encendía, no pasaba nada y no había forma de saber por qué.
   async function handleIde() {
     if (!p.path) return;
-    try { await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null }); } catch { /* silencioso */ }
+    setAppError(null);
+    try {
+      await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null });
+    } catch (e) {
+      setAppError(String(e));
+    }
   }
 
   // AI button → external CLI session via spawn_session (wt.exe wrapper).
@@ -139,7 +155,9 @@ export function ProjectQuickActions({
         prompt: null,
         flags: { dangerouslySkipPermissions: false },
       });
-    } catch { /* silencioso */ } finally {
+    } catch (e) {
+      setAppError(String(e));
+    } finally {
       setBusy(null);
     }
   }
@@ -164,7 +182,12 @@ export function ProjectQuickActions({
   async function handleLaunchAll() {
     if (busy) return;
     setBusy("launch_all");
-    try { await invoke("launch_all_items", { projectId: p.id }); } catch { /* silencioso */ } finally {
+    setAppError(null);
+    try {
+      await invoke("launch_all_items", { projectId: p.id });
+    } catch (e) {
+      setAppError(String(e));
+    } finally {
       setBusy(null);
     }
   }
@@ -172,7 +195,12 @@ export function ProjectQuickActions({
   async function handleLaunchItem(index: number) {
     if (busy) return;
     setBusy(`item_${index}`);
-    try { await invoke("launch_item", { projectId: p.id, index }); } catch { /* silencioso */ } finally {
+    setAppError(null);
+    try {
+      await invoke("launch_item", { projectId: p.id, index });
+    } catch (e) {
+      setAppError(String(e));
+    } finally {
       setBusy(null);
     }
   }
@@ -229,7 +257,12 @@ export function ProjectQuickActions({
         <ActionBtn
           key={`exe_${i}`}
           onClick={async () => {
-            try { await openPath(e.path); } catch { /* silencioso */ }
+            setAppError(null);
+            try {
+              await openPath(e.path);
+            } catch (err) {
+              setAppError(String(err));
+            }
           }}
           title={e.path}
           label={e.name || "Launch .exe"}

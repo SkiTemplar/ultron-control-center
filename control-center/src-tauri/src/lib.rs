@@ -53,6 +53,7 @@ mod migration;
 mod notes;
 mod ollama; // modelo local (autocompletado): interruptor de bandeja + seccion AI Router
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
+mod plan_limits; // cuota del plan Anthropic (ventana 5h / semanal) para la pestana Usage
 mod plans;
 mod plugin_state;
 mod plugins_info;
@@ -432,11 +433,28 @@ fn spawn_qdrant_exe() -> Option<std::process::Child> {
         return None;
     }
 
-    match std::process::Command::new(&qdrant_exe)
-        .current_dir(&qdrant_dir)
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-    {
+    // Qdrant defaults to binding 0.0.0.0 when it finds no config, and it looks
+    // for `config/config.yaml` relative to the working directory — not the
+    // `config.yaml` that sits next to the binary. Spawning with no arguments
+    // therefore published the whole vector store (ultron_memory included, no
+    // API key) on every network interface. Found live on 2026-09-21: the
+    // collections answered from the LAN address on a public-profile network.
+    //
+    // Two independent guards, so neither one alone is load-bearing:
+    //   1. QDRANT__SERVICE__HOST pins the bind address even with no config file
+    //      at all (Qdrant maps QDRANT__<SECTION>__<KEY> onto its config tree).
+    //   2. --config-path points at the real config.yaml when one exists.
+    let mut cmd = std::process::Command::new(&qdrant_exe);
+    cmd.current_dir(&qdrant_dir)
+        .env("QDRANT__SERVICE__HOST", "127.0.0.1")
+        .creation_flags(CREATE_NO_WINDOW);
+
+    let config_path = std::path::Path::new(&qdrant_dir).join("config.yaml");
+    if config_path.exists() {
+        cmd.arg("--config-path").arg(&config_path);
+    }
+
+    match cmd.spawn() {
         Ok(child) => {
             tracing::info!(pid = child.id(), "qdrant-autolaunch: spawned");
             Some(child)

@@ -39,3 +39,40 @@ export type UsageReport = {
   daily_recent: DailyPoint[];
   hour_counts: number[];
 };
+
+// ---------------------------------------------------------------------------
+// Plan limits (Anthropic OAuth usage endpoint — see src-tauri/src/plan_limits.rs)
+// ---------------------------------------------------------------------------
+
+export type PlanWindow = {
+  utilization: number;
+  resets_at: string | null;
+};
+
+export type PlanScopedLimit = {
+  kind: string;
+  group: string;
+  percent: number;
+  severity: string;
+  resets_at: string | null;
+  scope_label: string | null;
+  is_active: boolean;
+};
+
+export type BreakdownRow = {
+  key: string;
+  display_name: string;
+  percent: number;
+};
+
+export type PlanLimits = {
+  subscription_type: string | null;
+  five_hour: PlanWindow | null;
+  seven_day: PlanWindow | null;
+  limits: PlanScopedLimit[];
+  breakdown: BreakdownRow[];
+  breakdown_as_of: string | null;
+  extra_usage_enabled: boolean;
+  fetched_at: number;
+  stale: boolean;
+};

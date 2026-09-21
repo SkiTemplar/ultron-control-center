@@ -96,6 +96,11 @@ $freeTier = [bool]$cfg.freeTier
 # {theme:custom:...} y respondia "Invalid JSON provided to --settings"
 # (reproducido 2026-08-15).
 $claudeSettings = [string]$cfg.settingsFile
+# tabColor: acento del proyecto en #rrggbb. Tine la PESTANA y la barra de titulo
+# de Windows Terminal, nunca el fondo (eso sigue siendo negro puro, igual que
+# cuando se retiro --colorScheme). Campo ausente, vacio o mal formado -> la
+# pestana sale con el aspecto por defecto del perfil del usuario.
+$tabColor = [string]$cfg.tabColor
 
 # v15.1.4+: ULTRON spawns terminals for internal flows (news, skill edit, MCP
 # create, diagnose, codex-fallback) where the user already authorized the
@@ -332,6 +337,10 @@ Set-Content -LiteralPath $tmpScript -Value $scriptBody -Encoding UTF8
 # La identidad por proyecto vive ahora en el tema de Claude Code ($claudeTheme,
 # generado desde el color del proyecto en projects.json): cambia los colores de
 # acento de Claude, nunca el fondo.
+#
+# 2026-09-21: el tema de Claude solo pinta el contenido del CLI; la ventana en si
+# seguia igual en todos los proyectos. Se anade --tabColor con el mismo acento,
+# que tine pestana y barra de titulo SIN tocar el fondo.
 $projName = ""
 if ($cwd -and $cwd.Trim().Length -gt 0) {
     try { $projName = (Split-Path -Leaf $cwd.Trim()) -replace '^\.+', '' } catch {}
@@ -360,6 +369,14 @@ $wtArgs = @(
 if ($colorScheme) {
     $wtArgs += @("--colorScheme", $colorScheme)
 }
+# Solo se acepta #rrggbb literal: el valor nace de projects.json, que el usuario
+# edita a mano, y cualquier otra cosa haria que wt.exe rechazara el argv entero
+# y no abriera la terminal.
+if ($tabColor -and ($tabColor -match '^#[0-9A-Fa-f]{6}$')) {
+    $wtArgs += @("--tabColor", $tabColor)
+} elseif ($tabColor) {
+    [Console]::Error.WriteLine("[spawn-claude-session] tabColor descartado (no es #rrggbb): $tabColor")
+}
 $wtArgs += @(
     "--",
     "powershell.exe",
@@ -370,7 +387,7 @@ $wtArgs += @(
 )
 $wtArgLine = ($wtArgs | ForEach-Object { Quote-Arg $_ }) -join ' '
 
-[Console]::Error.WriteLine("[spawn-claude-session] script=$tmpScript scheme=$colorScheme inner=$inner")
+[Console]::Error.WriteLine("[spawn-claude-session] script=$tmpScript scheme=$colorScheme tabColor=$tabColor inner=$inner")
 
 Start-Process -FilePath "wt.exe" -ArgumentList $wtArgLine -ErrorAction Stop | Out-Null
 

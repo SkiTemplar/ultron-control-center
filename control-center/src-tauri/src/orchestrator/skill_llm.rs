@@ -385,16 +385,39 @@ pub fn merece_consulta(prompt: &str) -> bool {
     prompt.split_whitespace().count() >= 4
 }
 
-/// Skills elegidas por el modelo, o vacío si no se pudo (sin clave, en
-/// cooldown, timeout, respuesta inválida). Vacío significa "quédate con lo que
-/// dijo el retriever": este camino nunca degrada el resultado anterior.
-pub fn elegir_skills(prompt: &str, catalogo: &[SkillBrief]) -> Vec<String> {
+/// Veredicto del juez. Distinguir "dijo que ninguna" de "no pude preguntar" es
+/// lo que permite al dispatcher callar el fallback denso solo en el primer caso
+/// (2026-09-21: tres prompts de auditoría recibieron consolidate-memory,
+/// escritura-humana y codex-result-handling con score 0,82-0,83, por encima del
+/// suelo de relevancia — el denso no tiene umbral capaz de separar eso, pero el
+/// juez sí sabía que no encajaba ninguna).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Veredicto {
+    /// El modelo respondió. Vacío = "ninguna encaja", y eso es una DECISIÓN.
+    Decidido(Vec<String>),
+    /// No se pudo consultar (sin clave, en cooldown, timeout, catálogo vacío).
+    /// El llamante se queda con lo que dijera el retriever.
+    NoDisponible,
+}
+
+/// Skills elegidas por el modelo. Ver `Veredicto`: este camino nunca degrada el
+/// resultado anterior cuando el juez no está disponible.
+pub fn elegir_skills_veredicto(prompt: &str, catalogo: &[SkillBrief]) -> Veredicto {
     if catalogo.is_empty() {
-        return Vec::new();
+        return Veredicto::NoDisponible;
     }
     match consultar(&system_prompt(catalogo), prompt, 200) {
-        Some(content) => parse_eleccion(&content, catalogo),
-        None => Vec::new(),
+        Some(content) => Veredicto::Decidido(parse_eleccion(&content, catalogo)),
+        None => Veredicto::NoDisponible,
+    }
+}
+
+/// Igual, aplanado a la lista de nombres. Para los llamantes a los que no les
+/// sirve de nada distinguir los dos vacíos.
+pub fn elegir_skills(prompt: &str, catalogo: &[SkillBrief]) -> Vec<String> {
+    match elegir_skills_veredicto(prompt, catalogo) {
+        Veredicto::Decidido(v) => v,
+        Veredicto::NoDisponible => Vec::new(),
     }
 }
 
@@ -564,6 +587,26 @@ mod tests {
             parse_eleccion("word-master, pdf", &cat()),
             vec!["pdf".to_string()]
         );
+    }
+
+    #[test]
+    fn un_catalogo_vacio_no_es_una_decision_del_juez() {
+        // Caso negativo del veredicto: sin catalogo no se ha preguntado a
+        // nadie, asi que el dispatcher DEBE seguir cayendo al denso. Si esto
+        // devolviera Decidido([]) se estaria silenciando el fallback por un
+        // fallo de lectura del pool de skills.
+        assert_eq!(
+            elegir_skills_veredicto("audita el repositorio y arregla lo roto", &[]),
+            Veredicto::NoDisponible
+        );
+    }
+
+    #[test]
+    fn ninguna_se_parsea_como_lista_vacia() {
+        // El "ninguna" del modelo es una DECISION: lista vacia, no un error.
+        // El llamante la envuelve en Veredicto::Decidido(vec![]).
+        assert!(parse_eleccion("ninguna", &cat()).is_empty());
+        assert!(parse_eleccion("Ninguna.", &cat()).is_empty());
     }
 
     #[test]

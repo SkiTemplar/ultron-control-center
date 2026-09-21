@@ -130,10 +130,17 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
                 ProviderClass::Medium,
             ],
             api_key_status: ApiKeyStatus::Configured,
-            health_endpoint: Some("http://localhost:11434/api/tags".into()),
+            // 127.0.0.1 y no localhost (2026-09-21): Ollama escucha solo en
+            // IPv4 (TCP 127.0.0.1:11434), pero `localhost` resuelve antes a
+            // ::1, asi que cada peticion paga el rechazo de IPv6 antes de que
+            // happy-eyeballs reintente por IPv4. Medido: 207 ms contra 2,5 ms,
+            // y se paga DOS VECES por invocacion porque call_ollama sondea
+            // /api/tags antes de /api/generate. Misma convencion que
+            // ollama/commands.rs y ollama/toggle.rs ya usaban.
+            health_endpoint: Some("http://127.0.0.1:11434/api/tags".into()),
             kind: ProviderKind::Local,
             key_env_var: String::new(),
-            base_url: "http://localhost:11434".into(),
+            base_url: "http://127.0.0.1:11434".into(),
             default_model: "qwen2.5-coder:32b".into(),
             models: vec![
                 "qwen2.5-coder:7b".into(),
@@ -218,16 +225,33 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
 pub(crate) fn seed_zones() -> Vec<Zone> {
     // Provider policy (revised 2026-06-19): CODE zones go CLI-first
     // (codex-cli — ChatGPT OAuth, free at point of use, verified live 2026-06-19);
-    // FAST/general zones (chat, summarize, routing-decision, utility, light) go
-    // groq-first. gemini-cli was RETIRED from every chain on 2026-06-19: Google
-    // dropped free-tier OAuth for individuals (runtime: IneligibleTierError —
+    // FAST/general zones (chat, summarize, utility, light) go groq-first.
+    // gemini-cli was RETIRED from every chain on 2026-06-19: Google dropped
+    // free-tier OAuth for individuals (runtime: IneligibleTierError —
     // "migrate to the Antigravity suite"), so the CLI no longer authenticates.
     // The cloud 'gemini' provider (gemini-2.5-flash via GEMINI_API_KEY;
     // vuelta desde gemini-3.8-flash el 2026-09-16 — 3.8-flash medido en vivo
-    // en 55.497 ms, 2.5-flash en 624 ms) replaces it as the general fallback
-    // and as research-web's primary (web grounding groq lacks). gemini-cli
-    // stays DEFINED in seed_providers in case the tier is restored.
-    // 'code-fast-local' stays on Ollama (offline by design).
+    // en 55.497 ms, 2.5-flash en 624 ms) replaces it as the general fallback.
+    // gemini-cli stays DEFINED in seed_providers in case the tier is restored.
+    //
+    // Cada zona de esta lista tiene un consumidor REAL en el código, verificado
+    // el 2026-09-21 (una zona sin llamante es configuración que miente sobre lo
+    // que el sistema hace):
+    //   chat       — memory::capture (CAPTURE_ZONE) y el juez de contradicciones
+    //                (memory::ai_tasks::ZONE_JUDGE).
+    //   code-edit  — library::ai_install, zona preferida de pick_analysis_zone.
+    //   code-review— library::ai_install, fallback de pick_analysis_zone.
+    //   summarize  — resumen de sesión, cost_watchdog y sessions_tags.
+    //   utility    — extracción de hechos (ai_tasks::ZONE_EXTRACT) y el naming
+    //                de hooks (hooks_admin::naming).
+    //   light      — reescritura de query (ai_tasks::ZONE_REWRITE), apps y
+    //                plugins_info::bulk_update.
+    //
+    // Podadas el 2026-09-21 por no tener NINGÚN llamante: `research-web`,
+    // `routing-decision` y `code-fast-local` (esta última dejaba además a
+    // Ollama con 0 rutas en metrics.json; el wrapper local sigue vivo como
+    // fallback de `light`). `retire_unused_zones` las borra también del
+    // zones.json ya escrito.
     vec![
         Zone {
             id: "chat".into(),
@@ -264,21 +288,23 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             label: "Code edit (multi-file)".into(),
             category: "code".into(),
 
-            // Decision 2026-06-24: code zones go Claude-first (Sonnet via the
-            // Anthropic Messages API). codex-cli (ChatGPT OAuth, free at point
-            // of use) stays as the first fallback, then the previous chain.
+            // Decision 2026-09-21 (revisa la del 2026-06-24, que ponia 'claude'
+            // de primary): las zonas de codigo arrancan por CLI, que es lo que
+            // la documentacion venia diciendo desde el 2026-06-08 y lo que de
+            // facto pasaba. El 'claude' del seed nunca llegaba a
+            // providers.json -- load_providers no fusionaba proveedores nuevos
+            // del seed -- asi que el primary no existia en el catalogo y TODA
+            // llamada a esta zona fallaba al primary y caia a codex-cli,
+            // contando el salto como fallback real en las metricas. Ademas,
+            // 'claude' por la Messages API es pago por token, mientras que
+            // codex-cli va por la suscripcion de ChatGPT.
             primary: ZoneAssignment {
-                provider_id: "claude".into(),
-                model: "claude-sonnet-5".into(),
+                // (2026-09-11) code-edit = tareas basicas de codigo -> terra.
+                provider_id: "codex-cli".into(),
+                model: "gpt-5.6-terra".into(),
                 max_tokens: 4096,
             },
             fallbacks: vec![
-                ZoneAssignment {
-                    // (2026-09-11) code-edit = tareas basicas de codigo -> terra.
-                    provider_id: "codex-cli".into(),
-                    model: "gpt-5.6-terra".into(),
-                    max_tokens: 4096,
-                },
                 ZoneAssignment {
                     // El 'codex' cloud (OPENAI_API_KEY) conserva su id de API
                     // real (gpt-5); terra/sol/astra son alias de suscripción
@@ -300,46 +326,21 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             label: "Code review".into(),
             category: "code".into(),
 
-            // Decision 2026-06-24: Claude-first (Sonnet), codex-cli as the first
-            // fallback, then gemini cloud. gemini-cli retirado 2026-06-19
-            // (IneligibleTierError). Ambos providers retirados siguen definidos
-            // en seed_providers por si se restauran.
+            // Decision 2026-09-21: CLI-first, igual que code-edit y por el
+            // mismo motivo (ver el comentario de esa zona). gemini cloud queda
+            // de fallback. gemini-cli retirado 2026-06-19
+            // (IneligibleTierError); sigue definido en seed_providers por si se
+            // restaura, pero fuera de toda cadena.
             primary: ZoneAssignment {
-                provider_id: "claude".into(),
-                model: "claude-sonnet-5".into(),
+                // (2026-09-11) code-review = trabajo serio -> sol (~Opus).
+                provider_id: "codex-cli".into(),
+                model: "gpt-5.6-sol".into(),
                 max_tokens: 2048,
             },
-            fallbacks: vec![
-                ZoneAssignment {
-                    // (2026-09-11) code-review = trabajo serio -> sol (~Opus).
-                    provider_id: "codex-cli".into(),
-                    model: "gpt-5.6-sol".into(),
-                    max_tokens: 2048,
-                },
-                ZoneAssignment {
-                    provider_id: "gemini".into(),
-                    model: "gemini-2.5-flash".into(),
-                    max_tokens: 2048,
-                },
-            ],
-            system_prompt: None,
-        },
-        Zone {
-            id: "research-web".into(),
-            label: "Web research with grounding".into(),
-            category: "research".into(),
-
-            // primary era gemini-cli (web grounding); muerto 2026-06-19, ahora gemini
-            // cloud (mismo modelo, grounding via GEMINI_API_KEY), fallback groq.
-            primary: ZoneAssignment {
+            fallbacks: vec![ZoneAssignment {
                 provider_id: "gemini".into(),
                 model: "gemini-2.5-flash".into(),
-                max_tokens: 4096,
-            },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-120b".into(),
-                max_tokens: 4096,
+                max_tokens: 2048,
             }],
             system_prompt: None,
         },
@@ -348,8 +349,8 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
             label: "Summarize document".into(),
             category: "chat".into(),
 
-            // 2026-08-23: las zonas INTERNAS (summarize/routing-decision/utility/
-            // light) usan gpt-oss-20b y 'chat'/'research-web' el 120b, tras la
+            // 2026-08-23: las zonas INTERNAS (summarize/utility/light) usan
+            // gpt-oss-20b y 'chat' el 120b, tras la
             // retirada de la familia llama-3.x en Groq (ver el comentario del
             // provider). Se mantiene el modelo pequeño en las internas por el
             // mismo motivo de 2026-07-01: bucket de cuota separado del grande,
@@ -366,40 +367,6 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 model: "gemini-2.5-flash".into(),
                 max_tokens: 1024,
             }],
-            system_prompt: None,
-        },
-        Zone {
-            id: "routing-decision".into(),
-            label: "Router judge (decide which zone to use)".into(),
-            category: "system".into(),
-
-            primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-20b".into(),
-                max_tokens: 256,
-            },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
-                max_tokens: 256,
-            }],
-            system_prompt: Some(
-                "You classify user prompts into one of the configured zones. \
-                 Reply with the zone id only."
-                    .into(),
-            ),
-        },
-        Zone {
-            id: "code-fast-local".into(),
-            label: "Fast offline code completion".into(),
-            category: "code".into(),
-
-            primary: ZoneAssignment {
-                provider_id: "ollama".into(),
-                model: "qwen2.5-coder:32b".into(),
-                max_tokens: 2048,
-            },
-            fallbacks: vec![],
             system_prompt: None,
         },
         Zone {

@@ -189,8 +189,9 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 - Wrappers por proveedor: **anthropic** (claude-haiku), **codex** (OpenAI-compat),
   **gemini**, **groq**, **ollama** (local, sin clave), **deepseek**. Los health
   checks usan sondas baratas y no gastan tokens; las invocaciones de test si.
-- Zonas por defecto incluyen `chat`, `code-edit`, `code-review`, `research-web`,
-  `code-fast-local`, entre otras.
+- Zonas por defecto: `chat`, `code-edit`, `code-review`, `summarize`, `utility`
+  y `light` — las seis, y solo esas, tienen un consumidor real en el codigo
+  (tabla abajo).
 
 #### Para que sirven los LLM secundarios (y para que no)
 
@@ -208,13 +209,17 @@ y el resto de la app sigue igual.
 | `utility` | nombrado de hooks | poner nombre legible a un hook a partir de su codigo |
 | `light` | categorias de apps, resumen de novedades de plugins | respuestas de una palabra o una linea |
 | `code-review` / `code-edit` | analisis previo a instalar un repo desde Library | informe JSON de que instala y que riesgo tiene |
-| `research-web`, `code-fast-local`, `routing-decision` | **ningun consumidor en el backend todavia** | se pueden probar desde la pestana AI Router; no las llama ninguna funcion |
+
+La tabla es la lista completa: una zona sin consumidor es configuracion que
+miente sobre lo que hace el sistema, asi que `research-web`, `routing-decision`
+y `code-fast-local` se **retiraron el 2026-09-21** (ninguna aparecia en un
+`route(...)`, ni en un comando Tauri, ni en la UI). La migracion
+`retire_unused_zones` tambien las borra del `zones.json` ya escrito.
 
 El enrutado de skills, el destilado de lecciones y el perfil de proyecto usan
 una cadena aparte (`orchestrator/skill_llm`), con cuota propia, para no competir
-con estas zonas. **Ollama** es opcional: hoy solo respalda `code-fast-local` y el
-ultimo relevo de `light`; si no vas a trabajar sin conexion, no hace falta
-instalarlo.
+con estas zonas. **Ollama** es opcional: hoy solo respalda el ultimo relevo de
+`light`; si no vas a trabajar sin conexion, no hace falta instalarlo.
 
 ### Orquestador: deteccion automatica de skills/agentes
 

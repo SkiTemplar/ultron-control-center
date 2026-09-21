@@ -262,8 +262,11 @@ static ECHO_RULES: once_cell::sync::Lazy<Vec<(&'static str, regex::Regex)>> =
     once_cell::sync::Lazy::new(|| {
         [
             (
+                // El preterito reflexivo ("se actualizo", "se completaron") se
+                // colaba: la regla solo cubria el compuesto ("se han
+                // actualizado"). Medido 2026-09-21 en un recall real.
                 "aux_participio",
-                r"(?i)\b(?:se\s+han?|han?\s+sido|fue(?:ron)?)\s+(?:implementad|completad|cread|actualizad|realizad|corregid|a[nñ]adid|desarrollad|construid|lograd)",
+                r"(?i)\b(?:se\s+han?|han?\s+sido|fue(?:ron)?)\s+(?:implementad|completad|cread|actualizad|realizad|corregid|a[nñ]adid|desarrollad|construid|lograd)|\bse\s+(?:implement|complet|cre|actualiz|realiz|corrig|a[nñ]adi|desarroll|construy)(?:[oó]|aron|eron|ieron)\b",
             ),
             ("se_logro", r"(?i)\bse\s+logr[oó]\b"),
             (
@@ -302,10 +305,50 @@ struct Discard {
 
 /// Reason to drop this fact before the inbox, or `None` if it earns a slot.
 /// Pure -> unit-tested.
+/// Señales de que una frase afirma algo concreto y recuperable: un fichero, un
+/// identificador de código, una ruta, una cifra o una sigla.
+///
+/// Motivación (medido 2026-09-21): un recall real devolvió 8 entradas y solo 1
+/// era útil. Cuatro eran frases sin ninguna información — "Se actualizó la
+/// memoria del proyecto con la información del día", "Se completaron varios
+/// tasks y se actualizaron cards en el kanban" — que ya estaban en `active` y
+/// competían por el espacio del pack contra las que sí dicen algo. Pasaban los
+/// filtros existentes porque estos solo miran el origen y la importancia,
+/// nunca el contenido.
+static SUBSTANCE_RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+    regex::Regex::new(concat!(
+        r"(?x)",
+        r"\w+\.(?:rs|js|mjs|ts|tsx|py|json|md|toml|ya?ml|ps1|exe|db|sql|sh)\b", // fichero
+        r"|\w+_\w+",                                                            // snake_case
+        r"|[a-z]+[A-Z]\w*",                                                     // camelCase
+        r"|::|\(\)",       // sintaxis de código
+        r"|\d",            // cualquier cifra
+        r"|[/\\]\w",       // ruta
+        r"|\b[A-Z]{2,}\b", // sigla (SQL, RRF, E5)
+    ))
+    .expect("SUBSTANCE_RE")
+});
+
+/// `true` cuando el texto no contiene ni una sola señal concreta.
+///
+/// Solo se aplica a `Fact` y `Task` — los tipos donde vive el eco de estado.
+/// Una preferencia o un perfil de usuario ("prefiere respuestas concisas, sin
+/// preámbulos") es lenguaje natural puro por naturaleza y sigue siendo
+/// valioso, así que nunca pasa por aquí. Pura -> unit-tested.
+fn lacks_substance(kind: MemoryType, title: &str, body: &str) -> bool {
+    if !matches!(kind, MemoryType::Fact | MemoryType::Task) {
+        return false;
+    }
+    !SUBSTANCE_RE.is_match(title) && !SUBSTANCE_RE.is_match(body)
+}
+
 fn discard_reason(f: &Fact, importance: f32) -> Option<String> {
     let hay = format!("{} {}", f.title, f.body);
     if let Some((name, _)) = ECHO_RULES.iter().find(|(_, re)| re.is_match(&hay)) {
         return Some(format!("echo:{name}"));
+    }
+    if lacks_substance(f.kind, &f.title, &f.body) {
+        return Some("sin_sustancia".to_string());
     }
     // (2026-09-08, criterio delegado por el usuario) Un `fact` o `task` que
     // solo afirmó el asistente es eco de estado: 5 candidatos de un informe

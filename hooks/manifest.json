@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-18",
+  "generated_at": "2026-09-21",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -98,7 +98,7 @@
       "script": "~/.ultron/hooks/scripts/run-project-tests.js",
       "timeout_s": 10,
       "async": true,
-      "checksum_sha256": "dc5185591518483d160060c454ff7d145b4297a3cc47ba8432b039c97793d4b1",
+      "checksum_sha256": "7ecf800bb57122835771bad974c5a9e106486623c74fbcd974dc653beb523c36",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -614,7 +614,7 @@
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "af7adbc772bbcfc70f6caf676592d4f2b44ad3eddc5aa03399f3561354cf5a87",
+      "checksum_sha256": "8edaf2069cfe588d47830c514a4a5c9e34550112211ab22a0c2604bf0a65aa54",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",

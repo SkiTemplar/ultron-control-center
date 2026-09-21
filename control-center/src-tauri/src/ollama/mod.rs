@@ -18,6 +18,9 @@
 //                    NDJSON de `/api/pull`. Sin red — testeable sin Ollama
 //                    vivo.
 //   benchmark.rs   — peticion FIM de medicion de latencia + mediana/maximo.
+//   editor.rs      — motor de autocompletado del editor (`ollamaTab.engine`
+//                    en el settings.json de VS Code): lectura y escritura
+//                    quirurgica del JSONC, y plan de modelos a cargar/soltar.
 //   commands.rs    — comandos `#[tauri::command]` (capa de red, delgada).
 //
 // `tray.rs` solo habla con `toggle.rs` (igual que antes de que existiera
@@ -36,4 +39,5 @@ pub mod api;
 pub mod benchmark;
 pub mod commands;
 pub mod config;
+pub mod editor;
 pub mod toggle;

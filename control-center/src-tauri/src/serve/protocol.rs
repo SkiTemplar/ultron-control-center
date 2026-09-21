@@ -61,8 +61,10 @@ pub(super) fn handle_request(req: &Req, expected_token: &str, started: Instant) 
                 return (json!({ "error": "empty prompt" }), false);
             }
             if !crate::orchestrator::skill_llm::merece_consulta(prompt) {
+                // `decided: false` -> nadie ha juzgado nada, el llamante se
+                // queda con el denso.
                 return (
-                    json!({ "skills": [], "skipped": "prompt sin cuerpo" }),
+                    json!({ "skills": [], "decided": false, "skipped": "prompt sin cuerpo" }),
                     false,
                 );
             }
@@ -70,9 +72,18 @@ pub(super) fn handle_request(req: &Req, expected_token: &str, started: Instant) 
             // tokens por consulta y con eso ningun tier gratis aguanta un dia
             // de trabajo (medido 2026-08-28: 0 enrutados desde el despliegue).
             let catalogo = crate::orchestrator::skill_llm::catalogo_para(prompt);
-            let skills = crate::orchestrator::skill_llm::elegir_skills(prompt, &catalogo);
+            // `decided` separa "el juez dijo que ninguna encaja" de "no pude
+            // preguntarle". Con un solo array vacio eran indistinguibles y el
+            // dispatcher caia al denso en ambos casos, que es como se colaron
+            // consolidate-memory / escritura-humana / codex-result-handling en
+            // prompts de auditoria (2026-09-18, score 0,82-0,83).
+            let (skills, decided) =
+                match crate::orchestrator::skill_llm::elegir_skills_veredicto(prompt, &catalogo) {
+                    crate::orchestrator::skill_llm::Veredicto::Decidido(v) => (v, true),
+                    crate::orchestrator::skill_llm::Veredicto::NoDisponible => (Vec::new(), false),
+                };
             (
-                json!({ "skills": skills, "catalog_size": catalogo.len() }),
+                json!({ "skills": skills, "decided": decided, "catalog_size": catalogo.len() }),
                 false,
             )
         }

@@ -2,7 +2,7 @@
   "name": "ollama-tab",
   "displayName": "Ollama Tab",
   "description": "Autocompletado de linea (ghost text) con un modelo local de Ollama, sin chat ni telemetria.",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "publisher": "ultron-local",
   "license": "MIT",
   "private": true,
@@ -21,6 +21,16 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "ollamaTab.selectEngine",
+        "title": "Ollama Tab: elegir motor de autocompletado"
+      },
+      {
+        "command": "ollamaTab.toggle",
+        "title": "Ollama Tab: activar o desactivar"
+      }
+    ],
     "configuration": {
       "title": "Ollama Tab",
       "properties": {
@@ -46,7 +56,7 @@
         },
         "ollamaTab.timeoutMs": {
           "type": "number",
-          "default": 1500,
+          "default": 2500,
           "description": "Tiempo maximo de espera de la respuesta de Ollama (ms)."
         },
         "ollamaTab.maxPrefixChars": {
@@ -63,6 +73,50 @@
           "type": "boolean",
           "default": true,
           "description": "Traza en el OutputChannel 'Ollama Tab' una linea por cada sugerencia mostrada (hora, lenguaje, latencia y texto truncado a ~60 caracteres). Nunca vuelca el prefijo del fichero."
+        },
+        "ollamaTab.engine": {
+          "type": "string",
+          "enum": [
+            "off",
+            "copilot",
+            "low",
+            "mid",
+            "high"
+          ],
+          "default": "low",
+          "enumDescriptions": [
+            "Nadie propone ghost text.",
+            "Sugiere GitHub Copilot; Ollama calla y suelta la VRAM.",
+            "Sugiere el modelo local pequeno (modelLow); Copilot queda apagado.",
+            "Sugiere el modelo local intermedio (modelMid); Copilot queda apagado.",
+            "Sugiere el modelo local grande (modelHigh); Copilot queda apagado."
+          ],
+          "description": "Motor de autocompletado activo. Es excluyente: al elegir uno se apaga el otro y se descarga de VRAM el modelo que no se usa. Se cambia desde la barra de estado o con 'Ollama Tab: elegir motor de autocompletado'."
+        },
+        "ollamaTab.modelLow": {
+          "type": "string",
+          "default": "qwen2.5-coder:1.5b-base",
+          "description": "Modelo del motor 'low': el rapido y de poca VRAM."
+        },
+        "ollamaTab.modelMid": {
+          "type": "string",
+          "default": "qwen2.5-coder:3b-base",
+          "description": "Modelo del motor 'mid': el intermedio, mas capaz que low sin el coste de VRAM de high."
+        },
+        "ollamaTab.modelHigh": {
+          "type": "string",
+          "default": "qwen2.5-coder:7b-base",
+          "description": "Modelo del motor 'high': el mas capaz, a cambio de bastante mas VRAM."
+        },
+        "ollamaTab.keepAlive": {
+          "type": "string",
+          "default": "30m",
+          "description": "Cuanto mantiene Ollama el modelo residente en RAM tras cada peticion. Con el modelo cargado una sugerencia tarda ~50 ms; en frio la carga ronda los 10 s. '0' lo descarga al terminar, '-1' lo deja indefinidamente."
+        },
+        "ollamaTab.warmupTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "description": "Tiempo maximo de la peticion de calentamiento que carga el modelo en RAM. Es independiente de timeoutMs: la carga en frio tarda mucho mas que una sugerencia."
         }
       }
     }

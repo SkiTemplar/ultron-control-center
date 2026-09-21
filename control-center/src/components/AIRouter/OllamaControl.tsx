@@ -15,6 +15,9 @@
 //   ollama_pull        — descarga un modelo del registro (progreso via el
 //                         evento "ollama_pull_progress")
 //   ollama_delete      — borra un modelo de disco
+//   editor_engine_status / editor_engine_set — motor de autocompletado del
+//                         editor (`ollamaTab.engine` en el settings.json de
+//                         VS Code): low/mid/high locales, Copilot u off
 //
 // Refresco: sondeo cada 5 s mientras el componente esta montado (deja de
 // sondear solo con desmontarlo — no hace falta trackear visibilidad
@@ -28,6 +31,25 @@ import { listen } from "@tauri-apps/api/event";
 // ---------------------------------------------------------------------------
 // Tipos — espejo de src-tauri/src/ollama/api.rs
 // ---------------------------------------------------------------------------
+
+/** Espejo de `EditorEngineStatus` en src-tauri/src/ollama/editor.rs. */
+interface EditorEngineStatus {
+  available: boolean;
+  engine: string;
+  model_low: string;
+  model_mid: string;
+  model_high: string;
+  active_model: string | null;
+  settings_path: string | null;
+}
+
+const ENGINE_OPTIONS: { engine: string; label: string; hint: string }[] = [
+  { engine: "low", label: "Low", hint: "Local, rapido y de poca VRAM" },
+  { engine: "mid", label: "Mid", hint: "Local, equilibrio calidad/VRAM" },
+  { engine: "high", label: "High", hint: "Local, el mas capaz; ocupa mucha VRAM" },
+  { engine: "copilot", label: "Copilot", hint: "En la nube; libera la VRAM" },
+  { engine: "off", label: "Off", hint: "Sin autocompletado" },
+];
 
 interface LoadedModel {
   name: string;
@@ -122,6 +144,10 @@ export function OllamaControl() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [engine, setEngine] = useState<EditorEngineStatus | null>(null);
+  const [engineBusy, setEngineBusy] = useState(false);
+  const [engineError, setEngineError] = useState<string | null>(null);
+
   const refresh = useCallback(async () => {
     try {
       const s = await invoke<OllamaStatus>("ollama_status");
@@ -130,7 +156,29 @@ export function OllamaControl() {
     } catch (e) {
       setStatusError(e instanceof Error ? e.message : String(e));
     }
+    try {
+      setEngine(await invoke<EditorEngineStatus>("editor_engine_status"));
+    } catch (e) {
+      setEngineError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
+
+  // Cambiar de motor mueve modelos de VRAM: puede tardar segundos.
+  const changeEngine = useCallback(
+    async (next: string) => {
+      setEngineBusy(true);
+      setEngineError(null);
+      try {
+        setEngine(await invoke<EditorEngineStatus>("editor_engine_set", { engine: next }));
+        await refresh();
+      } catch (e) {
+        setEngineError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setEngineBusy(false);
+      }
+    },
+    [refresh],
+  );
 
   useEffect(() => {
     void refresh();
@@ -367,6 +415,57 @@ export function OllamaControl() {
             {actionError}
           </div>
         )}
+
+        {/* Motor de autocompletado del editor */}
+        <div className="mt-4">
+          <div className="mb-1.5 flex flex-wrap items-baseline gap-2">
+            <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              Motor del editor:
+            </span>
+            <span className="text-[11.5px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+              {engine ? (engine.active_model ?? ENGINE_OPTIONS.find((o) => o.engine === engine.engine)?.label ?? engine.engine) : "…"}
+            </span>
+            {engineBusy && (
+              <span className="text-[11px]" style={{ color: "var(--color-warn, #facc15)" }}>
+                cambiando…
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {ENGINE_OPTIONS.map((o) => {
+              const active = engine?.engine === o.engine;
+              return (
+                <button
+                  key={o.engine}
+                  type="button"
+                  onClick={() => void changeEngine(o.engine)}
+                  disabled={engineBusy || !engine?.available}
+                  title={o.hint}
+                  className="rounded px-2.5 py-1 text-[12px] font-medium transition-colors"
+                  style={{
+                    background: active ? "var(--color-accent, #58a6ff)" : "var(--color-surface-3)",
+                    color: active ? "#04121f" : "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border)",
+                    opacity: engineBusy || !engine?.available ? 0.6 : 1,
+                    cursor: engineBusy || !engine?.available ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          {engine && !engine.available && (
+            <p className="mt-1.5 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+              No se encontro el settings.json de VS Code: el motor no se puede cambiar desde aqui.
+            </p>
+          )}
+          {engineError && (
+            <p className="mt-1.5 text-[11px]" style={{ color: "var(--color-danger)" }}>
+              {engineError}
+            </p>
+          )}
+        </div>
 
         {/* Selector de modelo */}
         {status && status.downloaded_models.length > 0 && (

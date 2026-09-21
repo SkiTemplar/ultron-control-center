@@ -285,6 +285,19 @@ fn same_dir(a: &str, b: &str) -> bool {
     !a.trim().is_empty() && norm(a) == norm(b)
 }
 
+/// Accent colour of the project a session opens in, as `#rrggbb`. `None` when
+/// the directory isn't a registered project or the project has no colour.
+fn project_colour_for_cwd(cwd: &str) -> Option<String> {
+    let projects = crate::projects::list_projects_inner().ok()?;
+    let project = projects.iter().find(|p| {
+        p.path.as_deref().is_some_and(|path| same_dir(path, cwd))
+            || p.parent_folder_override
+                .as_deref()
+                .is_some_and(|path| same_dir(path, cwd))
+    })?;
+    project.color.clone()
+}
+
 /// Resolve the per-project Claude Code settings file for a session opened at
 /// `cwd` (it selects the generated theme). Returns `None` when the directory
 /// isn't a registered project, the project has no colour, or the files can't
@@ -368,6 +381,14 @@ pub async fn spawn_session_inner(
         .filter(|_| provider == "claude")
         .and_then(project_theme_for_cwd);
 
+    // La pestaña de Windows Terminal se tiñe con el mismo acento del proyecto
+    // (`--tabColor`). El tema de Claude solo pinta lo que dibuja el CLI dentro
+    // del marco; la ventana seguía siendo idéntica para todos los proyectos, que
+    // es lo que se ve al alternar entre varias terminales abiertas. A diferencia
+    // del `--colorScheme` retirado en 2026-08-15, tabColor NO toca el fondo:
+    // solo la pestaña y la barra de título. Aplica a claude y a codex.
+    let tab_colour = cwd_ref.as_deref().and_then(project_colour_for_cwd);
+
     let script: PathBuf = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/scripts/cockpit/spawn-claude-session.ps1");
@@ -404,6 +425,9 @@ pub async fn spawn_session_inner(
         // Va como RUTA y no como JSON inline porque PowerShell 5.1 destruye las
         // comillas dobles al pasar el argumento al ejecutable nativo.
         "settingsFile": theme_ref.unwrap_or_default(),
+        // Acento del proyecto en `#rrggbb` para `wt.exe --tabColor`. Cadena
+        // vacía = proyecto sin color y la pestaña queda con el aspecto normal.
+        "tabColor": tab_colour.unwrap_or_default(),
     })
     .to_string();
     let payload = base64_encode(&payload_json);

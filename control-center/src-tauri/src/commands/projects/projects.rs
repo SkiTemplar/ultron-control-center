@@ -185,14 +185,26 @@ pub async fn launch_all_items(app: tauri::AppHandle, project_id: String) -> Resu
 }
 
 /// Open a project path in the user's IDE.
-/// Order: VS Code (`code <path>`) -> Cursor (`cursor <path>`) -> file explorer.
-/// Path is canonicalised to reject relative / traversal payloads.
+///
+/// Launcher resolution is shared with `projects::ide` (PATH -> JetBrains
+/// Toolbox shim -> standard install directory), so an IDE whose CLI is not on
+/// PATH — the JetBrains and Android Studio installers do not add one — is
+/// still found.
+///
+/// A *preferred* IDE that is not installed returns an error instead of
+/// opening a different editor. The previous version pushed `code` / `cursor`
+/// in behind the preference as fallbacks, so a project pinned to Rider
+/// silently opened in VS Code. Without a preference we auto-detect, and only
+/// when nothing at all is installed do we fall back to the file explorer.
 #[tauri::command]
 pub async fn open_project_in_ide(
     path: String,
     preferred_ide: Option<String>,
 ) -> Result<String, String> {
+    use crate::projects::ide;
+    use crate::projects::normalise::normalise_ide;
     use std::path::PathBuf;
+
     let p = PathBuf::from(&path);
     if !p.is_dir() && !p.is_file() {
         return Err(format!("path not found: {}", path));
@@ -207,74 +219,32 @@ pub async fn open_project_in_ide(
         .unwrap_or(&canonical_str)
         .to_string();
 
-    // Map the per-project IDE slug ("vscode" / "cursor" / "code-insiders")
-    // to the CLI binary name that ships with that editor. `vscode` is the
-    // canonical slug we expose to the UI; the CLI itself is called `code`.
-    // v15.5.18 fix: extend slug → CLI map to cover the JetBrains family + the
-    // frontend dropdown (Rider, WebStorm, PyCharm, CLion, IDEA, GoLand, PhpStorm).
-    // Prior to this fix only VS Code / Cursor / Code-Insiders were mapped, so any
-    // JetBrains preference fell back through slug_to_cli=None → candidates list
-    // skipped the user's choice → first available CLI (code) was used → user
-    // reported "siempre abre Visual Studio". JetBrains CLIs install per-IDE
-    // (`rider`, `webstorm`, etc.) when "Generate shell scripts" is enabled in
-    // the JetBrains Toolbox settings; if not, the `where` check fails and we
-    // fall through to the next candidate as before.
-    let slug_to_cli = |s: &str| match s.to_ascii_lowercase().as_str() {
-        "vscode" | "vs code" | "code" => Some("code"),
-        "cursor" => Some("cursor"),
-        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => Some("code-insiders"),
-        "rider" => Some("rider"),
-        "webstorm" => Some("webstorm"),
-        "pycharm" => Some("pycharm"),
-        "clion" => Some("clion"),
-        "idea" | "intellij" | "intellij idea" => Some("idea"),
-        "goland" => Some("goland"),
-        "phpstorm" => Some("phpstorm"),
-        "rustrover" => Some("rustrover"),
-        "datagrip" => Some("datagrip"),
-        "fleet" => Some("fleet"),
-        "sublime" | "subl" => Some("subl"),
-        "nvim" | "neovim" | "vim" => Some("nvim"),
-        "zed" => Some("zed"),
-        _ => None,
-    };
-
-    // Build the ordered try list. When the caller supplies a preference we
-    // put it first; the remaining CLIs fall in behind it as fallbacks so
-    // a project tagged "cursor" still opens *something* when Cursor is
-    // missing on this machine (instead of dropping to explorer.exe).
-    let mut candidates: Vec<&str> = Vec::new();
-    let pref_cli = preferred_ide
+    let raw_pref = preferred_ide
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .and_then(slug_to_cli);
-    if let Some(p) = pref_cli {
-        candidates.push(p);
-    }
-    for c in ["code", "cursor", "code-insiders"] {
-        if !candidates.contains(&c) {
-            candidates.push(c);
-        }
+        .filter(|s| !s.is_empty());
+
+    if let Some(raw) = raw_pref {
+        let cli = normalise_ide(Some(raw))
+            .as_deref()
+            .and_then(ide::slug_to_cli)
+            .ok_or_else(|| format!("unknown IDE '{}'", raw))?;
+        let program = ide::resolve_launcher(cli).ok_or_else(|| {
+            format!(
+                "{} is not installed (no '{}' on PATH, in the JetBrains Toolbox scripts \
+                 directory, or in a standard install directory)",
+                ide::display_name(cli),
+                cli
+            )
+        })?;
+        ide::spawn_launcher(&program, &cleaned).map_err(|e| e.to_string())?;
+        return Ok(format!("opened in {}", ide::display_name(cli)));
     }
 
-    for cli in &candidates {
-        if std::process::Command::new("where")
-            .arg(cli)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            // Use cmd /C to invoke the .cmd shim winget installs.
-            let mut cmd = std::process::Command::new("cmd");
-            cmd.args(["/C", cli, &cleaned]);
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            }
-            cmd.spawn().map_err(|e| format!("spawn {}: {}", cli, e))?;
-            return Ok(format!("opened in {}", cli));
+    for cli in ide::AUTODETECT_ORDER {
+        if let Some(program) = ide::resolve_launcher(cli) {
+            ide::spawn_launcher(&program, &cleaned).map_err(|e| e.to_string())?;
+            return Ok(format!("opened in {}", ide::display_name(cli)));
         }
     }
 
@@ -289,7 +259,7 @@ pub async fn open_project_in_ide(
     explorer
         .spawn()
         .map_err(|e| format!("spawn explorer: {}", e))?;
-    Ok("opened in file explorer (no IDE on PATH)".to_string())
+    Ok("opened in file explorer (no IDE found on this machine)".to_string())
 }
 
 // ---- P4: per-project CLAUDE.md editor ----
@@ -359,6 +329,39 @@ pub async fn project_create_claude_md(
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         project_context::create_claude_md_stub(&project_path, &project_name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ---- Bitacora del proyecto (2026-09-21) ----
+// Los resumenes por sesion que escribe session-summarize-previous.js existian
+// desde el 11-09 y solo los leia el hook de SessionStart. Estos dos comandos
+// los sacan a la GUI: el listado para la vista colapsada, el cuerpo entero
+// solo cuando el usuario despliega una tarjeta.
+
+/// Bitacora de un proyecto: una entrada por sesion resumida, la mas reciente
+/// primero. Sin resumenes devuelve lista vacia (proyecto aun no abierto desde
+/// que existe el generador), nunca un error.
+#[tauri::command]
+pub async fn project_session_log(
+    project_id: String,
+) -> Result<Vec<crate::projects::session_log::SessionLogEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::projects::session_log::session_log_inner(&project_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Markdown completo de un resumen concreto, para la tarjeta desplegada.
+#[tauri::command]
+pub async fn project_session_entry(
+    project_id: String,
+    session_id: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::projects::session_log::session_entry_inner(&project_id, &session_id)
     })
     .await
     .map_err(|e| e.to_string())?

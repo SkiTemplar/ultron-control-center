@@ -111,14 +111,39 @@ pub fn ensure_project_theme(
     // families stay visually consistent. Only the accent-derived ones move
     // with the project colour; success/error/warning stay semantic (a green
     // "success" must not turn red because the project is red).
+    //
+    // The `*Shimmer` variants are NOT decoration: the CLI animates the spinner
+    // and the prompt border between the base key and its shimmer, and any key
+    // the theme does not override keeps the built-in dark value — a light grey
+    // for `promptBorderShimmer` and a salmon for `claudeShimmer`. Overriding
+    // only the base key made the animation flash the default grey, which reads
+    // as "the project colour is washed out to white" (Claude Code 2.1.x).
+    //
+    // Claude Code 2.1.278 split more accent surfaces into their own keys:
+    // `clawd_body` (the mascot drawn on the welcome banner), `briefLabelClaude`,
+    // `skill` and `autoAcceptShimmer`. They are not overridden by the built-in
+    // `claude` key, so a theme that only set the old names left the banner in
+    // the stock terracotta — measured on a live session: 96 runs of
+    // rgb(215,119,87) against 38 of the project accent. Keys that carry meaning
+    // rather than identity (`fastMode`, `ide`, `merged`, `effortUltra`,
+    // `claudeBlue_FOR_SYSTEM_SPINNER`) stay at their defaults on purpose: they
+    // tell the user WHAT is running, and repainting them would erase that.
     let theme = serde_json::json!({
         "name": label,
         "base": "dark",
         "overrides": {
             "claude": to_hex(rgb),
+            "claudeShimmer": to_hex(shade(rgb, 1.22)),
+            "clawd_body": to_hex(rgb),
+            "briefLabelClaude": to_hex(rgb),
+            "skill": to_hex(rgb),
             "planMode": to_hex(rgb),
             "autoAccept": to_hex(shade(rgb, 0.82)),
+            "autoAcceptShimmer": to_hex(shade(rgb, 1.22)),
+            "permission": to_hex(rgb),
+            "permissionShimmer": to_hex(shade(rgb, 1.22)),
             "promptBorder": to_hex(shade(rgb, 0.5)),
+            "promptBorderShimmer": to_hex(shade(rgb, 0.78)),
             "success": "#3ddc84",
             "error": "#ff5555",
             "warning": "#ffb86c",
@@ -185,6 +210,65 @@ mod tests {
         assert!(parse_hex("#gggggg").is_none());
         let err = ensure_project_theme("demo", "Demo", "azul").unwrap_err();
         assert!(err.contains("not #rrggbb"), "got: {err}");
+    }
+
+    /// Every accent key the CLI animates must ship its `*Shimmer` companion,
+    /// and the companion must be lighter than the base — otherwise the missing
+    /// key falls back to the built-in grey and the animation washes out.
+    #[test]
+    fn writes_shimmer_companions_lighter_than_their_base() {
+        let settings = ensure_project_theme("theme-shimmer-test", "Shimmer", "#a855f7").unwrap();
+        let slug = "ultron-proj-theme-shimmer-test";
+        let theme_path = themes_dir().unwrap().join(format!("{slug}.json"));
+        let theme: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&theme_path).unwrap()).unwrap();
+        let ov = &theme["overrides"];
+
+        for (base, shimmer) in [
+            ("claude", "claudeShimmer"),
+            ("permission", "permissionShimmer"),
+            ("promptBorder", "promptBorderShimmer"),
+            ("autoAccept", "autoAcceptShimmer"),
+        ] {
+            let b = parse_hex(ov[base].as_str().unwrap()).unwrap();
+            let s = parse_hex(ov[shimmer].as_str().unwrap()).unwrap();
+            assert!(
+                s.0 > b.0 && s.1 > b.1 && s.2 > b.2,
+                "{shimmer} ({s:?}) must be lighter than {base} ({b:?})",
+            );
+        }
+
+        let _ = fs::remove_file(&theme_path);
+        let _ = fs::remove_file(&settings);
+    }
+
+    /// Every surface that carries the project's identity must be the accent
+    /// itself. `clawd_body` is the one that bit us: the welcome banner kept the
+    /// stock terracotta because 2.1.278 stopped drawing the mascot with the
+    /// `claude` key.
+    #[test]
+    fn paints_every_identity_surface_with_the_accent() {
+        let accent = "#a855f7";
+        let settings = ensure_project_theme("theme-identity-test", "Identity", accent).unwrap();
+        let slug = "ultron-proj-theme-identity-test";
+        let theme_path = themes_dir().unwrap().join(format!("{slug}.json"));
+        let theme: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&theme_path).unwrap()).unwrap();
+        let ov = &theme["overrides"];
+
+        for key in [
+            "claude",
+            "clawd_body",
+            "briefLabelClaude",
+            "skill",
+            "planMode",
+            "permission",
+        ] {
+            assert_eq!(ov[key].as_str(), Some(accent), "{key} must be the accent");
+        }
+
+        let _ = fs::remove_file(&theme_path);
+        let _ = fs::remove_file(&settings);
     }
 
     #[test]

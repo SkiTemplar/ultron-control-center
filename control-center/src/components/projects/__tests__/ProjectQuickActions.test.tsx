@@ -158,6 +158,27 @@ describe("ProjectQuickActions — IDE action", () => {
     });
   });
 
+  it("shows the backend error when the preferred IDE is not installed", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(
+      "Rider is not installed (no 'rider' on PATH, in the JetBrains Toolbox scripts directory, or in a standard install directory)",
+    );
+    renderActions({ ide: "rider" });
+    fireEvent.click(screen.getByText("IDE"));
+    await waitFor(() => {
+      expect(screen.getByText(/Rider is not installed/)).toBeTruthy();
+    });
+  });
+
+  it("shows no error message when the IDE opens fine", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("opened in Rider");
+    renderActions({ ide: "rider" });
+    fireEvent.click(screen.getByText("IDE"));
+    await waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalled();
+    });
+    expect(screen.queryByText(/not installed/)).toBeNull();
+  });
+
   it("uses null for preferredIde when project.ide is null", async () => {
     renderActions({ ide: null });
     fireEvent.click(screen.getByText("IDE"));

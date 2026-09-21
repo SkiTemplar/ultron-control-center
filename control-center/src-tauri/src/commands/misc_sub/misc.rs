@@ -2,7 +2,7 @@
 // Path helpers exposed to the frontend, logs tailing, instruction folders,
 // usage report, activity timeline, and the cost watchdog.
 
-use crate::{activity_timeline, cost_watchdog, instructions, logs, usage};
+use crate::{activity_timeline, cost_watchdog, instructions, logs, plan_limits, usage};
 
 /// Frontend-facing helper: returns the absolute path to the ULTRON root
 /// (`~/.ultron`) as a UTF-8 string. The TS helper `getUltronRoot()` in
@@ -47,6 +47,18 @@ pub async fn instruction_path(kind: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn claude_usage() -> Result<usage::UsageReport, String> {
     usage::claude_usage_inner()
+}
+
+/// Plan quota (5h window + weekly) straight from Anthropic, so the Usage tab
+/// shows what `/usage` shows without opening a terminal. Blocking HTTP, hence
+/// `spawn_blocking`: the async runtime must not stall on the round-trip.
+#[tauri::command]
+pub async fn claude_plan_limits(force: Option<bool>) -> Result<plan_limits::PlanLimits, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        plan_limits::plan_limits_inner(force.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

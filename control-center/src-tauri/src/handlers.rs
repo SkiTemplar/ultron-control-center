@@ -15,6 +15,10 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::misc::home_dir_str,
         commands::misc::instruction_path,
         commands::misc::claude_usage,
+        // Cuota del plan (2026-09-21): la ventana de 5h y la semanal vienen del
+        // endpoint OAuth de Anthropic, no de ningun fichero local — eran el
+        // unico dato de /usage que obligaba a abrir una terminal.
+        commands::misc::claude_plan_limits,
         // Wiring 2026-08-11 (audit 08-09 #43): heatmap dia x fuente +
         // eventos recientes en Usage -> Activity. El resto de misc.rs
         // (list_logs/tail_log/compute_cost/...) sigue sin registrar a
@@ -94,6 +98,11 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         //    antes de cablear un panel que mostraria datos muertos) y
         //    launch_project_executable/reorder_launcher_items (esperan la
         //    pasada por la UI del launcher). --
+        // -- Bitacora (2026-09-21): el historial de resumenes por sesion, que
+        //    hasta ahora solo leia el hook de SessionStart, se ve en el
+        //    workspace del proyecto. --
+        commands::projects::project_session_log,
+        commands::projects::project_session_entry,
         commands::projects::project_claude_md_load,
         commands::projects::project_claude_md_save,
         commands::projects::project_create_claude_md,
@@ -181,7 +190,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // skipped"); ahora hay boton de reindex y prueba de routing manual.
         commands::memory::catalog_reindex,
         commands::memory::catalog_reindex_skills,
-        commands::memory::catalog_search,
         // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
         orchestrator::orchestrate_prompt,
         // -- PERSONALITIES v1 (2026-08-13): tonos editables + playground de deteccion --
@@ -329,8 +337,8 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::projects::git_init,
         commands::projects::git_fetch,
         commands::projects::git_repo_state,
+        commands::projects::git_repo_snapshot,
         // micro GitHub Desktop: changed files, per-file diff, stage, commit, log
-        commands::projects::git_changes,
         commands::projects::git_diff_file,
         commands::projects::git_stage,
         commands::projects::git_unstage,
@@ -392,6 +400,8 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         ollama::commands::ollama_benchmark,
         ollama::commands::ollama_pull,
         ollama::commands::ollama_delete,
+        ollama::commands::editor_engine_status,
+        ollama::commands::editor_engine_set,
         // -- workflow YAML composability + SQLite run history (KIRKARDO 23
         //    P2; wiring 2026-08-11, audit #32: los 6 llevaban desde jun-26
         //    sin registrar y la tabla se creaba vacía en cada boot. El

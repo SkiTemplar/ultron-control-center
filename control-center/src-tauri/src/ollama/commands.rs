@@ -28,6 +28,7 @@ use tauri::{AppHandle, Emitter};
 use super::api::{self, BenchmarkResult, OllamaStatus, PullProgressEvent};
 use super::benchmark;
 use super::config;
+use super::editor::{self, EditorEngineStatus};
 use super::toggle::{self, OllamaState};
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
@@ -343,6 +344,45 @@ pub async fn ollama_delete(name: String) -> Result<(), String> {
 // porque `tauri::async_runtime::spawn_blocking` fuera de una app Tauri
 // arrancada no tiene runtime al que enganchar.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Motor de autocompletado del editor (extension `ollama-tab` de VS Code).
+// ---------------------------------------------------------------------------
+
+/// Motor activo segun el `settings.json` de VS Code, con los tres modelos
+/// locales configurados. `available: false` = no se encontro el fichero.
+#[tauri::command]
+pub fn editor_engine_status() -> Result<EditorEngineStatus, String> {
+    Ok(editor::status())
+}
+
+/// Cambia el motor del editor: lo escribe en `settings.json` (Copilot queda en
+/// el estado contrario), suelta de VRAM los modelos que ya no tocan y carga el
+/// del motor elegido. VS Code recoge el cambio en caliente, sin reiniciar.
+#[tauri::command]
+pub async fn editor_engine_set(engine: String) -> Result<EditorEngineStatus, String> {
+    let Some(guard) = toggle::try_acquire_busy() else {
+        return Err(BUSY_ERROR.to_string());
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let (target, unload) = editor::write_engine(&engine)?;
+
+        // Soltar primero y cargar despues: con 8 GB de VRAM, hacerlo al reves
+        // deja los dos modelos dentro a la vez.
+        for model in unload {
+            if toggle::query_state(&model) == OllamaState::Loaded {
+                toggle::deactivate(&model)?;
+            }
+        }
+        if let Some(model) = target {
+            toggle::activate(&model)?;
+        }
+        Ok::<EditorEngineStatus, String>(editor::status())
+    })
+    .await
+    .map_err(|e| format!("fallo interno al cambiar el motor del editor: {e}"))?
+}
 
 #[cfg(test)]
 mod smoke_tests {

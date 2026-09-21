@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildFimPrompt,
   buildGenerateRequest,
+  buildWarmupRequest,
+  formatEngineStatus,
+  modelSizeMb,
+  resolveEngine,
+  vramWarning,
   firstLoadedModelName,
+  isModelLoaded,
+  loadedModelNames,
   formatLogTime,
   formatStatusBarLabel,
   formatSuggestionLogLine,
@@ -212,5 +219,135 @@ describe("formatSuggestionLogLine", () => {
       suggestion: "ok",
     });
     expect(line).not.toContain("fim_prefix");
+  });
+});
+
+describe("keep_alive y calentamiento", () => {
+  const params = {
+    model: "qwen2.5-coder:1.5b-base",
+    prefix: "def suma(a, b):\n    return ",
+    suffix: "",
+    maxPrefixChars: 3000,
+    maxSuffixChars: 1000,
+  };
+
+  it("la peticion de sugerencia lleva keep_alive para que el modelo no se descargue entre pulsaciones", () => {
+    expect(buildGenerateRequest(params).keep_alive).toBe("30m");
+    expect(buildGenerateRequest({ ...params, keepAlive: "5m" }).keep_alive).toBe("5m");
+  });
+
+  it("la peticion de calentamiento carga el modelo sin generar tokens", () => {
+    const req = buildWarmupRequest("qwen2.5-coder:1.5b-base");
+    expect(req.prompt).toBe("");
+    expect(req.options.num_predict).toBe(0);
+    expect(req.keep_alive).toBe("30m");
+  });
+
+  it("detecta el modelo cargado en /api/ps, con o sin etiqueta", () => {
+    const body = JSON.stringify({ models: [{ name: "qwen2.5-coder:1.5b-base" }] });
+    expect(loadedModelNames(body)).toEqual(["qwen2.5-coder:1.5b-base"]);
+    expect(isModelLoaded(body, "qwen2.5-coder:1.5b-base")).toBe(true);
+    expect(isModelLoaded(body, "qwen2.5-coder")).toBe(true);
+  });
+
+  it("da el modelo por frio cuando /api/ps viene vacio, roto o con otro modelo", () => {
+    expect(isModelLoaded(JSON.stringify({ models: [] }), "qwen2.5-coder:1.5b-base")).toBe(false);
+    expect(isModelLoaded("no es json", "qwen2.5-coder:1.5b-base")).toBe(false);
+    expect(isModelLoaded(JSON.stringify({ models: [{ name: "llama3:8b" }] }), "qwen2.5-coder")).toBe(false);
+    expect(isModelLoaded(JSON.stringify({ models: [{ name: "llama3:8b" }] }), "  ")).toBe(false);
+  });
+});
+
+describe("resolveEngine", () => {
+  const models = {
+    low: "qwen2.5-coder:1.5b-base",
+    mid: "qwen2.5-coder:3b-base",
+    high: "qwen2.5-coder:7b-base",
+  };
+
+  it("cada motor local sugiere con su modelo y suelta los otros dos", () => {
+    expect(resolveEngine("low", models)).toEqual({
+      model: models.low,
+      unload: [models.mid, models.high],
+      ollamaEnabled: true,
+      copilotEnabled: false,
+    });
+    expect(resolveEngine("mid", models)).toEqual({
+      model: models.mid,
+      unload: [models.low, models.high],
+      ollamaEnabled: true,
+      copilotEnabled: false,
+    });
+    expect(resolveEngine("high", models)).toEqual({
+      model: models.high,
+      unload: [models.low, models.mid],
+      ollamaEnabled: true,
+      copilotEnabled: false,
+    });
+  });
+
+  it("copilot apaga Ollama y suelta los dos modelos", () => {
+    const plan = resolveEngine("copilot", models);
+    expect(plan.ollamaEnabled).toBe(false);
+    expect(plan.copilotEnabled).toBe(true);
+    expect(plan.unload).toEqual([models.low, models.mid, models.high]);
+    expect(plan.model).toBeNull();
+  });
+
+  it("off deja a los dos apagados — ningun motor propone", () => {
+    const plan = resolveEngine("off", models);
+    expect(plan.ollamaEnabled).toBe(false);
+    expect(plan.copilotEnabled).toBe(false);
+    expect(plan.unload).toEqual([models.low, models.mid, models.high]);
+  });
+
+  it("nunca deja Copilot y Ollama sugiriendo a la vez", () => {
+    for (const engine of ["off", "copilot", "low", "mid", "high"] as const) {
+      const plan = resolveEngine(engine, models);
+      expect(plan.ollamaEnabled && plan.copilotEnabled).toBe(false);
+    }
+  });
+});
+
+describe("formatEngineStatus", () => {
+  it("nombra el motor local con su modelo y el contador", () => {
+    expect(formatEngineStatus({ engine: "high", model: "qwen2.5-coder:7b-base", suggestionCount: 3 })).toBe(
+      "Ollama high · qwen2.5-coder:7b-base · 3",
+    );
+  });
+
+  it("distingue Copilot y el apagado sin mencionar modelo", () => {
+    expect(formatEngineStatus({ engine: "copilot", model: null, suggestionCount: 9 })).toBe("Copilot");
+    expect(formatEngineStatus({ engine: "off", model: null, suggestionCount: 9 })).toBe("Sin autocompletado");
+  });
+});
+
+describe("presupuesto de VRAM", () => {
+  const tags = JSON.stringify({
+    models: [
+      { name: "qwen2.5-coder:7b-base", size: 4_700_000_000 },
+      { name: "qwen2.5-coder:1.5b-base", size: 986_000_000 },
+    ],
+  });
+
+  it("lee el tamano del modelo de /api/tags en MB", () => {
+    expect(modelSizeMb(tags, "qwen2.5-coder:7b-base")).toBe(4700);
+    expect(modelSizeMb(tags, "qwen2.5-coder:3b-base")).toBeNull();
+    expect(modelSizeMb("no es json", "qwen2.5-coder:7b-base")).toBeNull();
+  });
+
+  it("avisa cuando el modelo no cabe en la VRAM libre", () => {
+    const warning = vramWarning({ freeMb: 1200, neededMb: 4700 });
+    expect(warning).toContain("1200 MB");
+    expect(warning).toContain("5405 MB");
+  });
+
+  it("no avisa cuando cabe con margen", () => {
+    expect(vramWarning({ freeMb: 6000, neededMb: 4700 })).toBeNull();
+  });
+
+  it("no avisa cuando no hay datos para juzgarlo — no bloquea por sospecha", () => {
+    expect(vramWarning({ freeMb: Number.NaN, neededMb: 4700 })).toBeNull();
+    expect(vramWarning({ freeMb: 1200, neededMb: 0 })).toBeNull();
   });
 });

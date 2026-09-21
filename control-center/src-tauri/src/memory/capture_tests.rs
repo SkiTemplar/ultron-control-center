@@ -532,3 +532,74 @@ fn el_informe_serializa_los_hechos_junto_a_los_ids() {
     assert_eq!(v["facts"][0]["title"], "usar E5 1024d");
     assert_eq!(v["facts"][0]["origin"], "origin:user");
 }
+
+/// Gate de sustancia (2026-09-21). Los textos de este test son literales de un
+/// recall real: de 8 entradas devueltas, 4 eran frases como estas. Habian
+/// pasado todos los filtros y competian en el pack contra las utiles.
+#[test]
+fn lacks_substance_drops_the_empty_status_echo_measured_in_recall() {
+    let basura = [
+        "Se actualizó la memoria del proyecto con la información del día",
+        "Se completaron varios tasks y se actualizaron cards en el kanban",
+        "actualización de la memoria del proyecto",
+        "Estado del proyecto",
+    ];
+    for texto in basura {
+        assert!(
+            lacks_substance(MemoryType::Fact, texto, ""),
+            "deberia descartarse por vacio: {texto}"
+        );
+    }
+}
+
+#[test]
+fn lacks_substance_keeps_anything_with_a_concrete_signal() {
+    let utiles = [
+        ("kanban-update-reminder.js habla tras Edit/Write", ""),
+        ("cooldown de 30 min y una vez por sesion", ""),
+        ("GITHUB_TOKEN caducado", "bloquea releases"),
+        ("el recall usa RRF", "sparse + denso"),
+        ("MemoryService::create_candidate aplica redaction", ""),
+        ("el sidecar vive en ~/.ultron/bin", ""),
+        // La señal puede estar solo en el cuerpo.
+        ("nota sin nada concreto en el titulo", "vive en capture.rs"),
+    ];
+    for (titulo, cuerpo) in utiles {
+        assert!(
+            !lacks_substance(MemoryType::Fact, titulo, cuerpo),
+            "no deberia descartarse: {titulo}"
+        );
+    }
+}
+
+/// Caso negativo del gate: una preferencia del usuario es lenguaje natural sin
+/// identificadores por definicion, y sigue siendo lo mas valioso que guarda el
+/// sistema. El gate NO puede tocarla.
+#[test]
+fn lacks_substance_never_touches_preferences_or_profile() {
+    let texto = "prefiere respuestas concisas, sin preámbulos ni resúmenes";
+    assert!(!lacks_substance(MemoryType::Preference, texto, ""));
+    assert!(!lacks_substance(MemoryType::UserProfile, texto, ""));
+    assert!(!lacks_substance(MemoryType::Decision, texto, ""));
+    assert!(!lacks_substance(MemoryType::Constraint, texto, ""));
+    assert!(!lacks_substance(MemoryType::Lesson, texto, ""));
+    // El mismo texto como `fact` si cae: ahi es donde vive el eco.
+    assert!(lacks_substance(MemoryType::Fact, texto, ""));
+}
+
+/// El preterito reflexivo se colaba por la regla de eco, que solo cubria el
+/// compuesto ("se han actualizado").
+#[test]
+fn echo_rules_catch_the_simple_past_reflexive() {
+    let f = Fact {
+        kind: MemoryType::Decision,
+        title: "resumen".into(),
+        body: "se actualizó el fichero config.toml del proyecto".into(),
+        llm_score: Some(0.9),
+        origin: FactOrigin::User,
+    };
+    assert_eq!(
+        discard_reason(&f, 0.9).as_deref(),
+        Some("echo:aux_participio")
+    );
+}

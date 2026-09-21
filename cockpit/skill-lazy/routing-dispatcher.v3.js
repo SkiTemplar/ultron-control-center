@@ -438,8 +438,11 @@ async function judgeSkills(promptText, timeoutMs) {
     { cmd: 'skill_judge', prompt: promptText.slice(0, 500) },
     timeoutMs,
   );
-  if (!resp || !Array.isArray(resp.skills) || resp.skills.length === 0) return null;
-  return resp.skills;
+  if (!resp || !Array.isArray(resp.skills)) return { skills: null, decided: false };
+  // `decided` (daemon 2026-09-21) separa "el juez dijo que ninguna encaja" de
+  // "no pude preguntarle". Un daemon viejo no manda el campo: se trata como no
+  // decidido, que es el comportamiento anterior.
+  return { skills: resp.skills.length ? resp.skills : null, decided: resp.decided === true };
 }
 
 /**
@@ -712,10 +715,8 @@ async function mainV3() {
       try {
         // El juez LLM decide primero; el denso queda como respaldo cuando no
         // hay proveedor, no hay clave o se agota el tiempo.
-        const judged = filtrarNombresPersona(
-          await judgeSkills(prompt, Math.min(semBudget, JUDGE_TIMEOUT_MS)),
-          prompt,
-        );
+        const veredicto = await judgeSkills(prompt, Math.min(semBudget, JUDGE_TIMEOUT_MS));
+        const judged = filtrarNombresPersona(veredicto.skills, prompt);
         if (judged && judged.length) {
           semanticBlock = buildJudgeHint(judged);
           safeLogV3({
@@ -726,7 +727,24 @@ async function mainV3() {
             judged: judged,
           });
         }
-        const semResults = semanticBlock
+        // El juez MANDA sobre el denso: si respondio "ninguna encaja", no se
+        // consulta el fallback semantico. Sus scores no separan el acierto del
+        // ruido (todo el corpus cabe en 0.79-0.84, y el 2026-09-18 tres prompts
+        // de auditoria recibieron skills ajenas con 0,82-0,83, por encima del
+        // suelo), asi que preguntarle despues de un "ninguna" solo puede
+        // reintroducir el ruido que el juez acaba de descartar.
+        // Tambien cuenta como "ninguna" que el gate de intencion se haya
+        // llevado por delante todo lo que el juez eligio: el denso propondria
+        // esas mismas personas.
+        const juezDijoNinguna = veredicto.decided && !(judged && judged.length);
+        if (juezDijoNinguna) {
+          safeLogV3({
+            level: 'info',
+            msg: 'skill_judge_ninguna',
+            deterministic_confidence: topConfidence,
+          });
+        }
+        const semResults = (semanticBlock || juezDijoNinguna)
           ? null
           : filtrarNombresPersona(
               await querySemanticSkills(prompt, effectiveSemanticTopN, remainingMs()),

@@ -1289,23 +1289,23 @@
     <table>
       <thead><tr><th>Zona</th><th>Categoría</th><th>Primario</th><th>Fallbacks</th></tr></thead>
       <tbody>
-        <tr><td><code>chat</code></td><td><span class="dim">chat</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>gemini-flash</code></td></tr>
-        <tr><td><code>code-edit</code></td><td><span class="dim">code</span></td><td><code>claude · sonnet</code></td><td><code>codex-cli → codex → deepseek</code></td></tr>
-        <tr><td><code>code-review</code></td><td><span class="dim">code</span></td><td><code>claude · sonnet</code></td><td><code>codex-cli → gemini-flash</code></td></tr>
-        <tr><td><code>research-web</code></td><td><span class="dim">research</span></td><td><code>gemini-flash</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
-        <tr><td><code>summarize</code></td><td><span class="dim">chat</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash</code></td></tr>
-        <tr><td><code>routing-decision</code></td><td><span class="dim">system</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash</code></td></tr>
-        <tr><td><code>utility</code></td><td><span class="dim">system</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash</code></td></tr>
-        <tr><td><code>light</code></td><td><span class="dim">chat</span></td><td><code>groq · llama-3.1-8b</code></td><td><code>gemini-flash → ollama</code></td></tr>
-        <tr><td><code>code-fast-local</code></td><td><span class="dim">code</span></td><td><code>ollama · qwen2.5-coder</code></td><td><span class="dim">— (offline por diseño)</span></td></tr>
+        <tr><td><code>chat</code></td><td><span class="dim">chat</span></td><td><code>groq · gpt-oss-120b</code></td><td><code>gemini-2.5-flash</code></td></tr>
+        <tr><td><code>code-edit</code></td><td><span class="dim">code</span></td><td><code>claude · sonnet-5</code></td><td><code>codex-cli (terra) → codex → deepseek</code></td></tr>
+        <tr><td><code>code-review</code></td><td><span class="dim">code</span></td><td><code>claude · sonnet-5</code></td><td><code>codex-cli (sol) → gemini-2.5-flash</code></td></tr>
+        <tr><td><code>summarize</code></td><td><span class="dim">chat</span></td><td><code>groq · gpt-oss-20b</code></td><td><code>gemini-2.5-flash</code></td></tr>
+        <tr><td><code>utility</code></td><td><span class="dim">system</span></td><td><code>groq · gpt-oss-20b</code></td><td><code>gemini-2.5-flash</code></td></tr>
+        <tr><td><code>light</code></td><td><span class="dim">chat</span></td><td><code>groq · gpt-oss-20b</code></td><td><code>gemini-2.5-flash → ollama</code></td></tr>
       </tbody>
     </table>
     </div>
     <p class="dim" style="font-size:13px">
-      Las zonas internas (<code>summarize</code> / <code>routing-decision</code> / <code>utility</code> /
-      <code>light</code>) usan <code>llama-3.1-8b-instant</code> a propósito: en groq cada modelo tiene su
-      propio límite diario de tokens, y compartir el bucket del 70B hacía que la automatización agotara
-      la cuota del chat y disparara el fallback. <code>chat</code> conserva el 70B.
+      Las zonas internas (<code>summarize</code> / <code>utility</code> / <code>light</code>) usan
+      <code>gpt-oss-20b</code> a propósito: en groq cada modelo tiene su propio límite diario de tokens,
+      y compartir el bucket del grande hacía que la automatización agotara la cuota del chat y disparara
+      el fallback. <code>chat</code> conserva el <code>gpt-oss-120b</code>.
+      Las seis zonas de la tabla son <b>todas</b> las que existen: <code>research-web</code>,
+      <code>routing-decision</code> y <code>code-fast-local</code> se retiraron el 2026-09-21 por no
+      tener ningún llamante.
     </p>
     <p>
       El catálogo combina proveedores por <b>API</b> —anthropic · codex / groq / deepseek

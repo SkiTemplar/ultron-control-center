@@ -19,7 +19,7 @@ export function FolderTreeView(props: FolderTreeViewProps): ReactElement {
     viewMode === "cards" ? (
       <div
         className="grid gap-3"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))" }}
       >
         {items.map((p) => (
           <ProjectCard

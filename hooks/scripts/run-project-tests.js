@@ -66,6 +66,74 @@ function launchRunner(env) {
   }
 }
 
+/**
+ * Gate de confianza por proyecto (auditoria de seguridad 2026-09-21).
+ *
+ * `detectTestCommand` saca el comando de una linea `test: <cmd>` del
+ * CLAUDE.md del proyecto o de `scripts.test` de su package.json, y el runner
+ * lo ejecuta con `shell: true`. Ambos ficheros vienen DENTRO del repo, asi
+ * que abrir un repositorio de terceros y dejar que el asistente edite un
+ * fichero cualquiera bastaba para ejecutar lo que ese repo dijera, con los
+ * privilegios del usuario y sin confirmacion. El CLAUDE.md es justamente el
+ * fichero que un repo preparado contra asistentes de IA traeria.
+ *
+ * Por eso la ejecucion automatica es opt-in explicito: el proyecto tiene que
+ * estar dado de alta en cockpit/projects.json con `auto_tests: true`. El alta
+ * sola no basta — `ensure-project` da de alta cualquier carpeta de forma
+ * automatica, asi que estar registrado no prueba nada sobre su contenido.
+ *
+ * La comparacion es por ruta EXACTA contra el cwd o contra la raiz del repo
+ * que lo contiene, nunca por prefijo: con prefijo, un repo clonado dentro de
+ * una carpeta autorizada heredaria el permiso.
+ */
+/** Sube desde `dir` hasta la raiz del repo. `.git` puede ser fichero (worktrees). */
+function repoRootFor(dir) {
+  try {
+    let actual = path.resolve(dir || process.cwd());
+    for (let i = 0; i < 40; i++) {
+      if (fs.existsSync(path.join(actual, '.git'))) return actual;
+      const padre = path.dirname(actual);
+      if (padre === actual) return null;
+      actual = padre;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function autoTestsAllowed(cwd) {
+  try {
+    const fichero = path.join(os.homedir(), '.ultron', 'cockpit', 'projects.json');
+    const crudo = fs.readFileSync(fichero, 'utf8').replace(/^﻿/, '');
+    const datos = JSON.parse(crudo);
+    let lista = Array.isArray(datos) ? datos : datos.projects || datos;
+    if (lista && !Array.isArray(lista)) lista = Object.values(lista);
+    if (!Array.isArray(lista)) return false;
+
+    const norm = (p) => {
+      try {
+        return path.resolve(p).replace(/[\\/]+$/, '').toLowerCase();
+      } catch (_) {
+        return String(p || '').toLowerCase();
+      }
+    };
+    const candidatas = new Set([norm(cwd)]);
+    const raiz = repoRootFor(cwd);
+    if (raiz) candidatas.add(norm(raiz));
+
+    for (const proyecto of lista) {
+      const ruta = proyecto && (proyecto.path || proyecto.root);
+      if (!ruta || !candidatas.has(norm(ruta))) continue;
+      return proyecto.auto_tests === true;
+    }
+    return false;
+  } catch (_) {
+    // Sin registro legible no se ejecuta nada: fallar cerrado.
+    return false;
+  }
+}
+
 function hookMain() {
   if (process.env.RUN_TESTS_DISABLED === '1') return;
   const payload = readStdin();
@@ -85,6 +153,13 @@ function hookMain() {
 
   const project = process.env.RUN_TESTS_PROJECT || projectIdFromCwd(cwd) || path.basename(cwd);
   if (!project) return;
+
+  // Gate de confianza ANTES de leer el CLAUDE.md del proyecto: el comando no
+  // llega siquiera a resolverse en un repo no autorizado.
+  if (!process.env.RUN_TESTS_PROJECT && !autoTestsAllowed(cwd)) {
+    trace({ hook: 'trigger', msg: 'auto_tests_not_enabled', project, cwd, file: filePath });
+    return;
+  }
 
   const detected = T.detectTestCommand(cwd);
   const state = T.readState(project);

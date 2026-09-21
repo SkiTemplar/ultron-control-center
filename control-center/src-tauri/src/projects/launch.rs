@@ -1,5 +1,6 @@
 // projects/launch.rs — Launch dispatch: open_project, launch_item, launch_all, open_in_ide.
 
+use super::ide;
 use super::normalise::normalise_ide;
 use super::read_ops::load_items_for;
 use super::registry::{launch_project_py_path, path_ps_safe, registry_path};
@@ -119,6 +120,12 @@ pub async fn open_project_inner(
                         stderr: String::new(),
                         exit_code: Some(0),
                     });
+                }
+                // A configured-but-missing IDE is reported, not worked
+                // around: launch_project.py would fall back to `code` and
+                // the user would silently get the wrong editor.
+                Err(e @ ide::IdeLaunchError::NotInstalled(_)) => {
+                    return Err(format!("{}: {}", id, e));
                 }
                 Err(e) => {
                     eprintln!(
@@ -422,81 +429,51 @@ fn project_path_and_ide(project_id: &str) -> Option<(String, String)> {
 }
 
 /// Spawn the given path in the preferred IDE (or auto-detect when None).
-pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), String> {
+///
+/// A *preferred* IDE is honoured or nothing is launched: when it is not
+/// installed the call fails with `IdeLaunchError::NotInstalled` instead of
+/// falling through to the next editor on the machine — opening a project
+/// configured for Rider in VS Code is a silent lie about what the user asked
+/// for. Auto-detect (preferred = None) still walks the candidate list.
+pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), ide::IdeLaunchError> {
     let p = std::path::PathBuf::from(path);
     if !p.is_dir() && !p.is_file() {
-        return Err(format!("path not found: {}", path));
+        return Err(ide::IdeLaunchError::Spawn(format!(
+            "path not found: {}",
+            path
+        )));
     }
     let canonical = p
         .canonicalize()
-        .map_err(|e| format!("canonicalize: {}", e))?;
+        .map_err(|e| ide::IdeLaunchError::Spawn(format!("canonicalize: {}", e)))?;
     let canonical_str = canonical.to_string_lossy().to_string();
     let cleaned = canonical_str
         .strip_prefix(r"\\?\")
         .unwrap_or(&canonical_str)
         .to_string();
 
-    let slug_to_cli = |s: &str| match s {
-        "vscode" => Some("code"),
-        "cursor" => Some("cursor"),
-        "code-insiders" => Some("code-insiders"),
-        "intellij" => Some("idea"),
-        "rider" => Some("rider"),
-        "webstorm" => Some("webstorm"),
-        "pycharm" => Some("pycharm"),
-        "clion" => Some("clion"),
-        "androidstudio" => Some("studio"),
-        "fleet" => Some("fleet"),
-        "nvim" => Some("nvim"),
-        "sublime" => Some("subl"),
-        "zed" => Some("zed"),
-        _ => None,
-    };
-
-    let mut candidates: Vec<&str> = Vec::new();
-    if let Some(pref) = preferred.and_then(slug_to_cli) {
-        candidates.push(pref);
-    }
-    for c in [
-        "code",
-        "cursor",
-        "code-insiders",
-        "idea",
-        "rider",
-        "webstorm",
-        "pycharm",
-        "clion",
-        "studio",
-        "fleet",
-        "nvim",
-        "subl",
-        "zed",
-    ] {
-        if !candidates.contains(&c) {
-            candidates.push(c);
-        }
+    if let Some(slug) = preferred.map(str::trim).filter(|s| !s.is_empty()) {
+        let cli = ide::slug_to_cli(slug)
+            .ok_or_else(|| ide::IdeLaunchError::NotInstalled(format!("unknown IDE '{}'", slug)))?;
+        let program = ide::resolve_launcher(cli).ok_or_else(|| {
+            ide::IdeLaunchError::NotInstalled(format!(
+                "{} is not installed (no '{}' on PATH, in the JetBrains Toolbox scripts dir, \
+                 or in a standard install directory)",
+                ide::display_name(cli),
+                cli
+            ))
+        })?;
+        return ide::spawn_launcher(&program, &cleaned);
     }
 
-    for cli in &candidates {
-        let found = std::process::Command::new("where")
-            .arg(cli)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !found {
-            continue;
+    for cli in ide::AUTODETECT_ORDER {
+        if let Some(program) = ide::resolve_launcher(cli) {
+            return ide::spawn_launcher(&program, &cleaned);
         }
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/C", cli, &cleaned]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        cmd.spawn().map_err(|e| format!("spawn {}: {}", cli, e))?;
-        return Ok(());
     }
-    Err("no IDE on PATH".to_string())
+    Err(ide::IdeLaunchError::NotInstalled(
+        "no IDE found on this machine".to_string(),
+    ))
 }
 
 /// Per-kind dispatch. Pulled out so launch_item / launch_all share one
@@ -615,7 +592,10 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
             if let Some(p) = direct_path {
-                return open_in_ide(p, item.cwd.as_deref()).await;
+                // Auto-detect: a launcher item carries no preferred IDE
+                // (it used to pass `cwd` here, which never matched a slug
+                // and therefore always auto-detected anyway).
+                return open_in_ide(p, None).await.map_err(|e| e.to_string());
             }
             Err("ide item needs `path` (or move it onto the project's preferred_ide)".into())
         }

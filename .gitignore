@@ -510,3 +510,4 @@ control-center/vite.config.d.ts
 
 # Ajustes locales del editor (rutas personales)
 .vscode/
+tools/unreal-mcp/

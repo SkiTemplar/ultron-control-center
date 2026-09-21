@@ -2,9 +2,13 @@
 //
 // Wiring 2026-08-11 (audit 08-09 #32): workflow-runs.db se inicializaba en cada
 // boot pero sus comandos jamás se registraron y NADA escribía — tabla vacía
-// para siempre. Ahora el escritor es la delegación síncrona (delegate.rs abre
-// un run "delegate:<agent>" y lo cierra con status/summary), y esta sección es
-// el punto de consumo: últimos runs + workflows disponibles (built-in + YAML de
+// para siempre. El escritor pasó a ser la delegación síncrona (delegate.rs),
+// que f1e44e8f borró al podar 4 comandos Tauri sin consumidor: se quitó el
+// productor sin ver que su salida la leían este panel, workflow_get_runs y el
+// next_action del resume. La tabla volvió a quedarse muerta hasta el
+// 2026-09-21, cuando el escritor pasó a ser execute_batch — la unidad de
+// ejecución real que le queda a la app. Esta sección es el punto de consumo:
+// últimos runs + workflows disponibles (built-in + YAML de
 // ~/.ultron/cockpit/workflows/ vía workflow_load_user_defined).
 //
 // Backend: workflow_get_runs / workflow_load_user_defined (registrados hoy).
@@ -86,7 +90,7 @@ export function WorkflowRunsPanel() {
         </button>
       </div>
       <p className="mb-1 text-[9px]" style={{ color: "var(--color-text-faint)" }}>
-        Runs persistidos en workflow-runs.db (escritor: delegación síncrona)
+        Runs persistidos en workflow-runs.db (escritor: ejecución de batches)
         {workflowCount !== null ? ` · ${workflowCount} workflows disponibles (built-in + YAML)` : ""}.
       </p>
 
@@ -98,7 +102,7 @@ export function WorkflowRunsPanel() {
 
       {!error && runs.length === 0 && (
         <p className="text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Sin runs todavía — se registran cuando la app delega tareas a agentes.
+          Sin runs todavía — se registran al ejecutar un batch desde Run Batch.
         </p>
       )}
 
