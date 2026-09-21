@@ -222,7 +222,7 @@ export function MovilSection() {
             <span className="hud-label">tema</span>
             <input
               value={borrador.ntfy_topic}
-              placeholder="p. ej. maria-mokiu-7x2"
+              placeholder="p. ej. maria-tunombre-7x2"
               disabled={ocupado}
               onChange={(e) => setBorrador({ ...borrador, ntfy_topic: e.target.value })}
               onBlur={() => void guardar({ ntfy_topic: borrador.ntfy_topic })}

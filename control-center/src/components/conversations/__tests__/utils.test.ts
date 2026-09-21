@@ -79,7 +79,7 @@ describe("titleFor", () => {
 describe("otros formateadores", () => {
   it("projectNameFor devuelve el ultimo segmento de la ruta", () => {
     expect(projectNameFor("C:/utad/portfolio")).toBe("portfolio");
-    expect(projectNameFor("C:\\Users\\mokiu\\.ultron\\")).toBe(".ultron");
+    expect(projectNameFor("C:\\Users\\usuario\\.ultron\\")).toBe(".ultron");
   });
 
   it("formatRel habla en español y no muestra futuro", () => {
