@@ -26,6 +26,8 @@ import { MemoryTab } from "./components/MemoryTab";
 import { PopupHost } from "./components/PopupHost";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
+import { useAccionesChat } from "./lib/accionesChat";
+import { seDisparaEscribiendo } from "./components/jarvis/chatAcciones";
 import { estadoGlobal } from "./lib/status";
 import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { setupTrayEventListeners } from "./lib/tauri-events";
@@ -143,17 +145,27 @@ function AppInner() {
   }, []);
 
   // In-app keyboard shortcuts. The OS-wide Ctrl+Alt+M lives in the Rust
-  // setup; the bindings below are window-scoped. Bindings now live in
-  // ~/.maria/.tmp/in-app-shortcuts.json and are editable via Settings →
-  // General → In-app shortcuts. The map below is a runtime mirror we
-  // refresh on mount + whenever Settings persists a change (via the
-  // "in-app-shortcuts-updated" event the Settings panel emits).
+  // setup; the bindings below are window-scoped. Bindings live in
+  // ~/.maria/.tmp/in-app-shortcuts.json, los sirve
+  // `in_app_shortcuts::get_in_app_shortcuts` (valores por defecto mezclados
+  // encima) y este mapa es el espejo en tiempo de ejecución. Se relee al
+  // montar y con el evento "in-app-shortcuts-updated".
   //
-  // Action keys recognised here (must match defaults in the Rust module
+  // OJO (2026-09-22): el comentario anterior decía "editable via Settings →
+  // General → In-app shortcuts" y esa pantalla NO existe — tampoco existe
+  // `set_in_app_shortcuts`. Hoy se cambian editando el fichero. Docs que no
+  // mienten (mandamiento 6).
+  //
+  // Claves de acción reconocidas aquí (mismos nombres que en Rust,
   // `in_app_shortcuts::default_bindings`):
   //   command.palette · open.settings · refresh.all
   //   tab.<dashboard|usage|notifications|sessions|projects|plans|memory|skills|logs|settings>
+  //   chat.*  — las publica MariaChat mientras está montado (ver
+  //             lib/accionesChat.ts): fuera del chat la lista está vacía y
+  //             esas teclas no hacen nada, en vez de fingir que sí.
   const bindingsRef = useRef<Record<string, string>>({});
+  // Copia reactiva, solo para poder enseñar el atajo en la paleta.
+  const [bindings, setBindings] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -163,7 +175,10 @@ function AppInner() {
           string,
           string
         >;
-        if (!cancelled) bindingsRef.current = map ?? {};
+        if (!cancelled) {
+          bindingsRef.current = map ?? {};
+          setBindings(map ?? {});
+        }
       } catch (err) {
         console.warn("[ultron] get_in_app_shortcuts failed", err);
       }
@@ -176,6 +191,15 @@ function AppInner() {
       window.removeEventListener("in-app-shortcuts-updated", handler);
     };
   }, []);
+
+  // Acciones que publica la pantalla de chat. Se leen por referencia dentro
+  // del listener de teclado (que se registra una sola vez) y por valor para
+  // construir la paleta.
+  const accionesChat = useAccionesChat();
+  const accionesChatRef = useRef(accionesChat);
+  accionesChatRef.current = accionesChat;
+  const paletteOpenRef = useRef(paletteOpen);
+  paletteOpenRef.current = paletteOpen;
 
   useEffect(() => {
     const teardownPromise = setupTrayEventListeners({ setTab });
@@ -305,8 +329,26 @@ function AppInner() {
         return;
       }
 
+      const escribiendo = isTypingTarget(document.activeElement);
+
+      // Acciones del chat. Van ANTES del corte por "estoy escribiendo" porque
+      // ese es justo el momento en que hacen falta: con el cursor en la caja.
+      // Solo las que llevan modificador (o Escape) se disparan ahi, para no
+      // robar una letra — `seDisparaEscribiendo`. Con la paleta abierta no se
+      // tocan: ahi Escape es suyo.
+      if (!paletteOpenRef.current) {
+        for (const a of accionesChatRef.current) {
+          const combo = b[a.id];
+          if (!combo || !matchCombo(combo, e)) continue;
+          if (escribiendo && !seDisparaEscribiendo(combo)) continue;
+          e.preventDefault();
+          a.run();
+          return;
+        }
+      }
+
       // Tab jumps — suppressed while typing so they don't eat keystrokes.
-      if (isTypingTarget(document.activeElement)) return;
+      if (escribiendo) return;
 
       const TAB_ACTIONS: [string, Tab][] = [
         ["tab.usage", "usage"],
@@ -389,12 +431,27 @@ function AppInner() {
   const extraPaletteActions: PaletteAction[] = useMemo(() => {
     const list: PaletteAction[] = [];
 
+    // -- Chat --------------------------------------------------------
+    // La MISMA lista que alimenta los atajos, para que no haya dos catálogos
+    // que se separen. Está vacía fuera de la pestaña Chat: la paleta no puede
+    // ofrecer «parar la respuesta» cuando no hay chat montado que la pare.
+    for (const a of accionesChat) {
+      list.push({
+        id: a.id,
+        label: a.label,
+        description: a.descripcion,
+        group: "Chat",
+        shortcut: bindings[a.id],
+        run: a.run,
+      });
+    }
+
     // -- Actions (refresh / settings / close) -------------------------
     list.push({
       id: "refresh",
       label: "Refrescar avisos",
       description: "Vuelve a leer los avisos del sistema.",
-      group: "Actions",
+      group: "Acciones",
       shortcut: "Ctrl+R",
       run: () => void refreshAll(),
     });
@@ -402,21 +459,21 @@ function AppInner() {
       id: "maria-orb",
       label: "mar.ia — abrir el orbe",
       description: "Ventana pequeña con el blob: voz, estado y acceso rápido.",
-      group: "Actions",
+      group: "Acciones",
       run: () => void runQuiet("Abrir el orbe de mar.ia", "maria_open_orb"),
     });
     list.push({
       id: "settings",
-      label: "Open Settings",
-      group: "Actions",
+      label: "Abrir Ajustes",
+      group: "Acciones",
       shortcut: "Ctrl+,",
       run: () => setTab("settings"),
     });
     list.push({
       id: "close-control-center",
-      label: "Close Control Center",
-      description: "Fully exit the app (not minimize to tray). Frees file locks.",
-      group: "Actions",
+      label: "Cerrar mar.ia del todo",
+      description: "Sale de verdad (no a la bandeja). Suelta los ficheros bloqueados.",
+      group: "Acciones",
       run: async () => {
         const ok = await confirmDialog(
           "Close mar.ia? Global hotkeys stop until you relaunch.",
@@ -432,17 +489,17 @@ function AppInner() {
     // navigation shortcut keeps the palette discoverable.
     list.push({
       id: "diag.native",
-      label: "Open System Diagnostics",
-      description: "Native PC diagnostic (sysinfo + wmi) with AI analysis.",
-      group: "Diagnostics",
+      label: "Abrir el diagnóstico del PC",
+      description: "Diagnóstico nativo (sysinfo + wmi) con análisis de la IA.",
+      group: "Diagnóstico",
       run: () => setTab("system"),
     });
     // -- AI sessions --------------------------------------------------
     list.push({
       id: "ai.spawn.claude",
-      label: "Spawn Claude session",
-      description: "Open a new Claude Code terminal (clipboard prompt mode).",
-      group: "AI",
+      label: "Abrir una sesión de Claude",
+      description: "Terminal nueva de Claude Code (el prompt va por el portapapeles).",
+      group: "IA",
       run: () =>
         void runQuiet("Spawn Claude", "spawn_session", {
           provider: "claude",
@@ -451,9 +508,9 @@ function AppInner() {
     });
     list.push({
       id: "ai.spawn.codex",
-      label: "Spawn Codex session",
-      description: "Launch the Codex CLI (ChatGPT subscription auth).",
-      group: "AI",
+      label: "Abrir una sesión de Codex",
+      description: "Lanza la CLI de Codex (entra con la suscripción de ChatGPT).",
+      group: "IA",
       run: () =>
         void runQuiet("Spawn Codex", "spawn_session", {
           provider: "codex",
@@ -478,17 +535,17 @@ function AppInner() {
     // -- System / lifecycle ------------------------------------------
     list.push({
       id: "sys.rebuild",
-      label: "Rebuild Control Center",
-      description: "Spawn `npm run tauri build` in a new window.",
-      group: "System",
+      label: "Reconstruir mar.ia",
+      description: "Lanza `npm run tauri build` en una ventana aparte.",
+      group: "Sistema",
       run: () =>
         void runQuiet("Rebuild", "run_app_lifecycle", { kind: "update" }),
     });
     list.push({
       id: "sys.uninstall",
       label: "Desinstalar mar.ia",
-      description: "Run the uninstall script in a new window (asks for confirmation).",
-      group: "System",
+      description: "Abre el desinstalador en una ventana aparte (pide confirmación).",
+      group: "Sistema",
       run: async () => {
         const ok = await confirmDialog(
           "Open the uninstaller? This walks you through removing mar.ia.",
@@ -500,21 +557,21 @@ function AppInner() {
     });
     list.push({
       id: "sys.purge-autostart",
-      label: "Purge legacy autostart entries",
-      description: "Remove stale Run-key / Startup shim left by older installs.",
-      group: "System",
+      label: "Limpiar arranques automáticos viejos",
+      description: "Quita las entradas de Run y de Inicio que dejaron instalaciones anteriores.",
+      group: "Sistema",
       run: () => void runQuiet("Purge autostart", "purge_legacy_autostart"),
     });
     list.push({
       id: "sys.scan-projects",
-      label: "Scan projects",
-      description: "Re-scan project folders so the launcher picks up new entries.",
-      group: "System",
+      label: "Volver a buscar proyectos",
+      description: "Reexamina las carpetas para que aparezcan los proyectos nuevos.",
+      group: "Sistema",
       run: () => void runQuiet("Scan projects", "scan_projects"),
     });
 
     return list;
-  }, [maintenanceCommands]);
+  }, [maintenanceCommands, accionesChat, bindings]);
 
   return (
     // HUD de mar.ia: las capas de fondo van detras (z-0, sin eventos de

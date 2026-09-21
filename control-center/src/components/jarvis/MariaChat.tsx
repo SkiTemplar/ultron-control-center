@@ -27,6 +27,8 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ThreadSidebar, type Coincidencia, type ThreadMeta } from "./ThreadSidebar";
 import { HudSelect } from "./HudSelect";
+import { publicarAccionesChat } from "../../lib/accionesChat";
+import { decidirEscape, type AccionChat } from "./chatAcciones";
 import {
   COMMANDS,
   ESFUERZOS,
@@ -200,6 +202,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   /** Lo que mar.ia decidio en el ultimo turno (para pintarlo en la cabecera). */
   const [ultimo, setUltimo] = useState<{ model: string; effort: string } | null>(null);
   const [query, setQuery] = useState("");
+  /** El menú de comandos se ha cerrado a mano (Escape) sin borrar lo escrito.
+   *  Se vuelve a abrir en cuanto se toca la caja: ver el efecto de `prompt`. */
+  const [menuCerrado, setMenuCerrado] = useState(false);
   /** Aciertos dentro del cuerpo de las conversaciones (`maria_threads_buscar`). */
   const [coincidencias, setCoincidencias] = useState<Coincidencia[]>([]);
   const [buscando, setBuscando] = useState(false);
@@ -240,7 +245,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   /** Un nodo por turno pintado, para poder saltar a uno concreto. */
   const turnoRefs = useRef<Array<HTMLElement | null>>([]);
 
-  const sugerencias = suggestFor(prompt);
+  const sugerencias = menuCerrado ? [] : suggestFor(prompt);
   const activa = useMemo(
     () => threads.find((t) => t.id === threadId) ?? null,
     [threads, threadId],
@@ -502,6 +507,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
 
   useEffect(() => {
     setSugerido(0);
+    setMenuCerrado(false);
   }, [prompt]);
 
   async function nuevaConversacion(folder?: string) {
@@ -923,10 +929,116 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     } else if (e.key === "Tab") {
       e.preventDefault();
       aceptarSugerencia();
-    } else if (e.key === "Escape") {
-      setPrompt("");
+    }
+    // Escape NO se trata aquí: es una acción de la lista de abajo, para que la
+    // precedencia esté escrita en un sitio y no dependa del orden de los `if`.
+    // En un panel del mosaico no hay quien la ejecute, así que ahí sí.
+    else if (e.key === "Escape" && compacto) {
+      accionEscape();
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Teclado y paleta: UNA lista de acciones
+  // ---------------------------------------------------------------------------
+
+  /** Qué hace Escape, con la precedencia de `chatAcciones.ts::decidirEscape`. */
+  function accionEscape() {
+    const que = decidirEscape({
+      sugerenciasAbiertas: sugerencias.length > 0,
+      turnoEnCurso: busy,
+    });
+    // Cerrar el menú NO borra lo escrito: antes `setPrompt("")` se llevaba por
+    // delante el mensaje entero (2026-09-22).
+    if (que === "cerrar-sugerencias") setMenuCerrado(true);
+    else if (que === "parar") void invoke("maria_relay_cancel", { threadId });
+  }
+
+  /** Lo que cada acción ejecuta AHORA. Se reasigna en cada render, así que las
+   *  acciones publicadas (que se registran una sola vez) nunca ven un estado
+   *  viejo. */
+  const manos = useRef({ run: {} as Record<string, () => void> });
+  manos.current.run = {
+    "chat.nueva": () => void nuevaConversacion(),
+    "chat.parar": accionEscape,
+    "chat.regenerar": () => void regenerar(),
+    "chat.exportar": () => void exportar(),
+    "chat.panel.cambios": () => setPanel((p) => (p === "cambios" ? null : "cambios")),
+    "chat.panel.ficheros": () => setPanel((p) => (p === "ficheros" ? null : "ficheros")),
+    "chat.panel.web": () => setPanel((p) => (p === "web" ? null : "web")),
+    "chat.ramas": () => void verRamas(),
+    "chat.auto": () => {
+      setForzado(null);
+      setModeloFijo(null);
+      setEsfuerzoFijo(null);
+      avisar("mar.ia vuelve a elegir proveedor, modelo y esfuerzo según lo que escribas");
+    },
+    "chat.delegar": () => {
+      setPrompt("/delegar ");
+      inputRef.current?.focus();
+    },
+  };
+
+  // Publicar solo desde la pantalla de chat de verdad: en un panel del mosaico
+  // (`compacto`) hay varias a la vez y no se sabría cuál manda.
+  useEffect(() => {
+    if (compacto) return;
+    const llamar = (id: string) => () => manos.current.run[id]?.();
+    const lista: AccionChat[] = [
+      { id: "chat.nueva", label: "Chat · conversación nueva", run: llamar("chat.nueva") },
+      {
+        id: "chat.parar",
+        label: "Chat · parar la respuesta",
+        descripcion: "Se conserva lo que el proveedor ya hubiera escrito.",
+        run: llamar("chat.parar"),
+      },
+      {
+        id: "chat.regenerar",
+        label: "Chat · pedir otra vez la última respuesta",
+        run: llamar("chat.regenerar"),
+      },
+      {
+        id: "chat.exportar",
+        label: "Chat · exportar la conversación a Markdown",
+        run: llamar("chat.exportar"),
+      },
+      {
+        id: "chat.panel.cambios",
+        label: "Chat · abrir el panel de cambios",
+        descripcion: "El git diff del proyecto de esta conversación.",
+        run: llamar("chat.panel.cambios"),
+      },
+      {
+        id: "chat.panel.ficheros",
+        label: "Chat · abrir el panel de ficheros",
+        run: llamar("chat.panel.ficheros"),
+      },
+      {
+        id: "chat.panel.web",
+        label: "Chat · abrir la vista previa web",
+        run: llamar("chat.panel.web"),
+      },
+      {
+        id: "chat.ramas",
+        label: "Chat · ver las ramas de la conversación",
+        descripcion: "Lo que quedó atrás al editar un mensaje o regenerar.",
+        run: llamar("chat.ramas"),
+      },
+      {
+        id: "chat.auto",
+        label: "Chat · que vuelva a decidir mar.ia",
+        descripcion: "Suelta el proveedor, el modelo y el esfuerzo fijados a mano.",
+        run: llamar("chat.auto"),
+      },
+      {
+        id: "chat.delegar",
+        label: "Chat · delegar en un proveedor…",
+        descripcion: "Deja «/delegar » escrito para elegir a quién y qué.",
+        run: llamar("chat.delegar"),
+      },
+    ];
+    return publicarAccionesChat(lista);
+  }, [compacto]);
 
   return (
     <div

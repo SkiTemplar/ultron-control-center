@@ -51,6 +51,23 @@ fn default_bindings() -> HashMap<String, String> {
         ("tab.memory", "Alt+7"),
         ("tab.skills", "Alt+8"),
         ("tab.settings", "Alt+0"),
+        // -- Chat (2026-09-22) --
+        //
+        // Los saltos de pestaña de arriba App.tsx los suprime mientras se
+        // escribe, que en el chat es el 100 % del tiempo. Estos NO: van con
+        // modificador (o son Escape), asi que se pueden usar con el cursor
+        // dentro de la caja sin comerse una tecla. Ver `chatAcciones.ts`,
+        // `seDisparaEscribiendo`.
+        //
+        // Solo hacen algo con la pestaña Chat montada: es `MariaChat` quien
+        // publica las acciones, y al desmontarse las retira.
+        ("chat.nueva", "Alt+N"),
+        ("chat.parar", "Escape"),
+        ("chat.regenerar", "Alt+G"),
+        ("chat.exportar", "Alt+E"),
+        ("chat.panel.cambios", "Alt+C"),
+        ("chat.panel.ficheros", "Alt+F"),
+        ("chat.panel.web", "Alt+W"),
     ];
     pairs
         .iter()
@@ -85,4 +102,52 @@ pub fn get_in_app_shortcuts() -> Result<HashMap<String, String>, String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ninguna_combinacion_por_defecto_se_repite() {
+        // Dos acciones con la misma tecla = una de las dos no se ejecuta nunca,
+        // y el bucle de App.tsx se queda con la primera sin decir nada. Anadir
+        // un atajo nuevo sin mirar los que hay es exactamente como pasa.
+        let b = default_bindings();
+        let mut vistas: HashMap<String, String> = HashMap::new();
+        for (accion, combo) in &b {
+            let clave = combo.to_lowercase();
+            if let Some(otra) = vistas.insert(clave, accion.clone()) {
+                panic!("«{combo}» esta en {accion} y en {otra}");
+            }
+        }
+    }
+
+    #[test]
+    fn las_acciones_del_chat_no_se_comen_el_teclado_al_escribir() {
+        // Caso negativo del chat: un atajo sin modificador (y que no sea
+        // Escape) robaria la letra con el cursor en la caja de escribir. La
+        // regla vive en `chatAcciones.ts::seDisparaEscribiendo`; aqui se
+        // comprueba que los valores por defecto la cumplen.
+        let b = default_bindings();
+        for (accion, combo) in b.iter().filter(|(k, _)| k.starts_with("chat.")) {
+            let c = combo.to_lowercase();
+            assert!(
+                c.starts_with("alt+")
+                    || c.starts_with("ctrl+")
+                    || c.starts_with("meta+")
+                    || c == "escape",
+                "{accion} = «{combo}» se comeria una tecla al escribir"
+            );
+        }
+    }
+
+    #[test]
+    fn un_fichero_ilegible_no_deja_la_app_sin_atajos() {
+        // `get_in_app_shortcuts` nunca falla: sin fichero devuelve los valores
+        // por defecto, que es lo que hace que la app siempre tenga teclado.
+        let map = get_in_app_shortcuts().expect("nunca devuelve Err");
+        assert!(map.contains_key("command.palette"));
+        assert!(map.contains_key("chat.parar"));
+    }
 }

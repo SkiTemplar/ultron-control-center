@@ -31,32 +31,53 @@ type Props = {
 };
 
 // Palette enumerates every tab known to the Tab union, including the
-// secondary ones the sidebar keeps under "More". "Navigate (More)" labels
-// mirror the Sidebar grouping so power users see them together.
+// secondary ones the sidebar keeps under "More".
+//
+// En castellano desde el 2026-09-22: la app entera responde en español y la
+// paleta seguia en ingles ("Go to Usage", "Go to Sessions"...), que es lo que
+// uno teclea para buscarlas. El id de la accion NO cambia — es lo que guardan
+// los atajos — solo la etiqueta que se lee y por la que se busca.
 const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
-  { id: "usage", label: "Go to Usage", group: "Navigate" },
-  { id: "notifications", label: "Go to Notifications", group: "Navigate" },
-  { id: "system", label: "Go to System", group: "Navigate" },
-  { id: "mcps", label: "Go to MCPs", group: "Navigate" },
-  { id: "library", label: "Go to Library", group: "Navigate" },
-  { id: "skills", label: "Library · Skills", group: "Navigate" },
-  { id: "agents", label: "Library · Agents", group: "Navigate" },
-  { id: "rules", label: "Library · Rules", group: "Navigate" },
-  { id: "chat", label: "Go to Chat (relevo de proveedores)", group: "Navigate" },
-  { id: "conversations", label: "Go to Conversations", group: "Navigate" },
-  { id: "sessions", label: "Go to Sessions", group: "Navigate" },
-  { id: "projects", label: "Go to Projects", group: "Navigate" },
-  { id: "memory", label: "Go to Memory", group: "Navigate" },
-  { id: "settings", label: "Go to Settings", group: "Navigate" },
+  { id: "usage", label: "Ir a Consumo", group: "Ir a" },
+  { id: "notifications", label: "Ir a Avisos", group: "Ir a" },
+  { id: "system", label: "Ir a Sistema", group: "Ir a" },
+  { id: "mcps", label: "Ir a MCPs", group: "Ir a" },
+  { id: "library", label: "Ir a Biblioteca", group: "Ir a" },
+  { id: "skills", label: "Biblioteca · Skills", group: "Ir a" },
+  { id: "agents", label: "Biblioteca · Agentes", group: "Ir a" },
+  { id: "rules", label: "Biblioteca · Reglas", group: "Ir a" },
+  { id: "chat", label: "Ir al Chat (relevo de proveedores)", group: "Ir a" },
+  { id: "conversations", label: "Ir a Conversaciones", group: "Ir a" },
+  { id: "sessions", label: "Ir a Sesiones", group: "Ir a" },
+  { id: "projects", label: "Ir a Proyectos", group: "Ir a" },
+  { id: "memory", label: "Ir a Memoria", group: "Ir a" },
+  { id: "settings", label: "Ir a Ajustes", group: "Ir a" },
 ];
+
+/**
+ * Minúsculas y sin tildes. Con la paleta en castellano hace falta: nadie
+ * escribe «conversación» con tilde para buscar, y el comparador de abajo va
+ * carácter a carácter, así que sin esto «conversacion» no encontraba nada
+ * (2026-09-22). La ñ entra en el mismo saco: en una caja de búsqueda «anadir»
+ * tiene que encontrar «añadir».
+ */
+function sinTildes(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
 
 // Tiny in-order fuzzy scorer. Returns a positive score when every char of
 // `q` appears in `text` in order, with bonuses for consecutive matches
 // and word-boundary starts. Negative result means "no match".
-function fuzzyScore(text: string, q: string): number {
+//
+// Exportado para poder probarlo con las etiquetas de verdad: es lo que decide
+// si escribir "cam" encuentra "Chat · abrir el panel de cambios".
+export function fuzzyScore(text: string, q: string): number {
   if (!q) return 1;
-  const t = text.toLowerCase();
-  const query = q.toLowerCase();
+  const t = sinTildes(text);
+  const query = sinTildes(q);
   let ti = 0;
   let qi = 0;
   let score = 0;
@@ -210,7 +231,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
               setCursor(0);
             }}
             onKeyDown={onKey}
-            placeholder="Type a command, navigate, or search…"
+            placeholder="escribe una orden, o el nombre de una pantalla…"
             className="w-full bg-transparent px-1 py-1 text-[13px] outline-none"
             style={{ color: "var(--color-text)" }}
           />
@@ -221,7 +242,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
               className="px-3 py-4 text-[12px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              No matches.
+              no hay nada con eso.
             </div>
           )}
           {grouped.map((g, gi) => (
@@ -278,8 +299,8 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
           style={{ borderColor: "var(--color-border)", color: "var(--color-text-tertiary)" }}
         >
           <span>
-            ↑↓ navigate · Enter run · Esc close · {filtered.length} command
-            {filtered.length === 1 ? "" : "s"}
+            ↑↓ moverse · Enter ejecutar · Esc cerrar · {filtered.length} orden
+            {filtered.length === 1 ? "" : "es"}
           </span>
           <span>Ctrl+K</span>
         </div>
