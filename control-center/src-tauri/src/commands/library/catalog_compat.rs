@@ -542,6 +542,10 @@ mod tests {
             html_url: None,
             updated_at: None,
             topics: topics.iter().map(|s| s.to_string()).collect(),
+            // 2026-09-22: `RepoHit` gano las senales que la API REST si
+            // devuelve (creacion, ultimo push, licencia, estrellas/dia). No
+            // afectan a la puntuacion de encaje, asi que aqui van por defecto.
+            ..RepoHit::default()
         }
     }
 

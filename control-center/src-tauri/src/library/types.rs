@@ -6,15 +6,10 @@ use serde::{Deserialize, Serialize};
 // Core domain types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteItem {
-    pub owner: String,
-    pub repo: String,
-    pub path: String,
-    pub name: String,
-    pub html_url: Option<String>,
-    pub preview: Option<String>,
-}
+// `RemoteItem` (owner/repo/path/name/html_url/preview) se retiro el 2026-09-22
+// junto con `search.rs`: era el tipo de salida de `gh search code` y no queda
+// ningun productor en Rust. El tipo equivalente del frontend sigue vivo porque
+// es la forma que rellena el modal de instalacion a mano.
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -55,7 +50,3 @@ pub struct SkillCreateSpec {
     pub description: String,
     pub body: String,
 }
-
-// ---------------------------------------------------------------------------
-// AI-driven install types
-// ---------------------------------------------------------------------------

@@ -1,18 +1,12 @@
 //! P5 — Agent/Skill library Tauri command wrappers.
-//! v2.1 — also surfaces the curated catalog (`cockpit/curated-catalog.json`)
-//! that powers the Library -> Catalog sub-tab.
+//!
+//! 2026-09-22: la cabecera decia que este modulo expone el catalogo curado de
+//! `cockpit/curated-catalog.json`. Era falso desde hacia tiempo (no habia ni
+//! un lector del fichero en todo el codigo), asi que la afirmacion se retira
+//! junto con las structs que la sostenian. El descubrimiento de repositorios
+//! vive en `commands::library::repos`.
 
 use crate::library;
-
-#[tauri::command]
-pub async fn library_search_github(
-    query: String,
-    kind: library::LibraryKind,
-    limit: Option<u32>,
-) -> Result<Vec<library::RemoteItem>, String> {
-    let lim = limit.unwrap_or(30);
-    library::search_github_inner(query, kind, lim).await
-}
 
 #[derive(serde::Deserialize)]
 pub struct InstallArgs {
@@ -145,243 +139,15 @@ pub fn library_list_pinned(project_id: String) -> Result<library::PinnedAgents, 
 }
 
 // ---------------------------------------------------------------------------
-// Catalog refresh — fetch the first paragraph of each item's source file
-// from GitHub raw and return them keyed by `owner/repo/path`. The frontend
-// merges these into the static seed summaries so the cards show fresh
-// upstream wording on every Catalog mount. Failures are reported per-item;
-// the global call never errors out.
-// ---------------------------------------------------------------------------
-
-#[derive(serde::Serialize)]
-pub struct CatalogPreview {
-    pub key: String,
-    pub summary: Option<String>,
-    pub error: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-pub struct CatalogPreviewRequest {
-    pub owner: String,
-    pub repo: String,
-    pub path: String,
-    /// Optional branch override; defaults to `main` and falls back to `master`.
-    #[serde(default)]
-    pub branch: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
-// GitHub repo search — discover new skills/agents/MCP servers by repo, not by
-// file path. Backs the Library -> Catalog "Search GitHub" panel.
+// Tarjeta de repositorio
 // ---------------------------------------------------------------------------
 //
-// We deliberately shell out to `gh search repos` (already authenticated, no
-// extra reqwest plumbing, same CREATE_NO_WINDOW Windows handling as the rest
-// of library.rs). `mode = "trending"` is implemented as a recently-updated
-// query restricted to claude-flavoured topics — GitHub does not expose a
-// first-class "trending" endpoint, but stars + recent push is a workable
-// proxy and matches what the user sees on github.com/trending.
-//
-// Errors are returned as a flat Vec<RepoHit> with the error surfaced via the
-// command-level `Err(String)` so the UI can render a single inline message.
+// `RepoHit` vivia aqui y se rellenaba con `gh search repos`. Desde el
+// 2026-09-22 la define `maria::repos`, que es quien habla con la API REST, y
+// aqui solo se reexporta para no romper a sus consumidores (`catalog_compat`
+// la importa por esta ruta).
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RepoHit {
-    pub full_name: String,
-    pub owner: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub stars: u64,
-    pub language: Option<String>,
-    pub html_url: Option<String>,
-    pub updated_at: Option<String>,
-    pub topics: Vec<String>,
-}
-
-/// Local `gh` spawn helper mirroring the one in `crate::library` — kept in
-/// this module so we don't need to widen the visibility of the original.
-/// Windows-only `CREATE_NO_WINDOW` (0x0800_0000) keeps the subprocess from
-/// flashing a console window.
-fn gh_command_local(args: &[String]) -> std::process::Command {
-    let mut cmd = crate::proc::oculto("gh");
-    cmd.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
-}
-
-fn run_gh_search_repos(args: Vec<String>) -> Result<Vec<RepoHit>, String> {
-    let output = gh_command_local(&args)
-        .output()
-        .map_err(|e| format!("gh search repos failed: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("gh exited {}: {}", output.status, stderr));
-    }
-
-    #[derive(serde::Deserialize)]
-    struct GhOwner {
-        login: String,
-    }
-    #[derive(serde::Deserialize)]
-    struct GhRepoHit {
-        #[serde(rename = "fullName")]
-        full_name: String,
-        owner: GhOwner,
-        name: String,
-        description: Option<String>,
-        #[serde(rename = "stargazersCount")]
-        stargazers_count: u64,
-        language: Option<String>,
-        url: Option<String>,
-        #[serde(rename = "updatedAt")]
-        updated_at: Option<String>,
-        #[serde(default)]
-        topics: Vec<serde_json::Value>,
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let hits: Vec<GhRepoHit> =
-        serde_json::from_str(&stdout).map_err(|e| format!("gh json parse: {e}"))?;
-
-    let out = hits
-        .into_iter()
-        .map(|h| {
-            // gh's `--json topics` field returns either a list of
-            // bare strings (`["foo", "bar"]`) or a list of objects
-            // (`[{"name": "foo"}, ...]`) depending on the gh version.
-            // Accept both shapes safely.
-            let topics: Vec<String> = h
-                .topics
-                .iter()
-                .filter_map(|v| {
-                    if let Some(s) = v.as_str() {
-                        return Some(s.to_string());
-                    }
-                    v.get("name")
-                        .and_then(|n| n.as_str())
-                        .map(|s| s.to_string())
-                })
-                .collect();
-            RepoHit {
-                full_name: h.full_name,
-                owner: h.owner.login,
-                name: h.name,
-                description: h.description,
-                stars: h.stargazers_count,
-                language: h.language,
-                html_url: h.url,
-                updated_at: h.updated_at,
-                topics,
-            }
-        })
-        .collect();
-
-    Ok(out)
-}
-
-/// Free-text repo search. The query is passed verbatim as the first arg to
-/// `gh search repos`, which supports standard GitHub qualifiers (`stars:>N`,
-/// `language:rust`, `topic:claude-code`, …) — the frontend can either send a
-/// raw user input or pre-assemble qualifiers.
-#[tauri::command]
-pub async fn github_search_repos(
-    query: String,
-    limit: Option<u32>,
-) -> Result<Vec<RepoHit>, String> {
-    let q = query.trim().to_string();
-    if q.is_empty() {
-        return Err("query is empty".to_string());
-    }
-    let lim = limit.unwrap_or(20).clamp(1, 50).to_string();
-    // NOTE: `topics` was removed from the --json field list — recent gh
-    // versions reject it as "Unknown JSON field". GhRepoHit::topics has
-    // #[serde(default)] so the parser still works and the field stays empty.
-    let args: Vec<String> = vec![
-        "search".into(),
-        "repos".into(),
-        q,
-        "--json".into(),
-        "fullName,owner,name,description,stargazersCount,language,url,updatedAt".into(),
-        "--limit".into(),
-        lim,
-        "--sort".into(),
-        "stars".into(),
-    ];
-    tauri::async_runtime::spawn_blocking(move || run_gh_search_repos(args))
-        .await
-        .map_err(|e| format!("spawn join: {e}"))?
-}
-
-/// "Trending" feed for Claude-flavoured repos. Implemented as a union over
-/// the topics the community has settled on (claude-skill, claude-skills,
-/// claude-agent, claude-agents, mcp, mcp-server, claude-code), filtered to
-/// repos pushed in the last 90 days and sorted by stars. The hardcoded
-/// topic list keeps the call deterministic and avoids hitting per-topic
-/// quotas.
-#[tauri::command]
-pub async fn github_search_trending(
-    kind: Option<String>,
-    limit: Option<u32>,
-) -> Result<Vec<RepoHit>, String> {
-    let kind = kind.unwrap_or_else(|| "all".to_string());
-    let topics: Vec<&str> = match kind.as_str() {
-        "skill" | "skills" => vec![
-            "claude-skill",
-            "claude-skills",
-            "agent-skill",
-            "claude-code-skills",
-        ],
-        "agent" | "agents" => vec!["claude-agent", "claude-agents", "claude-code-agents"],
-        "mcp" => vec!["mcp", "mcp-server", "model-context-protocol"],
-        _ => vec![
-            "claude-skill",
-            "claude-skills",
-            "claude-agent",
-            "claude-agents",
-            "mcp-server",
-            "claude-code",
-        ],
-    };
-    // GitHub search supports OR'd topic qualifiers as `topic:a topic:b`
-    // (logical OR when multiple qualifiers of the same key are given).
-    let topic_qualifiers = topics
-        .iter()
-        .map(|t| format!("topic:{t}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    // Pushed in the last ~90 days. Computed dynamically con chrono para que
-    // la ventana no se quede congelada (antes era una fecha hardcodeada que
-    // envejecía y degradaba los resultados de "trending").
-    let cutoff = (chrono::Utc::now() - chrono::Duration::days(90))
-        .format("%Y-%m-%d")
-        .to_string();
-    let pushed_window = format!("pushed:>{cutoff}");
-
-    let q = format!("{topic_qualifiers} {pushed_window}");
-    let lim = limit.unwrap_or(24).clamp(1, 50).to_string();
-    // See github_search_repos: `topics` field was dropped from gh CLI; the
-    // query qualifiers (`topic:...`) still narrow the result set server-side.
-    let args: Vec<String> = vec![
-        "search".into(),
-        "repos".into(),
-        q,
-        "--json".into(),
-        "fullName,owner,name,description,stargazersCount,language,url,updatedAt".into(),
-        "--limit".into(),
-        lim,
-        "--sort".into(),
-        "stars".into(),
-    ];
-
-    tauri::async_runtime::spawn_blocking(move || run_gh_search_repos(args))
-        .await
-        .map_err(|e| format!("spawn join: {e}"))?
-}
+pub use crate::maria::repos::RepoHit;
 
 // ---------------------------------------------------------------------------
 // v2.6 (v27-f14) — list_skill_files: list sibling files of a SKILL.md /

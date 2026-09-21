@@ -1,0 +1,8 @@
+{
+  "sha": "9999888877776666555544443333222211110000",
+  "truncated": true,
+  "tree": [
+    { "path": "skills", "type": "tree" },
+    { "path": "skills/uno/SKILL.md", "type": "blob", "size": 1000 }
+  ]
+}

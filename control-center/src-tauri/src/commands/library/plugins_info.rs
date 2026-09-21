@@ -27,8 +27,10 @@ pub fn uninstall_plugin_cache(name: String, marketplace: String) -> Result<(), S
 ///   2. Derives the plugin sub-path inside the repo (e.g.
 ///      `plugins/code-review` for `claude-plugins-official`; empty for
 ///      whole-repo plugins like ECC or superpowers).
-///   3. Calls `gh api repos/<owner>/<repo>/commits?path=<subpath>&per_page=1`
-///      to get the HEAD SHA + commit message.
+///   3. Calls `GET /repos/<owner>/<repo>/commits?path=<subpath>&per_page=1`
+///      over HTTP (via `maria::repos`) to get the HEAD SHA + commit message.
+///      2026-09-22: this used to shell out to `gh api`, which is not installed
+///      on this machine, so the whole check failed every time.
 ///   4. Compares against the `gitCommitSha` stored in
 ///      `installed_plugins.json`.  Plugins without a local SHA fall back to
 ///      ISO-timestamp comparison.

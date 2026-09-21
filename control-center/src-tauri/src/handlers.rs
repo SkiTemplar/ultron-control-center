@@ -318,13 +318,14 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // v2.9.5 — SHA-aware bulk update check + AI changelog summary
         commands::plugins_info::plugin_check_updates_bulk,
         commands::plugins_info::plugin_changelog_summary,
-        // -- library (P5 — GitHub search + install + per-project pin) --
-        // v2.1: curated catalog feed. v2.2: live preview refresh.
-        commands::library::library_search_github,
+        // -- library (P5 — install from GitHub + per-project pin) --
         commands::library::library_install_from_github,
-        // v2.6.1: GitHub repo discovery for Catalog tab.
-        commands::library::github_search_repos,
-        commands::library::github_search_trending,
+        // 2026-09-22: Destacados. Sustituyen a github_search_repos /
+        // github_search_trending / library_search_github, que lanzaban la CLI
+        // `gh` (ausente en esta maquina) y concatenaban topics con AND.
+        commands::library::repos_buscar,
+        commands::library::repos_detalle,
+        commands::library::repos_aplicar,
         commands::library::agent_create,
         commands::library::skill_create,
         commands::library::library_pin_agent,

@@ -31,7 +31,7 @@ struct InstalledPluginRecord {
 }
 
 /// GitHub commit summary shape returned by
-/// `gh api repos/<owner>/<repo>/commits?path=<p>&per_page=1`.
+/// `GET /repos/<owner>/<repo>/commits?path=<p>&per_page=1`.
 #[derive(Debug, Deserialize)]
 struct GhCommit {
     sha: Option<String>,
@@ -214,16 +214,16 @@ pub(super) fn plugin_repo_subpath(marketplace: &str, plugin_name: &str) -> Strin
 // GitHub API helpers
 // ---------------------------------------------------------------------------
 
-/// Build a `gh` command (Windows: CREATE_NO_WINDOW).
-fn gh_cmd_v2(args: &[&str]) -> std::process::Command {
-    let mut cmd = crate::proc::oculto("gh");
-    cmd.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
+/// Pide un endpoint de la API de GitHub y lo parsea como lista de commits.
+///
+/// 2026-09-22: esto lanzaba `gh api <endpoint>`. En esta maquina `gh` no esta
+/// instalado (`where gh` vacio), asi que el chequeo de actualizaciones de
+/// plugins fallaba siempre con un "spawn gh" que no decia nada. Ahora va por
+/// HTTP con el resto: `maria::repos` pone el User-Agent, el token opcional de
+/// GITHUB_TOKEN y la contabilidad de cuota.
+fn commits_de(endpoint: &str) -> Result<Vec<GhCommit>, String> {
+    let valor = crate::maria::repos::api_json(endpoint)?;
+    serde_json::from_value(valor).map_err(|e| format!("parse github api json: {e}"))
 }
 
 /// Fetch the latest commit SHA + message + date for `<owner>/<repo>` at
@@ -236,22 +236,7 @@ fn fetch_latest_commit(repo_slug: &str, subpath: &str) -> Result<(String, String
         format!("repos/{repo_slug}/commits?path={encoded}&per_page=1")
     };
 
-    let output = gh_cmd_v2(&["api", &endpoint])
-        .output()
-        .map_err(|e| format!("spawn gh: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("gh api exited {}", output.status)
-        } else {
-            stderr
-        });
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let commits: Vec<GhCommit> =
-        serde_json::from_str(&stdout).map_err(|e| format!("parse gh api json: {e}"))?;
+    let commits = commits_de(&endpoint)?;
 
     let first = commits
         .into_iter()
@@ -285,22 +270,7 @@ fn fetch_commit_log(repo_slug: &str, subpath: &str, n: u8) -> Result<Vec<String>
         format!("repos/{repo_slug}/commits?path={encoded}&per_page={n_str}")
     };
 
-    let output = gh_cmd_v2(&["api", &endpoint])
-        .output()
-        .map_err(|e| format!("spawn gh: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("gh api exited {}", output.status)
-        } else {
-            stderr
-        });
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let commits: Vec<GhCommit> =
-        serde_json::from_str(&stdout).map_err(|e| format!("parse gh api json: {e}"))?;
+    let commits = commits_de(&endpoint)?;
 
     let lines: Vec<String> = commits
         .into_iter()

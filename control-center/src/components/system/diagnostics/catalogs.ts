@@ -58,11 +58,15 @@ export const COMMON_ERRORS: CommonError[] = [
     ],
   },
   {
+    // 2026-09-22: mar.ia ya NO necesita `gh`. Todo lo suyo (Destacados,
+    // instalar desde GitHub, chequeo de plugins) va por HTTP. Esto se queda
+    // como diagnóstico de presencia para los comandos que lances tú.
     id: "gh-cli-missing",
     category: "System",
     severity: "warning",
     title: "gh CLI missing",
-    symptom: "GitHub operations in workflows fail; 'gh' command not recognized.",
+    symptom:
+      "'gh' no está en el PATH. mar.ia no lo necesita (habla con GitHub por HTTP); sólo afecta a los comandos gh que lances tú en una terminal.",
     checkId: "gh-cli-missing",
     primaryFixKind: null,
     primaryFixLabel: "scoop install gh",

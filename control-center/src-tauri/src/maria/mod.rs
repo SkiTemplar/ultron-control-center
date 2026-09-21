@@ -26,6 +26,7 @@ pub(crate) mod paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
 pub(crate) mod perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
 pub(crate) mod quota; // mar.ia: consumo real por ventana movil
 pub(crate) mod relay; // mar.ia: relevo de proveedores sobre un unico hilo
+pub(crate) mod repos; // mar.ia: repos destacados por HTTP (sin la CLI gh), clasificar y aplicar
 pub(crate) mod sysinfo; // mar.ia: consumo real por ventana movil
 pub(crate) mod tailscale; // mar.ia: por que la direccion .ts.net da 404
 pub(crate) mod teclado; // mar.ia: autocompletado global con `//maria`

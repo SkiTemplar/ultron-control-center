@@ -4,7 +4,7 @@
 //
 //   batches_sub/   — .bat/.ps1 runner, OpenGL scaffolder, project detach/reattach
 //   kanban_sub/    — Kanban board CRUD + archive
-//   library/       — GitHub search/install, curated catalog, plugins, skills
+//   library/       — Destacados (repos por HTTP), install, plugins, skills
 //   memory/        — recall (per-project/global/hybrid), inbox, catalog
 //   misc_sub/      — Root helpers, alerts, MCPs, hotkeys, external editor, slash cmds
 //   notes_sub/     — Per-project notes, global notes, inbox, button prompts

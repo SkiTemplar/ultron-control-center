@@ -1,0 +1,11 @@
+{
+  "sha": "1111222233334444555566667777888899990000",
+  "truncated": false,
+  "tree": [
+    { "path": ".claude-plugin", "type": "tree" },
+    { "path": ".claude-plugin/marketplace.json", "type": "blob", "size": 2400 },
+    { "path": "plugins", "type": "tree" },
+    { "path": "plugins/legal/README.md", "type": "blob", "size": 800 },
+    { "path": "README.md", "type": "blob", "size": 1000 }
+  ]
+}

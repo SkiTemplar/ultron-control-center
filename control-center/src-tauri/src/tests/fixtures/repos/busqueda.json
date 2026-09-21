@@ -1,0 +1,48 @@
+{
+  "total_count": 3,
+  "incomplete_results": false,
+  "items": [
+    {
+      "full_name": "anthropics/skills",
+      "name": "skills",
+      "owner": { "login": "anthropics" },
+      "description": "Agent Skills for Claude",
+      "stargazers_count": 177470,
+      "language": "Python",
+      "html_url": "https://github.com/anthropics/skills",
+      "updated_at": "2026-09-10T08:00:00Z",
+      "created_at": "2026-01-15T10:00:00Z",
+      "pushed_at": "2026-09-10T07:30:00Z",
+      "license": { "spdx_id": "MIT" },
+      "topics": ["agent-skills", "claude", "claude-code"]
+    },
+    {
+      "full_name": "modelcontextprotocol/servers",
+      "name": "servers",
+      "owner": { "login": "modelcontextprotocol" },
+      "description": "Model Context Protocol Servers",
+      "stargazers_count": 90534,
+      "language": "TypeScript",
+      "html_url": "https://github.com/modelcontextprotocol/servers",
+      "updated_at": "2026-09-09T12:00:00Z",
+      "created_at": "2025-11-01T09:00:00Z",
+      "pushed_at": "2026-09-09T11:00:00Z",
+      "license": { "spdx_id": "MIT" },
+      "topics": ["mcp", "mcp-server"]
+    },
+    {
+      "full_name": "ejemplo/sin-licencia",
+      "name": "sin-licencia",
+      "owner": { "login": "ejemplo" },
+      "description": "Un repo\ncon saltos de linea y ``` vallas",
+      "stargazers_count": 12,
+      "language": null,
+      "html_url": "https://github.com/ejemplo/sin-licencia",
+      "updated_at": "2026-08-01T00:00:00Z",
+      "created_at": "2026-05-01T00:00:00Z",
+      "pushed_at": "2026-08-01T00:00:00Z",
+      "license": null,
+      "topics": []
+    }
+  ]
+}

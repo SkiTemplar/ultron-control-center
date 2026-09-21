@@ -375,11 +375,14 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
                 details: format!("gh CLI found at {}", p.display()),
                 suggested_fix: None,
             },
+            // 2026-09-22: mar.ia dejo de depender de `gh` (Destacados,
+            // instalar desde GitHub y el chequeo de plugins van por HTTP), asi
+            // que esto es un aviso informativo, no una pieza rota de la app.
             Err(_) => DiagnosticCheckResult {
                 status: "warn".into(),
-                details: "gh not found on PATH.".into(),
+                details: "gh not found on PATH. mar.ia does not need it (it talks to GitHub over HTTP); this only affects gh commands you run yourself.".into(),
                 suggested_fix: Some(
-                    "Install with: scoop install gh  OR  winget install GitHub.cli".into(),
+                    "Optional — install with: scoop install gh  OR  winget install GitHub.cli".into(),
                 ),
             },
         },

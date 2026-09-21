@@ -1,10 +1,18 @@
-//! Install agent/skill from GitHub via `gh api repos/<owner>/<repo>/contents/<path>`.
+//! Instalar un agente/skill suelto desde GitHub.
+//!
+//! 2026-09-22: antes esto lanzaba `gh api repos/<owner>/<repo>/contents/<path>`.
+//! En esta maquina `gh` no esta instalado, asi que el camino estaba muerto.
+//! Ahora baja el contenido por HTTP a traves de `maria::repos::contenido`, que
+//! ademas fija la descarga a una referencia concreta.
+//!
+//! LIMITE DECLARADO (mandamiento 13): esto instala UN fichero. Una skill con
+//! scripts al lado se quedaria a medias, y por eso el camino nuevo de
+//! "Destacados" no pasa por aqui: usa `repos_aplicar`, que trabaja con el
+//! manifiesto completo de la carpeta. Esta funcion sigue viva porque es la que
+//! consume el modal de instalacion desde la pestana Agents.
 
 use std::path::PathBuf;
 
-use serde::Deserialize;
-
-use super::gh_helpers::{base64_decode, gh_command};
 use super::helpers::{atomic_write_bytes, is_kebab, resolve_agent_target, resolve_skill_dir};
 use super::types::{LibraryKind, TargetScope};
 
@@ -19,35 +27,16 @@ pub async fn install_from_github_inner(
     target_name: Option<String>,
     overwrite: bool,
 ) -> Result<PathBuf, String> {
-    let endpoint = format!("repos/{}/{}/contents/{}", owner, repo, path);
-    let args: Vec<String> = vec!["api".into(), endpoint];
-    let output = tauri::async_runtime::spawn_blocking(move || gh_command(&args).output())
-        .await
-        .map_err(|e| format!("spawn join: {e}"))?
-        .map_err(|e| format!("gh api failed: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("gh api exited {}: {}", output.status, stderr));
-    }
+    // La descarga es bloqueante (reqwest::blocking, como el resto del crate):
+    // va al pool de bloqueo para no parar el runtime asincrono.
+    let (o, r, p) = (owner.clone(), repo.clone(), path.clone());
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        // `HEAD` es la rama por defecto del repositorio, sea cual sea su nombre.
+        crate::maria::repos::contenido(&o, &r, &p, "HEAD")
+    })
+    .await
+    .map_err(|e| format!("spawn join: {e}"))??;
 
-    #[derive(Deserialize)]
-    struct ContentResp {
-        content: String,
-        encoding: String,
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let resp: ContentResp =
-        serde_json::from_str(&stdout).map_err(|e| format!("gh api json: {e}"))?;
-    if resp.encoding != "base64" {
-        return Err(format!("unexpected encoding: {}", resp.encoding));
-    }
-    // GitHub wraps base64 with newlines every 60 chars.
-    let cleaned: String = resp
-        .content
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    let bytes = base64_decode(&cleaned)?;
     let body = String::from_utf8(bytes).map_err(|e| format!("not utf-8: {e}"))?;
 
     // Derive final name + target path.

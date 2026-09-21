@@ -98,10 +98,14 @@ const SUB_TABS: SubTabSpec[] = [
     hint: "Chat tones (personalities): edit detection signals + test which tone a prompt activates.",
   },
   {
+    // 2026-09-22: se llamaba "Catalog" y dependía de la CLI `gh`, que aquí no
+    // está: las seis pestañas fallaban siempre. El id interno SIGUE siendo
+    // "catalog" a propósito, porque es lo que hay guardado en el
+    // localStorage de los usuarios; sólo cambia la etiqueta.
     id: "catalog",
-    label: "Catalog",
+    label: "Destacados",
     Icon: Compass,
-    hint: "Discover curated picks + search GitHub for new skills, agents and MCP servers.",
+    hint: "Repos destacados de skills, agentes y MCP: mira qué traen y aplícalos.",
   },
 ];
 

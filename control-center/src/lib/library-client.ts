@@ -1,46 +1,64 @@
-// P5 — Agent/Skill library client. Wraps the Tauri `library_*` commands
-// with a small de-duplication guard for in-flight searches.
+// P5 — Agent/Skill library client. Envuelve los comandos Tauri `library_*`
+// y los de Destacados (`repos_*`).
+//
+// 2026-09-22: `librarySearchGitHub` se retiró con su comando de Rust. Lanzaba
+// `gh search code` (ausente en esta máquina) y no tenía ni un llamador: el
+// único sitio del código donde aparecía era su propia definición.
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentCreateInput,
   AnalyzeRepoResult,
+  DetalleRepo,
+  FuenteRepos,
   InstallInput,
-  LibraryKind,
   PinnedAgents,
-  RemoteItem,
+  PlanAplicar,
+  RespuestaBusqueda,
+  ResultadoAplicar,
   SkillCreateInput,
 } from "../types";
 
-let searchInflight: Promise<RemoteItem[]> | null = null;
-
-export async function librarySearchGitHub(
-  query: string,
-  kind: LibraryKind,
-  limit = 30,
-): Promise<RemoteItem[]> {
-  if (!query.trim()) return [];
-  if (searchInflight) {
-    try {
-      await searchInflight;
-    } catch {
-      /* prev failed, continue */
-    }
-  }
-  searchInflight = invoke<RemoteItem[]>("library_search_github", {
-    query,
-    kind,
-    limit,
-  });
-  try {
-    return await searchInflight;
-  } finally {
-    searchInflight = null;
-  }
-}
-
 export function libraryInstallFromGitHub(args: InstallInput): Promise<string> {
   return invoke<string>("library_install_from_github", { args });
+}
+
+// ---------------------------------------------------------------------------
+// Destacados
+// ---------------------------------------------------------------------------
+
+/**
+ * Una fuente de repositorios. Nunca rechaza por cuota agotada: eso viaja
+ * dentro de la respuesta (`cuota.agotada` + `avisos`) porque en la pantalla es
+ * otro estado, no un fallo.
+ *
+ * `refrescar` salta la caché de disco, y es lo único que gasta cuota a
+ * petición del usuario: sin token son 10 búsquedas por minuto para toda la
+ * aplicación.
+ */
+export function reposBuscar(
+  fuente: FuenteRepos,
+  consulta: string | null,
+  limite = 30,
+  refrescar = false,
+): Promise<RespuestaBusqueda> {
+  return invoke<RespuestaBusqueda>("repos_buscar", {
+    args: { fuente, consulta, limite, refrescar },
+  });
+}
+
+/** Qué trae un repo, leyendo sólo la lista de rutas de su árbol. */
+export function reposDetalle(
+  owner: string,
+  repo: string,
+  refrescar = false,
+): Promise<DetalleRepo> {
+  return invoke<DetalleRepo>("repos_detalle", { owner, repo, refrescar });
+}
+
+/** Aplica un plan que el usuario ya ha visto en el manifiesto. */
+export function reposAplicar(plan: PlanAplicar): Promise<ResultadoAplicar> {
+  return invoke<ResultadoAplicar>("repos_aplicar", { plan });
 }
 
 /**

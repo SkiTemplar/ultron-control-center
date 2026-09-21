@@ -1,0 +1,17 @@
+{
+  "sha": "aaaabbbbccccddddeeeeffff0000111122223333",
+  "truncated": false,
+  "tree": [
+    { "path": "README.md", "type": "blob", "size": 1200 },
+    { "path": "skills", "type": "tree" },
+    { "path": "skills/pdf", "type": "tree" },
+    { "path": "skills/pdf/SKILL.md", "type": "blob", "size": 4300 },
+    { "path": "skills/pdf/scripts", "type": "tree" },
+    { "path": "skills/pdf/scripts/extraer.py", "type": "blob", "size": 2100 },
+    { "path": "skills/pdf/referencias/formato.md", "type": "blob", "size": 900 },
+    { "path": "skills/docx/SKILL.md", "type": "blob", "size": 3800 },
+    { "path": "agents", "type": "tree" },
+    { "path": "agents/revisor.md", "type": "blob", "size": 1500 },
+    { "path": "agents/README.md", "type": "blob", "size": 300 }
+  ]
+}

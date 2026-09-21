@@ -4,12 +4,16 @@ use std::path::{Path, PathBuf};
 
 use super::types::TargetScope;
 
-pub(super) fn claude_root() -> Result<PathBuf, String> {
+// 2026-09-22: estas cuatro dejan de ser `pub(super)` porque `maria::repos`
+// (aplicar un repo de GitHub) resuelve los mismos destinos. Duplicar la
+// resolucion de rutas en dos sitios es como se acaba escribiendo fuera de
+// `~/.claude/` sin enterarse.
+pub(crate) fn claude_root() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
     Ok(home.join(".claude"))
 }
 
-pub(super) fn project_root(project_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn project_root(project_id: &str) -> Result<PathBuf, String> {
     let projects = crate::projects::list_projects_inner()?;
     projects
         .into_iter()
@@ -50,7 +54,7 @@ pub(super) fn resolve_skill_dir(
     Ok(base.join("skills").join(name))
 }
 
-pub(super) fn is_kebab(s: &str) -> bool {
+pub(crate) fn is_kebab(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
@@ -61,7 +65,7 @@ pub(super) fn is_kebab(s: &str) -> bool {
 
 /// tmp + rename atomic write — same discipline as the rest of the
 /// crate (see `projects::atomic_write`).
-pub(super) fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = target.with_extension("tmp");
     std::fs::write(&tmp, bytes).map_err(|e| format!("write tmp: {e}"))?;
     std::fs::rename(&tmp, target).map_err(|e| format!("rename: {e}"))?;
