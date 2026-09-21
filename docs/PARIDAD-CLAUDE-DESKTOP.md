@@ -36,13 +36,14 @@ falta está ordenado por lo que más se nota al usarlo.
 | Dictado por voz | ✅ ya estaba, y mejor | Palabra clave, pulsar-para-hablar, respuesta hablada |
 | Entrada rápida global | ✅ ya estaba | `Ctrl+Alt+M` y `//maria` en cualquier programa (Claude Desktop no tiene equivalente a lo segundo) |
 | Sesiones de código (pestaña Code) | ✅ ya estaba | Terminales embebidas, mosaico, Sesiones, Proyectos |
-| Proyectos con instrucciones y conocimiento propios | ⚠️ parcial | Hay carpetas de conversaciones y CLAUDE.md por proyecto, pero una conversación del chat no hereda instrucciones ni ficheros de un proyecto |
+| Proyectos con instrucciones y conocimiento propios | ✅ **nuevo** | Selector «proyecto» en la cabecera del chat (o `/proyecto <ruta>`): los agentes arrancan en esa carpeta —Claude lee su `CLAUDE.md`, Codex su `AGENTS.md`— y el panel Cambios enseña su diff |
 | **Artifacts** (panel lateral que renderiza HTML/SVG/Mermaid/código) | ✅ **nuevo** | Panel a la derecha con vista/código, copiar y guardar. El HTML corre con su JavaScript en un `iframe` aislado servido desde otro origen (probado: un botón que cambia el fondo funciona) |
-| Editar un mensaje y regenerar | ✅ **nuevo** | «editar» en tus mensajes (la conversación sigue desde ahí), «regenerar» en la última respuesta y `/regenerar`. No ramifica: lo posterior se descarta |
+| Editar un mensaje, regenerar y ramas | ✅ **nuevo** | «editar» en tus mensajes, «regenerar» en la última respuesta. Lo que se aparta queda como **rama** (`/ramas`, `/rama n`); volver a una guarda la actual |
 | Búsqueda web dentro del chat | ⚠️ indirecta | La hace el proveedor si su CLI la trae (Claude y Antigravity sí). No hay interruptor propio ni citas |
 | Resaltado de sintaxis, LaTeX, Mermaid en el chat | ✅ **nuevo** | Con barra por bloque (lenguaje, abrir, copiar). Mermaid se carga solo cuando aparece un diagrama. Los enlaces ahora se abren en el navegador |
 | Estilos de respuesta | ✅ equivalente | Tonos (Library → Tones) |
-| Exportar / compartir conversación | ❌ falta | El hilo es un `.jsonl` legible, pero no hay botón |
+| Exportar conversación | ✅ **nuevo** | Botón «exportar» y `/exportar`: Markdown con quién dijo qué |
+| **Paneles laterales** (cambios, vista previa web, ficheros) | ✅ **nuevo** | A la derecha del chat, con pestañas. Cambios: `git status` + diff coloreado por fichero, se relee cuando un agente termina. Web: vista previa en marco, y ventana propia o navegador para los sitios que no se dejan enmarcar. Ficheros: la carpeta de la conversación; `html`/`svg`/`mmd` se abren como artefacto y `md` con formato |
 | Tareas programadas | ⚠️ parcial | Sistema → Tareas gestiona las de Windows; no hay «pregúntale esto cada mañana» |
 
 ### Lo que mar.ia tiene y Claude Desktop no
@@ -54,19 +55,17 @@ criterio de reparto editable en texto llano.
 
 ## Pendiente, por orden de impacto
 
-1. **Ramificar** al editar (conservar la rama vieja): pide un campo `parent`
-   en `Turn`. Hoy editar descarta lo posterior.
-2. **Conversaciones dentro de un proyecto**: que hereden su CLAUDE.md y su
-   carpeta como `--add-dir`.
-3. **Modelo local pequeño para lo trivial.** Con un modelo de ~2–4 GB la carga
-   en frío baja a ~1 s y permite tener residencia sin ocupar media GPU. Hoy
-   solo hay `qwen3.5:9b` instalado; el catálogo ya admite más de uno.
-4. **Streaming token a token en Codex y Antigravity.** Codex entrega mensajes
-   enteros y Antigravity un JSON al final: se ve actividad, pero el texto llega
-   de golpe. Antigravity tiene `--output-format stream-json` sin explorar.
-5. **Exportar** una conversación a Markdown.
-6. **Que el propio chat reparta encargos**: hoy los lanza el usuario con
-   `/delegar`; el paso siguiente es que el modelo principal pueda proponerlos.
+1. **Modelo local pequeño para lo trivial.** Aparcado a petición del usuario:
+   se sigue con `qwen3.5:9b`. Con uno de ~2–4 GB la carga en frío bajaría a ~1 s.
+2. **Streaming token a token en Codex.** `codex exec --json` entrega mensajes
+   enteros, no deltas: se ve qué orden ejecuta, pero el texto llega de golpe.
+   Es un límite de su CLI. Antigravity y Claude ya van token a token.
+3. **Preparar, confirmar y deshacer cambios desde el panel.** Hoy Cambios es de
+   solo lectura; el commit sigue en Proyectos → Repo.
+4. **Imágenes en el panel Ficheros.** Se abren con su programa; pintarlas dentro
+   pide habilitar el protocolo `asset` de Tauri con un alcance acotado.
+5. **Encargos que se hablen en directo.** Hoy se coordinan por el tablero y los
+   ficheros.
 
 ## Multiagente en paralelo (hecho)
 
@@ -84,6 +83,11 @@ hace un entorno compartido:
 En pantalla: una tira sobre la caja de escritura con el estado de cada encargo,
 lo último que está haciendo y un botón de parar. Probado en la aplicación real:
 Codex redactó un índice mientras el modelo local contestaba otra pregunta.
+
+**Reparto automático** (Router → Criterio): quien contesta puede encargar parte
+del trabajo él mismo con una línea `@delegar <proveedor>: <encargo>` al principio
+de línea y con un proveedor conocido; una mención en mitad de una frase no lanza
+nada. La respuesta dice qué encargos ha lanzado.
 
 Límites declarados: los agentes no se hablan en directo, se coordinan por el
 tablero y los ficheros; y un encargo no reanuda sesión, es un trabajo cerrado

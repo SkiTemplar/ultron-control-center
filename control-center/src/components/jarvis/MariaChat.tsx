@@ -940,7 +940,20 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               vacio="ninguno"
               ancho={190}
               titulo="carpeta sobre la que trabajan los agentes; «cambios» enseña su diff"
-              opciones={proyectos.map((p) => ({ id: p.path, label: p.name, hint: p.path }))}
+              opciones={[
+                // Un proyecto puesto con /proyecto puede no estar entre los
+                // registrados: sin esta fila el selector diria "ninguno".
+                ...(activa?.project && !proyectos.some((p) => p.path === activa.project)
+                  ? [
+                      {
+                        id: activa.project,
+                        label: activa.project.split(/[\\/]/).pop() || activa.project,
+                        hint: activa.project,
+                      },
+                    ]
+                  : []),
+                ...proyectos.map((p) => ({ id: p.path, label: p.name, hint: p.path })),
+              ]}
               onChange={(v) => void fijarProyecto(v)}
             />
             <HudSelect
