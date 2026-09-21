@@ -50,7 +50,41 @@ type Turn = {
   model?: string;
   effort?: string;
   text: string;
+  /** Lo que costó el turno, según lo que dé cada proveedor (`maria/cli.rs`).
+   *  Vacío = no lo da: se escribe «sin dato», nunca una cifra inventada.
+   *  Claude da tokens y coste; Codex solo tokens; agy y el modelo local, nada.
+   *  El tiempo lo mide mar.ia, así que lo hay siempre. */
+  tokens_in?: number | null;
+  tokens_out?: number | null;
+  coste_usd?: number | null;
+  ms?: number | null;
 };
+
+/** 8120 -> "8,1k". Los turnos son de miles de tokens: el número entero es ruido. */
+function miles(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1).replace(".", ",")}k`;
+}
+
+/** La línea discreta de consumo de un turno, o null si no hay NADA que decir.
+ *  Exportada para poder probar la regla del «sin dato» sin montar el chat. */
+export function consumoDe(t: Turn): string | null {
+  const partes: string[] = [];
+  if (typeof t.ms === "number") {
+    partes.push(t.ms < 1000 ? `${t.ms} ms` : `${(t.ms / 1000).toFixed(1).replace(".", ",")} s`);
+  }
+  if (typeof t.tokens_in === "number" || typeof t.tokens_out === "number") {
+    const ent = typeof t.tokens_in === "number" ? miles(t.tokens_in) : "?";
+    const sal = typeof t.tokens_out === "number" ? miles(t.tokens_out) : "?";
+    partes.push(`${ent}↑/${sal}↓`);
+  } else {
+    partes.push("tokens: sin dato");
+  }
+  if (typeof t.coste_usd === "number") {
+    partes.push(`~${t.coste_usd.toFixed(4).replace(".", ",")} $`);
+  }
+  return partes.length > 0 ? partes.join(" · ") : null;
+}
 
 /** Fichero adjunto ya guardado en disco: lo que viaja al relevo es la ruta. */
 type Adjunto = { nombre: string; ruta: string };
@@ -149,6 +183,16 @@ const ESTADO_ENCARGO: Record<Encargo["estado"], string> = {
   interrumpido: "interrumpido",
 };
 
+/** Consumo real de un proveedor en su ventana móvil (`maria/quota.rs`).
+ *  `pct` es null mientras no se haya medido el tope: entonces se dice, no se
+ *  pinta un porcentaje inventado. */
+type VentanaCuota = {
+  provider: string;
+  window_hours: number;
+  tokens: number;
+  pct: number | null;
+};
+
 /** Aviso del propio chat (no es un turno: no se guarda en el hilo). */
 type Aviso = { ts: number; text: string; tono: "info" | "error" };
 
@@ -203,6 +247,8 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
   /** Lo que mar.ia decidio en el ultimo turno (para pintarlo en la cabecera). */
   const [ultimo, setUltimo] = useState<{ model: string; effort: string } | null>(null);
+  /** Consumo de Claude en su ventana móvil (`maria_quota_windows`, de quota.rs). */
+  const [cuotaClaude, setCuotaClaude] = useState<VentanaCuota | null>(null);
   const [query, setQuery] = useState("");
   /** El menú de comandos se ha cerrado a mano (Escape) sin borrar lo escrito.
    *  Se vuelve a abrir en cuanto se toca la caja: ver el efecto de `prompt`. */
@@ -331,6 +377,24 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         setProyectos((l ?? []).map((p) => ({ name: p.name || p.id, path: p.path }))),
       )
       .catch(() => setProyectos([]));
+  }, []);
+
+  // Cuota de Claude, aquí y no solo en la pantalla de inicio: esta es la
+  // pantalla donde se gasta. Cada 30 s, que es de sobra para un contador que
+  // solo se mueve al terminar un turno.
+  useEffect(() => {
+    let vivo = true;
+    const pedir = () => {
+      void invoke<VentanaCuota[]>("maria_quota_windows")
+        .then((v) => vivo && setCuotaClaude(v?.find((w) => w.provider === "claude") ?? null))
+        .catch(() => vivo && setCuotaClaude(null));
+    };
+    pedir();
+    const id = setInterval(pedir, 30_000);
+    return () => {
+      vivo = false;
+      clearInterval(id);
+    };
   }, []);
 
   // Al cambiar de conversacion: sus encargos, y nada de la anterior a la vista.
@@ -1268,6 +1332,33 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                 {forzado}: {EFFORT_MODE_LABEL[modoEsfuerzoDe(forzado)] ?? modoEsfuerzoDe(forzado)}
               </>
             )}
+            {/* Cuota de Claude en su ventana móvil. El cálculo ya existía
+                (`maria_quota_windows`, de quota.rs) y lo pintaban la pantalla
+                de inicio y el panel del Router — pero no la pantalla donde se
+                gasta. Sin tope medido se dice, no se inventa un porcentaje. */}
+            {cuotaClaude && (
+              <>
+                {" · claude "}
+                <span
+                  className="font-mono"
+                  style={{
+                    color:
+                      cuotaClaude.pct == null
+                        ? "var(--color-text-tertiary)"
+                        : cuotaClaude.pct >= 90
+                          ? "var(--color-danger)"
+                          : cuotaClaude.pct >= 70
+                            ? "var(--color-warn)"
+                            : "var(--color-text-tertiary)",
+                  }}
+                  title={`tokens de las últimas ${cuotaClaude.window_hours} h`}
+                >
+                  {cuotaClaude.pct == null
+                    ? "tope sin medir"
+                    : `${Math.round(cuotaClaude.pct)}% de ${cuotaClaude.window_hours} h`}
+                </span>
+              </>
+            )}
           </p>
         </header>
 
@@ -1314,6 +1405,25 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                       {t.effort ? ` · ${t.effort}` : ""}
                     </span>
                   )}
+                  {/* Lo que costó el turno, al lado del modelo. Discreto pero
+                      SIEMPRE a la vista: la queja constante contra pedir el
+                      gasto a mano es justo que hay que pedirlo. */}
+                  {t.role !== "user" &&
+                    (() => {
+                      const c = consumoDe(t);
+                      return c ? (
+                        <span
+                          className="text-[10px]"
+                          style={{
+                            color: "var(--color-text-tertiary)",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                          title="tiempo, tokens y coste de este turno; «sin dato» donde el proveedor no los publica"
+                        >
+                          {c}
+                        </span>
+                      ) : null;
+                    })()}
                   <span className="hud-label" style={{ letterSpacing: "0.06em" }}>
                     {new Date(t.ts).toLocaleTimeString("es-ES", {
                       hour: "2-digit",

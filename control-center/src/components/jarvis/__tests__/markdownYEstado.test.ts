@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { artefactosDe, tipoDeBloque } from "../Markdown";
 import { estadoGlobal } from "../../../lib/status";
 import { normalizaUrl } from "../PanelLateral";
+import { consumoDe } from "../MariaChat";
 import type { AlertEntry } from "../../../types";
 
 describe("artefactos del chat", () => {
@@ -79,5 +80,33 @@ describe("panel web", () => {
     for (const mala of ["file:///C:/x", "javascript:alert(1)", "", "dos palabras"]) {
       expect(normalizaUrl(mala)).toBeNull();
     }
+  });
+});
+
+describe("consumo de un turno", () => {
+  const base = { ts: "2026-09-22T10:00:00Z", role: "assistant", provider: "claude", text: "hola" };
+
+  it("pinta tiempo, tokens y coste cuando el proveedor los da", () => {
+    expect(
+      consumoDe({ ...base, ms: 12400, tokens_in: 8120, tokens_out: 1200, coste_usd: 0.0312 }),
+    ).toBe("12,4 s · 8,1k↑/1,2k↓ · ~0,0312 $");
+  });
+
+  it("los milisegundos de un turno corto se dicen en ms", () => {
+    expect(consumoDe({ ...base, ms: 840, tokens_in: 10, tokens_out: 5 })).toBe("840 ms · 10↑/5↓");
+  });
+
+  it("donde el proveedor no cuenta tokens se escribe «sin dato», no un cero", () => {
+    // Caso negativo: agy y el modelo local no publican consumo. Un "0↑/0↓"
+    // sería una cifra inventada; el tiempo sí lo mide mar.ia.
+    expect(consumoDe({ ...base, provider: "antigravity", ms: 5000 })).toBe("5,0 s · tokens: sin dato");
+    // Y sin coste no se estima ninguno: codex no lo publica.
+    expect(consumoDe({ ...base, provider: "codex", ms: 2000, tokens_in: 4300, tokens_out: 210 })).toBe(
+      "2,0 s · 4,3k↑/210↓",
+    );
+  });
+
+  it("un turno viejo, sin ninguno de los campos, no ensucia la pantalla", () => {
+    expect(consumoDe(base)).toBe("tokens: sin dato");
   });
 });

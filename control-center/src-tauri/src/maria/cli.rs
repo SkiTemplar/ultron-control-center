@@ -68,11 +68,38 @@ pub struct Peticion<'a> {
     pub cwd: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Lo que ha costado un turno, SEGUN LO QUE DIGA EL PROVEEDOR (2026-09-22).
+///
+/// Todo opcional y nada estimado: lo que un proveedor no cuenta se queda en
+/// `None` y la pantalla escribe "sin dato". Inventar una cifra de tokens o de
+/// dolares es peor que no dar ninguna, porque nadie la sabria desmentir.
+///
+/// Quien da que, comprobado contra los binarios instalados:
+///   * claude  — linea `result` del stream-json: `usage` y `total_cost_usd`.
+///   * codex   — evento `turn.completed`: `usage`, sin coste (la CLI no lo
+///               publica).
+///   * agy     — nada: su evento `result` no se ha podido verificar desde
+///               aqui, asi que no se parsea nada a ojo. Solo tendra el tiempo,
+///               que lo mide mar.ia.
+///   * local   — nada: es gratis y corre en esta maquina.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Consumo {
+    /// Tokens de entrada. En Claude es la suma de los tres cubos (nuevos,
+    /// escritura de cache y lectura de cache), que es como los suma la propia
+    /// CLI para su barra de contexto: son disjuntos.
+    pub tokens_in: Option<u64>,
+    pub tokens_out: Option<u64>,
+    /// Estimacion en dolares del propio proveedor, no una factura.
+    pub coste_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Respuesta {
     pub texto: String,
     /// Sesion que se puede reanudar en el turno siguiente.
     pub sesion: Option<String>,
+    /// Tokens y coste, vacios donde el proveedor no los da.
+    pub consumo: Consumo,
 }
 
 /// Binario de cada proveedor, o None si no es una CLI.
@@ -251,6 +278,60 @@ pub fn leer_linea_claude(linea: &str) -> (Option<String>, Option<Result<String, 
     }
 }
 
+/// Suma de un campo entero del objeto `usage`, saltandose los que no estan.
+fn suma_tokens(usage: &serde_json::Value, campos: &[&str]) -> Option<u64> {
+    let vistos: Vec<u64> = campos
+        .iter()
+        .filter_map(|c| usage.get(*c).and_then(serde_json::Value::as_u64))
+        .collect();
+    (!vistos.is_empty()).then(|| vistos.iter().sum())
+}
+
+/// Tokens y coste de la linea `result` de Claude, si es esa linea. Pura.
+///
+/// La entrada se suma en sus tres cubos porque son disjuntos y asi los suma la
+/// propia CLI para decidir cuanto contexto queda.
+#[must_use]
+pub fn consumo_claude(linea: &str) -> Option<Consumo> {
+    let v = serde_json::from_str::<serde_json::Value>(linea).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("result") {
+        return None;
+    }
+    let usage = v.get("usage")?;
+    Some(Consumo {
+        tokens_in: suma_tokens(
+            usage,
+            &[
+                "input_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            ],
+        ),
+        tokens_out: suma_tokens(usage, &["output_tokens"]),
+        coste_usd: v.get("total_cost_usd").and_then(serde_json::Value::as_f64),
+    })
+}
+
+/// Tokens del evento `turn.completed` de Codex, si es ese evento. Pura.
+///
+/// Codex NO publica coste: es una carencia conocida y abierta de su CLI, asi
+/// que ahi se escribe "sin dato" en vez de estimarlo con tarifas que caducan.
+#[must_use]
+pub fn consumo_codex(linea: &str) -> Option<Consumo> {
+    let v = serde_json::from_str::<serde_json::Value>(linea).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("turn.completed") {
+        return None;
+    }
+    let usage = v.get("usage")?;
+    Some(Consumo {
+        // `cached_input_tokens` es el trozo cacheado de la entrada, no entrada
+        // ADEMAS de la otra: sumarlo contaria dos veces. Solo el total.
+        tokens_in: suma_tokens(usage, &["input_tokens"]),
+        tokens_out: suma_tokens(usage, &["output_tokens"]),
+        coste_usd: None,
+    })
+}
+
 /// Herramienta que Claude empieza a usar en esta linea, si es el caso. Es lo
 /// que permite decir "leyendo un fichero" en vez de un "pensando" mudo.
 #[must_use]
@@ -411,6 +492,7 @@ pub fn leer_json_agy(todo: &str) -> Result<Respuesta, String> {
             .get("conversation_id")
             .and_then(|c| c.as_str())
             .map(str::to_string),
+        consumo: Consumo::default(),
     })
 }
 
@@ -537,6 +619,7 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
         Sesion::Ninguna => None,
     };
     let mut cierre: Option<Result<String, String>> = None;
+    let mut consumo = Consumo::default();
     let mut parado = false;
     loop {
         match rx.recv_timeout(Duration::from_millis(80)) {
@@ -572,7 +655,13 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
                             if fin.is_some() {
                                 cierre = fin;
                             }
+                            if let Some(c) = consumo_claude(&linea) {
+                                consumo = c;
+                            }
                         } else {
+                            if let Some(c) = consumo_codex(&linea) {
+                                consumo = c;
+                            }
                             match leer_linea_codex(&linea) {
                                 EventoCodex::Sesion(id) => sesion = Some(id),
                                 EventoCodex::Texto(t) => {
@@ -619,7 +708,11 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
         return if t.is_empty() {
             Err(("parado".into(), false))
         } else {
-            Ok(Respuesta { texto: t, sesion })
+            Ok(Respuesta {
+                texto: t,
+                sesion,
+                consumo,
+            })
         };
     }
     if p.provider == "antigravity" && cierre.is_none() && texto.trim().is_empty() {
@@ -644,6 +737,7 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
         return Ok(Respuesta {
             texto: salida,
             sesion,
+            consumo,
         });
     }
     let motivo = if stderr.is_empty() { salida } else { stderr };
@@ -940,10 +1034,54 @@ mod tests {
             leer_json_agy(ok),
             Ok(Respuesta {
                 texto: "uno".into(),
-                sesion: Some("78c0".into())
+                sesion: Some("78c0".into()),
+                // agy no publica consumo en una salida que se haya podido
+                // verificar: se queda vacio, no se estima.
+                consumo: Consumo::default(),
             })
         );
         assert!(leer_json_agy(r#"{"status":"ERROR","response":""}"#).is_err());
         assert!(leer_json_agy("jetski: no output produced").is_err());
+    }
+
+    #[test]
+    fn de_claude_salen_tokens_y_coste_de_su_linea_de_cierre() {
+        // Forma real de la linea `result` del stream-json (CLI 2.1.278): la
+        // entrada viene en tres cubos DISJUNTOS y la propia CLI los suma asi
+        // para su barra de contexto.
+        let fin = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":12400,"result":"hola","total_cost_usd":0.0312,"usage":{"input_tokens":120,"cache_creation_input_tokens":800,"cache_read_input_tokens":7200,"output_tokens":1200}}"#;
+        assert_eq!(
+            consumo_claude(fin),
+            Some(Consumo {
+                tokens_in: Some(8120),
+                tokens_out: Some(1200),
+                coste_usd: Some(0.0312),
+            })
+        );
+        // Casos negativos: una linea de texto en curso no cierra nada, y un
+        // cierre SIN usage no se rellena con ceros — se queda sin dato.
+        assert_eq!(
+            consumo_claude(r#"{"type":"stream_event","event":{"delta":{"text":"hola"}}}"#),
+            None
+        );
+        assert_eq!(consumo_claude(r#"{"type":"result","result":"hola"}"#), None);
+        assert_eq!(consumo_claude("no es json"), None);
+    }
+
+    #[test]
+    fn de_codex_salen_tokens_pero_nunca_un_coste() {
+        // `TurnCompletedEvent` del binario de codex: usage con input/output y
+        // el trozo cacheado APARTE, que es parte de la entrada y no se suma.
+        let fin = r#"{"type":"turn.completed","usage":{"input_tokens":4300,"cached_input_tokens":4000,"cache_write_input_tokens":0,"output_tokens":210,"reasoning_output_tokens":80}}"#;
+        let c = consumo_codex(fin).expect("turn.completed trae usage");
+        assert_eq!(c.tokens_in, Some(4300));
+        assert_eq!(c.tokens_out, Some(210));
+        assert_eq!(
+            c.coste_usd, None,
+            "codex no publica coste: no se estima con tarifas que caducan"
+        );
+        // Caso negativo: el evento de fin de otro proveedor no cuela.
+        assert_eq!(consumo_codex(r#"{"type":"result","usage":{}}"#), None);
+        assert_eq!(consumo_codex(r#"{"type":"item.completed"}"#), None);
     }
 }

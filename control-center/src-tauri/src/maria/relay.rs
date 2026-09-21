@@ -71,7 +71,7 @@ const ESPERA_MEMORIA: Duration = Duration::from_millis(2_000);
 const KEEP_ALIVE_DECISION: &str = "20s";
 
 /// Un turno del hilo.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Turn {
     pub ts: String,
     /// "user" | "assistant".
@@ -88,6 +88,22 @@ pub struct Turn {
     #[serde(default)]
     pub effort: String,
     pub text: String,
+    // Lo que costo el turno (2026-09-22). Todo `Option` + `#[serde(default)]`,
+    // igual que se hizo con provider/model/effort: los hilos escritos antes de
+    // que esto existiera se siguen leyendo igual. Vacio = el proveedor no lo
+    // da, y la pantalla escribe "sin dato" en vez de una cifra inventada.
+    /// Tokens de entrada, segun el proveedor.
+    #[serde(default)]
+    pub tokens_in: Option<u64>,
+    /// Tokens de salida, segun el proveedor.
+    #[serde(default)]
+    pub tokens_out: Option<u64>,
+    /// Estimacion en dolares del proveedor (solo Claude la publica).
+    #[serde(default)]
+    pub coste_usd: Option<f64>,
+    /// Tiempo de pared del turno. Lo mide mar.ia, asi que lo hay siempre.
+    #[serde(default)]
+    pub ms: Option<u64>,
 }
 
 /// Resultado de una vuelta de relevo.
@@ -1318,6 +1334,9 @@ fn ask_inner(
             // conversacion (o al traspasarla a otro proveedor) se sabe que
             // los hubo.
             text: format!("{prompt}{}", adjuntos.etiqueta()),
+            // Un turno del usuario no consume nada: lo que se gasta es la
+            // respuesta.
+            ..Turn::default()
         },
     )?;
 
@@ -1507,6 +1526,10 @@ fn ask_inner(
         // Lo que hubiera pintado un proveedor que al final no contesto no es
         // de este: la pantalla lo descarta.
         crate::maria::flujo::trozo(thread_id, provider, "", true);
+        // Tiempo de pared del intento. Se mide AQUI y no dentro de cada CLI
+        // porque es lo unico que se puede dar para los cuatro proveedores por
+        // igual: los tokens dependen de que el proveedor los cuente.
+        let reloj = std::time::Instant::now();
         let intento: Result<super::cli::Respuesta, (String, bool)> = if provider == "local" {
             let skills = if ajustes.compartir_skills {
                 super::capacidades::indice_skills(prompt)
@@ -1524,6 +1547,8 @@ fn ask_inner(
             .map(|texto| super::cli::Respuesta {
                 texto,
                 sesion: None,
+                // El modelo local es gratis y no publica su consumo.
+                consumo: super::cli::Consumo::default(),
             })
         } else {
             let sesion = if ajustes.sesion_continua {
@@ -1634,6 +1659,10 @@ fn ask_inner(
                         model: modelo.clone(),
                         effort: esfuerzo.clone(),
                         text: text.clone(),
+                        tokens_in: respuesta.consumo.tokens_in,
+                        tokens_out: respuesta.consumo.tokens_out,
+                        coste_usd: respuesta.consumo.coste_usd,
+                        ms: Some(reloj.elapsed().as_millis() as u64),
                     },
                 )?;
                 return Ok(RelayAnswer {
@@ -1897,6 +1926,7 @@ mod tests {
             model: String::new(),
             effort: String::new(),
             text: text.into(),
+            ..Turn::default()
         }
     }
 
@@ -2369,6 +2399,7 @@ mod tests {
             model: model.into(),
             effort: String::new(),
             text: text.into(),
+            ..Turn::default()
         };
         let md = como_markdown(
             "Cachés",

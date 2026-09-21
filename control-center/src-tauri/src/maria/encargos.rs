@@ -299,6 +299,10 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
         super::flujo::limpiar(&k);
         let modelo = crate::maria::models::modelo_por_defecto(&e.provider);
         let sin_adjuntos = Adjuntos::default();
+        // Lo que cuesta el encargo se apunta igual que el de un turno normal:
+        // es el mismo proveedor y la misma cuota, solo que en paralelo.
+        let reloj = std::time::Instant::now();
+        let mut consumo = super::cli::Consumo::default();
         let r = if e.provider == "local" {
             let _en_uso = crate::maria::local::EnUso::nuevo();
             super::local_agente::responder(
@@ -325,7 +329,10 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
                 sesion: super::cli::Sesion::Ninguna,
                 cwd: Some(trabajo.clone()),
             })
-            .map(|r| r.texto)
+            .map(|r| {
+                consumo = r.consumo;
+                r.texto
+            })
         };
         let parado = super::flujo::cancelado(&k);
         super::flujo::limpiar(&k);
@@ -351,6 +358,10 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
                 model: modelo,
                 effort: "medio".into(),
                 text: format!("{cabecera} — _{}_\n\n{texto_final}", recorta(&e.texto, 160)),
+                tokens_in: consumo.tokens_in,
+                tokens_out: consumo.tokens_out,
+                coste_usd: consumo.coste_usd,
+                ms: Some(reloj.elapsed().as_millis() as u64),
             },
         );
         let hecho = con(|v| {
