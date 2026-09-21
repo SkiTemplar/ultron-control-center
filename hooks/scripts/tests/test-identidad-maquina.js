@@ -20,17 +20,17 @@ function reg(...rutas) {
 // --- raicesDelRegistro -----------------------------------------------------
 
 {
-  // Dos proyectos bajo Documents y dos bajo utad: ambas son raices de trabajo.
+  // Dos proyectos bajo Documents y dos bajo trabajo: ambas son raices de trabajo.
   const raices = raicesDelRegistro(
     reg(
       'C:\\Users\\yo\\Documents\\GitHub\\a',
       'C:\\Users\\yo\\Documents\\GitHub\\b',
-      'C:\\utad\\portfolio\\c',
-      'C:\\utad\\curso3\\d',
+      'C:\\trabajo\\portfolio\\c',
+      'C:\\trabajo\\curso3\\d',
     ),
     HOME,
   );
-  assert.deepStrictEqual(raices.sort(), ['documents', 'utad']);
+  assert.deepStrictEqual(raices.sort(), ['documents', 'trabajo']);
 }
 
 {
@@ -54,14 +54,14 @@ function reg(...rutas) {
 
 // --- bajoRaizPropia --------------------------------------------------------
 
-assert.strictEqual(bajoRaizPropia('C:\\utad\\portfolio\\maria', ['utad']), true);
+assert.strictEqual(bajoRaizPropia('C:\\trabajo\\portfolio\\maria', ['trabajo']), true);
 // La comparacion ignora mayusculas por los dos lados: en Windows la misma
 // carpeta se escribe de varias formas y una raiz no puede fallar por eso.
-assert.strictEqual(bajoRaizPropia('C:/utad/portfolio/maria', ['UTAD']), true);
-assert.strictEqual(bajoRaizPropia('C:\\otra\\cosa', ['utad']), false);
+assert.strictEqual(bajoRaizPropia('C:/trabajo/portfolio/maria', ['TRABAJO']), true);
+assert.strictEqual(bajoRaizPropia('C:\\otra\\cosa', ['trabajo']), false);
 // Caso negativo: sin raices configuradas ni deducidas, nada es propio.
-assert.strictEqual(bajoRaizPropia('C:\\utad\\portfolio', []), false);
-assert.strictEqual(bajoRaizPropia('C:\\utad\\portfolio', null), false);
+assert.strictEqual(bajoRaizPropia('C:\\trabajo\\portfolio', []), false);
+assert.strictEqual(bajoRaizPropia('C:\\trabajo\\portfolio', null), false);
 
 // --- remotePropio ----------------------------------------------------------
 

@@ -3,7 +3,7 @@
 # El problema (reportado el 2026-09-19): en el menu de inicio seguia habiendo
 # un acceso directo "ULTRON Control Center" apuntando al binario del repo
 # VIEJO (~/.maria/control-center/...), asi que buscar en el menu abria la
-# version antigua. La nueva (el fork, C:\utad\portfolio\maria) no tenia ningun
+# version antigua. La nueva (el fork) no tenia ningun
 # acceso directo: solo se podia abrir a mano desde target\release.
 #
 # Este script:

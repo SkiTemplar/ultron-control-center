@@ -15,8 +15,8 @@ import type { TranscriptPage } from "../types";
 function session(over: Partial<ClaudeSession> = {}): ClaudeSession {
   return {
     id: "11111111-2222-3333-4444-555555555555",
-    project_slug: "C--utad-portfolio",
-    project_label: "C:/utad/portfolio",
+    project_slug: "C--trabajo-portfolio",
+    project_label: "C:/trabajo/portfolio",
     preview: "arregla el login de la web",
     size_bytes: 2048,
     last_activity: new Date().toISOString(),
@@ -119,7 +119,7 @@ describe("Conversations", () => {
       expect(invoke).toHaveBeenCalledWith("spawn_session", {
         provider: "claude",
         prompt: null,
-        cwd: "C:/utad/portfolio",
+        cwd: "C:/trabajo/portfolio",
         flags: {
           dangerouslySkipPermissions: false,
           effort: null,
