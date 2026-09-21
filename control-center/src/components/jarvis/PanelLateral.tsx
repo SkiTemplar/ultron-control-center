@@ -230,7 +230,9 @@ function Cambios({
               const e = estadoDe(c);
               return (
                 <li
-                  key={c.path}
+                  // Mismo compuesto que RepoModal: un fichero con parte
+                  // preparada y parte sin preparar sale en dos filas.
+                  key={`${c.path}-${c.staged}`}
                   className="cc-fila-fichero group flex items-center gap-2 px-3 py-1 text-[11.5px]"
                   style={{
                     background: abierto === c.path ? "var(--color-surface-3)" : "transparent",
