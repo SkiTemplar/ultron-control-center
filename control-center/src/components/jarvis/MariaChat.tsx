@@ -16,6 +16,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BotonMicrofono } from "./BotonMicrofono";
+import { BotonCopiar } from "./BotonCopiar";
+import { useHistorialEnviados } from "../../lib/useHistorialEnviados";
 import { useVoice } from "./HudFrame";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -135,6 +137,8 @@ type Props = {
 export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {}) {
   // Estado de la voz, para el botón de micrófono de abajo.
   const { state: voiceState, mic } = useVoice();
+  // Historial de lo enviado, recuperable con las flechas.
+  const historial = useHistorialEnviados("chat");
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [threadId, setThreadId] = useState(hiloInicial ?? "");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -463,6 +467,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       aceptarSugerencia();
       return;
     }
+    // Al historial ANTES de limpiar la caja: si el envio falla, lo escrito
+    // sigue recuperable con la flecha arriba.
+    historial.recordar(linea);
     setPrompt("");
     const parsed = parseLine(linea);
     if (parsed.kind === "unknown") {
@@ -485,7 +492,13 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (sugerencias.length === 0) return;
+    // Las flechas navegan por lo que has enviado, como en una terminal. Solo
+    // cuando NO hay lista de comandos desplegada: ahi las flechas eligen
+    // sugerencia, y robarselas dejaria la lista sin poder recorrerse.
+    if (sugerencias.length === 0) {
+      historial.manejarTecla(e, prompt, setPrompt);
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSugerido((s) => (s + 1) % sugerencias.length);
@@ -687,6 +700,11 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                 >
                   <div className="cc-markdown">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.text}</ReactMarkdown>
+                  </div>
+                  {/* Copiar el mensaje, el tuyo o el suyo. Va dentro de la
+                      burbuja y alineado a la derecha, como en Claude. */}
+                  <div className="mt-1.5 flex justify-end">
+                    <BotonCopiar texto={t.text} />
                   </div>
                 </div>
               </article>

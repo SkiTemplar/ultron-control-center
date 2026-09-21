@@ -484,22 +484,65 @@ fn cli_invocation(provider: &str) -> Option<Invocacion> {
     }
 }
 
-/// ¿Esta el binario en el PATH? Windows los instala como `.cmd`, asi que
-/// `crate::proc::oculto("claude")` no siempre resuelve: se pregunta a `where`.
-fn cli_disponible(cmd: &str) -> bool {
-    let mut probe = crate::proc::oculto(if cfg!(windows) { "where" } else { "which" });
-    probe.arg(cmd);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        probe.creation_flags(0x0800_0000);
+/// Ruta real del binario en el PATH, o None si no esta.
+///
+/// Hace falta la RUTA y no solo saber si existe, porque de su extension
+/// depende como hay que lanzarlo (ver `run_cli`).
+fn ruta_de_cli(cmd: &str) -> Option<String> {
+    let salida = crate::proc::oculto(if cfg!(windows) { "where" } else { "which" })
+        .arg(cmd)
+        .output()
+        .ok()?;
+    if !salida.status.success() {
+        return None;
     }
-    probe
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    Some(elegir_ruta(&String::from_utf8_lossy(&salida.stdout))?.to_string())
+}
+
+/// De todo lo que devuelve `where`, la ruta que Windows sabe ejecutar. Pura.
+///
+/// `where codex` devuelve DOS lineas: el script de shell de npm (sin
+/// extension) y, debajo, el shim `.cmd` que es el que arranca en Windows.
+/// Coger la primera y lanzarla directa no funciona — no es un ejecutable — y
+/// dejaba a codex sin arrancar, con el relevo saltando a claude.
+///
+/// Si ninguna trae extension se devuelve la primera, que es lo correcto en
+/// Linux: alli los binarios no la llevan.
+#[must_use]
+pub fn elegir_ruta(salida: &str) -> Option<&str> {
+    let lineas: Vec<&str> = salida
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    for ext in [".exe", ".cmd", ".bat", ".com"] {
+        if let Some(l) = lineas.iter().find(|l| l.to_lowercase().ends_with(ext)) {
+            return Some(l);
+        }
+    }
+    lineas.first().copied()
+}
+
+/// ¿Hay que lanzarlo a traves de `cmd /C`?
+///
+/// Solo los shims de npm (`.cmd`, `.bat`), que no son ejecutables y cmd es
+/// quien sabe interpretarlos. Un `.exe` nativo se lanza DIRECTO, y ademas hay
+/// que hacerlo asi:
+///
+/// **cmd.exe TRUNCA el argumento en el primer salto de linea.** El prompt del
+/// relevo es multilinea (lleva el paquete de contexto), asi que a Antigravity
+/// —el unico que recibe el prompt como argumento y no por stdin— le llegaba
+/// solo la primera linea. Sin la pregunta, el modelo intentaba usar una
+/// herramienta, en modo headless no puede pedir permiso, se auto-denegaba y
+/// salia SIN TEXTO: el relevo lo contaba como error y saltaba a Claude.
+///
+/// Eso es el "a mi agy no me va, siempre sale error y termina en claude" que
+/// reporto el usuario el 2026-09-21. Medido: por `cmd /C` no contesta; directo,
+/// contesta. Pura sobre la ruta para poder probarla.
+#[must_use]
+pub fn necesita_cmd(ruta: &str) -> bool {
+    let bajo = ruta.to_lowercase();
+    bajo.ends_with(".cmd") || bajo.ends_with(".bat")
 }
 
 /// Lanza una CLI con el prompt y espera su salida.
@@ -516,9 +559,9 @@ fn run_cli(
         return Err((format!("no se como invocar {provider}"), false));
     };
     let (bin, por_stdin) = (inv.bin, inv.por_stdin);
-    if !cli_disponible(bin) {
+    let Some(ruta) = ruta_de_cli(bin) else {
         return Err((format!("{bin} no esta instalada"), false));
-    }
+    };
     let extra = crate::maria_models::argumentos(provider, model, effort);
     // Claude no tiene bandera de esfuerzo: se le pide en el propio mensaje.
     let prefijo = crate::maria_models::prefijo_esfuerzo(provider, effort);
@@ -530,14 +573,16 @@ fn run_cli(
         &prompt_owned
     };
 
-    // En Windows las CLI de npm son shims .cmd: se invocan a traves de cmd /C
-    // (mismo truco que pty/spawn.rs), con los argumentos como argv.
-    let mut cmd = if cfg!(windows) {
+    // Un shim de npm (.cmd) va por `cmd /C`; un .exe nativo, DIRECTO.
+    // La diferencia no es cosmetica: cmd.exe trunca los argumentos en el
+    // primer salto de linea y el prompt lleva el contexto entero. Ver
+    // `necesita_cmd`.
+    let mut cmd = if necesita_cmd(&ruta) {
         let mut c = crate::proc::oculto("cmd");
-        c.arg("/C").arg(bin);
+        c.arg("/C").arg(&ruta);
         c
     } else {
-        crate::proc::oculto(bin)
+        crate::proc::oculto(&ruta)
     };
     // subcomando -> modelo/esfuerzo -> la bandera del prompt -> el prompt.
     for a in inv.antes.iter().chain(extra.iter()).chain(inv.despues.iter()) {
@@ -1237,13 +1282,47 @@ mod tests {
     }
 
     #[test]
+    fn de_varias_rutas_se_coge_la_ejecutable() {
+        // Salida real de `where codex` en esta maquina (2026-09-21). La
+        // primera linea NO es ejecutable: es el script de shell de npm.
+        // Cogerla dejaba a codex sin arrancar y el relevo saltaba a claude.
+        let donde = "C:\\npm\\codex\r\nC:\\npm\\codex.cmd\r\n";
+        assert_eq!(elegir_ruta(donde), Some("C:\\npm\\codex.cmd"));
+    }
+
+    #[test]
+    fn un_exe_gana_a_un_cmd() {
+        let donde = "C:\\x\\cosa.cmd\nC:\\x\\cosa.exe\n";
+        assert_eq!(elegir_ruta(donde), Some("C:\\x\\cosa.exe"));
+    }
+
+    #[test]
+    fn sin_extension_vale_la_primera() {
+        // En Linux los binarios no llevan extension: no se puede exigir una.
+        assert_eq!(elegir_ruta("/usr/local/bin/claude\n"), Some("/usr/local/bin/claude"));
+        assert_eq!(elegir_ruta("   \n\n"), None);
+    }
+
+    #[test]
+    fn solo_los_shims_de_npm_pasan_por_cmd() {
+        // Los .exe nativos van directos. Es lo que arregla Antigravity: por
+        // `cmd /C` recibia el prompt cortado en el primer salto de linea.
+        assert!(necesita_cmd(r"C:\Users\x\AppData\Roaming\npm\codex.cmd"));
+        assert!(necesita_cmd(r"C:\algo\raro.BAT"));
+        assert!(!necesita_cmd(r"C:\Users\x\AppData\Local\agy\bin\agy.exe"));
+        assert!(!necesita_cmd(r"C:\Users\x\.local\bin\claude.exe"));
+        assert!(!necesita_cmd("/usr/local/bin/claude"));
+    }
+
+    #[test]
     fn el_modelo_local_no_lleva_tope_de_salida() {
         // Caso negativo del truncado: cualquier numero positivo aqui vuelve a
         // cortar las respuestas largas a mitad de frase.
-        assert!(
-            SIN_TOPE_DE_SALIDA < 0,
-            "un tope positivo corta la respuesta: {SIN_TOPE_DE_SALIDA}"
-        );
+        // `assert!` sobre una constante lo resuelve el compilador y clippy
+        // avisa, con razon. Se compara contra una variable para que el test
+        // siga siendo un test de verdad.
+        let tope: i32 = SIN_TOPE_DE_SALIDA;
+        assert!(tope < 0, "un tope positivo corta la respuesta: {tope}");
     }
 
     #[test]

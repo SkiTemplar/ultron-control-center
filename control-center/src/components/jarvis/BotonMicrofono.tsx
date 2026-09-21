@@ -4,16 +4,18 @@
 // la parte inferior, y el usuario debe poder activar/desactivar manualmente la
 // escucha". Antes solo se podía con ctrl+espacio, a ciegas.
 //
-// Tres estados, que son los tres que existen de verdad:
+// ES UN INTERRUPTOR, y solo eso. El usuario fue explícito el 2026-09-21:
+// "quiero que sea un toggle de activo o desactivado los comandos por voz, no
+// que cuando le pulse se corte y se envíe; eso debería poderse pulsando
+// enter". Así que un clic enciende o apaga los comandos por voz, y nunca
+// manda nada: lo dictado se queda en la caja y se envía con Enter.
+//
+// El estado que PINTA sí tiene tres valores, porque son tres situaciones
+// distintas y saber en cuál estás importa:
 //
 //   apagado    — no se captura audio. Ni palabra clave ni nada.
 //   en espera  — el micrófono está abierto SOLO para oír «María».
-//   escuchando — escucha activa: lo que digas se transcribe y se envía.
-//
-// Un clic hace lo que toca en cada uno:
-//   apagado    -> enciende la palabra clave
-//   en espera  -> empieza a escuchar ya (sin decir «María»)
-//   escuchando -> corta y manda lo dicho
+//   escuchando — te está oyendo y escribiendo lo que dices en la caja.
 //
 // Lo que NO puede pasar (y pasaba): que el botón diga "apagado" mientras un
 // hilo sigue capturando. Apagar manda `wake_off`, que además cancela la toma
@@ -30,22 +32,18 @@ export function estadoMic(micOn: boolean, voz: ReactorState): EstadoMic {
   return voz === "listening" ? "escuchando" : "espera";
 }
 
-/** Qué hace un clic en cada estado. Pura. */
-export function accionMic(estado: EstadoMic): "encender" | "escuchar" | "cortar" {
-  switch (estado) {
-    case "apagado":
-      return "encender";
-    case "espera":
-      return "escuchar";
-    case "escuchando":
-      return "cortar";
-  }
+/** Qué hace un clic. Pura.
+ *
+ *  Solo dos acciones: es un interruptor. Estando encendido —da igual si en
+ *  espera o escuchando— el clic APAGA; nunca corta la toma para enviarla. */
+export function accionMic(estado: EstadoMic): "encender" | "apagar" {
+  return estado === "apagado" ? "encender" : "apagar";
 }
 
 const TITULO: Record<EstadoMic, string> = {
-  apagado: "micrófono apagado — clic para encenderlo",
-  espera: "esperando «María» — clic para hablar ya",
-  escuchando: "te escucho — clic para cortar y enviar",
+  apagado: "comandos por voz apagados — clic para encenderlos",
+  espera: "comandos por voz activos, esperando «María» — clic para apagarlos",
+  escuchando: "te escucho; lo dictado va a la caja y se envía con Enter",
 };
 
 const COLOR: Record<EstadoMic, string> = {
@@ -55,16 +53,10 @@ const COLOR: Record<EstadoMic, string> = {
 };
 
 export async function aplicarAccion(estado: EstadoMic): Promise<void> {
-  switch (accionMic(estado)) {
-    case "encender":
-      await invoke("maria_voice_wake", { enabled: true });
-      return;
-    case "escuchar":
-      await invoke("maria_voice_escucha", { activar: true });
-      return;
-    case "cortar":
-      await invoke("maria_voice_escucha", { activar: false });
-  }
+  const encender = accionMic(estado) === "encender";
+  // `wake_off` además cancela la toma en curso en el sidecar: apagar suelta
+  // el micrófono de verdad, no solo deja de escuchar la palabra clave.
+  await invoke("maria_voice_wake", { enabled: encender });
 }
 
 export function BotonMicrofono({

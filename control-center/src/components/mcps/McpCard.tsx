@@ -79,10 +79,21 @@ export function Card({
             <span
               className="text-[11px] uppercase tracking-[0.06em]"
               style={{ color }}
-              title={staleTooltip}
+              title={motivoEstado(mcp, label) ?? staleTooltip}
             >
               {label}
             </span>
+            {/* "degraded" a secas no dice nada: el usuario pregunto el
+                2026-09-21 por que ponia eso. Ahora al lado va el motivo —
+                cuanto tardo o que error dio — en vez de una etiqueta muda. */}
+            {motivoEstado(mcp, label) && (
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {motivoEstado(mcp, label)}
+              </span>
+            )}
             <span
               className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
               style={{ background: originColors.bg, color: originColors.fg }}
@@ -325,4 +336,26 @@ export function Card({
       </div>
     </div>
   );
+}
+
+/** Por que un MCP esta como esta, en una linea. Null si no hay nada que
+ *  explicar (conectado y a su hora).
+ *
+ *  Pura: se testea sin React. */
+export function motivoEstado(
+  mcp: { status: string; latency_ms?: number | null; error?: string | null },
+  etiqueta: string,
+): string | null {
+  if (mcp.error && mcp.error.trim()) {
+    return mcp.error.trim().slice(0, 120);
+  }
+  if (etiqueta === "degraded") {
+    return typeof mcp.latency_ms === "number"
+      ? `tardó ${(mcp.latency_ms / 1000).toFixed(1)} s en responder (el límite son 5 s)`
+      : "responde, pero tarda más de 5 s";
+  }
+  if (etiqueta === "missing") {
+    return "no respondió al comprobarlo";
+  }
+  return null;
 }

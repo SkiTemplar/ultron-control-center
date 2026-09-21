@@ -23,17 +23,16 @@ describe("estadoMic", () => {
 });
 
 describe("accionMic", () => {
-  it("cada estado tiene una acción distinta y ninguna se repite", () => {
-    // Un botón de tres estados en el que dos hicieran lo mismo sería un botón
-    // de dos estados mal dibujado.
-    const acciones = (["apagado", "espera", "escuchando"] as const).map(accionMic);
-    expect(acciones).toEqual(["encender", "escuchar", "cortar"]);
-    expect(new Set(acciones).size).toBe(3);
+  it("es un interruptor: encender o apagar, nada más", () => {
+    expect(accionMic("apagado")).toBe("encender");
+    expect(accionMic("espera")).toBe("apagar");
+    expect(accionMic("escuchando")).toBe("apagar");
   });
 
-  it("apagado nunca empieza a escuchar directamente", () => {
-    // Del todo apagado se pasa a "en espera", no a captura activa: encender el
-    // micrófono no puede significar ponerse a grabar sin avisar.
-    expect(accionMic("apagado")).not.toBe("escuchar");
+  it("estando escuchando, el clic NO corta para enviar", () => {
+    // Caso negativo del cambio pedido el 2026-09-21: "no que cuando le pulse
+    // se corte y se envíe, eso debería poderse pulsando enter". Si esto
+    // volviera a devolver "cortar", el botón mandaría el mensaje sin querer.
+    expect(accionMic("escuchando")).toBe("apagar");
   });
 });

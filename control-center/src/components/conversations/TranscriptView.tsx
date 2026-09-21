@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { BotonCopiar } from "../jarvis/BotonCopiar";
 import remarkGfm from "remark-gfm";
 import type { ClaudeSession } from "../../types/projects";
 import { ChevronDown, ChevronRight, Loader, Play, Terminal } from "../projects/icons";
@@ -212,6 +213,11 @@ function Turn({ turn }: { turn: TranscriptTurn }) {
               (mensaje recortado)
             </p>
           )}
+          {/* Copiar el mensaje, igual que en el chat. Pedido el 2026-09-21:
+              "tanto en los chats como en las conversaciones". */}
+          <div className="mt-1.5 flex justify-end">
+            <BotonCopiar texto={turn.text} />
+          </div>
         </div>
       )}
     </article>

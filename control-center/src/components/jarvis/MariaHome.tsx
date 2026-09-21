@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Tab } from "../Sidebar";
 import { Reactor, type ReactorState } from "./Reactor";
 import { BotonMicrofono } from "./BotonMicrofono";
+import { useHistorialEnviados } from "../../lib/useHistorialEnviados";
 import { FRAG_SRC, ORB_STATE, VERT_SRC } from "../maria/blobShader";
 
 type Gpu = {
@@ -316,6 +317,8 @@ export function MariaHome({
   // Lo que hay en la caja lo escribio el dictado, no el usuario. Sirve para
   // no pisar algo que el estuviera tecleando.
   const dictando = useRef(false);
+  // Historial propio: la linea de ordenes del orbe no comparte el del chat.
+  const historial = useHistorialEnviados("orbe");
   const [relayState, setRelayState] = useState<Record<string, ProviderState>>({});
   const [relayOrder, setRelayOrder] = useState<string[]>([]);
   const [claudeWindow, setClaudeWindow] = useState<WindowUsage | null>(null);
@@ -541,6 +544,7 @@ export function MariaHome({
           e.preventDefault();
           const texto = prompt.trim();
           if (!texto) return;
+          historial.recordar(texto);
           setPrompt("");
           setCmdError(null);
           // Misma entrada que la voz: el modelo local decide y la app ejecuta.
@@ -568,6 +572,13 @@ export function MariaHome({
           onChange={(e) => {
             dictando.current = false;
             setPrompt(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            // Flechas: recupera lo que has mandado antes, como en una
+            // terminal. Al navegar se sale del dictado.
+            if (historial.manejarTecla(e, prompt, setPrompt)) {
+              dictando.current = false;
+            }
           }}
           placeholder={voiceState === "listening" ? "te escucho…" : "escribe una orden…"}
           aria-label="orden escrita"
