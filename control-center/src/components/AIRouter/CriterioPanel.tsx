@@ -30,7 +30,19 @@ type Criterio = {
   claude_ligero: boolean;
   /** Segundos que el modelo local sigue en VRAM tras contestar. 0 = se suelta. */
   local_residente_s: number;
+  /** CLIs sin permisos por herramienta ni caja de arena; local con herramientas. */
+  acceso_total: boolean;
+  /** Reanudar la sesion propia de cada CLI mientras conteste la misma. */
+  sesion_continua: boolean;
+  /** MCP de Claude que siguen activos en el chat con el modo ligero. */
+  claude_mcps: string[];
+  /** Ofrecer el indice de skills a quien no las carga de forma nativa. */
+  compartir_skills: boolean;
 };
+
+type McpLocal = { nombre: string; command: string; args: string[] };
+type Capacidades = { skills_encendidas: number; skills_apagadas: number; mcps: McpLocal[] };
+type ResultadoCompartir = { mcp: string; destino: string; ok: boolean; detalle: string };
 
 /** Opciones de residencia del modelo local. Los numeros de la etiqueta estan
  *  medidos el 2026-09-21 con qwen3.5:9b en esta maquina. */
@@ -51,6 +63,9 @@ export function CriterioPanel() {
   const [criterio, setCriterio] = useState<Criterio | null>(null);
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
   const [estado, setEstado] = useState<string | null>(null);
+  const [capacidades, setCapacidades] = useState<Capacidades | null>(null);
+  const [compartiendo, setCompartiendo] = useState(false);
+  const [compartido, setCompartido] = useState<ResultadoCompartir[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
@@ -62,6 +77,9 @@ export function CriterioPanel() {
       invoke<Catalogo>("maria_models_catalog").catch(() => null),
     ]);
     if (c) setCriterio(c);
+    void invoke<Capacidades>("maria_capacidades")
+      .then(setCapacidades)
+      .catch(() => setCapacidades(null));
     if (cat) setCatalogo(cat);
   }, []);
 
@@ -189,6 +207,139 @@ export function CriterioPanel() {
             el 87 % de lo que tarda la IA local es cargar el modelo; al cerrar mar.ia se suelta siempre
           </span>
         </label>
+      </section>
+
+      <section
+        className="flex flex-col gap-2 rounded-md p-3"
+        style={{
+          background: "var(--color-surface-2)",
+          border: `1px solid ${criterio.acceso_total ? "var(--color-warn)" : "var(--color-border)"}`,
+        }}
+        aria-label="capacidades de los agentes"
+      >
+        <span className="hud-label">capacidades de los agentes</span>
+        <label className="flex items-start gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={criterio.acceso_total}
+            onChange={(e) => void guardar({ ...criterio, acceso_total: e.target.checked })}
+          />
+          <span>
+            Acceso total al equipo
+            <span
+              className="block text-[11.5px]"
+              style={{
+                color: criterio.acceso_total ? "var(--color-warn)" : "var(--color-text-tertiary)",
+              }}
+            >
+              {criterio.acceso_total
+                ? "Claude, Codex y Antigravity trabajan sin pedir permiso y sin caja de arena; el modelo local puede leer, escribir y ejecutar órdenes (con una lista de órdenes vetadas). Todos parten de la carpeta de trabajo de la conversación."
+                : "apagado: Codex en solo lectura, las demás con sus permisos por defecto y el modelo local solo conversa"}
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={criterio.sesion_continua}
+            onChange={(e) => void guardar({ ...criterio, sesion_continua: e.target.checked })}
+          />
+          <span>
+            Sesión continua
+            <span className="block text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              mientras conteste el mismo proveedor se reanuda su propia sesión: recuerda toda la
+              conversación y gasta menos cuota. Al cambiar de proveedor se le cuenta el hilo.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={criterio.compartir_skills}
+            onChange={(e) => void guardar({ ...criterio, compartir_skills: e.target.checked })}
+          />
+          <span>
+            Skills para todos
+            <span className="block text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              {capacidades
+                ? `${capacidades.skills_encendidas} encendidas y ${capacidades.skills_apagadas} apagadas en ~/.claude/skills. `
+                : ""}
+              Claude las carga de forma nativa; a Codex, Antigravity y el local se les ofrece el
+              índice de las que encajan con cada petición.
+            </span>
+          </span>
+        </label>
+
+        <div className="flex flex-col gap-1 text-[13px]">
+          <span>MCP en el chat de Claude</span>
+          {capacidades && capacidades.mcps.length > 0 ? (
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {capacidades.mcps.map((m) => (
+                <label key={m.nombre} className="flex items-center gap-1.5 text-[12.5px]">
+                  <input
+                    type="checkbox"
+                    checked={criterio.claude_mcps.includes(m.nombre)}
+                    onChange={(e) =>
+                      void guardar({
+                        ...criterio,
+                        claude_mcps: e.target.checked
+                          ? [...criterio.claude_mcps, m.nombre]
+                          : criterio.claude_mcps.filter((n) => n !== m.nombre),
+                      })
+                    }
+                  />
+                  <span title={`${m.command} ${m.args.join(" ")}`}>{m.nombre}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              no hay servidores MCP locales en ~/.claude.json
+            </span>
+          )}
+          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            con «Claude ligero» solo arrancan los marcados (cada uno suma arranque a cada mensaje);
+            sin él, arrancan todos. Los conectores de claude.ai no aparecen: van con el inicio de
+            sesión de Claude.
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={compartiendo || !capacidades || capacidades.mcps.length === 0}
+              onClick={() => {
+                setCompartiendo(true);
+                setCompartido(null);
+                void invoke<ResultadoCompartir[]>("maria_compartir_mcps")
+                  .then(setCompartido)
+                  .catch((e) => setError(String(e)))
+                  .finally(() => setCompartiendo(false));
+              }}
+              className="px-3 text-[12.5px]"
+              style={{
+                minHeight: 30,
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                cursor: compartiendo ? "default" : "pointer",
+                opacity: compartiendo ? 0.6 : 1,
+              }}
+            >
+              {compartiendo ? "compartiendo…" : "compartir estos MCP con Codex y Antigravity"}
+            </button>
+            {compartido && (
+              <span className="text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+                {compartido.length === 0
+                  ? "nada que compartir"
+                  : compartido
+                      .map((r) => `${r.mcp}→${r.destino}: ${r.ok ? "ok" : r.detalle}`)
+                      .join(" · ")}
+              </span>
+            )}
+          </div>
+        </div>
       </section>
 
       <div className="flex flex-col gap-2">

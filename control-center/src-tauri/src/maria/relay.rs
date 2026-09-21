@@ -1776,4 +1776,50 @@ mod tests {
             Sesion::Nueva(String::new())
         );
     }
+
+    /// Prueba REAL de la sesion continua con las tres CLI (gasta dos peticiones
+    /// minimas de cada una). `cargo test -- --ignored sesion_real --nocapture`.
+    #[test]
+    #[ignore = "toca proveedores reales"]
+    fn sesion_real_se_reanuda_en_las_tres_cli() {
+        for provider in ["claude", "codex", "antigravity"] {
+            let hilo = format!(
+                "prueba-sesion-{provider}-{}",
+                chrono::Utc::now().timestamp()
+            );
+            let forzado = crate::maria::models::Eleccion {
+                provider: provider.into(),
+                model: crate::maria::models::modelo_por_defecto(provider),
+                effort: "bajo".into(),
+            };
+            let t0 = std::time::Instant::now();
+            let r1 = ask(
+                &hilo,
+                "Recuerda el numero 4172. Responde solo: ok",
+                Some(&forzado),
+            );
+            let ms1 = t0.elapsed().as_millis();
+            let s1 = cargar_sesiones(&hilo).get(provider).cloned();
+            let t1 = std::time::Instant::now();
+            let r2 = ask(
+                &hilo,
+                "Que numero te dije? Responde solo con el numero.",
+                Some(&forzado),
+            );
+            let ms2 = t1.elapsed().as_millis();
+            let s2 = cargar_sesiones(&hilo).get(provider).cloned();
+            println!(
+                "[{provider}] t1={ms1} ms ({:?}) · t2={ms2} ms ({:?}) · sesion1={:?} · sesion2={:?}",
+                r1.as_ref().map(|r| (r.provider.clone(), r.text.chars().take(20).collect::<String>())),
+                r2.as_ref().map(|r| (r.provider.clone(), r.text.chars().take(20).collect::<String>())),
+                s1,
+                s2
+            );
+            if let Ok(pth) = thread_path(&hilo) {
+                let _ = std::fs::remove_file(&pth);
+                let _ = std::fs::remove_file(pth.with_extension("sesiones.json"));
+                let _ = std::fs::remove_dir_all(pth.with_extension("trabajo"));
+            }
+        }
+    }
 }

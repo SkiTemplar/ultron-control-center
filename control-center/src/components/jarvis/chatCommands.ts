@@ -28,6 +28,12 @@ export const COMMANDS: SlashCommand[] = [
     args: "<claude|codex|antigravity|local>",
     desc: "manda lo que escribas a ese proveedor",
   },
+  {
+    name: "/delegar",
+    args: "<claude|codex|antigravity|local> <encargo>",
+    desc: "lanza un encargo en paralelo; el chat sigue libre y el resultado entra en el hilo",
+  },
+  { name: "/regenerar", args: "", desc: "vuelve a pedir la última respuesta" },
   { name: "/analizar", args: "", desc: "vuelve a dejar que mar.ia elija proveedor y modelo" },
   { name: "/modelo", args: "<haiku|sonnet|opus|…>", desc: "fija el modelo concreto" },
   { name: "/esfuerzo", args: "<bajo|medio|alto>", desc: "fija cuanto debe pensar" },

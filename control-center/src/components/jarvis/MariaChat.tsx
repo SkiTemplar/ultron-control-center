@@ -21,8 +21,8 @@ import { BotonMicrofono } from "./BotonMicrofono";
 import { BotonCopiar } from "./BotonCopiar";
 import { useHistorialEnviados } from "../../lib/useHistorialEnviados";
 import { useVoice } from "./HudFrame";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Markdown, type ArtefactoRef } from "./Markdown";
+import { Artefacto } from "./Artefacto";
 import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
 import { HudSelect } from "./HudSelect";
 import {
@@ -119,6 +119,26 @@ const SKIP_LABEL: Record<string, string> = {
   desactivado: "desactivado",
   sin_cli: "CLI no instalada",
   timeout: "sin respuesta",
+  enfriando: "sin cuota, en espera",
+};
+
+/** Trabajo en paralelo de un proveedor para esta conversacion (`maria/encargos.rs`). */
+type Encargo = {
+  id: string;
+  thread_id: string;
+  provider: string;
+  texto: string;
+  estado: "en_curso" | "hecho" | "error" | "parado";
+  creado: string;
+  fin: string;
+  resumen: string;
+};
+
+const ESTADO_ENCARGO: Record<Encargo["estado"], string> = {
+  en_curso: "en curso",
+  hecho: "hecho",
+  error: "falló",
+  parado: "parado",
 };
 
 /** Aviso del propio chat (no es un turno: no se guarda en el hilo). */
@@ -182,6 +202,17 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   /** Ficheros que acompañaran al proximo mensaje. */
   const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
   const [arrastrando, setArrastrando] = useState(false);
+  /** Ficheros que se estan guardando ahora mismo (arrastre o pegado). */
+  const [adjuntando, setAdjuntando] = useState(0);
+  /** Lo que el agente esta haciendo AHORA (herramienta, orden). No es respuesta. */
+  const [actividad, setActividad] = useState<string | null>(null);
+  /** Lo que se ve funcionando en el panel de la derecha. */
+  const [artefacto, setArtefacto] = useState<ArtefactoRef | null>(null);
+  /** Encargos en paralelo de esta conversacion, y lo ultimo que dice cada uno. */
+  const [encargos, setEncargos] = useState<Encargo[]>([]);
+  const [vivoEncargo, setVivoEncargo] = useState<Record<string, string>>({});
+  /** Si no es null, el proximo envio REESCRIBE el hilo desde ese turno. */
+  const [editando, setEditando] = useState<number | null>(null);
   const threadIdRef = useRef(threadId);
   threadIdRef.current = threadId;
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -216,23 +247,71 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   useEffect(() => {
     const p = listen<Trozo>("maria://relay-trozo", (ev) => {
       const t = ev.payload;
-      if (!t || t.thread_id !== threadIdRef.current) return;
+      if (!t) return;
+      // `hilo#encargo`: es un trabajo en paralelo, no la respuesta del chat.
+      const [hilo, encargo] = t.thread_id.split("#");
+      if (hilo !== threadIdRef.current) return;
+      if (encargo) {
+        setVivoEncargo((prev) => ({
+          ...prev,
+          [encargo]: ((t.reinicia ? "" : (prev[encargo] ?? "")) + t.texto).slice(-160),
+        }));
+        return;
+      }
+      setActividad(null);
       setEnVivo((prev) =>
         t.reinicia || !prev || prev.provider !== t.provider
           ? { provider: t.provider, texto: t.reinicia ? "" : t.texto }
           : { provider: prev.provider, texto: prev.texto + t.texto },
       );
     });
+    const a = listen<{ thread_id: string; provider: string; texto: string }>(
+      "maria://relay-actividad",
+      (ev) => {
+        const [hilo, encargo] = (ev.payload?.thread_id ?? "").split("#");
+        if (hilo !== threadIdRef.current) return;
+        if (encargo) {
+          setVivoEncargo((prev) => ({ ...prev, [encargo]: ev.payload.texto }));
+        } else {
+          setActividad(`${ev.payload.provider} · ${ev.payload.texto}`);
+        }
+      },
+    );
+    const e = listen<Encargo>("maria://encargo", (ev) => {
+      const en = ev.payload;
+      if (!en || en.thread_id !== threadIdRef.current) return;
+      setEncargos((prev) => [...prev.filter((x) => x.id !== en.id), en]);
+      if (en.estado !== "en_curso") {
+        // El resultado ya esta en el hilo: se relee para que aparezca.
+        void invoke<Turn[]>("maria_relay_thread", { threadId: en.thread_id })
+          .then((ts) => setTurns(ts ?? []))
+          .catch(() => undefined);
+      }
+    });
     return () => {
       void p.then((off) => off());
+      void a.then((off) => off());
+      void e.then((off) => off());
     };
   }, []);
+
+  // Al cambiar de conversacion: sus encargos, y nada de la anterior a la vista.
+  useEffect(() => {
+    setArtefacto(null);
+    setEditando(null);
+    setVivoEncargo({});
+    if (!threadId) return;
+    void invoke<Encargo[]>("maria_encargos", { threadId })
+      .then((l) => setEncargos(l ?? []))
+      .catch(() => setEncargos([]));
+  }, [threadId]);
 
   /** Guarda en disco lo soltado o pegado y lo apunta como adjunto. */
   const adjuntarFicheros = useCallback(
     async (files: File[]) => {
       const hilo = threadIdRef.current;
       if (!hilo || files.length === 0) return;
+      setAdjuntando((n) => n + files.length);
       for (const f of files) {
         try {
           const datos = aBase64(new Uint8Array(await f.arrayBuffer()));
@@ -244,6 +323,8 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           setAdjuntos((prev) => [...prev, { nombre: f.name || "pegado.png", ruta }]);
         } catch (e) {
           avisar(`no pude adjuntar ${f.name}: ${String(e)}`, "error");
+        } finally {
+          setAdjuntando((n) => Math.max(0, n - 1));
         }
       }
     },
@@ -464,6 +545,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         await nuevaConversacion();
         return;
       }
+      case "/delegar":
+        await delegar(arg);
+        return;
+      case "/regenerar":
+        await regenerar();
+        return;
       case "/proveedores": {
         const estado = await invoke<Record<string, ProviderState>>("maria_relay_state").catch(
           () => ({}) as Record<string, ProviderState>,
@@ -488,9 +575,24 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     setLastSkips([]);
     setLastChoice(null);
     setEnVivo(null);
+    setActividad(null);
     const enviados = adjuntos;
     setAdjuntos([]);
-    const eraVacia = turns.length === 0;
+    // Editar un mensaje: el hilo se corta ahi y sigue por el texto nuevo.
+    let base = turns;
+    if (editando !== null) {
+      try {
+        await invoke("maria_relay_truncar", { threadId, conservar: editando });
+        base = turns.slice(0, editando);
+        setTurns(base);
+      } catch (e) {
+        avisar(`no pude reescribir la conversación: ${String(e)}`, "error");
+        setBusy(false);
+        return;
+      }
+      setEditando(null);
+    }
+    const eraVacia = base.length === 0;
     // Optimista: el turno del usuario se ve al instante; el backend lo
     // persiste igualmente, asi que al recargar el hilo no se duplica.
     setTurns((prev) => [
@@ -542,7 +644,45 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       else avisar(String(e), "error");
     } finally {
       setEnVivo(null);
+      setActividad(null);
       setBusy(false);
+    }
+  }
+
+  /** Vuelve a pedir la ultima respuesta: corta el hilo en el ultimo mensaje
+   *  tuyo y lo manda otra vez. */
+  async function regenerar() {
+    if (busy) return;
+    const i = turns.map((t) => t.role).lastIndexOf("user");
+    if (i < 0) {
+      avisar("no hay nada que regenerar");
+      return;
+    }
+    const texto = turns[i].text.replace(/\n\n_adjuntos: [^\n]*_$/, "");
+    try {
+      await invoke("maria_relay_truncar", { threadId, conservar: i });
+    } catch (e) {
+      avisar(`no pude regenerar: ${String(e)}`, "error");
+      return;
+    }
+    setTurns(turns.slice(0, i));
+    await enviarMensaje(texto);
+  }
+
+  async function delegar(arg: string) {
+    const [prov, ...resto] = arg.trim().split(/\s+/);
+    const texto = resto.join(" ").trim();
+    const p = parseProvider(prov ?? "");
+    if (!p || !texto) {
+      avisar("uso: /delegar <claude|codex|antigravity|local> <encargo>", "error");
+      return;
+    }
+    try {
+      const en = await invoke<Encargo>("maria_encargo_lanzar", { threadId, provider: p, texto });
+      setEncargos((prev) => [...prev.filter((x) => x.id !== en.id), en]);
+      avisar(`encargo ${en.id} en marcha con ${p}; puedes seguir hablando`);
+    } catch (e) {
+      avisar(String(e), "error");
     }
   }
 
@@ -805,12 +945,34 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                     overflowWrap: "anywhere",
                   }}
                 >
-                  <div className="cc-markdown">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.text}</ReactMarkdown>
-                  </div>
-                  {/* Copiar el mensaje, el tuyo o el suyo. Va dentro de la
-                      burbuja y alineado a la derecha, como en Claude. */}
-                  <div className="mt-1.5 flex justify-end">
+                  <Markdown texto={t.text} onAbrir={setArtefacto} />
+                  {/* Acciones del mensaje, dentro de la burbuja y a la derecha,
+                      como en Claude: editar lo tuyo, regenerar lo suyo, copiar. */}
+                  <div className="mt-1.5 flex items-center justify-end gap-2">
+                    {t.role === "user" && !busy && (
+                      <button
+                        type="button"
+                        className="cc-bloque-boton"
+                        title="cambiar este mensaje: la conversación sigue desde aquí"
+                        onClick={() => {
+                          setEditando(i);
+                          setPrompt(t.text.replace(/\n\n_adjuntos: [^\n]*_$/, ""));
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        editar
+                      </button>
+                    )}
+                    {t.role !== "user" && i === turns.length - 1 && !busy && (
+                      <button
+                        type="button"
+                        className="cc-bloque-boton"
+                        title="pedir otra vez esta respuesta"
+                        onClick={() => void regenerar()}
+                      >
+                        regenerar
+                      </button>
+                    )}
                     <BotonCopiar texto={t.text} />
                   </div>
                 </div>
@@ -831,9 +993,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                     overflowWrap: "anywhere",
                   }}
                 >
-                  <div className="cc-markdown">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{enVivo.texto}</ReactMarkdown>
-                  </div>
+                  <Markdown texto={enVivo.texto} onAbrir={setArtefacto} />
                 </div>
               </article>
             )}
@@ -841,6 +1001,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
             {busy && !enVivo?.texto && (
               <p className="hud-label hud-pulse py-2">
                 {enVivo ? `esperando a ${enVivo.provider}…` : "eligiendo quién contesta…"}
+              </p>
+            )}
+
+            {busy && actividad && (
+              <p className="hud-label py-1" style={{ color: "var(--color-text-secondary)" }}>
+                {actividad}
               </p>
             )}
 
@@ -919,6 +1085,82 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                 </li>
               ))}
             </ul>
+          )}
+
+          {encargos.length > 0 && (
+            <ul className="mt-2 flex flex-col gap-1" aria-label="encargos en paralelo">
+              {encargos
+                .slice()
+                .sort((a, b) => a.creado.localeCompare(b.creado))
+                .slice(-4)
+                .map((en) => (
+                  <li
+                    key={en.id}
+                    className="hud-panel flex items-center gap-2 px-2 py-1 text-[11px]"
+                    style={{ fontFamily: "var(--font-mono)" }}
+                    title={en.texto}
+                  >
+                    <span
+                      className={en.estado === "en_curso" ? "hud-pulse" : undefined}
+                      style={{
+                        color:
+                          en.estado === "hecho"
+                            ? "var(--color-success)"
+                            : en.estado === "en_curso"
+                              ? "var(--color-accent)"
+                              : "var(--color-danger)",
+                      }}
+                    >
+                      {en.provider} · {ESTADO_ENCARGO[en.estado]}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-text-tertiary)" }}>
+                      {en.estado === "en_curso" ? (vivoEncargo[en.id] ?? en.texto) : en.texto}
+                    </span>
+                    {en.estado === "en_curso" ? (
+                      <button
+                        type="button"
+                        className="cc-bloque-boton"
+                        onClick={() =>
+                          void invoke("maria_encargo_cancelar", { threadId, id: en.id })
+                        }
+                      >
+                        parar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="cc-bloque-boton"
+                        aria-label="quitar de la lista"
+                        onClick={() => setEncargos((prev) => prev.filter((x) => x.id !== en.id))}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
+
+          {editando !== null && (
+            <p className="hud-label mt-2 flex items-center gap-2" style={{ color: "var(--color-warn)" }}>
+              editando un mensaje: al enviar, la conversación continúa desde ahí y lo posterior se descarta
+              <button
+                type="button"
+                className="cc-bloque-boton"
+                onClick={() => {
+                  setEditando(null);
+                  setPrompt("");
+                }}
+              >
+                cancelar
+              </button>
+            </p>
+          )}
+
+          {adjuntando > 0 && (
+            <p className="hud-label hud-pulse mt-2">
+              guardando {adjuntando} fichero{adjuntando === 1 ? "" : "s"}…
+            </p>
           )}
 
           {adjuntos.length > 0 && (
@@ -1014,6 +1256,16 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           </form>
         </div>
       </div>
+      {artefacto && (
+        <div style={{ width: "46%", minWidth: 360, maxWidth: 900 }} className="h-full shrink-0">
+          <Artefacto
+            artefacto={artefacto}
+            threadId={threadId}
+            onCerrar={() => setArtefacto(null)}
+            onAviso={avisar}
+          />
+        </div>
+      )}
     </div>
   );
 }

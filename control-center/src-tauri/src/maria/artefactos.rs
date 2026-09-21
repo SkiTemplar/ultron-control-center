@@ -127,6 +127,10 @@ pub async fn maria_artefacto_guardar(
 mod tests {
     use super::*;
 
+    /// Los dos tests que publican comparten la cola de 24: en paralelo, el de
+    /// desalojo echaba el documento del otro antes de que lo pidiera.
+    static EN_FILA: Mutex<()> = Mutex::new(());
+
     #[test]
     fn un_documento_completo_no_se_envuelve() {
         let d = "<!DOCTYPE html><html><body>hola</body></html>";
@@ -142,6 +146,7 @@ mod tests {
 
     #[test]
     fn se_publica_en_local_y_se_sirve_solo_lo_registrado() {
+        let _fila = EN_FILA.lock().unwrap_or_else(|e| e.into_inner());
         let url = publicar("html", "<p>uno</p>").expect("publica");
         assert!(url.starts_with("http://127.0.0.1:"));
         let cuerpo = reqwest::blocking::get(&url).unwrap().text().unwrap();
@@ -152,6 +157,7 @@ mod tests {
 
     #[test]
     fn nunca_se_guardan_mas_que_los_ultimos() {
+        let _fila = EN_FILA.lock().unwrap_or_else(|e| e.into_inner());
         for i in 0..(MAX_ARTEFACTOS + 5) {
             publicar("html", &format!("<p>{i}</p>")).unwrap();
         }
