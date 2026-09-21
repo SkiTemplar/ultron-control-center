@@ -345,6 +345,14 @@ pub(crate) fn call_ollama(
         "model": model,
         "prompt": prompt,
         "stream": false,
+        // Sin esto Ollama aplica SU plazo por defecto: 5 minutos. Estas son
+        // las llamadas internas (captura de memoria, resumenes, titulos), y
+        // llegan tambien desde el sidecar que lanzan los hooks de CUALQUIER
+        // sesion de Claude Code: cada una dejaba 8,6 GB de VRAM tomados cinco
+        // minutos con mar.ia cerrada (visto el 2026-09-21: `ollama ps` ->
+        // "UNTIL 4 minutes from now" tras matar la aplicacion). Son llamadas
+        // sueltas: nadie gana nada con que el modelo se quede.
+        "keep_alive": 0,
     });
     if let Some(sys) = system {
         if !sys.is_empty() {
