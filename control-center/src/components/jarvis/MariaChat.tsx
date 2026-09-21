@@ -86,7 +86,9 @@ const EFFORT_MODE_LABEL: Record<string, string> = {
   SinControl: "sin control",
 };
 
-type SkipReason = { provider: string; kind: string; detail: string };
+/** `accion` = qué puede hacer el usuario. La compone Rust (`relay::consejo`)
+ *  para que el chat, el móvil y el log digan exactamente lo mismo. */
+type SkipReason = { provider: string; kind: string; detail: string; accion?: string };
 
 type RelayAnswer = {
   thread_id: string;
@@ -1196,11 +1198,27 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               </p>
             )}
 
+            {/* El relevo, con el siguiente paso de cada descarte. Antes ponía
+                solo «agy (CLI no instalada)» y ahí se acababa: saber el motivo
+                sin saber qué hacer no sirve de nada (2026-09-22). */}
             {lastSkips.length > 0 && (
-              <p className="hud-label py-1" style={{ color: "var(--color-warn)" }}>
-                relevo:{" "}
-                {lastSkips.map((s) => `${s.provider} (${SKIP_LABEL[s.kind] ?? s.kind})`).join(" · ")}
-              </p>
+              <ul className="py-1" aria-label="proveedores que se saltaron">
+                {lastSkips.map((s, i) => (
+                  <li key={`${s.provider}-${i}`} className="mb-0.5">
+                    <span className="hud-label" style={{ color: "var(--color-warn)" }}>
+                      {s.provider} · {SKIP_LABEL[s.kind] ?? s.kind}
+                    </span>
+                    {s.accion && (
+                      <span
+                        className="ml-2 text-[11px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                      >
+                        {s.accion}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
 
             {avisos.map((a) => (

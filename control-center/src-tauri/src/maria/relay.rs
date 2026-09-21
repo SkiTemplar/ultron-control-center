@@ -115,9 +115,128 @@ pub struct RelayAnswer {
 #[derive(Debug, Clone, Serialize)]
 pub struct SkipReason {
     pub provider: String,
-    /// "sin_cli" | "cuota" | "error" | "desactivado" | "timeout".
+    /// "sin_cli" | "cuota" | "enfriando" | "error" | "desactivado" | "timeout".
     pub kind: String,
     pub detail: String,
+    /// Que puede HACER el usuario. Nunca vacio: un motivo de descarte sin
+    /// siguiente paso obliga a adivinar (mandamiento 11).
+    pub accion: String,
+}
+
+// ---------------------------------------------------------------------------
+// Que hacer cuando un proveedor se cae
+// ---------------------------------------------------------------------------
+//
+// Hasta el 2026-09-22 la pantalla decia "agy (CLI no instalada)" y ahi acababa
+// todo. Peor: "sin_cli" y "timeout" estaban DOCUMENTADOS arriba como kinds
+// posibles y no los producia nadie — los dos fallos caian en "error", asi que
+// ni siquiera se distinguia el caso. El patron correcto ya estaba en casa:
+// `maria/arranque.rs` comprueba las tres cosas que pueden fallar al arrancar
+// con Windows y dice CUAL. Esto es trasladarlo al camino que se ve cada dia.
+
+/// Clasifica el fallo de una CLI en uno de los `kind` de `SkipReason`.
+///
+/// Reconoce los mensajes que compone `cli::msg_sin_cli` / `cli::msg_timeout`.
+/// Los tests atan una cosa a la otra: si alguien cambia el texto alli y no
+/// aqui, saltan.
+#[must_use]
+pub fn clasifica_fallo(detail: &str, cuota: bool) -> &'static str {
+    if cuota {
+        return "cuota";
+    }
+    let t = detail.to_lowercase();
+    if t.contains("no esta en el path") {
+        "sin_cli"
+    } else if t.contains("no respondio en") {
+        "timeout"
+    } else {
+        "error"
+    }
+}
+
+/// La hora local de una marca RFC 3339, para decirla en un mensaje. Cadena
+/// vacia si no se entiende: mejor callarse la hora que inventarla.
+#[must_use]
+fn hora_corta(rfc: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(rfc.trim())
+        .map(|d| {
+            d.with_timezone(&chrono::Local)
+                .format("las %H:%M")
+                .to_string()
+        })
+        .unwrap_or_default()
+}
+
+/// Como se instala cada CLI. Solo el nombre del paquete: ni rutas, ni PATH.
+fn como_se_instala(provider: &str) -> &'static str {
+    match provider {
+        "claude" => {
+            "Instalala con `npm i -g @anthropic-ai/claude-code` y entra una vez con `claude`."
+        }
+        "codex" => "Instalala con `npm i -g @openai/codex` y entra con tu cuenta de ChatGPT.",
+        "antigravity" | "agy" => {
+            "Instala Antigravity desde antigravity.google y entra una vez con `agy`."
+        }
+        _ => "Instala su CLI y asegurate de que queda en el PATH.",
+    }
+}
+
+/// Que puede hacer el usuario ante este descarte. Pura: se prueba sin red.
+///
+/// `hasta` es la marca RFC 3339 del enfriamiento, vacia si no aplica.
+#[must_use]
+pub fn consejo(provider: &str, kind: &str, hasta: &str) -> String {
+    let cuando = hora_corta(hasta);
+    match kind {
+        "sin_cli" => format!(
+            "{} Si no la vas a usar, apagala en el relevo y dejara de intentarlo.",
+            como_se_instala(provider)
+        ),
+        "cuota" => {
+            let vuelve = if cuando.is_empty() {
+                "Se le vuelve a preguntar cuando pase el enfriamiento.".to_string()
+            } else {
+                format!("Se le vuelve a preguntar a partir de {cuando}.")
+            };
+            format!("Se ha quedado sin cuota y el relevo pasa al siguiente. {vuelve}")
+        }
+        "enfriando" => {
+            let vuelve = if cuando.is_empty() {
+                "Todavia esta en espera.".to_string()
+            } else {
+                format!("Vuelve a estar disponible a partir de {cuando}.")
+            };
+            format!("{vuelve} Para usarlo YA, fijalo a mano en el selector «proveedor».")
+        }
+        "timeout" => format!(
+            "{provider} tardo mas de lo que se le espera. Vuelve a enviarlo con \
+             /regenerar, o fija otro proveedor en el selector."
+        ),
+        "desactivado" => {
+            format!("{provider} esta apagado en el relevo. Enciendelo si lo quieres de vuelta.")
+        }
+        _ if provider == "local" => {
+            "El modelo local no contesto: casi siempre es que Ollama no esta levantado. \
+             mar.ia lo arranca sola, asi que si sigue fallando comprueba `ollama list`."
+                .to_string()
+        }
+        _ => format!(
+            "{provider} fallo por algo que no es la cuota, asi que el relevo paso al \
+             siguiente. Si se repite, fija otro proveedor en el selector."
+        ),
+    }
+}
+
+impl SkipReason {
+    /// Descarte con su siguiente paso ya escrito.
+    fn nuevo(provider: &str, kind: &str, detail: impl Into<String>, hasta: &str) -> Self {
+        Self {
+            provider: provider.to_string(),
+            kind: kind.to_string(),
+            detail: detail.into(),
+            accion: consejo(provider, kind, hasta),
+        }
+    }
 }
 
 /// Orden y estado de los proveedores.
@@ -1233,11 +1352,12 @@ fn ask_inner(
             .get(p)
             .map(|e| e.cooldown_until.clone())
             .unwrap_or_default();
-        skipped.push(SkipReason {
-            provider: p.clone(),
-            kind: "enfriando".into(),
-            detail: format!("sin cuota; se le vuelve a preguntar a partir de {hasta}"),
-        });
+        skipped.push(SkipReason::nuevo(
+            p,
+            "enfriando",
+            format!("sin cuota; se le vuelve a preguntar a partir de {hasta}"),
+            &hasta,
+        ));
     }
     let orden = super::enrutado::ordenar_por_disponibilidad(&orden, &frios);
 
@@ -1285,11 +1405,12 @@ fn ask_inner(
     for provider in &orden {
         if cfg.disabled.iter().any(|d| d == provider) {
             record_attempt(&mut state, provider, "desactivado", "apagado en relay.json");
-            skipped.push(SkipReason {
-                provider: provider.clone(),
-                kind: "desactivado".into(),
-                detail: "apagado en relay.json".into(),
-            });
+            skipped.push(SkipReason::nuevo(
+                provider,
+                "desactivado",
+                "apagado en relay.json",
+                "",
+            ));
             continue;
         }
         // El plan solo vale para el proveedor elegido; si el relevo salta a
@@ -1457,7 +1578,10 @@ fn ask_inner(
                     save_state(&state);
                     return Err("parado".into());
                 }
-                let kind = if cuota { "cuota" } else { "error" };
+                // "sin_cli" y "timeout" se distinguen de un "error" cualquiera:
+                // el siguiente paso no se parece en nada (instalar una CLI
+                // frente a reintentar). Ver `clasifica_fallo`.
+                let kind = clasifica_fallo(&detail, cuota);
                 if cuota {
                     enfriar(&mut state, provider, &detail);
                     // Se aprende el tope practico de la ventana: el consumo
@@ -1468,24 +1592,40 @@ fn ask_inner(
                     }
                 }
                 record_attempt(&mut state, provider, kind, &detail);
-                skipped.push(SkipReason {
-                    provider: provider.clone(),
-                    kind: kind.into(),
-                    detail,
-                });
+                let hasta = state
+                    .get(provider.as_str())
+                    .map(|e| e.cooldown_until.clone())
+                    .unwrap_or_default();
+                skipped.push(SkipReason::nuevo(provider, kind, detail, &hasta));
             }
         }
     }
 
     save_state(&state);
-    Err(format!(
-        "ningun proveedor pudo contestar: {}",
-        skipped
-            .iter()
-            .map(|s| format!("{} ({})", s.provider, s.kind))
-            .collect::<Vec<_>>()
-            .join(", ")
-    ))
+    // Nadie ha contestado: es EL momento de decir que hacer, no de listar
+    // codigos. Antes ponia "ningun proveedor pudo contestar: agy (error),
+    // claude (cuota)" y el usuario se quedaba igual.
+    Err(sin_respuesta(&skipped))
+}
+
+/// El mensaje de "no ha contestado nadie", con el siguiente paso de cada uno.
+/// Pura: se prueba sin lanzar ninguna CLI.
+#[must_use]
+pub fn sin_respuesta(skipped: &[SkipReason]) -> String {
+    if skipped.is_empty() {
+        return "No hay ningun proveedor en el relevo al que preguntar. \
+                Revisa el orden en Ajustes."
+            .to_string();
+    }
+    let lineas: Vec<String> = skipped
+        .iter()
+        .map(|s| format!("· {} ({}): {}", s.provider, s.kind, s.accion))
+        .collect();
+    format!(
+        "No ha contestado ninguno de los {} proveedores que se intentaron:\n{}",
+        skipped.len(),
+        lineas.join("\n")
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1584,6 +1724,91 @@ pub async fn maria_relay_config() -> Result<RelayConfig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Los seis kinds que puede llevar un `SkipReason`. Si se anade uno, va
+    /// aqui: el test de abajo comprueba que NINGUNO se queda sin consejo.
+    const KINDS: &[&str] = &[
+        "sin_cli",
+        "cuota",
+        "enfriando",
+        "timeout",
+        "desactivado",
+        "error",
+    ];
+
+    #[test]
+    fn ningun_motivo_de_descarte_se_queda_sin_siguiente_paso() {
+        for kind in KINDS {
+            for p in ["claude", "codex", "antigravity", "local"] {
+                let c = consejo(p, kind, "2026-09-22T18:30:00+02:00");
+                assert!(!c.trim().is_empty(), "sin consejo: {p} / {kind}");
+                assert!(
+                    c.ends_with('.'),
+                    "el consejo tiene que ser una frase entera: {c}"
+                );
+            }
+        }
+        // Caso negativo: un kind que nadie ha previsto tampoco puede dejar al
+        // usuario sin nada que hacer (mandamiento 11).
+        assert!(!consejo("claude", "loquesea", "").trim().is_empty());
+    }
+
+    #[test]
+    fn el_consejo_de_cli_ausente_no_filtra_rutas_de_la_maquina() {
+        // Repo publico (mandamiento 9): se dice el nombre del paquete, nunca
+        // el PATH ni una carpeta del usuario.
+        let c = consejo("antigravity", "sin_cli", "");
+        assert!(c.contains("antigravity.google"), "sin instrucciones: {c}");
+        assert!(!c.contains('\\') && !c.contains("C:"), "filtra ruta: {c}");
+        assert!(consejo("codex", "sin_cli", "").contains("@openai/codex"));
+    }
+
+    #[test]
+    fn la_cuota_dice_hasta_cuando() {
+        let c = consejo("claude", "cuota", "2026-09-22T18:30:00+02:00");
+        assert!(c.contains("sin cuota"), "{c}");
+        // La hora sale en local, asi que solo se comprueba que la hay.
+        assert!(c.contains("a partir de las"), "sin hora: {c}");
+        // Sin marca valida no se inventa una hora.
+        let sin = consejo("claude", "cuota", "");
+        assert!(
+            !sin.contains("a partir de las"),
+            "se ha inventado la hora: {sin}"
+        );
+    }
+
+    #[test]
+    fn los_fallos_con_nombre_se_clasifican_y_no_caen_en_error() {
+        // Ata `cli::msg_*` con el clasificador: si alguien cambia el texto de
+        // uno sin tocar el otro, esto salta en vez de volver a "error" a secas.
+        assert_eq!(
+            clasifica_fallo(&crate::maria::cli::msg_sin_cli("agy"), false),
+            "sin_cli"
+        );
+        assert_eq!(
+            clasifica_fallo(&crate::maria::cli::msg_timeout("codex", 180), false),
+            "timeout"
+        );
+        assert_eq!(clasifica_fallo("lo que sea", true), "cuota");
+        // Caso negativo: un fallo cualquiera NO puede pasar por falta de CLI,
+        // o la pantalla mandaria a instalar algo que ya esta instalado.
+        assert_eq!(clasifica_fallo("connection reset by peer", false), "error");
+        assert_eq!(clasifica_fallo("", false), "error");
+    }
+
+    #[test]
+    fn cuando_no_contesta_nadie_se_dice_que_hacer_con_cada_uno() {
+        let skips = vec![
+            SkipReason::nuevo("antigravity", "sin_cli", "agy no esta en el PATH", ""),
+            SkipReason::nuevo("claude", "cuota", "usage limit reached", ""),
+        ];
+        let msg = sin_respuesta(&skips);
+        assert!(msg.contains("antigravity") && msg.contains("claude"));
+        assert!(msg.contains("antigravity.google"), "sin el paso: {msg}");
+        assert!(msg.contains("sin cuota"), "sin el paso: {msg}");
+        // Caso negativo: sin descartes tampoco se devuelve una lista vacia.
+        assert!(sin_respuesta(&[]).contains("relevo"));
+    }
 
     fn turno(role: &str, provider: &str, text: &str) -> Turn {
         Turn {

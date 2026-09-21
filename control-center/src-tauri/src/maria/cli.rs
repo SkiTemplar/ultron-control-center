@@ -415,6 +415,29 @@ pub fn leer_json_agy(todo: &str) -> Result<Respuesta, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Fallos con nombre
+// ---------------------------------------------------------------------------
+//
+// Estos dos mensajes los COMPONE `ejecutar` y los RECONOCE
+// `relay::clasifica_fallo` para dar el `kind` del descarte. Viven aqui, en una
+// funcion, a proposito: si la cadena se escribiera dos veces (una al fallar y
+// otra al clasificar) cualquier retoque dejaria la clasificacion adivinando, y
+// todo volveria a caer en "error" — que es justo de donde venimos (2026-09-22).
+
+/// "Esa CLI no esta". Se dice el NOMBRE del binario y nada mas: el repo es
+/// publico y volcar el PATH entero seria volcar rutas de la maquina.
+#[must_use]
+pub fn msg_sin_cli(bin: &str) -> String {
+    format!("{bin} no esta en el PATH de esta maquina")
+}
+
+/// "Esa CLI se ha pasado de tiempo", con el plazo que se le dio.
+#[must_use]
+pub fn msg_timeout(provider: &str, segundos: u64) -> String {
+    format!("{provider} no respondio en {segundos} s")
+}
+
+// ---------------------------------------------------------------------------
 // Ejecucion
 // ---------------------------------------------------------------------------
 
@@ -423,10 +446,10 @@ pub fn leer_json_agy(todo: &str) -> Result<Respuesta, String> {
 /// turno devuelve lo que hubiera (o el error "parado" si no habia nada).
 pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
     let Some(bin) = binario(p.provider) else {
-        return Err((format!("no se como invocar {}", p.provider), false));
+        return Err((msg_sin_cli(p.provider), false));
     };
     let Some(ruta) = ruta_de_cli(bin) else {
-        return Err((format!("{bin} no esta instalada"), false));
+        return Err((msg_sin_cli(bin), false));
     };
     // Claude no tiene bandera de esfuerzo: se le pide en el propio mensaje.
     let prefijo = crate::maria::models::prefijo_esfuerzo(p.provider, p.effort);
@@ -579,7 +602,7 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
         if inicio.elapsed() > tope {
             let _ = child.kill();
             let _ = child.wait();
-            return Err((format!("{} no respondio a tiempo", p.provider), false));
+            return Err((msg_timeout(p.provider, tope.as_secs()), false));
         }
     }
     let estado = child
