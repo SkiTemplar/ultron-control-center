@@ -371,6 +371,77 @@ fn enfriar(state: &mut RelayState, provider: &str, detail: &str) {
     entry.quota_strikes = entry.quota_strikes.saturating_add(1);
 }
 
+// ---------------------------------------------------------------------------
+// Avisos de cuota de las sesiones que corren fuera de la aplicacion
+// ---------------------------------------------------------------------------
+//
+// Hasta el 2026-09-22 el relevo solo descubria que Claude estaba sin cuota
+// cuando la propia app lo intentaba y fallaba: varios segundos por turno en
+// lanzar una CLI para que repitiera que no. Las sesiones de Claude Code que
+// corren por su cuenta chocan con la MISMA cuota y eso no llegaba aqui.
+//
+// El hook `stopfailure-relay` (evento StopFailure, con matcher estrecho sobre
+// los valores de `error` que hablan de disponibilidad) deja una linea por
+// incidente en el JSONL de abajo. El contrato del formato esta escrito en la
+// cabecera de ese script; la lectura tolera campos de mas y lineas rotas.
+//
+// Cada aviso se consume UNA vez: la marca de lo leido guarda el `ts` del ultimo
+// que se vio, se aplicara o no.
+
+fn senales_path() -> Result<PathBuf, String> {
+    Ok(maria_dir()?.join("relay-cuota.jsonl"))
+}
+
+fn senales_marca_path() -> Result<PathBuf, String> {
+    Ok(maria_dir()?.join("relay-cuota.leido"))
+}
+
+/// Enfria a los proveedores de los que haya avisos nuevos. Devuelve cuantos se
+/// aplicaron. Best-effort: sin fichero, o con el fichero ilegible, no pasa nada.
+pub(crate) fn aplicar_senales_de_hooks() -> usize {
+    let (Ok(jsonl), Ok(marca)) = (senales_path(), senales_marca_path()) else {
+        return 0;
+    };
+    let Ok(texto) = std::fs::read_to_string(&jsonl) else {
+        return 0; // sin avisos: el camino normal, el hook solo escribe si hay error
+    };
+    let leido = std::fs::read_to_string(&marca).unwrap_or_default();
+    let leido = leido.trim().to_string();
+    let lote = super::enrutado::senales_nuevas(&texto, &leido, chrono::Utc::now());
+    if lote.hasta == leido {
+        return 0;
+    }
+    let _ = std::fs::write(&marca, &lote.hasta);
+    if lote.aplicables.is_empty() {
+        return 0;
+    }
+    // Un aviso sobre un proveedor que aqui no existe no puede enfriar nada.
+    let cfg = load_config();
+    let mut state = load_state();
+    let mut aplicados = 0;
+    for s in &lote.aplicables {
+        if !cfg.order.iter().any(|p| *p == s.proveedor) {
+            continue;
+        }
+        let detalle = if s.detalle.is_empty() {
+            format!("aviso de una sesion de Claude Code: {}", s.error)
+        } else {
+            format!(
+                "aviso de una sesion de Claude Code: {} — {}",
+                s.error, s.detalle
+            )
+        };
+        enfriar(&mut state, &s.proveedor, &detalle);
+        record_attempt(&mut state, &s.proveedor, "cuota", &detalle);
+        aplicados += 1;
+    }
+    if aplicados > 0 {
+        save_state(&state);
+        tracing::info!(avisos = aplicados, "enfriados por avisos de hooks");
+    }
+    aplicados
+}
+
 pub fn load_config() -> RelayConfig {
     let Ok(path) = config_path() else {
         return RelayConfig::default();
@@ -1251,6 +1322,10 @@ fn ask_inner(
     )?;
 
     let mut skipped: Vec<SkipReason> = Vec::new();
+    // Antes de decidir el orden: lo que hayan visto las sesiones de Claude Code
+    // que corren fuera de aqui. Si una se quedo sin cuota hace un minuto, no
+    // hace falta volver a tropezar con ella en este turno.
+    aplicar_senales_de_hooks();
     let mut state = load_state();
     // Quien atiende, con que modelo y con cuanto esfuerzo lo decide el modelo
     // local segun la tarea: es gratis y evita gastar una peticion de Opus en
@@ -1713,6 +1788,10 @@ pub async fn maria_relay_thread(thread_id: String) -> Result<Vec<Turn>, String> 
 /// principal: quien contesta, quien se quedo sin cuota y cuando).
 #[tauri::command]
 pub async fn maria_relay_state() -> Result<RelayState, String> {
+    // Tambien aqui, y no solo al mandar un mensaje: el panel es donde el
+    // usuario mira para saber por que no contesta Claude. Si el aviso solo se
+    // leyera dentro del turno, el panel diria "ok" hasta que alguien escribe.
+    aplicar_senales_de_hooks();
     Ok(load_state())
 }
 

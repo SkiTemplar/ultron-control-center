@@ -275,6 +275,100 @@ pub fn enfriando(hasta: &str, ahora: DateTime<Utc>) -> bool {
         .unwrap_or(false)
 }
 
+// ---------------------------------------------------------------------------
+// Avisos de cuota que llegan de fuera de la aplicacion
+// ---------------------------------------------------------------------------
+//
+// El enfriamiento de arriba solo se entera de que un proveedor esta sin cuota
+// cuando la PROPIA aplicacion lo intenta y falla. Las sesiones de Claude Code
+// que corren por su cuenta chocan con la misma cuota y el relevo no se enteraba:
+// el turno siguiente del chat volvia a gastar varios segundos en que la CLI
+// repitiera que no.
+//
+// El hook `stopfailure-relay` (evento StopFailure) deja una linea por incidente
+// en `<raiz>/cockpit/maria/relay-cuota.jsonl`. Esto es el lado que la lee. El
+// formato exacto es el contrato documentado en la cabecera de ese script.
+
+/// Una linea del JSONL de avisos. Campos de mas se ignoran a proposito: es un
+/// fichero append-only que escribe un hook y puede crecer en versiones nuevas.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SenalCuota {
+    /// ISO-8601 UTC del incidente.
+    pub ts: String,
+    pub proveedor: String,
+    /// Valor del enum `error` del evento ("rate_limit", "billing_error"…).
+    pub error: String,
+    /// "cuota" (espera y vuelve) | "cuenta" (esta cuenta no va).
+    pub clase: String,
+    #[serde(default)]
+    pub detalle: String,
+}
+
+/// Lo que se saca de una lectura del JSONL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoteSenales {
+    /// Marca del ultimo aviso LEIDO, se aplique o no. Guardarla es lo que hace
+    /// que cada aviso se consuma una sola vez.
+    pub hasta: String,
+    /// Los avisos que valen: uno por proveedor, el mas reciente.
+    pub aplicables: Vec<SenalCuota>,
+}
+
+/// Cuanto vale un aviso. Un "sin cuota" de hace horas no dice nada de ahora, y
+/// enfriar por el dejaria al usuario en el modelo local sin motivo.
+pub const FRESCURA_SENAL_MIN: i64 = 60;
+
+/// Avisos posteriores a `ultimo` y todavia frescos, uno por proveedor. Pura.
+///
+/// Las lineas que no parsean se saltan (el fichero lo escribe un hook que falla
+/// abierto) pero SI cuentan para la marca: si una linea rota bloqueara el
+/// avance, el mismo tramo se releeria para siempre.
+#[must_use]
+pub fn senales_nuevas(jsonl: &str, ultimo: &str, ahora: DateTime<Utc>) -> LoteSenales {
+    let momento = |s: &str| {
+        DateTime::parse_from_rfc3339(s.trim())
+            .ok()
+            .map(|d| d.with_timezone(&Utc))
+    };
+    let corte = momento(ultimo);
+    let mut hasta = ultimo.trim().to_string();
+    let mut tope = corte;
+    // Por proveedor, el aviso mas reciente: aplicar varios seguidos alargaria
+    // el plazo de espera una vez por linea, que no es lo que dicen los avisos.
+    let mut por_proveedor: Vec<SenalCuota> = Vec::new();
+    for linea in jsonl.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(s) = serde_json::from_str::<SenalCuota>(linea) else {
+            continue;
+        };
+        let Some(t) = momento(&s.ts) else { continue };
+        if corte.is_some_and(|c| t <= c) {
+            continue;
+        }
+        if tope.is_none_or(|m| t > m) {
+            tope = Some(t);
+            hasta = s.ts.trim().to_string();
+        }
+        if s.proveedor.trim().is_empty()
+            || (s.clase != "cuota" && s.clase != "cuenta")
+            || (ahora - t) > Duration::minutes(FRESCURA_SENAL_MIN)
+        {
+            continue;
+        }
+        match por_proveedor
+            .iter_mut()
+            .find(|x| x.proveedor == s.proveedor)
+        {
+            Some(previo) if momento(&previo.ts).is_none_or(|p| t > p) => *previo = s,
+            Some(_) => {}
+            None => por_proveedor.push(s),
+        }
+    }
+    LoteSenales {
+        hasta,
+        aplicables: por_proveedor,
+    }
+}
+
 /// Reordena: los que estan enfriando pasan al final, en el mismo orden relativo.
 ///
 /// No se QUITAN: si todos los demas fallan, mejor un ultimo intento a un
@@ -386,6 +480,66 @@ mod tests {
         ));
         assert!(!enfriando("", ahora));
         assert!(!enfriando("ayer", ahora));
+    }
+
+    /// Una linea del JSONL como la escribe `hooks/scripts/stopfailure-relay.js`.
+    fn linea(ts: &str, error: &str, clase: &str) -> String {
+        format!(
+            r#"{{"ts":"{ts}","proveedor":"claude","error":"{error}","clase":"{clase}","detalle":"","sesion":null,"fuente":"stopfailure-relay"}}"#
+        )
+    }
+
+    #[test]
+    fn los_avisos_del_hook_se_leen_una_sola_vez() {
+        let ahora = Utc::now();
+        let t1 = (ahora - Duration::minutes(10)).to_rfc3339();
+        let t2 = (ahora - Duration::minutes(2)).to_rfc3339();
+        let jsonl = format!(
+            "{}\nesto no es json\n{}\n",
+            linea(&t1, "rate_limit", "cuota"),
+            linea(&t2, "billing_error", "cuenta")
+        );
+        let lote = senales_nuevas(&jsonl, "", ahora);
+        // Dos avisos del mismo proveedor: se aplica SOLO el ultimo, para no
+        // duplicar los "strikes" que alargan el plazo de espera.
+        assert_eq!(lote.aplicables.len(), 1);
+        assert_eq!(lote.aplicables[0].error, "billing_error");
+        assert_eq!(lote.hasta, t2);
+        // Caso negativo: releer con la marca devuelta no vuelve a dar nada.
+        let otra = senales_nuevas(&jsonl, &lote.hasta, ahora);
+        assert!(otra.aplicables.is_empty());
+        assert_eq!(otra.hasta, lote.hasta);
+    }
+
+    #[test]
+    fn un_aviso_viejo_no_enfria_a_nadie_pero_se_da_por_leido() {
+        // Si mar.ia estuvo cerrada un rato, el "sin cuota" de hace tres horas
+        // no dice nada de ahora: aplicarlo mandaria al usuario al modelo local
+        // sin motivo. Pero la marca tiene que avanzar igual, o se relee eterno.
+        let ahora = Utc::now();
+        let viejo = (ahora - Duration::minutes(FRESCURA_SENAL_MIN + 60)).to_rfc3339();
+        let lote = senales_nuevas(&linea(&viejo, "rate_limit", "cuota"), "", ahora);
+        assert!(lote.aplicables.is_empty());
+        assert_eq!(lote.hasta, viejo);
+    }
+
+    #[test]
+    fn una_linea_que_no_es_un_aviso_de_disponibilidad_se_ignora() {
+        // Caso negativo del lado de Rust, gemelo del que tiene el selftest del
+        // hook: si alguien afloja el matcher, un `invalid_request` no puede
+        // degradar a nadie. La clase la escribe el hook y solo puede ser
+        // "cuota" o "cuenta".
+        let ahora = Utc::now();
+        let ts = ahora.to_rfc3339();
+        let jsonl = format!(
+            "{}\n{}\n",
+            linea(&ts, "invalid_request", "peticion"),
+            format!(r#"{{"ts":"{ts}","proveedor":"","error":"rate_limit","clase":"cuota"}}"#)
+        );
+        let lote = senales_nuevas(&jsonl, "", ahora);
+        assert!(lote.aplicables.is_empty());
+        // Se han leido igual: la marca avanza.
+        assert_eq!(lote.hasta, ts);
     }
 
     #[test]
