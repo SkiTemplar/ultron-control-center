@@ -24,6 +24,7 @@ pub(crate) mod models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 pub(crate) mod paneles; // mar.ia: ficheros, lectura y ventana web para los paneles del chat
 pub(crate) mod paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
 pub(crate) mod perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
+pub(crate) mod puntos; // mar.ia: fotos del arbol de trabajo en un git aparte, sin tocar el del usuario
 pub(crate) mod quota; // mar.ia: consumo real por ventana movil
 pub(crate) mod relay; // mar.ia: relevo de proveedores sobre un unico hilo
 pub(crate) mod repos; // mar.ia: repos destacados por HTTP (sin la CLI gh), clasificar y aplicar
