@@ -360,6 +360,19 @@ pub fn run() {
             // proceso no llega a terminar el turno.
             std::thread::spawn(crate::maria::local::vigilar_vram);
 
+            // Encargos que se quedaron a medias (2026-09-22). El trabajo corre
+            // en un hilo que muere con el proceso: lo que quedo `en_curso` en
+            // disco pasa a `interrumpido`, y TABLERO.md —que se le inyecta a
+            // cada agente nuevo— deja de decir que alguien sigue trabajando.
+            // En su propio hilo: es un barrido de ficheros y no tiene por que
+            // retrasar la ventana.
+            std::thread::spawn(|| {
+                let rotos = crate::maria::encargos::recuperar_todos();
+                if rotos > 0 {
+                    tracing::info!(encargos = rotos, "encargos marcados como interrumpidos");
+                }
+            });
+
             // Autocompletado global `//maria`. Apagado por defecto: un hook de
             // teclado no se enciende por sorpresa (ver `maria_teclado`).
             crate::maria::teclado::arrancar_si_procede();

@@ -134,7 +134,7 @@ type Encargo = {
   thread_id: string;
   provider: string;
   texto: string;
-  estado: "en_curso" | "hecho" | "error" | "parado";
+  estado: "en_curso" | "hecho" | "error" | "parado" | "interrumpido";
   creado: string;
   fin: string;
   resumen: string;
@@ -145,6 +145,8 @@ const ESTADO_ENCARGO: Record<Encargo["estado"], string> = {
   hecho: "hecho",
   error: "falló",
   parado: "parado",
+  // Se cerró mar.ia mientras corría: el proceso murió con la app.
+  interrumpido: "interrumpido",
 };
 
 /** Aviso del propio chat (no es un turno: no se guarda en el hilo). */
@@ -876,6 +878,34 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     }
   }
 
+  /** Quita de la lista Y del disco un encargo terminado. Desde que sobreviven
+   *  al cierre (`maria/encargos.rs`), borrarlo solo de la pantalla lo devolvía
+   *  al reabrir la app. */
+  async function olvidarEncargo(id: string) {
+    try {
+      await invoke("maria_encargo_olvidar", { threadId, id });
+      setEncargos((prev) => prev.filter((x) => x.id !== id));
+    } catch (e) {
+      avisar(String(e), "error");
+    }
+  }
+
+  /** Vuelve a lanzar el mismo encargo al mismo proveedor y retira el viejo. */
+  async function relanzarEncargo(en: Encargo) {
+    try {
+      const nuevo = await invoke<Encargo>("maria_encargo_lanzar", {
+        threadId,
+        provider: en.provider,
+        texto: en.texto,
+      });
+      await invoke("maria_encargo_olvidar", { threadId, id: en.id });
+      setEncargos((prev) => [...prev.filter((x) => x.id !== en.id), nuevo]);
+      avisar(`encargo ${nuevo.id} relanzado con ${en.provider}`);
+    } catch (e) {
+      avisar(String(e), "error");
+    }
+  }
+
   async function send() {
     const linea = prompt.trim();
     if (!linea || busy || !threadId) return;
@@ -1516,14 +1546,26 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                         parar
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        className="cc-bloque-boton"
-                        aria-label="quitar de la lista"
-                        onClick={() => setEncargos((prev) => prev.filter((x) => x.id !== en.id))}
-                      >
-                        ×
-                      </button>
+                      <>
+                        {en.estado === "interrumpido" && (
+                          <button
+                            type="button"
+                            className="cc-bloque-boton"
+                            title="se cerró mar.ia mientras corría: vuelve a lanzarlo igual"
+                            onClick={() => void relanzarEncargo(en)}
+                          >
+                            relanzar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="cc-bloque-boton"
+                          aria-label="quitar de la lista"
+                          onClick={() => void olvidarEncargo(en.id)}
+                        >
+                          ×
+                        </button>
+                      </>
                     )}
                   </li>
                 ))}

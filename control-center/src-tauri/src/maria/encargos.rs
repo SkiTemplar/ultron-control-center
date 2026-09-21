@@ -17,10 +17,20 @@
 // LIMITES DECLARADOS: los agentes no se hablan entre si en directo; se
 // coordinan por el tablero y los ficheros. Y un encargo no reanuda sesion: cada
 // uno es un trabajo cerrado con el contexto del hilo por delante.
+//
+// SOBREVIVIR AL CIERRE (2026-09-22). Hasta hoy la lista vivia SOLO en el Mutex
+// de abajo y el trabajo corria en un `std::thread::spawn`: al cerrar la app las
+// dos cosas morian, `maria_encargos` volvia vacio y TABLERO.md conservaba para
+// siempre la linea `· en_curso` de un agente que ya no existia. Y ese tablero
+// se le inyecta a CADA agente nuevo (ver `componer`), asi que la mentira se
+// propagaba al contexto. Ahora la lista se guarda en `<hilo>.trabajo/encargos.json`
+// en cada cambio de estado y, al arrancar, lo que quedo `en_curso` pasa a
+// `interrumpido` — en el fichero y en el tablero — con un boton para relanzarlo.
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use super::relay::{self, recorta, Adjuntos, Turn};
@@ -30,13 +40,17 @@ pub const EVENTO: &str = "maria://encargo";
 /// y por la GPU, no ir mas rapido.
 const MAX_A_LA_VEZ: usize = 4;
 
-#[derive(Debug, Clone, Serialize)]
+/// Estado al que pasa, al arrancar, lo que quedo a medias cuando se cerro la
+/// aplicacion. No es un fallo del proveedor: es que le cortaron la luz.
+pub const INTERRUMPIDO: &str = "interrumpido";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Encargo {
     pub id: String,
     pub thread_id: String,
     pub provider: String,
     pub texto: String,
-    /// "en_curso" | "hecho" | "error" | "parado".
+    /// "en_curso" | "hecho" | "error" | "parado" | "interrumpido".
     pub estado: String,
     pub creado: String,
     pub fin: String,
@@ -68,7 +82,7 @@ fn emitir(e: &Encargo) {
 pub fn linea_tablero(e: &Encargo) -> String {
     let marca = match e.estado.as_str() {
         "hecho" => "x",
-        "error" | "parado" => "!",
+        "error" | "parado" | INTERRUMPIDO => "!",
         _ => " ",
     };
     format!(
@@ -80,22 +94,126 @@ pub fn linea_tablero(e: &Encargo) -> String {
     )
 }
 
-/// Reescribe TABLERO.md con el estado actual de los encargos de este hilo.
-fn escribir_tablero(thread_id: &str) {
-    let Ok(dir) = relay::carpeta_de_trabajo(thread_id) else {
+// ---------------------------------------------------------------------------
+// Que queda en disco
+// ---------------------------------------------------------------------------
+
+/// Fichero de encargos de una carpeta de trabajo.
+fn fichero_en(dir: &Path) -> PathBuf {
+    dir.join("encargos.json")
+}
+
+/// Lee los encargos guardados. Un fichero que no esta, o que no parsea,
+/// devuelve la lista vacia: un json corrupto no puede impedir que mar.ia
+/// arranque ni que el hilo siga usandose.
+fn leer_en(dir: &Path) -> Vec<Encargo> {
+    std::fs::read_to_string(fichero_en(dir))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Vec<Encargo>>(&t).ok())
+        .unwrap_or_default()
+}
+
+/// Escribe la lista con temporal + rename.
+///
+/// Dos instancias de mar.ia escribiendo el mismo fichero es el unico riesgo
+/// real aqui: con el rename atomico gana la ultima ENTERA, nunca media. No hay
+/// edicion concurrente de verdad — a cada encargo lo toca solo su hilo.
+fn guardar_en(dir: &Path, v: &[Encargo]) {
+    let Ok(texto) = serde_json::to_string_pretty(v) else {
         return;
     };
-    let lineas: Vec<String> = con(|v| {
-        v.iter()
-            .filter(|e| e.thread_id == thread_id)
-            .map(linea_tablero)
-            .collect()
-    });
+    let path = fichero_en(dir);
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, texto).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+/// Reescribe TABLERO.md con la lista que se le da.
+fn escribir_tablero_en(dir: &Path, v: &[Encargo]) {
+    let lineas: Vec<String> = v.iter().map(linea_tablero).collect();
     let cuerpo = format!(
-        "# Tablero de la conversacion\n\nQuien esta haciendo que. `[ ]` en curso, `[x]` hecho, `[!]` fallo o se paro.\n\n{}\n",
+        "# Tablero de la conversacion\n\nQuien esta haciendo que. `[ ]` en curso, `[x]` hecho, `[!]` fallo, se paro o se interrumpio.\n\n{}\n",
         lineas.join("\n")
     );
     let _ = std::fs::write(dir.join("TABLERO.md"), cuerpo);
+}
+
+/// Deja en disco el estado de los encargos de este hilo: fichero y tablero.
+/// Se llama en CADA cambio de estado; si no, el tablero miente.
+fn persistir(thread_id: &str) {
+    let Ok(dir) = relay::carpeta_de_trabajo(thread_id) else {
+        return;
+    };
+    let mios: Vec<Encargo> = con(|v| {
+        v.iter()
+            .filter(|e| e.thread_id == thread_id)
+            .cloned()
+            .collect()
+    });
+    guardar_en(&dir, &mios);
+    escribir_tablero_en(&dir, &mios);
+}
+
+/// Lo que quedo `en_curso` en el fichero murio con el proceso: el trabajo corre
+/// en un `std::thread::spawn` que no sobrevive al cierre de la aplicacion.
+/// Pura.
+#[must_use]
+pub fn marcar_interrumpidos(mut v: Vec<Encargo>, ahora: &str) -> Vec<Encargo> {
+    for e in &mut v {
+        if e.estado == "en_curso" {
+            e.estado = INTERRUMPIDO.to_string();
+            e.fin = ahora.to_string();
+            e.resumen = "mar.ia se cerro mientras corria; no llego a terminar".into();
+        }
+    }
+    v
+}
+
+/// Recupera una carpeta de trabajo: marca lo interrumpido y deja fichero y
+/// tablero al dia. Devuelve la lista ya corregida.
+fn recuperar_en(dir: &Path) -> Vec<Encargo> {
+    let guardados = leer_en(dir);
+    if guardados.is_empty() {
+        return guardados;
+    }
+    let corregidos = marcar_interrumpidos(guardados, &chrono::Utc::now().to_rfc3339());
+    guardar_en(dir, &corregidos);
+    escribir_tablero_en(dir, &corregidos);
+    corregidos
+}
+
+/// Al arrancar: recorre las carpetas de trabajo, pasa a `interrumpido` lo que
+/// quedo a medias y devuelve los encargos a la lista en memoria. Devuelve
+/// cuantos quedaron interrumpidos.
+///
+/// Best-effort a proposito: un hilo con el fichero ilegible se salta y los
+/// demas siguen. Nada de esto puede impedir que la aplicacion abra.
+pub fn recuperar_todos() -> usize {
+    let Ok(raiz) = relay::maria_dir() else {
+        return 0;
+    };
+    let Ok(entradas) = std::fs::read_dir(raiz.join("threads")) else {
+        return 0;
+    };
+    let mut rotos = 0;
+    for entrada in entradas.flatten() {
+        let dir = entrada.path();
+        if !dir.is_dir() || dir.extension().and_then(|x| x.to_str()) != Some("trabajo") {
+            continue;
+        }
+        for e in recuperar_en(&dir) {
+            if e.estado == INTERRUMPIDO {
+                rotos += 1;
+            }
+            con(|v| {
+                if !v.iter().any(|x| x.id == e.id && x.thread_id == e.thread_id) {
+                    v.push(e.clone());
+                }
+            });
+        }
+    }
+    rotos
 }
 
 /// El mensaje que recibe el agente: entorno, tablero, conversacion y encargo. Pura.
@@ -158,7 +276,7 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
         resumen: String::new(),
     };
     con(|v| v.push(encargo.clone()));
-    escribir_tablero(thread_id);
+    persistir(thread_id);
     emitir(&encargo);
 
     let e = encargo.clone();
@@ -243,7 +361,7 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
                 x.clone()
             })
         });
-        escribir_tablero(&e.thread_id);
+        persistir(&e.thread_id);
         crate::maria::threads::touch(&e.thread_id);
         if let Some(h) = hecho {
             emitir(&h);
@@ -279,6 +397,25 @@ pub async fn maria_encargo_cancelar(thread_id: String, id: String) -> Result<(),
     Ok(())
 }
 
+/// Quita un encargo terminado de la lista y del disco.
+///
+/// Hasta que los encargos se guardaron, la «×» de la tira del chat solo lo
+/// borraba de la pantalla; ahora que sobreviven al cierre, borrarlo solo de la
+/// vista seria un boton que no hace nada (mandamiento 11).
+#[tauri::command]
+pub async fn maria_encargo_olvidar(thread_id: String, id: String) -> Result<(), String> {
+    let en_curso = con(|v| {
+        v.iter()
+            .any(|e| e.thread_id == thread_id && e.id == id && e.estado == "en_curso")
+    });
+    if en_curso {
+        return Err("ese encargo sigue en marcha: paralo antes de quitarlo".into());
+    }
+    con(|v| v.retain(|e| !(e.thread_id == thread_id && e.id == id)));
+    persistir(&thread_id);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,7 +438,59 @@ mod tests {
         assert!(linea_tablero(&e("en_curso")).starts_with("- [ ] `ab12cd34` · codex"));
         assert!(linea_tablero(&e("hecho")).starts_with("- [x]"));
         assert!(linea_tablero(&e("error")).starts_with("- [!]"));
+        assert!(linea_tablero(&e(INTERRUMPIDO)).starts_with("- [!]"));
         assert!(!linea_tablero(&e("hecho")).contains('\n'));
+    }
+
+    #[test]
+    fn lo_que_quedaba_en_curso_al_cerrar_vuelve_interrumpido() {
+        let v = marcar_interrumpidos(
+            vec![e("en_curso"), e("hecho"), e("error")],
+            "2026-09-22T10:00:00Z",
+        );
+        assert_eq!(v[0].estado, INTERRUMPIDO);
+        assert_eq!(v[0].fin, "2026-09-22T10:00:00Z");
+        assert!(!v[0].resumen.is_empty(), "tiene que decir por que murio");
+        // Lo que ya habia terminado no se toca: seria reescribir la historia.
+        assert_eq!(v[1].estado, "hecho");
+        assert_eq!(v[2].estado, "error");
+        assert!(v[1].fin.is_empty());
+    }
+
+    #[test]
+    fn recuperar_deja_el_fichero_y_el_tablero_sin_mentiras() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        let mut vivo = e("en_curso");
+        vivo.id = "aaaa1111".into();
+        let mut listo = e("hecho");
+        listo.id = "bbbb2222".into();
+        guardar_en(dir, &[vivo, listo]);
+
+        let tras = recuperar_en(dir);
+        assert_eq!(tras[0].estado, INTERRUMPIDO);
+        assert_eq!(tras[1].estado, "hecho");
+        // Y lo que se recupera es lo que quedo escrito, no solo lo devuelto.
+        assert_eq!(leer_en(dir), tras);
+        let tablero = std::fs::read_to_string(dir.join("TABLERO.md")).expect("tablero");
+        assert!(tablero.contains("- [!] `aaaa1111`"), "{tablero}");
+        assert!(tablero.contains("- [x] `bbbb2222`"), "{tablero}");
+        assert!(
+            !tablero.contains("en_curso"),
+            "el tablero seguia diciendo que alguien trabaja: {tablero}"
+        );
+    }
+
+    #[test]
+    fn un_fichero_corrupto_o_ausente_no_rompe_la_recuperacion() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Caso negativo 1: no hay fichero.
+        assert!(recuperar_en(tmp.path()).is_empty());
+        // Caso negativo 2: lo hay, pero no es la lista que esperamos.
+        std::fs::write(fichero_en(tmp.path()), "{esto no es json").expect("escribir");
+        assert!(recuperar_en(tmp.path()).is_empty());
+        // Y no se ha inventado un tablero a partir de basura.
+        assert!(!tmp.path().join("TABLERO.md").exists());
     }
 
     #[test]

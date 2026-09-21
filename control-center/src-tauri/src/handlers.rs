@@ -204,6 +204,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria::encargos::maria_encargo_lanzar,
         maria::encargos::maria_encargos,
         maria::encargos::maria_encargo_cancelar,
+        maria::encargos::maria_encargo_olvidar,
         maria::paneles::maria_ficheros,
         maria::paneles::maria_fichero_leer,
         maria::paneles::maria_carpeta_de,
