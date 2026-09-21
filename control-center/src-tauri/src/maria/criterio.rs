@@ -57,6 +57,23 @@ pub struct Criterio {
     /// 3,7 s son cargar el modelo; con el modelo ya dentro son 0,4 s.
     #[serde(default)]
     pub local_residente_s: u32,
+    /// Las CLI se lanzan sin pedir permiso por herramienta y sin caja de arena,
+    /// y el modelo local recibe herramientas de ficheros y terminal. Apagado
+    /// por defecto en el codigo: quien clone el repo no hereda un agente con el
+    /// equipo abierto. Se enciende en Router -> Criterio.
+    #[serde(default)]
+    pub acceso_total: bool,
+    /// Reanudar la sesion propia de cada CLI mientras conteste la misma: mas
+    /// contexto, cache de prompt y menos cuota.
+    #[serde(default = "si")]
+    pub sesion_continua: bool,
+    /// MCP de Claude que siguen activos en el chat con el modo ligero.
+    #[serde(default)]
+    pub claude_mcps: Vec<String>,
+    /// Ofrecer a Codex, Antigravity y el local el indice de skills que casan
+    /// con cada peticion.
+    #[serde(default = "si")]
+    pub compartir_skills: bool,
 }
 
 fn si() -> bool {
@@ -113,6 +130,10 @@ impl Default for Criterio {
             nota: String::new(),
             claude_ligero: true,
             local_residente_s: 0,
+            acceso_total: false,
+            sesion_continua: true,
+            claude_mcps: Vec::new(),
+            compartir_skills: true,
         }
     }
 }
@@ -184,6 +205,10 @@ pub fn solo_proveedores_validos(c: &Criterio, validos: &[String]) -> Criterio {
         nota: c.nota.clone(),
         claude_ligero: c.claude_ligero,
         local_residente_s: c.local_residente_s,
+        acceso_total: c.acceso_total,
+        sesion_continua: c.sesion_continua,
+        claude_mcps: c.claude_mcps.clone(),
+        compartir_skills: c.compartir_skills,
     }
 }
 

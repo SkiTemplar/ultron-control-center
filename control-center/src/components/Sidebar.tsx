@@ -84,6 +84,8 @@ type Props = {
   active: Tab;
   onSelect: (t: Tab) => void;
   globalStatus: GlobalStatus;
+  /** Por que el estado no es "Operativo"; se enseña al pasar el raton. */
+  statusMotivo?: string;
   lastProjectCtx?: { title: string; subTab: string } | null;
   onGoBack?: () => void;
 };
@@ -133,7 +135,14 @@ function SidebarButton({
 }
 
 
-export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBack }: Props) {
+export function Sidebar({
+  active,
+  onSelect,
+  globalStatus,
+  statusMotivo,
+  lastProjectCtx,
+  onGoBack,
+}: Props) {
   const { features } = useFeatures();
   // Si se desactiva la pestaña abierta (editando features.json), se vuelve a
   // inicio: nunca se pinta algo que el usuario acaba de declarar apagado.
@@ -233,19 +242,29 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
         />
       </div>
 
-      {/* Status footer */}
-      <div
-        className="flex items-center gap-2 border-t px-4 py-3 text-[11.5px]"
-        style={{ borderColor: "var(--color-border)" }}
+      {/* Estado global. Es un boton: si no esta en verde, un clic lleva a
+          Avisos, que es donde se ve y se descarta lo que lo causa. */}
+      <button
+        type="button"
+        onClick={() => onSelect("notifications")}
+        className="flex w-full items-center gap-2 border-t px-4 py-3 text-left text-[11.5px]"
+        style={{
+          borderColor: "var(--color-border)",
+          background: "transparent",
+          cursor: "pointer",
+        }}
+        title={
+          statusMotivo
+            ? `${statusMotivo} — clic para ver los avisos`
+            : "sin avisos en las últimas horas"
+        }
       >
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
           style={{ background: statusColor(globalStatus) }}
         />
-        <span style={{ color: "var(--color-text-secondary)" }}>
-          {statusLabel(globalStatus)}
-        </span>
-      </div>
+        <span style={{ color: "var(--color-text-secondary)" }}>{statusLabel(globalStatus)}</span>
+      </button>
 
     </aside>
   );

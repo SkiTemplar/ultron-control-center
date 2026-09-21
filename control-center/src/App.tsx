@@ -26,7 +26,7 @@ import { MemoryTab } from "./components/MemoryTab";
 import { PopupHost } from "./components/PopupHost";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
-import { computeGlobalStatus } from "./lib/status";
+import { estadoGlobal } from "./lib/status";
 import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { AlertEntry } from "./types";
@@ -333,7 +333,8 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const globalStatus = computeGlobalStatus(alerts);
+  const salud = estadoGlobal(alerts);
+  const globalStatus = salud.status;
 
   // v15.3.7 — Command palette gets the full mar.ia system surface.
   // Maintenance commands are pulled dynamically from the backend so the
@@ -556,6 +557,7 @@ function AppInner() {
         active={tab}
         onSelect={setTab}
         globalStatus={globalStatus}
+        statusMotivo={salud.motivo}
         lastProjectCtx={tab !== "projects" ? lastProjectCtx : null}
         onGoBack={goBackToProject}
       />

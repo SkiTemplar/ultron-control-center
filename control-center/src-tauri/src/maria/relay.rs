@@ -20,9 +20,8 @@
 // contexto, no una sesion compartida. El proveedor nuevo sabe lo que se
 // hablo porque se le cuenta, no porque lea la sesion del anterior.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -36,9 +35,6 @@ const MAX_CONTEXTO_CHARS: usize = 6_000;
 
 /// Tope por turno dentro del paquete.
 const MAX_TURNO_CHARS: usize = 1_200;
-
-/// Tiempo maximo por proveedor antes de pasar al siguiente.
-const TIMEOUT_PROVEEDOR: Duration = Duration::from_secs(180);
 
 /// Cuanto vive el modelo local en VRAM tras una llamada: CERO.
 ///
@@ -58,7 +54,7 @@ const KEEP_ALIVE_TURNO: &str = "0";
 /// Sin residencia es "0" y manda `EnUso`. Con residencia se le da a Ollama un
 /// margen por encima del plazo: quien descarga es el vigilante de `local.rs`,
 /// y el plazo de Ollama queda de red por si mar.ia muere antes.
-fn keep_alive_respuesta() -> String {
+pub(crate) fn keep_alive_respuesta() -> String {
     match crate::maria::criterio::cargar().local_residente_s {
         0 => KEEP_ALIVE_TURNO.to_string(),
         s => format!("{}s", s.saturating_add(45)),
@@ -73,15 +69,6 @@ const ESPERA_MEMORIA: Duration = Duration::from_millis(2_000);
 /// eran unos 3 s por turno). No deja nada residente: `EnUso` descarga al acabar
 /// el turno, conteste quien conteste.
 const KEEP_ALIVE_DECISION: &str = "20s";
-
-/// Tope de tokens de la respuesta del modelo local: NINGUNO (`-1` = hasta
-/// donde llegue la ventana de contexto).
-///
-/// Aqui estaba el truncado que reporto el usuario el 2026-09-21 ("en el chat
-/// local una respuesta larga se corta; Codex las devuelve enteras"): habia un
-/// `num_predict: 600`, unas 450 palabras. No era el modelo ni la interfaz.
-/// Medido tras quitarlo: 8.333 caracteres y terminando la frase.
-const SIN_TOPE_DE_SALIDA: i32 = -1;
 
 /// Un turno del hilo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,7 +151,7 @@ impl Default for RelayConfig {
     }
 }
 
-fn maria_dir() -> Result<PathBuf, String> {
+pub(crate) fn maria_dir() -> Result<PathBuf, String> {
     let dir = crate::maria::paths::cockpit("maria")?;
     std::fs::create_dir_all(dir.join("threads")).map_err(|e| format!("crear carpeta: {e}"))?;
     Ok(dir)
@@ -290,7 +277,7 @@ pub fn migrar_gemini(mut cfg: RelayConfig) -> RelayConfig {
 }
 
 /// Ruta del hilo. El id se valida: es un nombre de fichero, no una ruta.
-fn thread_path(thread_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn thread_path(thread_id: &str) -> Result<PathBuf, String> {
     if thread_id.is_empty()
         || thread_id.len() > 64
         || !thread_id
@@ -353,7 +340,7 @@ pub fn is_quota_error(text: &str) -> bool {
 }
 
 /// Recorta un texto a `max` caracteres respetando limites de caracter.
-fn recorta(texto: &str, max: usize) -> String {
+pub(crate) fn recorta(texto: &str, max: usize) -> String {
     if texto.chars().count() <= max {
         return texto.to_string();
     }
@@ -395,32 +382,6 @@ pub fn build_context(turns: &[Turn], memoria: Option<&str>) -> String {
         out = format!("[…contexto anterior recortado…]\n{recortado}");
     }
     out
-}
-
-/// Comando y argumentos de cada CLI en modo NO interactivo.
-///
-/// `stdin` indica si el prompt se manda por la entrada estandar (mas seguro:
-/// no hay limite de longitud de linea de comandos ni escapado que se pueda
-/// colar).
-/// Como se llama a la CLI de un proveedor.
-///
-/// El orden importa y por eso hay DOS listas de banderas. `-p` se come el
-/// siguiente argumento como prompt, asi que todo lo que venga del catalogo de
-/// modelos (`-m`, `--model`) tiene que ir ANTES. Con una sola lista pasaba
-/// esto (medido el 2026-09-20):
-///
-///     gemini -p -m gemini-2.5-flash "que hora es"
-///     -> Not enough arguments following: p
-///
-/// y por eso el relevo daba error en Gemini SIEMPRE, sin importar la pregunta.
-pub struct Invocacion {
-    pub bin: &'static str,
-    /// Subcomando y banderas fijas. Van primero.
-    pub antes: Vec<String>,
-    /// Banderas que tienen que quedar pegadas al prompt. Van las ultimas.
-    pub despues: Vec<String>,
-    /// El prompt entra por stdin en vez de como argumento.
-    pub por_stdin: bool,
 }
 
 /// Lo que el usuario pide hacer con el proveedor, dicho con palabras.
@@ -490,45 +451,11 @@ pub fn intencion_de_proveedor(texto: &str, conocidos: &[String]) -> Option<Inten
         .map(|p| IntencionProveedor::Fijar(p.clone()))
 }
 
-fn cli_invocation(provider: &str) -> Option<Invocacion> {
-    match provider {
-        // `claude -p` lee el prompt de stdin, imprime la respuesta y sale.
-        "claude" => Some(Invocacion {
-            bin: "claude",
-            antes: Vec::new(),
-            despues: vec!["-p".into()],
-            por_stdin: true,
-        }),
-        // `codex exec -` lee el prompt de stdin; sandbox de solo lectura.
-        "codex" => Some(Invocacion {
-            bin: "codex",
-            antes: vec![
-                "exec".into(),
-                "-".into(),
-                "--sandbox".into(),
-                "read-only".into(),
-                "--skip-git-repo-check".into(),
-            ],
-            despues: Vec::new(),
-            por_stdin: true,
-        }),
-        // Antigravity: `agy --model <id> -p <prompt>`. El prompt va como
-        // argumento y SIEMPRE detras de `-p` (la propia CLI lo avisa si no).
-        "antigravity" => Some(Invocacion {
-            bin: "agy",
-            antes: Vec::new(),
-            despues: vec!["-p".into()],
-            por_stdin: false,
-        }),
-        _ => None,
-    }
-}
-
 /// Ruta real del binario en el PATH, o None si no esta.
 ///
 /// Hace falta la RUTA y no solo saber si existe, porque de su extension
 /// depende como hay que lanzarlo (ver `run_cli`).
-fn ruta_de_cli(cmd: &str) -> Option<String> {
+pub(crate) fn ruta_de_cli(cmd: &str) -> Option<String> {
     // `where` es un proceso mas por mensaje (50-100 ms en Windows) para una
     // respuesta que no cambia mientras la aplicacion esta abierta. Solo se
     // recuerdan los aciertos: si la CLI no estaba y el usuario la instala, el
@@ -704,343 +631,86 @@ impl Adjuntos {
     }
 }
 
-/// Ficheros de ajustes para el modo ligero de Claude. Van como RUTA y no como
-/// JSON en linea: asi da igual quien cite que al pasar el argumento.
-fn ficheros_claude_ligero() -> Option<(PathBuf, PathBuf)> {
-    let dir = maria_dir().ok()?;
-    let ajustes = dir.join("claude-ligero.json");
-    let sin_mcp = dir.join("claude-sin-mcp.json");
-    if !ajustes.exists() {
-        std::fs::write(&ajustes, r#"{"disableAllHooks":true}"#).ok()?;
-    }
-    if !sin_mcp.exists() {
-        std::fs::write(&sin_mcp, r#"{"mcpServers":{}}"#).ok()?;
-    }
-    Some((ajustes, sin_mcp))
+// ---------------------------------------------------------------------------
+// Sesion propia de cada CLI, por hilo
+// ---------------------------------------------------------------------------
+
+/// Sesion de una CLI que este hilo puede reanudar.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SesionGuardada {
+    pub id: String,
+    /// Turnos que tenia el hilo justo despues de que este proveedor contestara.
+    /// Si el hilo tiene otro numero, alguien mas ha hablado desde entonces (o
+    /// se ha editado) y a esa sesion le falta contexto: no se reanuda.
+    pub turnos: usize,
 }
 
-/// Texto nuevo que trae una linea del `stream-json` de Claude, y el resultado
-/// final si la linea es la de cierre. Pura: se testea con lineas reales.
-#[must_use]
-pub fn leer_linea_claude(linea: &str) -> (Option<String>, Option<Result<String, String>>) {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(linea) else {
-        return (None, None);
-    };
-    match v.get("type").and_then(|t| t.as_str()) {
-        Some("stream_event") => {
-            let delta = v
-                .pointer("/event/delta/text")
-                .and_then(|t| t.as_str())
-                .filter(|_| {
-                    v.pointer("/event/delta/type").and_then(|t| t.as_str()) == Some("text_delta")
-                })
-                .map(str::to_string);
-            (delta, None)
-        }
-        Some("result") => {
-            let texto = v
-                .get("result")
-                .and_then(|r| r.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let mal = v.get("is_error").and_then(serde_json::Value::as_bool) == Some(true);
-            (None, Some(if mal { Err(texto) } else { Ok(texto) }))
-        }
-        _ => (None, None),
-    }
+pub type Sesiones = std::collections::BTreeMap<String, SesionGuardada>;
+
+fn sesiones_path(thread_id: &str) -> Result<PathBuf, String> {
+    Ok(thread_path(thread_id)?.with_extension("sesiones.json"))
 }
 
-/// Parte de `pendiente` que ya es UTF-8 completo; el resto se queda esperando
-/// al trozo siguiente (un caracter de varios bytes puede llegar partido).
-fn texto_completo(pendiente: &mut Vec<u8>) -> String {
-    let corte = match std::str::from_utf8(pendiente) {
-        Ok(_) => pendiente.len(),
-        Err(e) => e.valid_up_to(),
-    };
-    let listo: Vec<u8> = pendiente.drain(..corte).collect();
-    String::from_utf8_lossy(&listo).into_owned()
-}
-
-/// Lanza una CLI con el prompt y va emitiendo su salida segun llega.
-///
-/// `model` y `effort` se traducen a lo que esa CLI entiende de verdad (ver
-/// `crate::maria::models::argumentos`); lo que no soporta, no se le manda.
-/// Devuelve el texto completo. Si el usuario para el turno, devuelve lo que
-/// hubiera hasta ese momento (o un error si no habia nada).
-fn run_cli(
-    thread_id: &str,
-    provider: &str,
-    prompt: &str,
-    model: &str,
-    effort: &str,
-    ligero: bool,
-    adjuntos: &Adjuntos,
-) -> Result<String, (String, bool)> {
-    let Some(inv) = cli_invocation(provider) else {
-        return Err((format!("no se como invocar {provider}"), false));
-    };
-    let (bin, por_stdin) = (inv.bin, inv.por_stdin);
-    let Some(ruta) = ruta_de_cli(bin) else {
-        return Err((format!("{bin} no esta instalada"), false));
-    };
-    let mut extra = crate::maria::models::argumentos(provider, model, effort);
-    let es_claude = provider == "claude";
-    if es_claude {
-        // Salida por eventos: es lo que permite pintar la respuesta a medida.
-        for a in [
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--include-partial-messages",
-        ] {
-            extra.push(a.into());
-        }
-        if ligero {
-            if let Some((ajustes, sin_mcp)) = ficheros_claude_ligero() {
-                extra.push("--settings".into());
-                extra.push(ajustes.to_string_lossy().into_owned());
-                extra.push("--strict-mcp-config".into());
-                extra.push("--mcp-config".into());
-                extra.push(sin_mcp.to_string_lossy().into_owned());
-            }
-        }
-    }
-    match provider {
-        "claude" | "antigravity" => {
-            for d in adjuntos.carpetas() {
-                extra.push("--add-dir".into());
-                extra.push(d.to_string_lossy().into_owned());
-            }
-        }
-        "codex" => {
-            for img in adjuntos.imagenes() {
-                extra.push("-i".into());
-                extra.push(img.to_string_lossy().into_owned());
-            }
-        }
-        _ => {}
-    }
-    // Claude no tiene bandera de esfuerzo: se le pide en el propio mensaje.
-    let prefijo = crate::maria::models::prefijo_esfuerzo(provider, effort);
-    let prompt = format!("{prefijo}{prompt}{}", adjuntos.como_rutas());
-
-    // Un shim de npm (.cmd) va por `cmd /C`; un .exe nativo, DIRECTO.
-    // La diferencia no es cosmetica: cmd.exe trunca los argumentos en el
-    // primer salto de linea y el prompt lleva el contexto entero. Ver
-    // `necesita_cmd`.
-    let mut cmd = if necesita_cmd(&ruta) {
-        let mut c = crate::proc::oculto("cmd");
-        c.arg("/C").arg(&ruta);
-        c
-    } else {
-        crate::proc::oculto(&ruta)
-    };
-    // subcomando -> modelo/esfuerzo -> la bandera del prompt -> el prompt.
-    for a in inv
-        .antes
-        .iter()
-        .chain(extra.iter())
-        .chain(inv.despues.iter())
-    {
-        cmd.arg(a);
-    }
-    if !por_stdin {
-        cmd.arg(&prompt);
-    }
-    cmd.stdin(if por_stdin {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    })
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    // La CLI de Claude baja de plan si ve ANTHROPIC_API_KEY: se limpia para el
-    // hijo (mismo motivo que strip_api_key_for_claude en pty/spawn.rs).
-    if es_claude {
-        cmd.env_remove("ANTHROPIC_API_KEY");
-    }
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| (format!("no pude lanzar {bin}: {e}"), false))?;
-    if por_stdin {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(prompt.as_bytes());
-        }
-    }
-
-    // Un hilo por tuberia: leer las dos a la vez evita que el hijo se quede
-    // bloqueado con stderr lleno mientras aqui solo se mira stdout.
-    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    if let Some(mut out) = child.stdout.take() {
-        std::thread::spawn(move || {
-            let mut buf = [0_u8; 4096];
-            while let Ok(n) = out.read(&mut buf) {
-                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
-                    break;
-                }
-            }
-        });
-    }
-    let err_hilo = child.stderr.take().map(|mut e| {
-        std::thread::spawn(move || {
-            let mut t = String::new();
-            let _ = e.read_to_string(&mut t);
-            t
-        })
-    });
-
-    let inicio = std::time::Instant::now();
-    let mut pendiente: Vec<u8> = Vec::new();
-    let mut texto = String::new();
-    let mut final_claude: Option<Result<String, String>> = None;
-    let mut parado = false;
-    loop {
-        match rx.recv_timeout(Duration::from_millis(80)) {
-            Ok(trozo) => {
-                pendiente.extend_from_slice(&trozo);
-                if es_claude {
-                    while let Some(pos) = pendiente.iter().position(|b| *b == b'\n') {
-                        let linea: Vec<u8> = pendiente.drain(..=pos).collect();
-                        let (delta, fin) = leer_linea_claude(&String::from_utf8_lossy(&linea));
-                        if let Some(d) = delta {
-                            crate::maria::flujo::trozo(thread_id, provider, &d, false);
-                            texto.push_str(&d);
-                        }
-                        if fin.is_some() {
-                            final_claude = fin;
-                        }
-                    }
-                } else {
-                    let nuevo = texto_completo(&mut pendiente);
-                    crate::maria::flujo::trozo(thread_id, provider, &nuevo, false);
-                    texto.push_str(&nuevo);
-                }
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-        if crate::maria::flujo::cancelado(thread_id) {
-            let _ = child.kill();
-            parado = true;
-            break;
-        }
-        if inicio.elapsed() > TIMEOUT_PROVEEDOR {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err((format!("{provider} no respondio a tiempo"), false));
-        }
-    }
-    let estado = child
-        .wait()
-        .map_err(|e| (format!("esperando a {provider}: {e}"), false))?;
-    let stderr = err_hilo
-        .and_then(|h| h.join().ok())
+pub fn cargar_sesiones(thread_id: &str) -> Sesiones {
+    sesiones_path(thread_id)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
-        .trim()
-        .to_string();
-
-    if parado {
-        let t = texto.trim().to_string();
-        return if t.is_empty() {
-            Err(("parado".into(), false))
-        } else {
-            Ok(t)
-        };
-    }
-    let salida = match final_claude {
-        Some(Ok(t)) if !t.is_empty() => t,
-        Some(Err(e)) => {
-            let cuota = is_quota_error(&e);
-            return Err((recorta(&e, 300), cuota));
-        }
-        _ => texto.trim().to_string(),
-    };
-    if estado.success() && !salida.is_empty() {
-        return Ok(salida);
-    }
-    let motivo = if stderr.is_empty() { salida } else { stderr };
-    let cuota = is_quota_error(&motivo);
-    Err((recorta(&motivo, 300), cuota))
 }
 
-/// Tiempo maximo de una respuesta del modelo local. Mas largo que el de las
-/// CLI: aqui no hay otro proveedor esperando detras, es el ultimo recurso, y
-/// una respuesta larga a 30 tokens/s pasa de los tres minutos sin estar colgada.
-const TIMEOUT_LOCAL: Duration = Duration::from_secs(600);
-
-/// Modelo local por Ollama. Ultimo recurso: sin cuota que agotar.
-///
-/// El esfuerzo se traduce a `think`: razonar cuesta segundos y tokens, asi que
-/// solo se enciende con esfuerzo alto. La respuesta llega por `stream`: se va
-/// emitiendo token a token y se puede parar cerrando la conexion.
-fn run_local(
-    thread_id: &str,
-    prompt: &str,
-    effort: &str,
-    adjuntos: &Adjuntos,
-) -> Result<String, (String, bool)> {
-    let prompt = format!("{prompt}{}", adjuntos.como_texto());
-    let body = serde_json::json!({
-        "model": crate::ollama::toggle::model_name(),
-        "stream": true,
-        "think": crate::maria::models::razonar_en_local(effort),
-        // La VRAM se suelta al acabar el turno (`EnUso`), no aqui: ver
-        // `KEEP_ALIVE_TURNO`.
-        "keep_alive": keep_alive_respuesta(),
-        "messages": [{ "role": "user", "content": prompt }],
-        // SIN tope de salida (`-1` = hasta donde llegue el contexto). Aqui
-        // estaba el truncado que reporto el usuario el 2026-09-21: un
-        // `num_predict: 600`, unas 450 palabras.
-        "options": { "num_ctx": 8192, "num_predict": SIN_TOPE_DE_SALIDA },
-    });
-    let client = reqwest::blocking::Client::builder()
-        .timeout(TIMEOUT_LOCAL)
-        .build()
-        .map_err(|e| (format!("cliente http: {e}"), false))?;
-    let resp = client
-        .post("http://127.0.0.1:11434/api/chat")
-        .json(&body)
-        .send()
-        .map_err(|e| (format!("ollama no responde: {e}"), false))?;
-
-    let mut texto = String::new();
-    for linea in BufReader::new(resp).lines() {
-        let Ok(linea) = linea else { break };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&linea) else {
-            continue;
-        };
-        if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
-            return Err((format!("ollama: {}", recorta(e, 200)), false));
-        }
-        if let Some(d) = v.pointer("/message/content").and_then(|c| c.as_str()) {
-            crate::maria::flujo::trozo(thread_id, "local", d, false);
-            texto.push_str(d);
-        }
-        // Soltar `resp` cierra la conexion y Ollama deja de generar.
-        if crate::maria::flujo::cancelado(thread_id) {
-            break;
-        }
-        if v.get("done").and_then(serde_json::Value::as_bool) == Some(true) {
-            break;
-        }
+fn guardar_sesiones(thread_id: &str, s: &Sesiones) {
+    if let (Ok(p), Ok(t)) = (sesiones_path(thread_id), serde_json::to_string_pretty(s)) {
+        let _ = std::fs::write(p, t);
     }
-    let texto = texto.trim().to_string();
-    if texto.is_empty() {
-        let motivo = if crate::maria::flujo::cancelado(thread_id) {
-            "parado"
-        } else {
-            "el modelo local devolvio una respuesta vacia"
-        };
-        return Err((motivo.into(), false));
+}
+
+/// Que hacer con la sesion de `provider` en este turno. Pura.
+#[must_use]
+pub fn decidir_sesion(
+    guardada: Option<&SesionGuardada>,
+    provider: &str,
+    turnos_en_hilo: usize,
+    id_nuevo: &str,
+) -> super::cli::Sesion {
+    match guardada {
+        Some(g) if !g.id.is_empty() && g.turnos == turnos_en_hilo => {
+            super::cli::Sesion::Reanudar(g.id.clone())
+        }
+        // Solo Claude deja elegir el identificador; las otras lo devuelven.
+        _ if provider == "claude" => super::cli::Sesion::Nueva(id_nuevo.to_string()),
+        _ => super::cli::Sesion::Nueva(String::new()),
     }
-    Ok(texto)
+}
+
+/// Carpeta que comparten todos los agentes que trabajan para este hilo.
+pub fn carpeta_de_trabajo(thread_id: &str) -> Result<PathBuf, String> {
+    let dir = thread_path(thread_id)?.with_extension("trabajo");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("crear carpeta de trabajo: {e}"))?;
+    Ok(dir)
+}
+
+/// Deja el hilo en sus primeros `conservar` turnos (editar un mensaje o
+/// regenerar una respuesta). Las sesiones de las CLI se olvidan: recuerdan una
+/// conversacion que ya no es esta.
+pub fn truncar(thread_id: &str, conservar: usize) -> Result<usize, String> {
+    let turns = read_thread(thread_id)?;
+    if conservar >= turns.len() {
+        return Ok(turns.len());
+    }
+    let path = thread_path(thread_id)?;
+    let mut cuerpo = String::new();
+    for t in turns.iter().take(conservar) {
+        cuerpo.push_str(&serde_json::to_string(t).map_err(|e| format!("serializar turno: {e}"))?);
+        cuerpo.push('\n');
+    }
+    let tmp = path.with_extension("jsonl.tmp");
+    std::fs::write(&tmp, cuerpo).map_err(|e| format!("escribir hilo: {e}"))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("renombrar hilo: {e}"))?;
+    if let Ok(p) = sesiones_path(thread_id) {
+        let _ = std::fs::remove_file(p);
+    }
+    Ok(conservar)
 }
 
 /// Proveedor que el modelo local propone para una tarea, validado.
@@ -1219,7 +889,7 @@ fn plan_rapido(
 /// Memoria relevante para este turno, via daemon de ULTRON. Mismo recall que
 /// usa el resto del sistema: las skills, los hooks y la memoria no se
 /// reimplementan aqui.
-fn memoria_para(prompt: &str) -> Option<String> {
+pub(crate) fn memoria_para(prompt: &str) -> Option<String> {
     let value = crate::daemon_client::recall(prompt, 3, None, true, false, Duration::from_secs(8))?;
     let items = value.get("memories")?.as_array()?;
     if items.is_empty() {
@@ -1363,6 +1033,17 @@ fn ask_inner(
     // preguntando a un modelo que no esta.
     let ajustes = crate::maria::criterio::cargar();
     let decide_local = ajustes.decide_la_local;
+    let turnos_antes = turns.len();
+    let mut sesiones = cargar_sesiones(thread_id);
+    let trabajo = ajustes
+        .acceso_total
+        .then(|| carpeta_de_trabajo(thread_id).ok())
+        .flatten();
+    let ajustes_cli = super::cli::Ajustes {
+        ligero: ajustes.claude_ligero,
+        acceso_total: ajustes.acceso_total,
+        mcp_config: super::capacidades::fichero_mcp_chat(&ajustes.claude_mcps),
+    };
     let mut por_reglas = false;
     let (orden, plan) = match manual {
         Some(f) => {
@@ -1428,6 +1109,13 @@ fn ask_inner(
     } else {
         format!("{contexto}[mensaje actual]\n{prompt}")
     };
+    // A una sesion reanudada no se le repite el hilo: ya lo tiene. Solo lo
+    // nuevo — la memoria que haya salido para este mensaje, y el mensaje.
+    let solo_mensaje = match memoria.as_deref() {
+        Some(m) => format!("[memoria relevante]\n{m}\n[mensaje actual]\n{prompt}"),
+        None => prompt.to_string(),
+    };
+    let manual_agentes = super::capacidades::manual(trabajo.as_deref(), ajustes.acceso_total);
     let chosen_by_local = if manual.is_some() {
         None
     } else {
@@ -1468,21 +1156,100 @@ fn ask_inner(
         // Lo que hubiera pintado un proveedor que al final no contesto no es
         // de este: la pantalla lo descarta.
         crate::maria::flujo::trozo(thread_id, provider, "", true);
-        let intento = if provider == "local" {
-            run_local(thread_id, &completo, &esfuerzo, adjuntos)
-        } else {
-            run_cli(
+        let intento: Result<super::cli::Respuesta, (String, bool)> = if provider == "local" {
+            let skills = if ajustes.compartir_skills {
+                super::capacidades::indice_skills(prompt)
+            } else {
+                String::new()
+            };
+            super::local_agente::responder(
                 thread_id,
-                provider,
-                &completo,
-                &modelo,
+                &format!("{skills}{completo}"),
                 &esfuerzo,
-                ajustes.claude_ligero,
                 adjuntos,
+                ajustes.acceso_total,
+                trabajo.as_deref(),
             )
+            .map(|texto| super::cli::Respuesta {
+                texto,
+                sesion: None,
+            })
+        } else {
+            let sesion = if ajustes.sesion_continua {
+                decidir_sesion(
+                    sesiones.get(provider.as_str()),
+                    provider,
+                    turnos_antes,
+                    &uuid::Uuid::new_v4().to_string(),
+                )
+            } else {
+                super::cli::Sesion::Ninguna
+            };
+            let reanuda = matches!(sesion, super::cli::Sesion::Reanudar(_));
+            // Claude carga las skills de verdad; a los demas se les ofrece el
+            // indice de las que casan con la peticion.
+            let skills = if ajustes.compartir_skills && provider != "claude" {
+                super::capacidades::indice_skills(prompt)
+            } else {
+                String::new()
+            };
+            let de_cero = format!("{manual_agentes}{skills}{completo}");
+            let cuerpo = if reanuda {
+                format!("{skills}{solo_mensaje}")
+            } else {
+                de_cero.clone()
+            };
+            let pedir = |cuerpo: &str, sesion: super::cli::Sesion| {
+                super::cli::ejecutar(&super::cli::Peticion {
+                    clave: thread_id,
+                    provider,
+                    prompt: cuerpo,
+                    model: &modelo,
+                    effort: &esfuerzo,
+                    ajustes: &ajustes_cli,
+                    adjuntos,
+                    sesion,
+                    cwd: trabajo.clone(),
+                })
+            };
+            let mut r = pedir(&cuerpo, sesion);
+            // Una sesion que ya no existe (caducada, borrada) no es motivo para
+            // relevar a otro proveedor: se le cuenta el hilo de nuevo y listo.
+            if reanuda
+                && matches!(&r, Err((_, cuota)) if !cuota)
+                && !crate::maria::flujo::cancelado(thread_id)
+            {
+                tracing::info!(proveedor = %provider, "la sesion no se pudo reanudar; se empieza otra");
+                sesiones.remove(provider.as_str());
+                crate::maria::flujo::trozo(thread_id, provider, "", true);
+                let nueva = decidir_sesion(
+                    None,
+                    provider,
+                    turnos_antes,
+                    &uuid::Uuid::new_v4().to_string(),
+                );
+                r = pedir(&de_cero, nueva);
+            }
+            r
         };
         match intento {
-            Ok(text) => {
+            Ok(respuesta) => {
+                let text = respuesta.texto;
+                match respuesta.sesion {
+                    Some(id) if !id.is_empty() => {
+                        sesiones.insert(
+                            provider.clone(),
+                            SesionGuardada {
+                                id,
+                                turnos: turnos_antes + 2,
+                            },
+                        );
+                    }
+                    _ => {
+                        sesiones.remove(provider.as_str());
+                    }
+                }
+                guardar_sesiones(thread_id, &sesiones);
                 record_attempt(&mut state, provider, "ok", "contesto");
                 save_state(&state);
                 append_turn(
@@ -1583,6 +1350,13 @@ pub async fn maria_relay_ask(
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[tauri::command]
+pub async fn maria_relay_truncar(thread_id: String, conservar: usize) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || truncar(&thread_id, conservar))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 #[tauri::command]
@@ -1736,39 +1510,6 @@ mod tests {
         assert_eq!(cfg.order.last().map(String::as_str), Some("local"));
     }
 
-    #[test]
-    fn cada_proveedor_de_cli_sabe_como_invocarse() {
-        for p in ["claude", "codex", "antigravity"] {
-            let inv = cli_invocation(p);
-            assert!(inv.is_some(), "sin invocacion para {p}");
-        }
-        // El local NO va por CLI: se resuelve por HTTP contra Ollama.
-        assert!(cli_invocation("local").is_none());
-        // Gemini salio del relevo el 2026-09-20.
-        assert!(cli_invocation("gemini").is_none());
-    }
-
-    #[test]
-    fn la_bandera_del_prompt_va_la_ultima() {
-        // El fallo de verdad (medido el 2026-09-20): `-p` se come el siguiente
-        // argumento como prompt. Con las banderas del modelo detras salia
-        //     gemini -p -m gemini-2.5-flash "..."  -> "Not enough arguments
-        //     following: p"
-        // y el relevo daba error SIEMPRE en ese proveedor. Todo lo que lleve
-        // `-p` tiene que llevarlo en `despues`, nunca en `antes`.
-        for p in ["claude", "codex", "antigravity"] {
-            let inv = cli_invocation(p).expect(p);
-            assert!(
-                !inv.antes.iter().any(|a| a == "-p" || a == "--prompt"),
-                "{p} pone la bandera del prompt antes del modelo"
-            );
-        }
-        let agy = cli_invocation("antigravity").expect("antigravity");
-        assert_eq!(agy.bin, "agy");
-        assert_eq!(agy.despues, vec!["-p".to_string()]);
-        assert!(!agy.por_stdin, "agy recibe el prompt como argumento");
-    }
-
     fn conocidos() -> Vec<String> {
         vec![
             "claude".into(),
@@ -1812,17 +1553,6 @@ mod tests {
         assert!(!necesita_cmd(r"C:\Users\x\AppData\Local\agy\bin\agy.exe"));
         assert!(!necesita_cmd(r"C:\Users\x\.local\bin\claude.exe"));
         assert!(!necesita_cmd("/usr/local/bin/claude"));
-    }
-
-    #[test]
-    fn el_modelo_local_no_lleva_tope_de_salida() {
-        // Caso negativo del truncado: cualquier numero positivo aqui vuelve a
-        // cortar las respuestas largas a mitad de frase.
-        // `assert!` sobre una constante lo resuelve el compilador y clippy
-        // avisa, con razon. Se compara contra una variable para que el test
-        // siga siendo un test de verdad.
-        let tope: i32 = SIN_TOPE_DE_SALIDA;
-        assert!(tope < 0, "un tope positivo corta la respuesta: {tope}");
     }
 
     #[test]
@@ -1940,38 +1670,6 @@ mod tests {
     }
 
     #[test]
-    fn una_linea_de_streaming_de_claude_da_solo_el_texto_nuevo() {
-        let linea = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hola"}}}"#;
-        assert_eq!(leer_linea_claude(linea), (Some("Hola".into()), None));
-        // El razonamiento viaja por otro tipo de delta y no es respuesta.
-        let piensa = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","text":"mmm"}}}"#;
-        assert_eq!(leer_linea_claude(piensa), (None, None));
-    }
-
-    #[test]
-    fn la_linea_de_cierre_de_claude_distingue_exito_de_error() {
-        let ok = r#"{"type":"result","subtype":"success","is_error":false,"result":" Hola. "}"#;
-        assert_eq!(leer_linea_claude(ok), (None, Some(Ok("Hola.".into()))));
-        let mal = r#"{"type":"result","is_error":true,"result":"Claude usage limit reached"}"#;
-        assert_eq!(
-            leer_linea_claude(mal),
-            (None, Some(Err("Claude usage limit reached".into())))
-        );
-        assert_eq!(leer_linea_claude("no es json"), (None, None));
-    }
-
-    #[test]
-    fn un_caracter_partido_entre_trozos_no_se_rompe() {
-        // "ñ" son dos bytes: llega el primero, luego el segundo.
-        let bytes = "año".as_bytes();
-        let mut pendiente = bytes[..2].to_vec();
-        assert_eq!(texto_completo(&mut pendiente), "a");
-        pendiente.extend_from_slice(&bytes[2..]);
-        assert_eq!(texto_completo(&mut pendiente), "ño");
-        assert!(pendiente.is_empty());
-    }
-
-    #[test]
     fn los_adjuntos_separan_imagenes_y_no_repiten_carpetas() {
         let a = Adjuntos {
             rutas: vec![
@@ -2047,5 +1745,35 @@ mod tests {
             let _ = std::fs::remove_file(p);
         }
         let _ = crate::maria::threads::fijar_provider(&hilo, "");
+    }
+
+    #[test]
+    fn se_reanuda_solo_si_nadie_mas_ha_hablado_desde_entonces() {
+        use crate::maria::cli::Sesion;
+        let g = SesionGuardada {
+            id: "s1".into(),
+            turnos: 4,
+        };
+        assert_eq!(
+            decidir_sesion(Some(&g), "claude", 4, "nuevo"),
+            Sesion::Reanudar("s1".into())
+        );
+        // Otro proveedor contesto en medio (o se edito el hilo): de cero.
+        assert_eq!(
+            decidir_sesion(Some(&g), "claude", 6, "nuevo"),
+            Sesion::Nueva("nuevo".into())
+        );
+        assert_eq!(
+            decidir_sesion(None, "codex", 0, "nuevo"),
+            Sesion::Nueva(String::new())
+        );
+        let vacia = SesionGuardada {
+            id: String::new(),
+            turnos: 4,
+        };
+        assert_eq!(
+            decidir_sesion(Some(&vacia), "codex", 4, "x"),
+            Sesion::Nueva(String::new())
+        );
     }
 }

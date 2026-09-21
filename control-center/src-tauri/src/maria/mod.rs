@@ -6,13 +6,18 @@
 // arranque del microfono.
 
 pub(crate) mod adjuntos; // mar.ia: ficheros arrastrados o pegados en el chat
-pub(crate) mod apagado; // mar.ia: cerrar de verdad (quien para a quien)
+pub(crate) mod apagado;
 pub(crate) mod arranque; // mar.ia: arrancar con Windows, y por que no arranca
+pub(crate) mod artefactos; // mar.ia: paginas y SVG que la IA genera, funcionando en un panel
+pub(crate) mod capacidades; // mar.ia: skills y MCP compartidos entre proveedores
+pub(crate) mod cli; // mar.ia: invocar claude, codex y antigravity de la misma manera // mar.ia: cerrar de verdad (quien para a quien)
 pub(crate) mod criterio; // mar.ia: los parametros con los que la IA local decide
 pub(crate) mod cuentas;
+pub(crate) mod encargos; // mar.ia: varios agentes a la vez sobre una carpeta y un tablero comunes
 pub(crate) mod enrutado; // mar.ia: decidir destino sin modelo y enfriar a quien no tiene cuota
 pub(crate) mod flujo; // mar.ia: respuesta en streaming y boton de parar // mar.ia: que cuentas y claves hay conectadas, y a que correo
-pub(crate) mod local; // mar.ia: el modelo local disponible, sin ocupar VRAM
+pub(crate) mod local;
+pub(crate) mod local_agente; // mar.ia: el modelo local con herramientas // mar.ia: el modelo local disponible, sin ocupar VRAM
 pub(crate) mod login; // mar.ia: como se entra en cada proveedor y si ya se entro
 pub(crate) mod models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 pub(crate) mod paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)

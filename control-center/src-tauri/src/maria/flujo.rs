@@ -23,6 +23,7 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 static CANCELADOS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 pub const EVENTO_TROZO: &str = "maria://relay-trozo";
+pub const EVENTO_ACTIVIDAD: &str = "maria://relay-actividad";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Trozo<'a> {
@@ -39,6 +40,12 @@ pub fn fijar_app(app: AppHandle) {
     let _ = APP.set(app);
 }
 
+/// El AppHandle, para quien emite sus propios eventos (los encargos).
+#[must_use]
+pub fn app() -> Option<&'static AppHandle> {
+    APP.get()
+}
+
 pub fn trozo(thread_id: &str, provider: &str, texto: &str, reinicia: bool) {
     if texto.is_empty() && !reinicia {
         return;
@@ -52,6 +59,18 @@ pub fn trozo(thread_id: &str, provider: &str, texto: &str, reinicia: bool) {
                 texto,
                 reinicia,
             },
+        );
+    }
+}
+
+/// Lo que el agente esta HACIENDO ahora (abrir un fichero, lanzar una orden).
+/// No es parte de la respuesta: es para que la pantalla no parezca colgada
+/// mientras trabaja.
+pub fn actividad(clave: &str, provider: &str, texto: &str) {
+    if let Some(app) = APP.get() {
+        let _ = app.emit(
+            EVENTO_ACTIVIDAD,
+            serde_json::json!({ "thread_id": clave, "provider": provider, "texto": texto }),
         );
     }
 }
