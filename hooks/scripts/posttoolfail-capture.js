@@ -9,6 +9,19 @@
 //                                        timeout / error de harness): payload sin
 //                                        tool_response pero con `error` top-level.
 // `detectError` cubre ambos shapes; en éxito (PostToolUse) retorna null -> no-op.
+//
+// (2026-09-22) El registro en PostToolUseFailure faltaba en la config viva: el
+// script y el manifiesto lo daban por cableado desde masterplan 3.9 y no lo
+// estaba, asi que los fallos donde la tool NI ejecutaba (permiso, timeout,
+// error del harness) no se capturaban. Se anade a la plantilla con matcher "*".
+// El registro en PostToolUse se DEJA en "*" a proposito: estrecharlo a
+// Bash|Task tiraria el caso que el fix de 2026-07-02 documenta aqui abajo
+// (WebFetch y `code`) y cualquier tool con is_error dentro de tool_response.
+// Sobre el coste: 2.585 arranques en total y 2.156 en los ultimos 4 dias
+// (hook-timing.jsonl), a ~48 ms de arranque de Node medidos aparte en esta
+// maquina. Ese numero NO sale de hook-timing.jsonl, que mide el tiempo DENTRO
+// del proceso (p50=0 ms, p95=1 ms). Y como esta registrado con async:true, el
+// coste es churn de procesos, no latencia percibida en el turno.
 // Cuando hay fallo PROPONE un `error_resolution` candidate via `ultron-memory
 // candidate` (writer_path = MemoryService — single writer).
 // The candidate captures the failing tool + error snippet so a future session

@@ -1,14 +1,16 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-16",
+  "generated_at": "2026-09-22",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
     "Los hooks PROPONEN candidates; NUNCA escriben memoria directa. El unico escritor del SoT (brain.db) es MemoryService (sidecar ultron-memory).",
     "writer_path PROHIBIDO: qdrant_direct, mem0. Solo MemoryService o NONE.",
     "Regenerar tras cualquier cambio en settings.json: node hooks/regen-manifest.js",
-    "Gate de paridad: node hooks/regen-manifest.js --check (exit 1 si hay drift)."
+    "Gate de paridad LOCAL (lee ~/.claude/settings.json): node hooks/regen-manifest.js --check",
+    "Gate de paridad en CI (plantilla vs manifest, sin ~/.claude): node hooks/regen-manifest.js --check-template",
+    "2026-09-22: las entradas de esta tanda (routing-dispatcher.v2, postcompact-reinject, stopfailure-relay y los matchers de SessionStart) se editaron A MANO, no por regeneracion: el manifest refleja la config de la maquina del mantenedor y regenerarlo desde otra la habria borrado."
   ],
   "writer_paths_allowed": [
     "MemoryService",
@@ -46,8 +48,8 @@
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
       "async": true,
-      "checksum_sha256": "884bfce39f769dfc71ca63be45a3a2ca07ed7bd512e091575a6980dff8da1c71",
-      "version": "1.1.0",
+      "checksum_sha256": "3fb867a7c8be6aebc28e2ecaf3f965cfad13815696237f2474ef673f9f845c43",
+      "version": "1.2.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
         "POSTTOOLFAIL_CAPTURE_DISABLED",
@@ -98,8 +100,8 @@
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
       "async": true,
-      "checksum_sha256": "884bfce39f769dfc71ca63be45a3a2ca07ed7bd512e091575a6980dff8da1c71",
-      "version": "1.1.0",
+      "checksum_sha256": "3fb867a7c8be6aebc28e2ecaf3f965cfad13815696237f2474ef673f9f845c43",
+      "version": "1.2.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
         "POSTTOOLFAIL_CAPTURE_DISABLED",
@@ -137,8 +139,8 @@
       "script": "~/.ultron/hooks/scripts/deny-secrets.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "997481cac15c7e754625ef2512de645c3d57b077cd0dea13698628f21004d32e",
-      "version": "2.0.0",
+      "checksum_sha256": "7c46151e79f2ee183b18c5f9bcdf8f8623748c1d7ccba2cc19cec616e4905a3d",
+      "version": "2.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
@@ -307,7 +309,7 @@
     {
       "id": "ensure-qdrant",
       "event": "SessionStart",
-      "matcher": "*",
+      "matcher": "startup|resume",
       "command": "node ~/.ultron/hooks/scripts/ensure-qdrant.js",
       "script": "~/.ultron/hooks/scripts/ensure-qdrant.js",
       "timeout_s": 10,
@@ -339,7 +341,7 @@
     {
       "id": "memory-warmup",
       "event": "SessionStart",
-      "matcher": "*",
+      "matcher": "startup|resume",
       "command": "node ~/.ultron/hooks/scripts/memory-warmup.js",
       "script": "~/.ultron/hooks/scripts/memory-warmup.js",
       "timeout_s": 5,
@@ -387,7 +389,7 @@
     {
       "id": "memory-session-resume",
       "event": "SessionStart",
-      "matcher": "*",
+      "matcher": "startup|resume|clear",
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
@@ -591,6 +593,24 @@
       "description": "Registra el ciclo de vida de cada subagente (Task tool): en SubagentStart escribe event=start; en SubagentStop event=stop; ambos al scratch ~/.ultron/.tmp/subagent-lifecycle.jsonl (writer NONE, no toca brain.db/Qdrant). El backend (live_session_feed) reduce por agent_id -> muestra subagentes EN VUELO en el Monitor (masterplan 3.9). Fail-safe: error -> exit 0."
     },
     {
+      "id": "routing-dispatcher.v2",
+      "event": "UserPromptSubmit",
+      "matcher": "*",
+      "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
+      "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "dc5aecce06a4f725d6897fe59551ca7453b2458ed83063ed2a7b11120315a204",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "ULTRON_ROUTING_FIXTURES"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "UserPromptSubmit: dispatcher DETERMINISTA (scoring por tablas, sin modelo) que sugiere skill/persona segun la intencion del prompt e inyecta la skill on-demand (routing lazy). Es el que esta registrado de verdad en la config viva y el que instala templates/settings-hooks.json; la v3 (abajo) es la variante con fallback semantico por E5 y hoy NO esta cableada. El manifest listaba solo la v3 desde que se cambio el cableado: drift detectado y corregido el 2026-09-22 al estrenar la puerta --check-template. Fail-safe: error -> exit 0 sin salida."
+    },
+    {
       "id": "routing-dispatcher.v3",
       "event": "UserPromptSubmit",
       "matcher": "*",
@@ -646,7 +666,7 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 20,
       "async": false,
-      "checksum_sha256": "ab9cb0e226d4efc746948ce1759f99f51d1651ac0418aa95cd772f8eb1767975",
+      "checksum_sha256": "ae8abe85c2a3ed7cc52933888843ec63c76038e1e9d3a696755bffb688c659b7",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -687,6 +707,46 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "UserPromptSubmit (sincrono): reporter de F4.1. Lee .tmp/run-tests/<project>.result.json y dice al modelo, una vez por resultado, los tests rotos (nombres), el timeout (pide comando mas corto) o, una vez por sesion, que no hay comando de test; anuncia el paso a verde solo tras un fallo reportado. Sin resultado o ya reportado: silencio. No escribe memoria."
+    },
+    {
+      "id": "postcompact-reinject",
+      "event": "PostCompact",
+      "matcher": "manual|auto",
+      "command": "node ~/.ultron/hooks/scripts/postcompact-reinject.js",
+      "script": "~/.ultron/hooks/scripts/postcompact-reinject.js",
+      "timeout_s": 10,
+      "async": false,
+      "checksum_sha256": "4357b1e730a62e1e044913bce1c186309055a654a3a4f98457d4c8afc8038fb5",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS",
+        "POSTCOMPACT_REINJECT_DISABLED"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "PostCompact (sincrono): despues de compactar devuelve al contexto el resumen que la propia compactacion produjo, leyendolo de compact_summary del payload; si el evento no lo trae, reemite los ultimos prompts del usuario del transcript. Bloque acotado a ~400 tokens (el hook ataca un problema de contexto y no puede empeorarlo) y marcador por sesion para no duplicarlo si SessionStart tambien se dispara con motivo compact. Solo lectura: no toca brain.db ni el sidecar. Fail-safe: error -> exit 0 sin salida."
+    },
+    {
+      "id": "stopfailure-relay",
+      "event": "StopFailure",
+      "matcher": "rate_limit|overloaded|account_on_hold|billing_error|authentication_failed|verification_required|oauth_org_not_allowed",
+      "command": "node ~/.ultron/hooks/scripts/stopfailure-relay.js",
+      "script": "~/.ultron/hooks/scripts/stopfailure-relay.js",
+      "timeout_s": 5,
+      "async": true,
+      "checksum_sha256": "bbec7fa3e076220a7ad6a33efbb32f9e7835a619faff8308c845c9bc194f9351",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS",
+        "STOPFAILURE_RELAY_DISABLED",
+        "MARIA_HOME",
+        "ULTRON_HOME"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "StopFailure (async): cuando un turno muere por cuota, sobrecarga o un problema de cuenta, deja una linea en cockpit/maria/relay-cuota.jsonl {ts, proveedor, error, clase, detalle, sesion, fuente} para que el relevo de proveedores degrade claude sin esperar a tropezar por su cuenta. Lee payload.error (el schema NO tiene error_type) y vuelve a filtrar contra la misma lista del matcher, asi que aflojar el matcher no degrada un proveedor por un invalid_request. error_details pasa por redactSecrets y se acota a 400. NO es memoria: estado operativo, writer_path NONE. Fail-safe: error -> exit 0."
     }
   ],
   "deregistered": [

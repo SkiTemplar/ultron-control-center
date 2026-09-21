@@ -384,13 +384,27 @@ jobs:
   hook-selftests:
     name: Hook & script selftests (hermetic)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 5 -> 10 el 2026-09-22: el job pasa de 15 a 34 comprobaciones y
+    # test-orchestrate-recovery agota a proposito ~30 s de presupuesto.
+    timeout-minutes: 10
     # (2026-08-10, higiene bloque 7) Estos selftests existían pero JAMÁS
     # corrían en CI — una regresión en los hooks de memoria/captura pasaba en
     # silencio. Solo los HERMÉTICOS (verificado con HOME falso en limpio):
     # kirkardo-eval.selftest.mjs queda FUERA a propósito — su run scoped
     # necesita el ~/.ultron real (brain.db, logs) y en un runner limpio falla
     # por entorno, no por regresión.
+    #
+    # (2026-09-22) Segunda tanda: de los 22 selftests de hooks solo corrían 3,
+    # así que una regresión en guardrails, en el enrutado o en el pipeline de
+    # research pasaba en silencio. Se han probado los 19 restantes uno a uno
+    # con HOME falso en limpio; entran los 17 que pasan. Los dos que NO entran,
+    # con su motivo (son dependencias de ENTORNO, no regresiones):
+    #   - guardrails-pre.selftest.mjs  -> afirma que el catálogo de agentes se
+    #     lee del disco (>= 20 agentes en ~/.claude/agents). Un runner limpio
+    #     no los tiene, así que fallaría siempre por entorno.
+    #   - guardrails-post.selftest.mjs -> el detector de registro coloquial
+    #     necesita el personality.json real de ~/.ultron; sin él no hay tonos
+    #     que detectar y los dos casos positivos dan 0 avisos.
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -398,6 +412,20 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+      # Puerta de paridad de hooks. OJO con la variante: `--check` lee
+      # ~/.claude/settings.json, que en un runner no existe -> saldría en rojo
+      # por entorno. La mitad auditable en cualquier máquina es
+      # `--check-template`: que todo hook que se INSTALA tenga su gemelo en el
+      # manifiesto con el mismo evento, matcher, timeout y async, y que el
+      # script exista en el repo. Sin esta puerta, los inventarios llevaban
+      # meses divergiendo (el manifiesto listaba routing-dispatcher.v3 cuando
+      # lo vivo es la v2; la plantilla instalaba memory-orchestrate con 12 s
+      # cuando el hook presupuesta 20 y kanban-update-reminder con async:true,
+      # que descarta su salida y lo convertía en un no-op).
+      - name: Paridad plantilla <-> manifiesto de hooks
+        run: |
+          node hooks/regen-manifest.js --check-template
+          node hooks/regen-manifest.selftest.mjs
       - name: Script selftests (memoria / captura / lifecycle)
         run: |
           node scripts/memory-bench.selftest.mjs
@@ -410,11 +438,35 @@ jobs:
           node hooks/scripts/deny-secrets.selftest.mjs
           node hooks/scripts/system-turn.selftest.mjs
           node scripts/package-cowork-plugin.selftest.mjs
+      - name: Hook selftests (guardas, enrutado y contexto)
+        run: |
+          node hooks/scripts/postcompact-reinject.selftest.mjs
+          node hooks/scripts/stopfailure-relay.selftest.mjs
+          node hooks/scripts/socratic-gate.selftest.mjs
+          node hooks/scripts/uni-deliverable-guard.selftest.mjs
+          node hooks/scripts/response-meter.selftest.mjs
+          node hooks/scripts/run-project-tests.selftest.mjs
+          node hooks/scripts/project-roster-context.selftest.mjs
+          node hooks/scripts/save-user-prompt.selftest.mjs
+          node hooks/scripts/codegraph-summary.selftest.mjs
+          node hooks/scripts/fast-lane.selftest.mjs
+          node hooks/scripts/session-feedback.selftest.mjs
+      - name: Hook selftests (pipeline de research)
+        run: |
+          node hooks/scripts/research-normalize.selftest.mjs
+          node hooks/scripts/research-ranking.selftest.mjs
+          node hooks/scripts/research-retraction.selftest.mjs
+          node hooks/scripts/research-snowball.selftest.mjs
+          node hooks/scripts/research-verify.selftest.mjs
+          node hooks/scripts/research-http.selftest.mjs
+          node hooks/scripts/research-mcp.selftest.mjs
+          node hooks/scripts/research-integration.selftest.mjs
       - name: Hook selftests (resume - frescura + calidad)
         run: |
           node hooks/scripts/tests/test-freshness-gate.js
           node hooks/scripts/tests/test-resume-quality.js
           node hooks/scripts/tests/test-orchestrate-recovery.js
+          node hooks/scripts/tests/test-memory-orchestrate-render.js
           node hooks/scripts/tests/test-session-digest.js
           node hooks/scripts/tests/test-session-summarize-previous.js
 

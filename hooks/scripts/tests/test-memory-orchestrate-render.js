@@ -90,4 +90,20 @@ const conElegido = render({
 assert.ok(conElegido.startsWith('<orchestration-context'), 'el tono elegido no va fuera del bloque');
 assert.ok(conElegido.includes('tone_detected: Cani [cani]') && conElegido.includes('tone_directive: AMBITO'), 'el tono elegido conserva su directiva completa');
 
-console.log('OK test-memory-orchestrate-render (5 casos)');
+// Caso 5 (2026-09-22): el desglose por fase viaja en la telemetria. Sin el, el
+// p95 de 9,5 s medido en hook-timing.jsonl es un numero sin causa y no se puede
+// decidir si hay que recortar el presupuesto o cambiar de mecanismo.
+const conFases = buildLogEntry({ route: 'general' }, 'hola', 'ultron', 'sess-3', 9561, false, {
+  daemon_ms: 9000,
+  busy_ms: 0,
+  boot_ms: 0,
+  relanzamiento_ms: 0,
+  sparse_ms: 500,
+});
+assert.strictEqual(conFases.fases.daemon_ms, 9000, 'la fase del daemon debe viajar en el log');
+assert.strictEqual(conFases.fases.sparse_ms, 500, 'la fase del respaldo sparse debe viajar en el log');
+// NEGATIVO: sin desglose el campo es null explicito, no un objeto de ceros que
+// se leeria como "no espero nada" cuando lo cierto es que no se midio.
+assert.strictEqual(entryNone.fases, null, 'sin desglose -> null, no ceros inventados');
+
+console.log('OK test-memory-orchestrate-render (6 casos)');

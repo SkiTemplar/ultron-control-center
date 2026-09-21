@@ -11,7 +11,7 @@ const path = require('path');
 const os = require('os');
 const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary, readDaemonLock } = require('./lib/ultron-memory-cli');
 const { appendJsonl } = require('./lib/jsonl-log');
-const { observe, logHookError } = require('./lib/hook-obs');
+const { observe, annotate, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
 const { detectForPrompt, loadPersonality } = require('./lib/tone-detect');
 // F-resume (2026-09-11): entrega diferida del resumen de la sesion anterior si
@@ -142,6 +142,26 @@ const { decide: decideLane, markPrompt, readState: readLaneState } = require('./
 // Presupuesto TOTAL del hook: el `timeout` de UserPromptSubmit en
 // settings.json. Si el hook lo vence, Claude Code descarta TODA su salida en
 // silencio, asi que cada espera nueva se resta de aqui, nunca se suma encima.
+// (2026-09-22) Por que este presupuesto SIGUE en 20 s, habiendo medido un p95
+// de 9,5 s de bloqueo del prompt. Se valoraron las dos salidas y ninguna se
+// sostiene todavia:
+//
+//   a) Recortarlo a 3 s. Este numero no es un techo suelto: es el `timeout` de
+//      UserPromptSubmit en settings.json, y TODAS las esperas de aqui abajo se
+//      encadenan restando de el (HOOKS-04 a HOOKS-07, cada una con su sintoma
+//      medido). Bajarlo a 3 s no acorta una espera: desarma la recuperacion
+//      del daemon y garantiza que el primer prompt tras una pausa entre SIN
+//      memoria, que es justo el que mas la necesita.
+//   b) Pasar el hook a `asyncRewake` (fondo + despertar al modelo con exit 2).
+//      Es la respuesta elegante al problema, pero cambia el CANAL de salida:
+//      todo lo que este hook produce viaja por `additionalContext` en stdout,
+//      y en modo asincrono el stdout se descarta. Portarlo significa reescribir
+//      el contrato del hook contra una semantica que no se puede probar aqui;
+//      si sale mal, el fallo es silencioso y se lo come cada prompt.
+//
+// Asi que primero el dato: el desglose por fase de mas abajo. Cuando haya
+// reparto real (cuanto es esperar al daemon, cuanto el lock, cuanto el
+// arranque), la eleccion entre (a) y (b) deja de ser una corazonada.
 const HOOK_BUDGET_MS = 20_000;
 // Colchon reservado para lo que viene DESPUES de la ultima espera: render,
 // token-meter, escritura del cache y del log, mas el arranque de node. El hook
@@ -188,6 +208,51 @@ const DAEMON_RELAUNCH_DEADLINE_MS = HOOK_BUDGET_MS - SPARSE_MIN_CAP_MS - SAFETY_
 // Sonda minima contra el daemon nuevo: por debajo de 1 s no le da tiempo ni a
 // aceptar la conexion, asi que no se lanza una sonda mas corta que esto.
 const DAEMON_RELAUNCH_MIN_PROBE_MS = 1_000;
+
+// ---------------------------------------------------------------------------
+// Desglose por FASE (2026-09-22)
+// ---------------------------------------------------------------------------
+// Medido sobre 5.731 lineas de hook-timing.jsonl: n=146, p50=442 ms,
+// p95=9.561 ms, max=18.529 ms. O sea: la mitad de los prompts no nota nada y
+// una cola de ~5% se come casi diez segundos ANTES de que el turno arranque.
+//
+// Lo que NO se sabia: en QUE se van esos 9,5 s. La atribucion que circulaba
+// ("es la recarga de los modelos tras el idle de 30 min") encaja con
+// CLAUDE.md, pero era una inferencia: hook-timing.jsonl guarda un unico
+// elapsed_ms por ejecucion, sin desglose. Y sin saber que fase manda, elegir
+// entre recortar el presupuesto o irse a `asyncRewake` es tirar una moneda.
+//
+// Por eso, antes de tocar ningun presupuesto, cada espera se cronometra por
+// separado y el desglose viaja a los dos sitios que ya tienen lector:
+// hook-timing.jsonl (via annotate -> la ficha del hook en la app) y
+// orchestrate.jsonl (el Live Session Monitor). Con eso, la proxima decision
+// se toma con el reparto real delante.
+const fases = {
+  daemon_ms: 0, // espera al daemon residente (camino rapido)
+  busy_ms: 0, // reintentos con el daemon VIVO pero con el lock ocupado
+  boot_ms: 0, // daemon en warmup (lockfile joven)
+  relanzamiento_ms: 0, // daemon muerto: relanzar `serve` y esperarle
+  sparse_ms: 0, // respaldo FTS5 sin E5
+};
+
+/** Cronometra `fn` y suma lo que tarde a la fase indicada. */
+async function medir(fase, fn) {
+  const t = Date.now();
+  try {
+    return await fn();
+  } finally {
+    fases[fase] += Date.now() - t;
+  }
+}
+
+/** La fase que mas tiempo se llevo, para explicar una espera larga en una palabra. */
+function faseDominante() {
+  let mejor = null;
+  for (const [k, v] of Object.entries(fases)) {
+    if (v > 0 && (!mejor || v > fases[mejor])) mejor = k;
+  }
+  return mejor;
+}
 
 /** Rastro de un prompt servido por el carril rapido (sin orchestrate). */
 function logFastLane({ sessionId, project, prompt, lane, elapsedMs }) {
@@ -429,12 +494,16 @@ function render(ctx) {
   return out.join('\n');
 }
 
-function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
+function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon, desglose) {
   return {
     ts: new Date().toISOString(),
     // cat15.1: latencia de la orquestacion (hot path UserPromptSubmit) para el
     // LiveSessionMonitor y para diagnosticar la latencia del prompt.
     elapsed_ms: typeof elapsedMs === 'number' ? elapsedMs : null,
+    // 2026-09-22: reparto de esa latencia por fase. Sin esto, el p95 de 9,5 s
+    // era un numero sin causa: no se sabia si era esperar al daemon, el lock
+    // ocupado, el arranque o el respaldo sparse.
+    fases: desglose || null,
     // cat9.4: traza si el hot path uso el daemon TCP (sub-segundo) o el spawn
     // one-shot de fallback (cold E5 ~3.5s). Util para diagnosticar si el daemon
     // murio entre sesiones y cuantos prompts pagaron el coste completo.
@@ -470,7 +539,7 @@ function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
   };
 }
 
-function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
+function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon, desglose) {
   // 2026-09-06 (F1.6): sin session_id no es un turno de la persona, es el harness
   // (kirkardo-eval manda {prompt, hook_event_name} a pelo). 42 líneas sintéticas
   // ("hola que tal como estas hoy" x9, "microservicio en golang" x7...) inflaban
@@ -478,7 +547,10 @@ function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon
   if (!sessionId) return;
   try {
     // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
-    appendJsonl(ORCH_LOG, buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon));
+    appendJsonl(
+      ORCH_LOG,
+      buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon, desglose)
+    );
   } catch (_) {
     /* never block the prompt */
   }
@@ -560,9 +632,8 @@ async function main() {
     : cached
       ? DAEMON_TIMEOUT_CACHED_MS
       : DAEMON_TIMEOUT_MS;
-  let ctx = await daemonRequest(
-    { cmd: 'orchestrate', prompt, project: project || undefined },
-    daemonWaitMs
+  let ctx = await medir('daemon_ms', () =>
+    daemonRequest({ cmd: 'orchestrate', prompt, project: project || undefined }, daemonWaitMs)
   );
   // HOOKS-06: separar "busy" (daemon VIVO, lock ocupado) de "caido/roto". Solo
   // el segundo justifica el fallback one-shot; ante el primero se espera al
@@ -572,22 +643,24 @@ async function main() {
 
   // (primer prompt: la espera larga ya ha consumido su presupuesto; sin reintentos)
   if (!ctx && daemonBusy && !firstPrompt) {
-    const busyDeadline = Date.now() + BUSY_RETRY_BUDGET_MS;
-    while (Date.now() + BUSY_RETRY_POLL_MS < busyDeadline) {
-      await sleep(BUSY_RETRY_POLL_MS);
-      const retry = await daemonRequest(
-        { cmd: 'orchestrate', prompt, project: project || undefined },
-        Math.max(1000, busyDeadline - Date.now())
-      );
-      daemonBusy = isDaemonBusy(retry);
-      if (retry && !retry.error) {
-        ctx = retry;
-        break;
+    await medir('busy_ms', async () => {
+      const busyDeadline = Date.now() + BUSY_RETRY_BUDGET_MS;
+      while (Date.now() + BUSY_RETRY_POLL_MS < busyDeadline) {
+        await sleep(BUSY_RETRY_POLL_MS);
+        const retry = await daemonRequest(
+          { cmd: 'orchestrate', prompt, project: project || undefined },
+          Math.max(1000, busyDeadline - Date.now())
+        );
+        daemonBusy = isDaemonBusy(retry);
+        if (retry && !retry.error) {
+          ctx = retry;
+          break;
+        }
+        // Un error que NO es "busy" (o silencio) sí es daemon roto: se abandona
+        // el reintento y se cae al camino de degradación de abajo.
+        if (!daemonBusy) break;
       }
-      // Un error que NO es "busy" (o silencio) sí es daemon roto: se abandona
-      // el reintento y se cae al camino de degradación de abajo.
-      if (!daemonBusy) break;
-    }
+    });
   }
 
   // HOOKS-05: daemon en warmup (lock joven) -> poll hasta DAEMON_BOOT_WAIT_MS
@@ -597,15 +670,17 @@ async function main() {
     const bootAge =
       lock && Number.isFinite(lock.started_at) ? Date.now() - lock.started_at : Infinity;
     if (bootAge >= 0 && bootAge < DAEMON_BOOT_WINDOW_MS) {
-      const deadline = t0 + DAEMON_BOOT_WAIT_MS;
-      while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS < deadline) {
-        await sleep(DAEMON_BOOT_POLL_MS);
-        ctx = await daemonRequest(
-          { cmd: 'orchestrate', prompt, project: project || undefined },
-          Math.max(1000, deadline - Date.now())
-        );
-        if (ctx && ctx.error) ctx = null;
-      }
+      await medir('boot_ms', async () => {
+        const deadline = t0 + DAEMON_BOOT_WAIT_MS;
+        while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS < deadline) {
+          await sleep(DAEMON_BOOT_POLL_MS);
+          ctx = await daemonRequest(
+            { cmd: 'orchestrate', prompt, project: project || undefined },
+            Math.max(1000, deadline - Date.now())
+          );
+          if (ctx && ctx.error) ctx = null;
+        }
+      });
     }
   }
 
@@ -615,23 +690,25 @@ async function main() {
   // proposito: ahi el daemon esta VIVO y ya se le ha reintentado arriba.
   if (!ctx && !daemonBusy) {
     const relaunchT0 = Date.now();
-    spawnDetached(['serve']); // idempotente: sale al momento si ya hay uno vivo
-    const deadline = t0 + DAEMON_RELAUNCH_DEADLINE_MS;
-    while (
-      !ctx &&
-      Date.now() + DAEMON_BOOT_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS <= deadline
-    ) {
-      await sleep(DAEMON_BOOT_POLL_MS);
-      // Sin lockfile el daemon nuevo todavia no escucha: no se gasta un connect.
-      if (!readDaemonLock()) continue;
-      const resp = await daemonRequest(
-        { cmd: 'orchestrate', prompt, project: project || undefined },
-        deadline - Date.now()
-      );
-      // "busy" durante el arranque = vivo pero cargando: se sigue esperando.
-      if (isDaemonBusy(resp)) continue;
-      if (resp && !resp.error) ctx = resp;
-    }
+    await medir('relanzamiento_ms', async () => {
+      spawnDetached(['serve']); // idempotente: sale al momento si ya hay uno vivo
+      const deadline = t0 + DAEMON_RELAUNCH_DEADLINE_MS;
+      while (
+        !ctx &&
+        Date.now() + DAEMON_BOOT_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS <= deadline
+      ) {
+        await sleep(DAEMON_BOOT_POLL_MS);
+        // Sin lockfile el daemon nuevo todavia no escucha: no se gasta un connect.
+        if (!readDaemonLock()) continue;
+        const resp = await daemonRequest(
+          { cmd: 'orchestrate', prompt, project: project || undefined },
+          deadline - Date.now()
+        );
+        // "busy" durante el arranque = vivo pero cargando: se sigue esperando.
+        if (isDaemonBusy(resp)) continue;
+        if (resp && !resp.error) ctx = resp;
+      }
+    });
     if (ctx) {
       if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
       ctx.warnings.push(
@@ -663,7 +740,9 @@ async function main() {
       SPARSE_MAX_CAP_MS,
       Math.max(SPARSE_MIN_CAP_MS, HOOK_BUDGET_MS - daemonWaitedMs - SAFETY_MARGIN_MS)
     );
+    const sparseT0 = Date.now();
     ctx = runCli(args, { timeoutMs: sparseCapMs });
+    fases.sparse_ms += Date.now() - sparseT0;
     if (ctx && typeof ctx === 'object') {
       if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
       ctx.warnings.push(
@@ -710,15 +789,24 @@ async function main() {
     // Aviso visible al modelo (mismo patron que el resume degradado): sin esto el
     // fallo era 100% silencioso y el usuario no podia saber que la memoria no aporto.
     // El tono SI se entrega: no depende del sidecar.
+    // 2026-09-22: el aviso dice ADEMAS en que fase se fue la espera. "Tardo 9 s
+    // y no trajo nada" sin causa no es accionable; "se fueron 9 s esperando al
+    // daemon" si lo es.
+    annotate({ fases, degradado: true, fase_dominante: faseDominante() });
     emit(
       [
         ...toneLines(localTone),
         '[memoria degradada] orchestrate sin respuesta (daemon/Qdrant caido o timeout) — ' +
           'este prompt va SIN recall de memoria. Si se repite, revisar: bin/ultron-memory.exe doctor',
+        `[memoria degradada] reparto de la espera: ${Object.entries(fases)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(' ') || 'sin esperas medibles'}`,
       ].join('\n')
     );
     return;
   }
+  annotate({ fases, degradado: false, fase_dominante: faseDominante() });
   ctx.tone = localTone;
   if (!staleFromCache) {
     // Sin `tone` en el cache: es del prompt que lo genero y servirlo stale seria
@@ -726,7 +814,7 @@ async function main() {
     writeOrchCache(project, { ...ctx, tone: null });
     // Solo orquestaciones FRESCAS al Live Session Monitor — un pack cacheado
     // re-loggeado duplicaria la entrada original con datos de otro prompt.
-    logOrchestration(ctx, prompt, project, sessionId, Date.now() - t0, usedDaemon);
+    logOrchestration(ctx, prompt, project, sessionId, Date.now() - t0, usedDaemon, { ...fases });
   }
   emit(render(ctx));
 }

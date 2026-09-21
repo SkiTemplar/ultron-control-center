@@ -98,13 +98,19 @@ A(c3 === null, "exito -> buildCandidate null", JSON.stringify(c3));
 // no se inventa procedencia.
 // ---------------------------------------------------------------------------
 
+// El id es distinto en cada ejecucion A PROPOSITO (2026-09-22): buildCandidate
+// lleva un cap de 3 candidatos por sesion con el contador en %TEMP%, y ese
+// fichero sobrevive entre ejecuciones. Con un id fijo, el selftest pasaba en
+// un runner limpio y se ponia rojo en la cuarta ejecucion local sobre la misma
+// maquina — un test que falla por su propia memoria, no por una regresion.
+const SESION = `selftest-${Date.now()}-${process.pid}`;
 const c4 = buildCandidate && buildCandidate({
   tool_name: "Bash",
-  session_id: "1a333f26-3721-4b76-b975-7e9dbbab15a7",
+  session_id: SESION,
   tool_input: { command: "cargo build" },
   tool_response: { code: 101, stderr: "error[E0308]: mismatched types" },
 });
-A(!!c4 && c4.session_id === "1a333f26-3721-4b76-b975-7e9dbbab15a7",
+A(!!c4 && c4.session_id === SESION,
   "candidato lleva session_id (provenance episodica)", JSON.stringify(c4));
 
 const c5 = buildCandidate && buildCandidate({
@@ -114,6 +120,47 @@ const c5 = buildCandidate && buildCandidate({
 });
 A(!!c5 && c5.session_id === null,
   "sin session_id en payload -> null (no se inventa origen)", JSON.stringify(c5));
+
+// ---------------------------------------------------------------------------
+// 2026-09-22 — cableado del evento PostToolUseFailure.
+// El payload REAL de ese evento es {hook_event_name, tool_name, tool_input,
+// tool_use_id, error, is_interrupt?, duration_ms?}: NO trae tool_response. El
+// detector ya lo cubria; lo que no existia era el registro en settings.json.
+// Estos casos fijan el shape completo para que nadie lo estreche por error.
+// ---------------------------------------------------------------------------
+
+const f1 = buildCandidate && buildCandidate({
+  hook_event_name: "PostToolUseFailure",
+  tool_name: "Write",
+  tool_input: { file_path: "src/lib.rs", content: "..." },
+  tool_use_id: "toolu_01AAAA",
+  error: "File has not been read yet. Read it first before writing to it.",
+  duration_ms: 4,
+});
+A(!!f1 && f1.type === "error_resolution",
+  "PostToolUseFailure: propone candidato sin tool_response", JSON.stringify(f1));
+A(!!f1 && f1.content.includes("input=src/lib.rs"),
+  "PostToolUseFailure: el candidato lleva el input que fallo", JSON.stringify(f1));
+A(!!f1 && f1.content.includes("File has not been read yet"),
+  "PostToolUseFailure: el candidato lleva el error del harness", JSON.stringify(f1));
+
+// Caso NEGATIVO: el mismo evento con `error` vacio no es señal de nada.
+const f2 = buildCandidate && buildCandidate({
+  hook_event_name: "PostToolUseFailure",
+  tool_name: "Write",
+  tool_input: { file_path: "src/lib.rs" },
+  error: "   ",
+});
+A(f2 === null, "PostToolUseFailure: error vacio -> null", JSON.stringify(f2));
+
+// Caso NEGATIVO: el evento sin campo `error` (payload incompleto del harness)
+// tampoco inventa un candidato.
+const f3 = buildCandidate && buildCandidate({
+  hook_event_name: "PostToolUseFailure",
+  tool_name: "Write",
+  tool_input: { file_path: "src/lib.rs" },
+});
+A(f3 === null, "PostToolUseFailure: sin campo error -> null", JSON.stringify(f3));
 
 console.log(fail === 0 ? "\nSELFTEST 3.9 (posttoolfail): VERDE" : `\nSELFTEST 3.9 (posttoolfail): ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -61,6 +61,33 @@ Verificar el checksum de un hook:
 node -e "const fs=require('fs'),c=require('crypto');console.log(c.createHash('sha256').update(fs.readFileSync('scripts/stop-compress-session.js')).digest('hex'))"
 ```
 
+### Las dos puertas de paridad
+
+```bash
+node hooks/regen-manifest.js --check           # LOCAL: manifiesto vs ~/.claude/settings.json
+node hooks/regen-manifest.js --check-template  # CI: manifiesto vs templates/settings-hooks.json
+```
+
+La primera es la completa (incluye checksums), pero lee la config de UNA
+maquina: en un runner de CI ese fichero no existe y saldria en rojo por
+entorno, no por regresion. La segunda compara lo que se **instala** con el
+espejo versionado — evento, matcher, timeout, `async` y que el script exista en
+el repo — y por eso es la que corre en CI desde el 2026-09-22. No mira
+checksums a proposito: reflejan los ficheros de la maquina del mantenedor.
+
+Lo que la puerta encontro el dia que se estreno: el manifiesto listaba
+`routing-dispatcher.v3` cuando lo vivo es la **v2**; la plantilla instalaba
+`memory-orchestrate` con `timeout: 12` cuando el hook presupuesta 20 s (con 12
+Claude Code **descarta toda su salida en silencio**), `stop-compress-session`
+con 30 s teniendo un p95 medido de 25,1 s, y `kanban-update-reminder` con
+`async: true`, que descarta su stdout y dejaba el hook entero como un no-op.
+
+`regen-manifest.js` entiende las dos formas de entrada de hook: la de shell
+(`command: "node <ruta>"`) y la **exec** (`command: "node", args: ["<ruta>"]`).
+Con la exec, `command` es solo `"node"`: sin leer `args[0]` los 20 hooks
+colapsaban al mismo id y el manifiesto perdia script, checksum y metadatos de
+todos a la vez. Lo fija `hooks/regen-manifest.selftest.mjs`.
+
 ## Fail-safe y observabilidad
 
 No hay un runner común: `scripts/lib/hook-runner.js` (circuit-breaker +
@@ -69,6 +96,26 @@ Cada hook aplica su propio fail-safe: `try/catch` en el nivel superior,
 `process.exitCode = 0` para no romper nunca la sesión, y rastro de fallos con
 `logHookError` de `scripts/lib/hook-obs.js` (`hook-errors.jsonl`). La duración
 se registra con `observe()` del mismo módulo.
+
+### Todo hook falla ABIERTO, menos uno
+
+Un hook mal hecho rompe TODAS las sesiones de Claude Code. La regla es que
+cualquier excepcion acabe en `exit 0` sin salida: el turno sigue, se pierde lo
+que ese hook aportaba y queda el rastro en `hook-errors.jsonl`.
+
+La unica excepcion es `deny-secrets.js`, que falla **CERRADO**: es una puerta
+de seguridad, y si su clasificador revienta no puede demostrar que el acceso
+sea seguro, asi que bloquea. Por eso su instrumentacion va envuelta en su
+propio `try/catch`: si `lib/hook-obs` faltara, el hook sigue clasificando.
+
+### Que se registra de cada disparo
+
+`observe(id)` deja `{hook, elapsed_ms, exit_code}` en
+`logs/hook-timing.jsonl`; `annotate({...})` (2026-09-22) anade campos a **esa
+misma linea**, que es la que lee el backend para la ficha de cada hook. Regla
+de contenido: solo etiquetas de un conjunto cerrado (que se decidio, que regla
+caso, en que fase se fue el tiempo). **Nunca** rutas, nombres de fichero ni
+prompts — el log se comparte con la app y el repo es publico.
 
 ## Inventario de hooks VIVOS (settings.json, 2026-06-04 HEAD f936a66)
 
@@ -81,6 +128,15 @@ se registra con `observe()` del mismo módulo.
 | `batch-capture.js` | Captura comandos REJECTED/FAILED a la cola Run Batch (`queue-pending.jsonl`). |
 
 ### `SessionStart`
+
+Desde el 2026-09-22 la plantilla reparte estos hooks por **motivo** de arranque
+(`startup|resume|clear|compact|fork`) en vez de correrlos los cinco con `*`:
+`ensure-qdrant` y `memory-warmup` solo con `startup|resume` (levantar Qdrant y
+precalentar modelos no tiene sentido en un `/clear`), `memory-session-resume`
+con `startup|resume|clear`, y el resto se queda en `*` porque cuesta p50 4 ms.
+El motivo `compact` queda cedido a `PostCompact`, que es donde se re-inyecta el
+contexto tras compactar — asi el bloque no se emite dos veces.
+
 | Hook | Proposito |
 |------|-----------|
 | `load-cross-project-memory.js` | Inyecta el indice de `MEMORY.md` de proyectos recientes. |
@@ -102,6 +158,21 @@ se registra con `observe()` del mismo módulo.
 | Hook | Proposito |
 |------|-----------|
 | `run-project-tests.js` | F4.1: tras editar codigo del proyecto lanza la suite COMPLETA en un runner desacoplado (tope 120 s, debounce 60 s). Comando: linea `test: <cmd>` en el CLAUDE.md del proyecto, o package.json / Cargo.toml / pyproject / go.mod. Resultado en `.tmp/run-tests/<project>.result.json`. |
+
+### `PostToolUseFailure` (`*`, async) — cableado el 2026-09-22
+| Hook | Proposito |
+|------|-----------|
+| `posttoolfail-capture.js` | El mismo script que en `PostToolUse`, para la clase de fallo complementaria: la tool NI llego a ejecutarse (permiso, timeout, error del harness) y el payload trae `error` de primer nivel sin `tool_response`. El registro en `PostToolUse` se queda en `*`: estrecharlo tiraria los fallos que SI traen resultado. |
+
+### `PostCompact` (`manual|auto`) — nuevo el 2026-09-22
+| Hook | Proposito |
+|------|-----------|
+| `postcompact-reinject.js` | `precompact-preserve-l0` salva contexto ANTES de compactar; esto es lo de DESPUES. Devuelve al contexto el `compact_summary` que el propio evento entrega (acotado a ~400 tokens), o los ultimos prompts del usuario si el payload no lo trae. Marcador por sesion para no duplicar el bloque. |
+
+### `StopFailure` (matcher = valores del enum `error`, async) — nuevo el 2026-09-22
+| Hook | Proposito |
+|------|-----------|
+| `stopfailure-relay.js` | Sensor de cuota para el relevo de proveedores. Cuando un turno muere por cuota, sobrecarga o un problema de cuenta, deja una linea en `cockpit/maria/relay-cuota.jsonl` (`{ts, proveedor, error, clase, detalle, sesion, fuente}`) para que el relevo degrade `claude` sin esperar a tropezar por su cuenta. Lee `payload.error` — el schema **no** tiene `error_type` — y vuelve a filtrar contra la misma lista del matcher. No es memoria: estado operativo, `writer_path: NONE`. |
 
 ### `SessionEnd` (async: no hablan al modelo)
 | Hook | Proposito |
