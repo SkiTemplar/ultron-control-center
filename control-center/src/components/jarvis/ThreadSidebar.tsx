@@ -110,6 +110,38 @@ export function filtrar(hilos: ThreadMeta[], consulta: string): ThreadMeta[] {
   );
 }
 
+/** Un acierto dentro del cuerpo de una conversación (`maria_threads_buscar`). */
+export type Coincidencia = {
+  thread_id: string;
+  titulo: string;
+  indice_turno: number;
+  rol: string;
+  fragmento: string;
+  fecha: string;
+};
+
+/**
+ * Reparte lo encontrado en los dos bloques de la barra. Pura.
+ *
+ * Arriba, las conversaciones cuyo TÍTULO o carpeta casa (lo de siempre). Abajo,
+ * «en el contenido»: los turnos donde de verdad aparece lo buscado. Un hilo que
+ * ya sale arriba NO se repite abajo — verlo dos veces haría imposible saber
+ * cuántas conversaciones hay, igual que en `agrupar`.
+ */
+export function repartir(
+  hilos: ThreadMeta[],
+  consulta: string,
+  coincidencias: Coincidencia[],
+): { porTitulo: ThreadMeta[]; enContenido: Coincidencia[] } {
+  const porTitulo = filtrar(hilos, consulta);
+  if (!consulta.trim()) return { porTitulo, enContenido: [] };
+  const yaArriba = new Set(porTitulo.map((h) => h.id));
+  return {
+    porTitulo,
+    enContenido: coincidencias.filter((c) => !yaArriba.has(c.thread_id)),
+  };
+}
+
 type Props = {
   threads: ThreadMeta[];
   activeId: string;
@@ -118,6 +150,14 @@ type Props = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onPin: (id: string, pinned: boolean) => void;
+  /** Aciertos dentro del cuerpo de las conversaciones. */
+  coincidencias?: Coincidencia[];
+  /** La búsqueda en el contenido está en marcha. */
+  buscando?: boolean;
+  /** Hay más aciertos de los que caben en el tope del backend. */
+  hayMas?: boolean;
+  /** Abrir una conversación dejando la vista en ese turno. */
+  onAbrirTurno?: (id: string, indiceTurno: number) => void;
 };
 
 export function ThreadSidebar({
@@ -128,8 +168,13 @@ export function ThreadSidebar({
   onSelect,
   onNew,
   onPin,
+  coincidencias = [],
+  buscando = false,
+  hayMas = false,
+  onAbrirTurno,
 }: Props) {
-  const grupos = agrupar(filtrar(threads, query));
+  const { porTitulo, enContenido } = repartir(threads, query, coincidencias);
+  const grupos = agrupar(porTitulo);
 
   return (
     <aside
@@ -149,7 +194,7 @@ export function ThreadSidebar({
       <input
         value={query}
         onChange={(e) => onQuery(e.target.value)}
-        placeholder="buscar…"
+        placeholder="buscar en títulos y en lo escrito…"
         aria-label="buscar conversación"
         className="hud-panel mx-3 px-2 py-1 text-[11px]"
         style={{
@@ -160,8 +205,10 @@ export function ThreadSidebar({
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
-        {grupos.length === 0 && (
-          <p className="hud-label px-1 py-3">sin conversaciones todavía</p>
+        {grupos.length === 0 && enContenido.length === 0 && !buscando && (
+          <p className="hud-label px-1 py-3">
+            {query.trim() ? "no hay nada con eso" : "sin conversaciones todavía"}
+          </p>
         )}
         {grupos.map((g) => (
           <section key={g.titulo} className="mb-2">
@@ -211,6 +258,51 @@ export function ThreadSidebar({
             })}
           </section>
         ))}
+
+        {/* Segundo bloque: donde de verdad aparece lo buscado. El título lo
+            pone una IA a posteriori, así que buscar por lo que uno escribió
+            solo funciona mirando el cuerpo de los turnos (2026-09-22). */}
+        {buscando && <p className="hud-label hud-pulse px-1 py-2">buscando en lo escrito…</p>}
+        {enContenido.length > 0 && (
+          <section className="mb-2">
+            <h3 className="hud-label px-1 py-1">
+              en el contenido{hayMas ? " · hay más" : ""}
+            </h3>
+            {enContenido.map((c) => (
+              <button
+                key={`${c.thread_id}-${c.indice_turno}`}
+                type="button"
+                onClick={() => onAbrirTurno?.(c.thread_id, c.indice_turno)}
+                title={`${c.titulo} · turno ${c.indice_turno + 1}`}
+                className="mb-1 block w-full px-1 py-1 text-left"
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                <span className="block truncate text-[11px]" style={{ color: "var(--color-accent)" }}>
+                  {c.titulo}
+                </span>
+                <span
+                  className="block text-[10.5px] leading-snug"
+                  style={{
+                    color: "var(--color-text-tertiary)",
+                    fontFamily: "var(--font-mono)",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {c.rol === "user" ? "tú: " : ""}
+                  {c.fragmento}
+                </span>
+              </button>
+            ))}
+          </section>
+        )}
       </div>
     </aside>
   );

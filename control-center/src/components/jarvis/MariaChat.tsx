@@ -25,7 +25,7 @@ import { Markdown, artefactosDe, type ArtefactoRef } from "./Markdown";
 import { PanelLateral, type PanelId } from "./PanelLateral";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
+import { ThreadSidebar, type Coincidencia, type ThreadMeta } from "./ThreadSidebar";
 import { HudSelect } from "./HudSelect";
 import {
   COMMANDS,
@@ -200,6 +200,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   /** Lo que mar.ia decidio en el ultimo turno (para pintarlo en la cabecera). */
   const [ultimo, setUltimo] = useState<{ model: string; effort: string } | null>(null);
   const [query, setQuery] = useState("");
+  /** Aciertos dentro del cuerpo de las conversaciones (`maria_threads_buscar`). */
+  const [coincidencias, setCoincidencias] = useState<Coincidencia[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [hayMasAciertos, setHayMasAciertos] = useState(false);
+  /** Turno al que hay que bajar en cuanto cargue el hilo. null = a ninguno. */
+  const [irATurno, setIrATurno] = useState<number | null>(null);
   const [sugerido, setSugerido] = useState(0);
   /** Respuesta que se esta escribiendo ahora mismo (eventos del relevo). */
   const [enVivo, setEnVivo] = useState<{ provider: string; texto: string } | null>(null);
@@ -231,6 +237,8 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   threadIdRef.current = threadId;
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  /** Un nodo por turno pintado, para poder saltar a uno concreto. */
+  const turnoRefs = useRef<Array<HTMLElement | null>>([]);
 
   const sugerencias = suggestFor(prompt);
   const activa = useMemo(
@@ -430,8 +438,67 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   }, [threadId, avisar]);
 
   useEffect(() => {
+    // Con un salto a un turno pendiente NO se baja al final: seria llevarse la
+    // vista justo del sitio al que el usuario acaba de pedir ir.
+    if (irATurno !== null) return;
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [turns, busy, avisos]);
+  }, [turns, busy, avisos, irATurno]);
+
+  // Buscar DENTRO de las conversaciones. Con rebote de 250 ms porque cada
+  // pulsacion abriria si no todos los jsonl de la carpeta; el backend ademas
+  // trae tope de resultados y de bytes por hilo (`threads::buscar_en`).
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setCoincidencias([]);
+      setHayMasAciertos(false);
+      setBuscando(false);
+      return;
+    }
+    setBuscando(true);
+    let vigente = true;
+    const t = setTimeout(() => {
+      void invoke<{ resultados: Coincidencia[]; hay_mas: boolean; recortados: string[] }>(
+        "maria_threads_buscar",
+        { consulta: q, tope: 40 },
+      )
+        .then((b) => {
+          if (!vigente) return;
+          setCoincidencias(b?.resultados ?? []);
+          setHayMasAciertos(Boolean(b?.hay_mas));
+          if (b?.recortados?.length) {
+            avisar(
+              `conversaciones demasiado grandes, buscadas solo en parte: ${b.recortados.join(", ")}`,
+            );
+          }
+        })
+        .catch(() => {
+          if (vigente) setCoincidencias([]);
+        })
+        .finally(() => {
+          if (vigente) setBuscando(false);
+        });
+    }, 250);
+    return () => {
+      vigente = false;
+      clearTimeout(t);
+    };
+  }, [query, avisar]);
+
+  // El salto al turno se hace cuando el hilo YA esta pintado: al venir de otra
+  // conversacion, `turns` todavia es el de la anterior.
+  useEffect(() => {
+    if (irATurno === null) return;
+    const nodo = turnoRefs.current[irATurno];
+    if (!nodo) {
+      // El hilo aun no ha llegado (o ese turno no existe ya): se espera al
+      // siguiente cambio de `turns`, y si tampoco, se suelta el salto.
+      if (turns.length > 0 && irATurno >= turns.length) setIrATurno(null);
+      return;
+    }
+    nodo.scrollIntoView({ block: "center" });
+    setIrATurno(null);
+  }, [irATurno, turns]);
 
   useEffect(() => {
     setSugerido(0);
@@ -886,6 +953,13 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           query={query}
           onQuery={setQuery}
           onSelect={setThreadId}
+          coincidencias={coincidencias}
+          buscando={buscando}
+          hayMas={hayMasAciertos}
+          onAbrirTurno={(id, indice) => {
+            setThreadId(id);
+            setIrATurno(indice);
+          }}
           onNew={() => void nuevaConversacion()}
           onPin={(id, pinned) => {
             void invoke("maria_thread_pin", { threadId: id, pinned })
@@ -1064,7 +1138,13 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
 
           <div className="mx-auto w-full max-w-[820px]">
             {turns.map((t, i) => (
-              <article key={`${t.ts}-${i}`} className="mb-3">
+              <article
+                key={`${t.ts}-${i}`}
+                className="mb-3"
+                ref={(el) => {
+                  turnoRefs.current[i] = el;
+                }}
+              >
                 <div className="mb-1 flex items-center gap-2">
                   <span
                     className="hud-label"

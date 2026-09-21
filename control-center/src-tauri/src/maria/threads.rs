@@ -17,7 +17,8 @@
 // leerlo, asi que un hilo creado a mano (o los `hilo-YYYYMMDD` de la version
 // anterior) aparece igualmente, con titulo derivado de su primer mensaje.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -389,6 +390,189 @@ fn resumen_largo(texto: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Buscar DENTRO de las conversaciones
+// ---------------------------------------------------------------------------
+//
+// La caja «buscar…» de la barra lateral filtraba por `title` y `folder` y nada
+// mas (`ThreadSidebar.tsx`), y el titulo lo pone una IA a posteriori
+// (`autotitulo`): buscar por las palabras que uno escribio de verdad no
+// encontraba nada. La pestaña Conversaciones si busca por contenido, pero sobre
+// los transcripts de Claude Code — otra fuente. Los hilos propios de mar.ia
+// eran inbuscables (2026-09-22).
+
+/// Tope de resultados por defecto. Pasado este, se dice que hay mas.
+const TOPE_RESULTADOS: usize = 40;
+/// Lo maximo que se lee de UN hilo. Un jsonl mas grande se lee hasta aqui y su
+/// id sale en `recortados`: nunca se calla que la busqueda fue parcial.
+const MAX_POR_HILO: usize = 2 * 1024 * 1024;
+/// Coincidencias que aporta como mucho un mismo hilo, para que uno solo no
+/// llene la lista y tape a los demas.
+const MAX_POR_CONVERSACION: usize = 3;
+/// Consulta mas corta que esto = no se busca. Una letra casa con todo.
+const MINIMO_CONSULTA: usize = 2;
+
+/// Un acierto dentro de una conversacion.
+#[derive(Debug, Clone, Serialize)]
+pub struct Coincidencia {
+    pub thread_id: String,
+    /// Titulo de la conversacion, o su id si todavia no tiene.
+    pub titulo: String,
+    /// Posicion del turno en el hilo (0 = el primero). Con esto la interfaz
+    /// abre la conversacion Y deja la vista en ese turno.
+    pub indice_turno: usize,
+    /// "user" | "assistant".
+    pub rol: String,
+    /// El trozo del turno donde esta la coincidencia, ya recortado.
+    pub fragmento: String,
+    /// Marca del turno (RFC 3339).
+    pub fecha: String,
+}
+
+/// Lo que devuelve una busqueda, con sus limites declarados.
+#[derive(Debug, Clone, Serialize)]
+pub struct Busqueda {
+    pub resultados: Vec<Coincidencia>,
+    /// Hay mas coincidencias de las que caben en el tope.
+    pub hay_mas: bool,
+    /// Conversaciones que no se leyeron enteras por tamaño.
+    pub recortados: Vec<String>,
+}
+
+/// Recorta el texto alrededor de la coincidencia. Pura.
+///
+/// Devuelve None si no aparece. El texto se aplana primero: un turno con
+/// saltos de linea y codigo dentro no se puede enseñar en una fila.
+#[must_use]
+pub fn fragmento_de(texto: &str, consulta: &str) -> Option<String> {
+    let plano: String = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+    let donde = plano.to_lowercase().find(&consulta.to_lowercase())?;
+    // Los indices de `find` son de BYTES: se pasa a caracteres para no partir
+    // una tilde por la mitad (y que el `…` caiga donde toca).
+    let antes_chars = plano[..donde].chars().count();
+    let inicio = antes_chars.saturating_sub(40);
+    let fin = (antes_chars + consulta.chars().count() + 90).min(plano.chars().count());
+    let trozo: String = plano.chars().skip(inicio).take(fin - inicio).collect();
+    Some(format!(
+        "{}{trozo}{}",
+        if inicio > 0 { "…" } else { "" },
+        if fin < plano.chars().count() {
+            "…"
+        } else {
+            ""
+        },
+    ))
+}
+
+/// Busca `consulta` dentro de los jsonl de `dir`. Pura respecto al disco real:
+/// se le pasa la carpeta, asi que el test la ejecuta sobre un tempdir.
+///
+/// Orden: lo mas reciente primero (por la marca del turno). Limites: `tope`
+/// resultados, `MAX_POR_CONVERSACION` por hilo y `MAX_POR_HILO` bytes leidos
+/// de cada fichero.
+#[must_use]
+pub fn buscar_en(
+    dir: &Path,
+    titulos: &HashMap<String, String>,
+    consulta: &str,
+    tope: usize,
+) -> Busqueda {
+    let q = consulta.trim();
+    // Sin esto, la caja vacia devolveria el corpus entero en cada tecla.
+    if q.chars().count() < MINIMO_CONSULTA || tope == 0 {
+        return Busqueda {
+            resultados: Vec::new(),
+            hay_mas: false,
+            recortados: Vec::new(),
+        };
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Busqueda {
+            resultados: Vec::new(),
+            hay_mas: false,
+            recortados: Vec::new(),
+        };
+    };
+    let mut resultados: Vec<Coincidencia> = Vec::new();
+    let mut recortados: Vec<String> = Vec::new();
+    for entrada in rd.filter_map(Result::ok) {
+        let ruta = entrada.path();
+        if ruta.extension().and_then(|x| x.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(id) = ruta.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Ok(mut texto) = std::fs::read_to_string(&ruta) else {
+            continue;
+        };
+        if texto.len() > MAX_POR_HILO {
+            // Hasta el ultimo salto de linea entero: media linea no parsea.
+            let corte = texto[..MAX_POR_HILO].rfind('\n').unwrap_or(0);
+            texto.truncate(corte);
+            recortados.push(id.to_string());
+        }
+        let titulo = titulos
+            .get(id)
+            .map(String::as_str)
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or(id)
+            .to_string();
+        let mut del_hilo = 0usize;
+        for (i, linea) in texto.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+            if del_hilo >= MAX_POR_CONVERSACION {
+                break;
+            }
+            let Ok(turno) = serde_json::from_str::<crate::maria::relay::Turn>(linea) else {
+                continue;
+            };
+            let Some(fragmento) = fragmento_de(&turno.text, q) else {
+                continue;
+            };
+            del_hilo += 1;
+            resultados.push(Coincidencia {
+                thread_id: id.to_string(),
+                titulo: titulo.clone(),
+                indice_turno: i,
+                rol: turno.role,
+                fragmento,
+                fecha: turno.ts,
+            });
+        }
+    }
+    resultados.sort_by(|a, b| b.fecha.cmp(&a.fecha));
+    let hay_mas = resultados.len() > tope;
+    resultados.truncate(tope);
+    recortados.sort();
+    Busqueda {
+        resultados,
+        hay_mas,
+        recortados,
+    }
+}
+
+/// Busca en el cuerpo de todas las conversaciones de mar.ia.
+#[tauri::command]
+pub async fn maria_threads_buscar(
+    consulta: String,
+    tope: Option<usize>,
+) -> Result<Busqueda, String> {
+    // Leer N ficheros es bloqueante: fuera del hilo async de Tauri.
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = maria_dir()?.join("threads");
+        let titulos: HashMap<String, String> =
+            load_raw().into_iter().map(|t| (t.id, t.title)).collect();
+        Ok(buscar_en(
+            &dir,
+            &titulos,
+            &consulta,
+            tope.unwrap_or(TOPE_RESULTADOS),
+        ))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
 // Comandos Tauri
 // ---------------------------------------------------------------------------
 
@@ -512,6 +696,119 @@ pub async fn maria_thread_delete(thread_id: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Carpeta de hilos de usar y tirar. No toca nada del disco real.
+    fn hilos_de_prueba() -> (tempfile::TempDir, HashMap<String, String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let escribir = |id: &str, turnos: &[(&str, &str, &str)]| {
+            let contenido: String = turnos
+                .iter()
+                .map(|(ts, role, text)| {
+                    format!(
+                        "{}\n",
+                        serde_json::json!({ "ts": ts, "role": role, "text": text })
+                    )
+                })
+                .collect();
+            std::fs::write(dir.path().join(format!("{id}.jsonl")), contenido).expect("escribir");
+        };
+        escribir(
+            "hilo-viejo",
+            &[
+                ("2026-01-05T10:00:00Z", "user", "como configuro el router"),
+                (
+                    "2026-01-05T10:00:05Z",
+                    "assistant",
+                    "entra en la puerta de enlace y cambia el DNS",
+                ),
+            ],
+        );
+        escribir(
+            "hilo-nuevo",
+            &[(
+                "2026-09-20T18:00:00Z",
+                "user",
+                "el router se cuelga cada noche",
+            )],
+        );
+        // Ruido que no debe aparecer en ninguna busqueda de "router".
+        escribir(
+            "hilo-otro",
+            &[("2026-09-21T09:00:00Z", "user", "receta de lentejas")],
+        );
+        std::fs::write(dir.path().join("no-es-un-hilo.txt"), "router router").expect("escribir");
+        let titulos = HashMap::from([("hilo-viejo".to_string(), "Ajustes del router".to_string())]);
+        (dir, titulos)
+    }
+
+    #[test]
+    fn encuentra_una_palabra_del_cuerpo_con_su_turno_y_su_fragmento() {
+        let (dir, titulos) = hilos_de_prueba();
+        let b = buscar_en(dir.path(), &titulos, "DNS", 40);
+        assert_eq!(b.resultados.len(), 1, "solo un turno habla de DNS");
+        let c = &b.resultados[0];
+        assert_eq!(c.thread_id, "hilo-viejo");
+        assert_eq!(c.indice_turno, 1, "es el SEGUNDO turno del hilo");
+        assert_eq!(c.rol, "assistant");
+        assert!(c.fragmento.contains("DNS"), "fragmento: {}", c.fragmento);
+        assert_eq!(c.titulo, "Ajustes del router", "usa el titulo del indice");
+    }
+
+    #[test]
+    fn lo_mas_reciente_sale_primero_y_el_ruido_no_sale() {
+        let (dir, titulos) = hilos_de_prueba();
+        let b = buscar_en(dir.path(), &titulos, "router", 40);
+        let ids: Vec<&str> = b.resultados.iter().map(|c| c.thread_id.as_str()).collect();
+        assert_eq!(ids, vec!["hilo-nuevo", "hilo-viejo"]);
+        assert!(
+            !b.resultados.iter().any(|c| c.thread_id == "hilo-otro"),
+            "las lentejas no hablan de routers"
+        );
+        // Un .txt suelto en la carpeta no es un hilo aunque contenga la palabra.
+        assert!(!b.resultados.iter().any(|c| c.thread_id == "no-es-un-hilo"));
+        // Sin titulo en el indice se cae al id, nunca a una fila en blanco.
+        assert_eq!(b.resultados[0].titulo, "hilo-nuevo");
+    }
+
+    #[test]
+    fn una_consulta_vacia_o_de_una_letra_no_devuelve_el_corpus() {
+        // Caso negativo, y el que justifica el minimo: la caja se dispara en
+        // cada tecla; "r" casaria con todo y leeria todos los hilos para nada.
+        let (dir, titulos) = hilos_de_prueba();
+        for q in ["", "   ", "r"] {
+            let b = buscar_en(dir.path(), &titulos, q, 40);
+            assert!(b.resultados.is_empty(), "«{q}» no deberia devolver nada");
+            assert!(!b.hay_mas);
+        }
+        // Y un tope de cero tampoco devuelve "todo por si acaso".
+        assert!(buscar_en(dir.path(), &titulos, "router", 0)
+            .resultados
+            .is_empty());
+    }
+
+    #[test]
+    fn el_tope_recorta_y_lo_dice() {
+        let (dir, titulos) = hilos_de_prueba();
+        let b = buscar_en(dir.path(), &titulos, "router", 1);
+        assert_eq!(b.resultados.len(), 1);
+        assert!(b.hay_mas, "hay mas coincidencias y hay que decirlo");
+    }
+
+    #[test]
+    fn el_fragmento_no_parte_las_tildes_ni_se_lleva_el_turno_entero() {
+        let largo = format!("{} configuración {}", "x ".repeat(80), "y ".repeat(80));
+        let f = fragmento_de(&largo, "configuración").expect("coincide");
+        assert!(f.starts_with('…') && f.ends_with('…'), "sin cortes: {f}");
+        assert!(f.contains("configuración"));
+        assert!(
+            f.chars().count() < 160,
+            "demasiado largo: {}",
+            f.chars().count()
+        );
+        // Caso negativo: lo que no aparece no devuelve fragmento vacio, devuelve
+        // None, que es lo que hace que ese turno no salga en la lista.
+        assert!(fragmento_de(largo.as_str(), "supabase").is_none());
+    }
 
     #[test]
     fn el_titulo_corto_cabe_en_una_linea() {

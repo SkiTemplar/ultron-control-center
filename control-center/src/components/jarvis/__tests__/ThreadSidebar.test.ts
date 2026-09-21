@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agrupar, filtrar, type ThreadMeta } from "../ThreadSidebar";
+import {
+  agrupar,
+  filtrar,
+  repartir,
+  type Coincidencia,
+  type ThreadMeta,
+} from "../ThreadSidebar";
 
 const AHORA = new Date("2026-09-18T12:00:00Z");
 
@@ -73,6 +79,50 @@ describe("filtrar", () => {
 
   it("devuelve vacío cuando no hay coincidencia", () => {
     expect(filtrar(lista, "supabase")).toEqual([]);
+  });
+});
+
+describe("repartir — los dos bloques de la búsqueda", () => {
+  const hilos = [
+    hilo({ id: "a", title: "router y dns" }),
+    hilo({ id: "b", title: "memoria" }),
+    hilo({ id: "c", title: "sin nombre" }),
+  ];
+  const acierto = (thread_id: string): Coincidencia => ({
+    thread_id,
+    titulo: thread_id,
+    indice_turno: 2,
+    rol: "user",
+    fragmento: "…el router se cuelga…",
+    fecha: "2026-09-20T18:00:00Z",
+  });
+
+  it("separa lo que casa por título de lo que casa por contenido", () => {
+    const { porTitulo, enContenido } = repartir(hilos, "router", [
+      acierto("b"),
+      acierto("c"),
+    ]);
+    expect(porTitulo.map((h) => h.id)).toEqual(["a"]);
+    expect(enContenido.map((c) => c.thread_id)).toEqual(["b", "c"]);
+  });
+
+  it("una conversación que ya sale por título no se repite abajo", () => {
+    // Caso negativo: sin esto, buscar "router" enseñaría el hilo «router y
+    // dns» dos veces y sería imposible saber cuántos hay — el mismo error que
+    // `agrupar` ya evita.
+    const { porTitulo, enContenido } = repartir(hilos, "router", [
+      acierto("a"),
+      acierto("b"),
+    ]);
+    expect(porTitulo.map((h) => h.id)).toEqual(["a"]);
+    expect(enContenido.map((c) => c.thread_id)).toEqual(["b"]);
+  });
+
+  it("sin consulta no hay bloque de contenido aunque lleguen aciertos", () => {
+    // La caja vacía tiene que enseñar la lista de siempre, no un corpus.
+    const { porTitulo, enContenido } = repartir(hilos, "   ", [acierto("b")]);
+    expect(porTitulo).toHaveLength(3);
+    expect(enContenido).toEqual([]);
   });
 });
 

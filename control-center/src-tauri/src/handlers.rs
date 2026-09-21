@@ -220,6 +220,10 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria::relay::maria_relay_state,
         maria::relay::maria_relay_config,
         maria::threads::maria_threads_list,
+        // Buscar DENTRO de las conversaciones. Lo llama la caja «buscar…» de
+        // jarvis/ThreadSidebar.tsx, que hasta el 2026-09-22 solo miraba el
+        // titulo (y el titulo lo pone una IA a posteriori).
+        maria::threads::maria_threads_buscar,
         maria::threads::maria_thread_create,
         maria::threads::maria_thread_pin,
         maria::threads::maria_thread_rename,
