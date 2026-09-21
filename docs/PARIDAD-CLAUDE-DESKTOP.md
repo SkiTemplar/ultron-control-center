@@ -25,7 +25,7 @@ falta está ordenado por lo que más se nota al usarlo.
 
 | Capacidad de Claude Desktop | mar.ia | Nota |
 |---|---|---|
-| Chat con historial, búsqueda, renombrar, fijar, carpetas, borrar | ✅ ya estaba | `ThreadSidebar`, comandos `/titulo`, `/fijar`, `/carpeta`, `/borrar` |
+| Chat con historial, búsqueda, renombrar, fijar, carpetas, borrar | ✅ ya estaba, y la búsqueda mejor | `ThreadSidebar`, comandos `/titulo`, `/fijar`, `/carpeta`, `/borrar`. La caja de buscar mira también DENTRO de las conversaciones (`maria_threads_buscar`) y enseña el fragmento; al pulsarlo abre el hilo en ese turno. Hacía falta porque el título lo pone una IA a posteriori: buscar por lo que uno escribió no encontraba nada |
 | Respuesta en streaming | ✅ **nuevo** | `maria/flujo.rs` + burbuja en vivo |
 | Parar la respuesta | ✅ **nuevo** | Mata el proceso o cierra la conexión; conserva lo escrito |
 | Adjuntar ficheros e imágenes (arrastrar, pegar, elegir) | ✅ **nuevo** | Las CLI reciben rutas; al local se le incrusta el texto. Una imagen nunca se enruta al modelo que no ve |
@@ -43,7 +43,8 @@ falta está ordenado por lo que más se nota al usarlo.
 | Resaltado de sintaxis, LaTeX, Mermaid en el chat | ✅ **nuevo** | Con barra por bloque (lenguaje, abrir, copiar). Mermaid se carga solo cuando aparece un diagrama. Los enlaces ahora se abren en el navegador |
 | Estilos de respuesta | ✅ equivalente | Tonos (Library → Tones) |
 | Exportar conversación | ✅ **nuevo** | Botón «exportar» y `/exportar`: Markdown con quién dijo qué |
-| **Paneles laterales** (cambios, vista previa web, ficheros) | ✅ **nuevo** | A la derecha del chat, con pestañas. Cambios: `git status` + diff coloreado por fichero, se relee cuando un agente termina. Web: vista previa en marco, y ventana propia o navegador para los sitios que no se dejan enmarcar. Ficheros: la carpeta de la conversación; `html`/`svg`/`mmd` se abren como artefacto y `md` con formato |
+| **Paneles laterales** (cambios, vista previa web, ficheros) | ✅ **nuevo** | A la derecha del chat, con pestañas. Cambios: `git status` + diff coloreado por fichero, se relee cuando un agente termina, y desde ahí mismo se prepara, se descarta (con confirmación, y nunca sobre ficheros sin seguir) y se confirma con mensaje. Web: vista previa en marco, y ventana propia o navegador para los sitios que no se dejan enmarcar. Ficheros: la carpeta de la conversación; `html`/`svg`/`mmd` se abren como artefacto y `md` con formato |
+| Paleta de órdenes y atajos del chat | ✅ **nuevo** | `Ctrl+K` en castellano y sin distinguir tildes. Las acciones del chat (nueva, parar, regenerar, exportar, paneles, ramas, delegar) son UNA lista: salen a la vez en la paleta y como atajo (`Alt+N/G/E/C/F/W`, `Escape` para parar), y solo existen con el chat en pantalla. Los paneles se recorren con las flechas sin tocar el ratón |
 | Tareas programadas | ⚠️ parcial | Sistema → Tareas gestiona las de Windows; no hay «pregúntale esto cada mañana» |
 
 ### Lo que mar.ia tiene y Claude Desktop no
@@ -60,11 +61,9 @@ criterio de reparto editable en texto llano.
 2. **Streaming token a token en Codex.** `codex exec --json` entrega mensajes
    enteros, no deltas: se ve qué orden ejecuta, pero el texto llega de golpe.
    Es un límite de su CLI. Antigravity y Claude ya van token a token.
-3. **Preparar, confirmar y deshacer cambios desde el panel.** Hoy Cambios es de
-   solo lectura; el commit sigue en Proyectos → Repo.
-4. **Imágenes en el panel Ficheros.** Se abren con su programa; pintarlas dentro
+3. **Imágenes en el panel Ficheros.** Se abren con su programa; pintarlas dentro
    pide habilitar el protocolo `asset` de Tauri con un alcance acotado.
-5. **Encargos que se hablen en directo.** Hoy se coordinan por el tablero y los
+4. **Encargos que se hablen en directo.** Hoy se coordinan por el tablero y los
    ficheros.
 
 ## Multiagente en paralelo (hecho)
