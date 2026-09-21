@@ -80,6 +80,7 @@ function AppInner() {
     amp: voiceAmp,
     caption: voiceCaption,
     captionParcial: voiceCaptionParcial,
+    mic: voiceMic,
   } = useVoice();
 
   // La voz la arranca el BACKEND al abrir mar.ia (`maria_voice::
@@ -640,6 +641,7 @@ function AppInner() {
               voiceState={voiceState}
               caption={voiceCaption}
               captionParcial={voiceCaptionParcial}
+              mic={voiceMic}
               amp={voiceAmp}
               onNavigate={(t) => setTab(t)}
             />

@@ -53,6 +53,15 @@ const TIMEOUT_PROVEEDOR: Duration = Duration::from_secs(180);
 /// `EnUso` la fuerza al acabar y el vigilante barre lo que se escape.
 const KEEP_ALIVE_TURNO: &str = "0";
 
+/// Tope de tokens de la respuesta del modelo local: NINGUNO (`-1` = hasta
+/// donde llegue la ventana de contexto).
+///
+/// Aqui estaba el truncado que reporto el usuario el 2026-09-21 ("en el chat
+/// local una respuesta larga se corta; Codex las devuelve enteras"): habia un
+/// `num_predict: 600`, unas 450 palabras. No era el modelo ni la interfaz.
+/// Medido tras quitarlo: 8.333 caracteres y terminando la frase.
+const SIN_TOPE_DE_SALIDA: i32 = -1;
+
 /// Un turno del hilo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Turn {
@@ -374,6 +383,73 @@ pub struct Invocacion {
     pub por_stdin: bool,
 }
 
+/// Lo que el usuario pide hacer con el proveedor, dicho con palabras.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IntencionProveedor {
+    /// "respondeme con codex" -> fijar ese proveedor para la conversacion.
+    Fijar(String),
+    /// "ahora respondeme tu" -> volver a que decida el relevo.
+    Soltar,
+}
+
+/// Lee una orden de cambio de proveedor en lenguaje normal. Pura.
+///
+/// Solo reconoce frases que son CLARAMENTE una instruccion sobre quien
+/// responde. Nombrar un proveedor de pasada ("codex me dio un error") no puede
+/// cambiar nada: el usuario lo pidio explicito el 2026-09-21 — "no cambiar de
+/// modelo automaticamente porque el usuario simplemente haya respondido a una
+/// pregunta de aclaracion".
+#[must_use]
+pub fn intencion_de_proveedor(texto: &str, conocidos: &[String]) -> Option<IntencionProveedor> {
+    let t = texto.trim().to_lowercase();
+    if t.is_empty() || t.chars().count() > 120 {
+        // Una instruccion de cambio es corta. En un parrafo largo, el nombre
+        // de un proveedor casi siempre es una mencion, no una orden.
+        return None;
+    }
+
+    // Volver al reparto normal.
+    const SOLTAR: &[&str] = &[
+        "ahora respondeme tu",
+        "ahora respóndeme tú",
+        "respondeme tu",
+        "respóndeme tú",
+        "vuelve a decidir tu",
+        "vuelve a decidir tú",
+        "decide tu",
+        "decide tú",
+        "quita el proveedor",
+        "sin proveedor fijo",
+    ];
+    if SOLTAR.iter().any(|f| t.contains(f)) {
+        return Some(IntencionProveedor::Soltar);
+    }
+
+    // Verbos que convierten una mencion en una orden.
+    const ORDENES: &[&str] = &[
+        "respondeme con",
+        "respóndeme con",
+        "contestame con",
+        "contéstame con",
+        "usa ",
+        "utiliza ",
+        "cambia a ",
+        "pasa a ",
+        "preguntaselo a",
+        "pregúntaselo a",
+        "que responda ",
+        "habla con ",
+    ];
+    if !ORDENES.iter().any(|v| t.contains(v)) {
+        return None;
+    }
+    // Y el proveedor tiene que ser uno de los que existen de verdad.
+    conocidos
+        .iter()
+        .find(|p| t.contains(p.as_str()))
+        .map(|p| IntencionProveedor::Fijar(p.clone()))
+}
+
 fn cli_invocation(provider: &str) -> Option<Invocacion> {
     match provider {
         // `claude -p` lee el prompt de stdin, imprime la respuesta y sale.
@@ -537,7 +613,17 @@ fn run_local(prompt: &str, effort: &str) -> Result<String, (String, bool)> {
         // preguntas sin recargar el modelo dos veces en la misma.
         "keep_alive": KEEP_ALIVE_TURNO,
         "messages": [{ "role": "user", "content": prompt }],
-        "options": { "num_ctx": 8192, "num_predict": 600 },
+        // SIN tope de salida (`-1` = hasta donde llegue el contexto).
+        //
+        // Aqui estaba el truncado que reporto el usuario el 2026-09-21 ("en el
+        // chat local, una respuesta larga se corta; Codex las devuelve
+        // enteras"). No era el modelo ni la interfaz: eran estos 600 tokens,
+        // unas 450 palabras. Codex no pasa por aqui y por eso no se cortaba.
+        //
+        // El limite real pasa a ser la ventana de contexto, que es el limite
+        // honesto: cuando se agota, el modelo para porque no le cabe mas, no
+        // porque se lo hayamos cortado nosotros a mitad de frase.
+        "options": { "num_ctx": 8192, "num_predict": SIN_TOPE_DE_SALIDA },
     });
     let client = reqwest::blocking::Client::builder()
         .timeout(TIMEOUT_PROVEEDOR)
@@ -786,7 +872,37 @@ fn ask_inner(
     // Quien atiende, con que modelo y con cuanto esfuerzo lo decide el modelo
     // local segun la tarea: es gratis y evita gastar una peticion de Opus en
     // algo trivial. Si el usuario lo ha fijado a mano, manda el usuario.
-    let manual = forzado.filter(|f| cfg.order.contains(&f.provider));
+    // Quien responde: por este orden de mando.
+    //   1. lo que el usuario acaba de pedir con palabras en este mensaje
+    //   2. lo que haya fijado la pantalla para este turno (`forzado`)
+    //   3. el proveedor que quedo pegado a la conversacion
+    //   4. el relevo decide
+    match intencion_de_proveedor(prompt, &cfg.order) {
+        Some(IntencionProveedor::Fijar(p)) => {
+            let _ = crate::maria_threads::fijar_provider(thread_id, &p);
+        }
+        Some(IntencionProveedor::Soltar) => {
+            let _ = crate::maria_threads::fijar_provider(thread_id, "");
+        }
+        None => {}
+    }
+    let pegado = crate::maria_threads::provider_de(thread_id);
+    let del_hilo = (!pegado.is_empty() && cfg.order.contains(&pegado)).then(|| {
+        crate::maria_models::Eleccion {
+            provider: pegado.clone(),
+            model: crate::maria_models::modelo_por_defecto(&pegado),
+            effort: "medio".into(),
+        }
+    });
+    let elegido_a_mano = forzado.cloned().or(del_hilo);
+    // Si la pantalla fija uno, ese se pega tambien a la conversacion: un
+    // cambio en el desplegable vale para los mensajes siguientes, no solo
+    // para este.
+    if let Some(f) = forzado {
+        let _ = crate::maria_threads::fijar_provider(thread_id, &f.provider);
+    }
+    let manual = elegido_a_mano.filter(|f| cfg.order.contains(&f.provider));
+    let manual = manual.as_ref();
     // El criterio puede apagar la decision del local (p. ej. con Ollama
     // caido): entonces manda el orden de relevo y no se pierde un segundo
     // preguntando a un modelo que no esta.
@@ -1109,6 +1225,91 @@ mod tests {
         assert_eq!(agy.bin, "agy");
         assert_eq!(agy.despues, vec!["-p".to_string()]);
         assert!(!agy.por_stdin, "agy recibe el prompt como argumento");
+    }
+
+    fn conocidos() -> Vec<String> {
+        vec![
+            "claude".into(),
+            "codex".into(),
+            "antigravity".into(),
+            "local".into(),
+        ]
+    }
+
+    #[test]
+    fn el_modelo_local_no_lleva_tope_de_salida() {
+        // Caso negativo del truncado: cualquier numero positivo aqui vuelve a
+        // cortar las respuestas largas a mitad de frase.
+        assert!(
+            SIN_TOPE_DE_SALIDA < 0,
+            "un tope positivo corta la respuesta: {SIN_TOPE_DE_SALIDA}"
+        );
+    }
+
+    #[test]
+    fn se_entiende_a_quien_se_le_pide_responder() {
+        // Lo que el usuario escribio como ejemplo el 2026-09-21.
+        for frase in [
+            "Respóndeme con Codex",
+            "respondeme con codex",
+            "usa codex",
+            "cambia a codex por favor",
+            "pregúntaselo a codex",
+        ] {
+            assert_eq!(
+                intencion_de_proveedor(frase, &conocidos()),
+                Some(IntencionProveedor::Fijar("codex".into())),
+                "no entendio: {frase}"
+            );
+        }
+    }
+
+    #[test]
+    fn se_entiende_volver_al_reparto_normal() {
+        for frase in ["Ahora respóndeme tú", "ahora respondeme tu", "decide tú"] {
+            assert_eq!(
+                intencion_de_proveedor(frase, &conocidos()),
+                Some(IntencionProveedor::Soltar),
+                "no entendio: {frase}"
+            );
+        }
+    }
+
+    #[test]
+    fn nombrar_un_proveedor_de_pasada_no_cambia_nada() {
+        // EL caso negativo que importa. El usuario fue explicito: "no cambiar
+        // de modelo automaticamente porque el usuario simplemente haya
+        // respondido a una pregunta de aclaracion". Si esto fallara, contar
+        // que codex dio un error te sacaria de la conversacion con codex.
+        for frase in [
+            "codex me dio un error raro",
+            "¿que opinas del modelo local?",
+            "analiza este proyecto",
+            "claude y codex son distintos",
+            "",
+        ] {
+            assert_eq!(
+                intencion_de_proveedor(frase, &conocidos()),
+                None,
+                "cambio con: {frase:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn un_parrafo_largo_no_es_una_orden() {
+        // Una instruccion de cambio es corta. En un texto largo el nombre de
+        // un proveedor es casi siempre una mencion.
+        let largo = format!("usa codex {}", "y ademas analiza todo esto con calma ".repeat(6));
+        assert!(largo.chars().count() > 120);
+        assert_eq!(intencion_de_proveedor(&largo, &conocidos()), None);
+    }
+
+    #[test]
+    fn un_proveedor_que_no_existe_no_se_fija() {
+        // Caso negativo: pedir uno que no esta en la cadena no puede dejar el
+        // hilo apuntando a algo que nadie sabe invocar.
+        assert_eq!(intencion_de_proveedor("usa gemini", &conocidos()), None);
     }
 
     #[test]

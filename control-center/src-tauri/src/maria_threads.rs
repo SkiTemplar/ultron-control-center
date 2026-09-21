@@ -35,6 +35,15 @@ pub struct ThreadMeta {
     pub updated: String,
     #[serde(default)]
     pub pinned: bool,
+    /// Proveedor fijado para esta conversacion. Vacio = decide el relevo.
+    ///
+    /// Vive en el HILO y no en la pantalla a proposito. Antes estaba en el
+    /// estado de React y se perdia al recargar, al abrir otra pestaña o al
+    /// entrar desde el movil: el usuario decia "respondeme con Codex", Codex
+    /// preguntaba "¿que quieres que haga?", y el mensaje siguiente volvia al
+    /// modelo general (reportado el 2026-09-21).
+    #[serde(default)]
+    pub provider: String,
     /// Conversacion cerrada: sigue consultable, pero el chat abre una nueva.
     #[serde(default)]
     pub closed: bool,
@@ -54,6 +63,7 @@ impl ThreadMeta {
             created: ahora.clone(),
             updated: ahora,
             pinned: false,
+            provider: String::new(),
             closed: false,
             turns: 0,
         }
@@ -433,6 +443,34 @@ pub async fn maria_thread_autotitle(thread_id: String) -> Result<String, String>
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Fija (o suelta, con cadena vacia) el proveedor de una conversacion.
+#[tauri::command]
+pub async fn maria_thread_provider(
+    thread_id: String,
+    provider: String,
+) -> Result<String, String> {
+    let limpio = provider.trim().to_string();
+    let valor = limpio.clone();
+    con_ficha(&thread_id, move |m| m.provider = valor)?;
+    Ok(limpio)
+}
+
+/// Fija el proveedor de una conversacion desde dentro de Rust (sincrono).
+pub fn fijar_provider(thread_id: &str, provider: &str) -> Result<(), String> {
+    let valor = provider.trim().to_string();
+    con_ficha(thread_id, move |m| m.provider = valor)
+}
+
+/// El proveedor fijado de una conversacion, si lo tiene.
+#[must_use]
+pub fn provider_de(thread_id: &str) -> String {
+    load_raw()
+        .iter()
+        .find(|t| t.id == thread_id)
+        .map(|t| t.provider.clone())
+        .unwrap_or_default()
 }
 
 #[tauri::command]

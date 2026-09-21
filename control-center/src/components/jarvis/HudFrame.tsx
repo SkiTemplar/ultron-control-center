@@ -111,18 +111,32 @@ export function useVoice(): {
   caption: string;
   /** El subtitulo es lo que Vosk va entendiendo, todavia puede cambiar. */
   captionParcial: boolean;
+  /** El microfono esta abierto (aunque sea solo para la palabra clave). */
+  mic: boolean;
 } {
   const [state, setState] = useState<ReactorState>("offline");
   const [amp, setAmp] = useState(0);
   const [caption, setCaption] = useState("");
   const [captionParcial, setCaptionParcial] = useState(false);
+  const [mic, setMic] = useState(false);
 
   useEffect(() => {
     // Al montar preguntamos si el sidecar vive; luego mandan los eventos.
     void invoke<boolean>("maria_voice_running")
       .then((running) => setState(running ? "idle" : "offline"))
       .catch(() => setState("offline"));
-    const un = listen<{ state?: string; amp?: number; text?: string; parcial?: boolean }>(
+    // Estado inicial del microfono: sin esto el boton arranca en "apagado"
+    // aunque la palabra clave este activa, y el primer clic lo apagaria.
+    void invoke<boolean>("maria_voice_wake_status")
+      .then(setMic)
+      .catch(() => undefined);
+    const un = listen<{
+      state?: string;
+      amp?: number;
+      text?: string;
+      parcial?: boolean;
+      mic?: boolean;
+    }>(
       "maria:voice",
       (e) => {
         const p = e.payload ?? {};
@@ -134,6 +148,7 @@ export function useVoice(): {
         ) {
           setState(p.state);
         }
+        if (typeof p.mic === "boolean") setMic(p.mic);
         if (typeof p.amp === "number") setAmp(Math.max(0, Math.min(1, p.amp)));
         if (typeof p.text === "string") {
           setCaption(p.text.slice(0, 200));
@@ -146,5 +161,5 @@ export function useVoice(): {
     };
   }, []);
 
-  return { state, amp, caption, captionParcial };
+  return { state, amp, caption, captionParcial, mic };
 }

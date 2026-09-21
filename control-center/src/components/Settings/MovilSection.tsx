@@ -160,6 +160,7 @@ export function MovilSection() {
           <span className="hud-label">
             el token se guarda en el navegador del móvil: solo hace falta la primera vez
           </span>
+          <TokenDelMovil token={estado.token} />
         </div>
       )}
 
@@ -342,6 +343,77 @@ function TailscaleDiagnostico() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** El token del móvil, a la vista y sin ambigüedad.
+ *
+ *  El usuario reportó el 2026-09-21 "en móvil aparece token inválido aunque he
+ *  seguido las instrucciones", y pidió saber "exactamente qué token debe
+ *  utilizarse". La causa era esta pantalla: el token viajaba escondido dentro
+ *  de la URL (`…?t=xxxx`) y la app del móvil lo pide en un campo aparte, así
+ *  que había que extraerlo a mano de la query. Copiando la URL entera en ese
+ *  campo, el servidor contesta 401.
+ *
+ *  SOLO HAY UN TOKEN. No hay token de API, ni de emparejamiento, ni de sesión:
+ *  es el mismo que va en la URL y el mismo que espera la cabecera
+ *  `x-maria-token`. Eso se dice aquí para que nadie busque otro.
+ *
+ *  Va enmascarado por defecto: es una credencial con la que se controla el PC. */
+function TokenDelMovil({ token }: { token: string }) {
+  const [visible, setVisible] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+
+  if (!token) return null;
+  const tapado = `${token.slice(0, 4)}${"•".repeat(Math.max(0, token.length - 8))}${token.slice(-4)}`;
+
+  return (
+    <div
+      className="mt-1 flex flex-col gap-1 px-3 py-2"
+      style={{ border: "1px solid var(--color-border)" }}
+    >
+      <span className="hud-label" style={{ color: "var(--color-text)" }}>
+        token para la app del móvil
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <code
+          className="hud-panel px-2 py-1 text-[12px]"
+          style={{
+            color: "var(--color-accent)",
+            fontFamily: "var(--font-mono)",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {visible ? token : tapado}
+        </code>
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="hud-panel px-2 text-[11px]"
+          style={{ minHeight: 28, color: "var(--color-text-secondary)", cursor: "pointer" }}
+        >
+          {visible ? "ocultar" : "ver"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(token)
+              .then(() => setCopiado(true))
+              .catch(() => setCopiado(false));
+          }}
+          className="hud-panel px-2 text-[11px]"
+          style={{ minHeight: 28, color: "var(--color-accent)", cursor: "pointer" }}
+        >
+          {copiado ? "copiado" : "copiar"}
+        </button>
+      </div>
+      <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+        Es el <strong>único</strong> token que hay: el mismo que lleva el enlace de arriba.
+        Pega SOLO esto en el campo «token» de la app — si pegas la dirección entera, el PC
+        responde «token inválido».
+      </span>
     </div>
   );
 }

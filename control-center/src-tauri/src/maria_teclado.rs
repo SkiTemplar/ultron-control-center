@@ -97,6 +97,22 @@ pub fn disparador_actual() -> String {
     d
 }
 
+/// El hook deja de actuar. No se desengancha (vive en el hilo que bombea
+/// mensajes y ese hilo muere con el proceso): lo que se garantiza es que
+/// durante el cierre NO escriba en la ventana de otro programa.
+pub fn parar() {
+    PARADO.store(true, std::sync::atomic::Ordering::SeqCst);
+    tracing::info!("apagado: autocompletado de teclado parado");
+}
+
+/// ¿Esta parado el hook?
+#[must_use]
+pub fn esta_parado() -> bool {
+    PARADO.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+static PARADO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn refrescar_disparador(d: &str) {
     if let Ok(mut g) = DISPARADOR_VIVO.write() {
         *g = Some(d.to_string());
@@ -536,6 +552,12 @@ mod win {
         std::sync::atomic::AtomicBool::new(false);
 
     unsafe extern "system" fn hook(codigo: i32, w: WPARAM, l: LPARAM) -> LRESULT {
+        // Con la aplicacion cerrandose, el hook no toca nada: escribir en la
+        // ventana de otro programa mientras mar.ia se apaga es justo lo que no
+        // puede pasar.
+        if super::esta_parado() {
+            return CallNextHookEx(std::ptr::null_mut(), codigo, w, l);
+        }
         if codigo >= 0 && (w as u32 == WM_KEYDOWN || w as u32 == WM_SYSKEYDOWN) {
             let info = &*(l as *const KBDLLHOOKSTRUCT);
 

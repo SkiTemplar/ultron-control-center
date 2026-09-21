@@ -75,3 +75,53 @@ describe("filtrar", () => {
     expect(filtrar(lista, "supabase")).toEqual([]);
   });
 });
+
+describe("agrupar — la conversación nueva sale arriba", () => {
+  const hilo = (id: string, updated: string, folder = "") =>
+    ({
+      id,
+      title: id,
+      folder,
+      created: updated,
+      updated,
+      pinned: false,
+      closed: false,
+      turns: 1,
+    }) as ThreadMeta;
+
+  it("una conversación nueva sin carpeta va antes que una carpeta vieja", () => {
+    // El fallo reportado el 2026-09-21: los grupos de carpeta se pintaban
+    // siempre antes que los de fecha, así que la recién creada (sin carpeta)
+    // caía debajo de todas las carpetas.
+    const grupos = agrupar(
+      [
+        hilo("nueva", "2026-09-21T12:00:00Z"),
+        hilo("vieja-en-carpeta", "2026-01-05T09:00:00Z", "proyecto"),
+      ],
+      new Date("2026-09-21T12:05:00Z"),
+    );
+    expect(grupos[0].hilos.map((h) => h.id)).toEqual(["nueva"]);
+  });
+
+  it("si la carpeta tiene lo más reciente, la carpeta va primera", () => {
+    // Caso negativo: no es "fecha antes que carpeta", es "lo más reciente
+    // primero". Invertir la regla a ciegas rompería este caso.
+    const grupos = agrupar(
+      [
+        hilo("antiguo", "2026-02-01T10:00:00Z"),
+        hilo("recien-en-carpeta", "2026-09-21T12:00:00Z", "proyecto"),
+      ],
+      new Date("2026-09-21T12:05:00Z"),
+    );
+    expect(grupos[0].titulo).toContain("proyecto");
+  });
+
+  it("las fijadas siguen mandando sobre la recencia", () => {
+    const fijada = { ...hilo("fijada", "2026-01-01T00:00:00Z"), pinned: true };
+    const grupos = agrupar(
+      [fijada, hilo("nueva", "2026-09-21T12:00:00Z")],
+      new Date("2026-09-21T12:05:00Z"),
+    );
+    expect(grupos[0].titulo).toBe("fijadas");
+  });
+});

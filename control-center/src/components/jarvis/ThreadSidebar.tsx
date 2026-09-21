@@ -9,6 +9,8 @@ import { bucketFor } from "../conversations/utils";
 import type { DateBucket } from "../conversations/types";
 
 export type ThreadMeta = {
+  /** Proveedor pegado a esta conversacion. Vacio = decide el relevo. */
+  provider?: string;
   id: string;
   title: string;
   folder: string;
@@ -56,8 +58,19 @@ export function agrupar(hilos: ThreadMeta[], now: Date = new Date()): Grupo[] {
     lista.push(h);
     carpetas.set(carpeta, lista);
   }
-  for (const nombre of [...carpetas.keys()].sort((a, b) => a.localeCompare(b, "es"))) {
-    grupos.push({ titulo: `📁 ${nombre}`, hilos: carpetas.get(nombre) ?? [] });
+  // Los grupos de carpeta y los de fecha compiten por el mismo sitio, asi que
+  // se ordenan TODOS por su conversacion mas reciente. Antes las carpetas iban
+  // siempre delante y una conversacion recien creada (que no tiene carpeta)
+  // aparecia debajo de todas ellas — el usuario lo reporto el 2026-09-21:
+  // "cuando se crea una nueva conversacion aparece abajo cuando deberia
+  // aparecer arriba".
+  //
+  // Las fijadas se quedan las primeras: eso lo ha decidido el usuario a mano y
+  // manda sobre la recencia.
+  const compiten: Grupo[] = [];
+
+  for (const nombre of carpetas.keys()) {
+    compiten.push({ titulo: `📁 ${nombre}`, hilos: carpetas.get(nombre) ?? [] });
   }
 
   const porFecha = new Map<DateBucket, ThreadMeta[]>();
@@ -69,9 +82,21 @@ export function agrupar(hilos: ThreadMeta[], now: Date = new Date()): Grupo[] {
   }
   for (const cubo of ORDEN_FECHA) {
     const lista = porFecha.get(cubo);
-    if (lista && lista.length > 0) grupos.push({ titulo: cubo.toLowerCase(), hilos: lista });
+    if (lista && lista.length > 0) compiten.push({ titulo: cubo.toLowerCase(), hilos: lista });
   }
+
+  compiten.sort((a, b) => masReciente(b).localeCompare(masReciente(a)));
+  grupos.push(...compiten);
   return grupos;
+}
+
+/** Fecha de la conversacion mas reciente del grupo. Cadena vacia si no hay. */
+function masReciente(g: Grupo): string {
+  let max = "";
+  for (const h of g.hilos) {
+    if (h.updated > max) max = h.updated;
+  }
+  return max;
 }
 
 /** Filtra por texto del titulo o de la carpeta. Pura. */

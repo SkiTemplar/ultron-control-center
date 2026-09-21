@@ -63,6 +63,8 @@ mod maria_models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
 mod maria_relay; // mar.ia: relevo de proveedores sobre un unico hilo
 mod maria_threads; // mar.ia: indice de conversaciones (titulo, carpeta, fijado)
 mod maria_term; // mar.ia: terminales embebidas (claude/codex/gemini/powershell)
+mod maria_apagado; // mar.ia: cerrar de verdad (quien para a quien)
+mod maria_arranque; // mar.ia: arrancar con Windows, y por que no arranca
 mod maria_tailscale; // mar.ia: por que la direccion .ts.net da 404
 mod maria_web; // mar.ia: webapp del movil (servidor local + avisos por ntfy)
 mod maria_tools; // mar.ia: ejecucion real de las herramientas que pide la voz
@@ -487,9 +489,10 @@ pub fn run() {
         })
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                // Matar el proxy al cerrar para no dejar :8082 huerfano.
-                // Cubre el caso normal (cierre de ventana principal).
-                let _ = proxy::proxy_stop_inner();
+                // Cierre completo, no solo el proxy: la voz (y su TTS), el
+                // hook de teclado, el servidor del movil, las terminales y lo
+                // que hayamos arrancado nosotros. Ver `maria_apagado`.
+                crate::maria_apagado::apagar();
             }
         })
         .build(tauri::generate_context!())
@@ -501,7 +504,10 @@ pub fn run() {
             // Llamar proxy_stop_inner() es idempotente — si ya fue detenido
             // por on_window_event no hace nada.
             if let tauri::RunEvent::Exit = event {
-                let _ = proxy::proxy_stop_inner();
+                // Idempotente: si ya se apago por `Destroyed`, esto no hace
+                // nada. Cubre Alt+F4 en una ventana secundaria, el Salir de la
+                // bandeja y el `app.exit(0)` de cualquier comando.
+                crate::maria_apagado::apagar();
             }
         });
 }
@@ -581,7 +587,12 @@ fn qdrant_auto_launch() {
     }
 
     tracing::info!("qdrant-autolaunch: not running — attempting launch");
-    let _child = spawn_qdrant_exe();
+    // Lo apuntamos como PROPIO: solo se llega aqui si Qdrant NO estaba
+    // corriendo, asi que este proceso es nuestro y hay que cerrarlo al salir.
+    // Si ya estaba (la rama de arriba), es del usuario y no se toca.
+    if let Some(child) = spawn_qdrant_exe() {
+        crate::maria_apagado::registrar("qdrant", child.id());
+    }
 
     // Give Qdrant time to bind the port before re-probing.
     std::thread::sleep(std::time::Duration::from_secs(4));

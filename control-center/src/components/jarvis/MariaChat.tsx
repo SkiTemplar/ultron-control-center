@@ -15,6 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { BotonMicrofono } from "./BotonMicrofono";
+import { useVoice } from "./HudFrame";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
@@ -85,7 +87,7 @@ type ProviderState = { status: string; detail: string; at: string; answered: num
 const PROVIDER_LABEL: Record<string, string> = {
   claude: "claude",
   codex: "codex",
-  antigravity: "antigravity",
+  antigravity: "antigravity (agy)",
   local: "local",
 };
 
@@ -131,6 +133,8 @@ type Props = {
 };
 
 export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {}) {
+  // Estado de la voz, para el botón de micrófono de abajo.
+  const { state: voiceState, mic } = useVoice();
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [threadId, setThreadId] = useState(hiloInicial ?? "");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -218,6 +222,16 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   useEffect(() => {
     if (threadId) onHilo?.(threadId);
   }, [threadId, onHilo]);
+
+  // El proveedor pegado viaja CON la conversacion, no con la pantalla: al
+  // cambiar de hilo (o al recargar) el desplegable tiene que enseñar el que
+  // esa conversacion tiene fijado. Antes vivia solo en el estado de este
+  // componente y se perdia, que es por lo que el mensaje siguiente volvia al
+  // modelo general (reportado el 2026-09-21).
+  useEffect(() => {
+    const ficha = threads.find((t) => t.id === threadId);
+    setForzado((ficha?.provider || null) as Provider | null);
+  }, [threadId, threads]);
 
   // Turnos de la conversacion activa.
   useEffect(() => {
@@ -764,6 +778,10 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               void send();
             }}
           >
+            {/* Micrófono a la vista, en la parte de abajo del chat: era la
+                única forma de encender o apagar la escucha sin adivinar
+                (pedido el 2026-09-21). */}
+            <BotonMicrofono micOn={mic} voz={voiceState} onError={(m) => avisar(m, "error")} />
             <span className="hud-label">&gt;</span>
             <input
               ref={inputRef}

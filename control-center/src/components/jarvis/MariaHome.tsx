@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Tab } from "../Sidebar";
 import { Reactor, type ReactorState } from "./Reactor";
+import { BotonMicrofono } from "./BotonMicrofono";
 import { FRAG_SRC, ORB_STATE, VERT_SRC } from "../maria/blobShader";
 
 type Gpu = {
@@ -257,15 +258,19 @@ function Row({ k, v, pct }: { k: string; v: string; pct?: number | null }) {
   );
 }
 
+
 export function MariaHome({
   voiceState,
   caption,
   captionParcial = false,
+  mic = false,
   amp,
   onNavigate,
 }: {
   voiceState: ReactorState;
   caption: string;
+  /** El microfono esta abierto. Lo pinta el botón de abajo. */
+  mic?: boolean;
   /** El subtitulo todavia se esta formando (Vosk en vivo), no es definitivo. */
   captionParcial?: boolean;
   amp: number;
@@ -556,6 +561,7 @@ export function MariaHome({
           })();
         }}
       >
+        <BotonMicrofono micOn={mic} voz={voiceState} onError={setCmdError} />
         <span className="hud-label">&gt;</span>
         <input
           value={prompt}

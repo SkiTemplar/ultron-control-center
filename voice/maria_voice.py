@@ -96,7 +96,9 @@ FRAME_MS = 30
 # Silencio que da por terminada la orden. Lo pidio el usuario asi el
 # 2026-09-19: "cuando deje de hablar unos 2 segundos, pare de escucharme y
 # responda". Antes eran 900 ms.
-SILENCE_MS = 2000
+# Configurable sin recompilar: MARIA_SILENCE_MS. El usuario pidio el
+# 2026-09-21 que este valor este en UN solo sitio y sea facil de cambiar.
+SILENCE_MS = int(os.environ.get("MARIA_SILENCE_MS", "2000"))
 # Tope duro: si algo se queda enganchado, no grabamos indefinidamente.
 MAX_UTTERANCE_S = 30
 # Y un tope MUY anterior para cuando no se ha oido ni una palabra. Este es el
@@ -833,8 +835,22 @@ class WakeListener:
             emit("error", message=f"palabra clave desactivada: {exc}")
 
 
-def stdin_reader(commands: "queue.Queue[dict[str, Any]]") -> None:
+# Ordenes que NO se pueden encolar: son señales para una grabacion ya en curso.
+#
+# El bucle principal se queda DENTRO de `handle_utterance` mientras graba, asi
+# que cualquier cosa que pase por la cola espera a que la toma termine. Con
+# `stop` en la cola, soltar ctrl+espacio no cortaba nada: la señal llegaba
+# cuando la grabacion ya se habia cerrado sola. Ese es el "se queda capturando
+# todo lo que digo despues" que reporto el usuario el 2026-09-21.
+SENIALES = {"stop", "cancel"}
+
+
+def stdin_reader(commands: "queue.Queue[dict[str, Any]]", rec: "Recorder") -> None:
     """Lee ordenes del supervisor. Hilo aparte: la escucha bloquea.
+
+    Las SEÑALES (`stop`, `cancel`) se aplican aqui mismo, sobre el Recorder, sin
+    pasar por la cola: son justo las que tienen que llegar mientras el bucle
+    principal esta ocupado grabando.
 
     Cuando stdin se cierra, el padre ha muerto: se manda `shutdown` para que
     el bucle principal salga. Sin esto el sidecar quedaba huerfano esperando
@@ -846,9 +862,19 @@ def stdin_reader(commands: "queue.Queue[dict[str, Any]]") -> None:
         if not line:
             continue
         try:
-            commands.put(json.loads(line))
+            orden = json.loads(line)
         except json.JSONDecodeError:
             emit("error", message=f"orden ilegible: {line[:120]}")
+            continue
+        nombre = orden.get("cmd")
+        if nombre in SENIALES:
+            if nombre == "stop":
+                rec.stop.set()
+            else:
+                rec.cancel.set()
+            log(f"senial {nombre} aplicada al instante")
+            continue
+        commands.put(orden)
     commands.put({"cmd": "shutdown"})
 
 
@@ -964,8 +990,10 @@ def saludo_de_bienvenida() -> str:
 
 def main() -> int:
     commands: "queue.Queue[dict[str, Any]]" = queue.Queue()
-    threading.Thread(target=stdin_reader, args=(commands,), daemon=True).start()
+    # El Recorder se crea ANTES del lector: necesita poder aplicarle las
+    # señales (`stop` / `cancel`) mientras el bucle principal graba.
     rec = Recorder()
+    threading.Thread(target=stdin_reader, args=(commands, rec), daemon=True).start()
     wake = WakeListener(commands)
     emit("state", state="idle")
     log("sidecar de voz listo")
@@ -1002,19 +1030,26 @@ def main() -> int:
             return 0
         if name == "wake_on":
             wake.start()
+            emit("mic", on=True)
             continue
         if name == "wake_off":
+            # Apagar el microfono tiene que soltarlo DE VERDAD: ademas de parar
+            # el detector, se cancela la toma en curso. Que la pantalla diga
+            # "apagado" mientras un hilo sigue capturando audio es justo lo que
+            # el usuario pidio que no pasara (2026-09-21).
             wake.halt()
-            log("palabra clave desactivada")
+            rec.cancel.set()
+            emit("mic", on=False)
+            log("microfono apagado: detector parado y toma cancelada")
             continue
         if name == "ping":
             emit("pong")
             continue
-        if name == "cancel":
-            rec.cancel.set()
-            continue
-        if name == "stop":
-            rec.stop.set()
+        # `stop` y `cancel` los atiende `stdin_reader` en el acto (ver
+        # SENIALES). Si aun asi llegan por aqui, se respetan: cuesta una linea
+        # y evita perder una orden encolada a mano.
+        if name in SENIALES:
+            (rec.stop if name == "stop" else rec.cancel).set()
             continue
         if name == "say":
             # La app ya ejecuto la herramienta y manda el resultado REAL para

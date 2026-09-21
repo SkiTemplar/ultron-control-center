@@ -27,6 +27,20 @@ struct VoiceProc {
 
 static VOICE: Lazy<Mutex<Option<VoiceProc>>> = Lazy::new(|| Mutex::new(None));
 
+/// El sidecar esta en escucha activa AHORA.
+///
+/// Lo mantiene `pump_events` con el estado que publica el propio sidecar, que
+/// es la unica fuente que no puede mentir. Hace falta para que ctrl+espacio
+/// sea un CONMUTADOR: sin saber si ya escucha, la misma tecla no puede
+/// significar "empieza" y "corta".
+static ESCUCHANDO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// ¿Esta el sidecar en escucha activa?
+#[must_use]
+pub fn escuchando() -> bool {
+    ESCUCHANDO.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Raiz del fork (donde vive `voice/`). El repo de mar.ia no esta en
 /// la raiz de mar.ia (ahi vive el ESTADO: memoria, hooks, skills), asi que la ruta
 /// se resuelve por variable de entorno y, si falta, junto al ejecutable.
@@ -85,16 +99,33 @@ fn pump_events(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
             tracing::warn!(line = %trimmed, "linea del sidecar de voz ilegible");
             continue;
         };
+        // Con la aplicacion cerrandose, lo que llegue tarde se tira: ni
+        // eventos a una ventana que ya no esta, ni herramientas que abran
+        // programas despues de cerrar.
+        if crate::maria_apagado::apagando() {
+            continue;
+        }
         let kind = value.get("event").and_then(|v| v.as_str()).unwrap_or("");
         match kind {
             // El orbe solo entiende state/amp/text: se traduce aqui para no
             // atarlo al protocolo del sidecar.
             "state" => {
                 let state = value.get("state").and_then(|v| v.as_str()).unwrap_or("idle");
+                ESCUCHANDO.store(
+                    state == "listening",
+                    std::sync::atomic::Ordering::SeqCst,
+                );
                 let _ = app.emit(
                     "maria:voice",
                     serde_json::json!({ "state": state }),
                 );
+            }
+            // Microfono encendido o apagado. Es un eje aparte del estado: se
+            // puede estar en reposo con el microfono abierto (esperando la
+            // palabra clave) o cerrado del todo.
+            "mic" => {
+                let on = value.get("on").and_then(serde_json::Value::as_bool).unwrap_or(false);
+                let _ = app.emit("maria:voice", serde_json::json!({ "mic": on }));
             }
             "amp" => {
                 let amp = value.get("amp").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
@@ -248,6 +279,10 @@ pub async fn maria_voice_start(app: AppHandle) -> Result<bool, String> {
     let stdin = child.stdin.take().ok_or("el hijo no expone stdin")?;
     let stdout = child.stdout.take().ok_or("el hijo no expone stdout")?;
 
+    // El PID queda apuntado como propio: al cerrar hay que matar su ARBOL,
+    // porque el sidecar lanza PowerShell para sintetizar y ese nieto es el
+    // que seguia hablando con la aplicacion ya cerrada.
+    crate::maria_apagado::registrar("sidecar de voz", child.id());
     *guard = Some(VoiceProc { child, stdin });
     drop(guard);
 
@@ -290,6 +325,39 @@ pub fn wake_enabled() -> bool {
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|s| s.trim() != "0")
         .unwrap_or(true)
+}
+
+/// ¿Esta abierto el microfono (aunque sea solo para la palabra clave)?
+///
+/// Lo pregunta la pantalla al montarse: sin esto el boton de microfono
+/// arrancaria pintado como "apagado" con la palabra clave activa, y el primer
+/// clic la apagaria en vez de encenderla.
+#[tauri::command]
+pub async fn maria_voice_wake_status() -> Result<bool, String> {
+    Ok(wake_enabled())
+}
+
+/// Empieza o corta la escucha activa desde la interfaz.
+///
+/// Es el mismo conmutador que ctrl+espacio, pero con boton: `true` abre la
+/// toma, `false` la cierra y manda lo dicho. Hace falta como comando propio
+/// porque el boton de microfono de la pantalla tiene que poder cortar una
+/// toma en marcha, no solo encender el detector de palabra clave.
+#[tauri::command]
+pub async fn maria_voice_escucha(activar: bool) -> Result<bool, String> {
+    send_line(if activar {
+        r#"{"cmd":"listen"}"#
+    } else {
+        r#"{"cmd":"stop"}"#
+    })?;
+    Ok(activar)
+}
+
+/// ¿Hay escucha activa ahora? Para que la pantalla pinte el boton bien al
+/// montarse, sin esperar al primer evento.
+#[tauri::command]
+pub async fn maria_voice_escuchando() -> Result<bool, String> {
+    Ok(escuchando())
 }
 
 /// Enciende o apaga la escucha por palabra clave, y lo recuerda.
@@ -352,6 +420,34 @@ pub async fn maria_voice_stop() -> Result<bool, String> {
     Ok(true)
 }
 
+/// Para la voz al cerrar la aplicacion: ordenadamente y, si no, a la fuerza.
+///
+/// Diferencia con `maria_voice_stop`: aqui se mata el ARBOL del proceso, no
+/// solo el sidecar. El sidecar lanza `powershell -File hablar.ps1` para
+/// locutar; matando solo al padre, ese nieto se queda huerfano y TERMINA DE
+/// HABLAR con mar.ia ya cerrada. Es el fallo que reporto el usuario el
+/// 2026-09-21.
+pub fn parar_para_apagado() {
+    let Some(mut proc) = VOICE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    else {
+        return;
+    };
+    let pid = proc.child.id();
+    // Primero por las buenas: el sidecar cierra el microfono y sale.
+    let _ = proc.stdin.write_all(b"{\"cmd\":\"shutdown\"}\n");
+    let _ = proc.stdin.flush();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    // Y por las malas, con el arbol entero.
+    crate::maria_apagado::matar_propio(pid);
+    let _ = proc.child.kill();
+    let _ = proc.child.wait();
+    crate::maria_apagado::olvidar(pid);
+    tracing::info!(pid, "apagado: voz parada");
+}
+
 /// ¿Esta vivo el sidecar? Lo consulta el orbe para pintar su estado.
 #[tauri::command]
 pub async fn maria_voice_running() -> Result<bool, String> {
@@ -396,15 +492,29 @@ pub fn handle_ptt(
     if *shortcut != expected {
         return false;
     }
-    let cmd = if pressed {
-        r#"{"cmd":"listen"}"#
-    } else {
+    // CONMUTADOR, no pulsar-para-hablar.
+    //
+    // Antes: pulsar mandaba `listen` y soltar mandaba `stop`. No funcionaba, y
+    // no por el atajo: el `stop` se encolaba y el bucle del sidecar estaba
+    // bloqueado grabando, asi que la señal llegaba cuando la toma ya se habia
+    // cerrado sola. Desde fuera se veia como "pulso ctrl+espacio y se queda
+    // capturando todo lo que digo despues" (2026-09-21).
+    //
+    // Ahora el sidecar atiende `stop` en el acto (ver SENIALES en
+    // maria_voice.py) y la tecla es un interruptor: una pulsacion empieza,
+    // otra corta y manda. Soltar no hace nada.
+    if !pressed {
+        return true;
+    }
+    let cmd = if escuchando() {
         r#"{"cmd":"stop"}"#
+    } else {
+        r#"{"cmd":"listen"}"#
     };
     if let Err(e) = send_line(cmd) {
         // Sin sidecar arrancado no hay nada que escuchar: se deja rastro en
         // vez de tragarselo (mandamiento 11).
-        tracing::warn!(error = %e, pressed, "pulsar-para-hablar sin sidecar");
+        tracing::warn!(error = %e, "pulsar-para-hablar sin sidecar");
     }
     true
 }

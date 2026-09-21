@@ -156,7 +156,9 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             match id {
                 "open" => focus_main_window(app),
                 "quit" => {
-                    crate::pty::kill_all_inner();
+                    // El apagado completo ANTES de `exit`: asi se garantiza
+                    // que la voz deja de sonar aunque Tauri tarde en bajar.
+                    crate::maria_apagado::apagar();
                     app.exit(0);
                 }
                 "liberar_vram" => {

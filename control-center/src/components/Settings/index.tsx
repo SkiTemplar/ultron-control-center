@@ -12,6 +12,7 @@ import { MovilSection } from "./MovilSection";
 import { AccesoProveedores } from "./AccesoProveedores";
 import { CuentasSection } from "./CuentasSection";
 import { TecladoSection } from "./TecladoSection";
+import { ArranqueSection } from "./ArranqueSection";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
@@ -216,6 +217,9 @@ export function Settings(_props: SettingsProps = {}) {
         {section === "general" && (
           <>
             <LifecyclePanel />
+            {/* Arrancar con Windows, con el diagnostico de por que no arranca
+                cuando no lo hace. Va junto al ciclo de vida de la app. */}
+            <ArranqueSection />
             {/* El autocompletado global va aqui, junto al atajo de abrir
                 mar.ia: son las dos cosas que funcionan con la ventana
                 cerrada. */}
