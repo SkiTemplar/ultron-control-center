@@ -21,7 +21,7 @@ import { BotonMicrofono } from "./BotonMicrofono";
 import { BotonCopiar } from "./BotonCopiar";
 import { useHistorialEnviados } from "../../lib/useHistorialEnviados";
 import { useVoice } from "./HudFrame";
-import { Markdown, type ArtefactoRef } from "./Markdown";
+import { Markdown, artefactosDe, type ArtefactoRef } from "./Markdown";
 import { Artefacto } from "./Artefacto";
 import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
 import { HudSelect } from "./HudSelect";
@@ -762,7 +762,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       }}
       style={arrastrando ? { outline: "1px dashed var(--color-accent)", outlineOffset: -4 } : undefined}
     >
-      {!compacto && (
+      {!compacto && !artefacto && (
         <ThreadSidebar
           threads={threads}
           activeId={threadId}
@@ -963,6 +963,23 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                         editar
                       </button>
                     )}
+                    {t.role !== "user" &&
+                      (() => {
+                        // El boton "abrir" del bloque se pierde de vista en una
+                        // respuesta larga: aqui abajo siempre esta a mano.
+                        const arts = artefactosDe(t.text);
+                        const ultimo = arts[arts.length - 1];
+                        return ultimo ? (
+                          <button
+                            type="button"
+                            className="cc-bloque-boton"
+                            title="ver el resultado funcionando en el panel de la derecha"
+                            onClick={() => setArtefacto(ultimo)}
+                          >
+                            abrir {ultimo.tipo}
+                          </button>
+                        ) : null;
+                      })()}
                     {t.role !== "user" && i === turns.length - 1 && !busy && (
                       <button
                         type="button"
