@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { artefactosDe, tipoDeBloque } from "../Markdown";
 import { estadoGlobal } from "../../../lib/status";
+import { normalizaUrl } from "../PanelLateral";
 import type { AlertEntry } from "../../../types";
 
 describe("artefactos del chat", () => {
@@ -67,5 +68,16 @@ describe("estado global", () => {
 
   it("sin avisos, operativo y sin motivo", () => {
     expect(estadoGlobal([], AHORA)).toEqual({ status: "ok", motivo: "", vigentes: 0 });
+  });
+});
+
+describe("panel web", () => {
+  it("completa el esquema y no deja pasar lo que no es web", () => {
+    expect(normalizaUrl(" localhost:5173 ")).toBe("http://localhost:5173");
+    expect(normalizaUrl("ejemplo.com/a")).toBe("https://ejemplo.com/a");
+    expect(normalizaUrl("https://x.test")).toBe("https://x.test");
+    for (const mala of ["file:///C:/x", "javascript:alert(1)", "", "dos palabras"]) {
+      expect(normalizaUrl(mala)).toBeNull();
+    }
   });
 });

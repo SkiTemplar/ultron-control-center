@@ -74,6 +74,11 @@ pub struct Criterio {
     /// con cada peticion.
     #[serde(default = "si")]
     pub compartir_skills: bool,
+    /// El agente que contesta puede repartir trabajo: una linea
+    /// `@delegar <proveedor>: <encargo>` en su respuesta lanza ese encargo en
+    /// paralelo. Hasta cuatro a la vez por conversacion.
+    #[serde(default = "si")]
+    pub reparto_auto: bool,
 }
 
 fn si() -> bool {
@@ -134,6 +139,7 @@ impl Default for Criterio {
             sesion_continua: true,
             claude_mcps: Vec::new(),
             compartir_skills: true,
+            reparto_auto: true,
         }
     }
 }
@@ -209,6 +215,7 @@ pub fn solo_proveedores_validos(c: &Criterio, validos: &[String]) -> Criterio {
         sesion_continua: c.sesion_continua,
         claude_mcps: c.claude_mcps.clone(),
         compartir_skills: c.compartir_skills,
+        reparto_auto: c.reparto_auto,
     }
 }
 

@@ -354,6 +354,12 @@ pre.cc-code {
   line-height: 1.5;
 }
 pre.cc-code code { background: transparent; padding: 0; }
+/* Diff del panel Cambios: verde lo que entra, rojo lo que sale. */
+.cc-diff { font-size: 11.5px; white-space: pre; }
+.cc-diff-mas { background: rgba(61, 220, 132, 0.12); color: #a8f0c2; }
+.cc-diff-menos { background: rgba(255, 77, 94, 0.12); color: #ffb3ba; }
+.cc-diff-tramo { color: var(--color-accent); }
+.cc-diff-cab { color: var(--color-text-tertiary); }
 .cc-mermaid { padding: 0.6rem; overflow-x: auto; }
 .cc-mermaid svg { max-width: 100%; height: auto; }
 .cc-markdown .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2rem 0; }

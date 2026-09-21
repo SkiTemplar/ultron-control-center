@@ -38,6 +38,8 @@ type Criterio = {
   claude_mcps: string[];
   /** Ofrecer el indice de skills a quien no las carga de forma nativa. */
   compartir_skills: boolean;
+  /** El agente que contesta puede lanzar encargos a otros con `@delegar`. */
+  reparto_auto: boolean;
 };
 
 type McpLocal = { nombre: string; command: string; args: string[] };
@@ -269,6 +271,23 @@ export function CriterioPanel() {
                 : ""}
               Claude las carga de forma nativa; a Codex, Antigravity y el local se les ofrece el
               índice de las que encajan con cada petición.
+            </span>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={criterio.reparto_auto}
+            onChange={(e) => void guardar({ ...criterio, reparto_auto: e.target.checked })}
+          />
+          <span>
+            Reparto automático de encargos
+            <span className="block text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              quien contesta puede encargar parte del trabajo a otro proveedor en paralelo (hasta
+              cuatro a la vez por conversación). Lo verás en la tira de encargos y en su respuesta.
+              También puedes lanzarlos tú con /delegar.
             </span>
           </span>
         </label>

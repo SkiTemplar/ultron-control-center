@@ -165,6 +165,17 @@ pub fn indice_skills(prompt: &str) -> String {
     out
 }
 
+/// Como pide un agente que otro haga parte del trabajo (`relay::encargos_en`).
+#[must_use]
+pub fn manual_reparto(proveedores: &[String]) -> String {
+    format!(
+        "- Puedes repartir trabajo: si una parte la puede hacer otro agente EN PARALELO, escribe al \
+         final una linea por encargo, exactamente asi: `@delegar <proveedor>: <encargo completo>`. \
+         Proveedores: {}. Hazlo solo cuando de verdad ahorre tiempo; lo demas, hazlo tu.\n",
+        proveedores.join(", ")
+    )
+}
+
 /// Lo que cualquier agente necesita saber del entorno que comparte con los
 /// demas. Corto a proposito: viaja en el primer mensaje de cada sesion.
 #[must_use]

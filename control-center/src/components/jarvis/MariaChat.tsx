@@ -22,7 +22,9 @@ import { BotonCopiar } from "./BotonCopiar";
 import { useHistorialEnviados } from "../../lib/useHistorialEnviados";
 import { useVoice } from "./HudFrame";
 import { Markdown, artefactosDe, type ArtefactoRef } from "./Markdown";
-import { Artefacto } from "./Artefacto";
+import { PanelLateral, type PanelId } from "./PanelLateral";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ThreadSidebar, type ThreadMeta } from "./ThreadSidebar";
 import { HudSelect } from "./HudSelect";
 import {
@@ -207,7 +209,17 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   /** Lo que el agente esta haciendo AHORA (herramienta, orden). No es respuesta. */
   const [actividad, setActividad] = useState<string | null>(null);
   /** Lo que se ve funcionando en el panel de la derecha. */
-  const [artefacto, setArtefacto] = useState<ArtefactoRef | null>(null);
+  const [artefacto, setArtefactoRaw] = useState<ArtefactoRef | null>(null);
+  /** Pestaña abierta del panel lateral. null = cerrado. */
+  const [panel, setPanel] = useState<PanelId | null>(null);
+  /** Sube cuando un agente termina: cambios y ficheros se releen solos. */
+  const [refresco, setRefresco] = useState(0);
+  /** Proyectos registrados, para el selector de la cabecera. */
+  const [proyectos, setProyectos] = useState<Array<{ name: string; path: string }>>([]);
+  const setArtefacto = useCallback((a: ArtefactoRef | null) => {
+    setArtefactoRaw(a);
+    setPanel((p) => (a ? "artefacto" : p === "artefacto" ? null : p));
+  }, []);
   /** Encargos en paralelo de esta conversacion, y lo ultimo que dice cada uno. */
   const [encargos, setEncargos] = useState<Encargo[]>([]);
   const [vivoEncargo, setVivoEncargo] = useState<Record<string, string>>({});
@@ -282,6 +294,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       if (!en || en.thread_id !== threadIdRef.current) return;
       setEncargos((prev) => [...prev.filter((x) => x.id !== en.id), en]);
       if (en.estado !== "en_curso") {
+        setRefresco((n) => n + 1);
         // El resultado ya esta en el hilo: se relee para que aparezca.
         void invoke<Turn[]>("maria_relay_thread", { threadId: en.thread_id })
           .then((ts) => setTurns(ts ?? []))
@@ -295,9 +308,18 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     };
   }, []);
 
+  useEffect(() => {
+    void invoke<Array<{ name?: string; id: string; path: string }>>("list_projects")
+      .then((l) =>
+        setProyectos((l ?? []).map((p) => ({ name: p.name || p.id, path: p.path }))),
+      )
+      .catch(() => setProyectos([]));
+  }, []);
+
   // Al cambiar de conversacion: sus encargos, y nada de la anterior a la vista.
   useEffect(() => {
     setArtefacto(null);
+    setPanel(null);
     setEditando(null);
     setVivoEncargo({});
     if (!threadId) return;
@@ -548,6 +570,28 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       case "/delegar":
         await delegar(arg);
         return;
+      case "/ramas":
+        await verRamas();
+        return;
+      case "/rama":
+        await volverARama(arg);
+        return;
+      case "/proyecto":
+        await fijarProyecto(arg.trim());
+        return;
+      case "/exportar":
+        await exportar();
+        return;
+      case "/cambios":
+        setPanel("cambios");
+        return;
+      case "/web":
+        if (arg.trim()) localStorage.setItem("maria.panel.web.url", arg.trim());
+        setPanel("web");
+        return;
+      case "/ficheros":
+        setPanel("ficheros");
+        return;
       case "/regenerar":
         await regenerar();
         return;
@@ -646,6 +690,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       setEnVivo(null);
       setActividad(null);
       setBusy(false);
+      setRefresco((n) => n + 1);
     }
   }
 
@@ -667,6 +712,76 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     }
     setTurns(turns.slice(0, i));
     await enviarMensaje(texto);
+  }
+
+  async function fijarProyecto(ruta: string) {
+    try {
+      await invoke("maria_thread_project", { threadId, ruta });
+      await recargarLista();
+      setRefresco((n) => n + 1);
+      avisar(
+        ruta
+          ? `esta conversación trabaja ahora sobre ${ruta}: los agentes arrancan ahí y «cambios» enseña su diff`
+          : "conversación sin proyecto",
+      );
+    } catch (e) {
+      avisar(String(e), "error");
+    }
+  }
+
+  async function exportar() {
+    if (turns.length === 0) {
+      avisar("la conversación está vacía");
+      return;
+    }
+    const titulo = activa?.title || "conversacion";
+    const destino = await saveDialog({
+      title: "Exportar la conversación",
+      defaultPath: `${titulo.replace(/[\\/:*?"<>|]+/g, " ").trim() || "conversacion"}.md`,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    }).catch(() => null);
+    if (!destino) return;
+    try {
+      const ruta = await invoke<string>("maria_relay_exportar", { threadId, titulo, destino });
+      avisar(`exportada a ${ruta}`);
+      void revealItemInDir(ruta).catch(() => undefined);
+    } catch (e) {
+      avisar(String(e), "error");
+    }
+  }
+
+  async function verRamas() {
+    const ramas = await invoke<Array<{ ts: string; desde: number; turnos: Turn[] }>>(
+      "maria_relay_ramas",
+      { threadId },
+    ).catch(() => []);
+    if (ramas.length === 0) {
+      avisar("no hay ramas: aparecen al editar un mensaje o regenerar una respuesta");
+      return;
+    }
+    avisar(
+      ramas
+        .map((r, i) => {
+          const primero = r.turnos[0]?.text.replace(/\s+/g, " ").slice(0, 70) ?? "";
+          return `${i + 1}. ${new Date(r.ts).toLocaleString("es-ES")} · ${r.turnos.length} turnos desde el ${r.desde + 1} · ${primero}`;
+        })
+        .join("\n") + "\n\n/rama <número> para volver a una",
+    );
+  }
+
+  async function volverARama(arg: string) {
+    const n = Number.parseInt(arg, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      avisar("uso: /rama <número> (míralos con /ramas)", "error");
+      return;
+    }
+    try {
+      await invoke("maria_relay_rama_restaurar", { threadId, indice: n - 1 });
+      setTurns((await invoke<Turn[]>("maria_relay_thread", { threadId })) ?? []);
+      avisar("rama restaurada; la que tenías ha quedado guardada como rama");
+    } catch (e) {
+      avisar(String(e), "error");
+    }
   }
 
   async function delegar(arg: string) {
@@ -762,7 +877,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       }}
       style={arrastrando ? { outline: "1px dashed var(--color-accent)", outlineOffset: -4 } : undefined}
     >
-      {!compacto && !artefacto && (
+      {!compacto && !panel && (
         <ThreadSidebar
           threads={threads}
           activeId={threadId}
@@ -786,14 +901,48 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         }
       >
         <header className="mb-3">
-          <h1 className="hud-label" style={{ fontSize: 12 }}>
-            {activa?.title || "chat"} {activa?.closed ? "· cerrada" : ""}
-          </h1>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h1 className="hud-label" style={{ fontSize: 12 }}>
+              {activa?.title || "chat"} {activa?.closed ? "· cerrada" : ""}
+            </h1>
+            {/* Los paneles de la derecha, como en Claude Desktop. */}
+            <div className="flex items-center gap-1.5" role="toolbar" aria-label="paneles">
+              {(["cambios", "web", "ficheros"] as PanelId[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="cc-bloque-boton"
+                  aria-pressed={panel === p}
+                  style={panel === p ? { borderColor: "var(--color-accent)", color: "var(--color-text)" } : undefined}
+                  onClick={() => setPanel(panel === p ? null : p)}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="cc-bloque-boton"
+                title="guardar la conversación en Markdown"
+                onClick={() => void exportar()}
+              >
+                exportar
+              </button>
+            </div>
+          </div>
 
           {/* Quien va a contestar y con que. Los tres selectores en "auto"
               significan que decide mar.ia; en cuanto tocas uno, manda el
               usuario y se dice explicitamente. */}
           <div className="mt-2 flex flex-wrap items-end gap-3 text-[12px]">
+            <HudSelect
+              etiqueta="proyecto"
+              valor={activa?.project ?? ""}
+              vacio="ninguno"
+              ancho={190}
+              titulo="carpeta sobre la que trabajan los agentes; «cambios» enseña su diff"
+              opciones={proyectos.map((p) => ({ id: p.path, label: p.name, hint: p.path }))}
+              onChange={(v) => void fijarProyecto(v)}
+            />
             <HudSelect
               etiqueta="proveedor"
               valor={forzado ?? ""}
@@ -1273,12 +1422,17 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           </form>
         </div>
       </div>
-      {artefacto && (
+      {panel && (
         <div style={{ width: "46%", minWidth: 360, maxWidth: 900 }} className="h-full shrink-0">
-          <Artefacto
+          <PanelLateral
+            panel={panel === "artefacto" && !artefacto ? "cambios" : panel}
+            onPanel={setPanel}
+            onCerrar={() => setPanel(null)}
             artefacto={artefacto}
+            onArtefacto={setArtefacto}
             threadId={threadId}
-            onCerrar={() => setArtefacto(null)}
+            proyecto={activa?.project ?? ""}
+            refresco={refresco}
             onAviso={avisar}
           />
         </div>

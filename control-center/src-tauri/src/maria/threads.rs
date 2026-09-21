@@ -44,6 +44,11 @@ pub struct ThreadMeta {
     /// modelo general (reportado el 2026-09-21).
     #[serde(default)]
     pub provider: String,
+    /// Carpeta del proyecto sobre el que se trabaja en esta conversacion. Vacio
+    /// = ninguna. Con ella, los agentes arrancan AHI (Claude lee su CLAUDE.md,
+    /// Codex su AGENTS.md) y el panel Cambios enseña su `git diff`.
+    #[serde(default)]
+    pub project: String,
     /// Conversacion cerrada: sigue consultable, pero el chat abre una nueva.
     #[serde(default)]
     pub closed: bool,
@@ -64,6 +69,7 @@ impl ThreadMeta {
             updated: ahora,
             pinned: false,
             provider: String::new(),
+            project: String::new(),
             closed: false,
             turns: 0,
         }
@@ -449,6 +455,32 @@ pub async fn maria_thread_autotitle(thread_id: String) -> Result<String, String>
 pub fn fijar_provider(thread_id: &str, provider: &str) -> Result<(), String> {
     let valor = provider.trim().to_string();
     con_ficha(thread_id, move |m| m.provider = valor)
+}
+
+/// La carpeta de proyecto de una conversacion, si la tiene y sigue existiendo.
+#[must_use]
+pub fn project_de(thread_id: &str) -> Option<PathBuf> {
+    load_raw()
+        .iter()
+        .find(|t| t.id == thread_id)
+        .map(|t| PathBuf::from(t.project.trim()))
+        .filter(|p| !p.as_os_str().is_empty() && p.is_dir())
+}
+
+#[tauri::command]
+pub async fn maria_thread_project(thread_id: String, ruta: String) -> Result<String, String> {
+    let ruta = ruta.trim().to_string();
+    if !ruta.is_empty() && !std::path::Path::new(&ruta).is_dir() {
+        return Err(format!("no existe la carpeta {ruta}"));
+    }
+    let valor = ruta.clone();
+    con_ficha(&thread_id, move |m| m.project = valor)?;
+    // La sesion de cada CLI recuerda su carpeta de arranque: al cambiarla se
+    // empieza otra.
+    if let Ok(p) = super::relay::thread_path(&thread_id) {
+        let _ = std::fs::remove_file(p.with_extension("sesiones.json"));
+    }
+    Ok(ruta)
 }
 
 /// El proveedor fijado de una conversacion, si lo tiene.

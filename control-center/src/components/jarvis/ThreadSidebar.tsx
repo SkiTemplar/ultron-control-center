@@ -11,6 +11,8 @@ import type { DateBucket } from "../conversations/types";
 export type ThreadMeta = {
   /** Proveedor pegado a esta conversacion. Vacio = decide el relevo. */
   provider?: string;
+  /** Carpeta del proyecto sobre el que trabaja. Vacio = ninguno. */
+  project?: string;
   id: string;
   title: string;
   folder: string;

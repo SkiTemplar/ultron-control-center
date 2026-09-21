@@ -1,8 +1,9 @@
 // mar.ia — panel de artefactos.
 //
 // Lo que la IA genera para verse: una pagina, un SVG, un diagrama. A la derecha
-// del chat, con dos pestañas (vista / codigo) y tres acciones (copiar, guardar
-// en la carpeta de trabajo de la conversacion, cerrar).
+// del chat, con dos pestañas (vista / codigo) y dos acciones (copiar y guardar
+// en la carpeta de trabajo de la conversacion). Cerrar es cosa del panel que lo
+// contiene (`PanelLateral.tsx`).
 //
 // El HTML y el SVG corren en un `iframe` con `sandbox="allow-scripts"` servido
 // por `maria/artefactos.rs` desde otro origen: pueden ejecutar su JavaScript,
@@ -20,12 +21,10 @@ const EXT: Record<ArtefactoRef["tipo"], string> = { html: "html", svg: "svg", me
 export function Artefacto({
   artefacto,
   threadId,
-  onCerrar,
   onAviso,
 }: {
   artefacto: ArtefactoRef;
   threadId: string;
-  onCerrar: () => void;
   onAviso: (texto: string, tono?: "info" | "error") => void;
 }) {
   const [vista, setVista] = useState<"vista" | "codigo">("vista");
@@ -83,11 +82,7 @@ export function Artefacto({
   );
 
   return (
-    <aside
-      className="flex h-full min-w-0 flex-col border-l"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
-      aria-label="artefacto"
-    >
+    <div className="flex h-full min-w-0 flex-col" aria-label="artefacto">
       <div
         className="flex items-center justify-between gap-2 border-b px-2"
         style={{ borderColor: "var(--color-border)" }}
@@ -101,14 +96,6 @@ export function Artefacto({
           <BotonCopiar texto={artefacto.codigo} />
           <button type="button" className="cc-bloque-boton" onClick={() => void guardar()}>
             guardar
-          </button>
-          <button
-            type="button"
-            className="cc-bloque-boton"
-            onClick={onCerrar}
-            aria-label="cerrar el artefacto"
-          >
-            cerrar
           </button>
         </div>
       </div>
@@ -138,6 +125,6 @@ export function Artefacto({
           <p className="hud-label hud-pulse p-4">preparando la vista…</p>
         )}
       </div>
-    </aside>
+    </div>
   );
 }

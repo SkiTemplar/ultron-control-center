@@ -195,7 +195,7 @@ pub fn argumentos(
         "antigravity" => {
             a.extend(modelo_y_esfuerzo);
             a.push("--output-format".into());
-            a.push("json".into());
+            a.push("stream-json".into());
             if ajustes.acceso_total {
                 a.push("--dangerously-skip-permissions".into());
             }
@@ -314,6 +314,74 @@ pub fn leer_linea_codex(linea: &str) -> EventoCodex {
     }
 }
 
+/// Lo que puede traer una linea del `stream-json` de Antigravity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventoAgy {
+    Sesion(String),
+    Texto(String),
+    Actividad(String),
+    Fin(Result<String, String>),
+    Nada,
+}
+
+/// Formato real de agy (2026-09-21): `init` con la conversacion, `step_update`
+/// con `text_delta` cuando el paso es la respuesta, y `result` al final.
+#[must_use]
+pub fn leer_linea_agy(linea: &str) -> EventoAgy {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(linea) else {
+        return EventoAgy::Nada;
+    };
+    match v.get("event").and_then(|e| e.as_str()) {
+        Some("init") => v
+            .get("conversation_id")
+            .and_then(|c| c.as_str())
+            .map_or(EventoAgy::Nada, |c| EventoAgy::Sesion(c.to_string())),
+        Some("step_update") => {
+            let paso = v
+                .pointer("/step_update/step_type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
+            let delta = v
+                .pointer("/step_update/text_delta")
+                .and_then(|t| t.as_str());
+            match (paso, delta) {
+                ("agent_response", Some(d)) if !d.is_empty() => EventoAgy::Texto(d.to_string()),
+                ("user_input" | "agent_response", _) | ("", _) => EventoAgy::Nada,
+                (otro, _) => {
+                    let activo =
+                        v.pointer("/step_update/state").and_then(|s| s.as_str()) == Some("ACTIVE");
+                    if activo {
+                        EventoAgy::Actividad(otro.replace('_', " "))
+                    } else {
+                        EventoAgy::Nada
+                    }
+                }
+            }
+        }
+        Some("result") => {
+            let texto = v
+                .pointer("/result/response")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let estado = v
+                .pointer("/result/status")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            EventoAgy::Fin(if estado == "SUCCESS" && !texto.is_empty() {
+                Ok(texto)
+            } else {
+                Err(v
+                    .pointer("/result/error")
+                    .and_then(|e| e.as_str())
+                    .map_or_else(|| format!("antigravity: {estado}"), str::to_string))
+            })
+        }
+        _ => EventoAgy::Nada,
+    }
+}
+
 /// El JSON unico con el que acaba Antigravity: respuesta y conversacion.
 pub fn leer_json_agy(todo: &str) -> Result<Respuesta, String> {
     // Puede venir ruido antes del objeto: se busca la ultima linea que parsee.
@@ -344,17 +412,6 @@ pub fn leer_json_agy(todo: &str) -> Result<Respuesta, String> {
             .and_then(|c| c.as_str())
             .map(str::to_string),
     })
-}
-
-/// Parte de `pendiente` que ya es UTF-8 completo; el resto espera al trozo
-/// siguiente (un caracter de varios bytes puede llegar partido).
-pub(crate) fn texto_completo(pendiente: &mut Vec<u8>) -> String {
-    let corte = match std::str::from_utf8(pendiente) {
-        Ok(_) => pendiente.len(),
-        Err(e) => e.valid_up_to(),
-    };
-    let listo: Vec<u8> = pendiente.drain(..corte).collect();
-    String::from_utf8_lossy(&listo).into_owned()
 }
 
 // ---------------------------------------------------------------------------
@@ -462,13 +519,25 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
         match rx.recv_timeout(Duration::from_millis(80)) {
             Ok(trozo) => {
                 pendiente.extend_from_slice(&trozo);
-                if p.provider == "antigravity" {
-                    crudo.push_str(&texto_completo(&mut pendiente));
-                } else {
+                {
                     while let Some(pos) = pendiente.iter().position(|b| *b == b'\n') {
                         let linea: Vec<u8> = pendiente.drain(..=pos).collect();
                         let linea = String::from_utf8_lossy(&linea);
-                        if p.provider == "claude" {
+                        if p.provider == "antigravity" {
+                            crudo.push_str(&linea);
+                            match leer_linea_agy(&linea) {
+                                EventoAgy::Sesion(id) => sesion = Some(id),
+                                EventoAgy::Texto(t) => {
+                                    crate::maria::flujo::trozo(p.clave, p.provider, &t, false);
+                                    texto.push_str(&t);
+                                }
+                                EventoAgy::Actividad(que) => {
+                                    crate::maria::flujo::actividad(p.clave, p.provider, &que);
+                                }
+                                EventoAgy::Fin(r) => cierre = Some(r),
+                                EventoAgy::Nada => {}
+                            }
+                        } else if p.provider == "claude" {
                             if let Some(que) = actividad_claude(&linea) {
                                 crate::maria::flujo::actividad(p.clave, p.provider, &que);
                             }
@@ -530,18 +599,15 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
             Ok(Respuesta { texto: t, sesion })
         };
     }
-    if p.provider == "antigravity" {
-        return match leer_json_agy(&crudo) {
+    if p.provider == "antigravity" && cierre.is_none() && texto.trim().is_empty() {
+        // Una version de agy sin `stream-json` contesta con un solo objeto.
+        match leer_json_agy(&crudo) {
             Ok(r) => {
                 crate::maria::flujo::trozo(p.clave, p.provider, &r.texto, false);
-                Ok(r)
+                return Ok(r);
             }
-            Err(e) => {
-                let motivo = if stderr.is_empty() { e } else { stderr };
-                let cuota = is_quota_error(&motivo);
-                Err((recorta(&motivo, 300), cuota))
-            }
-        };
+            Err(e) => cierre = Some(Err(e)),
+        }
     }
     let salida = match cierre {
         Some(Ok(t)) if !t.is_empty() => t,
@@ -806,6 +872,43 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_en_streaming_da_conversacion_texto_y_cierre() {
+        // Lineas reales de `agy --output-format stream-json` (2026-09-21).
+        assert_eq!(
+            leer_linea_agy(r#"{"event":"init","conversation_id":"a810","init":{"cwd":"C:\\x"}}"#),
+            EventoAgy::Sesion("a810".into())
+        );
+        assert_eq!(
+            leer_linea_agy(
+                r#"{"event":"step_update","step_update":{"step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"1\n2"}}"#
+            ),
+            EventoAgy::Texto("1\n2".into())
+        );
+        assert_eq!(
+            leer_linea_agy(
+                r#"{"event":"step_update","step_update":{"state":"DONE","step_type":"user_input"}}"#
+            ),
+            EventoAgy::Nada
+        );
+        assert_eq!(
+            leer_linea_agy(
+                r#"{"event":"step_update","step_update":{"state":"ACTIVE","step_type":"run_command"}}"#
+            ),
+            EventoAgy::Actividad("run command".into())
+        );
+        assert_eq!(
+            leer_linea_agy(
+                r#"{"event":"result","result":{"status":"SUCCESS","response":"uno\n"}}"#
+            ),
+            EventoAgy::Fin(Ok("uno".into()))
+        );
+        assert!(matches!(
+            leer_linea_agy(r#"{"event":"result","result":{"status":"ERROR","response":""}}"#),
+            EventoAgy::Fin(Err(_))
+        ));
+    }
+
+    #[test]
     fn antigravity_devuelve_respuesta_y_conversacion_o_el_motivo() {
         // Salida real de agy (2026-09-21).
         let ok =
@@ -819,14 +922,5 @@ mod tests {
         );
         assert!(leer_json_agy(r#"{"status":"ERROR","response":""}"#).is_err());
         assert!(leer_json_agy("jetski: no output produced").is_err());
-    }
-
-    #[test]
-    fn un_caracter_partido_entre_trozos_no_se_rompe() {
-        let bytes = "año".as_bytes();
-        let mut pendiente = bytes[..2].to_vec();
-        assert_eq!(texto_completo(&mut pendiente), "a");
-        pendiente.extend_from_slice(&bytes[2..]);
-        assert_eq!(texto_completo(&mut pendiente), "ño");
     }
 }

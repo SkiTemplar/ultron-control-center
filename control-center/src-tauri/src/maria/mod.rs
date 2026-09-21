@@ -20,6 +20,7 @@ pub(crate) mod local;
 pub(crate) mod local_agente; // mar.ia: el modelo local con herramientas // mar.ia: el modelo local disponible, sin ocupar VRAM
 pub(crate) mod login; // mar.ia: como se entra en cada proveedor y si ya se entro
 pub(crate) mod models; // mar.ia: catalogo de modelos y esfuerzo por proveedor
+pub(crate) mod paneles; // mar.ia: ficheros, lectura y ventana web para los paneles del chat
 pub(crate) mod paths; // mar.ia: donde vive todo (.maria, con .ultron heredado)
 pub(crate) mod perfiles; // mar.ia: varias cuentas por proveedor y cambiar entre ellas
 pub(crate) mod quota; // mar.ia: consumo real por ventana movil

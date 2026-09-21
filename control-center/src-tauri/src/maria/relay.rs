@@ -704,6 +704,9 @@ pub fn truncar(thread_id: &str, conservar: usize) -> Result<usize, String> {
         cuerpo.push_str(&serde_json::to_string(t).map_err(|e| format!("serializar turno: {e}"))?);
         cuerpo.push('\n');
     }
+    // Lo que se quita no se pierde: queda como rama, por si el camino nuevo
+    // resulta peor que el viejo.
+    archivar_rama(thread_id, conservar, &turns[conservar..]);
     let tmp = path.with_extension("jsonl.tmp");
     std::fs::write(&tmp, cuerpo).map_err(|e| format!("escribir hilo: {e}"))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("renombrar hilo: {e}"))?;
@@ -711,6 +714,133 @@ pub fn truncar(thread_id: &str, conservar: usize) -> Result<usize, String> {
         let _ = std::fs::remove_file(p);
     }
     Ok(conservar)
+}
+
+// ---------------------------------------------------------------------------
+// Ramas: lo que una edicion dejo atras
+// ---------------------------------------------------------------------------
+
+/// Tramo de conversacion que se aparto al editar o regenerar.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rama {
+    pub ts: String,
+    /// Turno del hilo a partir del cual colgaba.
+    pub desde: usize,
+    pub turnos: Vec<Turn>,
+}
+
+/// Ramas que se guardan por conversacion. Las mas viejas se van.
+const MAX_RAMAS: usize = 12;
+
+fn ramas_path(thread_id: &str) -> Result<PathBuf, String> {
+    Ok(thread_path(thread_id)?.with_extension("ramas.json"))
+}
+
+pub fn cargar_ramas(thread_id: &str) -> Vec<Rama> {
+    ramas_path(thread_id)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn guardar_ramas(thread_id: &str, ramas: &[Rama]) {
+    if let (Ok(p), Ok(t)) = (ramas_path(thread_id), serde_json::to_string_pretty(ramas)) {
+        let _ = std::fs::write(p, t);
+    }
+}
+
+fn archivar_rama(thread_id: &str, desde: usize, turnos: &[Turn]) {
+    if turnos.is_empty() {
+        return;
+    }
+    let mut ramas = cargar_ramas(thread_id);
+    ramas.push(Rama {
+        ts: chrono::Utc::now().to_rfc3339(),
+        desde,
+        turnos: turnos.to_vec(),
+    });
+    let sobran = ramas.len().saturating_sub(MAX_RAMAS);
+    ramas.drain(..sobran);
+    guardar_ramas(thread_id, &ramas);
+}
+
+/// Vuelve a una rama: el hilo se corta donde colgaba (lo que hubiera despues
+/// pasa a ser rama a su vez) y se le cuelga ella.
+pub fn restaurar_rama(thread_id: &str, indice: usize) -> Result<usize, String> {
+    let mut ramas = cargar_ramas(thread_id);
+    if indice >= ramas.len() {
+        return Err("esa rama ya no existe".into());
+    }
+    let rama = ramas.remove(indice);
+    guardar_ramas(thread_id, &ramas);
+    truncar(thread_id, rama.desde)?;
+    for t in &rama.turnos {
+        append_turn(thread_id, t)?;
+    }
+    Ok(rama.desde + rama.turnos.len())
+}
+
+// ---------------------------------------------------------------------------
+// Reparto: el agente que contesta puede encargar trabajo a otros
+// ---------------------------------------------------------------------------
+
+/// Encargos que pide una respuesta, y la respuesta sin esas lineas. Pura.
+///
+/// Solo cuenta una linea que EMPIECE por `@delegar <proveedor>:` con un
+/// proveedor conocido: una mencion en mitad de una frase no lanza nada.
+#[must_use]
+pub fn encargos_en(texto: &str, conocidos: &[String]) -> (String, Vec<(String, String)>) {
+    let mut resto: Vec<&str> = Vec::new();
+    let mut encargos: Vec<(String, String)> = Vec::new();
+    for linea in texto.lines() {
+        let l = linea
+            .trim()
+            .trim_start_matches(['-', '*', ' '])
+            .trim_matches('`');
+        let pedido = l.strip_prefix("@delegar ").and_then(|r| r.split_once(':'));
+        match pedido {
+            Some((prov, que))
+                if conocidos.iter().any(|c| c == prov.trim()) && !que.trim().is_empty() =>
+            {
+                encargos.push((prov.trim().to_string(), que.trim().to_string()));
+            }
+            _ => resto.push(linea),
+        }
+    }
+    (resto.join("\n").trim().to_string(), encargos)
+}
+
+// ---------------------------------------------------------------------------
+// Exportar
+// ---------------------------------------------------------------------------
+
+/// La conversacion en Markdown. Pura.
+#[must_use]
+pub fn como_markdown(titulo: &str, turnos: &[Turn]) -> String {
+    let mut out = format!(
+        "# {}\n\n",
+        if titulo.trim().is_empty() {
+            "Conversación"
+        } else {
+            titulo.trim()
+        }
+    );
+    for t in turnos {
+        let quien = if t.role == "user" {
+            "Tú".to_string()
+        } else if t.model.is_empty() {
+            t.provider.clone()
+        } else {
+            format!("{} ({})", t.provider, t.model)
+        };
+        out.push_str(&format!(
+            "## {quien} — {}\n\n{}\n\n",
+            t.ts.get(..16).unwrap_or(&t.ts).replace('T', " "),
+            t.text.trim()
+        ));
+    }
+    out
 }
 
 /// Proveedor que el modelo local propone para una tarea, validado.
@@ -1035,10 +1165,16 @@ fn ask_inner(
     let decide_local = ajustes.decide_la_local;
     let turnos_antes = turns.len();
     let mut sesiones = cargar_sesiones(thread_id);
-    let trabajo = ajustes
-        .acceso_total
-        .then(|| carpeta_de_trabajo(thread_id).ok())
-        .flatten();
+    // Donde arrancan los agentes: en el proyecto de la conversacion si lo
+    // tiene (Claude lee ahi su CLAUDE.md y Codex su AGENTS.md); si no, y hay
+    // acceso total, en la carpeta de trabajo comun.
+    let proyecto = crate::maria::threads::project_de(thread_id);
+    let trabajo = proyecto.clone().or_else(|| {
+        ajustes
+            .acceso_total
+            .then(|| carpeta_de_trabajo(thread_id).ok())
+            .flatten()
+    });
     let ajustes_cli = super::cli::Ajustes {
         ligero: ajustes.claude_ligero,
         acceso_total: ajustes.acceso_total,
@@ -1115,7 +1251,17 @@ fn ask_inner(
         Some(m) => format!("[memoria relevante]\n{m}\n[mensaje actual]\n{prompt}"),
         None => prompt.to_string(),
     };
-    let manual_agentes = super::capacidades::manual(trabajo.as_deref(), ajustes.acceso_total);
+    let mut manual_agentes = super::capacidades::manual(trabajo.as_deref(), ajustes.acceso_total);
+    if let Some(p) = &proyecto {
+        manual_agentes.push_str(&format!(
+            "- Esta conversacion trabaja sobre el proyecto {}. Lee su CLAUDE.md o AGENTS.md si existe antes de tocar nada.\n",
+            p.display()
+        ));
+    }
+    if ajustes.reparto_auto {
+        manual_agentes.push_str(&super::capacidades::manual_reparto(&cfg.order));
+    }
+    manual_agentes.push('\n');
     let chosen_by_local = if manual.is_some() {
         None
     } else {
@@ -1234,7 +1380,29 @@ fn ask_inner(
         };
         match intento {
             Ok(respuesta) => {
-                let text = respuesta.texto;
+                let (text, pedidos) = if ajustes.reparto_auto {
+                    encargos_en(&respuesta.texto, &cfg.order)
+                } else {
+                    (respuesta.texto.clone(), Vec::new())
+                };
+                let mut text = if text.is_empty() {
+                    respuesta.texto.clone()
+                } else {
+                    text
+                };
+                for (prov, que) in &pedidos {
+                    match super::encargos::lanzar(thread_id, prov, que) {
+                        Ok(e) => text.push_str(&format!(
+                            "\n\n> encargo `{}` lanzado a **{}**: {}",
+                            e.id,
+                            prov,
+                            recorta(que, 160)
+                        )),
+                        Err(motivo) => {
+                            text.push_str(&format!("\n\n> no pude encargar a {prov}: {motivo}"))
+                        }
+                    }
+                }
                 match respuesta.sesion {
                     Some(id) if !id.is_empty() => {
                         sesiones.insert(
@@ -1350,6 +1518,34 @@ pub async fn maria_relay_ask(
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[tauri::command]
+pub async fn maria_relay_ramas(thread_id: String) -> Result<Vec<Rama>, String> {
+    Ok(cargar_ramas(&thread_id))
+}
+
+#[tauri::command]
+pub async fn maria_relay_rama_restaurar(thread_id: String, indice: usize) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || restaurar_rama(&thread_id, indice))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Escribe la conversacion en Markdown en `destino` (lo elige el usuario).
+#[tauri::command]
+pub async fn maria_relay_exportar(
+    thread_id: String,
+    titulo: String,
+    destino: String,
+) -> Result<String, String> {
+    let turnos = read_thread(&thread_id)?;
+    if turnos.is_empty() {
+        return Err("la conversación está vacía".into());
+    }
+    std::fs::write(&destino, como_markdown(&titulo, &turnos))
+        .map_err(|e| format!("no pude escribir {destino}: {e}"))?;
+    Ok(destino)
 }
 
 #[tauri::command]
@@ -1821,5 +2017,56 @@ mod tests {
                 let _ = std::fs::remove_dir_all(pth.with_extension("trabajo"));
             }
         }
+    }
+
+    #[test]
+    fn solo_una_linea_que_empieza_por_delegar_lanza_un_encargo() {
+        let conocidos: Vec<String> = ["claude", "codex", "local"]
+            .iter()
+            .map(|s| (*s).into())
+            .collect();
+        let texto = "Hago yo el capitulo 1.\n@delegar codex: redacta el capitulo 2 en cap2.md\n- `@delegar local: resume las fuentes`\nFin.";
+        let (resto, e) = encargos_en(texto, &conocidos);
+        assert_eq!(e.len(), 2);
+        assert_eq!(
+            e[0],
+            (
+                "codex".to_string(),
+                "redacta el capitulo 2 en cap2.md".to_string()
+            )
+        );
+        assert_eq!(e[1].0, "local");
+        assert!(!resto.contains("@delegar"));
+        assert!(resto.starts_with("Hago yo") && resto.ends_with("Fin."));
+        // Ni una mencion en mitad de frase, ni un proveedor inventado, ni un encargo vacio.
+        let (r2, e2) = encargos_en(
+            "puedes usar @delegar codex: x si quieres\n@delegar skynet: domina el mundo\n@delegar codex:   ",
+            &conocidos,
+        );
+        assert!(e2.is_empty());
+        assert!(r2.contains("skynet"));
+    }
+
+    #[test]
+    fn la_conversacion_exportada_dice_quien_dijo_que() {
+        let t = |role: &str, provider: &str, model: &str, text: &str| Turn {
+            ts: "2026-09-21T18:57:03Z".into(),
+            role: role.into(),
+            provider: provider.into(),
+            model: model.into(),
+            effort: String::new(),
+            text: text.into(),
+        };
+        let md = como_markdown(
+            "Cachés",
+            &[
+                t("user", "", "", "hola"),
+                t("assistant", "codex", "gpt", "buenas"),
+            ],
+        );
+        assert!(md.starts_with("# Cachés\n"));
+        assert!(md.contains("## Tú — 2026-09-21 18:57\n\nhola"));
+        assert!(md.contains("## codex (gpt) — "));
+        assert!(como_markdown("  ", &[]).starts_with("# Conversación"));
     }
 }
