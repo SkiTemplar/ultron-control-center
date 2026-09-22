@@ -9,7 +9,7 @@
  * excepcion. Un hook no.
  *
  * REGLAS
- *   agente-fantasma  (Agent)  DENY  subagent_type que no existe en disco.
+ *   agente-fantasma  (Agent)  ASK   subagent_type que no aparece en el catalogo.
  *   force-push       (Bash)   ASK   push forzado (rescribe historia publicada).
  *   uv               (Bash)   DENY  pip install / python suelto sin `uv run`.   [apagada]
  *   commit-format    (Bash)   DENY  git commit sin prefijo convencional.        [apagada]
@@ -19,20 +19,34 @@
  * hook en la plantilla): las tres son heuristicas sobre TEXTO DE SHELL, y un
  * DENY es un bloqueo sin apelacion. Un falso positivo no avisa: para el
  * trabajo en seco y obliga a reescribir el comando a ciegas. Las dos que se
- * quedan activas no tienen esa forma — agente-fantasma comprueba pertenencia a
- * un catalogo de disco (o falla abierto) y force-push solo PREGUNTA. Para
- * encenderlas: ULTRON_GUARDRAILS_BASH=1 en el entorno de la sesion.
+ * quedan activas no tienen esa forma — las dos PREGUNTAN. Para encenderlas:
+ * ULTRON_GUARDRAILS_BASH=1 en el entorno de la sesion.
  *
- * POR QUE agente-fantasma BLOQUEA Y NO AVISA: un `subagent_type` inexistente
- * no da error — Claude Code lo ignora en silencio y la delegacion se pierde
- * entera. Fue un KIRKARDO CRITICAL (sprint 2026-05-27) causado por una tabla
- * de agentes stale, y la unica senal era que el trabajo no aparecia.
+ * POR QUE agente-fantasma AVISA Y NO BLOQUEA (2026-09-22): un `subagent_type`
+ * inexistente no da error — Claude Code lo ignora en silencio y la delegacion
+ * se pierde entera (KIRKARDO CRITICAL del sprint 2026-05-27, causado por una
+ * tabla de agentes stale), asi que la comprobacion vale la pena. Pero nacio con
+ * DENY y con UN SOLO arbol de plugins (`plugins/cache/...`), que en Claude Code
+ * 2.1.278 no existe: el resultado medido en esta maquina era que TODOS los
+ * agentes de plugin —`pr-review-toolkit:silent-failure-hunter`,
+ * `brand-voice:discover-brand`— se bloqueaban sin apelacion. El catalogo ya
+ * recorre los arboles reales (abajo), pero sigue siendo una lista de ficheros:
+ * un agente que venga por un camino que no conocemos volveria a ser un falso
+ * positivo, y un ASK avisa igual de bien sin poder parar una delegacion
+ * legitima. Esa es la misma razon por la que se apagaron las tres DENY de Bash.
+ *
+ * DONDE VIVEN LOS AGENTES DE PLUGIN (comprobado en esta maquina, 2026-09-22):
+ *   ~/.claude/plugins/marketplaces/<mercado>/plugins/<plugin>/agents/*.md
+ *   ~/.claude/plugins/synced/<id>/<plugin>/agents/*.md
+ *   ~/.claude/plugins/cache/<mercado>/<plugin>/<version>/agents/*.md  [heredado]
+ * El nombre de la CARPETA del plugin no siempre es el prefijo invocable
+ * (`customer-support~g2/` declara `"name": "customer-support"`), asi que se
+ * aceptan los dos.
  *
  * FAIL-OPEN DELIBERADO EN EL CATALOGO DE AGENTES: si las fuentes de disco dan
  * menos de MIN_CATALOGO nombres es que no supimos leerlas (plugins movidos,
- * permisos, otra maquina), no que el usuario tenga tres agentes. Bloquear con
- * un catalogo incompleto convertiria este hook en el fallo que pretende
- * evitar, asi que en ese caso deja pasar todo.
+ * permisos, otra maquina), no que el usuario tenga tres agentes. Avisar con un
+ * catalogo incompleto seria puro ruido, asi que en ese caso deja pasar todo.
  *
  * Contrato: PreToolUse -> {hookSpecificOutput:{permissionDecision}}. Cualquier
  * error interno sale por exit 0 sin decision: un guardrail roto no puede
@@ -89,49 +103,104 @@ function ficherosMd(dir) {
   }
 }
 
+/** Subcarpetas de `dir` (lista vacia si no existe o no se deja leer). */
+function subcarpetas(dir) {
+  try {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      // Las junctions de Windows no son isDirectory(), y ~/.claude/plugins usa
+      // enlaces de directorio: sin isSymbolicLink() se perderian arboles enteros.
+      .filter((e) => e.isDirectory() || e.isSymbolicLink())
+      .map((e) => e.name);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Prefijos con los que se puede invocar un agente de este plugin. El prefijo
+ * que usa Claude Code es el NOMBRE del plugin, que no siempre es el de su
+ * carpeta: en esta maquina `synced/<id>/customer-support~g2/` declara
+ * `"name": "customer-support"`. Se aceptan los dos — es gratis y evita avisar
+ * por un sufijo de carpeta.
+ */
+function prefijosDePlugin(dirPlugin, nombreCarpeta) {
+  const out = new Set([nombreCarpeta]);
+  try {
+    const raw = fs.readFileSync(path.join(dirPlugin, '.claude-plugin', 'plugin.json'), 'utf8');
+    const nombre = JSON.parse(raw).name;
+    if (typeof nombre === 'string' && nombre.trim()) out.add(nombre.trim());
+  } catch (_) {
+    /* sin manifiesto legible: vale el nombre de la carpeta */
+  }
+  return out;
+}
+
+/**
+ * Anade a `out` los agentes de `<dirPlugin>/agents`, con prefijo y sin el
+ * (ambas formas aparecen en la lista que se le inyecta al modelo).
+ */
+function agentesDePlugin(out, dirPlugin, nombreCarpeta) {
+  const ficheros = ficherosMd(path.join(dirPlugin, 'agents'));
+  if (ficheros.length === 0) return;
+  const prefijos = prefijosDePlugin(dirPlugin, nombreCarpeta);
+  for (const f of ficheros) {
+    const base = f.replace(/\.md$/, '');
+    out.add(base);
+    for (const p of prefijos) out.add(`${p}:${base}`);
+  }
+}
+
 /**
  * Nombres invocables como `subagent_type`, reunidos de todas las fuentes que
- * Claude Code lee: agentes de usuario, agentes de plugin (con y sin prefijo
- * `plugin:`, porque ambos aparecen en la lista inyectada) y los del harness.
+ * Claude Code lee: los del harness, los del usuario, los del repo abierto y los
+ * de plugin en sus TRES layouts (ver cabecera). Hasta el 2026-09-22 solo se
+ * miraba `plugins/cache`, que en 2.1.278 ya no se crea: el catalogo salia sin
+ * un solo agente de plugin y la regla los marcaba todos como inexistentes.
  *
  * @returns {Set<string>}
  */
 function agentesValidos() {
   const out = new Set(AGENTES_BUILTIN);
-  for (const f of ficherosMd(path.join(HOME, '.claude', 'agents'))) {
-    out.add(f.replace(/\.md$/, ''));
+
+  // Agentes sueltos: los del usuario y los del repo que se tiene abierto
+  // (<cwd>/.claude/agents, que Claude Code tambien carga y aqui faltaban).
+  for (const dir of [
+    path.join(HOME, '.claude', 'agents'),
+    path.join(process.cwd(), '.claude', 'agents'),
+  ]) {
+    for (const f of ficherosMd(dir)) out.add(f.replace(/\.md$/, ''));
   }
-  // ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/agents/*.md
-  const cache = path.join(HOME, '.claude', 'plugins', 'cache');
-  let mercados = [];
-  try {
-    mercados = fs.readdirSync(cache);
-  } catch (_) {
-    mercados = [];
-  }
-  for (const m of mercados) {
-    let plugins = [];
-    try {
-      plugins = fs.readdirSync(path.join(cache, m));
-    } catch (_) {
-      continue;
-    }
-    for (const p of plugins) {
-      let versiones = [];
-      try {
-        versiones = fs.readdirSync(path.join(cache, m, p));
-      } catch (_) {
-        continue;
-      }
-      for (const v of versiones) {
-        for (const f of ficherosMd(path.join(cache, m, p, v, 'agents'))) {
-          const base = f.replace(/\.md$/, '');
-          out.add(`${p}:${base}`);
-          out.add(base);
-        }
-      }
+
+  const raizPlugins = path.join(HOME, '.claude', 'plugins');
+
+  // marketplaces/<mercado>/{plugins,external_plugins}/<plugin>/agents
+  const marketplaces = path.join(raizPlugins, 'marketplaces');
+  for (const mercado of subcarpetas(marketplaces)) {
+    for (const grupo of ['plugins', 'external_plugins']) {
+      const raiz = path.join(marketplaces, mercado, grupo);
+      for (const p of subcarpetas(raiz)) agentesDePlugin(out, path.join(raiz, p), p);
     }
   }
+
+  // synced/<id>/<plugin>/agents
+  const synced = path.join(raizPlugins, 'synced');
+  for (const id of subcarpetas(synced)) {
+    const raiz = path.join(synced, id);
+    for (const p of subcarpetas(raiz)) agentesDePlugin(out, path.join(raiz, p), p);
+  }
+
+  // cache/<mercado>/<plugin>/<version>/agents — layout heredado, se mantiene
+  // por si una instalacion vieja todavia lo tiene.
+  const cache = path.join(raizPlugins, 'cache');
+  for (const mercado of subcarpetas(cache)) {
+    for (const p of subcarpetas(path.join(cache, mercado))) {
+      for (const v of subcarpetas(path.join(cache, mercado, p))) {
+        agentesDePlugin(out, path.join(cache, mercado, p, v), p);
+      }
+    }
+  }
+
   return out;
 }
 
@@ -305,11 +374,15 @@ function classify(toolName, toolInput) {
       if (catalogo.size >= MIN_CATALOGO && !catalogo.has(tipo.trim())) {
         const cerca = parecidos(tipo.trim(), catalogo, 3);
         return {
-          decision: 'deny',
+          // ASK, no DENY: el catalogo es una lista de ficheros y siempre puede
+          // quedarse corta (ver cabecera). Preguntar avisa igual y no puede
+          // parar una delegacion legitima.
+          decision: 'ask',
           regla: 'agente-fantasma',
           reason:
-            `subagent_type "${tipo}" no existe en disco. Un tipo inexistente no ` +
-            `da error: la delegacion se pierde en silencio.` +
+            `subagent_type "${tipo}" no aparece en el catalogo de agentes de este ` +
+            `disco. Un tipo inexistente no da error: la delegacion se pierde en ` +
+            `silencio. Si el agente existe de verdad, sigue adelante.` +
             (cerca.length ? ` Cercanos: ${cerca.join(', ')}.` : ''),
         };
       }

@@ -11,9 +11,17 @@
  * que en un runner limpio fallaba por ENTORNO y no por regresion — y en la
  * maquina del mantenedor fallaba igual en cuanto un plugin no estaba instalado
  * ("superpowers:code-reviewer"). Ahora se monta un HOME de pruebas con 24
- * agentes y un plugin de mentira, se apunta USERPROFILE/HOME ahi ANTES de
+ * agentes y plugins de mentira, se apunta USERPROFILE/HOME ahi ANTES de
  * cargar el hook (el modulo resuelve os.homedir() al cargarse) y el catalogo
  * es siempre el mismo en cualquier maquina.
+ *
+ * LA FIXTURE MONTA LOS TRES LAYOUTS (2026-09-22). Hasta hoy montaba UNO solo,
+ * `plugins/cache/<mercado>/<plugin>/<version>/agents`, que es justo el que
+ * Claude Code 2.1.278 NO crea: el test validaba la suposicion del codigo contra
+ * si misma y salia verde mientras en la maquina real se bloqueaban todos los
+ * agentes de plugin. Ahora hay un caso positivo por arbol —marketplaces,
+ * synced y cache— y uno mas para el plugin cuya carpeta no se llama como el
+ * plugin (`customer-support~g2/` con `"name": "customer-support"`).
  */
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,10 +43,28 @@ const AGENTES = [
 ];
 for (const a of AGENTES) writeFileSync(join(AGENTS, `${a}.md`), `# ${a}\n`);
 writeFileSync(join(AGENTS, 'README.md'), 'no es un agente\n');
-// Agente de plugin: ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/agents/*.md
-const PLUGIN = join(HOME, '.claude', 'plugins', 'cache', 'mercado', 'superpowers', '1.0.0', 'agents');
-mkdirSync(PLUGIN, { recursive: true });
-writeFileSync(join(PLUGIN, 'code-reviewer.md'), '# code-reviewer\n');
+// --- agentes de plugin: los TRES arboles, con un positivo por cada uno -------
+const PLUGINS = join(HOME, '.claude', 'plugins');
+/** Deja un agente (y, si se pide, un plugin.json) en `<dirPlugin>/agents`. */
+function plugin(dirPlugin, agente, nombreDeclarado) {
+  mkdirSync(join(dirPlugin, 'agents'), { recursive: true });
+  writeFileSync(join(dirPlugin, 'agents', `${agente}.md`), `# ${agente}\n`);
+  if (nombreDeclarado) {
+    mkdirSync(join(dirPlugin, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(dirPlugin, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: nombreDeclarado, version: '1.0.0' }),
+    );
+  }
+}
+// (1) layout de marketplace, el que usa Claude Code 2.1.278.
+plugin(join(PLUGINS, 'marketplaces', 'mercado', 'plugins', 'superpowers'), 'code-reviewer');
+// (2) layout sincronizado (plugins de la cuenta).
+plugin(join(PLUGINS, 'synced', 'id-de-cuenta', 'brand-voice'), 'discover');
+// (3) carpeta con sufijo: el prefijo invocable es el `name` del manifiesto.
+plugin(join(PLUGINS, 'synced', 'id-de-cuenta', 'customer-support~g2'), 'triage', 'customer-support');
+// (4) cache: layout HEREDADO, se conserva solo por compatibilidad hacia atras.
+plugin(join(PLUGINS, 'cache', 'mercado', 'heredado', '1.0.0'), 'agente-heredado');
 
 process.env.USERPROFILE = HOME;
 process.env.HOME = HOME;
@@ -69,11 +95,40 @@ const bash = (command) => decision('Bash', { command });
 const catalogo = g.agentesValidos();
 comprueba('el catalogo de agentes se lee del disco', catalogo.size >= 20, true);
 comprueba('agente real pasa', decision('Agent', { subagent_type: 'code-reviewer' }), 'pasa');
-comprueba('agente de plugin con prefijo pasa',
+// Un positivo por arbol de plugins. Con el codigo anterior (solo `cache`) los
+// tres primeros salian bloqueados: es el fallo que se vio en la maquina real.
+comprueba('[marketplaces] agente de plugin con prefijo pasa',
   decision('Agent', { subagent_type: 'superpowers:code-reviewer' }), 'pasa');
-comprueba('agente inventado se bloquea',
-  decision('Agent', { subagent_type: 'plan-document-reviewer' }), 'deny/agente-fantasma');
+comprueba('[synced] agente de plugin sincronizado pasa',
+  decision('Agent', { subagent_type: 'brand-voice:discover' }), 'pasa');
+comprueba('[synced] el prefijo es el name del manifiesto, no la carpeta',
+  decision('Agent', { subagent_type: 'customer-support:triage' }), 'pasa');
+comprueba('[cache, heredado] agente de plugin viejo sigue pasando',
+  decision('Agent', { subagent_type: 'heredado:agente-heredado' }), 'pasa');
+comprueba('agente de plugin sin prefijo pasa',
+  decision('Agent', { subagent_type: 'discover' }), 'pasa');
+// Los tipos que sirve el propio harness no tienen fichero en disco: si no
+// estuvieran en la lista, delegar en ellos preguntaria en cada turno.
+for (const builtin of ['general-purpose', 'Explore', 'Plan']) {
+  comprueba(`tipo integrado del harness pasa (${builtin})`,
+    decision('Agent', { subagent_type: builtin }), 'pasa');
+}
+comprueba('agente inventado PREGUNTA (no bloquea)',
+  decision('Agent', { subagent_type: 'plan-document-reviewer' }), 'ask/agente-fantasma');
 comprueba('Agent sin subagent_type pasa', decision('Agent', {}), 'pasa');
+
+// Agentes del repo abierto (<cwd>/.claude/agents): Claude Code los carga y el
+// catalogo no los miraba, asi que un agente propio del proyecto era fantasma.
+const CWD_ORIGINAL = process.cwd();
+const PROYECTO = mkdtempSync(join(tmpdir(), 'guardrails-pre-proy-'));
+mkdirSync(join(PROYECTO, '.claude', 'agents'), { recursive: true });
+writeFileSync(join(PROYECTO, '.claude', 'agents', 'agente-del-repo.md'), '# agente-del-repo\n');
+process.chdir(PROYECTO);
+comprueba('agente del repo abierto pasa',
+  decision('Agent', { subagent_type: 'agente-del-repo' }), 'pasa');
+process.chdir(CWD_ORIGINAL);
+comprueba('fuera de ese repo, su agente ya no esta en el catalogo',
+  g.agentesValidos().has('agente-del-repo'), false);
 
 // --- force-push: ASK, siempre activo -----------------------------------------
 comprueba('push normal pasa', bash('git push -u origin main'), 'pasa');
@@ -152,10 +207,12 @@ const salida = JSON.parse(g.handle(JSON.stringify({
 comprueba('la salida trae permissionDecision',
   salida.hookSpecificOutput.permissionDecision, 'deny');
 
-try {
-  rmSync(HOME, { recursive: true, force: true });
-} catch (_) {
-  /* limpieza best-effort */
+for (const dir of [HOME, PROYECTO]) {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch (_) {
+    /* limpieza best-effort */
+  }
 }
 
 console.log(fallos ? `\n${fallos} FALLOS` : '\nTodo verde');
