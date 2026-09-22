@@ -31,6 +31,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }));
 
 import { MariaChat } from "../MariaChat";
+import { useAccionesChat } from "../../../lib/accionesChat";
 
 const HILO = {
   id: "hilo-1",
@@ -269,5 +270,101 @@ describe("/deshacer y /puntos", () => {
     expect(
       await screen.findByText(/no tiene puntos de control/),
     ).toBeTruthy();
+  });
+});
+
+/**
+ * El atajo tal y como lo dispara App.tsx: por la lista que MariaChat publica
+ * (`lib/accionesChat`), NO por la caja de texto. Ese es justo el camino que se
+ * saltaba la guarda de `busy` — la caja y el botón de cada turno ya estaban
+ * condicionados a `!busy`, el atajo y la paleta no (2026-09-22).
+ */
+function Manos() {
+  const deshacer = useAccionesChat().find((a) => a.id === "chat.deshacer");
+  return (
+    <button type="button" data-testid="atajo" onClick={() => deshacer?.run()}>
+      {deshacer ? "atajo listo" : "sin atajo"}
+    </button>
+  );
+}
+
+/** El chat de verdad (sin `compacto`: solo esa pantalla publica acciones) con
+ *  el atajo al lado, y `maria_relay_ask` colgado para siempre para poder
+ *  mirar la pantalla CON un turno en curso. */
+function montarConAtajo() {
+  vi.mocked(invoke).mockImplementation(async (cmd) => {
+    if (cmd === "maria_threads_list") return [HILO];
+    if (cmd === "maria_relay_thread") return TURNOS;
+    if (cmd === "maria_encargos") return [];
+    if (cmd === "maria_punto_volver") return RESTAURADO;
+    if (cmd === "maria_relay_config") return { order: ["claude"], disabled: [] };
+    if (cmd === "maria_relay_ask") return new Promise<never>(() => {});
+    return null;
+  });
+  return render(
+    <>
+      <MariaChat hiloInicial="hilo-1" />
+      <Manos />
+    </>,
+  );
+}
+
+describe("deshacer con una respuesta en curso", () => {
+  /** Escribe y envía por la caja del chat. */
+  function enviar(texto: string) {
+    const caja = screen.getByLabelText("mensaje") as HTMLInputElement;
+    fireEvent.change(caja, { target: { value: texto } });
+    fireEvent.submit(caja.closest("form") as HTMLFormElement);
+  }
+
+  /** Espera a que el chat haya publicado sus acciones. */
+  async function conAtajoListo() {
+    montarConAtajo();
+    await waitFor(() => expect(screen.getByTestId("atajo").textContent).toBe("atajo listo"));
+  }
+
+  it("el atajo no restaura la carpeta mientras el agente escribe: lo dice", async () => {
+    // El caso negativo: `read-tree -u --reset` sobre la carpeta mientras la
+    // CLI escribe en ella deja el árbol mezclado, y el punto que se
+    // encontraría es el de la respuesta ANTERIOR (el turno en curso todavía no
+    // está en `turns`).
+    await conAtajoListo();
+    enviar("sigue tú");
+    await waitFor(() =>
+      expect((screen.getByLabelText("mensaje") as HTMLInputElement).disabled).toBe(true),
+    );
+
+    fireEvent.click(screen.getByTestId("atajo"));
+
+    expect(await screen.findByText(/hay una respuesta en curso/)).toBeTruthy();
+    // Ni diálogo ni comando: callarse sería peor (mandamiento 11), pero actuar
+    // sería destruir trabajo.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(llamada("maria_punto_volver")).toBeUndefined();
+  });
+
+  it("sin turno en curso el mismo atajo sí abre la confirmación", async () => {
+    // Sin este caso la guarda podría estar bloqueando SIEMPRE y el test de
+    // arriba seguiría verde.
+    await conAtajoListo();
+    fireEvent.click(screen.getByTestId("atajo"));
+    await screen.findByRole("dialog", { name: /punto de control/i });
+  });
+
+  it("si el turno arranca con el diálogo ya abierto, confirmar queda bloqueado", async () => {
+    await conAtajoListo();
+    fireEvent.click(screen.getByTestId("atajo"));
+    await screen.findByRole("dialog", { name: /punto de control/i });
+
+    enviar("y ahora contesta");
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", {
+          name: /solo el código del proyecto/i,
+        }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+    expect(llamada("maria_punto_volver")).toBeUndefined();
   });
 });

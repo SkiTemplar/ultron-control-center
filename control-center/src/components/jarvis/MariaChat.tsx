@@ -1009,8 +1009,25 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
    *
    * Sin ningún punto lo DICE. Un atajo que no encuentra a qué volver y se
    * queda callado deja al usuario creyendo que ha deshecho algo.
+   *
+   * Con una respuesta en curso NO se deshace (2026-09-22). El botón de cada
+   * turno ya estaba condicionado a `!busy` y `regenerar()` también, pero esta
+   * función se publica tal cual como `chat.deshacer`, así que el atajo y la
+   * paleta entraban sin guarda: `read-tree -u --reset` sobre la carpeta
+   * MIENTRAS la CLI escribe en ella deja el árbol mezclado (parte restaurada,
+   * parte escrita después por el agente en vuelo). Y encima el punto que se
+   * encuentra es el de la respuesta ANTERIOR, porque el turno en curso todavía
+   * no está en `turns`. Se avisa en vez de callar: un atajo mudo deja al
+   * usuario creyendo que ha deshecho algo.
    */
   function deshacerUltimo() {
+    if (busy) {
+      avisar(
+        "hay una respuesta en curso: párala (Escape) antes de volver a un punto de control",
+        "error",
+      );
+      return;
+    }
     for (let i = turns.length - 1; i >= 0; i--) {
       const t = turns[i];
       if (t.role !== "user" && t.punto) {
@@ -2063,7 +2080,11 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       {vuelta && (
         <VolverAlPunto
           vuelta={vuelta}
-          ocupado={volviendo}
+          // `busy` también bloquea (2026-09-22): el diálogo se puede quedar
+          // abierto y arrancar un turno después (un encargo que termina y
+          // recarga, o Enter en la caja), y confirmar entonces restauraría la
+          // carpeta mientras el agente la está escribiendo.
+          ocupado={volviendo || busy}
           onCancelar={() => setVuelta(null)}
           onVolver={(modo) => void volverAlPunto(vuelta, modo)}
         />
