@@ -24,17 +24,66 @@ export type AccionChat = {
   run: () => void;
 };
 
-/** Ids con combinación por defecto en Rust. Lista de referencia para los tests
- *  y para saber de un vistazo qué acciones son también atajo. */
-export const ACCIONES_CON_ATAJO = [
-  "chat.nueva",
-  "chat.parar",
-  "chat.regenerar",
-  "chat.exportar",
-  "chat.panel.cambios",
-  "chat.panel.ficheros",
-  "chat.panel.web",
-] as const;
+/** Una acción del catálogo, sin la mano que la ejecuta. */
+export type FichaAccionChat = Omit<AccionChat, "run">;
+
+/**
+ * EL catálogo. Id, etiqueta y para qué sirve, sin nada que ejecutar.
+ *
+ * Vive aquí y no dentro de `MariaChat` (2026-09-22) porque desde que hay
+ * editor de atajos hay un segundo lector: la pestaña «Atajos» de Ajustes tiene
+ * que poner nombre en castellano a `chat.nueva` SIN que el chat esté montado —
+ * y si esas etiquetas se copiaran allí, al cambiar una quedaría la vieja en la
+ * otra pantalla. `MariaChat` le pega el `run` a cada ficha y publica la lista;
+ * Ajustes solo lee.
+ *
+ * Los combos NO están aquí: los sirve `get_in_app_shortcuts` (Rust), que es
+ * donde el usuario puede cambiarlos.
+ */
+export const ACCIONES_CHAT: readonly FichaAccionChat[] = [
+  { id: "chat.nueva", label: "Chat · conversación nueva" },
+  {
+    id: "chat.parar",
+    label: "Chat · parar la respuesta",
+    descripcion: "Se conserva lo que el proveedor ya hubiera escrito.",
+  },
+  { id: "chat.regenerar", label: "Chat · pedir otra vez la última respuesta" },
+  { id: "chat.exportar", label: "Chat · exportar la conversación a Markdown" },
+  {
+    id: "chat.deshacer",
+    label: "Chat · volver al último punto de control (código)",
+    descripcion:
+      "Devuelve la carpeta del proyecto a como estaba antes de la última respuesta. Pide confirmación.",
+  },
+  {
+    id: "chat.panel.cambios",
+    label: "Chat · abrir el panel de cambios",
+    descripcion: "El git diff del proyecto de esta conversación.",
+  },
+  { id: "chat.panel.ficheros", label: "Chat · abrir el panel de ficheros" },
+  { id: "chat.panel.web", label: "Chat · abrir la vista previa web" },
+  {
+    id: "chat.ramas",
+    label: "Chat · ver las ramas de la conversación",
+    descripcion: "Lo que quedó atrás al editar un mensaje o regenerar.",
+  },
+  {
+    id: "chat.auto",
+    label: "Chat · que vuelva a decidir mar.ia",
+    descripcion: "Suelta el proveedor, el modelo y el esfuerzo fijados a mano.",
+  },
+  {
+    id: "chat.delegar",
+    label: "Chat · delegar en un proveedor…",
+    descripcion: "Deja «/delegar » escrito para elegir a quién y qué.",
+  },
+];
+
+/** Etiqueta de una acción del chat por su id, o null si no es del chat. Lo usa
+ *  el editor de atajos, que recibe ids sueltos de Rust. */
+export function etiquetaAccionChat(id: string): string | null {
+  return ACCIONES_CHAT.find((a) => a.id === id)?.label ?? null;
+}
 
 /** Lo que hace Escape en el chat, en orden de precedencia. */
 export type QueHaceEscape = "cerrar-sugerencias" | "parar" | "nada";

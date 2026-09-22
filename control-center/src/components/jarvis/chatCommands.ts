@@ -35,6 +35,15 @@ export const COMMANDS: SlashCommand[] = [
   },
   { name: "/regenerar", args: "", desc: "vuelve a pedir la última respuesta" },
   { name: "/ramas", args: "", desc: "lo que dejaste atrás al editar o regenerar" },
+  // Puntos de control (2026-09-22): con «Acceso total» las CLI escriben en el
+  // proyecto sin preguntar, así que hace falta un deshacer que no dependa de
+  // que el usuario tuviera el git limpio. Ver `maria/puntos.rs`.
+  {
+    name: "/deshacer",
+    args: "",
+    desc: "vuelve el proyecto a como estaba antes de la última respuesta",
+  },
+  { name: "/puntos", args: "", desc: "los puntos de control de esta conversación" },
   { name: "/rama", args: "<número>", desc: "vuelve a esa rama; la actual pasa a ser rama" },
   { name: "/proyecto", args: "[ruta]", desc: "trabaja sobre esa carpeta; sin ruta, ninguna" },
   { name: "/exportar", args: "", desc: "guarda la conversación en Markdown" },

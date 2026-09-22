@@ -31,7 +31,7 @@ import { HudSelect, opcionDeModelo } from "./HudSelect";
 // tipo: no arrastra el xterm de ese modulo a esta pantalla.
 import type { Catalogo, ModeloInfo } from "./terminalCore";
 import { publicarAccionesChat } from "../../lib/accionesChat";
-import { decidirEscape, type AccionChat } from "./chatAcciones";
+import { ACCIONES_CHAT, decidirEscape, type AccionChat } from "./chatAcciones";
 import {
   COMMANDS,
   ESFUERZOS,
@@ -61,6 +61,35 @@ type Turn = {
   tokens_out?: number | null;
   coste_usd?: number | null;
   ms?: number | null;
+  /** Punto de control tomado ANTES de que el proveedor corriera (`maria/puntos.rs`),
+   *  guardado en el turno del asistente. Vacío cuando la conversación no tiene
+   *  proyecto, el árbol era demasiado grande o la foto falló: entonces no hay
+   *  «volver» que ofrecer, y no se ofrece. */
+  punto?: string | null;
+};
+
+/** Un punto de control, tal y como lo sirve `maria_puntos_listar`. */
+type Punto = { sha: string; ts: string; etiqueta: string };
+
+/** Lo que devuelve `maria_punto_volver`. `antes` es el punto que se toma justo
+ *  antes de restaurar: volver también se deshace. */
+type Restaurado = { ficheros: number; antes: string; turnos: number };
+
+/** Qué se devuelve al punto. Mismos nombres que espera el comando Tauri. */
+type ModoVuelta = "codigo" | "conversacion" | "todo";
+
+/** Diálogo de «volver a antes de esta respuesta» abierto ahora mismo. */
+type Vuelta = {
+  sha: string;
+  /**
+   * Turnos que quedarían si se trunca la conversación, igual que en «editar»:
+   * el índice del mensaje TUYO que provocó la respuesta. null = esta vuelta no
+   * puede tocar la conversación (un encargo, o el atajo), así que ahí solo se
+   * ofrece el código en vez de fingir una opción que no haría nada.
+   */
+  conservar: number | null;
+  /** De dónde salió, para que el diálogo diga a qué se vuelve. */
+  desde: string;
 };
 
 /** 8120 -> "8,1k". Los turnos son de miles de tokens: el número entero es ruido. */
@@ -185,6 +214,9 @@ type Encargo = {
   creado: string;
   fin: string;
   resumen: string;
+  /** Punto de control tomado antes de lanzarlo, si la conversación tenía
+   *  proyecto (`maria/encargos.rs`). Vacío = no hay nada que deshacer. */
+  punto?: string | null;
 };
 
 const ESTADO_ENCARGO: Record<Encargo["estado"], string> = {
@@ -299,6 +331,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   const [vivoEncargo, setVivoEncargo] = useState<Record<string, string>>({});
   /** Si no es null, el proximo envio REESCRIBE el hilo desde ese turno. */
   const [editando, setEditando] = useState<number | null>(null);
+  /** Vuelta a un punto de control pendiente de confirmar. null = sin diálogo.
+   *  Devolver el árbol de trabajo borra lo que el agente escribió después, así
+   *  que no se hace de un clic (2026-09-22). */
+  const [vuelta, setVuelta] = useState<Vuelta | null>(null);
+  /** true mientras el backend restaura: el diálogo no se puede pulsar dos veces. */
+  const [volviendo, setVolviendo] = useState(false);
   const threadIdRef = useRef(threadId);
   threadIdRef.current = threadId;
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -420,6 +458,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     setArtefacto(null);
     setPanel(null);
     setEditando(null);
+    setVuelta(null);
     setVivoEncargo({});
     if (!threadId) return;
     void invoke<Encargo[]>("maria_encargos", { threadId })
@@ -778,6 +817,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       case "/rama":
         await volverARama(arg);
         return;
+      case "/deshacer":
+        deshacerUltimo();
+        return;
+      case "/puntos":
+        await verPuntos();
+        return;
       case "/proyecto":
         await fijarProyecto(arg.trim());
         return;
@@ -920,6 +965,119 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     }
     setTurns(turns.slice(0, i));
     await enviarMensaje(texto);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Puntos de control
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Turnos que hay que conservar para dejar la conversación justo ANTES del
+   * mensaje tuyo que provocó la respuesta del turno `i`. Es el mismo número
+   * que usa «editar» (`maria_relay_truncar`, `conservar`).
+   *
+   * Sin mensaje tuyo delante (un hilo que empieza por un resultado de encargo)
+   * se corta en el propio turno: así se quita la respuesta y no se toca nada
+   * anterior, en vez de vaciar el hilo entero por no encontrar el ancla.
+   */
+  function conservarPara(i: number): number {
+    const u = turns
+      .slice(0, i)
+      .map((t) => t.role)
+      .lastIndexOf("user");
+    return u >= 0 ? u : i;
+  }
+
+  /** Abre el diálogo de confirmación. No toca nada por sí solo. */
+  function pedirVuelta(v: Vuelta) {
+    setVuelta(v);
+  }
+
+  /**
+   * El atajo y `/deshacer`: el último punto que haya, solo el código.
+   *
+   * Sin ningún punto lo DICE. Un atajo que no encuentra a qué volver y se
+   * queda callado deja al usuario creyendo que ha deshecho algo.
+   */
+  function deshacerUltimo() {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const t = turns[i];
+      if (t.role !== "user" && t.punto) {
+        pedirVuelta({
+          sha: t.punto,
+          conservar: null,
+          desde: `la respuesta de ${PROVIDER_LABEL[t.provider] ?? t.provider ?? "mar.ia"} de las ${new Date(
+            t.ts,
+          ).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`,
+        });
+        return;
+      }
+    }
+    avisar(
+      "no hay ningún punto de control al que volver: se toman antes de cada respuesta y solo si la conversación tiene proyecto (/proyecto <ruta>)",
+      "error",
+    );
+  }
+
+  /** Lista los puntos de control de esta conversación. */
+  async function verPuntos() {
+    const lista = await invoke<Punto[]>("maria_puntos_listar", { threadId }).catch((e) => {
+      avisar(String(e), "error");
+      return null;
+    });
+    if (!lista) return;
+    if (lista.length === 0) {
+      avisar(
+        "esta conversación no tiene puntos de control: se toman antes de cada respuesta y solo si hay proyecto (/proyecto <ruta>)",
+      );
+      return;
+    }
+    avisar(
+      lista
+        .map((p) => {
+          const cuando = p.ts ? new Date(p.ts).toLocaleString("es-ES") : "—";
+          return `${p.sha.slice(0, 8)} · ${cuando}${p.etiqueta ? ` · ${p.etiqueta}` : ""}`;
+        })
+        .join("\n") +
+        "\n\nse vuelve desde la respuesta («volver a antes de esta respuesta») o con /deshacer",
+    );
+  }
+
+  /** Ejecuta la vuelta ya confirmada. */
+  async function volverAlPunto(v: Vuelta, modo: ModoVuelta) {
+    setVolviendo(true);
+    try {
+      const r = await invoke<Restaurado>("maria_punto_volver", {
+        threadId,
+        sha: v.sha,
+        modo,
+        // Solo viaja cuando el modo puede tocar la conversación y se sabe
+        // dónde cortar: mandar un número al azar borraría turnos de más.
+        conservar: modo === "codigo" ? null : v.conservar,
+      });
+      setVuelta(null);
+      if (modo !== "codigo") {
+        // El hilo se ha acortado en disco: se relee, no se adivina.
+        setTurns((await invoke<Turn[]>("maria_relay_thread", { threadId })) ?? []);
+      }
+      const partes: string[] = [];
+      if (modo !== "conversacion") {
+        partes.push(
+          r.ficheros === 1 ? "1 fichero restaurado" : `${r.ficheros} ficheros restaurados`,
+        );
+      }
+      if (modo !== "codigo") {
+        partes.push(r.turnos === 1 ? "1 turno quitado" : `${r.turnos} turnos quitados`);
+      }
+      avisar(
+        `${partes.join(" · ")}; esto también se deshace: el punto de antes es ${r.antes.slice(0, 8)} (/puntos)`,
+      );
+      setRefresco((n) => n + 1);
+    } catch (e) {
+      avisar(String(e), "error");
+    } finally {
+      setVolviendo(false);
+    }
   }
 
   async function fijarProyecto(ruta: string) {
@@ -1124,6 +1282,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     "chat.parar": accionEscape,
     "chat.regenerar": () => void regenerar(),
     "chat.exportar": () => void exportar(),
+    "chat.deshacer": deshacerUltimo,
     "chat.panel.cambios": () => setPanel((p) => (p === "cambios" ? null : "cambios")),
     "chat.panel.ficheros": () => setPanel((p) => (p === "ficheros" ? null : "ficheros")),
     "chat.panel.web": () => setPanel((p) => (p === "web" ? null : "web")),
@@ -1144,60 +1303,13 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   // (`compacto`) hay varias a la vez y no se sabría cuál manda.
   useEffect(() => {
     if (compacto) return;
-    const llamar = (id: string) => () => manos.current.run[id]?.();
-    const lista: AccionChat[] = [
-      { id: "chat.nueva", label: "Chat · conversación nueva", run: llamar("chat.nueva") },
-      {
-        id: "chat.parar",
-        label: "Chat · parar la respuesta",
-        descripcion: "Se conserva lo que el proveedor ya hubiera escrito.",
-        run: llamar("chat.parar"),
-      },
-      {
-        id: "chat.regenerar",
-        label: "Chat · pedir otra vez la última respuesta",
-        run: llamar("chat.regenerar"),
-      },
-      {
-        id: "chat.exportar",
-        label: "Chat · exportar la conversación a Markdown",
-        run: llamar("chat.exportar"),
-      },
-      {
-        id: "chat.panel.cambios",
-        label: "Chat · abrir el panel de cambios",
-        descripcion: "El git diff del proyecto de esta conversación.",
-        run: llamar("chat.panel.cambios"),
-      },
-      {
-        id: "chat.panel.ficheros",
-        label: "Chat · abrir el panel de ficheros",
-        run: llamar("chat.panel.ficheros"),
-      },
-      {
-        id: "chat.panel.web",
-        label: "Chat · abrir la vista previa web",
-        run: llamar("chat.panel.web"),
-      },
-      {
-        id: "chat.ramas",
-        label: "Chat · ver las ramas de la conversación",
-        descripcion: "Lo que quedó atrás al editar un mensaje o regenerar.",
-        run: llamar("chat.ramas"),
-      },
-      {
-        id: "chat.auto",
-        label: "Chat · que vuelva a decidir mar.ia",
-        descripcion: "Suelta el proveedor, el modelo y el esfuerzo fijados a mano.",
-        run: llamar("chat.auto"),
-      },
-      {
-        id: "chat.delegar",
-        label: "Chat · delegar en un proveedor…",
-        descripcion: "Deja «/delegar » escrito para elegir a quién y qué.",
-        run: llamar("chat.delegar"),
-      },
-    ];
+    // Las etiquetas salen de `chatAcciones.ts` (ACCIONES_CHAT), que es donde
+    // las lee tambien el editor de atajos: aqui solo se le pega la mano que
+    // ejecuta cada una (2026-09-22).
+    const lista: AccionChat[] = ACCIONES_CHAT.map((a) => ({
+      ...a,
+      run: () => manos.current.run[a.id]?.(),
+    }));
     return publicarAccionesChat(lista);
   }, [compacto]);
 
@@ -1571,6 +1683,26 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                         regenerar
                       </button>
                     )}
+                    {/* Deshacer lo que hizo el agente. Solo cuando HAY foto:
+                        sin proyecto (o con el árbol demasiado grande) el
+                        backend no toma punto y aquí no se ofrece un botón que
+                        solo podría dar un error (2026-09-22). */}
+                    {t.role !== "user" && t.punto && !busy && (
+                      <button
+                        type="button"
+                        className="cc-bloque-boton"
+                        title="devuelve el proyecto (y, si quieres, la conversación) a como estaban justo antes de esta respuesta"
+                        onClick={() =>
+                          pedirVuelta({
+                            sha: t.punto as string,
+                            conservar: conservarPara(i),
+                            desde: "antes de esta respuesta",
+                          })
+                        }
+                      >
+                        volver a antes de esta respuesta
+                      </button>
+                    )}
                     <BotonCopiar texto={t.text} />
                   </div>
                 </div>
@@ -1752,6 +1884,25 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                             relanzar
                           </button>
                         )}
+                        {/* Un encargo escribe en el proyecto igual que el chat,
+                            así que también se deshace. Solo el código: el
+                            encargo no ocupa turnos tuyos que cortar. */}
+                        {en.punto && (
+                          <button
+                            type="button"
+                            className="cc-bloque-boton"
+                            title="devuelve el proyecto a como estaba antes de lanzar este encargo"
+                            onClick={() =>
+                              pedirVuelta({
+                                sha: en.punto as string,
+                                conservar: null,
+                                desde: `antes del encargo de ${en.provider}`,
+                              })
+                            }
+                          >
+                            deshacer
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="cc-bloque-boton"
@@ -1882,6 +2033,19 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           </form>
         </div>
       </div>
+      {/* Confirmación de la vuelta. No es `Confirmar.tsx` porque aquí no hay
+          un sí/no: hay TRES cosas distintas que se pueden deshacer y elegir
+          mal borra trabajo. El foco arranca en «cancelar» y Escape cancela,
+          igual que en el resto de la app. */}
+      {vuelta && (
+        <VolverAlPunto
+          vuelta={vuelta}
+          ocupado={volviendo}
+          onCancelar={() => setVuelta(null)}
+          onVolver={(modo) => void volverAlPunto(vuelta, modo)}
+        />
+      )}
+
       {panel && (
         <div style={{ width: "46%", minWidth: 360, maxWidth: 900 }} className="h-full shrink-0">
           <PanelLateral
@@ -1897,6 +2061,144 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Diálogo de «volver a antes de esta respuesta».
+ *
+ * Tres opciones porque son tres cosas distintas y el usuario tiene que poder
+ * decidir cuál (2026-09-22): devolver la CARPETA del proyecto no toca el hilo,
+ * y acortar el HILO no devuelve un solo fichero. Lo normal tras una respuesta
+ * que rompió algo es «las dos».
+ *
+ * Con `conservar` a null (un encargo, o el atajo) solo se ofrece el código: no
+ * hay un mensaje tuyo que marque dónde cortar la conversación, y truncar por
+ * un número inventado se llevaría turnos de más.
+ */
+function VolverAlPunto({
+  vuelta,
+  ocupado,
+  onCancelar,
+  onVolver,
+}: {
+  vuelta: Vuelta;
+  ocupado: boolean;
+  onCancelar: () => void;
+  onVolver: (modo: ModoVuelta) => void;
+}) {
+  const cancelar = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    // El foco arranca en «cancelar»: un Intro despistado no borra el trabajo.
+    cancelar.current?.focus();
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onCancelar();
+      }
+    };
+    document.addEventListener("keydown", tecla, true);
+    return () => document.removeEventListener("keydown", tecla, true);
+  }, [onCancelar]);
+
+  type Opcion = { modo: ModoVuelta; texto: string; detalle: string };
+  const soloConversacion: Opcion[] = [
+    {
+      modo: "conversacion",
+      texto: "solo la conversación",
+      detalle: "quita los turnos desde ahí; los ficheros se quedan como están",
+    },
+    {
+      modo: "todo",
+      texto: "las dos",
+      detalle: "el proyecto y la conversación vuelven al mismo punto",
+    },
+  ];
+  const opciones: Opcion[] = [
+    {
+      modo: "codigo",
+      texto: "solo el código del proyecto",
+      detalle:
+        "deshace lo que el agente escribió en la carpeta; la conversación se queda entera",
+    },
+    ...(vuelta.conservar !== null ? soloConversacion : []),
+  ];
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="volver a un punto de control"
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      style={{ background: "rgba(3,7,15,0.72)" }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancelar();
+      }}
+    >
+      <div
+        className="hud-panel flex w-full flex-col gap-3 p-4"
+        style={{ maxWidth: 520, background: "var(--color-surface-1)" }}
+      >
+        <h2 className="text-[14px] font-semibold" style={{ color: "var(--color-warn)" }}>
+          volver a {vuelta.desde}
+        </h2>
+        <p
+          className="text-[12.5px]"
+          style={{ color: "var(--color-text-secondary)", lineHeight: 1.5 }}
+        >
+          Punto <span style={{ fontFamily: "var(--font-mono)" }}>{vuelta.sha.slice(0, 8)}</span>.
+          Devolver el proyecto <strong>borra lo que se escribió después</strong> en los ficheros
+          que mar.ia fotografía. Antes de tocar nada se toma otro punto, así que esto también se
+          deshace.
+          {vuelta.conservar === null && " Desde aquí solo se puede devolver el código."}
+        </p>
+
+        <ul className="flex flex-col gap-1.5">
+          {opciones.map((o) => (
+            <li key={o.modo}>
+              <button
+                type="button"
+                disabled={ocupado}
+                onClick={() => onVolver(o.modo)}
+                className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-[13px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border-strong)",
+                  color: "var(--color-text)",
+                  cursor: ocupado ? "default" : "pointer",
+                  opacity: ocupado ? 0.6 : 1,
+                }}
+              >
+                <span>{o.texto}</span>
+                <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                  {o.detalle}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <div className="flex items-center justify-end gap-2">
+          {ocupado && <span className="hud-label hud-pulse">volviendo…</span>}
+          <button
+            ref={cancelar}
+            type="button"
+            onClick={onCancelar}
+            className="px-4 text-[13px]"
+            style={{
+              minHeight: 38,
+              background: "var(--color-surface-3)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+              cursor: "pointer",
+            }}
+          >
+            cancelar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
