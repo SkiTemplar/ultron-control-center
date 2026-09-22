@@ -347,11 +347,32 @@ pub fn volver_en(
 // Barrido
 // ---------------------------------------------------------------------------
 
+/// Cuando se uso por ultima vez un repositorio en la sombra.
+///
+/// NO vale `HEAD` (2026-09-22): con el backend de refs en ficheros git lo
+/// escribe UNA sola vez, en el `init` —lleva dentro `ref: refs/heads/master` y
+/// ya no cambia—, asi que su fecha es la de CREACION del repo, no la de la
+/// ultima foto. Lo que cada commit reescribe es el ref de la rama y el reflog:
+/// se toma el mas reciente de los dos. `HEAD` solo queda como ultimo recurso,
+/// para el repo que se creo y todavia no tiene ninguna foto.
+fn ultimo_uso(dir: &Path) -> Option<std::time::SystemTime> {
+    let mut candidatos = vec![dir.join("logs").join("HEAD")];
+    if let Ok(ramas) = std::fs::read_dir(dir.join("refs").join("heads")) {
+        candidatos.extend(ramas.flatten().map(|e| e.path()));
+    }
+    let cuando = |p: &PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    candidatos
+        .iter()
+        .filter_map(cuando)
+        .max()
+        .or_else(|| cuando(&dir.join("HEAD")))
+}
+
 /// Borra los repositorios en la sombra que llevan mas de `dias` sin usarse.
 ///
 /// Sin esto la carpeta crece sin freno: cada conversacion con proyecto deja el
-/// suyo y nadie los quita. Se mira la fecha de `HEAD`, que es lo que toca cada
-/// foto. Devuelve cuantos se han borrado.
+/// suyo y nadie los quita. La antiguedad la mide `ultimo_uso`, que mira lo que
+/// toca cada foto de verdad. Devuelve cuantos se han borrado.
 pub fn barrer_en(raiz: &Path, dias: u64) -> usize {
     let Ok(entradas) = std::fs::read_dir(raiz) else {
         return 0;
@@ -364,9 +385,7 @@ pub fn barrer_en(raiz: &Path, dias: u64) -> usize {
         if !dir.is_dir() || dir.extension().and_then(|x| x.to_str()) != Some("git") {
             continue;
         }
-        let viejo = std::fs::metadata(dir.join("HEAD"))
-            .and_then(|m| m.modified())
-            .ok()
+        let viejo = ultimo_uso(&dir)
             .and_then(|t| ahora.duration_since(t).ok())
             .is_some_and(|edad| edad > limite);
         if viejo && std::fs::remove_dir_all(&dir).is_ok() {
@@ -764,6 +783,38 @@ mod tests {
         );
     }
 
+    /// Envejece los ficheros de una carpeta, que es lo unico que el barrido
+    /// mira. Solo ficheros: en Windows un directorio no se abre para escribir.
+    fn envejecer(dir: &Path, dias: u64) {
+        let cuando = std::time::SystemTime::now()
+            - std::time::Duration::from_secs(dias.saturating_mul(24 * 60 * 60));
+        let tiempos = std::fs::FileTimes::new().set_modified(cuando);
+        let mut pendientes = vec![dir.to_path_buf()];
+        while let Some(d) = pendientes.pop() {
+            for hijo in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let ruta = hijo.path();
+                if ruta.is_dir() {
+                    pendientes.push(ruta);
+                    continue;
+                }
+                // Los objetos sueltos de git nacen de solo lectura y en
+                // Windows eso impide abrirlos para escribir.
+                if let Ok(md) = std::fs::metadata(&ruta) {
+                    let mut permisos = md.permissions();
+                    if permisos.readonly() {
+                        permisos.set_readonly(false);
+                        std::fs::set_permissions(&ruta, permisos).expect("quitar solo lectura");
+                    }
+                }
+                let f = std::fs::File::options()
+                    .write(true)
+                    .open(&ruta)
+                    .expect("abrir para envejecer");
+                f.set_times(tiempos).expect("envejecer");
+            }
+        }
+    }
+
     #[test]
     fn el_barrido_se_lleva_lo_viejo_y_respeta_lo_de_hoy() {
         let (puntos, proyecto) = escenario();
@@ -777,6 +828,42 @@ mod tests {
         assert!(!sombra_en(r, "hilo-1").expect("sombra").exists());
         // Y barrer una carpeta vacia no es un error.
         assert_eq!(barrer_en(r, 0), 0);
+    }
+
+    #[test]
+    fn una_conversacion_vieja_pero_en_uso_no_se_barre() {
+        // Caso negativo del 2026-09-22: la antiguedad se medía por el mtime de
+        // `HEAD`, que git escribe en el `init` y no vuelve a tocar. Una
+        // conversacion abierta hace meses y usada hoy se perdia entera —todos
+        // sus puntos— en el `barrer(30)` del arranque, y los botones «volver a
+        // antes de esta respuesta» que quedan en el hilo dejaban de funcionar.
+        let (puntos, proyecto) = escenario();
+        let (r, p) = (puntos.path(), proyecto.path());
+        foto_en(r, p, "hilo-1", "turno 1").expect("foto");
+        let sombra = sombra_en(r, "hilo-1").expect("sombra");
+
+        // El repo se creo hace dos meses…
+        envejecer(&sombra, 60);
+        // …pero se acaba de usar: esta foto reescribe el ref y el reflog, no
+        // `HEAD`, que sigue con la fecha de creacion.
+        std::fs::write(p.join("uno.txt"), "B\n").expect("escribir");
+        foto_en(r, p, "hilo-1", "turno 2").expect("foto");
+        let creacion = std::fs::metadata(sombra.join("HEAD"))
+            .and_then(|m| m.modified())
+            .expect("HEAD");
+        assert!(
+            ultimo_uso(&sombra).expect("ultimo uso") > creacion,
+            "la ultima foto tiene que ser mas reciente que la creacion del repo"
+        );
+
+        assert_eq!(barrer_en(r, 30), 0, "se ha usado hoy: no se puede barrer");
+        assert!(sombra.exists(), "se ha borrado una conversacion en uso");
+        assert_eq!(lista_en(r, p, "hilo-1").expect("lista").len(), 2);
+
+        // Y la de verdad vieja —creada y usada hace dos meses— si se va.
+        envejecer(&sombra, 60);
+        assert_eq!(barrer_en(r, 30), 1);
+        assert!(!sombra.exists());
     }
 
     #[test]
