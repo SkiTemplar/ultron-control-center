@@ -659,6 +659,27 @@ pub fn modo_volver(modo: &str) -> Result<(bool, bool), String> {
     }
 }
 
+/// Error de la fase de la conversacion cuando la del codigo YA ha tocado el
+/// arbol. Pura.
+///
+/// En modo «todo» se restaura primero el codigo y despues se trunca el hilo. Si
+/// lo segundo falla —el jsonl abierto, un `rename` que no pasa en Windows— el
+/// `?` se llevaba por delante el `Restaurado` entero, incluido `antes`, que es
+/// el UNICO sha con el que se deshace la vuelta. El usuario leia «renombrar
+/// hilo: …», creia que no se habia hecho nada, y el arbol ya estaba revertido.
+/// Reintentar es idempotente sobre el arbol, asi que basta con decirlo bien y
+/// llevar el sha dentro del mensaje.
+#[must_use]
+pub fn error_a_medias(codigo: bool, antes: &str, motivo: &str) -> String {
+    if !codigo {
+        return motivo.to_string();
+    }
+    format!(
+        "el codigo YA se ha restaurado (el punto de antes de la vuelta es {antes}, \
+         esta en /puntos), pero la conversacion no: {motivo}"
+    )
+}
+
 /// El trabajo de `maria_punto_volver`, sincrono y sin Tauri por medio.
 fn volver_por_modo(
     thread_id: &str,
@@ -687,7 +708,8 @@ fn volver_por_modo(
         let n = conservar.ok_or_else(|| {
             "no se cuantos turnos hay que conservar para volver la conversacion".to_string()
         })?;
-        r.turnos = crate::maria::relay::truncar(thread_id, n)?;
+        r.turnos = crate::maria::relay::truncar(thread_id, n)
+            .map_err(|e| error_a_medias(codigo, &r.antes, &e))?;
     }
     Ok(r)
 }
@@ -1120,6 +1142,27 @@ mod tests {
         let e = modo_volver("conversación").expect_err("con tilde no es un modo");
         assert!(e.contains("codigo"), "el error dice cuales hay: {e}");
         assert!(modo_volver("").is_err());
+    }
+
+    #[test]
+    fn si_falla_truncar_el_error_dice_que_el_codigo_ya_ha_vuelto() {
+        // Caso negativo del modo «todo»: cuando truncar falla, el error tiene
+        // que contar que la mitad del trabajo ya esta hecha y llevar el sha
+        // con el que se deshace. Sin eso solo se recupera a mano con /puntos.
+        let e = error_a_medias(true, "abc1234", "renombrar hilo: acceso denegado");
+        assert!(e.contains("YA se ha restaurado"), "{e}");
+        assert!(e.contains("abc1234"), "sin el sha no hay vuelta atras: {e}");
+        assert!(e.contains("/puntos"), "{e}");
+        assert!(
+            e.contains("renombrar hilo: acceso denegado"),
+            "el motivo no puede perderse: {e}"
+        );
+        // En modo «conversacion» no se ha tocado el codigo: el error va tal
+        // cual, sin prometer una restauracion que no ha ocurrido.
+        assert_eq!(
+            error_a_medias(false, "", "renombrar hilo: acceso denegado"),
+            "renombrar hilo: acceso denegado"
+        );
     }
 
     #[test]
