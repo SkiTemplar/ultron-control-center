@@ -323,6 +323,9 @@ function AppInner() {
         ["tab.sessions", "sessions"],
         ["tab.projects", "projects"],
         ["tab.plans", "plans"],
+        // tab.memory estaba definido en in_app_shortcuts.rs (Alt+7) pero
+        // faltaba aqui: el atajo existia y no hacia nada (fix 2026-09-22).
+        ["tab.memory", "memory"],
         ["tab.skills", "skills"],
         ["tab.settings", "settings"],
       ];

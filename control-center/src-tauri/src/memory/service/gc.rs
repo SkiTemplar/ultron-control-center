@@ -28,7 +28,33 @@ pub const DEFAULT_GC_DAYS: i64 = 90;
 /// Umbral de compactacion: por debajo de 10 MB de freelist, VACUUM no compensa.
 pub const VACUUM_MIN_BYTES: i64 = 10 * 1024 * 1024;
 
+/// Resultado de [`MemoryService::fts_rebuild`]: estado del indice FTS5 antes y
+/// despues de reconstruirlo, para que el llamante vea si de verdad quedo en sync.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FtsRebuildResult {
+    pub before: store::FtsIntegrity,
+    pub after: store::FtsIntegrity,
+    pub in_sync: bool,
+}
+
 impl MemoryService {
+    /// Reconstruye el indice FTS5 de `memory_items` (escritor unico: solo este
+    /// servicio toca brain.db). Reparacion del bug 2026-09-22: el indice tenia
+    /// 10.205 filas frente a 4.390 items, MATCH fallaba con "missing row" y el
+    /// recall sparse no encontraba ni titulos exactos. `ultron-memory doctor`
+    /// lo detecta en el check `fts`; `ultron-memory fts-rebuild` lo repara.
+    pub fn fts_rebuild() -> Result<FtsRebuildResult, MemoryError> {
+        let conn = store::open_conn()?;
+        let before = store::fts_integrity(&conn)?;
+        let after = store::fts_rebuild(&conn)?;
+        let in_sync = after.in_sync();
+        Ok(FtsRebuildResult {
+            before,
+            after,
+            in_sync,
+        })
+    }
+
     /// Ejecuta el mantenimiento a `days` dias. Con `dry_run` no escribe nada:
     /// cuenta lo que haria y devuelve `bytes_after == bytes_before`.
     ///

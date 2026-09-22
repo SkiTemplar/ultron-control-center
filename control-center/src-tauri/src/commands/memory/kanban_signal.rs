@@ -45,10 +45,27 @@ pub fn is_completed_text(summary: &str) -> bool {
     COMPLETED_MARKERS.iter().any(|m| lower.contains(m))
 }
 
-/// True when `updated_at` (epoch secs) is within the recency window relative to
-/// `now` (epoch secs). Stale memory must not drive the next action.
+/// Epoch values above this are milliseconds, not seconds (1e11 s is year 5138;
+/// 1e11 ms is 1973). `MemoryItem.updated_at` is stored in millis (`now_millis`)
+/// while the resume clock is in seconds.
+const MILLIS_THRESHOLD: i64 = 100_000_000_000;
+
+/// Normalise an epoch value to seconds whether it came in seconds or millis.
+fn to_secs(epoch: i64) -> i64 {
+    if epoch > MILLIS_THRESHOLD {
+        epoch / 1000
+    } else {
+        epoch
+    }
+}
+
+/// True when `updated_at` is within the recency window relative to `now`.
+/// Either value may be epoch seconds or epoch millis (see `to_secs`): mixing
+/// them used to saturate the subtraction to 0 and mark EVERY task recent — a
+/// 35-day-old task ("Parte A2: roster de agentes") won `next_action` for weeks
+/// (2026-09-22). Stale memory must not drive the next action.
 pub fn is_recent(updated_at: i64, now: i64) -> bool {
-    now.saturating_sub(updated_at) <= RECENCY_GATE_SECS
+    to_secs(now).saturating_sub(to_secs(updated_at)) <= RECENCY_GATE_SECS
 }
 
 /// A memory Task is eligible to be the `next_action` only if it is both recent
@@ -339,6 +356,26 @@ mod tests {
         let old = now - (20 * 24 * 60 * 60);
         assert!(!is_recent(old, now));
         assert!(!memory_task_eligible("tarea valida pero vieja", old, now));
+    }
+
+    // Caso negativo (bug 2026-09-22): `MemoryItem.updated_at` viene en MILIS y
+    // `now` en segundos. Antes `now - updated_at` saturaba a 0 y una task de 35
+    // días ("Parte A2: roster de agentes") ganaba `next_action` para siempre.
+    #[test]
+    fn millis_updated_at_is_normalised_before_the_recency_check() {
+        let now_secs: i64 = 1_790_000_000; // 2026-09
+        let old_ms = (now_secs - 35 * 24 * 60 * 60) * 1000;
+        let fresh_ms = (now_secs - 2 * 24 * 60 * 60) * 1000;
+        assert!(!is_recent(old_ms, now_secs), "35 días en ms NO es reciente");
+        assert!(is_recent(fresh_ms, now_secs), "2 días en ms SÍ es reciente");
+        assert!(!memory_task_eligible(
+            "Parte A2: roster de agentes",
+            old_ms,
+            now_secs
+        ));
+        // Ambos en ms (otro llamante futuro) también funciona.
+        assert!(!is_recent(old_ms, now_secs * 1000));
+        assert!(is_recent(fresh_ms, now_secs * 1000));
     }
 
     // open_tasks salen del kanban VIVO: In-Progress primero, luego Backlog, y

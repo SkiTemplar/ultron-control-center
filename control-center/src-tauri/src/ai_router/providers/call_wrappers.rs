@@ -323,6 +323,25 @@ pub(crate) fn call_gemini(
     })
 }
 
+/// Cuerpo base de `POST /api/generate` para las llamadas internas a Ollama
+/// (captura de memoria, resúmenes, títulos — también las que llegan desde el
+/// sidecar que lanzan los hooks de cualquier sesión de Claude Code). Función
+/// pura y testeable, separada del `spawn`/HTTP de `call_ollama`.
+///
+/// `keep_alive: 0` es intencional: sin él, Ollama aplica SU plazo por
+/// defecto de 5 minutos. Estas llamadas son sueltas — nadie gana nada con
+/// que el modelo se quede cargado en VRAM tras cada una (medido el
+/// 2026-09-21: 8,6 GB tomados 5 min tras cerrar la aplicación, visibles con
+/// `ollama ps`).
+pub(crate) fn build_ollama_generate_body(model: &str, prompt: &str) -> serde_json::Value {
+    serde_json::json!({
+        "model": model,
+        "prompt": prompt,
+        "stream": false,
+        "keep_alive": 0,
+    })
+}
+
 pub(crate) fn call_ollama(
     provider: &Provider,
     model: &str,
@@ -341,11 +360,7 @@ pub(crate) fn call_ollama(
         ));
     }
     let url = format!("{}/api/generate", provider.base_url.trim_end_matches('/'));
-    let mut body = serde_json::json!({
-        "model": model,
-        "prompt": prompt,
-        "stream": false,
-    });
+    let mut body = build_ollama_generate_body(model, prompt);
     if let Some(sys) = system {
         if !sys.is_empty() {
             body["system"] = serde_json::Value::String(sys.to_string());
@@ -505,5 +520,38 @@ pub(crate) fn try_assignment_call(
             format!("no wrapper implemented for provider '{}'", other),
             FailReason::Error,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_cuerpo_de_ollama_suelta_el_modelo_al_acabar() {
+        let body = build_ollama_generate_body("qwen2.5-coder:7b", "hola");
+        assert_eq!(
+            body.get("keep_alive").and_then(|v| v.as_i64()),
+            Some(0),
+            "sin keep_alive:0 Ollama aplica su plazo por defecto de 5 minutos"
+        );
+        assert_eq!(
+            body.get("model").and_then(|v| v.as_str()),
+            Some("qwen2.5-coder:7b")
+        );
+        assert_eq!(body.get("prompt").and_then(|v| v.as_str()), Some("hola"));
+        assert_eq!(body.get("stream").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    /// Caso negativo: un cuerpo construido a mano sin la clave no puede
+    /// colarse como si ya soltase el modelo.
+    #[test]
+    fn un_cuerpo_sin_keep_alive_no_pasa_la_comprobacion() {
+        let body = serde_json::json!({
+            "model": "qwen2.5-coder:7b",
+            "prompt": "hola",
+            "stream": false,
+        });
+        assert_eq!(body.get("keep_alive"), None);
     }
 }

@@ -200,6 +200,16 @@ pub fn detect_pii(text: &str) -> Vec<PiiHit> {
             while end > run_start && !bytes[end - 1].is_ascii_digit() {
                 end -= 1;
             }
+            // Una fecha ISO (`2026-09-22`, `(2026-06-01)`, `2026-09-22 15`) tiene
+            // 8 dígitos separados por `-` y cumplía el patrón de teléfono: el
+            // write-path la redactaba a `[REDACTED_PHONE]`, marcaba el item como
+            // Secret y el pack lo excluía del recall (2026-09-22: 35 de los 69
+            // items Secret activos llevaban esa marca, entre ellos memorias con
+            // la fecha en el título, que es la convención de todo el sistema).
+            if is_iso_date_run(&bytes[run_start..end]) {
+                j = end.max(run_start + 1);
+                continue;
+            }
             if end > run_start && !overlaps(run_start, end, &hits) {
                 hits.push(PiiHit {
                     kind: PiiKind::Phone,
@@ -298,9 +308,64 @@ pub fn classify_sensitivity_with_pii(text: &str) -> Sensitivity {
     }
 }
 
+/// True cuando la tirada de dígitos empieza por una fecha ISO `AAAA-MM-DD`
+/// (tras los separadores de apertura como `(`), seguida de fin de tirada o de
+/// un separador: `2026-09-22`, `(2026-06-01)`, `2026-09-22 15`. Un teléfono
+/// real no empieza por `dddd-dd-dd`.
+fn is_iso_date_run(run: &[u8]) -> bool {
+    let start = run
+        .iter()
+        .position(|b| b.is_ascii_digit())
+        .unwrap_or(run.len());
+    let r = &run[start..];
+    if r.len() < 10 {
+        return false;
+    }
+    let shape_ok = r[..4].iter().all(u8::is_ascii_digit)
+        && r[4] == b'-'
+        && r[5..7].iter().all(u8::is_ascii_digit)
+        && r[7] == b'-'
+        && r[8..10].iter().all(u8::is_ascii_digit);
+    shape_ok && (r.len() == 10 || !r[10].is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Bug real 2026-09-22: las fechas ISO se redactaban como teléfonos y el
+    // item acababa Secret, fuera del recall. Positivo: fechas sueltas, entre
+    // paréntesis y con hora. Negativo: los teléfonos siguen detectándose.
+    #[test]
+    fn iso_dates_are_not_phones_but_phones_still_are() {
+        for t in [
+            "base ULTRON 2026-09-17, sin ancestro común",
+            "maria-core (2026-09-22) corte de integración",
+            "generado 2026-09-21 17:29 a mitad de sesión",
+            "fullize ejecutado el 2026-06-01.",
+        ] {
+            let hits = detect_pii(t);
+            assert!(
+                !hits.iter().any(|h| h.kind == PiiKind::Phone),
+                "fecha tomada por teléfono en {t:?}: {hits:?}"
+            );
+            assert!(!redact_pii(t).contains("[REDACTED_PHONE]"), "{t:?}");
+        }
+        for t in [
+            "llama al +34 698 123 456 hoy",
+            "móvil 612345678 por la tarde",
+            "tel (91) 234-56-78",
+        ] {
+            assert!(
+                detect_pii(t).iter().any(|h| h.kind == PiiKind::Phone),
+                "teléfono NO detectado en {t:?}"
+            );
+        }
+        assert!(is_iso_date_run(b"(2026-09-22)"));
+        assert!(is_iso_date_run(b"2026-09-22 15"));
+        assert!(!is_iso_date_run(b"2026-0922"));
+        assert!(!is_iso_date_run(b"612345678"));
+    }
 
     #[test]
     fn detects_email_synthetic() {

@@ -25,7 +25,16 @@ const os = require('os');
 const path = require('path');
 const { safeId } = require('./safe-id');
 
-const MAX_CHARS = 2500;
+// Tope del bloque inyectado al arranque. Subio de 2500 a 3200 el 2026-09-22:
+// con 2500 y un corte ciego, el resumen de 4683 caracteres del 21-09 perdia
+// entero "## Pendientes" (donde estaba la rama maria-core) y el arranque
+// siguiente no sabia de que iba la sesion anterior. Ahora el recorte es por
+// secciones (ver clipSummary), asi que el tope solo decide cuantas caben.
+const MAX_CHARS = 3200;
+
+// Orden en el que las secciones de summary.md se salvan cuando no cabe todo:
+// lo pendiente es lo que el arranque necesita; los ficheros son lo prescindible.
+const SECTION_PRIORITY = ['pendientes', 'decisiones', 'temas'];
 
 // Leido en cada llamada (no como constante de modulo) para que los tests
 // puedan redirigirlo con LAST_SESSION_PROJECTS_DIR sin tocar el cockpit real
@@ -44,11 +53,22 @@ function summaryPath(projectId, sessionId) {
 
 /** ¿Existe ya summary.md para esta sesion? Solo fs.statSync -- nunca lee el contenido. */
 function hasSummary(projectId, sessionId) {
-  if (!projectId || !sessionId) return false;
+  return summaryMtimeMs(projectId, sessionId) !== null;
+}
+
+/**
+ * mtime (ms) del summary.md de esta sesion, o null si no existe / no es un
+ * fichero. Lo usa el resumidor para detectar un resumen VIEJO: uno escrito a
+ * mitad de sesion (el 21-09 se genero a las 17:29 y la sesion siguio hasta las
+ * 18:35) que ya no cubre lo que paso despues.
+ */
+function summaryMtimeMs(projectId, sessionId) {
+  if (!projectId || !sessionId) return null;
   try {
-    return fs.statSync(summaryPath(projectId, sessionId)).isFile();
+    const st = fs.statSync(summaryPath(projectId, sessionId));
+    return st.isFile() ? st.mtimeMs : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -104,15 +124,61 @@ function readSummary(projectId, sessionId) {
  */
 function renderLastSessionLines(summary) {
   if (!summary || !summary.content) return [];
-  const clipped =
-    summary.content.length > MAX_CHARS
-      ? summary.content.slice(0, MAX_CHARS) + '\n[...]'
-      : summary.content;
+  const clipped = clipSummary(summary.content, MAX_CHARS);
   return [
     `<last-session-summary source="claude-p" trust="session-summary" session_id="${summary.sessionId}">`,
     clipped,
     '</last-session-summary>',
   ];
+}
+
+/**
+ * Recorta un summary.md a `max` caracteres POR SECCIONES, no por bytes: se
+ * conserva la cabecera (frontmatter) y se van salvando secciones enteras por
+ * prioridad (Pendientes > Decisiones > Temas > el resto en su orden) mientras
+ * quepan; las que no caben se omiten y se anota cuales. Si ni la primera cabe
+ * entera, esa unica se trunca con "[...]" para que el bloque nunca quede vacio.
+ * Las secciones conservadas salen en su orden original. Puro.
+ * @param {string} content
+ * @param {number} max
+ * @returns {string}
+ */
+function clipSummary(content, max) {
+  if (typeof content !== 'string') return '';
+  if (content.length <= max) return content;
+
+  const parts = content.split(/^(?=## )/m);
+  const head = parts[0].startsWith('## ') ? '' : parts.shift();
+  const sections = parts.map((text, index) => {
+    const title = (text.match(/^## +(.*)$/m) || [, ''])[1].trim();
+    const key = title.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    let rank = SECTION_PRIORITY.findIndex((p) => key.startsWith(p));
+    if (rank < 0) rank = SECTION_PRIORITY.length + index;
+    return { index, title, text: text.replace(/\s+$/, '') + '\n\n', rank };
+  });
+  if (sections.length === 0) return content.slice(0, max) + '\n[...]';
+
+  let budget = max - head.length;
+  const kept = new Set();
+  const byPriority = [...sections].sort((a, b) => a.rank - b.rank || a.index - b.index);
+  for (const s of byPriority) {
+    if (s.text.length <= budget) {
+      kept.add(s.index);
+      budget -= s.text.length;
+    } else if (kept.size === 0) {
+      // Ni la seccion prioritaria cabe entera: truncarla antes que perderla.
+      s.text = s.text.slice(0, Math.max(0, budget - 6)) + '\n[...]\n';
+      kept.add(s.index);
+      budget = 0;
+    }
+  }
+  const omitted = sections.filter((s) => !kept.has(s.index)).map((s) => s.title);
+  const body = sections
+    .filter((s) => kept.has(s.index))
+    .map((s) => s.text)
+    .join('');
+  const note = omitted.length ? `[... secciones omitidas por tamano: ${omitted.join(', ')}]` : '';
+  return (head + body + note).replace(/\s+$/, '');
 }
 
 module.exports = {
@@ -121,7 +187,9 @@ module.exports = {
   summaryDir,
   summaryPath,
   hasSummary,
+  summaryMtimeMs,
   latestSummary,
   readSummary,
   renderLastSessionLines,
+  clipSummary,
 };

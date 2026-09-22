@@ -54,8 +54,8 @@ pub use events::{insert_event, list_events_for};
 
 // Mantenimiento a 90 dias (F1.8): SQL puro. Lo orquesta `MemoryService::gc`.
 pub use gc::{
-    db_size_bytes, freelist_bytes, prune_events, select_decayed_active_ids, vacuum,
-    EventPruneCounts,
+    db_size_bytes, freelist_bytes, fts_integrity, fts_rebuild, prune_events,
+    select_decayed_active_ids, vacuum, EventPruneCounts, FtsIntegrity,
 };
 
 pub use candidates::{

@@ -79,7 +79,7 @@ impl DoctorReport {
 /// panics (each check internally degrades to Warn/Error on failure).
 #[must_use]
 pub fn run_doctor() -> DoctorReport {
-    let mut checks = vec![check_sqlite()];
+    let mut checks = vec![check_sqlite(), check_fts()];
     checks.extend(check_qdrant_collections());
     checks.push(check_reconcile());
     checks.push(check_evals());
@@ -191,6 +191,65 @@ fn check_sqlite() -> DoctorCheck {
         format!("ok · user_version={user_version} · {active} active"),
         data,
     )
+}
+
+/// El indice FTS5 (`memory_items_fts`, contenido externo) sigue a `memory_items`.
+/// Desincronizado, MATCH falla con "missing row N from content table" y el
+/// recall sparse devuelve basura aunque `integrity_check` de SQLite diga ok
+/// (2026-09-22: 10.205 filas en el indice frente a 4.390 items; el recall no
+/// encontraba ni el titulo exacto de un item recien aprobado). Error cuando la
+/// integridad FTS falla; Warn cuando solo difieren los recuentos. Reparacion:
+/// `ultron-memory fts-rebuild`.
+fn check_fts() -> DoctorCheck {
+    let conn = match sqlite_store::open_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            return DoctorCheck::warn(
+                "fts",
+                format!("no comprobado: brain.db no abre: {e}"),
+                serde_json::json!({ "checked": false }),
+            );
+        }
+    };
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
+    let st = match sqlite_store::fts_integrity(&conn) {
+        Ok(s) => s,
+        Err(e) => {
+            return DoctorCheck::warn(
+                "fts",
+                format!("no comprobado: {e}"),
+                serde_json::json!({ "checked": false }),
+            );
+        }
+    };
+    let data = serde_json::json!({
+        "fts_rows": st.fts_rows,
+        "item_rows": st.item_rows,
+        "integrity_ok": st.integrity_ok,
+        "error": st.error,
+        "repair": "ultron-memory fts-rebuild",
+    });
+    if !st.integrity_ok {
+        return DoctorCheck::error(
+            "fts",
+            format!(
+                "indice FTS5 desincronizado ({} filas frente a {} items): el recall sparse devuelve basura; ejecuta `ultron-memory fts-rebuild`",
+                st.fts_rows, st.item_rows
+            ),
+            data,
+        );
+    }
+    if st.fts_rows != st.item_rows {
+        return DoctorCheck::warn(
+            "fts",
+            format!(
+                "recuentos distintos ({} filas frente a {} items); `ultron-memory fts-rebuild`",
+                st.fts_rows, st.item_rows
+            ),
+            data,
+        );
+    }
+    DoctorCheck::ok("fts", format!("in_sync · {} filas", st.fts_rows), data)
 }
 
 /// Per-collection Qdrant probe (SPEC-CONTROL-PLANE §2, A2). One check per live

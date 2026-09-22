@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use super::discovery::collect_plugin_mcps_from;
+use super::mutations_gen::PlanPing;
 use super::types_io::{
     build_mcp_info, is_unknown_mcp, normalize_mcp_name, parse_installed_plugins,
     select_enabled_plugin_paths, FallbackEntry, HealthDoc, InstalledPluginEntry,
@@ -417,4 +418,77 @@ fn select_enabled_plugin_paths_excludes_explicit_false() {
 fn print_real_plugin_mcp_count_on_this_machine() {
     let count = super::discovery::collect_plugin_mcps().len();
     println!("REAL collect_plugin_mcps() entries on this machine = {count}");
+}
+
+// ---------------------------------------------------------------------------
+// Ping: un servidor deshabilitado no se lanza (2026-09-22)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn un_servidor_deshabilitado_no_se_lanza_aunque_le_pidan_ping() {
+    // `mcp_ping_inner` hacía `spawn()` del `command` sin comprobar
+    // `cfg.disabled`: un `npx -y <paquete>` escrito con `disabled: true` se
+    // descargaba y se ejecutaba igual en cuanto alguien pedía un ping. Aquí
+    // se fija la mitad pura del arreglo: "deshabilitado" significa que no se
+    // lanza NADA, sin necesidad de arrancar ni un proceso para probarlo.
+    let cfg: McpServerCfg = serde_json::from_value(serde_json::json!({
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "paquete-cualquiera"],
+        "disabled": true
+    }))
+    .expect("cfg valida");
+    assert_eq!(
+        super::mutations_gen::plan_de_ping(&cfg),
+        PlanPing::Deshabilitado
+    );
+}
+
+#[test]
+fn un_servidor_habilitado_si_se_lanza() {
+    // Gemelo negativo: si el corte tapase también a los habilitados, el
+    // botón "Test" de la pestaña MCPs dejaría de servir para nada.
+    let cfg: McpServerCfg = serde_json::from_value(serde_json::json!({
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "paquete-cualquiera"]
+    }))
+    .expect("cfg valida");
+    assert_eq!(
+        super::mutations_gen::plan_de_ping(&cfg),
+        PlanPing::Lanzar(
+            "npx".to_string(),
+            vec!["-y".to_string(), "paquete-cualquiera".to_string()]
+        )
+    );
+}
+
+#[test]
+fn un_http_deshabilitado_tampoco_responde_que_si() {
+    // El camino HTTP no arranca procesos, pero contestar `ok` de un servidor
+    // apagado es mentir sobre el estado.
+    let cfg: McpServerCfg = serde_json::from_value(serde_json::json!({
+        "type": "http",
+        "url": "https://ejemplo.net/mcp",
+        "disabled": true
+    }))
+    .expect("cfg valida");
+    assert_eq!(
+        super::mutations_gen::plan_de_ping(&cfg),
+        PlanPing::Deshabilitado
+    );
+}
+
+#[test]
+fn stdio_sin_comando_no_tiene_plan_de_lanzar() {
+    // Caso ya existente antes del fix, ahora expresado como plan: un stdio
+    // habilitado pero sin `command` no puede generar un `PlanPing::Lanzar`.
+    let cfg: McpServerCfg = serde_json::from_value(serde_json::json!({
+        "type": "stdio"
+    }))
+    .expect("cfg valida");
+    assert_eq!(
+        super::mutations_gen::plan_de_ping(&cfg),
+        PlanPing::SinComando
+    );
 }

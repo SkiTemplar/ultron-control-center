@@ -180,6 +180,74 @@ pub fn vacuum(conn: &Connection) -> Result<(), MemoryError> {
         .map_err(|e| MemoryError::RemoteUnavailable(format!("VACUUM: {e}")))
 }
 
+/// Estado del indice FTS5 (`memory_items_fts`) frente a su tabla de contenido.
+///
+/// `memory_items_fts` es un indice de contenido EXTERNO (`content='memory_items'`):
+/// FTS5 no guarda el texto, solo tokens por rowid, y confia en los triggers
+/// ai/ad/au para seguir a la tabla. Si se desincroniza, una consulta MATCH falla
+/// con "missing row N from content table" y el recall sparse devuelve basura.
+/// Medido el 2026-09-22 en la base real: 10.205 filas en el indice frente a
+/// 4.390 items — el recall no encontraba ni el titulo exacto de un item nuevo.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FtsIntegrity {
+    /// Filas que el indice cree tener (`memory_items_fts_docsize`).
+    pub fts_rows: i64,
+    /// Filas reales de la tabla de contenido.
+    pub item_rows: i64,
+    /// `integrity-check` de FTS5 en verde.
+    pub integrity_ok: bool,
+    /// Mensaje del `integrity-check` cuando falla.
+    pub error: Option<String>,
+}
+
+impl FtsIntegrity {
+    /// En sync = integridad en verde Y el mismo numero de filas a ambos lados.
+    pub fn in_sync(&self) -> bool {
+        self.integrity_ok && self.fts_rows == self.item_rows
+    }
+}
+
+/// Comprueba el indice FTS5 sin modificarlo. `integrity-check` es un comando
+/// FTS5 (sintaxis INSERT) pero no escribe: solo recorre el indice contra la
+/// tabla de contenido.
+pub fn fts_integrity(conn: &Connection) -> Result<FtsIntegrity, MemoryError> {
+    let fts_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM memory_items_fts_docsize", [], |r| {
+            r.get(0)
+        })
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("fts docsize: {e}")))?;
+    let item_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM memory_items", [], |r| r.get(0))
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("memory_items count: {e}")))?;
+    // `rank = 1`: en una tabla de contenido externo, sin ese segundo argumento
+    // FTS5 solo valida la estructura del indice y da por bueno un indice con
+    // rowids que ya no existen en `memory_items` (verificado con SQLite 3.50:
+    // 'integrity-check' a secas pasa, ('integrity-check', 1) detecta el
+    // huerfano con "database disk image is malformed").
+    let (integrity_ok, error) = match conn.execute_batch(
+        "INSERT INTO memory_items_fts(memory_items_fts, rank) VALUES('integrity-check', 1);",
+    ) {
+        Ok(()) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    Ok(FtsIntegrity {
+        fts_rows,
+        item_rows,
+        integrity_ok,
+        error,
+    })
+}
+
+/// Reconstruye el indice FTS5 entero desde `memory_items` (comando `rebuild`
+/// de FTS5). Es la unica reparacion posible de un indice de contenido externo
+/// desincronizado; devuelve el estado tras reconstruir para que el llamante
+/// verifique que quedo en sync en vez de fiarse.
+pub fn fts_rebuild(conn: &Connection) -> Result<FtsIntegrity, MemoryError> {
+    conn.execute_batch("INSERT INTO memory_items_fts(memory_items_fts) VALUES('rebuild');")
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("fts rebuild: {e}")))?;
+    fts_integrity(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,6 +526,111 @@ mod tests {
             freelist_bytes(&c).unwrap() % page_size,
             0,
             "la freelist se mide en paginas enteras"
+        );
+    }
+
+    /// Cuenta los titulos que devuelve un MATCH. Se lee `title` (no solo
+    /// `rowid`) a proposito: es al materializar una columna cuando un indice
+    /// de contenido externo desincronizado falla con "missing row N from
+    /// content table", que es lo que rompio el recall sparse el 2026-09-22.
+    fn fts_match(c: &Connection, q: &str) -> Result<usize, rusqlite::Error> {
+        let mut stmt =
+            c.prepare("SELECT title FROM memory_items_fts WHERE memory_items_fts MATCH ?1")?;
+        let mut rows = stmt.query([q])?;
+        let mut n = 0usize;
+        while let Some(row) = rows.next()? {
+            let _title: Option<String> = row.get(0)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    #[test]
+    fn fts_integrity_en_verde_con_triggers_intactos() {
+        let c = conn();
+        item(&c, "a", Status::Active, 1_000, None);
+        item(&c, "b", Status::Active, 1_000, None);
+        c.execute("DELETE FROM memory_items WHERE id = 'b'", [])
+            .expect("delete con trigger");
+        let st = fts_integrity(&c).unwrap();
+        assert!(st.integrity_ok, "{:?}", st.error);
+        assert_eq!((st.fts_rows, st.item_rows), (1, 1));
+        assert!(st.in_sync());
+        assert_eq!(fts_match(&c, "item").unwrap(), 1);
+    }
+
+    // Causa raiz del desfase real (2026-09-22): `insert_item` hace
+    // `INSERT OR REPLACE`; el DELETE implicito de REPLACE NO dispara el trigger
+    // `memory_items_ad` salvo con `PRAGMA recursive_triggers=ON`, asi que cada
+    // actualizacion (status, pin, approve, edit…) dejaba la fila vieja
+    // huerfana en el indice y la nueva con otro rowid: 10.205 filas frente a
+    // 4.390 items. Con el pragma (apply_schema) la re-insercion queda en sync.
+    #[test]
+    fn reinsertar_el_mismo_id_no_deja_filas_huerfanas_en_fts() {
+        let c = conn();
+        let mut it = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Project,
+            Source::AssistantInferred,
+            Status::Active,
+        );
+        it.id = "mismo-id".to_string();
+        it.title = Some("titulo viejo".to_string());
+        insert_item(&c, &it).expect("insert");
+        it.title = Some("titulo nuevo".to_string());
+        it.status = Status::Deprecated;
+        insert_item(&c, &it).expect("replace");
+        insert_item(&c, &it).expect("replace otra vez");
+
+        let st = fts_integrity(&c).unwrap();
+        assert!(st.integrity_ok, "{:?}", st.error);
+        assert_eq!(
+            (st.fts_rows, st.item_rows),
+            (1, 1),
+            "una fila por item, sin huerfanas"
+        );
+        assert_eq!(
+            fts_match(&c, "nuevo").unwrap(),
+            1,
+            "el titulo nuevo se encuentra"
+        );
+        assert_eq!(
+            fts_match(&c, "viejo").unwrap(),
+            0,
+            "el titulo viejo ya no esta indexado"
+        );
+    }
+
+    // Caso negativo (bug real 2026-09-22): filas borradas sin pasar por el
+    // trigger dejan el indice con rowids huerfanos. La integridad lo detecta,
+    // MATCH falla, y `fts_rebuild` lo deja en sync y consultable.
+    #[test]
+    fn fts_desincronizado_se_detecta_y_rebuild_lo_repara() {
+        let c = conn();
+        item(&c, "a", Status::Active, 1_000, None);
+        item(&c, "huerfano", Status::Active, 1_000, None);
+        c.execute_batch(
+            "DROP TRIGGER memory_items_ad; DELETE FROM memory_items WHERE id = 'huerfano';",
+        )
+        .expect("borrado sin trigger");
+
+        let roto = fts_integrity(&c).unwrap();
+        assert!(!roto.integrity_ok, "integrity-check debe fallar");
+        assert_eq!((roto.fts_rows, roto.item_rows), (2, 1));
+        assert!(!roto.in_sync());
+        assert!(
+            fts_match(&c, "item").is_err(),
+            "MATCH sobre indice roto falla"
+        );
+
+        let reparado = fts_rebuild(&c).unwrap();
+        assert!(reparado.integrity_ok, "{:?}", reparado.error);
+        assert_eq!((reparado.fts_rows, reparado.item_rows), (1, 1));
+        assert!(reparado.in_sync());
+        assert_eq!(
+            fts_match(&c, "item").unwrap(),
+            1,
+            "el item vivo vuelve a encontrarse"
         );
     }
 }

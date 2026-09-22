@@ -56,6 +56,16 @@ pub fn open_conn() -> Result<Connection, MemoryError> {
 
 /// Create all tables + FTS triggers. Idempotent (`IF NOT EXISTS`).
 pub fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
+    // `recursive_triggers` (2026-09-22): `insert_item` escribe con
+    // `INSERT OR REPLACE`, y el DELETE implicito de REPLACE solo dispara el
+    // trigger `memory_items_ad` con este pragma activo. Sin el, cada
+    // actualizacion de un item dejaba su fila vieja huerfana en
+    // `memory_items_fts` (indice de contenido externo) y la nueva con otro
+    // rowid: 10.205 filas frente a 4.390 items, MATCH fallando con "missing
+    // row" y el recall sparse devolviendo basura. Es por conexion: va aqui
+    // porque `apply_schema` es lo que comparten open_conn y los tests.
+    conn.execute_batch("PRAGMA recursive_triggers = ON;")
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("recursive_triggers pragma: {e}")))?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memory_items (
             id              TEXT PRIMARY KEY,

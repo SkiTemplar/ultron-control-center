@@ -232,10 +232,27 @@ function backoffReason(sessionId) {
 }
 
 /**
+ * Margen para dar por VIEJO un summary.md: si el transcript siguio escribiendose
+ * mas de esto despues de generarse el resumen, la sesion continuo y el resumen
+ * no la cubre. Caso real (2026-09-21): resumen a las 17:29, sesion hasta las
+ * 18:35; el arranque del 22 no sabia nada de la rama maria-core. Los hooks de
+ * Stop tocan el transcript segundos despues del ultimo turno: 10 min de margen
+ * evita regenerar por ese ruido.
+ */
+const SUMMARY_STALE_GRACE_MS = 10 * 60 * 1000;
+
+/** ¿El summary.md (si existe) cubre el transcript, o la sesion siguio despues? */
+function summaryCoversTranscript(summaryMtimeMs, transcriptMtimeMs) {
+  if (summaryMtimeMs === null) return false;
+  return transcriptMtimeMs <= summaryMtimeMs + SUMMARY_STALE_GRACE_MS;
+}
+
+/**
  * Sesion anterior mas reciente que merece resumen: distinta de la actual, con
  * >=MIN_USER_PROMPTS prompts reales, modificada dentro de MAX_AGE_DAYS, sin
- * summary.md todavia y sin backoff/abandono activo (una candidata en backoff
- * se SALTA, no bloquea a la siguiente).
+ * summary.md todavia (o con uno VIEJO, ver summaryCoversTranscript) y sin
+ * backoff/abandono activo (una candidata en backoff se SALTA, no bloquea a la
+ * siguiente).
  * @returns {{sessionId: string, transcriptPath: string}|null}
  */
 function selectPreviousSession({ transcriptsDir, currentSessionId, projectId }) {
@@ -251,7 +268,6 @@ function selectPreviousSession({ transcriptsDir, currentSessionId, projectId }) 
     if (!e.isFile() || !e.name.endsWith('.jsonl')) continue;
     const sessionId = e.name.slice(0, -'.jsonl'.length);
     if (sessionId === currentSessionId) continue;
-    if (lastSession.hasSummary(projectId, sessionId)) continue; // ya tiene resumen
     let st;
     try {
       st = fs.statSync(path.join(transcriptsDir, e.name));
@@ -259,6 +275,9 @@ function selectPreviousSession({ transcriptsDir, currentSessionId, projectId }) 
       continue;
     }
     if (st.mtimeMs < cutoff) continue;
+    // Ya tiene resumen y la sesion no siguio despues: nada que hacer. Un
+    // resumen escrito a mitad de sesion se regenera (writeSummaryAtomic pisa).
+    if (summaryCoversTranscript(lastSession.summaryMtimeMs(projectId, sessionId), st.mtimeMs)) continue;
     candidates.push({ sessionId, transcriptPath: path.join(transcriptsDir, e.name), mtimeMs: st.mtimeMs });
   }
   candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -520,6 +539,8 @@ if (require.main === module) {
     transcriptsDirFor,
     hasCheapPendingCandidate,
     selectPreviousSession,
+    summaryCoversTranscript,
+    SUMMARY_STALE_GRACE_MS,
     acquireLock,
     releaseLock,
     resolveClaudeBin,

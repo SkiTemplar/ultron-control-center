@@ -618,6 +618,29 @@ fn run() -> Result<serde_json::Value, String> {
         // solo si el ahorro estimado supera 10 MB. --dry-run no escribe nada.
         // La salida trae el total y el desglose en events_deleted_by_rule.
         //   ultron-memory gc [--days 90] [--dry-run]
+        // Reconstruye el indice FTS5 de memory_items (2026-09-22): el indice de
+        // contenido externo se habia desincronizado (10.205 filas frente a 4.390
+        // items), MATCH fallaba con "missing row" y el recall sparse devolvia
+        // basura. `doctor` lo detecta en el check `fts`; esto lo repara y
+        // devuelve el estado antes/despues.
+        //   ultron-memory fts-rebuild
+        "fts-rebuild" => {
+            reject_unknown_flags(&args, &[])?;
+            to_json(ul::memory::MemoryService::fts_rebuild().map_err(|e| e.to_string())?)
+        }
+        // Baja a `internal` los items activos Secret cuyo unico marcador de
+        // redaccion es [REDACTED_PHONE]: hasta el 2026-09-22 el detector de PII
+        // tomaba las fechas ISO por telefonos y el pack del recall excluia esas
+        // memorias para siempre (35 de 69 Secret activos). --dry-run solo cuenta.
+        //   ultron-memory secret-backfill [--dry-run]
+        "secret-backfill" => {
+            reject_unknown_flags(&args, &["--dry-run"])?;
+            let dry = has_flag(&args, "--dry-run");
+            to_json(
+                ul::memory::MemoryService::secret_backfill(dry, ul::memory::Actor::System)
+                    .map_err(|e| e.to_string())?,
+            )
+        }
         "gc" => {
             reject_unknown_flags(&args, &["--days", "--dry-run"])?;
             let days: i64 = flag_value(&args, "--days")
@@ -802,7 +825,7 @@ fn run() -> Result<serde_json::Value, String> {
             "pkg_version": env!("CARGO_PKG_VERSION"),
             "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
         })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|fts-rebuild|secret-backfill [--dry-run]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

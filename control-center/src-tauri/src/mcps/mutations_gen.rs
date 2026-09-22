@@ -386,6 +386,47 @@ pub async fn generate_mcp_from_prompt_inner(
 // P7: ping a server
 // ---------------------------------------------------------------------------
 
+/// Qué haría un ping, decidido SOLO con la configuración. Va aparte del
+/// `spawn` para poder fijarlo en un test sin arrancar ni un proceso.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum PlanPing {
+    /// `disabled: true`: no se lanza NADA.
+    Deshabilitado,
+    /// HTTP/SSE: no hay proceso que arrancar.
+    Http,
+    /// stdio sin `command`: no hay nada que lanzar.
+    SinComando,
+    /// stdio habilitado: se lanzaría este comando con estos argumentos.
+    Lanzar(String, Vec<String>),
+}
+
+/// 2026-09-22 — defensa en profundidad. `mcp_ping_inner` hacía `spawn()` del
+/// `command` sin comprobar `cfg.disabled`: cualquier llamante que escribiera
+/// un servidor deshabilitado en `settings.json` (p. ej. al aplicar un MCP de
+/// un repositorio de terceros) y a continuación pidiera un ping ejecutaba
+/// igualmente el comando — un `{"command":"npx","args":["-y","<paquete>"]}`
+/// se descargaba y se ejecutaba. Ahora "deshabilitado" corta ANTES del
+/// `spawn` y significa lo mismo aquí que en `settings.json`, venga la
+/// llamada de donde venga.
+pub(super) fn plan_de_ping(cfg: &super::types_io::McpServerCfg) -> PlanPing {
+    if cfg.disabled {
+        return PlanPing::Deshabilitado;
+    }
+    let is_http = cfg.url.is_some()
+        || cfg
+            .transport
+            .as_deref()
+            .map(|t| t.eq_ignore_ascii_case("http") || t.eq_ignore_ascii_case("sse"))
+            .unwrap_or(false);
+    if is_http {
+        return PlanPing::Http;
+    }
+    match cfg.command.clone() {
+        Some(command) => PlanPing::Lanzar(command, cfg.args.clone()),
+        None => PlanPing::SinComando,
+    }
+}
+
 pub fn mcp_ping_inner(name: String) -> McpPingResult {
     let settings = match parse_settings() {
         Ok(s) => s,
@@ -407,33 +448,37 @@ pub fn mcp_ping_inner(name: String) -> McpPingResult {
         };
     };
 
-    let is_http = cfg.url.is_some()
-        || cfg
-            .transport
-            .as_deref()
-            .map(|t| t.eq_ignore_ascii_case("http") || t.eq_ignore_ascii_case("sse"))
-            .unwrap_or(false);
-    if is_http {
-        return McpPingResult {
-            name: name.clone(),
-            ok: true,
-            latency_ms: None,
-            error: None,
-        };
-    }
-
-    let Some(command) = cfg.command.clone() else {
-        return McpPingResult {
-            name,
-            ok: false,
-            latency_ms: None,
-            error: Some("stdio server has no command".to_string()),
-        };
+    let (command, args) = match plan_de_ping(cfg) {
+        PlanPing::Deshabilitado => {
+            return McpPingResult {
+                name,
+                ok: false,
+                latency_ms: None,
+                error: Some("servidor deshabilitado: no se lanza".to_string()),
+            }
+        }
+        PlanPing::Http => {
+            return McpPingResult {
+                name: name.clone(),
+                ok: true,
+                latency_ms: None,
+                error: None,
+            }
+        }
+        PlanPing::SinComando => {
+            return McpPingResult {
+                name,
+                ok: false,
+                latency_ms: None,
+                error: Some("stdio server has no command".to_string()),
+            }
+        }
+        PlanPing::Lanzar(command, args) => (command, args),
     };
 
     let start = Instant::now();
     let mut cmd = std::process::Command::new(&command);
-    cmd.args(&cfg.args)
+    cmd.args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());

@@ -24,8 +24,10 @@ mod candidates;
 mod deprecations;
 mod gc;
 mod mutations;
+mod sensitivity;
 
 pub use gc::{DEFAULT_GC_DAYS, VACUUM_MIN_BYTES};
+pub use sensitivity::{only_phone_marker, SecretBackfillResult, PHONE_MARKER};
 
 #[cfg(test)]
 mod tests;

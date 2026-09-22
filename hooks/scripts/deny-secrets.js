@@ -22,9 +22,36 @@
  *
  * Defense in depth — single-user offline system; this is a tripwire, NOT a
  * primary boundary. The hook never throws and always exits 0.
+ *
+ * Instrumentacion (2026-09-22): era el unico de los hooks registrados sin
+ * una sola llamada a `observe`, y por eso no dejaba ningun rastro en
+ * hook-timing.jsonl — no habia forma de saber si el tripwire se habia
+ * disparado alguna vez. Ahora cada ejecucion deja su linea de timing y las
+ * que bloquean anotan ADEMAS `decision` (deny|ask), `rule` (el NOMBRE de la
+ * regla que caso) y `tool`.
+ *
+ * Lo que NO se registra, a proposito: la ruta. Anotar la ruta bloqueada en un
+ * log que la app lee y que puede acabar en un repo publico convierte al
+ * guardian en la fuga (mandamiento 9). Los nombres de regla salen de un
+ * conjunto cerrado escrito en este fichero, asi que no hay dato del usuario
+ * que redactar.
+ *
+ * El fail-safe de este hook es distinto al del resto: los demas fallan
+ * ABIERTOS (exit 0 sin salida ante cualquier excepcion) porque un hook roto
+ * no puede tumbar todas las sesiones; este es una puerta de seguridad y falla
+ * CERRADO. Por eso la instrumentacion entera va envuelta: si `lib/hook-obs`
+ * faltara o lanzara, el hook sigue clasificando y bloqueando igual.
  */
 
 'use strict';
+
+// Observabilidad opcional: un fallo aqui NUNCA puede desarmar el tripwire.
+let obs = { observe() {}, annotate() {}, logHookError() {} };
+try {
+  obs = require('./lib/hook-obs');
+} catch (_) {
+  /* sin observabilidad, pero el hook sigue bloqueando */
+}
 
 // Tools whose tool_input carries a file path.
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit']);
@@ -140,6 +167,30 @@ function decisionFor(reason) {
   return ASK_REASON_FRAGMENTS.some((f) => reason.includes(f)) ? 'ask' : 'deny';
 }
 
+// Conjunto CERRADO de nombres de regla para el log. Es lo unico que sale de
+// aqui hacia hook-timing.jsonl: identifica QUE salto sin decir sobre QUE. El
+// orden importa (ssh-key antes que ssh-dir: una clave dentro de .ssh es lo
+// primero, mas especifico).
+const RULE_IDS = [
+  ['dotenv credential file', 'dotenv'],
+  ['private key / keystore', 'private-key'],
+  ['SSH private key', 'ssh-key'],
+  ['file inside an .ssh directory', 'ssh-dir'],
+  ['AWS credentials file', 'aws-credentials'],
+  ['credentials/secrets file', 'credentials-file'],
+  ['service-account key file', 'service-account'],
+  ['classifier error', 'classifier-error'],
+];
+
+/** Nombre corto y estable de la regla que caso (nunca la ruta). */
+function ruleIdFor(reason) {
+  const r = String(reason || '');
+  for (const [fragmento, id] of RULE_IDS) {
+    if (r.includes(fragmento)) return id;
+  }
+  return 'unknown';
+}
+
 function handle(raw) {
   let data;
   try {
@@ -166,6 +217,16 @@ function handle(raw) {
   if (!reason) return null;
 
   const decision = decisionFor(reason);
+  // Rastro del caso interesante: que decidio, que regla caso y sobre que tool.
+  // Se anota en la linea de timing de este proceso (ver lib/hook-obs.js); la
+  // ruta NO viaja. `via_bash` distingue el bloqueo por argumento de comando
+  // del bloqueo por file_path, que son dos caminos distintos del clasificador.
+  obs.annotate({
+    decision,
+    rule: ruleIdFor(reason),
+    tool: String(data.tool_name || 'unknown'),
+    via_bash: String(reason).startsWith('command accesses'),
+  });
   if (decision === 'ask') {
     return JSON.stringify({
       systemMessage:
@@ -193,16 +254,35 @@ function handle(raw) {
 }
 
 // Export para el selftest; ejecucion real solo como script principal.
-module.exports = { classify, classifyPath, classifyBash, decisionFor, handle };
+module.exports = { classify, classifyPath, classifyBash, decisionFor, ruleIdFor, handle };
 
 if (require.main === module) {
+  // observe() dentro del bloque principal: requerido por el selftest, el
+  // modulo no debe registrar nada ni ensuciar el log de timing.
+  obs.observe('deny-secrets');
   let raw = '';
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     raw += chunk;
   });
   process.stdin.on('end', () => {
-    const out = handle(raw);
+    let out = null;
+    try {
+      out = handle(raw);
+    } catch (e) {
+      // Fail-CLOSED tambien aqui: si handle() reventara (no deberia: ya tiene
+      // su propio catch), se bloquea en vez de dejar pasar el acceso.
+      obs.logHookError('deny-secrets', e);
+      obs.annotate({ decision: 'deny', rule: 'classifier-error', tool: 'unknown' });
+      out = JSON.stringify({
+        systemMessage: 'ULTRON deny-secrets: fallo interno del hook — se bloquea por seguridad.',
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'BLOCKED (deny-secrets): fallo interno, failing closed',
+        },
+      });
+    }
     if (out) process.stdout.write(out + '\n');
     process.exit(0);
   });

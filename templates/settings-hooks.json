@@ -42,7 +42,7 @@
         "hooks": [
           { "type": "command", "command": "node {USERPROFILE}/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js", "timeout": 5 },
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/save-user-prompt.js", "timeout": 5 },
-          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js", "timeout": 12 }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js", "timeout": 20 }
         ]
       }
     ],
@@ -111,8 +111,8 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/stop-compress-session.js", "timeout": 30, "async": true },
-          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/kanban-update-reminder.js", "timeout": 5, "async": true },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/stop-compress-session.js", "timeout": 60, "async": true },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/kanban-update-reminder.js", "timeout": 5 },
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/batch-capture.js", "timeout": 10, "async": true },
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/qdrant-mirror-sync.js", "timeout": 30, "async": true },
           { "type": "command", "command": "uv run python {USERPROFILE}/.ultron/scripts/cockpit/route_quality_aggregator.py aggregate --today", "timeout": 20, "async": true }

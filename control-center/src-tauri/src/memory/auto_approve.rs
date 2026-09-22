@@ -228,13 +228,12 @@ pub fn candidate_is_clean(candidate: &MemoryCandidate) -> bool {
     // 1.7 fail-closed: una verificación incompleta (juez timeout / dedup Err) NO
     // puede auto-aprobarse — el candidato espera adjudicación humana en el inbox.
     let has_unverified = candidate_is_unverified(candidate);
-    // Gate de origen (2026-09-07): una captura de sesión que no afirmó el
-    // usuario tampoco es "clean" — así el auto-approve EN LA CREACIÓN (el
-    // write-path con el toggle activo aprobaba a los 42 ms de proponerse,
-    // verificado hoy con "deployed version" origin:assistant) y el drain
-    // clásico la dejan en el inbox igual que el drain full-auto.
-    let non_user_origin = !candidate_origin_is_user(candidate);
-    !is_secret && !has_contradiction && !has_duplicate && !has_unverified && !non_user_origin
+    // Gate de origen (2026-09-07, relajado 2026-09-22): una captura de sesión
+    // cuyo origen NO CONSTA tampoco es "clean" — así el auto-approve EN LA
+    // CREACIÓN y el drain clásico la dejan en el inbox igual que el drain
+    // full-auto. Ver `candidate_origin_allows_auto` para la política.
+    let unknown_origin = !candidate_origin_allows_auto(candidate);
+    !is_secret && !has_contradiction && !has_duplicate && !has_unverified && !unknown_origin
 }
 
 /// True cuando el candidato lleva algún marcador de verificación incompleta
@@ -307,7 +306,7 @@ pub fn auto_disposition(candidate: &MemoryCandidate) -> AutoDisposition {
     if candidate_is_unverified(candidate) {
         return AutoDisposition::KeepUnverified;
     }
-    if !candidate_origin_is_user(candidate) {
+    if !candidate_origin_allows_auto(candidate) {
         return AutoDisposition::KeepNonUserOrigin;
     }
     if candidate.confidence < REJECT_THRESHOLD {
@@ -316,28 +315,53 @@ pub fn auto_disposition(candidate: &MemoryCandidate) -> AutoDisposition {
     AutoDisposition::Approve
 }
 
-/// Gate de origen (2026-09-07, decidido por el usuario): solo lo que afirmó,
-/// eligió o confirmó el USUARIO puede promocionarse a active por la vía auto.
-/// Lo que únicamente dijo el asistente (`origin:assistant`) o cuyo origen no
-/// consta (`origin:unknown`, o sin etiqueta: capturas antiguas y canales que
-/// no la estampan) queda pending hasta que lo valide una persona. Fail-closed:
-/// la duda no promociona. Solo aplica a las capturas de sesión (`stop_capture`);
-/// los canales estructurales (posttooluse_symbol/arch, lesson-distill…) no
-/// hablan por el asistente y siguen su política de siempre.
-#[must_use]
-pub fn candidate_origin_is_user(candidate: &MemoryCandidate) -> bool {
-    let is_session_capture = candidate.capture_source.as_deref() == Some("stop_capture")
+/// ¿Es una captura de sesión (`stop_capture` o con etiqueta `origin:*`)? Los
+/// canales estructurales (posttooluse_symbol/arch, lesson-distill…) no hablan
+/// por el asistente y no pasan por el gate de origen.
+fn is_session_capture(candidate: &MemoryCandidate) -> bool {
+    candidate.capture_source.as_deref() == Some("stop_capture")
         || candidate
             .proposed_tags
             .iter()
-            .any(|t| t.starts_with("origin:"));
-    if !is_session_capture {
+            .any(|t| t.starts_with("origin:"))
+}
+
+/// Gate de origen (2026-09-07, decidido por el usuario): lo que afirmó, eligió
+/// o confirmó el USUARIO (`origin:user`) siempre puede promocionarse a active
+/// por la vía auto. Los canales estructurales también.
+#[must_use]
+pub fn candidate_origin_is_user(candidate: &MemoryCandidate) -> bool {
+    if !is_session_capture(candidate) {
         return true;
     }
     candidate
         .proposed_tags
         .iter()
         .any(|t| t.eq_ignore_ascii_case("origin:user"))
+}
+
+/// Política de origen para la vía auto (2026-09-22, decidido por el usuario el
+/// 2026-09-21: "el inbox se debería aprobar automáticamente"):
+///
+///   * `origin:user`      → sí (gate del 2026-09-07, intacto).
+///   * `origin:assistant` → sí, PERO solo si además supera el umbral de banda A
+///     (lo comprueba `classify_band` / el drain): una captura del asistente
+///     entra sola únicamente con confianza alta. Antes quedaba pending siempre y,
+///     como el 100 % de la captura real lleva `origin:assistant`, el toggle
+///     `auto_approve` no disparaba nunca (medido: 9 candidatos en el inbox con
+///     confianza 0,66–0,74 por encima del umbral 0,65, ninguno aprobado).
+///   * `origin:unknown` o sin etiqueta → no. Fail-closed: la duda no promociona.
+///
+/// Las salvaguardas duras (secreto, contradicción, duplicado, unverified y el
+/// gate `sin_sustancia` del write-path) se aplican ANTES y no cambian.
+#[must_use]
+pub fn candidate_origin_allows_auto(candidate: &MemoryCandidate) -> bool {
+    if !is_session_capture(candidate) {
+        return true;
+    }
+    candidate.proposed_tags.iter().any(|t| {
+        t.eq_ignore_ascii_case("origin:user") || t.eq_ignore_ascii_case("origin:assistant")
+    })
 }
 
 /// Resultado de `auto_disposition` (ver ahí la política completa).
@@ -431,13 +455,18 @@ mod tests {
     }
 
     #[test]
-    fn origin_assistant_keeps_pending_even_with_high_confidence() {
-        // Caso negativo del bug de hoy: una interpretación del asistente con
-        // confidence alta NO entra sola a active.
-        assert_eq!(
-            auto_disposition(&session_capture(Some("assistant"))),
-            AutoDisposition::KeepNonUserOrigin
-        );
+    fn origin_assistant_auto_approves_only_in_band_a() {
+        // 2026-09-22: una captura del asistente con confidence alta SÍ entra
+        // sola (el toggle auto_approve por fin dispara sobre la captura real)…
+        let high = session_capture(Some("assistant"));
+        assert_eq!(auto_disposition(&high), AutoDisposition::Approve);
+        assert!(candidate_is_clean(&high));
+        assert_eq!(classify_band(&high, 0.65), AutoBand::Approve);
+        // …pero en banda B se queda pending: clean no basta sin confianza.
+        let mut mid = session_capture(Some("assistant"));
+        mid.confidence = 0.60;
+        assert!(candidate_is_clean(&mid));
+        assert_eq!(classify_band(&mid, 0.65), AutoBand::Pending);
     }
 
     #[test]
@@ -455,12 +484,13 @@ mod tests {
     }
 
     #[test]
-    fn assistant_origin_is_not_clean_so_creation_time_auto_approve_skips_it() {
+    fn unknown_origin_is_not_clean_so_creation_time_auto_approve_skips_it() {
         // El write-path aprueba en la creación a través de candidate_is_clean +
-        // classify_band: sin esto, el gate del drain llegaba tarde.
-        assert!(!candidate_is_clean(&session_capture(Some("assistant"))));
+        // classify_band: la duda de origen sigue fail-closed ahí también.
+        assert!(!candidate_is_clean(&session_capture(Some("unknown"))));
         assert!(!candidate_is_clean(&session_capture(None)));
         assert!(candidate_is_clean(&session_capture(Some("user"))));
+        assert!(candidate_is_clean(&session_capture(Some("assistant"))));
     }
 
     #[test]

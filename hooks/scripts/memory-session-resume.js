@@ -276,6 +276,9 @@ function launchPortraitRefreshIfStale() {
   try {
     const age = Date.now() - fs.statSync(PORTRAIT_FILE).mtimeMs;
     if (age < PORTRAIT_MAX_AGE_MS) return;
+    // Sin generador (p.ej. la copia del plugin de Cowork no lo incluye) no se
+    // marca el retrato como regenerado sin regenerarlo de verdad.
+    if (!fs.existsSync(PORTRAIT_SCRIPT)) return;
     // Toca el fichero antes de lanzar: dos sesiones abiertas a la vez no
     // disparan dos regeneraciones.
     const now = new Date();

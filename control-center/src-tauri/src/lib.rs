@@ -242,9 +242,32 @@ pub fn run() {
                 }
             });
 
-            // v2.13 -> v2.14 data migration (meta.json + features.json ensure).
-            // Best-effort: a failure must never block startup.
-            {
+            // Migraciones de datos, FUERA del hilo que crea la ventana
+            // (2026-09-22). El comentario de abajo decía «best-effort: a
+            // failure must never block startup» — correcto sobre el error y
+            // mudo sobre el TIEMPO, que era el problema: eran el último punto
+            // pesado que quedaba síncrono dentro de `.setup()`, mientras todo
+            // lo demás (barrido de modelos, Qdrant, voz, warm del catálogo)
+            // ya corría en un hilo.
+            //
+            // POR QUÉ SE PUEDE MOVER, y qué se ha comprobado antes de
+            // hacerlo: ninguna de las dos escribe algo que otro tenga que
+            // encontrar ya hecho, porque los dos lectores se curan solos con
+            // EXACTAMENTE lo mismo que escribiría la migración:
+            //   * `features.json` -> `features::read_features_inner()` cae a
+            //     `Features::default()` cuando el fichero no está, que es el
+            //     contenido que crea la migración;
+            //   * `kanban.json`   -> `kanban::board_io::load()` crea el
+            //     tablero por defecto y lo guarda si falta.
+            //   * `meta.json` no lo lee nadie más que la propia migración.
+            // Por eso no hay ninguna bandera «migrando» que consultar: no
+            // existe un comando capaz de ver un estado a medias, y una
+            // bandera que nadie mira sería código sin consumidor (mandamiento
+            // 12). Las dos se quedan en el MISMO hilo y en el MISMO orden,
+            // por si alguna vez dejan de ser independientes.
+            std::thread::spawn(|| {
+                // v2.13 -> v2.14 data migration (meta.json + features.json ensure).
+                // Best-effort: a failure must never block startup.
                 let report = crate::migration::run_migrations_inner(env!("CARGO_PKG_VERSION"));
                 if report.migrated {
                     tracing::info!(
@@ -254,18 +277,16 @@ pub fn run() {
                         report.actions.join(" | ")
                     );
                 }
-            }
 
-            // P4 migration: ensure every known project has a kanban.json.
-            // Idempotent — no-op if files already exist.
-            {
+                // P4 migration: ensure every known project has a kanban.json.
+                // Idempotent — no-op if files already exist.
                 if let Ok(projects) = crate::projects::list_projects_inner() {
                     let ids: Vec<String> = projects.iter().map(|p| p.id.clone()).collect();
                     if let Err(e) = crate::kanban::migrate_all_projects(&ids) {
                         tracing::error!(error = %e, "kanban migration failed");
                     }
                 }
-            }
+            });
 
             // KIRKARDO 23 P2: initialise the workflow-runs SQLite DB (WAL +
             // indices). Idempotent — no-op when table already exists.

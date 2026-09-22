@@ -109,6 +109,24 @@ run('descarta una sesion que YA tiene summary.md', () => {
   const target = summarizer.selectPreviousSession({ transcriptsDir: dir, currentSessionId: 'x', projectId: 'demo-3' });
   assert.strictEqual(target, null);
 });
+run('regenera cuando el summary.md es VIEJO: la sesion siguio > margen despues de resumirse', () => {
+  // Caso real 2026-09-21: resumen a las 17:29, sesion hasta las 18:35.
+  const dir = makeTranscriptsDir({
+    continuo: [userTurn('p1'), assistantTurn('r1'), userTurn('p2'), assistantTurn('r2')],
+  });
+  fs.mkdirSync(lastSession.summaryDir('demo-3b', 'continuo'), { recursive: true });
+  fs.writeFileSync(lastSession.summaryPath('demo-3b', 'continuo'), '## Temas\nresumen a mitad de sesion\n');
+  const summaryAt = new Date(Date.now() - summarizer.SUMMARY_STALE_GRACE_MS - 60 * 60 * 1000);
+  fs.utimesSync(lastSession.summaryPath('demo-3b', 'continuo'), summaryAt, summaryAt);
+  const target = summarizer.selectPreviousSession({ transcriptsDir: dir, currentSessionId: 'x', projectId: 'demo-3b' });
+  assert.ok(target, 'un resumen de hace una hora sobre un transcript recien tocado se regenera');
+  assert.strictEqual(target.sessionId, 'continuo');
+  // NEGATIVO: dentro del margen (los hooks de Stop tocan el transcript segundos
+  // despues del resumen) NO se regenera.
+  assert.strictEqual(summarizer.summaryCoversTranscript(1_000_000, 1_000_000 + summarizer.SUMMARY_STALE_GRACE_MS - 1), true);
+  assert.strictEqual(summarizer.summaryCoversTranscript(1_000_000, 1_000_000 + summarizer.SUMMARY_STALE_GRACE_MS + 1), false);
+  assert.strictEqual(summarizer.summaryCoversTranscript(null, 5), false, 'sin resumen nunca "cubre"');
+});
 run('NEGATIVO: directorio de transcripts inexistente no lanza, devuelve null', () => {
   const target = summarizer.selectPreviousSession({
     transcriptsDir: path.join(ROOT, 'no-existe-nunca'),

@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-21",
+  "generated_at": "2026-09-22",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -153,7 +153,7 @@
       "script": "~/.ultron/hooks/scripts/deny-secrets.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "997481cac15c7e754625ef2512de645c3d57b077cd0dea13698628f21004d32e",
+      "checksum_sha256": "07704de5e484bba154485256930ae2fa013cfbace463f8ad12e110d5ae911700",
       "version": "2.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -408,7 +408,7 @@
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
       "async": false,
-      "checksum_sha256": "cdc7ced7a5aeca705e83d1e7a7e3f0db2ea9b135aa0492eb2c694fe3728ef6cd",
+      "checksum_sha256": "6b39c92eec4df5e2aa0d9d01f26396ce6ce38dcd6ded8b8d5074e98c0180b58f",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
