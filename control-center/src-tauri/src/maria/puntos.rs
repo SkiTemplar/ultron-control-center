@@ -69,6 +69,10 @@ const NO_CUENTAN: &[&str] = &[
 /// `info/exclude` de la sombra ya deja fuera de la foto pase lo que pase.
 const SOLO_EL_GIT: &[&str] = &[".git"];
 
+/// Repositorios anidados que se nombran en el aviso. Pasados unos cuantos, la
+/// linea deja de caber en el chat y de leerse.
+const MAX_ANIDADOS: usize = 10;
+
 /// Un punto de control.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Punto {
@@ -80,13 +84,28 @@ pub struct Punto {
     pub etiqueta: String,
 }
 
+/// Una foto recien tomada: el punto y lo que se ha quedado FUERA de ella.
+///
+/// Van juntos y con nombre a proposito. Un `Punto` a secas invita al
+/// `let (punto, _)` que ya hizo perder un aviso en los encargos, y lo que la
+/// foto no alcanza es justo lo que hay que decir antes de soltar a un agente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Foto {
+    pub punto: Punto,
+    /// Repositorios anidados que han quedado fuera. Ver `Recorrido`.
+    pub anidados: Vec<String>,
+}
+
 /// Lo que ha pasado al volver a un punto.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Restauracion {
     /// Punto que se tomo ANTES de restaurar. Volver tambien se puede deshacer.
     pub antes: String,
     /// Ficheros que han cambiado en el arbol de trabajo.
     pub ficheros: usize,
+    /// Repositorios anidados a los que la vuelta NO ha llegado: lo que haya
+    /// ahi dentro sigue como lo dejo el agente. Vacio es lo normal.
+    pub anidados: Vec<String>,
 }
 
 /// Motivo por el que no se ha tomado una foto. Se distingue del resto de
@@ -217,12 +236,33 @@ fn saltar_en(sombra: &Path, proyecto: &Path) -> &'static [&'static str] {
     }
 }
 
-/// Cuenta entradas del arbol hasta `tope`, saltando las carpetas de `saltar`.
+/// Lo que se ha visto al recorrer el arbol del proyecto.
+#[derive(Debug, Default)]
+struct Recorrido {
+    /// Entradas contadas, hasta el tope del fusible.
+    entradas: usize,
+    /// Subcarpetas que son repositorios git APARTE (submodulos, dependencias
+    /// vendorizadas, un proyecto que el usuario clono dentro), en rutas
+    /// relativas al proyecto. Lo que hay dentro NO entra en la foto.
+    anidados: Vec<String>,
+}
+
+/// Ruta de `dir` relativa al proyecto, con barras normales. `None` si es el
+/// propio proyecto o si cae fuera.
+fn relativa(proyecto: &Path, dir: &Path) -> Option<String> {
+    let resto = dir.strip_prefix(proyecto).ok()?;
+    let texto = resto.to_string_lossy().replace('\\', "/");
+    (!texto.is_empty()).then_some(texto)
+}
+
+/// Recorre el arbol hasta `tope` entradas, saltando las carpetas de `saltar`.
 ///
 /// Se para en cuanto llega al tope: el coste esta acotado por construccion, que
-/// es justo lo que le falta a un `git status` sobre un arbol enorme.
-fn entradas_hasta(proyecto: &Path, tope: usize, saltar: &[&str]) -> usize {
-    let mut n = 0;
+/// es justo lo que le falta a un `git status` sobre un arbol enorme. De paso
+/// —el recorrido ya pasa por ahi— apunta los repositorios anidados: se
+/// reconocen por su `.git`, que es la entrada que este bucle ya se salta.
+fn recorrer(proyecto: &Path, tope: usize, saltar: &[&str]) -> Recorrido {
+    let mut r = Recorrido::default();
     let mut pendientes = vec![proyecto.to_path_buf()];
     while let Some(dir) = pendientes.pop() {
         let Ok(hijos) = std::fs::read_dir(&dir) else {
@@ -231,30 +271,70 @@ fn entradas_hasta(proyecto: &Path, tope: usize, saltar: &[&str]) -> usize {
         for hijo in hijos.flatten() {
             let nombre = hijo.file_name();
             let nombre = nombre.to_string_lossy();
+            if nombre == ".git" {
+                // A profundidad 0 es el repo del usuario, que ya se deja
+                // fuera por `info/exclude`. Mas adentro es otro repositorio:
+                // `git add -A` mete una sola entrada de modo 160000 con el sha
+                // del commit interno —que ni siquiera existe como objeto en la
+                // sombra— asi que ni se guarda su contenido ni se restaura.
+                if r.anidados.len() < MAX_ANIDADOS {
+                    if let Some(rel) = relativa(proyecto, &dir) {
+                        r.anidados.push(rel);
+                    }
+                }
+                continue;
+            }
             if saltar.iter().any(|x| *x == nombre) {
                 continue;
             }
-            n += 1;
-            if n >= tope {
-                return n;
+            r.entradas += 1;
+            if r.entradas >= tope {
+                return r;
             }
             if hijo.file_type().is_ok_and(|t| t.is_dir()) {
                 pendientes.push(hijo.path());
             }
         }
     }
-    n
+    r.anidados.sort();
+    r
+}
+
+/// El aviso de los repositorios anidados, o `None` si no hay ninguno. Pura.
+///
+/// Se dice ANTES de soltar al agente, que es el momento en que sirve de algo:
+/// despues, el dialogo de volver promete que «borra lo que se escribio
+/// despues» y ahi dentro no es verdad.
+#[must_use]
+pub fn aviso_anidados(anidados: &[String]) -> Option<String> {
+    if anidados.is_empty() {
+        return None;
+    }
+    let (esto, son) = if anidados.len() == 1 {
+        ("es un repositorio aparte", "lo que los agentes toquen ahi")
+    } else {
+        (
+            "son repositorios aparte",
+            "lo que los agentes toquen dentro",
+        )
+    };
+    Some(format!(
+        "No se fotografia el contenido de {}: {esto}, y git solo guarda la referencia. \
+         Asi que {son} no se podra deshacer desde el chat.",
+        anidados.join(", ")
+    ))
 }
 
 // ---------------------------------------------------------------------------
 // Foto, listado y vuelta
 // ---------------------------------------------------------------------------
 
-/// Fotografia el arbol de trabajo del proyecto. Devuelve el punto.
+/// Fotografia el arbol de trabajo del proyecto. Devuelve el punto y lo que ha
+/// quedado fuera de la foto.
 ///
 /// Se toma SIEMPRE una, aunque no haya cambios (`--allow-empty`): asi cada
 /// turno tiene su punto y «volver a aqui» apunta a un sitio real.
-pub fn foto_en(raiz: &Path, proyecto: &Path, hilo: &str, etiqueta: &str) -> Result<Punto, String> {
+pub fn foto_en(raiz: &Path, proyecto: &Path, hilo: &str, etiqueta: &str) -> Result<Foto, String> {
     let sombra = sombra_en(raiz, hilo)?;
     // `asegurar` va ahora ANTES del fusible (2026-09-22): el conteo necesita
     // preguntarle a git que ignora el proyecto y esa pregunta se hace por el
@@ -263,7 +343,8 @@ pub fn foto_en(raiz: &Path, proyecto: &Path, hilo: &str, etiqueta: &str) -> Resu
     // que fiarse del `.git` del usuario fallaria en las carpetas que no son
     // repositorio, que son justo las que se llenan de `node_modules`.
     asegurar(&sombra, proyecto)?;
-    if entradas_hasta(proyecto, MAX_ENTRADAS, saltar_en(&sombra, proyecto)) >= MAX_ENTRADAS {
+    let visto = recorrer(proyecto, MAX_ENTRADAS, saltar_en(&sombra, proyecto));
+    if visto.entradas >= MAX_ENTRADAS {
         return Err(ARBOL_DEMASIADO_GRANDE.to_string());
     }
     git(&sombra, proyecto, &["add", "-A"])?;
@@ -288,10 +369,13 @@ pub fn foto_en(raiz: &Path, proyecto: &Path, hilo: &str, etiqueta: &str) -> Resu
         ],
     )?;
     let sha = git(&sombra, proyecto, &["rev-parse", "HEAD"])?;
-    Ok(Punto {
-        sha,
-        ts,
-        etiqueta: etiqueta.to_string(),
+    Ok(Foto {
+        punto: Punto {
+            sha,
+            ts,
+            etiqueta: etiqueta.to_string(),
+        },
+        anidados: visto.anidados,
     })
 }
 
@@ -364,13 +448,14 @@ pub fn volver_en(
     let cambios = git(
         &sombra,
         proyecto,
-        &["diff", "--name-only", &format!("{sha}..{}", red.sha)],
+        &["diff", "--name-only", &format!("{sha}..{}", red.punto.sha)],
     )
     .unwrap_or_default();
     git(&sombra, proyecto, &["read-tree", "-u", "--reset", sha])?;
     Ok(Restauracion {
-        antes: red.sha,
+        antes: red.punto.sha,
         ficheros: cambios.lines().filter(|l| !l.trim().is_empty()).count(),
+        anidados: red.anidados,
     })
 }
 
@@ -500,7 +585,10 @@ pub fn del_turno_en(
         return (None, None);
     };
     match foto_en(raiz, p, hilo, etiqueta) {
-        Ok(punto) => (Some(punto.sha), None),
+        // Hay punto, pero puede no alcanzar a todo el arbol: un repositorio
+        // anidado queda fuera y eso hay que decirlo AHORA, no cuando el
+        // usuario pulse volver y crea que ha deshecho lo de dentro.
+        Ok(foto) => (Some(foto.punto.sha), aviso_anidados(&foto.anidados)),
         Err(motivo) => {
             tracing::warn!(
                 proyecto = %p.display(), hilo, error = %motivo,
@@ -551,6 +639,9 @@ pub struct Restaurado {
     pub antes: String,
     /// Turnos que quedan en el hilo. 0 en modo «codigo».
     pub turnos: usize,
+    /// Repositorios anidados a los que la vuelta NO ha llegado, para que la
+    /// interfaz no prometa mas de lo que ha hecho. Vacio es lo normal.
+    pub anidados: Vec<String>,
 }
 
 /// Que toca cada modo de volver: `(codigo, conversacion)`. Pura.
@@ -585,6 +676,7 @@ fn volver_por_modo(
         let vuelta = volver(&proyecto, thread_id, sha)?;
         r.ficheros = vuelta.ficheros;
         r.antes = vuelta.antes;
+        r.anidados = vuelta.anidados;
     } else {
         // Aqui el sha no se usa para restaurar nada, pero se comprueba igual:
         // si el punto no existe, lo honesto es negarse, no truncar el hilo y
@@ -693,7 +785,7 @@ mod tests {
         std::fs::write(p.join("uno.txt"), "B destrozado\n").expect("escribir");
         std::fs::write(p.join("dos.txt"), "nuevo\n").expect("escribir");
 
-        let vuelta = volver_en(r, p, "hilo-1", &punto.sha).expect("volver");
+        let vuelta = volver_en(r, p, "hilo-1", &punto.punto.sha).expect("volver");
         assert_eq!(
             std::fs::read_to_string(p.join("uno.txt")).expect("leer"),
             "A\n",
@@ -748,7 +840,7 @@ mod tests {
 
         let l = lista_en(r, p, "hilo-1").expect("lista");
         assert_eq!(l.len(), 2);
-        assert_eq!(l[0].sha, segundo.sha);
+        assert_eq!(l[0].sha, segundo.punto.sha);
         assert_eq!(l[0].etiqueta, "turno 2");
         assert_eq!(l[1].etiqueta, "turno 1");
         // Una conversacion sin fotos no es un error: es que aun no hay ninguna.
@@ -806,7 +898,7 @@ mod tests {
         .expect("hooksPath a mano");
 
         let segunda = foto_en(r, p, "hilo-1", "turno 2").expect("el hook no puede tumbar la foto");
-        assert_ne!(segunda.sha, primera.sha, "hay foto nueva");
+        assert_ne!(segunda.punto.sha, primera.punto.sha, "hay foto nueva");
         assert_eq!(
             std::fs::read_to_string(p.join("uno.txt")).expect("leer"),
             "A\n",
@@ -917,6 +1009,77 @@ mod tests {
     }
 
     #[test]
+    fn un_repositorio_anidado_se_nombra_porque_la_foto_no_entra_dentro() {
+        // Caso negativo del 2026-09-22: `git add -A` sobre un arbol que
+        // contiene otro repositorio no indexa su contenido, sino una sola
+        // entrada de modo 160000 con el sha del commit interno, que encima no
+        // existe como objeto en la sombra. Ni se guarda ni se restaura, y la
+        // vuelta decia «N ficheros restaurados» tan contenta: justo el caso de
+        // soltarle un agente a un monorepo con submodulos.
+        let (puntos, proyecto) = escenario();
+        let (r, p) = (puntos.path(), proyecto.path());
+        let sub = p.join("sub");
+        std::fs::create_dir_all(&sub).expect("crear sub");
+        std::fs::write(sub.join("dentro.txt"), "bueno\n").expect("escribir");
+        for args in [
+            vec!["init", "--quiet"],
+            vec!["config", "user.email", "pruebas@example.invalid"],
+            vec!["config", "user.name", "pruebas"],
+            vec!["add", "."],
+            vec!["commit", "--quiet", "-m", "del repo de dentro"],
+        ] {
+            let ok = crate::proc::oculto("git")
+                .args(&args)
+                .current_dir(&sub)
+                .output()
+                .expect("git")
+                .status
+                .success();
+            assert!(ok, "preparar el repo anidado: {args:?}");
+        }
+
+        // El aviso llega ANTES de soltar al agente, que es cuando sirve.
+        let (sha, aviso) = del_turno_en(r, Some(p), "hilo-1", "turno 1");
+        let sha = sha.expect("hay punto, aunque no lo alcance todo");
+        let aviso = aviso.expect("tenia que avisar de lo que queda fuera de la foto");
+        assert!(aviso.contains("sub"), "{aviso}");
+        assert!(aviso.contains("deshacer"), "{aviso}");
+
+        // Y lo que dice es verdad: la vuelta no entra ahi dentro.
+        std::fs::write(sub.join("dentro.txt"), "destrozado\n").expect("escribir");
+        std::fs::write(p.join("uno.txt"), "destrozado\n").expect("escribir");
+        let vuelta = volver_en(r, p, "hilo-1", &sha).expect("volver");
+        assert_eq!(
+            std::fs::read_to_string(p.join("uno.txt")).expect("leer"),
+            "A\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(sub.join("dentro.txt")).expect("leer"),
+            "destrozado\n",
+            "git no restaura dentro de un repo anidado: por eso hay que decirlo"
+        );
+        assert_eq!(
+            vuelta.anidados,
+            vec!["sub".to_string()],
+            "la restauracion tiene que nombrar lo que ha dejado como estaba"
+        );
+    }
+
+    #[test]
+    fn sin_repos_anidados_no_se_inventa_ningun_aviso() {
+        // El otro lado del mandamiento 11: avisar de algo que no pasa entrena
+        // al usuario a no leer los avisos.
+        assert_eq!(aviso_anidados(&[]), None);
+        let uno = aviso_anidados(&["sub".to_string()]).expect("hay uno");
+        assert!(uno.contains("es un repositorio aparte"), "{uno}");
+        let dos = aviso_anidados(&["a".to_string(), "b/c".to_string()]).expect("hay dos");
+        assert!(
+            dos.contains("a, b/c") && dos.contains("son repositorios"),
+            "{dos}"
+        );
+    }
+
+    #[test]
     fn cuando_la_foto_no_sale_se_avisa_en_vez_de_callarse() {
         // Caso negativo: el turno se contesta igual (no devuelve Result), pero
         // el aviso lleva el motivo. Un `None` mudo haria creer al usuario que
@@ -969,7 +1132,7 @@ mod tests {
         assert!(existe_en(r, p, "hilo-1", "deadbeef").is_err());
 
         let punto = foto_en(r, p, "hilo-1", "turno 1").expect("foto");
-        assert!(existe_en(r, p, "hilo-1", &punto.sha).is_ok());
+        assert!(existe_en(r, p, "hilo-1", &punto.punto.sha).is_ok());
         std::fs::write(p.join("uno.txt"), "tocado\n").expect("escribir");
         assert!(existe_en(r, p, "hilo-1", "0".repeat(40).as_str()).is_err());
         assert_eq!(
@@ -988,8 +1151,11 @@ mod tests {
         let sombra = sombra_en(r, "hilo-1").expect("sombra");
         asegurar(&sombra, p).expect("asegurar");
         let saltar = saltar_en(&sombra, p);
-        assert!(entradas_hasta(p, 2, saltar) >= 2, "hay mas de dos entradas");
-        assert!(entradas_hasta(p, MAX_ENTRADAS, saltar) < MAX_ENTRADAS);
+        assert!(
+            recorrer(p, 2, saltar).entradas >= 2,
+            "hay mas de dos entradas"
+        );
+        assert!(recorrer(p, MAX_ENTRADAS, saltar).entradas < MAX_ENTRADAS);
     }
 
     #[test]
@@ -1007,14 +1173,14 @@ mod tests {
         let sombra = sombra_en(r, "hilo-1").expect("sombra");
         asegurar(&sombra, p).expect("asegurar");
 
-        let antes = entradas_hasta(p, MAX_ENTRADAS, saltar_en(&sombra, p));
+        let antes = recorrer(p, MAX_ENTRADAS, saltar_en(&sombra, p)).entradas;
         let pesada = p.join("node_modules");
         std::fs::create_dir_all(&pesada).expect("crear");
         for i in 0..20 {
             std::fs::write(pesada.join(format!("{i}.js")), "x").expect("escribir");
         }
         assert_eq!(
-            entradas_hasta(p, MAX_ENTRADAS, saltar_en(&sombra, p)),
+            recorrer(p, MAX_ENTRADAS, saltar_en(&sombra, p)).entradas,
             antes + 21,
             "sin .gitignore que la cubra, git la va a indexar: tiene que contar"
         );
@@ -1023,7 +1189,7 @@ mod tests {
         // bueno: el propio repo de maria cuenta 1.385 entradas y no salta.
         std::fs::write(p.join(".gitignore"), "secreto.txt\nnode_modules/\n").expect("gitignore");
         assert_eq!(
-            entradas_hasta(p, MAX_ENTRADAS, saltar_en(&sombra, p)),
+            recorrer(p, MAX_ENTRADAS, saltar_en(&sombra, p)).entradas,
             antes,
             "lo que el proyecto ignora no lo indexa git, asi que no cuenta"
         );
