@@ -182,6 +182,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria::quota::maria_quota_windows,
         maria::sysinfo::maria_telemetry,
         maria::models::maria_models_catalog,
+        maria::models::maria_models_refrescar,
         maria::local::maria_local_status,
         maria::login::maria_login_status,
         maria::cuentas::maria_cuentas_informe,

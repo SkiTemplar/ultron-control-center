@@ -48,6 +48,15 @@ pub struct Cuenta {
     pub key_tail: String,
     /// Avisos que el usuario deberia leer antes de trabajar.
     pub warnings: Vec<String>,
+    /// Plan detectado ("Claude Pro", "ChatGPT Free"…). Vacio = no se sabe, que
+    /// es una respuesta valida: ninguna CLI tiene un comando que lo diga y
+    /// estimarlo seria justo lo contrario de para lo que existe este modulo.
+    #[serde(default)]
+    pub plan: String,
+    /// Fichero y campo (o comando) de donde salio el plan. Nunca un valor
+    /// sensible: ni tokens, ni identificadores de cuenta.
+    #[serde(default)]
+    pub plan_origen: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -110,21 +119,48 @@ pub fn correo_en(v: &serde_json::Value) -> Option<(String, String)> {
     None
 }
 
-/// Saca el `email` del payload de un JWT SIN verificar la firma.
+/// Payload de un JWT, decodificado SIN verificar la firma.
 ///
-/// Solo para ENSEÑARLO: no se usa para autorizar nada, asi que no hace falta
-/// (ni tendria sentido aqui) comprobar la firma. Codex guarda un `id_token`
-/// con el correo dentro y es la unica via de saber con que cuenta se entro.
-/// Pura.
-#[must_use]
-pub fn correo_en_jwt(token: &str) -> Option<String> {
+/// No se usa para autorizar nada —solo para ENSEÑAR un dato—, asi que aqui
+/// comprobar la firma no aportaria nada. El token entra, y lo que sale es un
+/// JSON: el token en si no vuelve a salir de esta funcion. Pura.
+fn payload_de_jwt(token: &str) -> Option<serde_json::Value> {
     use base64::Engine;
     let payload = token.split('.').nth(1)?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(payload.trim())
         .ok()?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    correo_en(&v).map(|(c, _)| c)
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Saca el `email` del payload de un JWT SIN verificar la firma.
+///
+/// Codex guarda un `id_token` con el correo dentro y es la unica via de saber
+/// con que cuenta se entro. Pura.
+#[must_use]
+pub fn correo_en_jwt(token: &str) -> Option<String> {
+    correo_en(&payload_de_jwt(token)?).map(|(c, _)| c)
+}
+
+/// Saca el plan de ChatGPT del payload de un JWT SIN verificar la firma.
+///
+/// Es la unica fuente offline del plan: ni `codex login status` ni
+/// `codex doctor` lo dicen, y no hay comando que lo pregunte (medido el
+/// 2026-09-22). Lo que sale de aqui es una palabra —"free", "plus"…— nunca el
+/// token, que no se devuelve ni se registra. Pura.
+#[must_use]
+pub fn plan_en_jwt(token: &str) -> Option<String> {
+    let v = payload_de_jwt(token)?;
+    // Con `get` y no con `pointer`: la clave del claim lleva barras y en un
+    // JSON pointer habria que escaparlas (`~1`), que es una forma estupenda de
+    // equivocarse en silencio.
+    let plan = v
+        .get("https://api.openai.com/auth")
+        .and_then(|a| a.get("chatgpt_plan_type"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    Some(plan.to_string())
 }
 
 /// Ultimos 4 caracteres de una clave. Nunca mas: con 8 ya se puede empezar a
@@ -236,6 +272,8 @@ fn cuenta_claude(home: &std::path::Path) -> Cuenta {
         },
         key_tail: clave.map(|(v, _)| cola_de_clave(&v)).unwrap_or_default(),
         warnings,
+        plan: String::new(),
+        plan_origen: String::new(),
     }
 }
 
@@ -299,6 +337,8 @@ fn cuenta_codex(home: &std::path::Path) -> Cuenta {
         },
         key_tail: clave.map(|(v, _)| cola_de_clave(&v)).unwrap_or_default(),
         warnings,
+        plan: String::new(),
+        plan_origen: String::new(),
     }
 }
 
@@ -335,6 +375,8 @@ fn cuenta_antigravity() -> Cuenta {
         },
         key_tail: String::new(),
         warnings,
+        plan: String::new(),
+        plan_origen: String::new(),
     }
 }
 
@@ -352,6 +394,9 @@ fn cuenta_local() -> Cuenta {
         } else {
             vec!["Ollama no está instalado: sin modelo local no hay red de seguridad".into()]
         },
+        // El local no tiene plan ni factura: dejarlo vacio es lo honesto.
+        plan: String::new(),
+        plan_origen: String::new(),
     }
 }
 
@@ -359,12 +404,24 @@ fn cuenta_local() -> Cuenta {
 #[must_use]
 pub fn informe() -> InformeCuentas {
     let home = dirs::home_dir().unwrap_or_default();
-    let cuentas = vec![
+    let mut cuentas = vec![
         cuenta_claude(&home),
         cuenta_codex(&home),
         cuenta_antigravity(),
         cuenta_local(),
     ];
+    // El plan sale de las MISMAS sondas que alimentan el selector de modelos:
+    // dos sitios distintos diciendo planes distintos seria peor que no decirlo.
+    // Aqui se usa la version que NO lanza procesos (`agy models` tarda 2 s y
+    // este informe se abre a mano, no se espera a nadie): lo que haya en la
+    // cache de la ultima vez, con los ficheros de Claude y Codex releidos.
+    let planes = crate::maria::suscripcion::planes_en_disco();
+    for c in &mut cuentas {
+        if let Some(s) = planes.get(&c.provider) {
+            c.plan.clone_from(&s.plan);
+            c.plan_origen.clone_from(&s.origen);
+        }
+    }
     let correos = correos_distintos(&cuentas);
     let mut warnings = Vec::new();
     if correos.len() > 1 {
@@ -447,6 +504,31 @@ mod tests {
     }
 
     #[test]
+    fn saca_el_plan_de_chatgpt_del_id_token_sin_tocar_el_token() {
+        // Fixture: un id_token SINTETICO con el claim del plan. Es la unica
+        // fuente offline que hay — ni `codex login status` ni `codex doctor`
+        // dicen el plan (medido el 2026-09-22).
+        let jwt = crate::test_support::load_fixture("modelos", "codex-id-token.txt");
+        let plan = plan_en_jwt(jwt.trim()).expect("sin plan");
+        assert_eq!(plan, "plus");
+        // Lo que sale es UNA PALABRA. Si alguna vez esta funcion devolviera el
+        // token, esto lo cazaria: el token no cabe en una etiqueta de plan.
+        assert!(
+            plan.len() < 32 && !plan.contains('.'),
+            "esto no es un plan: {plan}"
+        );
+        // Caso negativo: un token sin el claim no inventa un plan, y un token
+        // roto tampoco. "no se sabe" es una respuesta valida.
+        use base64::Engine;
+        let sin_claim = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"email":"quien@ejemplo.invalid"}"#);
+        assert!(plan_en_jwt(&format!("a.{sin_claim}.c")).is_none());
+        for malo in ["", "solo-una-parte", "a.no-es-base64!.c", "a.YWJj.c"] {
+            assert!(plan_en_jwt(malo).is_none(), "colo: {malo}");
+        }
+    }
+
+    #[test]
     fn un_token_roto_no_produce_correo() {
         // Caso negativo: basura, un token sin payload o un payload que no es
         // JSON no pueden acabar pintando una cuenta.
@@ -477,6 +559,8 @@ mod tests {
             source: String::new(),
             key_tail: String::new(),
             warnings: Vec::new(),
+            plan: String::new(),
+            plan_origen: String::new(),
         }
     }
 

@@ -1,0 +1,30 @@
+{
+  "_comentario": "Fixture SINTETICO de ~/.claude.json. Solo lleva los campos que lee maria::suscripcion::sonda_claude. Ni correos, ni identificadores de organizacion, ni rutas reales: el repo es publico.",
+  "oauthAccount": {
+    "organizationType": "claude_max",
+    "organizationRateLimitTier": "default_claude_max_5x",
+    "userRateLimitTier": null,
+    "seatTier": null,
+    "billingType": "stripe_subscription",
+    "organizationRole": "admin",
+    "hasExtraUsageEnabled": true,
+    "profileFetchedAt": 1790071275058
+  },
+  "additionalModelOptionsCache": [
+    {
+      "value": "claude-fable-5-1[1m]",
+      "label": "Fable",
+      "description": "Fable 5.1 - Most capable for your hardest and longest-running tasks"
+    },
+    {
+      "value": "claude-opus-5",
+      "label": "Opus",
+      "description": "Opus 5 - Best for everyday, complex tasks"
+    }
+  ],
+  "modelAccessCache": [
+    { "apiName": "claude-opus-4-6", "entitled": true },
+    { "apiName": "claude-mythos-5", "entitled": false }
+  ],
+  "orgModelDefaultCache": null
+}

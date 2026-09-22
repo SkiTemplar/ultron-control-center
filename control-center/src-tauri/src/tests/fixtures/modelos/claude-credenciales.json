@@ -1,0 +1,12 @@
+{
+  "_comentario": "Fixture SINTETICO de ~/.claude/.credentials.json. Los campos de token estan aqui con un valor de mentira A PROPOSITO: el test pasa igual porque sonda_claude NO los lee. De este fichero solo salen subscriptionType y rateLimitTier.",
+  "claudeAiOauth": {
+    "accessToken": "ESTE-CAMPO-NO-SE-LEE",
+    "refreshToken": "ESTE-CAMPO-NO-SE-LEE",
+    "expiresAt": 1790100000000,
+    "refreshTokenExpiresAt": 1792700000000,
+    "scopes": ["user:inference", "user:profile"],
+    "subscriptionType": "pro",
+    "rateLimitTier": "default_claude_ai"
+  }
+}

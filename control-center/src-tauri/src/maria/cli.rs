@@ -272,7 +272,33 @@ pub fn leer_linea_claude(linea: &str) -> (Option<String>, Option<Result<String, 
                 .trim()
                 .to_string();
             let mal = v.get("is_error").and_then(serde_json::Value::as_bool) == Some(true);
-            (None, Some(if mal { Err(texto) } else { Ok(texto) }))
+            if !mal {
+                return (None, Some(Ok(texto)));
+            }
+            // Un modelo que la cuenta no admite llega POR AQUI: `is_error:true`
+            // + `api_error_status:404` y, en `result`, la frase del proveedor
+            // ("It may not exist or you may not have access to it"). El codigo
+            // de salida del proceso es 0, asi que esta linea es lo unico que
+            // delata el fallo — y el texto tiene que viajar entero porque es lo
+            // que lee `relay::es_modelo_rechazado` para marcar el id.
+            //
+            // Si `result` viniera vacio, sin esto el detalle seria "" y el
+            // turno acabaria en "error" sin decir nada: se compone uno con el
+            // estado HTTP, que es lo unico que hay.
+            if texto.is_empty() {
+                let estado = v
+                    .get("api_error_status")
+                    .and_then(serde_json::Value::as_u64);
+                return (
+                    None,
+                    Some(Err(match estado {
+                        Some(404) => msg_modelo_404(),
+                        Some(c) => format!("claude fallo sin texto (HTTP {c})"),
+                        None => "claude fallo sin decir por que".to_string(),
+                    })),
+                );
+            }
+            (None, Some(Err(texto)))
         }
         _ => (None, None),
     }
@@ -517,6 +543,18 @@ pub fn msg_sin_cli(bin: &str) -> String {
 #[must_use]
 pub fn msg_timeout(provider: &str, segundos: u64) -> String {
     format!("{provider} no respondio en {segundos} s")
+}
+
+/// "Ese modelo no existe o tu cuenta no lo tiene" cuando Claude devuelve un
+/// 404 SIN texto (2026-09-22: normalmente lo trae, pero no esta garantizado).
+///
+/// Vive aqui, en una funcion, por el mismo motivo que las dos de arriba: lo
+/// RECONOCE `relay::es_modelo_rechazado`, y si la frase se escribiera dos
+/// veces cualquier retoque dejaria la clasificacion adivinando. Un test ata
+/// una cosa a la otra.
+#[must_use]
+pub fn msg_modelo_404() -> String {
+    "tu cuenta no tiene acceso al modelo elegido, o ese modelo ya no existe (HTTP 404)".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -942,6 +980,55 @@ mod tests {
             (None, Some(Err("Claude usage limit reached".into())))
         );
         assert_eq!(leer_linea_claude("no es json"), (None, None));
+    }
+
+    #[test]
+    fn un_modelo_que_la_cuenta_no_admite_llega_con_la_frase_del_proveedor() {
+        // Linea real de `claude --output-format json` con un modelo al que
+        // esta cuenta no tiene acceso (medido el 2026-09-22). Ojo: `subtype`
+        // dice "success" y el proceso sale con codigo 0, asi que lo unico que
+        // delata el fallo es `is_error` + `api_error_status`.
+        let linea = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":404,"total_cost_usd":0,"result":"There's an issue with the selected model (claude-mythos-5). It may not exist or you may not have access to it. Run --model to pick a different model."}"#;
+        let (_, fin) = leer_linea_claude(linea);
+        let Some(Err(detalle)) = fin else {
+            panic!("no se ha visto el error: {fin:?}");
+        };
+        // El texto tiene que llegar ENTERO: es lo que lee el clasificador para
+        // marcar ese id como rechazado en vez de enfriar a Claude.
+        assert!(
+            crate::maria::relay::es_modelo_rechazado(&detalle),
+            "el clasificador no lo ve: {detalle}"
+        );
+        assert!(!crate::maria::relay::is_quota_error(&detalle));
+        // Caso negativo: sin texto tampoco se calla, que si no el turno acaba
+        // en "error" sin decir nada.
+        let mudo = r#"{"type":"result","is_error":true,"api_error_status":404}"#;
+        let (_, fin) = leer_linea_claude(mudo);
+        let Some(Err(detalle)) = fin else {
+            panic!("no se ha visto el error");
+        };
+        assert!(
+            crate::maria::relay::es_modelo_rechazado(&detalle),
+            "{detalle}"
+        );
+    }
+
+    #[test]
+    fn el_rechazo_de_modelo_de_codex_y_de_agy_llega_como_texto() {
+        // codex: el 400 viaja por el canal `--json` que ya se parsea.
+        let codex = r#"{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account."}}"#;
+        let EventoCodex::Error(msg) = leer_linea_codex(codex) else {
+            panic!("codex no da error");
+        };
+        assert!(crate::maria::relay::es_modelo_rechazado(&msg), "{msg}");
+        assert!(!crate::maria::relay::is_quota_error(&msg));
+        // agy: la validacion es LOCAL (exit 1, sin gastar peticion) y el texto
+        // sale por stderr, que `ejecutar` usa como motivo cuando no hay cierre.
+        let agy = "error: invalid model selection (--model \"gemini-3.1-pro-medium\" --effort \
+                   \"\"): model gemini-3.1-pro-medium is not recognized as a known model or \
+                   custom model in settings";
+        assert!(crate::maria::relay::es_modelo_rechazado(agy));
+        assert!(!crate::maria::relay::is_quota_error(agy));
     }
 
     #[test]

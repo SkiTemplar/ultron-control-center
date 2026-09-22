@@ -140,7 +140,8 @@ pub struct RelayAnswer {
 #[derive(Debug, Clone, Serialize)]
 pub struct SkipReason {
     pub provider: String,
-    /// "sin_cli" | "cuota" | "cuenta" | "enfriando" | "error" | "desactivado" | "timeout".
+    /// "sin_cli" | "cuota" | "cuenta" | "enfriando" | "error" | "desactivado" |
+    /// "timeout" | "modelo".
     pub kind: String,
     pub detail: String,
     /// Que puede HACER el usuario. Nunca vacio: un motivo de descarte sin
@@ -240,6 +241,15 @@ pub fn consejo(provider: &str, kind: &str, hasta: &str) -> String {
         "desactivado" => {
             format!("{provider} esta apagado en el relevo. Enciendelo si lo quieres de vuelta.")
         }
+        // Hasta el 2026-09-22 este caso NO existia: cuando el modelo pedido no
+        // valia para ese proveedor, el turno se contestaba con el modelo por
+        // defecto y no quedaba rastro en ningun sitio. El usuario pedia un
+        // Opus 5 y le respondia un sonnet sin que nadie se lo dijera.
+        "modelo" => format!(
+            "Ese modelo no se le ha podido pedir a {provider}, asi que ha contestado con el suyo \
+             por defecto. Elige otro en el selector «modelo», o pulsa refrescar para volver a \
+             preguntarle a tu cuenta que te deja usar."
+        ),
         "cuenta" => format!(
             "La cuenta de {provider} no esta operativa (facturacion, sesion caducada o \
              verificacion pendiente) y esperar no lo arregla: vuelve a entrar con su CLI o \
@@ -595,6 +605,48 @@ pub fn is_quota_error(text: &str) -> bool {
         "too many requests",
         "429",
         "upgrade to continue",
+    ];
+    SENALES.iter().any(|s| t.contains(s))
+}
+
+/// ¿El proveedor ha rechazado el MODELO, y no la cuota ni la red?
+///
+/// Distinguirlo importa tanto como lo anterior, y en los dos sentidos: un
+/// falso positivo apagaria un modelo bueno en el selector, y un falso negativo
+/// dejaria a un proveedor sano enfriando horas por un id que solo hacia falta
+/// cambiar.
+///
+/// Las señales son las frases REALES medidas el 2026-09-22 en esta maquina:
+///   * codex  — "The 'gpt-5' model is not supported when using Codex with a
+///              ChatGPT account." (HTTP 400)
+///   * claude — "It may not exist or you may not have access to it." (404,
+///              dentro de la linea `result` con `is_error:true`)
+///   * agy    — "model X is not recognized as a known model or custom model
+///              in settings" (validacion local, sin gastar peticion)
+/// Pura y testeada, incluido el invariante de que no se pisa con
+/// `is_quota_error`.
+#[must_use]
+pub fn es_modelo_rechazado(detail: &str) -> bool {
+    let t = detail.to_lowercase();
+    const SENALES: &[&str] = &[
+        "not supported when using",
+        "is not recognized as a known model",
+        "may not exist or you may not have access",
+        "unrecognized_model",
+        "model not found",
+        "model_not_found",
+        "unknown model",
+        "invalid model",
+        "unsupported_model",
+        "does not have access",
+        "not available on your plan",
+        "no such model",
+        "not permitted by the org model restrictions",
+        "model catalog",
+        // La que compone `cli::msg_modelo_404` cuando Claude devuelve el 404
+        // sin texto. Mismo trato que `msg_sin_cli` / `msg_timeout`: la frase se
+        // escribe en un solo sitio y un test ata las dos puntas.
+        "no tiene acceso al modelo elegido",
     ];
     SENALES.iter().any(|s| t.contains(s))
 }
@@ -1569,6 +1621,22 @@ fn ask_inner(
         let mismo = plan.as_ref().is_some_and(|p| {
             p.provider == *provider && crate::maria::models::modelo_valido(provider, &p.model)
         });
+        // El cambiazo silencioso se acabo (2026-09-22): si el modelo se pidio
+        // PARA ESTE proveedor y aun asi no se le puede pasar, se dice. Cuando
+        // `mismo` es false porque el relevo ha saltado a otro proveedor no hay
+        // nada que explicar: ahi el modelo nunca fue para este.
+        if let Some(p) = plan
+            .as_ref()
+            .filter(|p| !mismo && p.provider == *provider && !p.model.trim().is_empty())
+        {
+            let (_, motivo) = crate::maria::models::estado_modelo(provider, &p.model);
+            skipped.push(SkipReason::nuevo(
+                provider,
+                "modelo",
+                format!("se pidió «{}»: {motivo}", p.model),
+                "",
+            ));
+        }
         let (modelo, esfuerzo) = match plan.as_ref().filter(|_| mismo) {
             Some(p) => (
                 p.model.clone(),
@@ -1705,6 +1773,9 @@ fn ask_inner(
                 }
                 guardar_sesiones(thread_id, &sesiones);
                 mutar_estado(|s| record_attempt(s, provider, "ok", "contesto"));
+                // Que ESE modelo concreto conteste es la mejor evidencia que
+                // hay de que la cuenta lo admite: mejor que cualquier lista.
+                crate::maria::suscripcion::anotar(provider, &modelo, "ok", "");
                 let ms = reloj.elapsed().as_millis() as u64;
                 append_turn(
                     thread_id,
@@ -1745,6 +1816,20 @@ fn ask_inner(
                 // el siguiente paso no se parece en nada (instalar una CLI
                 // frente a reintentar). Ver `clasifica_fallo`.
                 let kind = clasifica_fallo(&detail, cuota);
+                // Si lo que ha fallado es el MODELO y no la cuota, se apunta
+                // ese id —y solo ese id— como rechazado, para que el selector
+                // deje de ofrecerlo y el turno siguiente no lo vuelva a gastar.
+                // Aqui NO se enfria al proveedor: el proveedor esta bien, el
+                // que no vale es el modelo, y enfriarlo lo apagaria horas por
+                // una eleccion que se arregla cambiando de fila en una lista.
+                if !cuota && es_modelo_rechazado(&detail) {
+                    crate::maria::suscripcion::anotar(
+                        provider,
+                        &modelo,
+                        "rechazado",
+                        &recorta(&detail, 200),
+                    );
+                }
                 if cuota && provider == "claude" {
                     // Se aprende el tope practico de la ventana: el consumo
                     // que habia justo cuando el proveedor dijo basta.
@@ -1816,6 +1901,18 @@ pub async fn maria_relay_ask(
                 effort: crate::maria::models::normaliza_esfuerzo(&effort.unwrap_or_default()),
                 provider: p,
             });
+    // Se valida A LA ENTRADA y no 700 lineas despues: un modelo que sabemos
+    // que la cuenta rechaza no merece que se lance una CLI, se espere y se
+    // gaste un turno para oir otra vez que no.
+    if let Some(e) = forzado.as_ref() {
+        let (estado, motivo) = crate::maria::models::estado_modelo(&e.provider, &e.model);
+        if estado == crate::maria::models::Permitido::No {
+            return Err(format!(
+                "«{}» no se le puede pedir a {}: {motivo}. Elige otro en el selector «modelo».",
+                e.model, e.provider
+            ));
+        }
+    }
     // Bloqueante (procesos + red) fuera del hilo async de Tauri.
     let adjuntos = Adjuntos {
         rutas: adjuntos
@@ -1892,8 +1989,8 @@ pub async fn maria_relay_config() -> Result<RelayConfig, String> {
 mod tests {
     use super::*;
 
-    /// Los seis kinds que puede llevar un `SkipReason`. Si se anade uno, va
-    /// aqui: el test de abajo comprueba que NINGUNO se queda sin consejo.
+    /// Los kinds que puede llevar un `SkipReason`. Si se anade uno, va aqui:
+    /// el test de abajo comprueba que NINGUNO se queda sin consejo.
     const KINDS: &[&str] = &[
         "sin_cli",
         "cuota",
@@ -1902,6 +1999,7 @@ mod tests {
         "timeout",
         "desactivado",
         "error",
+        "modelo",
     ];
 
     #[test]
@@ -1962,6 +2060,67 @@ mod tests {
         // o la pantalla mandaria a instalar algo que ya esta instalado.
         assert_eq!(clasifica_fallo("connection reset by peer", false), "error");
         assert_eq!(clasifica_fallo("", false), "error");
+    }
+
+    #[test]
+    fn un_modelo_rechazado_se_reconoce_por_las_frases_de_verdad() {
+        // Las tres medidas en esta maquina el 2026-09-22, palabra por palabra.
+        for real in [
+            "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.",
+            "There's an issue with the selected model (claude-mythos-5). It may not exist or you \
+             may not have access to it. Run --model to pick a different model.",
+            "error: invalid model selection (--model \"gemini-3.1-pro-medium\" --effort \"\"): \
+             model gemini-3.1-pro-medium is not recognized as a known model or custom model in \
+             settings",
+        ] {
+            assert!(es_modelo_rechazado(real), "no lo ve: {real}");
+        }
+        // Y la frase propia, la que se compone cuando Claude devuelve el 404
+        // pelado. Si alguien la cambia en cli.rs sin tocar aqui, esto salta.
+        assert!(es_modelo_rechazado(&crate::maria::cli::msg_modelo_404()));
+    }
+
+    #[test]
+    fn la_cuota_y_el_modelo_no_se_pisan_nunca() {
+        // INVARIANTE en los dos sentidos. Un falso positivo aqui apagaria un
+        // modelo bueno en el selector; un falso negativo dejaria al proveedor
+        // enfriando horas por un id que solo habia que cambiar.
+        for cuota in [
+            "Claude usage limit reached. Your limit will reset at 2pm.",
+            "429 Too Many Requests",
+            "insufficient_quota",
+            "rate_limit_error",
+            "resource_exhausted",
+            "upgrade to continue",
+        ] {
+            assert!(is_quota_error(cuota), "deberia ser cuota: {cuota}");
+            assert!(
+                !es_modelo_rechazado(cuota),
+                "una señal de cuota ha pasado por rechazo de modelo: {cuota}"
+            );
+        }
+        for modelo in [
+            "The 'gpt-5' model is not supported when using Codex with a ChatGPT account.",
+            "model gemini-3.1-pro-medium is not recognized as a known model",
+            "It may not exist or you may not have access to it.",
+        ] {
+            assert!(es_modelo_rechazado(modelo), "deberia ser modelo: {modelo}");
+            assert!(
+                !is_quota_error(modelo),
+                "un rechazo de modelo enfriaria al proveedor entero: {modelo}"
+            );
+        }
+        // Caso negativo: un fallo cualquiera no es ninguna de las dos cosas.
+        for otro in [
+            "connection reset by peer",
+            "",
+            "no pude lanzar codex: os error 2",
+        ] {
+            assert!(
+                !es_modelo_rechazado(otro) && !is_quota_error(otro),
+                "{otro}"
+            );
+        }
     }
 
     #[test]
