@@ -642,7 +642,6 @@ pub fn es_modelo_rechazado(detail: &str) -> bool {
         "not available on your plan",
         "no such model",
         "not permitted by the org model restrictions",
-        "model catalog",
         // La que compone `cli::msg_modelo_404` cuando Claude devuelve el 404
         // sin texto. Mismo trato que `msg_sin_cli` / `msg_timeout`: la frase se
         // escribe en un solo sitio y un test ata las dos puntas.
@@ -1190,7 +1189,15 @@ pub fn parse_plan(raw: &str, known: &[String]) -> Option<crate::maria::models::E
     let modelos: Vec<String> = catalogo
         .iter()
         .find(|c| c.provider == provider)
-        .map(|c| c.models.iter().map(|m| m.id.clone()).collect())
+        // Sin los vetados: si el local elige uno, el turno saldria con
+        // «modelo no permitido» sin que el usuario haya pedido nada.
+        .map(|c| {
+            c.models
+                .iter()
+                .filter(|m| m.permitido != crate::maria::models::Permitido::No)
+                .map(|m| m.id.clone())
+                .collect()
+        })
         .unwrap_or_default();
     let model = modelos
         .iter()
@@ -1225,9 +1232,11 @@ fn plan_para_tarea(
         .iter()
         .filter(|c| cfg.order.contains(&c.provider))
         .map(|c| {
+            // Lo que la cuenta veta no se le ofrece al local para elegir.
             let ms: Vec<String> = c
                 .models
                 .iter()
+                .filter(|m| m.permitido != crate::maria::models::Permitido::No)
                 .map(|m| format!("{} ({})", m.id, m.para))
                 .collect();
             format!(
@@ -1312,14 +1321,12 @@ fn plan_rapido(
     if regla.provider == "local" && !adjuntos.imagenes().is_empty() {
         return None;
     }
-    let model = if crate::maria::models::modelo_valido(&regla.provider, &regla.model) {
-        regla.model.clone()
-    } else {
-        crate::maria::models::modelo_por_defecto(&regla.provider)
-    };
+    // El modelo de la regla va tal cual: si no vale, `ask_inner` cae al de
+    // por defecto Y lo dice (SkipReason «modelo»). Sustituirlo aqui era el
+    // ultimo cambiazo silencioso que quedaba (revision del 2026-09-22).
     let plan = crate::maria::models::Eleccion {
         provider: regla.provider.clone(),
-        model,
+        model: regla.model.clone(),
         effort: crate::maria::models::normaliza_esfuerzo(&regla.effort),
     };
     tracing::info!(clase = ?clase, proveedor = %plan.provider, "destino por reglas, sin consultar al local");
@@ -2115,6 +2122,9 @@ mod tests {
             "connection reset by peer",
             "",
             "no pude lanzar codex: os error 2",
+            // «model catalog» a secas era una senal (revision del 2026-09-22):
+            // este fallo de red habria apagado el modelo siete dias.
+            "error: failed to refresh model catalog: connection reset by peer",
         ] {
             assert!(
                 !es_modelo_rechazado(otro) && !is_quota_error(otro),

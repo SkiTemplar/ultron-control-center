@@ -145,10 +145,14 @@ export function CuentasSection() {
     try {
       const c = await invoke<Catalogo>("maria_models_refrescar");
       setCatalogo(c);
+      // El plan de la tarjeta sale del informe de cuentas, que se lee al
+      // montar: sin releerlo, el aviso decía el plan nuevo y la tarjeta el
+      // viejo (revisión del 2026-09-22).
+      setInforme(await invoke<Informe>("maria_cuentas_informe"));
       const ficha = c?.providers?.find((p) => p.provider === provider);
       setAviso(
         ficha
-          ? `${provider}: ${ficha.models.length} modelos` +
+          ? `${provider}: ${ficha.models.filter((m) => m.permitido !== "no").length} modelos` +
             (ficha.plan ? ` con ${ficha.plan}` : "")
           : `${provider}: sin modelos en el catálogo`,
       );
@@ -290,7 +294,8 @@ export function CuentasSection() {
                             sin detectar
                           </span>
                         )}
-                        {ficha && ` · ${ficha.models.length} modelos disponibles`}
+                        {ficha &&
+                          ` · ${ficha.models.filter((m) => m.permitido !== "no").length} modelos disponibles`}
                       </span>
                       <button
                         type="button"

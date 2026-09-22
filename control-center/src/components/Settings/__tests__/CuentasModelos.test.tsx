@@ -38,6 +38,8 @@ const CATALOGO = {
       models: [
         { id: "modelo-medio", label: "Medio", para: "el del día a día", permitido: "si" },
         { id: "modelo-grande", label: "Grande", para: "lo más capaz", permitido: "no" },
+        // «desconocido» sí se ofrece: solo el «no» queda fuera del recuento.
+        { id: "modelo-raro", label: "Raro", para: "nadie lo ha probado", permitido: "desconocido" },
       ],
       default_model: "modelo-medio",
       effort_mode: "Bandera",
@@ -52,13 +54,22 @@ const CATALOGO_FRESCO = {
   ...CATALOGO,
   providers: [{ ...CATALOGO.providers[0], plan: "Plan Grande" }],
 };
+// Tras refrescar, el informe de cuentas también trae el plan nuevo.
+const INFORME_FRESCO = {
+  ...INFORME,
+  cuentas: [{ ...INFORME.cuentas[0], plan: "Plan Grande" }],
+};
 
 beforeEach(() => {
+  let informe = INFORME;
   vi.mocked(invoke).mockImplementation(async (cmd) => {
-    if (cmd === "maria_cuentas_informe") return INFORME;
+    if (cmd === "maria_cuentas_informe") return informe;
     if (cmd === "maria_perfiles_listar") return [];
     if (cmd === "maria_models_catalog") return CATALOGO;
-    if (cmd === "maria_models_refrescar") return CATALOGO_FRESCO;
+    if (cmd === "maria_models_refrescar") {
+      informe = INFORME_FRESCO;
+      return CATALOGO_FRESCO;
+    }
     return null;
   });
 });
@@ -67,6 +78,7 @@ describe("plan y modelos en la tarjeta de cada cuenta", () => {
   it("enseña el plan detectado y cuántos modelos alcanza", async () => {
     render(<CuentasSection />);
     expect(await screen.findByText("Plan Mediano")).toBeTruthy();
+    // 3 en el catálogo, 1 vetado: se cuentan los elegibles (sí + desconocido).
     expect(screen.getByText(/2 modelos disponibles/)).toBeTruthy();
   });
 
@@ -79,6 +91,10 @@ describe("plan y modelos en la tarjeta de cada cuenta", () => {
     });
     // El aviso nombra el proveedor y su cuenta: «se actualizó algo» no sirve.
     expect(await screen.findByText(/claude: 2 modelos con Plan Grande/)).toBeTruthy();
+    // Y la tarjeta cambia con él: antes el aviso decía el plan nuevo y la
+    // tarjeta seguía con el viejo.
+    expect(await screen.findByText("Plan Grande")).toBeTruthy();
+    expect(screen.queryByText("Plan Mediano")).toBeNull();
   });
 
   it("sin plan detectado lo dice, en vez de inventarse uno", async () => {

@@ -309,7 +309,13 @@ pub fn id_con_forma_de_modelo(id: &str) -> bool {
     } else {
         id
     };
-    !base.is_empty()
+    // El primero tiene que ser letra o digito: un id que empiece por '-'
+    // tiene forma de bandera, y es justo lo que esta guarda existe para no
+    // dejar llegar a `Command::args` (revision del 2026-09-22: colaba
+    // `--dangerously-skip-permissions`).
+    base.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
         && base
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':' | '_'))
@@ -414,6 +420,26 @@ fn estado_de(
     cerrado: bool,
     ahora: chrono::DateTime<chrono::Utc>,
 ) -> (Permitido, String, String) {
+    // 0 — un veto explicito de la cuenta (entitled:false) manda sobre
+    // cualquier «contesto de verdad» anterior: es la unica evidencia de veto
+    // que Claude deja en disco y un OK viejo no la desmiente (revision del
+    // 2026-09-22: antes un OK de hace meses ganaba al veto de hoy).
+    if let Some(s) = sub {
+        if s.vetados.iter().any(|x| x == id) {
+            return (
+                Permitido::No,
+                "tu cuenta lo tiene vetado (entitled:false)".into(),
+                s.at.clone(),
+            );
+        }
+    }
+    // Un sondeo de la suscripcion POSTERIOR a un rechazo lo deja sin efecto:
+    // es lo que hacen /modelos y «actualizar modelos». Sin esto, un 404 de
+    // hace una hora seguia mandando siete dias sobre la lista recien leida y
+    // la interfaz mentia al decir que refrescar lo arreglaba.
+    let sondeo = sub
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s.at.trim()).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
     // 1 y 2 — lo que paso DE VERDAD con ese id manda sobre cualquier lista.
     if let Some(v) = veredictos.and_then(|m| m.get(id)) {
         let cuando = chrono::DateTime::parse_from_rfc3339(v.at.trim())
@@ -422,9 +448,11 @@ fn estado_de(
         if v.estado == "rechazado" {
             // Un rechazo sin fecha entendible se trata como caducado: clavar
             // un modelo para siempre por una marca ilegible seria peor.
-            if cuando.is_some_and(|c| {
+            let vigente = cuando.is_some_and(|c| {
                 ahora.signed_duration_since(c) < chrono::Duration::days(CADUCA_RECHAZO_DIAS)
-            }) {
+            });
+            let superado = cuando.zip(sondeo).is_some_and(|(c, s)| s > c);
+            if vigente && !superado {
                 let dia = dia_corto(&v.at);
                 let motivo = if v.detalle.trim().is_empty() {
                     format!("lo rechazó tu cuenta el {dia}")
@@ -446,15 +474,8 @@ fn estado_de(
             );
         }
     }
-    // 3 — lo que diga la suscripcion.
+    // 3 — lo que diga la suscripcion (el veto ya se ha mirado arriba).
     if let Some(s) = sub {
-        if s.vetados.iter().any(|x| x == id) {
-            return (
-                Permitido::No,
-                "tu cuenta lo tiene vetado (entitled:false)".into(),
-                s.at.clone(),
-            );
-        }
         if s.permitidos.iter().any(|x| x == id) {
             let motivo = if s.plan.is_empty() {
                 "tu cuenta lo sirve hoy".to_string()
@@ -1048,7 +1069,11 @@ mod tests {
 
     #[test]
     fn un_rechazo_real_manda_sobre_la_suscripcion_y_caduca_a_los_siete_dias() {
-        let subs = sub("codex", "ChatGPT Free", &["gpt-5.6-terra"], &[]);
+        // La lista se sondeo ANTES del rechazo: por eso el rechazo manda. Un
+        // sondeo posterior lo levantaria (lo fija el test del veto y el
+        // sondeo nuevo), que es lo que hace /modelos.
+        let mut subs = sub("codex", "ChatGPT Free", &["gpt-5.6-terra"], &[]);
+        subs.get_mut("codex").expect("codex").at = hace(3);
         let fresco = veredicto(
             "codex",
             "gpt-5.6-terra",
@@ -1107,6 +1132,9 @@ mod tests {
             "modelo&cosa",
             "opus[2m]",
             "../../etc/passwd",
+            "--dangerously-skip-permissions",
+            "--model",
+            "-m",
         ] {
             assert!(!id_con_forma_de_modelo(malo), "ha colado {malo:?}");
         }
@@ -1275,10 +1303,67 @@ mod tests {
 
     #[test]
     fn rechaza_modelos_que_no_estan_en_el_catalogo() {
-        // Caso negativo: el id acaba en una linea de comandos.
-        assert!(!modelo_valido("claude", "opus-4-turbo-ultra"));
-        assert!(!modelo_valido("gemini", "opus"));
-        assert!(modelo_valido("claude", "opus"));
+        // Caso negativo: el id acaba en una linea de comandos. Se prueba sobre
+        // la parte pura (`fundir`), no por `modelo_valido`, que desde el
+        // 2026-09-22 lee las caches de ~/.maria y haria el test depender de la
+        // maquina en la que corre.
+        let cat = fundir(
+            catalogo(),
+            &std::collections::BTreeMap::new(),
+            &crate::maria::suscripcion::Veredictos::new(),
+            ahora(),
+        );
+        let claude = de(&cat, "claude");
+        assert!(!claude.models.iter().any(|m| m.id == "opus-4-turbo-ultra"));
+        assert!(claude.models.iter().any(|m| m.id == "opus"));
+        assert!(!cat.iter().any(|c| c.provider == "gemini"));
         assert!(modelo_valido("claude", ""), "vacio = el de la CLI");
+    }
+
+    #[test]
+    fn un_veto_gana_a_un_ok_viejo_y_un_sondeo_nuevo_levanta_un_rechazo() {
+        use crate::maria::suscripcion::{Suscripcion, Veredicto};
+        let ahora = ahora();
+        let hace = |h: i64| (ahora - chrono::Duration::hours(h)).to_rfc3339();
+        // Un «contesto de verdad» de hace 200 dias no desmiente el veto de hoy.
+        let mut vetos = Suscripcion {
+            provider: "claude".into(),
+            at: hace(1),
+            ..Default::default()
+        };
+        vetos.vetados.push("claude-opus-5".into());
+        let mut vs = std::collections::BTreeMap::new();
+        vs.insert(
+            "claude-opus-5".to_string(),
+            Veredicto {
+                estado: "ok".into(),
+                detalle: String::new(),
+                at: hace(24 * 200),
+            },
+        );
+        let (p, motivo, _) = estado_de("claude-opus-5", Some(&vetos), Some(&vs), false, ahora);
+        assert_eq!(p, Permitido::No, "{motivo}");
+        // Un rechazo fresco manda... salvo que la suscripcion se haya vuelto a
+        // sondear DESPUES: entonces decide la lista (aqui, lo sirve).
+        let mut sirve = Suscripcion {
+            provider: "claude".into(),
+            at: hace(1),
+            ..Default::default()
+        };
+        sirve.permitidos.push("claude-opus-5".into());
+        vs.insert(
+            "claude-opus-5".to_string(),
+            Veredicto {
+                estado: "rechazado".into(),
+                detalle: "404".into(),
+                at: hace(2),
+            },
+        );
+        let (p, motivo, _) = estado_de("claude-opus-5", Some(&sirve), Some(&vs), false, ahora);
+        assert_eq!(p, Permitido::Si, "{motivo}");
+        // Caso negativo: con el sondeo ANTERIOR al rechazo, el rechazo sigue.
+        sirve.at = hace(3);
+        let (p, motivo, _) = estado_de("claude-opus-5", Some(&sirve), Some(&vs), false, ahora);
+        assert_eq!(p, Permitido::No, "{motivo}");
     }
 }
