@@ -168,6 +168,22 @@ fn asegurar(sombra: &Path, proyecto: &Path) -> Result<(), String> {
         git(sombra, proyecto, &["config", "user.email", CORREO])?;
         // Que el final de linea de los ficheros del usuario no se toque.
         git(sombra, proyecto, &["config", "core.autocrlf", "false"])?;
+        // Y que la foto no ejecute NADA del usuario (2026-09-22). El repo en
+        // la sombra hereda su `~/.gitconfig`: un `core.hooksPath` global —o un
+        // hook que haya dejado `init.templateDir`— correria en CADA turno del
+        // chat, y ademas con el cwd puesto en la carpeta del proyecto. Dos
+        // danos medidos: un `pre-commit` que reformatea (prettier --write,
+        // black, husky) le REESCRIBE los ficheros sin que haya pedido ningun
+        // commit, y uno que falla —lo normal con trabajo a medias— deja el
+        // turno sin red de seguridad, siempre. Se apunta a una carpeta que no
+        // existe dentro de la sombra: eso apaga tambien `post-commit`, que
+        // `--no-verify` no evita.
+        let sin_hooks = sombra.join("sin-hooks").display().to_string();
+        git(sombra, proyecto, &["config", "core.hooksPath", &sin_hooks])?;
+        // Firmar los commits es cosa del usuario, no nuestra: con un
+        // `commit.gpgsign=true` global y sin clave a mano la foto fallaria
+        // siempre, y por un motivo que no tiene nada que ver con el chat.
+        git(sombra, proyecto, &["config", "commit.gpgsign", "false"])?;
     }
     let info = sombra.join("info");
     std::fs::create_dir_all(&info).map_err(|e| format!("crear info/: {e}"))?;
@@ -222,10 +238,23 @@ pub fn foto_en(raiz: &Path, proyecto: &Path, hilo: &str, etiqueta: &str) -> Resu
     git(&sombra, proyecto, &["add", "-A"])?;
     let ts = chrono::Utc::now().to_rfc3339();
     let mensaje = format!("{ts} · {}", etiqueta.replace('\n', " "));
+    // `--no-verify` y el `-c` van ademas de los `config` de `asegurar` porque
+    // aquellos solo se escriben cuando el repo en la sombra SE CREA: una
+    // conversacion abierta antes de este arreglo no los tendria, y seguiria
+    // corriendo los hooks del usuario en cada turno.
     git(
         &sombra,
         proyecto,
-        &["commit", "--quiet", "--allow-empty", "-m", &mensaje],
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "--no-verify",
+            "-m",
+            &mensaje,
+        ],
     )?;
     let sha = git(&sombra, proyecto, &["rev-parse", "HEAD"])?;
     Ok(Punto {
@@ -691,6 +720,48 @@ mod tests {
 
         assert!(foto_en(r, p, "../fuera", "turno 1").is_err());
         assert!(foto_en(r, p, "", "turno 1").is_err());
+    }
+
+    #[test]
+    fn los_hooks_del_usuario_ni_corren_ni_dejan_el_turno_sin_punto() {
+        // Caso negativo del 2026-09-22: la foto heredaba el `~/.gitconfig` del
+        // usuario, asi que su `pre-commit` corria en CADA turno del chat con el
+        // cwd en su carpeta. Aqui se reproduce con un `core.hooksPath` local
+        // —que es lo que vería un repo en la sombra creado antes del arreglo—
+        // y un hook que reescribe el arbol y falla, como los que reformatean.
+        let (puntos, proyecto) = escenario();
+        let (r, p) = (puntos.path(), proyecto.path());
+        let primera = foto_en(r, p, "hilo-1", "turno 1").expect("foto");
+        let sombra = sombra_en(r, "hilo-1").expect("sombra");
+
+        // Un repo recien creado ya no mira a los hooks del usuario.
+        let hooks = git(&sombra, p, &["config", "--get", "core.hooksPath"]).expect("hooksPath");
+        assert!(
+            Path::new(&hooks).starts_with(&sombra) && !Path::new(&hooks).exists(),
+            "los hooks tienen que apuntar a una carpeta vacia de la sombra: {hooks}"
+        );
+
+        let ganchos = puntos.path().join("ganchos");
+        std::fs::create_dir_all(&ganchos).expect("crear ganchos");
+        std::fs::write(
+            ganchos.join("pre-commit"),
+            "#!/bin/sh\necho destrozado > uno.txt\nexit 1\n",
+        )
+        .expect("escribir hook");
+        git(
+            &sombra,
+            p,
+            &["config", "core.hooksPath", &ganchos.display().to_string()],
+        )
+        .expect("hooksPath a mano");
+
+        let segunda = foto_en(r, p, "hilo-1", "turno 2").expect("el hook no puede tumbar la foto");
+        assert_ne!(segunda.sha, primera.sha, "hay foto nueva");
+        assert_eq!(
+            std::fs::read_to_string(p.join("uno.txt")).expect("leer"),
+            "A\n",
+            "el hook del usuario le ha reescrito el fichero"
+        );
     }
 
     #[test]
