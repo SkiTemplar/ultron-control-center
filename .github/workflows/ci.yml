@@ -405,6 +405,14 @@ jobs:
     #   - guardrails-post.selftest.mjs -> el detector de registro coloquial
     #     necesita el personality.json real de ~/.ultron; sin él no hay tonos
     #     que detectar y los dos casos positivos dan 0 avisos.
+    #
+    # (2026-09-22, tanda H6) guardrails-pre.selftest.mjs YA ENTRA: al registrar
+    # el hook en la plantilla se hizo hermético (monta un HOME de pruebas con 24
+    # agentes y un plugin de mentira antes de cargar el módulo), así que el
+    # catálogo ya no depende de la máquina — de hecho fallaba también en la del
+    # mantenedor en cuanto un plugin no estaba instalado. guardrails-post sigue
+    # fuera por el mismo motivo de siempre: su fixture sería un personality.json
+    # completo que el repo no lleva.
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -441,6 +449,7 @@ jobs:
       - name: Hook selftests (guardas, enrutado y contexto)
         run: |
           node hooks/scripts/stopfailure-relay.selftest.mjs
+          node hooks/scripts/guardrails-pre.selftest.mjs
           node hooks/scripts/socratic-gate.selftest.mjs
           node hooks/scripts/uni-deliverable-guard.selftest.mjs
           node hooks/scripts/response-meter.selftest.mjs

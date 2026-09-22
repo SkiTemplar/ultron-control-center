@@ -10,10 +10,18 @@
  *
  * REGLAS
  *   agente-fantasma  (Agent)  DENY  subagent_type que no existe en disco.
- *   uv               (Bash)   DENY  pip install / python suelto sin `uv run`.
- *   commit-format    (Bash)   DENY  git commit sin prefijo convencional.
- *   skip-permissions (Bash)   DENY  --dangerously-skip-permissions.
  *   force-push       (Bash)   ASK   push forzado (rescribe historia publicada).
+ *   uv               (Bash)   DENY  pip install / python suelto sin `uv run`.   [apagada]
+ *   commit-format    (Bash)   DENY  git commit sin prefijo convencional.        [apagada]
+ *   skip-permissions (Bash)   DENY  --dangerously-skip-permissions.             [apagada]
+ *
+ * POR QUE LAS TRES DENY DE BASH VIENEN APAGADAS (2026-09-22, al registrar el
+ * hook en la plantilla): las tres son heuristicas sobre TEXTO DE SHELL, y un
+ * DENY es un bloqueo sin apelacion. Un falso positivo no avisa: para el
+ * trabajo en seco y obliga a reescribir el comando a ciegas. Las dos que se
+ * quedan activas no tienen esa forma — agente-fantasma comprueba pertenencia a
+ * un catalogo de disco (o falla abierto) y force-push solo PREGUNTA. Para
+ * encenderlas: ULTRON_GUARDRAILS_BASH=1 en el entorno de la sesion.
  *
  * POR QUE agente-fantasma BLOQUEA Y NO AVISA: un `subagent_type` inexistente
  * no da error — Claude Code lo ignora en silencio y la delegacion se pierde
@@ -47,6 +55,16 @@ const HOME = os.homedir();
 
 /** Por debajo de esto se asume catalogo mal leido y la regla se desactiva. */
 const MIN_CATALOGO = 20;
+
+/**
+ * ¿Estan encendidas las reglas DENY sobre lineas de Bash (uv, commit-format,
+ * skip-permissions)? Se lee en CADA llamada, no al cargar el modulo: asi el
+ * selftest puede ejercitar los dos estados en el mismo proceso, y el flag se
+ * puede poner por sesion sin reinstalar nada.
+ */
+function reglasBashActivas() {
+  return process.env.ULTRON_GUARDRAILS_BASH === '1';
+}
 
 /** Tipos que sirve el propio harness y que no tienen fichero en disco. */
 const AGENTES_BUILTIN = [
@@ -301,12 +319,16 @@ function classify(toolName, toolInput) {
 
   if (toolName === 'Bash' || toolName === 'PowerShell') {
     const cmd = input.command || '';
-    const skip = reglaSkipPermissions(cmd);
-    if (skip) return { decision: 'deny', regla: 'skip-permissions', reason: skip };
-    const uv = reglaUv(cmd);
-    if (uv) return { decision: 'deny', regla: 'uv', reason: uv };
-    const commit = reglaCommitFormato(cmd);
-    if (commit) return { decision: 'deny', regla: 'commit-format', reason: commit };
+    // Las tres DENY solo con ULTRON_GUARDRAILS_BASH=1 (ver cabecera).
+    if (reglasBashActivas()) {
+      const skip = reglaSkipPermissions(cmd);
+      if (skip) return { decision: 'deny', regla: 'skip-permissions', reason: skip };
+      const uv = reglaUv(cmd);
+      if (uv) return { decision: 'deny', regla: 'uv', reason: uv };
+      const commit = reglaCommitFormato(cmd);
+      if (commit) return { decision: 'deny', regla: 'commit-format', reason: commit };
+    }
+    // El ASK de force-push va SIEMPRE: pregunta, no bloquea.
     const fpush = reglaForcePush(cmd);
     if (fpush) return { decision: 'ask', regla: 'force-push', reason: fpush };
   }
@@ -351,6 +373,7 @@ function handle(raw) {
 module.exports = {
   classify,
   handle,
+  reglasBashActivas,
   agentesValidos,
   reglaUv,
   reglaCommitFormato,
