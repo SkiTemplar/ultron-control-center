@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { HudSelect } from "./HudSelect";
+import { HudSelect, opcionDeModelo } from "./HudSelect";
 import {
   ajustar,
   ajustarCuandoEsteListo,
@@ -101,6 +101,8 @@ export function TerminalPane({ sessionId, onSession }: Props) {
   // Una lista de un solo modelo parece un fallo y casi nunca lo es (la cuenta
   // de ChatGPT solo admite el suyo). La explicacion va al lado de la lista.
   const notaModelos = fichaProveedor?.nota ?? "";
+  /** Plan detectado de esa cuenta. Vacio = no se sabe y no se pinta nada. */
+  const planProveedor = fichaProveedor?.plan ?? "";
 
   async function abrir() {
     setError(null);
@@ -135,15 +137,19 @@ export function TerminalPane({ sessionId, onSession }: Props) {
             valor={modelo}
             vacio="por defecto de la CLI"
             ancho={170}
-            opciones={modelos.map((m) => ({ id: m.id, label: m.label, hint: m.para }))}
+            // Mismo mapeo que las demas pantallas: vetado = se ve en gris con
+            // su motivo y no se puede elegir (`maria_term_open` lo rechaza).
+            opciones={modelos.map(opcionDeModelo)}
             onChange={setModelo}
           />
-          {notaModelos && (
+          {(planProveedor || notaModelos) && (
             <span
               className="max-w-[260px] text-[10.5px] leading-snug"
               style={{ color: "var(--color-text-tertiary)" }}
-              title={notaModelos}
+              title={fichaProveedor?.plan_origen || notaModelos}
             >
+              {planProveedor && <strong>{planProveedor}</strong>}
+              {planProveedor && notaModelos ? " · " : ""}
               {notaModelos}
             </span>
           )}

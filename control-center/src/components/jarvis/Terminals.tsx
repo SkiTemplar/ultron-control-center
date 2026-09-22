@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { HudSelect } from "./HudSelect";
+import { HudSelect, opcionDeModelo } from "./HudSelect";
 import {
   ajustar,
   ajustarCuandoEsteListo,
@@ -66,9 +66,9 @@ export function Terminals() {
       .catch(() => setCatalogo(null));
   }, []);
 
+  const fichaProveedor = catalogo?.providers.find((c) => c.provider === proveedor);
   /** Modelos elegibles del proveedor seleccionado. PowerShell no tiene. */
-  const modelosDisponibles: ModeloInfo[] =
-    catalogo?.providers.find((c) => c.provider === proveedor)?.models ?? [];
+  const modelosDisponibles: ModeloInfo[] = fichaProveedor?.models ?? [];
 
   /** Monta (o recupera) el xterm de una sesion y lo deja a la vista. */
   const montar = useCallback(async (id: string) => {
@@ -206,13 +206,25 @@ export function Terminals() {
           vacio="por defecto de la CLI"
           ancho={176}
           titulo="con qué modelo arranca la sesión"
-          opciones={modelosDisponibles.map((m) => ({
-            id: m.id,
-            label: m.label,
-            hint: m.para,
-          }))}
+          // Aquí es más estricto que en el chat: `maria_term_open` devuelve
+          // error duro con un modelo que la CLI no admite, así que la opción
+          // vetada se ve pero HudSelect no deja seleccionarla (2026-09-22).
+          opciones={modelosDisponibles.map(opcionDeModelo)}
           onChange={setModelo}
         />
+        {/* Plan detectado y por qué la lista es esa. Sin esto, «solo hay un
+            modelo» parece una avería y es la suscripción (2026-09-22). */}
+        {(fichaProveedor?.plan || fichaProveedor?.nota) && (
+          <span
+            className="mt-4 max-w-[280px] text-[10.5px] leading-snug"
+            style={{ color: "var(--color-text-tertiary)" }}
+            title={fichaProveedor?.plan_origen || fichaProveedor?.nota}
+          >
+            {fichaProveedor?.plan && <strong>{fichaProveedor.plan}</strong>}
+            {fichaProveedor?.plan && fichaProveedor?.nota ? " · " : ""}
+            {fichaProveedor?.nota}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => void abrir(proveedor, modelo)}

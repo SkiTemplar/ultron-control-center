@@ -12,13 +12,39 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { siguienteIndice } from "./hudSelectNav";
+import type { ModeloInfo } from "./terminalCore";
 
 export type Opcion = {
   id: string;
   label: string;
   /** Una línea de para qué sirve. Se pinta bajo la etiqueta. */
   hint?: string;
+  /** No se puede elegir, pero SE SIGUE VIENDO (en gris, con su motivo).
+   *  Una opción que desaparece parece un fallo del programa; una en gris que
+   *  dice «rechazado por la cuenta el 22/09» explica la suscripción. */
+  deshabilitada?: boolean;
+  /** Por qué no se puede elegir. Se pinta bajo la pista, en color de aviso. */
+  motivo?: string;
 };
+
+/** Un modelo del catálogo (`maria_models_catalog`), tal y como se ofrece en un
+ *  desplegable.
+ *
+ *  Vive aquí, y no copiado en cada pantalla, porque son CUATRO las que ofrecen
+ *  modelos (chat, reglas del Router, terminales y panel de terminal) y hasta
+ *  el 2026-09-22 cada una hacía su propio `.map()`: el día que el catálogo
+ *  empezó a decir qué permite la suscripción, tres de las cuatro se habrían
+ *  quedado ofreciendo modelos que la cuenta rechaza. */
+export function opcionDeModelo(m: ModeloInfo): Opcion {
+  const vetado = m.permitido === "no";
+  return {
+    id: m.id,
+    label: m.label,
+    hint: m.para || m.id,
+    deshabilitada: vetado,
+    motivo: vetado ? m.motivo || "tu suscripción no lo permite" : undefined,
+  };
+}
 
 type Props = {
   etiqueta: string;
@@ -57,11 +83,31 @@ export function HudSelect({
     boton.current?.focus();
   }, []);
 
-  // Al abrir, el cursor arranca sobre lo que ya está elegido.
+  // Al abrir, el cursor arranca sobre lo que ya está elegido; si no hay nada
+  // elegido, sobre la primera que SE PUEDA elegir, para que el primer Enter
+  // haga algo (2026-09-22).
+  //
+  // `colocado` es lo que hace que esto pase UNA VEZ por apertura. `todas` se
+  // construye en cada render, así que sin el candado el efecto se ejecutaba
+  // después de cada render y devolvía el cursor a la opción ya elegida: las
+  // flechas movían el resaltado y el siguiente render lo traía de vuelta, de
+  // modo que Enter elegía siempre lo mismo. Salió al probar el salto de las
+  // opciones vetadas, pero llevaba roto desde que existe el desplegable.
+  const colocado = useRef(false);
   useEffect(() => {
-    if (!abierto) return;
+    if (!abierto) {
+      colocado.current = false;
+      return;
+    }
+    if (colocado.current) return;
+    colocado.current = true;
     const i = todas.findIndex((o) => o.id === valor);
-    setMarcado(i >= 0 ? i : 0);
+    if (i >= 0) {
+      setMarcado(i);
+      return;
+    }
+    const libre = todas.findIndex((o) => !o.deshabilitada);
+    setMarcado(libre >= 0 ? libre : 0);
   }, [abierto, valor, todas]);
 
   // Pulsar fuera cierra. Sin esto el desplegable se queda abierto encima del
@@ -78,6 +124,9 @@ export function HudSelect({
   function elegir(i: number) {
     const o = todas[i];
     if (!o) return;
+    // Una opción deshabilitada se ve pero no se elige, ni con el ratón ni con
+    // Enter: el desplegable se queda abierto para que se lea el motivo.
+    if (o.deshabilitada) return;
     onChange(o.id);
     cerrar();
   }
@@ -106,7 +155,9 @@ export function HudSelect({
       elegir(marcado);
       return;
     }
-    const siguiente = siguienteIndice(e.key, marcado, todas.length);
+    const siguiente = siguienteIndice(e.key, marcado, todas.length, (i) =>
+      Boolean(todas[i]?.deshabilitada),
+    );
     if (siguiente !== null) {
       e.preventDefault();
       setMarcado(siguiente);
@@ -125,6 +176,9 @@ export function HudSelect({
           aria-controls={idLista}
           aria-haspopup="listbox"
           aria-label={etiqueta}
+          // El foco no se mueve de aquí: quien lee la pantalla necesita que se
+          // le diga sobre qué opción está el cursor de las flechas.
+          aria-activedescendant={abierto ? `${idLista}-${marcado}` : undefined}
           disabled={deshabilitado}
           onClick={() => setAbierto((a) => !a)}
           onKeyDown={teclas}
@@ -162,7 +216,13 @@ export function HudSelect({
                   <button
                     type="button"
                     role="option"
+                    id={`${idLista}-${i}`}
                     aria-selected={elegido}
+                    // aria-disabled, no el atributo `disabled`: un botón
+                    // deshabilitado de verdad no recibe el ratón y el tooltip
+                    // con el motivo no llegaría a verse nunca.
+                    aria-disabled={o.deshabilitada || undefined}
+                    title={o.motivo || undefined}
                     onMouseEnter={() => setMarcado(i)}
                     onMouseDown={(e) => {
                       // mousedown, no click: el botón pierde el foco antes de
@@ -176,14 +236,19 @@ export function HudSelect({
                       borderLeft: elegido
                         ? "2px solid var(--color-accent)"
                         : "2px solid transparent",
-                      cursor: "pointer",
+                      cursor: o.deshabilitada ? "not-allowed" : "pointer",
                     }}
                   >
                     <span
                       className="text-[13px]"
                       style={{
-                        color: elegido ? "var(--color-accent)" : "var(--color-text)",
+                        color: o.deshabilitada
+                          ? "var(--color-text-tertiary)"
+                          : elegido
+                            ? "var(--color-accent)"
+                            : "var(--color-text)",
                         fontFamily: "var(--font-mono)",
+                        textDecoration: o.deshabilitada ? "line-through" : undefined,
                       }}
                     >
                       {o.label}
@@ -194,6 +259,14 @@ export function HudSelect({
                         style={{ color: "var(--color-text-tertiary)", lineHeight: 1.35 }}
                       >
                         {o.hint}
+                      </span>
+                    )}
+                    {o.motivo && (
+                      <span
+                        className="text-[11px]"
+                        style={{ color: "var(--color-warn)", lineHeight: 1.35 }}
+                      >
+                        {o.motivo}
                       </span>
                     )}
                   </button>

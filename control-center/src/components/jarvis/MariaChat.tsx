@@ -26,7 +26,10 @@ import { PanelLateral, type PanelId } from "./PanelLateral";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ThreadSidebar, type Coincidencia, type ThreadMeta } from "./ThreadSidebar";
-import { HudSelect } from "./HudSelect";
+import { HudSelect, opcionDeModelo } from "./HudSelect";
+// El catalogo de modelos tiene UN tipo, en terminalCore.ts. Importado como
+// tipo: no arrastra el xterm de ese modulo a esta pantalla.
+import type { Catalogo, ModeloInfo } from "./terminalCore";
 import { publicarAccionesChat } from "../../lib/accionesChat";
 import { decidirEscape, type AccionChat } from "./chatAcciones";
 import {
@@ -103,15 +106,16 @@ function aBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-/** Catalogo de modelos que sirve el backend (`maria_models_catalog`). */
-type ModeloInfo = { id: string; label: string; para: string };
-type CatalogoProveedor = {
-  provider: string;
-  models: ModeloInfo[];
-  default_model: string;
-  effort_mode: string;
-};
-type Catalogo = { providers: CatalogoProveedor[]; efforts: string[] };
+/** Fecha corta ("22/09") de una marca RFC 3339, o "" si no hay o no se
+ *  entiende. Se usa para decir CUANDO se supo que un modelo estaba vetado:
+ *  «no lo permite tu cuenta» sin fecha no deja saber si el dato es de hoy o
+ *  de hace un mes. */
+function fechaCorta(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
 /** Como se controla el esfuerzo en cada proveedor. Se enseña tal cual para no
  *  fingir un mando que esa CLI no tiene. */
@@ -165,6 +169,10 @@ const SKIP_LABEL: Record<string, string> = {
   sin_cli: "CLI no instalada",
   timeout: "sin respuesta",
   enfriando: "sin cuota, en espera",
+  // El relevo cambiaba de modelo EN SILENCIO cuando el pedido no valía para
+  // ese proveedor (relay.rs). Desde el 2026-09-22 deja este rastro, así que
+  // aquí tiene que tener nombre: sin entrada, se leería «claude · modelo».
+  modelo: "modelo no permitido",
 };
 
 /** Trabajo en paralelo de un proveedor para esta conversacion (`maria/encargos.rs`). */
@@ -304,18 +312,23 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     [threads, threadId],
   );
 
-  /** Modelos del proveedor fijado. Sin proveedor fijado no se ofrece ninguno:
-   *  un modelo sin saber de quien es no se puede mandar a nadie. */
-  const modelosDe = useCallback(
-    (p: string | null): ModeloInfo[] =>
-      (p && catalogo?.providers.find((c) => c.provider === p)?.models) || [],
+  /** Ficha del proveedor en el catalogo: de ahi salen sus modelos, su nota y
+   *  el plan detectado de la suscripcion. */
+  const fichaDe = useCallback(
+    (p: string | null) => (p ? catalogo?.providers.find((c) => c.provider === p) : undefined),
     [catalogo],
   );
 
+  /** Modelos del proveedor fijado. Sin proveedor fijado no se ofrece ninguno:
+   *  un modelo sin saber de quien es no se puede mandar a nadie. */
+  const modelosDe = useCallback(
+    (p: string | null): ModeloInfo[] => fichaDe(p)?.models ?? [],
+    [fichaDe],
+  );
+
   const modoEsfuerzoDe = useCallback(
-    (p: string): string =>
-      catalogo?.providers.find((c) => c.provider === p)?.effort_mode ?? "",
-    [catalogo],
+    (p: string): string => fichaDe(p)?.effort_mode ?? "",
+    [fichaDe],
   );
 
   const avisar = useCallback((text: string, tono: Aviso["tono"] = "info") => {
@@ -660,8 +673,45 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           );
           return;
         }
+        // El modelo existe pero la cuenta lo rechaza: decir eso y CUÁNDO se
+        // supo. Antes se contestaba «no está en claude», que es mentira —
+        // está, lo que no hay es suscripción que lo alcance (2026-09-22).
+        if (elegido.permitido === "no") {
+          const cuando = fechaCorta(elegido.visto);
+          avisar(
+            `«${elegido.id}» no lo permite tu cuenta de ${forzado}` +
+              `${cuando ? ` (se supo el ${cuando})` : ""}` +
+              `${elegido.motivo ? `: ${elegido.motivo}` : ""}` +
+              "\n/modelos vuelve a preguntárselo al proveedor",
+            "error",
+          );
+          return;
+        }
         setModeloFijo(elegido.id);
         avisar(`modelo fijado a ${elegido.id}`);
+        return;
+      }
+      case "/modelos": {
+        // Los ids caducan y los planes cambian: esto vuelve a mirar lo que la
+        // suscripción permite HOY en vez de creerse la lista de arranque.
+        avisar("preguntando a cada proveedor qué modelos permite tu suscripción…");
+        const nuevo = await invoke<Catalogo>("maria_models_refrescar").catch((e) => {
+          avisar(String(e), "error");
+          return null;
+        });
+        if (!nuevo) return;
+        setCatalogo(nuevo);
+        const cuenta = (nuevo.providers ?? [])
+          .map((p, i) => `${p.models.length}${i === 0 ? " modelos" : ""} en ${p.provider}`)
+          .join(", ");
+        const planes = (nuevo.providers ?? [])
+          .filter((p) => p.plan)
+          .map((p) => `${p.provider}: ${p.plan}`)
+          .join(", ");
+        avisar(
+          `catálogo actualizado: ${cuenta || "ningún proveedor"}` +
+            (planes ? `\nplanes: ${planes}` : ""),
+        );
         return;
       }
       case "/esfuerzo": {
@@ -1261,11 +1311,18 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               vacio="auto · decide mar.ia"
               ancho={168}
               titulo="quién contesta"
-              opciones={(config?.order ?? []).map((p) => ({
-                id: p,
-                label: p,
-                hint: PROVEEDOR_HINT[p],
-              }))}
+              // El plan va pegado al nombre («claude · Claude Pro»): es lo que
+              // decide qué modelos hay en el desplegable de al lado, así que
+              // verlo aparte no serviría de nada. Sin plan detectado no se
+              // pinta nada: inventarlo sería peor que no decirlo.
+              opciones={(config?.order ?? []).map((p) => {
+                const plan = fichaDe(p)?.plan ?? "";
+                return {
+                  id: p,
+                  label: plan ? `${p} · ${plan}` : p,
+                  hint: PROVEEDOR_HINT[p],
+                };
+              })}
               onChange={(v) => {
                 const p = v ? parseProvider(v) : null;
                 setForzado(p);
@@ -1281,11 +1338,10 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               vacio={forzado ? "auto · el que elija mar.ia" : "elige antes proveedor"}
               ancho={176}
               titulo="qué modelo concreto contesta"
-              opciones={modelosDe(forzado).map((m) => ({
-                id: m.id,
-                label: m.label,
-                hint: m.para,
-              }))}
+              // Los que la cuenta rechaza se siguen viendo, en gris y con el
+              // motivo: así se sabe que el modelo existe y que lo que falta es
+              // plan, en vez de buscarlo sin encontrarlo (2026-09-22).
+              opciones={modelosDe(forzado).map(opcionDeModelo)}
               onChange={(v) => setModeloFijo(v || null)}
             />
             <HudSelect
@@ -1347,6 +1403,18 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
               <>
                 {" · esfuerzo en "}
                 {forzado}: {EFFORT_MODE_LABEL[modoEsfuerzoDe(forzado)] ?? modoEsfuerzoDe(forzado)}
+              </>
+            )}
+            {/* Por qué la lista de modelos es la que es (la cuenta de ChatGPT
+                gratuita solo admite los suyos, agy sirve modelos de Anthropic
+                con cuota de Google…). Ya lo pintaba el panel de terminal; en
+                la pantalla donde de verdad se elige modelo, no. */}
+            {forzado && fichaDe(forzado)?.nota && (
+              <>
+                {" · "}
+                <span title={fichaDe(forzado)?.plan_origen || undefined}>
+                  {fichaDe(forzado)?.nota}
+                </span>
               </>
             )}
             {/* Cuota de Claude en su ventana móvil. El cálculo ya existía

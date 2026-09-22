@@ -23,17 +23,61 @@ export const PROVEEDORES = [
 
 /** Catalogo de modelos (`maria_models_catalog`). Se pide al backend en vez de
  *  clavar la lista aqui: si el catalogo de Rust cambia, esto no se queda
- *  ofreciendo un modelo que la CLI ya no acepta. */
-export type ModeloInfo = { id: string; label: string; para: string };
-export type Catalogo = {
-  providers: Array<{
-    provider: string;
-    models: ModeloInfo[];
-    default_model: string;
-    /** Por que la lista es la que es. Vacio = no hay nada que explicar. */
-    nota?: string;
-  }>;
+ *  ofreciendo un modelo que la CLI ya no acepta.
+ *
+ *  Este es el UNICO sitio donde vive el tipo. Hasta el 2026-09-22 habia tres
+ *  copias escritas a mano (aqui, en MariaChat.tsx y en CriterioPanel.tsx) y ya
+ *  discrepaban entre si: la de CriterioPanel no tenia `default_model` ni
+ *  `nota`, asi que una regla del Router no podia ni explicar por que la lista
+ *  era la que era.
+ *
+ *  Lo que anadio la deteccion de suscripcion (2026-09-22) va todo OPCIONAL a
+ *  proposito: un backend anterior no manda esos campos y la interfaz tiene que
+ *  seguir pintando la lista exactamente igual que hoy. */
+
+/** Que sabemos de si la cuenta admite ese modelo.
+ *
+ *  "desconocido" NO es "no": el modelo se sigue ofreciendo. Esconder por falta
+ *  de pruebas seria peor que el problema que arregla esto, porque taparia
+ *  modelos que la suscripcion si permite. */
+export type Permitido = "si" | "no" | "desconocido";
+
+/** De donde salio el id: del catalogo de casa o de lo que publica la cuenta. */
+export type OrigenModelo = "casa" | "suscripcion";
+
+export type ModeloInfo = {
+  id: string;
+  label: string;
+  /** Para que sirve, en una linea. Se pinta como pista bajo la etiqueta. */
+  para: string;
+  permitido?: Permitido;
+  /** Una frase para el tooltip ("rechazado por la cuenta el 22/09: ..."),
+   *  recortada en Rust. Jamas puede llevar un token. */
+  motivo?: string;
+  /** RFC 3339 de cuando se supo. Vacio = nunca se ha probado. */
+  visto?: string;
+  origen?: OrigenModelo;
 };
+
+export type CatalogoProveedor = {
+  provider: string;
+  models: ModeloInfo[];
+  default_model: string;
+  /** Como se controla el esfuerzo en esa CLI ("Bandera", "EnElPrompt"...). */
+  effort_mode?: string;
+  /** Por que la lista es la que es. Vacio = no hay nada que explicar. */
+  nota?: string;
+  /** Plan detectado ("Claude Pro", "ChatGPT Free"...). Vacio = no se sabe, y
+   *  entonces no se pinta nada: un plan inventado es peor que ninguno. */
+  plan?: string;
+  /** De donde salio el plan (nombre de fichero/campo o comando). Nunca un
+   *  valor sensible: solo el sitio, para poder comprobarlo. */
+  plan_origen?: string;
+  /** RFC 3339 del ultimo sondeo. Vacio = solo hay catalogo de casa. */
+  refrescado?: string;
+};
+
+export type Catalogo = { providers: CatalogoProveedor[]; efforts?: string[] };
 
 export type TermInfo = { id: string; provider: string; running: boolean; model: string };
 

@@ -17,6 +17,9 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Confirmar } from "./Confirmar";
 import { BotonRefrescar } from "./BotonRefrescar";
+// El plan y los modelos que permite cada suscripción salen del MISMO catálogo
+// que usan el chat y las terminales: un tipo, no una copia.
+import type { Catalogo } from "../jarvis/terminalCore";
 
 type TipoAcceso = "Suscripcion" | "ClaveApi" | "Local" | "SinAcceso";
 
@@ -28,6 +31,12 @@ type Cuenta = {
   source: string;
   key_tail: string;
   warnings: string[];
+  /** Plan detectado («Claude Pro», «ChatGPT Free»…). Opcional: un backend
+   *  anterior al 2026-09-22 no lo manda y la tarjeta se pinta igual. */
+  plan?: string;
+  /** Fichero/campo o comando de donde salió el plan. Nunca un valor sensible:
+   *  aquí se dice DÓNDE mirar, igual que ya se hace con `source`. */
+  plan_origen?: string;
 };
 
 type Informe = { cuentas: Cuenta[]; correos: string[]; warnings: string[] };
@@ -86,12 +95,19 @@ export function CuentasSection() {
   /** Proveedor cuyo campo «guardar como» está abierto. */
   const [guardando, setGuardando] = useState<string | null>(null);
   const [nombreNuevo, setNombreNuevo] = useState("");
+  /** Catálogo de modelos, para decir cuántos permite cada suscripción. */
+  const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
+  /** Proveedor cuyo botón «actualizar modelos» está en marcha. */
+  const [refrescandoModelos, setRefrescandoModelos] = useState<string | null>(null);
 
   // El error del informe SUBE: lo enseña el boton de refrescar. Los perfiles
   // son secundarios, asi que su fallo no tumba la pantalla entera.
   const cargar = useCallback(async () => {
     const ps = await invoke<Perfil[]>("maria_perfiles_listar").catch(() => []);
     setPerfiles(ps ?? []);
+    // Secundario como los perfiles: si el catálogo falla, la pantalla de
+    // cuentas sigue contestando a lo suyo (quién soy y cómo se paga).
+    setCatalogo(await invoke<Catalogo>("maria_models_catalog").catch(() => null));
     try {
       setInforme(await invoke<Informe>("maria_cuentas_informe"));
       setError(null);
@@ -116,6 +132,32 @@ export function CuentasSection() {
     },
     [cargar],
   );
+
+  /** Vuelve a preguntar a los proveedores qué modelos permite la suscripción.
+   *
+   *  Existe como botón porque el plan cambia fuera de mar.ia (se contrata Max,
+   *  caduca Pro) y el catálogo de arranque se queda viejo sin avisar. El aviso
+   *  dice el número de ESTE proveedor: «se actualizó algo» no vale de nada. */
+  const refrescarModelos = useCallback(async (provider: string) => {
+    setRefrescandoModelos(provider);
+    setError(null);
+    setAviso(null);
+    try {
+      const c = await invoke<Catalogo>("maria_models_refrescar");
+      setCatalogo(c);
+      const ficha = c?.providers?.find((p) => p.provider === provider);
+      setAviso(
+        ficha
+          ? `${provider}: ${ficha.models.length} modelos` +
+            (ficha.plan ? ` con ${ficha.plan}` : "")
+          : `${provider}: sin modelos en el catálogo`,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRefrescandoModelos(null);
+    }
+  }, []);
 
   useEffect(() => {
     void cargar();
@@ -217,6 +259,63 @@ export function CuentasSection() {
             <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
               {t.nota} · origen del dato: <code>{c.source}</code>
             </span>
+
+            {/* Qué plan es y, por tanto, a qué modelos llega esta cuenta. Se
+                pidió el 2026-09-22: «podría querer un opus 5, o un 4.6». El
+                plan puede venir del informe de cuentas o del catálogo; si no
+                lo da ninguno no se escribe nada, porque un plan inventado
+                aquí llevaría a pedir un modelo que la cuenta rechaza. */}
+            {c.tipo !== "Local" && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                {(() => {
+                  const ficha = catalogo?.providers.find((p) => p.provider === c.provider);
+                  const plan = c.plan || ficha?.plan || "";
+                  const origen = c.plan_origen || ficha?.plan_origen || "";
+                  return (
+                    <>
+                      <span style={{ color: "var(--color-text-secondary)" }}>
+                        plan:{" "}
+                        {plan ? (
+                          <strong
+                            style={{
+                              color: "var(--color-accent)",
+                              fontFamily: "var(--font-mono)",
+                            }}
+                            title={origen ? `según ${origen}` : undefined}
+                          >
+                            {plan}
+                          </strong>
+                        ) : (
+                          <span style={{ color: "var(--color-text-tertiary)" }}>
+                            sin detectar
+                          </span>
+                        )}
+                        {ficha && ` · ${ficha.models.length} modelos disponibles`}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={refrescandoModelos !== null}
+                        onClick={() => void refrescarModelos(c.provider)}
+                        className="px-2 py-0.5"
+                        style={{
+                          border: "1px solid var(--color-border)",
+                          color: "var(--color-accent)",
+                          background: "none",
+                          fontFamily: "var(--font-mono)",
+                          cursor: refrescandoModelos ? "wait" : "pointer",
+                          opacity: refrescandoModelos ? 0.6 : 1,
+                        }}
+                        title="vuelve a preguntar qué modelos permite esta suscripción"
+                      >
+                        {refrescandoModelos === c.provider
+                          ? "preguntando…"
+                          : "actualizar modelos"}
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* --- cuentas guardadas de este proveedor -------------------- */}
             {c.tipo !== "Local" && (

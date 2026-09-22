@@ -12,7 +12,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { HudSelect } from "../jarvis/HudSelect";
+import { HudSelect, opcionDeModelo } from "../jarvis/HudSelect";
+// Un solo tipo de catalogo para toda la interfaz (terminalCore.ts). La copia
+// que habia aqui no tenia ni `default_model` ni `nota`: una regla podia fijar
+// un modelo sin poder explicar por que la lista era esa.
+import type { Catalogo } from "../jarvis/terminalCore";
 
 type Regla = {
   tarea: string;
@@ -54,12 +58,6 @@ const RESIDENCIAS: Array<{ s: number; label: string }> = [
   { s: 300, label: "5 min cargada" },
   { s: 900, label: "15 min cargada" },
 ];
-
-type ModeloInfo = { id: string; label: string; para: string };
-type Catalogo = {
-  providers: Array<{ provider: string; models: ModeloInfo[] }>;
-  efforts: string[];
-};
 
 export function CriterioPanel() {
   const [criterio, setCriterio] = useState<Criterio | null>(null);
@@ -105,9 +103,12 @@ export function CriterioPanel() {
 
   if (!criterio) return <p className="p-6 text-[13px]">{error ?? "cargando…"}</p>;
 
+  // El plan detectado va en la etiqueta del proveedor: una regla que mande a
+  // claude con un modelo de un plan que no se tiene caía al modelo por
+  // defecto sin decir nada (relay.rs), y aquí no se veía venir.
   const proveedores = (catalogo?.providers ?? []).map((p) => ({
     id: p.provider,
-    label: p.provider,
+    label: p.plan ? `${p.provider} · ${p.plan}` : p.provider,
   }));
   const modelosDe = (prov: string) =>
     catalogo?.providers.find((p) => p.provider === prov)?.models ?? [];
@@ -398,11 +399,9 @@ export function CriterioPanel() {
               valor={r.model}
               vacio="el de por defecto"
               ancho={170}
-              opciones={modelosDe(r.provider).map((m) => ({
-                id: m.id,
-                label: m.label,
-                hint: m.para,
-              }))}
+              // Mismo mapeo que el chat: lo que la cuenta rechaza se ve en
+              // gris con su motivo y NO se puede fijar en una regla.
+              opciones={modelosDe(r.provider).map(opcionDeModelo)}
               onChange={(v) => cambiar(i, "model", v)}
             />
             <HudSelect

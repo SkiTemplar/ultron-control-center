@@ -43,6 +43,11 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/ficheros", args: "", desc: "abre el panel con la carpeta de la conversación" },
   { name: "/analizar", args: "", desc: "vuelve a dejar que mar.ia elija proveedor y modelo" },
   { name: "/modelo", args: "<haiku|sonnet|opus|…>", desc: "fija el modelo concreto" },
+  {
+    name: "/modelos",
+    args: "",
+    desc: "vuelve a mirar qué modelos permite tu suscripción en cada proveedor",
+  },
   { name: "/esfuerzo", args: "<bajo|medio|alto>", desc: "fija cuanto debe pensar" },
   { name: "/fijar", args: "", desc: "fija o suelta esta conversación" },
   { name: "/titulo", args: "<texto>", desc: "renombra la conversación" },
