@@ -174,6 +174,8 @@ type RelayAnswer = {
   /** Algo que el usuario debe saber de este turno aunque haya ido bien: hoy,
    *  que se ha contestado SIN punto de control y por qué (`puntos::del_turno`). */
   aviso?: string | null;
+  /** Punto de control tomado antes de este turno (el mismo `Turn.punto`). */
+  punto?: string | null;
   /** Consumo y tiempo del turno, lo mismo que queda en el hilo (`maria/relay.rs`). */
   tokens_in?: number | null;
   tokens_out?: number | null;
@@ -930,6 +932,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           tokens_out: ans.tokens_out ?? null,
           coste_usd: ans.coste_usd ?? null,
           ms: ans.ms ?? null,
+          // Y el punto de control: sin él, «volver a antes de esta
+          // respuesta» solo salía al reabrir la conversación (2026-09-22).
+          punto: ans.punto ?? null,
         },
       ]);
       // El primer intercambio le pone nombre a la conversacion: sin esto la

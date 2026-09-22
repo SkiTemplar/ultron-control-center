@@ -149,6 +149,11 @@ pub struct RelayAnswer {
     /// seguridad, y eso se dice. No es un `SkipReason`: no se ha descartado a
     /// nadie. `None` = no hay nada que advertir.
     pub aviso: Option<String>,
+    /// Punto de control tomado antes de este turno (el mismo `Turn.punto`),
+    /// para que la respuesta recien llegada ofrezca «volver» sin releer el
+    /// hilo (2026-09-22: sin esto el enlace solo salia al reabrir la
+    /// conversacion, igual que le paso al consumo).
+    pub punto: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1843,6 +1848,7 @@ fn ask_inner(
                     coste_usd: respuesta.consumo.coste_usd,
                     ms: Some(ms),
                     aviso: aviso.clone(),
+                    punto: punto.clone(),
                 });
             }
             Err((detail, cuota)) => {
