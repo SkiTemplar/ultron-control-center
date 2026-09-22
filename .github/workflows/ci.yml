@@ -450,6 +450,7 @@ jobs:
         run: |
           node hooks/scripts/stopfailure-relay.selftest.mjs
           node hooks/scripts/guardrails-pre.selftest.mjs
+          node hooks/scripts/ensure-project.selftest.mjs
           node hooks/scripts/socratic-gate.selftest.mjs
           node hooks/scripts/uni-deliverable-guard.selftest.mjs
           node hooks/scripts/response-meter.selftest.mjs

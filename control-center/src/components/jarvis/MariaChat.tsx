@@ -73,7 +73,14 @@ type Punto = { sha: string; ts: string; etiqueta: string };
 
 /** Lo que devuelve `maria_punto_volver`. `antes` es el punto que se toma justo
  *  antes de restaurar: volver también se deshace. */
-type Restaurado = { ficheros: number; antes: string; turnos: number };
+type Restaurado = {
+  ficheros: number;
+  antes: string;
+  turnos: number;
+  /** Repositorios anidados que la foto NO cubre: lo que un agente tocara ahí
+   *  no vuelve. Opcional para no romper con un backend anterior. */
+  anidados?: string[];
+};
 
 /** Qué se devuelve al punto. Mismos nombres que espera el comando Tauri. */
 type ModoVuelta = "codigo" | "conversacion" | "todo";
@@ -1104,6 +1111,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         partes.push(
           r.ficheros === 1 ? "1 fichero restaurado" : `${r.ficheros} ficheros restaurados`,
         );
+      }
+      if (modo !== "conversacion" && r.anidados && r.anidados.length > 0) {
+        // Decirlo aquí, junto a «N ficheros restaurados», porque el diálogo
+        // promete que volver borra lo escrito después: dentro de un repositorio
+        // anidado no es verdad (2026-09-22).
+        partes.push(`sin tocar ${r.anidados.join(", ")} (repositorios aparte)`);
       }
       if (modo !== "codigo") {
         // `turnos` son los que QUEDAN, no los que se han quitado (así lo
