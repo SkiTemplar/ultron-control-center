@@ -64,6 +64,17 @@ pub struct Encargo {
     /// `encargos.json` escritos antes de hoy se sigan leyendo.
     #[serde(default)]
     pub punto: Option<String>,
+    /// Lo que hay que contarle al usuario ANTES de que el agente empiece
+    /// (2026-09-22): que la foto no salio y por que, o que hay una carpeta que
+    /// la foto no alcanza. Hasta hoy `lanzar` hacia `let (punto, _)` y lo
+    /// tiraba, asi que un agente en paralelo, sin supervision y con acceso
+    /// total a la carpeta, arrancaba sin red y sin una sola palabra — el caso
+    /// mas peligroso de los dos, tratado con menos cuidado que el del chat.
+    /// `None` = no hay nada que advertir. `#[serde(default)]` explicito, igual
+    /// que en `punto`, para que se lea a simple vista que un `encargos.json`
+    /// sin el campo es valido.
+    #[serde(default)]
+    pub aviso: Option<String>,
 }
 
 static ENCARGOS: Mutex<Vec<Encargo>> = Mutex::new(Vec::new());
@@ -245,6 +256,34 @@ pub fn componer(manual: &str, skills: &str, tablero: &str, contexto: &str, texto
     out
 }
 
+/// Un encargo recien creado a partir de lo que dijo la red de seguridad. Pura.
+///
+/// `red` es tal cual lo devuelve `puntos::del_turno`: `(sha, aviso)`. Existe
+/// aparte para poder comprobar —sin soltar un agente de verdad— que el aviso
+/// llega hasta la interfaz, que es lo que hasta el 2026-09-22 se perdia.
+#[must_use]
+fn nuevo(
+    id: String,
+    thread_id: &str,
+    provider: &str,
+    texto: &str,
+    red: (Option<String>, Option<String>),
+) -> Encargo {
+    let (punto, aviso) = red;
+    Encargo {
+        id,
+        thread_id: thread_id.to_string(),
+        provider: provider.to_string(),
+        texto: texto.to_string(),
+        estado: "en_curso".into(),
+        creado: chrono::Utc::now().to_rfc3339(),
+        fin: String::new(),
+        resumen: String::new(),
+        punto,
+        aviso,
+    }
+}
+
 pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, String> {
     let texto = texto.trim();
     if texto.is_empty() {
@@ -280,23 +319,16 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
     // La foto, ANTES de lanzar (2026-09-22). Un encargo corre en paralelo y sin
     // que nadie lo mire: es todavia mas importante que en el chat poder volver
     // al estado de antes. Si no hay proyecto no hay nada que fotografiar.
-    let (punto, _) = crate::maria::puntos::del_turno(
+    //
+    // Los DOS valores se usan: el aviso viaja con el encargo hasta la interfaz
+    // en vez de perderse en un `let (punto, _)` (ver `Encargo.aviso`).
+    let red = crate::maria::puntos::del_turno(
         crate::maria::threads::project_de(thread_id).as_deref(),
         thread_id,
         &format!("encargo {id}"),
     );
 
-    let encargo = Encargo {
-        id,
-        thread_id: thread_id.to_string(),
-        provider: provider.to_string(),
-        texto: texto.to_string(),
-        estado: "en_curso".into(),
-        creado: chrono::Utc::now().to_rfc3339(),
-        fin: String::new(),
-        resumen: String::new(),
-        punto,
-    };
+    let encargo = nuevo(id, thread_id, provider, texto, red);
     con(|v| v.push(encargo.clone()));
     persistir(thread_id);
     emitir(&encargo);
@@ -469,7 +501,61 @@ mod tests {
             fin: String::new(),
             resumen: String::new(),
             punto: None,
+            aviso: None,
         }
+    }
+
+    #[test]
+    fn el_encargo_se_lleva_el_aviso_de_que_no_hay_punto_de_control() {
+        // Caso negativo del 2026-09-22: `lanzar` hacia `let (punto, _)` y
+        // tiraba el aviso, asi que un agente con acceso total arrancaba sin
+        // red y sin decirlo. El chat SI lo respeta (RelayAnswer.aviso), y el
+        // encargo es el caso mas peligroso de los dos.
+        let sin_red = nuevo(
+            "ab12cd34".into(),
+            "hilo",
+            "codex",
+            "haz el indice",
+            (
+                None,
+                Some("Sin punto de control: el proyecto no existe.".into()),
+            ),
+        );
+        assert!(sin_red.punto.is_none());
+        assert_eq!(
+            sin_red.aviso.as_deref(),
+            Some("Sin punto de control: el proyecto no existe.")
+        );
+        // Con foto y sin nada que advertir, no se inventa un aviso.
+        let con_red = nuevo(
+            "ab12cd34".into(),
+            "hilo",
+            "codex",
+            "haz el indice",
+            (Some("deadbeef".into()), None),
+        );
+        assert_eq!(con_red.punto.as_deref(), Some("deadbeef"));
+        assert!(con_red.aviso.is_none());
+    }
+
+    #[test]
+    fn un_encargos_json_de_antes_de_hoy_se_sigue_leyendo() {
+        // Los dos campos nuevos de hoy no estan en un fichero escrito ayer, y
+        // tiene que seguir leyendose: `leer_en` se traga cualquier fallo de
+        // parseo devolviendo la lista vacia, o sea, encargos que desaparecen
+        // al arrancar sin decir por que.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let viejo = r#"[{"id":"ab12cd34","thread_id":"hilo","provider":"codex",
+            "texto":"x","estado":"hecho","creado":"","fin":"","resumen":""}]"#;
+        std::fs::write(fichero_en(tmp.path()), viejo).expect("escribir");
+        let v = leer_en(tmp.path());
+        assert_eq!(
+            v.len(),
+            1,
+            "un encargos.json de ayer tiene que seguir leyendose"
+        );
+        assert!(v[0].aviso.is_none());
+        assert!(v[0].punto.is_none());
     }
 
     #[test]
