@@ -113,6 +113,7 @@ type ProviderState = { status: string; detail: string; at: string; answered: num
 const PROVIDER_STATUS: Record<string, string> = {
   ok: "disponible",
   cuota: "sin cuota",
+  cuenta: "cuenta no operativa",
   error: "error",
   desactivado: "apagado",
 };

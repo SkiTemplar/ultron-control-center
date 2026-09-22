@@ -21,7 +21,7 @@
 // hablo porque se le cuenta, no porque lea la sesion del anterior.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -131,7 +131,7 @@ pub struct RelayAnswer {
 #[derive(Debug, Clone, Serialize)]
 pub struct SkipReason {
     pub provider: String,
-    /// "sin_cli" | "cuota" | "enfriando" | "error" | "desactivado" | "timeout".
+    /// "sin_cli" | "cuota" | "cuenta" | "enfriando" | "error" | "desactivado" | "timeout".
     pub kind: String,
     pub detail: String,
     /// Que puede HACER el usuario. Nunca vacio: un motivo de descarte sin
@@ -231,6 +231,11 @@ pub fn consejo(provider: &str, kind: &str, hasta: &str) -> String {
         "desactivado" => {
             format!("{provider} esta apagado en el relevo. Enciendelo si lo quieres de vuelta.")
         }
+        "cuenta" => format!(
+            "La cuenta de {provider} no esta operativa (facturacion, sesion caducada o \
+             verificacion pendiente) y esperar no lo arregla: vuelve a entrar con su CLI o \
+             revisa la cuenta. Mientras, el relevo usa a los demas."
+        ),
         _ if provider == "local" => {
             "El modelo local no contesto: casi siempre es que Ollama no esta levantado. \
              mar.ia lo arranca sola, asi que si sigue fallando comprueba `ollama list`."
@@ -292,14 +297,6 @@ pub(crate) fn maria_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn config_path() -> Result<PathBuf, String> {
-    Ok(maria_dir()?.join("relay.json"))
-}
-
-fn state_path() -> Result<PathBuf, String> {
-    Ok(maria_dir()?.join("relay-state.json"))
-}
-
 /// Ultimo resultado conocido de cada proveedor.
 ///
 /// Es la unica medida HONESTA de "cuanto le queda": las CLI de suscripcion
@@ -327,12 +324,15 @@ pub struct ProviderState {
 pub type RelayState = std::collections::BTreeMap<String, ProviderState>;
 
 pub fn load_state() -> RelayState {
-    let bruto: RelayState = state_path()
+    maria_dir().map(|d| load_state_en(&d)).unwrap_or_default()
+}
+
+fn load_state_en(dir: &Path) -> RelayState {
+    let bruto: RelayState = std::fs::read_to_string(dir.join("relay-state.json"))
         .ok()
-        .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    limpiar_estado(bruto, &load_config().order)
+    limpiar_estado(bruto, &load_config_en(dir).order)
 }
 
 /// Quita del estado los proveedores que ya no existen.
@@ -349,21 +349,46 @@ pub fn limpiar_estado(estado: RelayState, orden: &[String]) -> RelayState {
         .collect()
 }
 
-fn save_state(state: &RelayState) {
-    if let Ok(path) = state_path() {
-        if let Ok(text) = serde_json::to_string_pretty(state) {
-            let _ = std::fs::write(path, text);
-        }
+fn save_state_en(dir: &Path, state: &RelayState) {
+    if let Ok(text) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(dir.join("relay-state.json"), text);
     }
+}
+
+/// Candado de proceso sobre `relay-state.json`: quien lo toca, lo carga, lo
+/// cambia y lo guarda sin que nadie se cuele en medio.
+static ESTADO_EN_FILA: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Todo cambio del estado pasa por aqui. Devuelve el estado tal y como queda.
+///
+/// Hasta el 2026-09-22 cada sitio cargaba su copia del estado y la volcaba
+/// entera al terminar. En un turno de chat pasan minutos entre la carga y el
+/// volcado, y entretanto el panel de inicio (cada 10 s) o una llamada interna
+/// pueden enfriar a un proveedor: al guardar la copia vieja ese enfriamiento
+/// se perdia. Con los avisos de los hooks era peor: la marca de "leido" ya
+/// habia avanzado, asi que el aviso pisado no se releia nunca y el relevo
+/// volvia a tropezar con Claude, justo lo que el aviso venia a evitar.
+fn mutar_estado(f: impl FnOnce(&mut RelayState)) -> RelayState {
+    maria_dir()
+        .map(|d| mutar_estado_en(&d, f))
+        .unwrap_or_default()
+}
+
+fn mutar_estado_en(dir: &Path, f: impl FnOnce(&mut RelayState)) -> RelayState {
+    let _guardia = ESTADO_EN_FILA.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = load_state_en(dir);
+    f(&mut state);
+    save_state_en(dir, &state);
+    state
 }
 
 /// Deja a un proveedor enfriando desde fuera del bucle del chat (las llamadas
 /// internas tambien se topan con la cuota, y el chat debe enterarse).
 pub(crate) fn enfriar_proveedor(provider: &str, detalle: &str) {
-    let mut state = load_state();
-    enfriar(&mut state, provider, detalle);
-    record_attempt(&mut state, provider, "cuota", detalle);
-    save_state(&state);
+    mutar_estado(|state| {
+        enfriar(state, provider, detalle);
+        record_attempt(state, provider, "cuota", detalle);
+    });
 }
 
 /// Anota el resultado de un intento conservando el contador de respuestas.
@@ -404,36 +429,43 @@ fn enfriar(state: &mut RelayState, provider: &str, detail: &str) {
 // Cada aviso se consume UNA vez: la marca de lo leido guarda el `ts` del ultimo
 // que se vio, se aplicara o no.
 
-fn senales_path() -> Result<PathBuf, String> {
-    Ok(maria_dir()?.join("relay-cuota.jsonl"))
-}
-
-fn senales_marca_path() -> Result<PathBuf, String> {
-    Ok(maria_dir()?.join("relay-cuota.leido"))
-}
-
 /// Enfria a los proveedores de los que haya avisos nuevos. Devuelve cuantos se
 /// aplicaron. Best-effort: sin fichero, o con el fichero ilegible, no pasa nada.
 pub(crate) fn aplicar_senales_de_hooks() -> usize {
-    let (Ok(jsonl), Ok(marca)) = (senales_path(), senales_marca_path()) else {
-        return 0;
-    };
+    maria_dir().map(|d| aplicar_senales_en(&d)).unwrap_or(0)
+}
+
+/// Un aviso con clase "cuenta" (facturacion, sesion caducada, verificacion
+/// pendiente) no es una cuota que se pase esperando: se enfria igual para que
+/// el relevo no insista, pero el estado dice "cuenta", que es lo que el
+/// consejo del turno necesita para no mandar esperar por algo que no se
+/// arregla esperando.
+fn kind_de_senal(clase: &str) -> &'static str {
+    if clase == "cuenta" {
+        "cuenta"
+    } else {
+        "cuota"
+    }
+}
+
+fn aplicar_senales_en(dir: &Path) -> usize {
+    let jsonl = dir.join("relay-cuota.jsonl");
+    let marca = dir.join("relay-cuota.leido");
     let Ok(texto) = std::fs::read_to_string(&jsonl) else {
         return 0; // sin avisos: el camino normal, el hook solo escribe si hay error
     };
+    // Todo bajo el candado: dos lectores a la vez (el panel y un turno) leian
+    // la misma marca y aplicaban el mismo aviso dos veces (doble strike).
+    let _guardia = ESTADO_EN_FILA.lock().unwrap_or_else(|e| e.into_inner());
     let leido = std::fs::read_to_string(&marca).unwrap_or_default();
     let leido = leido.trim().to_string();
     let lote = super::enrutado::senales_nuevas(&texto, &leido, chrono::Utc::now());
     if lote.hasta == leido {
         return 0;
     }
-    let _ = std::fs::write(&marca, &lote.hasta);
-    if lote.aplicables.is_empty() {
-        return 0;
-    }
     // Un aviso sobre un proveedor que aqui no existe no puede enfriar nada.
-    let cfg = load_config();
-    let mut state = load_state();
+    let cfg = load_config_en(dir);
+    let mut state = load_state_en(dir);
     let mut aplicados = 0;
     for s in &lote.aplicables {
         if !cfg.order.iter().any(|p| *p == s.proveedor) {
@@ -448,21 +480,25 @@ pub(crate) fn aplicar_senales_de_hooks() -> usize {
             )
         };
         enfriar(&mut state, &s.proveedor, &detalle);
-        record_attempt(&mut state, &s.proveedor, "cuota", &detalle);
+        record_attempt(&mut state, &s.proveedor, kind_de_senal(&s.clase), &detalle);
         aplicados += 1;
     }
     if aplicados > 0 {
-        save_state(&state);
+        save_state_en(dir, &state);
         tracing::info!(avisos = aplicados, "enfriados por avisos de hooks");
     }
+    // La marca avanza DESPUES de guardar: si el proceso muere entre medias, el
+    // aviso se relee en la siguiente pasada en vez de perderse.
+    let _ = std::fs::write(&marca, &lote.hasta);
     aplicados
 }
 
 pub fn load_config() -> RelayConfig {
-    let Ok(path) = config_path() else {
-        return RelayConfig::default();
-    };
-    let cfg: RelayConfig = std::fs::read_to_string(path)
+    maria_dir().map(|d| load_config_en(&d)).unwrap_or_default()
+}
+
+fn load_config_en(dir: &Path) -> RelayConfig {
+    let cfg: RelayConfig = std::fs::read_to_string(dir.join("relay.json"))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
@@ -1345,7 +1381,9 @@ fn ask_inner(
     // que corren fuera de aqui. Si una se quedo sin cuota hace un minuto, no
     // hace falta volver a tropezar con ella en este turno.
     aplicar_senales_de_hooks();
-    let mut state = load_state();
+    // Solo para LEER (quien esta frio). Los cambios van por `mutar_estado`,
+    // que carga y guarda en el momento: esta copia envejece minutos.
+    let state = load_state();
     // Quien atiende, con que modelo y con cuanto esfuerzo lo decide el modelo
     // local segun la tarea: es gratis y evita gastar una peticion de Opus en
     // algo trivial. Si el usuario lo ha fijado a mano, manda el usuario.
@@ -1442,16 +1480,25 @@ fn ask_inner(
         .cloned()
         .collect();
     for p in &frios {
-        let hasta = state
+        let (hasta, kind) = state
             .get(p)
-            .map(|e| e.cooldown_until.clone())
-            .unwrap_or_default();
-        skipped.push(SkipReason::nuevo(
-            p,
-            "enfriando",
-            format!("sin cuota; se le vuelve a preguntar a partir de {hasta}"),
-            &hasta,
-        ));
+            .map(|e| {
+                // Frio por la cuenta (facturacion, sesion caducada) no es lo
+                // mismo que frio por cuota: el consejo cambia.
+                let kind = if e.status == "cuenta" {
+                    "cuenta"
+                } else {
+                    "enfriando"
+                };
+                (e.cooldown_until.clone(), kind)
+            })
+            .unwrap_or(("".to_string(), "enfriando"));
+        let detalle = if kind == "cuenta" {
+            format!("la cuenta no esta operativa; se le vuelve a probar a partir de {hasta}")
+        } else {
+            format!("sin cuota; se le vuelve a preguntar a partir de {hasta}")
+        };
+        skipped.push(SkipReason::nuevo(p, kind, detalle, &hasta));
     }
     let orden = super::enrutado::ordenar_por_disponibilidad(&orden, &frios);
 
@@ -1498,7 +1545,7 @@ fn ask_inner(
     }
     for provider in &orden {
         if cfg.disabled.iter().any(|d| d == provider) {
-            record_attempt(&mut state, provider, "desactivado", "apagado en relay.json");
+            mutar_estado(|s| record_attempt(s, provider, "desactivado", "apagado en relay.json"));
             skipped.push(SkipReason::nuevo(
                 provider,
                 "desactivado",
@@ -1648,8 +1695,7 @@ fn ask_inner(
                     }
                 }
                 guardar_sesiones(thread_id, &sesiones);
-                record_attempt(&mut state, provider, "ok", "contesto");
-                save_state(&state);
+                mutar_estado(|s| record_attempt(s, provider, "ok", "contesto"));
                 append_turn(
                     thread_id,
                     &Turn {
@@ -1679,33 +1725,32 @@ fn ask_inner(
             Err((detail, cuota)) => {
                 // Parar no es un fallo del proveedor: ni se anota ni se releva.
                 if crate::maria::flujo::cancelado(thread_id) {
-                    save_state(&state);
                     return Err("parado".into());
                 }
                 // "sin_cli" y "timeout" se distinguen de un "error" cualquiera:
                 // el siguiente paso no se parece en nada (instalar una CLI
                 // frente a reintentar). Ver `clasifica_fallo`.
                 let kind = clasifica_fallo(&detail, cuota);
-                if cuota {
-                    enfriar(&mut state, provider, &detail);
+                if cuota && provider == "claude" {
                     // Se aprende el tope practico de la ventana: el consumo
                     // que habia justo cuando el proveedor dijo basta.
                     let w = crate::maria::quota::claude_window();
-                    if provider == "claude" {
-                        crate::maria::quota::record_ceiling("claude", w.tokens);
-                    }
+                    crate::maria::quota::record_ceiling("claude", w.tokens);
                 }
-                record_attempt(&mut state, provider, kind, &detail);
-                let hasta = state
-                    .get(provider.as_str())
-                    .map(|e| e.cooldown_until.clone())
-                    .unwrap_or_default();
+                let hasta = mutar_estado(|s| {
+                    if cuota {
+                        enfriar(s, provider, &detail);
+                    }
+                    record_attempt(s, provider, kind, &detail);
+                })
+                .get(provider.as_str())
+                .map(|e| e.cooldown_until.clone())
+                .unwrap_or_default();
                 skipped.push(SkipReason::nuevo(provider, kind, detail, &hasta));
             }
         }
     }
 
-    save_state(&state);
     // Nadie ha contestado: es EL momento de decir que hacer, no de listar
     // codigos. Antes ponia "ningun proveedor pudo contestar: agy (error),
     // claude (cuota)" y el usuario se quedaba igual.
@@ -1838,6 +1883,7 @@ mod tests {
     const KINDS: &[&str] = &[
         "sin_cli",
         "cuota",
+        "cuenta",
         "enfriando",
         "timeout",
         "desactivado",
@@ -2412,5 +2458,76 @@ mod tests {
         assert!(md.contains("## Tú — 2026-09-21 18:57\n\nhola"));
         assert!(md.contains("## codex (gpt) — "));
         assert!(como_markdown("  ", &[]).starts_with("# Conversación"));
+    }
+
+    fn senal(clase: &str, error: &str) -> String {
+        format!(
+            r#"{{"ts":"{}","proveedor":"claude","error":"{}","clase":"{}","detalle":"","sesion":null,"fuente":"stopfailure-relay"}}"#,
+            chrono::Utc::now().to_rfc3339(),
+            error,
+            clase
+        )
+    }
+
+    /// El fallo que arreglo el 2026-09-22: un turno cargaba su copia del
+    /// estado, entretanto el panel aplicaba un aviso de cuota, y al acabar el
+    /// turno volcaba la copia vieja. El aviso se perdia y, como la marca de
+    /// leido ya habia avanzado, no se releia nunca.
+    #[test]
+    fn un_aviso_de_hooks_sobrevive_a_que_un_turno_guarde_lo_suyo() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        // El turno arranca y se queda con su foto del estado.
+        let foto_del_turno = load_state_en(dir);
+        assert!(foto_del_turno.get("claude").is_none());
+        // Llega el aviso y el panel lo aplica.
+        std::fs::write(dir.join("relay-cuota.jsonl"), senal("cuota", "rate_limit")).unwrap();
+        assert_eq!(aplicar_senales_en(dir), 1);
+        // El turno anota lo suyo por el camino nuevo: no pisa lo del panel.
+        let tras = mutar_estado_en(dir, |s| record_attempt(s, "codex", "ok", "contesto"));
+        let claude = tras.get("claude").expect("claude enfriado");
+        assert!(
+            !claude.cooldown_until.is_empty(),
+            "se perdio el enfriamiento"
+        );
+        assert_eq!(claude.quota_strikes, 1);
+        assert_eq!(claude.status, "cuota");
+        assert_eq!(tras.get("codex").map(|e| e.status.as_str()), Some("ok"));
+        // Caso negativo: el mismo aviso no se aplica dos veces (la marca
+        // avanzo tras guardar) ni suma un segundo strike.
+        assert_eq!(aplicar_senales_en(dir), 0);
+        assert_eq!(load_state_en(dir).get("claude").unwrap().quota_strikes, 1);
+        // Y lo que el turno habria hecho ANTES (volcar su foto) es exactamente
+        // lo que borraba el aviso: el test fija que ese camino ya no existe
+        // como API (`save_state` solo se llama desde `mutar_estado`).
+        save_state_en(dir, &foto_del_turno);
+        assert!(
+            load_state_en(dir).get("claude").is_none(),
+            "la foto vieja SI borra"
+        );
+    }
+
+    #[test]
+    fn un_aviso_de_cuenta_no_se_vende_como_cuota() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        std::fs::write(
+            dir.join("relay-cuota.jsonl"),
+            senal("cuenta", "billing_error"),
+        )
+        .unwrap();
+        assert_eq!(aplicar_senales_en(dir), 1);
+        let st = load_state_en(dir);
+        let claude = st.get("claude").expect("claude anotado");
+        assert_eq!(claude.status, "cuenta");
+        assert!(
+            !claude.cooldown_until.is_empty(),
+            "tambien se enfria: insistir no ayuda"
+        );
+        // El consejo no manda esperar: eso no arregla una cuenta.
+        let c = consejo("claude", "cuenta", &claude.cooldown_until);
+        assert!(c.contains("cuenta") && !c.contains("a partir de"), "{c}");
+        // Caso negativo: una clase desconocida cae en "cuota", nunca en "cuenta".
+        assert_eq!(kind_de_senal("loquesea"), "cuota");
     }
 }
