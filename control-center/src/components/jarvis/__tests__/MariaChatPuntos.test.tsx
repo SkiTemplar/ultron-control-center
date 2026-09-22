@@ -77,7 +77,9 @@ const ENCARGO_CON_PUNTO = {
   punto: "eeeeeeeeffffffff0000000011111111ffffffff",
 };
 
-/** Lo que devuelve `maria_punto_volver`, con el contrato del comando. */
+/** Lo que devuelve `maria_punto_volver`, con el contrato del comando.
+ *  OJO con `turnos`: son los que QUEDAN en el hilo (lo que devuelve
+ *  `relay::truncar`), no los que se han quitado. */
 const RESTAURADO = { ficheros: 3, antes: "99999999aaaaaaaabbbbbbbbcccccccc", turnos: 2 };
 
 type Opciones = { turnos?: unknown[]; encargos?: unknown[]; puntos?: unknown[] };
@@ -154,7 +156,38 @@ describe("volver a antes de una respuesta", () => {
       modo: "todo",
       conservar: 2,
     });
-    expect(await screen.findByText(/2 turnos quitados/)).toBeTruthy();
+    // Y se dice lo que el backend dice de verdad: los turnos que QUEDAN.
+    expect(await screen.findByText(/la conversación queda en 2 turnos/)).toBeTruthy();
+  });
+
+  it("«solo la conversación» no promete un punto que no se ha tomado", async () => {
+    // En ese modo el backend no fotografía nada, así que `antes` viene vacío.
+    // Escribir «el punto de antes es » con el hueco sería mentir.
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "maria_threads_list") return [HILO];
+      if (cmd === "maria_relay_thread") return TURNOS;
+      if (cmd === "maria_encargos") return [];
+      if (cmd === "maria_punto_volver") return { ficheros: 0, antes: "", turnos: 2 };
+      return null;
+    });
+    render(<MariaChat compacto hiloInicial="hilo-1" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /volver a antes de esta respuesta/i }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /solo la conversación/i }));
+
+    await waitFor(() => expect(llamada("maria_punto_volver")).toBeTruthy());
+    expect(llamada("maria_punto_volver")).toEqual({
+      threadId: "hilo-1",
+      sha: TURNOS[3].punto,
+      modo: "conversacion",
+      conservar: 2,
+    });
+    const aviso = await screen.findByText(/la conversación queda en 2 turnos/);
+    expect(aviso.textContent).not.toContain("el punto de antes");
+    expect(aviso.textContent).toContain("/ramas");
+    // Sin tocar el código, tampoco se cuentan ficheros restaurados.
+    expect(aviso.textContent).not.toContain("ficheros restaurados");
   });
 
   it("el encargo con punto se deshace, y solo el código", async () => {

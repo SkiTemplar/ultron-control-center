@@ -1067,10 +1067,22 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         );
       }
       if (modo !== "codigo") {
-        partes.push(r.turnos === 1 ? "1 turno quitado" : `${r.turnos} turnos quitados`);
+        // `turnos` son los que QUEDAN, no los que se han quitado (así lo
+        // devuelve `relay::truncar`). Decir «quitados» sería una cifra que no
+        // es (2026-09-22).
+        partes.push(
+          r.turnos === 1
+            ? "la conversación queda en 1 turno"
+            : `la conversación queda en ${r.turnos} turnos`,
+        );
       }
       avisar(
-        `${partes.join(" · ")}; esto también se deshace: el punto de antes es ${r.antes.slice(0, 8)} (/puntos)`,
+        partes.join(" · ") +
+          // En modo «conversación» no se fotografía nada, así que `antes` viene
+          // vacío: prometer un punto que no existe sería mentir.
+          (r.antes
+            ? `; esto también se deshace: el punto de antes es ${r.antes.slice(0, 8)} (/puntos)`
+            : "; lo que se ha quitado queda como rama (/ramas)"),
       );
       setRefresco((n) => n + 1);
     } catch (e) {
