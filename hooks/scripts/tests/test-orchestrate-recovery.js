@@ -3,8 +3,9 @@
  * test-orchestrate-recovery.js — recuperacion del daemon en memory-orchestrate.
  *
  * Ejecutar:  node hooks/scripts/tests/test-orchestrate-recovery.js
- * (Node puro, sin dependencias. Tarda ~30 s: los casos (c) y (e) agotan a
- * proposito el presupuesto de recuperacion del hook.)
+ * (Node puro, sin dependencias. Tarda ~10 s desde el recorte de presupuesto
+ * del 2026-09-22 — antes ~30 s: los casos (c) y (e) agotaban a proposito los
+ * 20 s de presupuesto y ahora agotan 8.)
  *
  * Cubre HOOKS-07 (2026-09-10): con el daemon muerto el hook relanzaba `serve` y
  * caia al sparse de inmediato, que competia por CPU con la carga de E5 del
@@ -23,9 +24,15 @@
  *   - El "daemon" es un net.createServer del propio test: protocolo JSON por
  *     linea con el token del lockfile.
  *
- * Casos: (a) daemon vivo, (b) daemon ausente que aparece a los 2 s,
+ *   - Qdrant: desde 2026-09-22 el hook consulta GET /healthz ANTES de gastar
+ *     presupuesto en el camino denso. El test levanta su propio healthz y
+ *     apunta ULTRON_QDRANT_PORT ahi, salvo en el caso (f), que usa un puerto
+ *     cerrado a proposito. Nunca toca el Qdrant real del usuario.
+ *
+ * Casos: (a) daemon vivo, (b) daemon ausente que aparece a los 0,8 s,
  * (c) nadie contesta nunca -> sparse dentro del cap, (d) turno de sistema/vacio,
- * (e) nadie contesta y el sparse tambien falla -> "[memoria degradada]".
+ * (e) nadie contesta y el sparse tambien falla -> "[memoria degradada]",
+ * (f) Qdrant caido -> sparse directo, sin esperar ni relanzar al daemon.
  */
 
 'use strict';
@@ -33,19 +40,26 @@
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 
 const HOOK = path.join(__dirname, '..', 'memory-orchestrate.js');
 
-// Presupuesto del hook (settings.json) y deadline de recuperacion, replicados
-// aqui como ESPERADOS del test: si el hook los cambia, estas aserciones deben
-// fallar y obligar a revisar el presupuesto.
-const HOOK_BUDGET_MS = 20_000;
-const RELAUNCH_DEADLINE_MS = 15_500;
-const SPARSE_MIN_CAP_MS = 3_000;
-const SPARSE_MAX_CAP_MS = 6_000;
+// Presupuesto del hook y techos de recuperacion, replicados aqui como
+// ESPERADOS del test: si el hook los cambia, estas aserciones deben fallar y
+// obligar a revisar el presupuesto. (2026-09-22: 20 s -> 8 s; el timeout de la
+// plantilla baja a 10 s, siempre por encima del presupuesto.)
+const HOOK_BUDGET_MS = 8_000;
+const RELAUNCH_DEADLINE_MS = 5_000; // absoluto desde t0
+const RELAUNCH_BUDGET_MS = 2_500; // relativo al tramo de relanzamiento
+const SPARSE_MIN_CAP_MS = 1_500;
+const SPARSE_MAX_CAP_MS = 3_000;
+// Objetivo declarado del recorte: con el daemon o Qdrant caidos el prompt deja
+// de bloquearse ~15 s y degrada en ~5. Se deja margen sobre los 5 s para no
+// convertir la medida en un test intermitente en un runner cargado.
+const OBJETIVO_DEGRADADO_MS = 6_000;
 
 const PRELOAD_SOURCE = `'use strict';
 // Stub del sidecar ultron-memory para el test hermetico. Se precarga con
@@ -138,8 +152,36 @@ function startFakeDaemon(token, pack) {
   });
 }
 
+/** Qdrant de mentira: solo responde 200 a GET /healthz, como el real. */
+function startFakeQdrant() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/healthz') {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('healthz check passed');
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    server.on('error', () => {});
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+}
+
+/** Puerto TCP libre y CERRADO: la sonda healthz recibe ECONNREFUSED al instante. */
+function puertoCerrado() {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.listen(0, '127.0.0.1', () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+}
+
 /** Lanza el hook aislado y devuelve { additionalContext, elapsedMs, code, stderr }. */
-function runHook({ home, cwd, stubLog, prompt, sessionId, sparsePack }) {
+function runHook({ home, cwd, stubLog, prompt, sessionId, sparsePack, qdrantPort }) {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
     const child = spawn(process.execPath, ['--require', PRELOAD, HOOK], {
@@ -151,6 +193,9 @@ function runHook({ home, cwd, stubLog, prompt, sessionId, sparsePack }) {
         ULTRON_MEMORY_BIN: BIN,
         ULTRON_STUB_LOG: stubLog,
         ULTRON_STUB_SPARSE_PACK: sparsePack ? JSON.stringify(sparsePack) : '',
+        // Sin esto la sonda iria al 6333 REAL de la maquina y el resultado del
+        // test dependeria de si el usuario tiene Qdrant levantado.
+        ULTRON_QDRANT_PORT: String(qdrantPort != null ? qdrantPort : QDRANT_PORT),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -187,6 +232,9 @@ function readStubLog(file) {
 
 const PROMPT = 'refactoriza el recall hibrido del sidecar para que no bloquee el hot path';
 const results = [];
+
+// Puerto del Qdrant de mentira: lo fija main() antes del primer caso.
+let QDRANT_PORT = 0;
 
 async function caseA() {
   const c = makeCase('a-daemon-vivo');
@@ -228,8 +276,11 @@ async function caseB() {
   });
   // El servidor ya escucha, pero el hook no puede verlo: sin lockfile
   // daemonRequest devuelve null al instante (daemon "muerto"). El lockfile
-  // aparece a los 2 s, como haria un `serve` recien arrancado.
-  const armed = sleep(2000).then(() => writeLock(c.home, port, token));
+  // aparece a los 0,8 s, como haria un `serve` recien arrancado.
+  // (2026-09-22) Era 2 s: con el tramo de relanzamiento recortado a 2,5 s y
+  // sondas cada 0,5 s, un lockfile a los 2 s caia FUERA de la ventana y el
+  // caso probaba lo contrario de lo que dice probar.
+  const armed = sleep(800).then(() => writeLock(c.home, port, token));
   try {
     const r = await runHook({ ...c, prompt: PROMPT, sessionId: 'sess-b' });
     await armed;
@@ -253,10 +304,10 @@ async function caseB() {
     );
     const serve = readStubLog(c.stubLog).filter((e) => e.kind === 'spawn' && e.args[0] === 'serve');
     assert.strictEqual(serve.length, 1, 'debe relanzar `serve` exactamente una vez');
-    assert.ok(r.elapsedMs >= 2000, `no puede contestar antes de que exista el daemon (${r.elapsedMs} ms)`);
+    assert.ok(r.elapsedMs >= 800, `no puede contestar antes de que exista el daemon (${r.elapsedMs} ms)`);
     assert.ok(
-      r.elapsedMs < RELAUNCH_DEADLINE_MS,
-      `debe recuperar dentro de la deadline, tardo ${r.elapsedMs} ms`
+      r.elapsedMs < Math.min(RELAUNCH_DEADLINE_MS, RELAUNCH_BUDGET_MS + 1500),
+      `debe recuperar dentro del techo del tramo, tardo ${r.elapsedMs} ms`
     );
     results.push(['(b) daemon recuperado', r.elapsedMs]);
   } finally {
@@ -301,6 +352,10 @@ async function caseC() {
     r.elapsedMs < HOOK_BUDGET_MS,
     `el peor caso debe caber en el presupuesto del hook: ${r.elapsedMs} ms`
   );
+  assert.ok(
+    r.elapsedMs < OBJETIVO_DEGRADADO_MS,
+    `objetivo del recorte 2026-09-22 (degradar en ~5 s, no en ~15): ${r.elapsedMs} ms`
+  );
   results.push([`(c) sin daemon -> sparse cap ${capMs} ms`, r.elapsedMs]);
 }
 
@@ -343,15 +398,73 @@ async function caseE() {
     r.elapsedMs < HOOK_BUDGET_MS,
     `el caso degradado tambien debe caber en el presupuesto: ${r.elapsedMs} ms`
   );
+  assert.ok(
+    r.elapsedMs < OBJETIVO_DEGRADADO_MS,
+    `objetivo del recorte 2026-09-22 (degradar en ~5 s, no en ~15): ${r.elapsedMs} ms`
+  );
   results.push(['(e) degradado real', r.elapsedMs]);
 }
 
+// (f) Qdrant caido: la puerta healthz (2026-09-22) tiene que cortar el camino
+// denso ENTERO — ni espera al daemon, ni relanzamiento — y decirlo. Aqui el
+// daemon esta VIVO y con lockfile valido a proposito: si el hook lo consultara
+// igual, el pack vendria del daemon y este caso se pondria rojo.
+async function caseF() {
+  const c = makeCase('f-qdrant-caido');
+  const token = 'tok-f';
+  const { server, port } = await startFakeDaemon(token, {
+    route: 'daemon-vivo',
+    memories: [{ scope: 'project', summary: 'esto NO debe llegar: Qdrant esta caido' }],
+  });
+  writeLock(c.home, port, token);
+  const cerrado = await puertoCerrado();
+  try {
+    const r = await runHook({
+      ...c,
+      prompt: PROMPT,
+      sessionId: 'sess-f',
+      qdrantPort: cerrado,
+      sparsePack: { route: 'sparse-stub', memories: [{ scope: 'project', summary: 'pack sparse' }] },
+    });
+    assert.strictEqual(r.code, 0, 'el hook debe salir 0 (fail-safe)');
+    assert.ok(r.additionalContext, 'sin additionalContext parseable');
+    assert.ok(
+      r.additionalContext.includes('route="sparse-stub"'),
+      'sin Qdrant el turno lo debe servir el sparse, no el daemon'
+    );
+    assert.ok(
+      r.additionalContext.includes('Qdrant no responde en /healthz'),
+      'el aviso debe nombrar la causa (mandamiento 11: nada de no-op silencioso)'
+    );
+    assert.ok(
+      r.additionalContext.includes('recall DENSO saltado'),
+      'el aviso debe declarar que se salto el denso'
+    );
+    const serve = readStubLog(c.stubLog).filter((e) => e.kind === 'spawn' && e.args[0] === 'serve');
+    assert.strictEqual(serve.length, 0, 'sin Qdrant no se relanza el daemon: no es su problema');
+    assert.ok(
+      r.elapsedMs < OBJETIVO_DEGRADADO_MS,
+      `sin Qdrant el turno no puede bloquearse: ${r.elapsedMs} ms`
+    );
+    results.push(['(f) Qdrant caido -> sparse directo', r.elapsedMs]);
+  } finally {
+    server.close();
+  }
+}
+
 async function main() {
-  await caseA();
-  await caseB();
-  await caseC();
-  await caseD();
-  await caseE();
+  const qdrant = await startFakeQdrant();
+  QDRANT_PORT = qdrant.port;
+  try {
+    await caseA();
+    await caseB();
+    await caseC();
+    await caseD();
+    await caseE();
+    await caseF();
+  } finally {
+    qdrant.server.close();
+  }
   for (const [name, ms] of results) console.log(`  ok ${name} — ${ms} ms`);
   console.log('test-orchestrate-recovery: OK');
 }
