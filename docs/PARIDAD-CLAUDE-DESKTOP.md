@@ -29,7 +29,7 @@ falta está ordenado por lo que más se nota al usarlo.
 | Respuesta en streaming | ✅ **nuevo** | `maria/flujo.rs` + burbuja en vivo |
 | Parar la respuesta | ✅ **nuevo** | Mata el proceso o cierra la conexión; conserva lo escrito |
 | Adjuntar ficheros e imágenes (arrastrar, pegar, elegir) | ✅ **nuevo** | Las CLI reciben rutas; al local se le incrusta el texto. Una imagen nunca se enruta al modelo que no ve |
-| Selector de modelo y de esfuerzo | ✅ ya estaba | Por proveedor, con lo que cada CLI soporta de verdad |
+| Selector de modelo y de esfuerzo | ✅ ya estaba, y desde el 2026-09-22 **por suscripción** | Por proveedor, con lo que TU cuenta permite: Claude lee lo que la CLI deja en `~/.claude.json` (extras como Fable 5.1 y vetos) más los alias `opus/sonnet/haiku/fable` e ids concretos (Opus 5, Opus 4.6, Sonnet 5…); Codex, el catálogo que el servidor sirve a la cuenta (`codex debug models`); Antigravity, `agy models`. El plan detectado va junto al proveedor («claude · Claude Pro», «codex · ChatGPT Free»), lo vetado se ve en gris con el motivo, un rechazo real se recuerda 7 días y `/modelos` (o «actualizar modelos» en Ajustes → Cuentas) vuelve a preguntar. El esfuerzo en Claude ya es bandera real (`--effort`) |
 | Markdown, tablas, bloques de código, copiar | ✅ ya estaba | Sin resaltado de sintaxis (ver pendientes) |
 | Memoria entre conversaciones | ✅ ya estaba, y mejor | Memoria gobernada con inbox; Claude Desktop no deja auditarla |
 | Conectores MCP | ✅ **nuevo** | En Router → Criterio se eligen los MCP locales que siguen activos en el chat con el modo ligero, y un botón los da de alta en Codex y Antigravity con el gestor de cada CLI. Los conectores de claude.ai no se pueden clonar: van con el inicio de sesión de Claude |
