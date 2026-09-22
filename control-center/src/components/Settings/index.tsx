@@ -12,6 +12,7 @@ import { MovilSection } from "./MovilSection";
 import { AccesoProveedores } from "./AccesoProveedores";
 import { CuentasSection } from "./CuentasSection";
 import { TecladoSection } from "./TecladoSection";
+import { AtajosSection } from "./AtajosSection";
 import { ArranqueSection } from "./ArranqueSection";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
@@ -22,6 +23,9 @@ import { ArranqueSection } from "./ArranqueSection";
 // so the user can manage all keys in one place.
 type Section =
   | "general"
+  // Atajos (2026-09-22): hasta hoy los combos de dentro de la ventana solo se
+  // cambiaban editando ~/.maria/.tmp/in-app-shortcuts.json a mano.
+  | "atajos"
   | "auth"
   | "api-keys"
   | "mcp-accounts"
@@ -160,6 +164,7 @@ export function Settings(_props: SettingsProps = {}) {
       >
         {[
           { id: "general" as Section, label: "General" },
+          { id: "atajos" as Section, label: "Atajos" },
           { id: "auth" as Section, label: "Cuentas" },
           { id: "api-keys" as Section, label: "API Keys" },
           { id: "mcp-accounts" as Section, label: "MCP Accounts" },
@@ -239,6 +244,7 @@ export function Settings(_props: SettingsProps = {}) {
             <AuthStatus onRecheck={load} />
           </>
         )}
+        {section === "atajos" && <AtajosSection />}
         {section === "api-keys" && <ApiKeysSection />}
         {section === "mcp-accounts" && <McpAccountsSection />}
         {section === "movil" && <MovilSection />}

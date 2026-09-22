@@ -27,6 +27,7 @@ import { PopupHost } from "./components/PopupHost";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { useAccionesChat } from "./lib/accionesChat";
+import { useAtajos } from "./lib/atajos";
 import { seDisparaEscribiendo } from "./components/jarvis/chatAcciones";
 import { estadoGlobal } from "./lib/status";
 import { TabErrorBoundary } from "./components/TabErrorBoundary";
@@ -149,12 +150,14 @@ function AppInner() {
   // ~/.maria/.tmp/in-app-shortcuts.json, los sirve
   // `in_app_shortcuts::get_in_app_shortcuts` (valores por defecto mezclados
   // encima) y este mapa es el espejo en tiempo de ejecución. Se relee al
-  // montar y con el evento "in-app-shortcuts-updated".
+  // montar, con el evento "in-app-shortcuts-updated" y con "maria:atajos".
   //
-  // OJO (2026-09-22): el comentario anterior decía "editable via Settings →
-  // General → In-app shortcuts" y esa pantalla NO existe — tampoco existe
-  // `set_in_app_shortcuts`. Hoy se cambian editando el fichero. Docs que no
-  // mienten (mandamiento 6).
+  // DÓNDE SE CAMBIAN (2026-09-22): en Ajustes → Atajos
+  // (`components/Settings/AtajosSection.tsx`), que llama a
+  // `set_in_app_shortcuts` y dispara "maria:atajos" al guardar. Hasta hoy esa
+  // pantalla no existía —el comentario que había aquí decía que sí, y era
+  // mentira (mandamiento 6)— y había que editar el JSON a mano. Sin escuchar
+  // ese evento, guardar un atajo no valdría hasta reiniciar la app.
   //
   // Claves de acción reconocidas aquí (mismos nombres que en Rust,
   // `in_app_shortcuts::default_bindings`):
@@ -163,34 +166,10 @@ function AppInner() {
   //   chat.*  — las publica MariaChat mientras está montado (ver
   //             lib/accionesChat.ts): fuera del chat la lista está vacía y
   //             esas teclas no hacen nada, en vez de fingir que sí.
-  const bindingsRef = useRef<Record<string, string>>({});
-  // Copia reactiva, solo para poder enseñar el atajo en la paleta.
-  const [bindings, setBindings] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const map = (await invoke("get_in_app_shortcuts")) as Record<
-          string,
-          string
-        >;
-        if (!cancelled) {
-          bindingsRef.current = map ?? {};
-          setBindings(map ?? {});
-        }
-      } catch (err) {
-        console.warn("[ultron] get_in_app_shortcuts failed", err);
-      }
-    }
-    void load();
-    const handler = () => void load();
-    window.addEventListener("in-app-shortcuts-updated", handler);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("in-app-shortcuts-updated", handler);
-    };
-  }, []);
+  // `bindings` es la copia reactiva (para enseñar el atajo en la paleta) y
+  // `bindingsRef` la que lee el manejador de teclado, que se registra una sola
+  // vez. La relectura al guardar vive en `lib/atajos.ts`.
+  const { bindings, ref: bindingsRef } = useAtajos();
 
   // Acciones que publica la pantalla de chat. Se leen por referencia dentro
   // del listener de teclado (que se registra una sola vez) y por valor para
