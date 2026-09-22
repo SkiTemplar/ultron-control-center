@@ -171,6 +171,9 @@ type RelayAnswer = {
   skipped: SkipReason[];
   /** Proveedor que propuso el modelo local para esta tarea. */
   chosen_by_local: string | null;
+  /** Algo que el usuario debe saber de este turno aunque haya ido bien: hoy,
+   *  que se ha contestado SIN punto de control y por qué (`puntos::del_turno`). */
+  aviso?: string | null;
   /** Consumo y tiempo del turno, lo mismo que queda en el hilo (`maria/relay.rs`). */
   tokens_in?: number | null;
   tokens_out?: number | null;
@@ -909,6 +912,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       setLastSkips(ans.skipped ?? []);
       setLastChoice(ans.chosen_by_local ?? null);
       setUltimo({ model: ans.model ?? "", effort: ans.effort ?? "" });
+      // Un turno sin foto del proyecto no es un fallo, pero hay que saberlo
+      // antes de fiarse de «volver a antes de esta respuesta» (2026-09-22).
+      if (ans.aviso) avisar(ans.aviso, "error");
       setTurns((prev) => [
         ...prev,
         {
