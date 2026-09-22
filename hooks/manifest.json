@@ -124,13 +124,13 @@
       "script": "~/.ultron/hooks/scripts/ensure-project.js",
       "timeout_s": 15,
       "async": false,
-      "checksum_sha256": "deaf01af1cd3701c0146bc5f2f96457cae4a0a1e133d41251beadc2485f5b7d5",
+      "checksum_sha256": "b6238b47a36d4a0425c32e97ded6132b130b94ce9c4c677183a724340cdb8269",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "SessionStart. Aplica de forma automatica las tres normas de alta de proyecto que antes se hacian a mano y por tanto casi nunca (2026-08-22): da de alta el proyecto en cockpit/projects.json si falta (un proyecto que existe en disco pero no en el registro es invisible para Projects, kanban, sesiones y resume), avisa si el repo no tiene su propio CLAUDE.md, y comprueba el indice CodeGraph. Criterio de alta: memoria + git. Baja con project-remove.mjs. NO escribe memoria."
+      "description": "SessionStart. Aplica de forma automatica las tres normas de alta de proyecto que antes se hacian a mano y por tanto casi nunca (2026-08-22): da de alta el proyecto en cockpit/projects.json si falta (un proyecto que existe en disco pero no en el registro es invisible para Projects, kanban, sesiones y resume), avisa si el repo no tiene su propio CLAUDE.md, y comprueba el indice CodeGraph. Desde 2026-09-22 el aviso de CLAUDE.md y el indexado solo corren en proyectos YA de alta y solo si codegraph esta instalado: antes se ejecutaban en cualquier carpeta (matcher comodin) y prometian un indice que nadie construia. Criterio de alta: memoria + git. Baja con project-remove.mjs. NO escribe memoria."
     },
     {
       "id": "memory-session-resume",
@@ -290,7 +290,7 @@
       "script": "~/.ultron/hooks/scripts/guardrails-pre.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "dae147f1cf0003aa2950c78c20b9e018484a87e2beffda977730b678c6f735f3",
+      "checksum_sha256": "d73a5f7ec1049c7b9d9bbd555dae592e2e520bc6510729385ae43cff7c6e8ec2",
       "version": "1.1.0",
       "env_allowlist": [
         "ULTRON_GUARDRAILS_BASH"
@@ -298,7 +298,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse (Bash|Agent|Task). Convierte en comprobacion determinista normas que vivian como prosa. ACTIVAS POR DEFECTO: DENY agente-fantasma (subagent_type que no existe en disco: Claude Code lo ignora en silencio y la delegacion se pierde entera) y ASK force-push (reescribe historia publicada). APAGADAS por defecto desde 2026-09-22, solo con ULTRON_GUARDRAILS_BASH=1 en el entorno: las tres reglas DENY sobre lineas de Bash (uv, commit-format, skip-permissions) — son heuristicas sobre texto de shell y un falso positivo bloquea trabajo legitimo sin apelacion. Fail-open total: catalogo de agentes con menos de 20 nombres o cualquier error del clasificador -> deja pasar."
+      "description": "PreToolUse (Bash|Agent|Task). Convierte en comprobacion determinista normas que vivian como prosa. ACTIVAS POR DEFECTO, las dos PREGUNTAN: ASK agente-fantasma (subagent_type que no aparece en el catalogo de disco: Claude Code lo ignora en silencio y la delegacion se pierde entera; era DENY hasta 2026-09-22, cuando se vio que el catalogo solo miraba plugins/cache y bloqueaba TODOS los agentes de plugin reales) y ASK force-push (reescribe historia publicada). El catalogo recorre ~/.claude/agents, <cwd>/.claude/agents y los tres layouts de plugin (marketplaces, synced y cache heredada). APAGADAS por defecto desde 2026-09-22, solo con ULTRON_GUARDRAILS_BASH=1 en el entorno: las tres reglas DENY sobre lineas de Bash (uv, commit-format, skip-permissions) — son heuristicas sobre texto de shell y un falso positivo bloquea trabajo legitimo sin apelacion. Fail-open total: catalogo de agentes con menos de 20 nombres o cualquier error del clasificador -> deja pasar."
     },
     {
       "id": "posttoolfail-capture",

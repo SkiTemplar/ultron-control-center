@@ -258,6 +258,40 @@ function darDeAlta(cwd, id) {
 }
 
 /**
+ * ¿Esta instalado el indexador de CodeGraph en esta maquina?
+ *
+ * Hasta el 2026-09-22 no se comprobaba: se spawneaba `codegraph init .` y se
+ * inyectaba «indexando en segundo plano … estara disponible en los proximos
+ * turnos» pasara lo que pasara. En una maquina sin codegraph (esta, verificado
+ * con ensure-codegraph.js) el spawn falla en silencio, `.codegraph` no llega a
+ * existir nunca y la frase se repite en CADA arranque, /clear y compactacion:
+ * una afirmacion falsa, eterna y sin nadie que la desmienta.
+ *
+ * Se mira primero el mismo shim npm que ya usa ensure-codegraph.js y, si no
+ * esta, el PATH — asi tambien vale una instalacion que no venga de npm global.
+ * Parametros inyectables para poder probarlo sin depender de la maquina.
+ */
+function indexadorDisponible(home, env) {
+  const casa = home || os.homedir();
+  const entorno = env || process.env;
+  const shim = path.join(
+    casa, 'AppData', 'Roaming', 'npm',
+    'node_modules', '@colbymchenry', 'codegraph', 'npm-shim.js'
+  );
+  if (fs.existsSync(shim)) return true;
+  const extensiones = ['', ...String(entorno.PATHEXT || '.EXE;.CMD;.BAT').split(';')]
+    .map((e) => e.trim())
+    .filter((e, i) => i === 0 || e);
+  for (const dir of String(entorno.PATH || entorno.Path || '').split(path.delimiter)) {
+    if (!dir) continue;
+    for (const ext of extensiones) {
+      if (fs.existsSync(path.join(dir, `codegraph${ext.toLowerCase()}`))) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Lanza el indexado de CodeGraph en segundo plano (puede tardar).
  *
  * `shell: true` hace falta en Windows porque `codegraph` es un `.cmd`, y con
@@ -311,27 +345,42 @@ function main() {
   // que id del Control Center vive el tablero de esta carpeta. Se resuelve
   // desde el registro (la entrada ya existente o la recien creada).
   const idProyecto = (yaDeAlta(cwd, leerRegistro()) || {}).id;
+
+  // TODO LO DE AQUI ABAJO, SOLO EN PROYECTOS DE ALTA (2026-09-22). Antes el
+  // gate de `decidir()`/NUNCA solo protegia el alta, y los dos bloques que
+  // siguen quedaban fuera: como el hook corre en SessionStart con matcher "*"
+  // (startup, resume, clear, compact, fork), en CUALQUIER carpeta —un repo
+  // ajeno, un scratch, un temporal— se pedia un CLAUDE.md que ahi no pinta
+  // nada y se spawneaba `codegraph init .`, que habria escrito un `.codegraph/`
+  // en casa de otro. `idProyecto` se relee del registro justo aqui, asi que
+  // cubre igual la entrada que ya existia y la recien creada.
   if (idProyecto) {
     const tablero = path.join(ULTRON, 'cockpit', 'projects', idProyecto, 'kanban.json');
     if (fs.existsSync(tablero)) {
       avisos.push(`Kanban de este proyecto: id "${idProyecto}". Añadir tarjeta: node ~/.ultron/scripts/kanban.mjs add ${idProyecto} todo "titulo" "descripcion". No buscar el tablero a mano.`);
     }
-  }
 
-  // CLAUDE.md: el hook NO lo genera con plantilla. Las normas de un repo salen
-  // de lo que se hable en la sesion, no de un molde; se avisa para que se
-  // redacte con criterio.
-  if (!fs.existsSync(path.join(cwd, 'CLAUDE.md'))) {
-    avisos.push('Este proyecto no tiene CLAUDE.md. Proponer crearlo con las normas reales del repo (stack, convenciones, comandos), no una plantilla generica.');
-  }
+    // CLAUDE.md: el hook NO lo genera con plantilla. Las normas de un repo
+    // salen de lo que se hable en la sesion, no de un molde; se avisa para que
+    // se redacte con criterio.
+    if (!fs.existsSync(path.join(cwd, 'CLAUDE.md'))) {
+      avisos.push('Este proyecto no tiene CLAUDE.md. Proponer crearlo con las normas reales del repo (stack, convenciones, comandos), no una plantilla generica.');
+    }
 
-  // CodeGraph: indexar es lo caro, asi que va detached y solo si falta.
-  if (!fs.existsSync(path.join(cwd, '.codegraph'))) {
-    try {
-      indexarCodegraph(cwd);
-      avisos.push('Indice CodeGraph ausente: indexando en segundo plano (codegraph init). Estara disponible en los proximos turnos.');
-    } catch (e) {
-      logHookError('ensure-project', `codegraph init fallido: ${e && e.message}`);
+    // CodeGraph: indexar es lo caro, asi que va detached y solo si falta. Y
+    // solo si el indexador existe: prometer un indice que nadie esta
+    // construyendo es peor que no decir nada.
+    if (!fs.existsSync(path.join(cwd, '.codegraph'))) {
+      if (!indexadorDisponible()) {
+        logHookError('ensure-project', 'codegraph ausente -- indexado no lanzado');
+      } else {
+        try {
+          indexarCodegraph(cwd);
+          avisos.push('Indice CodeGraph ausente: indexando en segundo plano (codegraph init). Estara disponible en los proximos turnos.');
+        } catch (e) {
+          logHookError('ensure-project', `codegraph init fallido: ${e && e.message}`);
+        }
+      }
     }
   }
 
@@ -351,5 +400,6 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-// Se exporta lo puro para las pruebas (`tests/test-identidad-maquina.js`).
-module.exports = { raicesDelRegistro, bajoRaizPropia, remotePropio };
+// Se exporta lo puro para las pruebas (`tests/test-identidad-maquina.js` y
+// `ensure-project.selftest.mjs`).
+module.exports = { raicesDelRegistro, bajoRaizPropia, remotePropio, indexadorDisponible };
