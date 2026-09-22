@@ -9,6 +9,7 @@
 // completo se pide al desplegar una tarjeta.
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Markdown } from "../../lib/markdown";
 import type { SessionLogEntry } from "../../types";
 
 function formatDuration(min: number | null): string | null {
@@ -31,6 +32,21 @@ function formatWhen(iso: string | null, mtimeSecs: number): string {
   if (days === 1) return "ayer";
   if (days < 7) return `hace ${days} d`;
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/// Quita el frontmatter YAML (`---\n...\n---`) del principio de un
+/// `summary.md` antes de renderizarlo: session_id/rango/modelo/generated_at
+/// ya se muestran en la cabecera de la tarjeta (fecha, duración, modelo), así
+/// que pintarlo de nuevo como texto sería ruido. Sin frontmatter delimitado,
+/// devuelve el texto tal cual (misma regla que `split_frontmatter` en
+/// session_log.rs).
+function stripFrontmatter(raw: string): string {
+  const trimmed = raw.replace(/^﻿/, "");
+  if (!trimmed.startsWith("---")) return trimmed;
+  const afterFence = trimmed.slice(3).replace(/^[\r\n]+/, "");
+  const end = afterFence.indexOf("\n---");
+  if (end === -1) return trimmed;
+  return afterFence.slice(end + 4).replace(/^[\r\n]+/, "");
 }
 
 function EntryCard({
@@ -110,12 +126,17 @@ function EntryCard({
             </p>
           )}
           {body !== null && (
-            <pre
-              className="max-h-[420px] overflow-auto whitespace-pre-wrap text-[11.5px] leading-relaxed"
-              style={{ color: "var(--color-text-secondary)", fontFamily: "inherit" }}
+            // El cuerpo lo redacta un modelo (`claude -p`), no el usuario, pero
+            // sigue siendo texto no confiable: Markdown (lib/markdown.tsx) es
+            // un tokenizer propio que nunca hace pasada de HTML ni usa
+            // dangerouslySetInnerHTML, así que un `<script>` en el summary se
+            // pinta como texto literal, no se ejecuta.
+            <div
+              className="max-h-[420px] overflow-auto text-[11.5px] leading-relaxed"
+              style={{ color: "var(--color-text-secondary)" }}
             >
-              {body}
-            </pre>
+              <Markdown source={stripFrontmatter(body)} />
+            </div>
           )}
         </div>
       )}

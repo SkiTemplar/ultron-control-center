@@ -3,25 +3,34 @@
 // Groups:
 //   misc            — Root helpers (ultron_root_str, home_dir, logs, usage,
 //                     activity timeline, cost, vscode launcher)
+//   accounts        — Settings > Cuentas y modelos (read-only CLI account/
+//                     model report; see `crate::accounts` for the logic)
 //   alerts          — Alerts/changelog read/write
 //   mcps            — MCP server management
 //   hotkeys         — Global hotkey get/set/pause/resume
 //   external_editor — Open in VSCode, read text file
 //   slash_commands  — Slash command catalog (was commands_registry.rs)
+//   tools           — Settings > Herramientas (read-only CLI install/version
+//                     report for markitdown/rumdl/mmdc/glow/agy/codex; see
+//                     `crate::tools` for the logic)
 
+pub mod accounts;
 pub mod alerts;
 pub mod external_editor;
 pub mod hotkeys;
 pub mod mcps;
 pub mod misc;
 pub mod slash_commands;
+pub mod tools;
 
+pub use accounts::*;
 pub use alerts::*;
 pub use external_editor::*;
 pub use hotkeys::*;
 pub use mcps::*;
 pub use misc::*;
 pub use slash_commands::*;
+pub use tools::*;
 
 /// Rejects a target containing cmd.exe metacharacters. The vscode launchers
 /// wrap with `cmd.exe /C code <path>` on Windows, and `std::process::Command`

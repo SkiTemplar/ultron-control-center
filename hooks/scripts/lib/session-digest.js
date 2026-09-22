@@ -98,6 +98,29 @@ function extractUserPrompts(entries) {
   return out;
 }
 
+// Umbral de "sesion que merece resumen". Solo con prompts se perdian sesiones
+// reales de un unico encargo largo (2026-09-20: dos sesiones de 1 prompt y
+// ~250 turnos del asistente, 2 MB cada una, nunca resumidas). Los transcripts
+// de `claude -p` y los one-shot tienen 1 prompt y 1-2 turnos: siguen fuera.
+const MIN_USER_PROMPTS = 2;
+const MIN_ASSISTANT_TURNS_SINGLE_PROMPT = 20;
+
+/** Entradas del asistente de la conversacion principal (sin subagentes). */
+function countAssistantTurns(entries) {
+  let n = 0;
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (e && e.type === 'assistant' && e.isSidechain !== true) n++;
+  }
+  return n;
+}
+
+/** ¿La sesion tiene sustancia para resumirse? */
+function isWorthSummarizing(entries) {
+  const prompts = extractUserPrompts(entries).length;
+  if (prompts >= MIN_USER_PROMPTS) return true;
+  return prompts >= 1 && countAssistantTurns(entries) >= MIN_ASSISTANT_TURNS_SINGLE_PROMPT;
+}
+
 /** Bloques de texto del asistente (sin thinking, sin tool_use), en orden. */
 function extractAssistantTexts(entries) {
   const out = [];
@@ -211,5 +234,9 @@ module.exports = {
   mergeChronological,
   buildDigest,
   looksSynthetic,
+  countAssistantTurns,
+  isWorthSummarizing,
+  MIN_USER_PROMPTS,
+  MIN_ASSISTANT_TURNS_SINGLE_PROMPT,
   DEFAULT_MAX_CHARS,
 };

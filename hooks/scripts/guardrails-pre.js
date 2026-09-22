@@ -20,6 +20,19 @@
  * entera. Fue un KIRKARDO CRITICAL (sprint 2026-05-27) causado por una tabla
  * de agentes stale, y la unica senal era que el trabajo no aparecia.
  *
+ * DONDE VIVEN LOS AGENTES DE PLUGIN (comprobado en disco, 2026-09-22, Claude
+ * Code 2.1.278): el layout legacy `plugins/cache/<mercado>/<plugin>/<version>/
+ * agents` ya no es el unico. En esta maquina conviven ademas:
+ *   plugins/marketplaces/<mercado>/{plugins,external_plugins}/<plugin>/agents
+ *   plugins/marketplaces/<mercado>/agents        (mercado de un solo plugin,
+ *                                                  p.ej. addy-agent-skills)
+ *   plugins/synced/<id>/<plugin>/agents          (variantes con sufijo ~g2)
+ *   skills/synced/<id>/<plugin>/agents           (skills con agentes propios)
+ * El nombre de la CARPETA no siempre es el prefijo invocable: la carpeta
+ * `addy-agent-skills` declara `"name": "agent-skills"` en su plugin.json, asi
+ * que `agent-skills:code-reviewer` es el subagent_type real y
+ * `addy-agent-skills:code-reviewer` no lo es. Se aceptan los dos nombres.
+ *
  * FAIL-OPEN DELIBERADO EN EL CATALOGO DE AGENTES: si las fuentes de disco dan
  * menos de MIN_CATALOGO nombres es que no supimos leerlas (plugins movidos,
  * permisos, otra maquina), no que el usuario tenga tres agentes. Bloquear con
@@ -71,10 +84,61 @@ function ficherosMd(dir) {
   }
 }
 
+/** Subcarpetas de `dir` (lista vacia si no existe o no se deja leer). */
+function subcarpetas(dir) {
+  try {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      // Los enlaces de directorio de Windows no son isDirectory(): sin
+      // isSymbolicLink() se perderian arboles enteros bajo ~/.claude/plugins.
+      .filter((e) => e.isDirectory() || e.isSymbolicLink())
+      .map((e) => e.name);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Prefijos con los que se puede invocar un agente de este plugin. El prefijo
+ * real es el `name` de plugin.json, que no siempre coincide con el nombre de
+ * la carpeta (`addy-agent-skills/` declara `"name": "agent-skills"`, y
+ * `brand-voice~g2/` declara `"name": "brand-voice"`). Se aceptan los dos —
+ * es gratis y evita un falso "no existe" por un sufijo de carpeta.
+ */
+function prefijosDePlugin(dirPlugin, nombreCarpeta) {
+  const out = new Set([nombreCarpeta]);
+  try {
+    const raw = fs.readFileSync(path.join(dirPlugin, '.claude-plugin', 'plugin.json'), 'utf8');
+    const nombre = JSON.parse(raw).name;
+    if (typeof nombre === 'string' && nombre.trim()) out.add(nombre.trim());
+  } catch (_) {
+    /* sin manifiesto legible: vale el nombre de la carpeta */
+  }
+  return out;
+}
+
+/**
+ * Anade a `out` los agentes de `<dirPlugin>/agents`, con y sin prefijo de
+ * plugin (ambas formas aparecen en la lista que se inyecta al modelo).
+ */
+function agentesDePlugin(out, dirPlugin, nombreCarpeta) {
+  const ficheros = ficherosMd(path.join(dirPlugin, 'agents'));
+  if (ficheros.length === 0) return;
+  const prefijos = prefijosDePlugin(dirPlugin, nombreCarpeta);
+  for (const f of ficheros) {
+    const base = f.replace(/\.md$/, '');
+    out.add(base);
+    for (const p of prefijos) out.add(`${p}:${base}`);
+  }
+}
+
 /**
  * Nombres invocables como `subagent_type`, reunidos de todas las fuentes que
- * Claude Code lee: agentes de usuario, agentes de plugin (con y sin prefijo
- * `plugin:`, porque ambos aparecen en la lista inyectada) y los del harness.
+ * Claude Code lee: agentes de usuario, los del harness y los de plugin en
+ * cada layout de disco que existe de verdad (ver cabecera). Hasta el
+ * 2026-09-22 solo se miraba `plugins/cache`, que en Claude Code 2.1.278 ya no
+ * es donde viven la mayoria de plugins instalados: el catalogo salia casi sin
+ * agentes de plugin y la regla los marcaba a todos como inexistentes.
  *
  * @returns {Set<string>}
  */
@@ -83,37 +147,47 @@ function agentesValidos() {
   for (const f of ficherosMd(path.join(HOME, '.claude', 'agents'))) {
     out.add(f.replace(/\.md$/, ''));
   }
-  // ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/agents/*.md
-  const cache = path.join(HOME, '.claude', 'plugins', 'cache');
-  let mercados = [];
-  try {
-    mercados = fs.readdirSync(cache);
-  } catch (_) {
-    mercados = [];
-  }
-  for (const m of mercados) {
-    let plugins = [];
-    try {
-      plugins = fs.readdirSync(path.join(cache, m));
-    } catch (_) {
-      continue;
-    }
-    for (const p of plugins) {
-      let versiones = [];
-      try {
-        versiones = fs.readdirSync(path.join(cache, m, p));
-      } catch (_) {
-        continue;
-      }
-      for (const v of versiones) {
-        for (const f of ficherosMd(path.join(cache, m, p, v, 'agents'))) {
-          const base = f.replace(/\.md$/, '');
-          out.add(`${p}:${base}`);
-          out.add(base);
-        }
-      }
+
+  const raizPlugins = path.join(HOME, '.claude', 'plugins');
+
+  // marketplaces/<mercado>/... : un mercado puede ser el plugin en si mismo
+  // (agents/ en su propia raiz, p.ej. addy-agent-skills) o alojar varios en
+  // plugins/ y external_plugins/.
+  const marketplaces = path.join(raizPlugins, 'marketplaces');
+  for (const mercado of subcarpetas(marketplaces)) {
+    const dirMercado = path.join(marketplaces, mercado);
+    agentesDePlugin(out, dirMercado, mercado);
+    for (const grupo of ['plugins', 'external_plugins']) {
+      const raiz = path.join(dirMercado, grupo);
+      for (const p of subcarpetas(raiz)) agentesDePlugin(out, path.join(raiz, p), p);
     }
   }
+
+  // synced/<id>/<plugin>/agents -- dos raices reales en esta maquina:
+  // plugins/synced (paquetes con variantes "<nombre>~g2") y skills/synced
+  // (skills que traen agentes propios, p.ej. ultron, the-creator).
+  const raicesSynced = [
+    path.join(raizPlugins, 'synced'),
+    path.join(HOME, '.claude', 'skills', 'synced'),
+  ];
+  for (const raizSynced of raicesSynced) {
+    for (const id of subcarpetas(raizSynced)) {
+      const raiz = path.join(raizSynced, id);
+      for (const p of subcarpetas(raiz)) agentesDePlugin(out, path.join(raiz, p), p);
+    }
+  }
+
+  // cache/<mercado>/<plugin>/<version>/agents -- layout heredado; se conserva
+  // porque algunos plugins (p.ej. superpowers en esta maquina) solo estan ahi.
+  const cache = path.join(raizPlugins, 'cache');
+  for (const mercado of subcarpetas(cache)) {
+    for (const p of subcarpetas(path.join(cache, mercado))) {
+      for (const v of subcarpetas(path.join(cache, mercado, p))) {
+        agentesDePlugin(out, path.join(cache, mercado, p, v), p);
+      }
+    }
+  }
+
   return out;
 }
 

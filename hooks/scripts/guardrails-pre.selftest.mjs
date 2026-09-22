@@ -31,10 +31,27 @@ const bash = (command) => decision('Bash', { command });
 const catalogo = g.agentesValidos();
 comprueba('el catalogo de agentes se lee del disco', catalogo.size >= 20, true);
 comprueba('agente real pasa', decision('Agent', { subagent_type: 'code-reviewer' }), 'pasa');
-comprueba('agente de plugin con prefijo pasa',
-  decision('Agent', { subagent_type: 'superpowers:code-reviewer' }), 'pasa');
+
+// Fixtures de plugin verificadas en disco en esta maquina (2026-09-22), una
+// por cada layout que Claude Code 2.1.278 usa de verdad. Regresion: la v1
+// solo miraba plugins/cache/<mercado>/<plugin>/<version>/agents, arbol que
+// aqui ni siquiera contiene la mayoria de plugins instalados — el catalogo
+// los marcaba a todos como inexistentes.
+comprueba('agente de plugin en marketplaces/<m>/plugins/<p>/agents pasa',
+  decision('Agent', { subagent_type: 'pr-review-toolkit:code-reviewer' }), 'pasa');
+comprueba('agente de mercado mono-plugin (nombre de plugin.json != carpeta) pasa',
+  decision('Agent', { subagent_type: 'agent-skills:code-reviewer' }), 'pasa');
+comprueba('el prefijo de carpeta del mercado mono-plugin tambien pasa (se aceptan los dos)',
+  decision('Agent', { subagent_type: 'addy-agent-skills:code-reviewer' }), 'pasa');
+comprueba('agente de skills/synced/<id>/<p>/agents pasa',
+  decision('Agent', { subagent_type: 'ultron:dispatcher' }), 'pasa');
+comprueba('agente de plugins/synced/<id>/<p>/agents pasa',
+  decision('Agent', { subagent_type: 'brand-voice:discover-brand' }), 'pasa');
+
 comprueba('agente inventado se bloquea',
   decision('Agent', { subagent_type: 'plan-document-reviewer' }), 'deny/agente-fantasma');
+comprueba('plugin real con nombre de agente inventado se bloquea',
+  decision('Agent', { subagent_type: 'pr-review-toolkit:agente-que-no-existe' }), 'deny/agente-fantasma');
 comprueba('Agent sin subagent_type pasa', decision('Agent', {}), 'pasa');
 
 // --- UV ----------------------------------------------------------------------

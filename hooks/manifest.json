@@ -107,6 +107,25 @@
       "description": "PostToolUse Edit|Write|MultiEdit|NotebookEdit (async): ULTRON 4 F4.1, tests que se lanzan solos. Si el fichero editado es codigo dentro del cwd, resuelve el comando de test (linea `test: <cmd>` en el CLAUDE.md del proyecto, o package.json/Cargo.toml/pyproject/go.mod), aplica debounce 60 s y lanza un runner desacoplado que ejecuta la suite COMPLETA con tope de 120 s (mata el arbol al vencer) y escribe .tmp/run-tests/<project>.result.json. No habla al modelo: lo hace run-project-tests-report.js en el turno siguiente (Q3b). Sin comando: registra no_command. No escribe memoria."
     },
     {
+      "id": "markdown-lint-hint",
+      "event": "PostToolUse",
+      "matcher": "Write|Edit|MultiEdit",
+      "command": "node ~/.ultron/hooks/scripts/markdown-lint-hint.js",
+      "script": "~/.ultron/hooks/scripts/markdown-lint-hint.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "f73b8f5e4419c1fec4967178bec7e74efe80f5218c07050cc27459b030475122",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS",
+        "MARKDOWN_LINT_HINT_RUMDL_CMD"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Tras Write/Edit/MultiEdit de un .md/.markdown, corre `rumdl check <fichero>` (uv tool, timeout 3s) y avisa con additionalContext (recuento + 5 primeras lineas) si hay avisos de estilo Markdown. SINCRONO (habla al modelo). Silencio si rumdl no esta instalado, no hay avisos, o la ruta cae bajo .ultron/cockpit/, .claude/projects/*/memory/, node_modules/ o es un transcript. Nunca bloquea el Write/Edit."
+    },
+    {
       "id": "posttoolfail-capture",
       "event": "PostToolUseFailure",
       "matcher": "*",
@@ -178,6 +197,24 @@
       "description": "PreToolUse(Read|Grep|Glob|Bash): recuerda usar codegraph_explore/search en vez de explorar a ciegas (token-control). Nudge en la 1a exploracion y re-nudge tras cada 10 exploraciones sin llamada codegraph intermedia (contador en temp por session_id; uso de mcp__codegraph__* en el transcript lo resetea). Incluye instruccion de carga deferred via ToolSearch."
     },
     {
+      "id": "document-convert-hint",
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "command": "node ~/.ultron/hooks/scripts/document-convert-hint.js",
+      "script": "~/.ultron/hooks/scripts/document-convert-hint.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "632f06988fc277c5eb50ba5dd93b4d5c1869fc66b24ff364b826f2d129ae91fd",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "En Read de un documento binario que Read no interpreta bien (.docx/.pptx/.xlsx/.epub, o un .pdf de mas de 5MB), sugiere con additionalContext `markitdown \"<ruta>\"` (uv tool) para convertirlo a Markdown antes de leerlo. SINCRONO. Nunca bloquea el Read; silencio en el resto de extensiones/tamanos."
+    },
+    {
       "id": "guardrails-pre",
       "event": "PreToolUse",
       "matcher": "Bash|Agent|Task",
@@ -185,7 +222,7 @@
       "script": "~/.ultron/hooks/scripts/guardrails-pre.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "07de818ec1f7a2175a047441fc5fa2c9c39c6372feba28ca96259f4a9381fba4",
+      "checksum_sha256": "e8efea73ca213c1a5dff73a58c09d0f2aed0f873af2d7aeac28883fc72940df0",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -230,6 +267,22 @@
       "writes_memory": true,
       "writer_path": "MemoryService",
       "description": "Al cerrar la sesion compone un resumen breve (rule-based, sin LLM) del tail del transcript y lo PROPONE como candidate session_summary via 'ultron-memory candidate' (escritor unico = sidecar). Cae al inbox gobernado como pending; nunca auto-promueve. NO escribe brain.db directamente. Fail-safe: sin transcript/sin binario/error -> exit 0 sin escribir."
+    },
+    {
+      "id": "session-end-bitacora",
+      "event": "SessionEnd",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/session-end-bitacora.js",
+      "script": "~/.ultron/hooks/scripts/session-end-bitacora.js",
+      "timeout_s": 10,
+      "async": true,
+      "checksum_sha256": "10b72f14b5f900c34aa6babff6999f1d7ec290b6a0c8277e85f669c1ae0e9b50",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Bitacora de la sesion que cierra (2026-09-22): lanza session-summarize-previous.js desacoplado con --target-session <session_id> y --transcript <transcript_path>; claude -p Sonnet escribe cockpit/projects/<id>/sessions/<sid>/summary.md. Antes solo se generaba en el SessionStart siguiente del mismo proyecto (<7 dias): ultron 20/119, auto-album-maker 0/38. Mismos gates del resumidor (>=2 prompts, lock, backoff, redaccion); SessionStart queda como red si el transcript siguio creciendo."
     },
     {
       "id": "lesson-distill",
@@ -660,9 +713,9 @@
       "matcher": "*",
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
-      "timeout_s": 20,
+      "timeout_s": 26,
       "async": false,
-      "checksum_sha256": "ab9cb0e226d4efc746948ce1759f99f51d1651ac0418aa95cd772f8eb1767975",
+      "checksum_sha256": "6507165d9a960665a00f628f5c46770ae1ae2456054b5455b18becf5491e55e4",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"

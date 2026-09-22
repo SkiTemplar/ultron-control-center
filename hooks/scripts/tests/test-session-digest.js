@@ -205,6 +205,23 @@ run('NEGATIVO: linea JSON corrupta se ignora sin romper el resto', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+run('isWorthSummarizing: un solo encargo con trabajo largo (>=20 turnos) SI se resume', () => {
+  const { isWorthSummarizing } = require('../lib/session-digest');
+  const entries = [userEntry('haz todo el sprint')];
+  for (let i = 0; i < 20; i++) entries.push(assistantEntry(`paso ${i}`));
+  assert.strictEqual(isWorthSummarizing(entries), true);
+});
+run('NEGATIVO: isWorthSummarizing rechaza un one-shot de 1 prompt y 2 turnos (claude -p)', () => {
+  const { isWorthSummarizing } = require('../lib/session-digest');
+  assert.strictEqual(isWorthSummarizing([userEntry('responde solo OK'), assistantEntry('OK'), assistantEntry('fin')]), false);
+});
+run('NEGATIVO: turnos de subagente (isSidechain) no cuentan para el umbral', () => {
+  const { isWorthSummarizing } = require('../lib/session-digest');
+  const entries = [userEntry('encargo')];
+  for (let i = 0; i < 25; i++) entries.push({ ...assistantEntry(`sub ${i}`), isSidechain: true });
+  assert.strictEqual(isWorthSummarizing(entries), false);
+});
+
 // ---- Resultado final --------------------------------------------------------
 console.log('');
 if (failed === 0) {

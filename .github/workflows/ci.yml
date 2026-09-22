@@ -409,6 +409,9 @@ jobs:
           node hooks/scripts/kanban-update-reminder.selftest.mjs
           node hooks/scripts/deny-secrets.selftest.mjs
           node hooks/scripts/system-turn.selftest.mjs
+          node hooks/scripts/session-end-bitacora.selftest.mjs
+          node hooks/scripts/tests/test-session-summarize-previous.js
+          node hooks/scripts/tests/test-last-session.js
           node scripts/package-cowork-plugin.selftest.mjs
       - name: Hook selftests (resume - frescura + calidad)
         run: |

@@ -4,6 +4,8 @@
 use super::{fastembed_cache_dir, now_ms, RERANK_LAST_USED_MS};
 #[cfg(feature = "qdrant")]
 use once_cell::sync::OnceCell;
+#[cfg(feature = "qdrant")]
+use std::time::Duration;
 
 /// Lazy `BGERerankerV2M3` — one instance per process, shared across threads.
 /// Initialised on the first call to `rerank_pairs`; afterwards all calls pay
@@ -133,6 +135,170 @@ pub fn rerank_pairs(
     _docs: &[(String, String)],
 ) -> Result<Vec<(String, f32)>, String> {
     Err("rerank_pairs: qdrant feature not enabled".to_string())
+}
+
+/// Tope duro de la etapa de rerank (2026-09-22, medido): el baseline
+/// "caliente" documentado arriba era 2-2.7 s/llamada, pero en producción el
+/// daemon registró orchestrates con `rerank_hot: true` de 15-25 s (24 pares,
+/// mismo modelo residente) — sin ningún tope, esa varianza se comía el
+/// presupuesto del hook (9-20 s) y el prompt entraba SIN memoria. El rerank
+/// es una etapa OPCIONAL de calidad: nunca debe poder bloquear el pack. Si
+/// vence, se cae al orden fusionado existente — igual que un `Err`.
+#[cfg(feature = "qdrant")]
+const RERANK_TIMEOUT: Duration = Duration::from_millis(3500);
+
+/// Un solo forward-pass del cross-encoder a la vez (2026-09-22, medido tras
+/// el fix del timeout): un `recv_timeout` vencido no cancela el hilo — un
+/// forward pass de ONNX no se puede interrumpir a medias — así que quedaba
+/// calculando de fondo, huérfano. Con orchestrates consecutivos (memories +
+/// lessons del mismo turno bug_fix, o dos prompts seguidos) esos huérfanos se
+/// APILABAN compitiendo por CPU con el turno siguiente: en la reproducción,
+/// el 3er/4º orchestrate de la sesión medía 5,1 s SOLO en el embed E5 del
+/// catálogo de agentes (normal: <400 ms) con el rerank anterior aún vivo de
+/// fondo. Este guard limita a UN cómputo real en vuelo: si ya hay uno
+/// corriendo (huérfano o no), la llamada nueva NO lanza un segundo hilo — cae
+/// directa al fallback, coste ~0. Evita la degradación en cascada sin tocar
+/// el techo por llamada (`RERANK_TIMEOUT`).
+#[cfg(feature = "qdrant")]
+static RERANK_COMPUTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Libera `RERANK_COMPUTING` al salir de ámbito, incluido el desenrollado
+/// por pánico.
+#[cfg(feature = "qdrant")]
+struct ComputingGuard;
+
+#[cfg(feature = "qdrant")]
+impl Drop for ComputingGuard {
+    fn drop(&mut self) {
+        RERANK_COMPUTING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Igual que `rerank_pairs` pero con techo duro `RERANK_TIMEOUT` y como mucho
+/// UN cómputo real en vuelo (`RERANK_COMPUTING`): el llamante espera como
+/// mucho el timeout y, si vence, el hilo sigue calculando en segundo plano
+/// (no se puede cancelar un forward pass de ONNX a medias) pero su resultado
+/// se descarta — el pack de memoria de ESTE turno no se queda esperando.
+/// `docs` se clona una vez para que el hilo no dependa del tiempo de vida del
+/// llamante.
+#[cfg(feature = "qdrant")]
+pub fn rerank_pairs_bounded(
+    query: &str,
+    docs: &[(String, String)],
+) -> Result<Vec<(String, f32)>, String> {
+    use std::sync::atomic::Ordering;
+
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+    if RERANK_COMPUTING.swap(true, Ordering::SeqCst) {
+        return Err(
+            "rerank ya en curso (llamada anterior todavia calculando) — pack servido con el orden fusionado"
+                .to_string(),
+        );
+    }
+    let query = query.to_string();
+    let docs = docs.to_vec();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // RAII: el guard se libera también si el forward pass entra en pánico
+        // (FFI de ONNX, OOM). Con un `store(false)` tras la llamada, un pánico
+        // dejaba RERANK_COMPUTING a true para siempre y el rerank quedaba
+        // apagado en silencio hasta reiniciar el daemon.
+        let _liberar = ComputingGuard;
+        let resultado = rerank_pairs(&query, &docs);
+        // El receptor puede haber vencido el timeout y desconectado: `send`
+        // devuelve Err en ese caso y se ignora — el resultado ya no importa.
+        let _ = tx.send(resultado);
+    });
+    rx.recv_timeout(RERANK_TIMEOUT).unwrap_or_else(|_| {
+        Err(format!(
+            "rerank timeout tras {}ms — pack servido con el orden fusionado (sin cross-encoder)",
+            RERANK_TIMEOUT.as_millis()
+        ))
+    })
+}
+
+/// Stub sin la feature: mismo contrato que `rerank_pairs` (siempre `Err`).
+#[cfg(not(feature = "qdrant"))]
+pub fn rerank_pairs_bounded(
+    _query: &str,
+    _docs: &[(String, String)],
+) -> Result<Vec<(String, f32)>, String> {
+    Err("rerank_pairs_bounded: qdrant feature not enabled".to_string())
+}
+
+#[cfg(all(test, feature = "qdrant"))]
+mod bounded_tests {
+    use super::*;
+
+    /// Caso negativo: si el cómputo tarda más que el tope, el llamante no se
+    /// queda colgado — vuelve con `Err` dentro del presupuesto, nunca a los
+    /// 15-25 s medidos en producción. No dispara el modelo real (pesado);
+    /// prueba el mecanismo de timeout aislado con un cómputo simulado.
+    #[test]
+    fn una_etapa_lenta_no_bloquea_mas_alla_del_tope() {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), ()>>();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(3600)); // nunca llega a tiempo
+            let _ = tx.send(Ok(()));
+        });
+        let start = std::time::Instant::now();
+        let resultado = rx.recv_timeout(Duration::from_millis(100));
+        assert!(resultado.is_err(), "debe vencer, no esperar al hilo lento");
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "el tope debe cortar en milisegundos, no en horas"
+        );
+    }
+
+    /// Caso negativo: con un cómputo ya "en vuelo" (guard puesto a mano, sin
+    /// cargar el modelo real), una llamada nueva NO debe lanzar un segundo
+    /// hilo — cae directa al fallback. Así no se apilan huérfanos compitiendo
+    /// por CPU con el resto del daemon (causa raíz de la degradación en
+    /// cascada medida el 2026-09-22).
+    /// Los tests que tocan el estático `RERANK_COMPUTING` se serializan: el
+    /// runner de cargo los lanza en hilos paralelos.
+    static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Caso negativo: un pánico dentro del cómputo no puede dejar el guard
+    /// tomado para siempre (el rerank quedaría apagado en silencio).
+    #[test]
+    fn un_panico_en_el_computo_libera_el_guard() {
+        use std::sync::atomic::Ordering;
+        let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        RERANK_COMPUTING.store(true, Ordering::SeqCst);
+        let hilo = std::thread::spawn(|| {
+            let _liberar = ComputingGuard;
+            panic!("forward pass simulado que revienta");
+        });
+        assert!(hilo.join().is_err(), "el hilo debe haber entrado en pánico");
+        assert!(
+            !RERANK_COMPUTING.load(Ordering::SeqCst),
+            "el guard debe quedar libre tras el pánico"
+        );
+    }
+
+    #[test]
+    fn una_llamada_en_vuelo_bloquea_una_segunda_sin_lanzar_otro_hilo() {
+        use std::sync::atomic::Ordering;
+        let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        RERANK_COMPUTING.store(true, Ordering::SeqCst);
+        let start = std::time::Instant::now();
+        let resultado = rerank_pairs_bounded(
+            "query",
+            &[("id".to_string(), "documento cualquiera".to_string())],
+        );
+        RERANK_COMPUTING.store(false, Ordering::SeqCst);
+        assert!(
+            resultado.is_err(),
+            "una segunda llamada concurrente cae al fallback"
+        );
+        assert!(
+            start.elapsed() < Duration::from_millis(200),
+            "el guard debe cortar al instante, sin esperar el timeout completo"
+        );
+    }
 }
 
 /// ¿Está el cross-encoder residente AHORA MISMO?

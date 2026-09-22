@@ -47,11 +47,13 @@ pub use kanban_sub::kanban;
 pub use library::plugins_info;
 pub use library::skills;
 
+pub use misc_sub::accounts;
 pub use misc_sub::alerts;
 pub use misc_sub::external_editor;
 pub use misc_sub::hotkeys;
 pub use misc_sub::mcps;
 pub use misc_sub::misc;
+pub use misc_sub::tools;
 // `commands_registry` was renamed `slash_commands` in the sub-dir refactor;
 // expose the old name for backward compat with `lib.rs` call sites.
 pub use misc_sub::slash_commands as commands_registry;

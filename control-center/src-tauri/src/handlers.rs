@@ -50,6 +50,11 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::mcps::mcp_accounts_list,
         commands::mcps::mcp_account_add,
         commands::mcps::mcp_account_remove,
+        // -- Settings > Cuentas y modelos (read-only CLI account/model report) --
+        commands::accounts::accounts_report,
+        commands::accounts::accounts_refresh_models,
+        // -- Settings > Herramientas (read-only CLI install/version report) --
+        commands::tools::tools_status,
         // -- skills --
         commands::skills::list_skills,
         commands::skills::list_skills_legacy,

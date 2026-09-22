@@ -327,7 +327,7 @@ pub fn build_trace_typed(
             })
             .collect();
 
-        match crate::qdrant::rerank_pairs(query, &pairs) {
+        match crate::qdrant::rerank_pairs_bounded(query, &pairs) {
             Ok(ranked) => {
                 // Build a score lookup: id → cross-encoder score.
                 let score_map: HashMap<&str, f32> =

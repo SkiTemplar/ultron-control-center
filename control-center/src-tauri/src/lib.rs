@@ -15,6 +15,7 @@
 // Mejora futura (card kanban f2-comandos-sin-caller): tauri-specta para
 // generar bindings.ts tipados desde las firmas de comandos.
 
+mod accounts; // Settings > Cuentas y modelos: read-only CLI account/model report
 mod activity_timeline;
 mod agent_orchestration;
 mod agents;
@@ -79,6 +80,7 @@ mod tabs;
 mod test_support;
 mod tfg_lab; // Lab TFG — deteccion determinista de patrones de texto IA (docs/research)
 mod toast_emit;
+mod tools; // Settings > Herramientas: estado read-only de las CLIs standalone (markitdown, rumdl, mmdc, glow, agy, codex)
 mod tray;
 mod turn_off;
 mod update_checker;

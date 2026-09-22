@@ -4,11 +4,13 @@
  * mismo proyecto con `claude -p` (Sonnet, misma suscripcion OAuth que la
  * sesion interactiva -- NUNCA API key de pago por token: ver README abajo).
  *
- * NO es un hook de Claude Code: lo lanza memory-session-resume.js (SessionStart)
- * como proceso totalmente desacoplado, porque `claude -p` tarda 20-40s y
- * SessionStart no puede bloquear la apertura de sesion ese tiempo. Si no
- * termina a tiempo, memory-orchestrate.js entrega el resumen en el primer
- * prompt (ver lib/session-summary-delivery.js).
+ * NO es un hook de Claude Code: lo lanzan desacoplados session-end-bitacora.js
+ * (SessionEnd, desde 2026-09-22: la sesion que cierra, con --target-session y
+ * --transcript) y memory-session-resume.js (SessionStart: la sesion anterior
+ * sin resumen o con uno viejo, como red), porque `claude -p` tarda 20-40s y
+ * ningun hook puede bloquear ese tiempo. Si no termina a tiempo,
+ * memory-orchestrate.js entrega el resumen en el primer prompt (ver
+ * lib/session-summary-delivery.js). Para el historico: scripts/session-summary-backfill.mjs.
  *
  * Flujo:
  *   1. Localiza ~/.claude/projects/<slug>/ (transcripts del cwd).
@@ -100,7 +102,7 @@ const LOCK_DIR = process.env.SESSION_SUMMARY_LOCK_DIR || path.join(HOME, '.ultro
 const ATTEMPTS_DIR = process.env.SESSION_SUMMARY_ATTEMPTS_DIR || path.join(HOME, '.ultron', '.tmp', 'session-summary-attempts');
 const MODEL = process.env.SESSION_SUMMARY_MODEL || 'sonnet';
 const MAX_AGE_DAYS = Number(process.env.SESSION_SUMMARY_MAX_AGE_DAYS) || 7;
-const MIN_USER_PROMPTS = 2;
+const MIN_USER_PROMPTS = digest.MIN_USER_PROMPTS;
 const TIMEOUT_MS = Number(process.env.SESSION_SUMMARY_TIMEOUT_MS) || 180000;
 const MAX_DIGEST_CHARS = Number(process.env.SESSION_SUMMARY_MAX_CHARS) || digest.DEFAULT_MAX_CHARS;
 const STALE_LOCK_MS = TIMEOUT_MS + 60000;
@@ -178,6 +180,10 @@ function hasCheapPendingCandidate({ transcriptsDir, currentSessionId, projectId 
       continue;
     }
     if (st.mtimeMs < cutoff) continue;
+    // Sin esto el aviso "llegara en el primer prompt" salia en casi todos los
+    // arranques: los transcripts de `claude -p` y las sesiones de un solo
+    // prompt nunca se resumen, pero la candidata barata los contaba igual.
+    if (isKnownNonCandidate(sessionId, st.mtimeMs)) continue;
     return true; // basta con UNA; la fina la hace selectPreviousSession()
   }
   return false;
@@ -190,10 +196,38 @@ function attemptsPath(sessionId) {
 function readAttempts(sessionId) {
   try {
     const o = JSON.parse(fs.readFileSync(attemptsPath(sessionId), 'utf8'));
-    return { failures: Number(o.failures) || 0, last_failure_at: Number(o.last_failure_at) || 0 };
+    return {
+      failures: Number(o.failures) || 0,
+      last_failure_at: Number(o.last_failure_at) || 0,
+      trivial_mtime: Number(o.trivial_mtime) || 0,
+    };
   } catch {
-    return { failures: 0, last_failure_at: 0 };
+    return { failures: 0, last_failure_at: 0, trivial_mtime: 0 };
   }
+}
+
+/**
+ * Recuerda que `sessionId`, con el transcript en `mtimeMs`, tiene menos de
+ * MIN_USER_PROMPTS prompts reales. Si el transcript vuelve a crecer (la sesion
+ * se retomo), el mtime cambia y la marca deja de valer.
+ */
+function markTrivial(sessionId, mtimeMs) {
+  try {
+    fs.mkdirSync(ATTEMPTS_DIR, { recursive: true });
+    const p = attemptsPath(sessionId);
+    const tmp = `${p}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ ...readAttempts(sessionId), trivial_mtime: Math.floor(mtimeMs) }));
+    fs.renameSync(tmp, p);
+  } catch {
+    /* best effort: sin marca, la candidata barata solo avisara de mas */
+  }
+}
+
+/** ¿Ya se sabe que esta sesion no se va a resumir (trivial sin cambios, o abandonada)? */
+function isKnownNonCandidate(sessionId, mtimeMs) {
+  const a = readAttempts(sessionId);
+  if (a.failures >= ABANDON_AFTER_FAILURES) return true;
+  return a.trivial_mtime > 0 && a.trivial_mtime === Math.floor(mtimeMs);
 }
 
 /** Registra un fallo de `claude -p` para `sessionId`. Devuelve el estado tras contarlo. */
@@ -283,8 +317,10 @@ function selectPreviousSession({ transcriptsDir, currentSessionId, projectId }) 
   candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const c of candidates) {
     if (backoffReason(c.sessionId)) continue;
+    if (isKnownNonCandidate(c.sessionId, c.mtimeMs)) continue;
     const parsed = digest.readTranscriptEntries(c.transcriptPath);
-    if (digest.extractUserPrompts(parsed).length >= MIN_USER_PROMPTS) return c;
+    if (digest.isWorthSummarizing(parsed)) return c;
+    markTrivial(c.sessionId, c.mtimeMs);
   }
   return null;
 }
@@ -462,7 +498,8 @@ function parseArgs(argv) {
     if (a === '--cwd') out.cwd = argv[++i];
     else if (a === '--session') out.session = argv[++i];
     else if (a === '--project') out.project = argv[++i];
-    else if (a === '--target-session') out.targetSession = argv[++i]; // verificacion manual: fuerza la sesion a resumir
+    else if (a === '--target-session') out.targetSession = argv[++i]; // verificacion manual / SessionEnd: fuerza la sesion a resumir
+    else if (a === '--transcript') out.transcript = argv[++i]; // SessionEnd: transcript_path del hook
   }
   return out;
 }
@@ -485,7 +522,9 @@ function main() {
   const projectId = args.project || resolveProjectId(cwd);
   if (!projectId) return logResult({ skipped: 'sin project_id', cwd });
 
-  const transcriptsDir = transcriptsDirFor(cwd, null);
+  // `--transcript` (SessionEnd, 2026-09-22): el hook trae transcript_path; con
+  // el se resuelve el directorio real aunque el cwd no case con el slug (worktrees).
+  const transcriptsDir = transcriptsDirFor(cwd, args.transcript || null);
   const target = args.targetSession
     ? { sessionId: args.targetSession, transcriptPath: path.join(transcriptsDir, `${args.targetSession}.jsonl`) }
     : selectPreviousSession({ transcriptsDir, currentSessionId: args.session, projectId });
@@ -499,8 +538,13 @@ function main() {
   const t0 = Date.now();
   try {
     const entries = digest.readTranscriptEntries(target.transcriptPath);
-    if (digest.extractUserPrompts(entries).length < MIN_USER_PROMPTS) {
-      return logResult({ project: projectId, session_id: target.sessionId, skipped: 'menos de 2 prompts reales' });
+    if (!digest.isWorthSummarizing(entries)) {
+      try {
+        markTrivial(target.sessionId, fs.statSync(target.transcriptPath).mtimeMs);
+      } catch {
+        /* transcript desaparecido: no hay nada que marcar */
+      }
+      return logResult({ project: projectId, session_id: target.sessionId, skipped: 'sin sustancia (menos de 2 prompts reales y menos de 20 turnos)' });
     }
     // Redaccion ANTES de que el digest salga de la maquina hacia claude -p.
     const digestText = redactSecrets(digest.buildDigest(entries, { maxChars: MAX_DIGEST_CHARS }));
@@ -539,6 +583,8 @@ if (require.main === module) {
     transcriptsDirFor,
     hasCheapPendingCandidate,
     selectPreviousSession,
+    markTrivial,
+    isKnownNonCandidate,
     summaryCoversTranscript,
     SUMMARY_STALE_GRACE_MS,
     acquireLock,

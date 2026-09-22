@@ -42,7 +42,7 @@
         "hooks": [
           { "type": "command", "command": "node {USERPROFILE}/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js", "timeout": 5 },
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/save-user-prompt.js", "timeout": 5 },
-          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js", "timeout": 20 }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js", "timeout": 26 }
         ]
       }
     ],
@@ -59,6 +59,12 @@
         "hooks": [
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/codegraph-reminder.js", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/document-convert-hint.js", "timeout": 5 }
+        ]
       }
     ],
 
@@ -67,6 +73,12 @@
         "matcher": "*",
         "hooks": [
           { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/posttoolfail-capture.js", "timeout": 15, "async": true }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/markdown-lint-hint.js", "timeout": 5 }
         ]
       }
     ],
@@ -93,7 +105,8 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-summary.js", "timeout": 20, "async": true }
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-summary.js", "timeout": 20, "async": true },
+          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-bitacora.js", "timeout": 10, "async": true }
         ]
       }
     ],

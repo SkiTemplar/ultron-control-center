@@ -34,7 +34,21 @@ observe('memory-orchestrate');
 // 6159-6219ms) y el prompt entraba SIN memoria. Con 9s ese prompt espera la
 // recarga y llega con recall; el precio real es solo con daemon colgado de
 // verdad (9s antes de degradar, caso raro). Presupuesto total abajo.
-const DAEMON_TIMEOUT_MS = 9000;
+// (2026-09-22) Subido de 9000 a 14000: el rerank selectivo (bug_fix/feature)
+// no tenia tope propio dentro de `orchestrate` — 80/300 llamadas reales
+// midieron mas de 8s y hasta 65338 ms, con el modelo YA caliente. Causa raiz
+// cerrada en Rust (`rerank_pairs_bounded`, `qdrant_rerank.rs`): tope duro de
+// 3500 ms por llamada + guard de una sola inferencia en vuelo (evita que un
+// timeout deje un hilo huerfano compitiendo por CPU con la siguiente). Con el
+// tope puesto, un turno bug_fix paga como mucho ~2x3500 ms (memories +
+// lessons) mas los embeds — medido en vivo tras el fix: 2,5-13 s segun carga
+// de la maquina (antes: hasta 65 s sin tope). 9000 ms seguia cortando ese
+// turno ANTES de que el daemon respondiera, así que el hook lo consideraba
+// "muerto" y disparaba HOOKS-07 (relanzamiento + reintento) sobre el MISMO
+// daemon vivo — doble trabajo real por el mismo prompt. 14000 ms cubre el
+// peor caso ya acotado con margen; ver `HOOK_BUDGET_MS` para el presupuesto
+// total actualizado en consecuencia.
+const DAEMON_TIMEOUT_MS = 14000;
 // Check 1.5 (2026-07-22): con pack cacheado FRESCO del proyecto, el peor caso
 // del hook queda ~1200 (daemon) + 800 (one-shot cap) + overhead < 3000ms POR
 // CONSTRUCCION. Sin cache fresco se mantiene el colchon completo de 3000ms
@@ -54,18 +68,20 @@ const DAEMON_TIMEOUT_CACHED_MS = 6000;
 // p50=4145ms (35% de prompts). (2026-09-07) El one-shot de 800/6000 ms que
 // cargaba E5 se sustituye por `orchestrate --sparse` (SPARSE_MIN_CAP_MS,
 // mas abajo): ver alli el porque. SessionStart ademas precalienta el daemon.
-// OJO al presupuesto TOTAL contra el timeout del hook de 20s en settings.json
-// — cualquier overhead que lo venza hace que Claude Code DESCARTE todo el
-// prefetch en silencio (visto 2026-08-14 con 12s/12s). Peores casos
-// (2026-09-10, con la recuperacion del daemon muerto; ver HOOKS-07):
-//   daemon muerto:  0s (sin lockfile) + recuperacion 15,5s + sparse 3s = 18,5s
-//   normal:         DAEMON_TIMEOUT_MS 9s + recuperacion 15,5s + sparse 3s = 18,5s
+// OJO al presupuesto TOTAL contra el timeout del hook en settings.json — ver
+// `HOOK_BUDGET_MS` — cualquier overhead que lo venza hace que Claude Code
+// DESCARTE todo el prefetch en silencio (visto 2026-08-14 con 12s/12s). Peores
+// casos (2026-09-22, tras subir DAEMON_TIMEOUT_MS/FIRST_PROMPT_DAEMON_WAIT_MS
+// a 14s por el tope de rerank en Rust; ver esa nota. HOOK_BUDGET_MS subido en
+// consecuencia a 26s):
+//   daemon muerto:  0s (sin lockfile) + recuperacion 21,5s + sparse 3s = 24,5s
+//   normal:         DAEMON_TIMEOUT_MS 14s + recuperacion 21,5s + sparse 3s = 24,5s
 //   busy:           2,5s + BUSY_RETRY_BUDGET_MS 6s + sparse dinamico 6s = 14,5s
-//   daemon en boot: DAEMON_BOOT_WAIT_MS 12s + recuperacion 15,5s + sparse 3s = 18,5s
-//   primer prompt:  FIRST_PROMPT_DAEMON_WAIT_MS 12s + recuperacion 15,5s + sparse 3s = 18,5s
+//   daemon en boot: DAEMON_BOOT_WAIT_MS 12s + recuperacion 21,5s + sparse 3s = 24,5s
+//   primer prompt:  FIRST_PROMPT_DAEMON_WAIT_MS 14s + recuperacion 21,5s + sparse 3s = 24,5s
 // La recuperacion NO se suma a las esperas previas: su deadline es absoluta
 // desde t0 (DAEMON_RELAUNCH_DEADLINE_MS), asi que el techo del encadenado es
-// siempre 15,5s + sparse.
+// siempre 21,5s + sparse.
 const ORCH_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
 // HOOKS-05 (2026-08-15, decidido por el usuario): espera extendida en ARRANQUE
@@ -77,7 +93,9 @@ const ORCH_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 // hasta agotar BOOT_WAIT (presupuesto TOTAL desde t0). Un lock viejo que no
 // responde sigue degradando de inmediato (daemon colgado de verdad).
 // Presupuesto peor caso con espera: BOOT_WAIT (12s, incluye los 6s del primer
-// intento) + ONE_SHOT_CAP_UNCACHED_MS (6s) = 18s < 20s del timeout del hook.
+// intento) + ONE_SHOT_CAP_UNCACHED_MS (6s) = 18s < 26s del timeout del hook
+// (ONE_SHOT_CAP_UNCACHED_MS es historico — ese camino ya no spawnea one-shot,
+// ver HOOKS-07 mas abajo; el margen contra HOOK_BUDGET_MS sigue de sobra).
 const DAEMON_BOOT_WINDOW_MS = 90_000;
 const DAEMON_BOOT_WAIT_MS = 12_000;
 const DAEMON_BOOT_POLL_MS = 1_500;
@@ -91,7 +109,7 @@ const DAEMON_BOOT_POLL_MS = 1_500;
 // simultaneas del mismo modelo: 15s medidos (9000 daemon + 6000 one-shot),
 // 5/5 prompts degradados. Ante "busy" se reintenta contra el MISMO daemon
 // dentro de este presupuesto y NUNCA se spawnea competencia.
-// Peor caso: 2500 (busy del daemon) + 6000 (reintentos) = 8,5s < 20s del hook.
+// Peor caso: 2500 (busy del daemon) + 6000 (reintentos) = 8,5s < 26s del hook.
 const BUSY_RETRY_BUDGET_MS = 6000;
 const BUSY_RETRY_POLL_MS = 400;
 
@@ -142,7 +160,14 @@ const { decide: decideLane, markPrompt, readState: readLaneState } = require('./
 // Presupuesto TOTAL del hook: el `timeout` de UserPromptSubmit en
 // settings.json. Si el hook lo vence, Claude Code descarta TODA su salida en
 // silencio, asi que cada espera nueva se resta de aqui, nunca se suma encima.
-const HOOK_BUDGET_MS = 20_000;
+// (2026-09-22) Subido de 20000 a 26000 junto con DAEMON_TIMEOUT_MS/
+// FIRST_PROMPT_DAEMON_WAIT_MS (14s cada uno, ver esa nota): con el rerank
+// acotado en Rust el peor caso normal ronda 14s de espera al daemon; a 20s de
+// presupuesto total la recuperacion (HOOKS-07) casi no tenia margen. El
+// `timeout` de settings.json (y su plantilla) tiene que subir IGUAL —
+// mismo numero en los tres sitios, o el hook lo corta Claude Code por fuera
+// antes de que el propio hook decida degradar.
+const HOOK_BUDGET_MS = 26_000;
 // Colchon reservado para lo que viene DESPUES de la ultima espera: render,
 // token-meter, escritura del cache y del log, mas el arranque de node. El hook
 // tiene que terminar por debajo del presupuesto, no rozarlo.
@@ -156,10 +181,12 @@ const SAFETY_MARGIN_MS = 1_500;
 // esta recuperando.
 // (2026-09-10) 15 s -> 12 s: esta espera ya no es el ultimo recurso. Detras
 // viene la recuperacion del daemon (HOOKS-07) y solo despues el sparse, asi que
-// el encadenado tiene que caber igual en HOOK_BUDGET_MS: 12 s de espera, la
-// recuperacion hasta DAEMON_RELAUNCH_DEADLINE_MS (15,5 s desde t0) y sparse
-// 3 s = 18,5 s < 20 s.
-const FIRST_PROMPT_DAEMON_WAIT_MS = 12_000;
+// el encadenado tiene que caber igual en HOOK_BUDGET_MS.
+// (2026-09-22) 12 s -> 14 s, igualada a DAEMON_TIMEOUT_MS (ver esa nota: tope
+// de rerank en Rust, peor caso medido ~13 s bajo carga): 14 s de espera, la
+// recuperacion hasta DAEMON_RELAUNCH_DEADLINE_MS (21,5 s desde t0, ya con
+// HOOK_BUDGET_MS=26000) y sparse 3 s = 24,5 s < 26 s.
+const FIRST_PROMPT_DAEMON_WAIT_MS = 14_000;
 
 // Respaldo cuando el daemon no ha contestado: `orchestrate --sparse` (FTS5 +
 // reglas, sin E5, sin volver a esperar al daemon). Antes el one-shot esperaba

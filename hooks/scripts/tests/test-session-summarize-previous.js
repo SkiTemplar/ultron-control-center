@@ -231,6 +231,25 @@ run('NEGATIVO: hasCheapPendingCandidate NUNCA lee el contenido del transcript (s
   const leyoElTranscript = readPaths.some((p) => p.endsWith('candidata.jsonl'));
   assert.strictEqual(leyoElTranscript, false, `no debia leer el transcript; leyo: ${readPaths.join(', ')}`);
 });
+run('aviso falso: una sesion de 1 prompt deja de contar como pendiente tras la seleccion fina', () => {
+  const dir = makeTranscriptsDir({ trivial1: [userTurn('solo uno'), assistantTurn('ok')] });
+  const args = { transcriptsDir: dir, currentSessionId: 'actual', projectId: 'demo-trivial-1' };
+  assert.strictEqual(summarizer.hasCheapPendingCandidate(args), true, 'antes de evaluarla, la barata la cuenta');
+  assert.strictEqual(summarizer.selectPreviousSession(args), null);
+  assert.strictEqual(summarizer.hasCheapPendingCandidate(args), false, 'tras marcarla trivial, no debe prometer resumen');
+});
+run('NEGATIVO: la marca trivial caduca si el transcript vuelve a crecer (sesion retomada)', () => {
+  const dir = makeTranscriptsDir({ trivial2: [userTurn('uno'), assistantTurn('ok')] });
+  const args = { transcriptsDir: dir, currentSessionId: 'actual', projectId: 'demo-trivial-2' };
+  summarizer.selectPreviousSession(args);
+  const file = path.join(dir, 'trivial2.jsonl');
+  fs.appendFileSync(file, JSON.stringify(userTurn('dos')) + '\n' + JSON.stringify(assistantTurn('vale')) + '\n');
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(file, later, later);
+  assert.strictEqual(summarizer.hasCheapPendingCandidate(args), true);
+  const picked = summarizer.selectPreviousSession(args);
+  assert.ok(picked && picked.sessionId === 'trivial2', 'con 2 prompts reales vuelve a ser candidata');
+});
 run('CONTRASTE: selectPreviousSession (la seleccion FINA, en el proceso desacoplado) SI lee el transcript', () => {
   const dir = makeTranscriptsDir({ candidata: [userTurn('a'), assistantTurn('b'), userTurn('c'), assistantTurn('d')] });
   const realReadFileSync = fs.readFileSync;
