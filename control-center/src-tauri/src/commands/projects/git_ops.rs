@@ -205,8 +205,8 @@ pub fn git_changes(path: String) -> Result<Vec<GitFileChange>, String> {
         let rest = &line[3..];
         // Renames look like "old -> new"; show the destination path.
         let disp = match rest.split_once(" -> ") {
-            Some((_, new)) => new.to_string(),
-            None => rest.to_string(),
+            Some((_, new)) => sin_comillas_de_git(new),
+            None => sin_comillas_de_git(rest),
         };
         let untracked = x == "?";
         let staged = x != " " && x != "?";
@@ -219,6 +219,56 @@ pub fn git_changes(path: String) -> Result<Vec<GitFileChange>, String> {
         });
     }
     Ok(changes)
+}
+
+/// Deshace el entrecomillado estilo C con el que `git status --porcelain=v1`
+/// imprime las rutas con espacios, comillas o bytes >= 0x80 (con
+/// `core.quotePath` en su valor por defecto, «ñó.md» sale como
+/// `"\303\261\303\263.md"`). Hasta el 2026-09-22 esa cadena viajaba tal cual
+/// a la interfaz y de ahi a `git ls-files`/`checkout`/`diff`, que no la
+/// reconocian: el panel Cambios acusaba de «no está en git» a un fichero
+/// seguido y no descartaba nada. Se decodifica AQUI, en el origen, para que
+/// ningun consumidor (preparar, quitar, diff, descartar) tenga que saberlo.
+fn sin_comillas_de_git(ruta: &str) -> String {
+    let Some(interior) = ruta.strip_prefix('"').and_then(|s| s.strip_suffix('"')) else {
+        return ruta.to_string();
+    };
+    let bytes = interior.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b != b'\\' || i + 1 >= bytes.len() {
+            out.push(b);
+            i += 1;
+            continue;
+        }
+        let e = bytes[i + 1];
+        i += 2;
+        match e {
+            b'n' => out.push(b'\n'),
+            b't' => out.push(b'\t'),
+            b'r' => out.push(b'\r'),
+            b'a' => out.push(7),
+            b'b' => out.push(8),
+            b'f' => out.push(12),
+            b'v' => out.push(11),
+            b'0'..=b'7' => {
+                // Hasta tres digitos octales: un byte del UTF-8 original.
+                let mut v = u32::from(e - b'0');
+                let mut n = 1;
+                while n < 3 && i < bytes.len() && (b'0'..=b'7').contains(&bytes[i]) {
+                    v = v * 8 + u32::from(bytes[i] - b'0');
+                    i += 1;
+                    n += 1;
+                }
+                out.push(v as u8);
+            }
+            // `\\`, `\"` y cualquier otro escape: el caracter literal.
+            otro => out.push(otro),
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Unified diff for a single file. `staged=true` shows the index-vs-HEAD diff;
@@ -546,6 +596,62 @@ mod tests {
             .expect_err("un fichero nuevo preparado tampoco tiene version anterior");
         assert!(err.contains("es nuevo"), "mensaje raro: {err}");
         assert!(suelto.exists(), "no se puede haber borrado el fichero");
+    }
+
+    #[test]
+    fn el_entrecomillado_de_git_se_deshace_y_lo_normal_no_se_toca() {
+        assert_eq!(sin_comillas_de_git("normal.txt"), "normal.txt");
+        assert_eq!(
+            sin_comillas_de_git("\"con espacio.txt\""),
+            "con espacio.txt"
+        );
+        assert_eq!(sin_comillas_de_git(r#""\303\261\303\263.md""#), "ñó.md");
+        assert_eq!(sin_comillas_de_git(r#""a\"b\\c\t.txt""#), "a\"b\\c\t.txt");
+        // Caso negativo: una comilla suelta no es un entrecomillado.
+        assert_eq!(sin_comillas_de_git("\"a medias"), "\"a medias");
+    }
+
+    #[test]
+    fn descartar_funciona_con_las_rutas_que_git_entrecomilla() {
+        // Caso negativo: `git status --porcelain=v1` imprime la ruta entre
+        // comillas y en estilo C cuando lleva un espacio o un byte >= 0x80
+        // («con espacio.txt», «ñó.md» -> `"\303\261\303\263.md"`). El panel la
+        // pasaba tal cual, `ls-files --error-unmatch` no la reconocia y el
+        // comando acusaba de «no está en git» a un fichero seguido y ya
+        // commiteado, sin descartar nada (2026-09-22).
+        const RAROS: [&str; 2] = ["con espacio.txt", "ñó.md"];
+        let (dir, ruta) = repo_de_prueba();
+        for nombre in RAROS {
+            std::fs::write(dir.path().join(nombre), "original\n").expect("escribir");
+        }
+        run_git(&["add", "-A"], &ruta).expect("add");
+        run_git(&["commit", "-m", "raros", "--quiet"], &ruta).expect("commit");
+        for nombre in RAROS {
+            std::fs::write(dir.path().join(nombre), "destrozado\n").expect("escribir");
+        }
+
+        // La ruta se toma de donde la toma la interfaz, sin retocarla.
+        let cambios = git_changes(ruta.clone()).expect("status");
+        assert_eq!(cambios.len(), 2, "los dos salen como cambiados");
+        for c in &cambios {
+            assert!(!c.path.starts_with('"'), "sigue entrecomillada: {}", c.path);
+        }
+        for c in cambios {
+            git_discard_file(ruta.clone(), c.path.clone())
+                .unwrap_or_else(|e| panic!("descartar «{}»: {e}", c.path));
+        }
+
+        for nombre in RAROS {
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(nombre)).expect("leer"),
+                "original\n",
+                "«{nombre}» no volvio a como estaba"
+            );
+        }
+        assert!(
+            git_changes(ruta).expect("status").is_empty(),
+            "el arbol de trabajo tiene que quedar limpio"
+        );
     }
 
     #[test]

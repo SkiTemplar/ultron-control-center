@@ -501,6 +501,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   // Turnos de la conversacion activa.
   useEffect(() => {
     if (!threadId) return;
+    // Se vacian ANTES de pedir el hilo nuevo: la carga es asincrona y, con un
+    // salto a un turno pendiente (resultado de busqueda en OTRA conversacion),
+    // el render intermedio encontraba el <article> viejo del hilo anterior,
+    // centraba ese y daba el salto por hecho (2026-09-22).
+    setTurns([]);
+    turnoRefs.current = [];
     void invoke<Turn[]>("maria_relay_thread", { threadId })
       .then((t) => setTurns(Array.isArray(t) ? t : []))
       .catch((e) => avisar(String(e), "error"));

@@ -402,8 +402,10 @@ fn resumen_largo(texto: &str) -> String {
 
 /// Tope de resultados por defecto. Pasado este, se dice que hay mas.
 const TOPE_RESULTADOS: usize = 40;
-/// Lo maximo que se lee de UN hilo. Un jsonl mas grande se lee hasta aqui y su
-/// id sale en `recortados`: nunca se calla que la busqueda fue parcial.
+/// Lo maximo que se RECORRE de UN hilo — el fichero se lee entero en memoria
+/// (`read_to_string`), esto solo limita lo que se busca. Un jsonl mas grande se
+/// busca solo hasta aqui y su id sale en `recortados`: nunca se calla que la
+/// busqueda fue parcial.
 const MAX_POR_HILO: usize = 2 * 1024 * 1024;
 /// Coincidencias que aporta como mucho un mismo hilo, para que uno solo no
 /// llene la lista y tape a los demas.
@@ -445,13 +447,25 @@ pub struct Busqueda {
 #[must_use]
 pub fn fragmento_de(texto: &str, consulta: &str) -> Option<String> {
     let plano: String = texto.split_whitespace().collect::<Vec<_>>().join(" ");
-    let donde = plano.to_lowercase().find(&consulta.to_lowercase())?;
+    // El indice se cuenta sobre la MISMA cadena de la que sale. `to_lowercase`
+    // no conserva la longitud en bytes ('İ' son 2 bytes y su minuscula 3;
+    // 'K' U+212A son 3 y 'k' 1), asi que cortar `plano` con un indice de la
+    // version en minusculas descuadraba el fragmento y, si caia en mitad de un
+    // caracter, entraba en panic y dejaba la busqueda muda (2026-09-22).
+    let bajo = plano.to_lowercase();
+    let donde = bajo.find(&consulta.to_lowercase())?;
     // Los indices de `find` son de BYTES: se pasa a caracteres para no partir
     // una tilde por la mitad (y que el `…` caiga donde toca).
-    let antes_chars = plano[..donde].chars().count();
+    let antes_chars = bajo[..donde].chars().count();
     let inicio = antes_chars.saturating_sub(40);
     let fin = (antes_chars + consulta.chars().count() + 90).min(plano.chars().count());
-    let trozo: String = plano.chars().skip(inicio).take(fin - inicio).collect();
+    // `saturating_sub`: con una mayuscula que se expande al bajar a minuscula,
+    // `antes_chars` puede pasarse del final de `plano` y dejar inicio > fin.
+    let trozo: String = plano
+        .chars()
+        .skip(inicio)
+        .take(fin.saturating_sub(inicio))
+        .collect();
     Some(format!(
         "{}{trozo}{}",
         if inicio > 0 { "…" } else { "" },
@@ -494,6 +508,10 @@ pub fn buscar_en(
     };
     let mut resultados: Vec<Coincidencia> = Vec::new();
     let mut recortados: Vec<String> = Vec::new();
+    // Algun hilo aporto mas coincidencias de las que caben por conversacion.
+    // Va aparte de `recortados` (que es por tamaño del fichero) pero cuenta
+    // igual para `hay_mas`: tirar aciertos sin decirlo es mentir (2026-09-22).
+    let mut recorte_por_hilo = false;
     for entrada in rd.filter_map(Result::ok) {
         let ruta = entrada.path();
         if ruta.extension().and_then(|x| x.to_str()) != Some("jsonl") {
@@ -506,8 +524,18 @@ pub fn buscar_en(
             continue;
         };
         if texto.len() > MAX_POR_HILO {
-            // Hasta el ultimo salto de linea entero: media linea no parsea.
-            let corte = texto[..MAX_POR_HILO].rfind('\n').unwrap_or(0);
+            // Hasta el ultimo salto de linea entero: media linea no parsea. Se
+            // busca sobre los BYTES crudos porque `texto[..MAX_POR_HILO]`
+            // panicaba si el tope caia dentro de una 'ñ', una tilde o un emoji,
+            // y ese panic dejaba la busqueda muda para TODAS las consultas
+            // mientras el fichero existiera (2026-09-22). Un `\n` no puede
+            // aparecer dentro de una secuencia UTF-8 multibyte (las
+            // continuaciones son >= 0x80), asi que el corte siempre cae en una
+            // frontera de caracter valida.
+            let corte = texto.as_bytes()[..MAX_POR_HILO]
+                .iter()
+                .rposition(|b| *b == b'\n')
+                .unwrap_or(0);
             texto.truncate(corte);
             recortados.push(id.to_string());
         }
@@ -518,16 +546,23 @@ pub fn buscar_en(
             .unwrap_or(id)
             .to_string();
         let mut del_hilo = 0usize;
-        for (i, linea) in texto.lines().filter(|l| !l.trim().is_empty()).enumerate() {
-            if del_hilo >= MAX_POR_CONVERSACION {
-                break;
-            }
-            let Ok(turno) = serde_json::from_str::<crate::maria::relay::Turn>(linea) else {
-                continue;
-            };
+        // Se numera SOLO lo que parsea, en el mismo orden que `relay::read_thread`
+        // (la pantalla descarta las lineas rotas): `indice_turno` tiene que ser
+        // el indice del <article> al que se salta, no el de la linea del
+        // fichero (2026-09-22).
+        for (i, turno) in texto
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<crate::maria::relay::Turn>(l).ok())
+            .enumerate()
+        {
             let Some(fragmento) = fragmento_de(&turno.text, q) else {
                 continue;
             };
+            if del_hilo >= MAX_POR_CONVERSACION {
+                recorte_por_hilo = true;
+                break;
+            }
             del_hilo += 1;
             resultados.push(Coincidencia {
                 thread_id: id.to_string(),
@@ -540,7 +575,7 @@ pub fn buscar_en(
         }
     }
     resultados.sort_by(|a, b| b.fecha.cmp(&a.fecha));
-    let hay_mas = resultados.len() > tope;
+    let hay_mas = resultados.len() > tope || recorte_por_hilo;
     resultados.truncate(tope);
     recortados.sort();
     Busqueda {
@@ -808,6 +843,133 @@ mod tests {
         // Caso negativo: lo que no aparece no devuelve fragmento vacio, devuelve
         // None, que es lo que hace que ese turno no salga en la lista.
         assert!(fragmento_de(largo.as_str(), "supabase").is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Los cuatro agujeros de `buscar_en`/`fragmento_de` (2026-09-22): un corte
+    // por bytes que revienta, un indice que no es el que cuenta la pantalla, un
+    // recorte que no se dice y un fragmento indexado sobre OTRA cadena. Los dos
+    // primeros dejaban la busqueda muda del todo (el panic sube por
+    // spawn_blocking y la pantalla lo traga), asi que van con caso negativo.
+    // -----------------------------------------------------------------------
+
+    /// Una linea de hilo ya serializada, igual que la escribe `append_turn`.
+    fn linea(ts: &str, role: &str, text: &str) -> String {
+        format!(
+            "{}\n",
+            serde_json::json!({ "ts": ts, "role": role, "text": text })
+        )
+    }
+
+    #[test]
+    fn un_hilo_enorme_se_recorta_sin_reventar_por_una_ene() {
+        // Caso negativo: el corte era `texto[..MAX_POR_HILO]`, por BYTES sobre
+        // un String. Con el byte del tope en mitad de una 'ñ' entraba en panic
+        // («is not a char boundary») y la busqueda se quedaba muda para TODAS
+        // las consultas mientras ese fichero existiera.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut texto = linea("2026-03-01T10:00:00Z", "user", "el router de casa");
+        texto.push_str("{\"ts\":\"2026-03-01T10:00:01Z\",\"role\":\"user\",\"text\":\"");
+        texto.push_str(&"a".repeat(MAX_POR_HILO - 1 - texto.len()));
+        // La 'ñ' ocupa justo los bytes MAX_POR_HILO-1 y MAX_POR_HILO: el tope
+        // cae DENTRO del caracter, que es el unico caso que reventaba.
+        texto.push('ñ');
+        assert_eq!(
+            texto.len(),
+            MAX_POR_HILO + 1,
+            "la 'ñ' tiene que pisar el tope"
+        );
+        texto.push_str("y mas router\"}\n");
+        std::fs::write(dir.path().join("hilo-enorme.jsonl"), &texto).expect("escribir");
+
+        let b = buscar_en(dir.path(), &HashMap::new(), "router", 40);
+
+        assert_eq!(
+            b.recortados,
+            vec!["hilo-enorme".to_string()],
+            "se leyo a medias y hay que decirlo"
+        );
+        assert_eq!(b.resultados.len(), 1, "la primera linea entera si se busca");
+        assert_eq!(b.resultados[0].indice_turno, 0);
+    }
+
+    #[test]
+    fn una_linea_rota_no_descoloca_el_salto_al_turno() {
+        // Caso negativo: `buscar_en` numeraba con `enumerate()` sobre las
+        // lineas y la pantalla (`relay::read_thread`) DESCARTA las que no
+        // parsean, asi que el salto caia en el turno de al lado. Una linea a
+        // medias aparece si la app muere durante el `writeln!` de `append_turn`
+        // y luego se sigue anadiendo detras.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut c = linea("2026-04-01T10:00:00Z", "user", "hola");
+        c.push_str("{\"ts\":\"2026-04-01T10:00:01Z\",\"role\":\"user\",\"te\n");
+        c.push_str(&linea(
+            "2026-04-01T10:00:02Z",
+            "assistant",
+            "mira el router",
+        ));
+        std::fs::write(dir.path().join("hilo-roto.jsonl"), &c).expect("escribir");
+
+        let b = buscar_en(dir.path(), &HashMap::new(), "router", 40);
+        assert_eq!(b.resultados.len(), 1);
+
+        // Los turnos que llegan a la pantalla, leidos igual que read_thread.
+        let turnos: Vec<crate::maria::relay::Turn> = c
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        assert_eq!(turnos.len(), 2, "la linea rota no llega a la pantalla");
+        assert_eq!(
+            turnos
+                .get(b.resultados[0].indice_turno)
+                .map(|t| t.text.as_str()),
+            Some("mira el router"),
+            "el salto lleva a otro turno"
+        );
+    }
+
+    #[test]
+    fn el_recorte_por_conversacion_tambien_se_dice() {
+        // Caso negativo del tope por hilo: con el `break` a secas salian tres
+        // filas, `hay_mas` a false y `recortados` vacio, o sea que la pantalla
+        // daba a entender que eso era todo lo que habia.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let c: String = (0..5)
+            .map(|i| {
+                linea(
+                    &format!("2026-05-01T10:00:0{i}Z"),
+                    "user",
+                    "el router otra vez",
+                )
+            })
+            .collect();
+        std::fs::write(dir.path().join("hilo-repetido.jsonl"), c).expect("escribir");
+
+        let b = buscar_en(dir.path(), &HashMap::new(), "router", 40);
+
+        assert_eq!(
+            b.resultados.len(),
+            MAX_POR_CONVERSACION,
+            "un solo hilo no puede llenar la lista"
+        );
+        assert!(
+            b.hay_mas,
+            "quedan dos coincidencias fuera y hay que decirlo"
+        );
+    }
+
+    #[test]
+    fn el_fragmento_aguanta_las_mayusculas_que_cambian_de_tamano() {
+        // Caso negativo: `donde` sale de la cadena en MINUSCULAS y se usaba
+        // para cortar la original. 'K' (U+212A, 3 bytes) baja a 'k' (1), el
+        // indice se quedaba corto y caia dentro de la 'ñ' de al lado: panic, y
+        // con el, la busqueda entera muda igual que con el hilo enorme.
+        let f = fragmento_de("\u{212A} sñ router", "router").expect("coincide");
+        assert!(f.contains("router"), "fragmento: {f}");
+        // Y al reves: 'İ' (2 bytes) sube a 3 al pasar a minuscula.
+        let g = fragmento_de("İstanbul y el router", "router").expect("coincide");
+        assert!(g.contains("router"), "fragmento: {g}");
     }
 
     #[test]

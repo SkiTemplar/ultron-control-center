@@ -92,6 +92,12 @@ export function HudSelect({
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      // El listener de `window` (App.tsx) tiene Escape atado a «parar el
+      // turno»: sin cortar aquí la propagación, cerrar este desplegable
+      // mataba además la respuesta que se estaba escribiendo (2026-09-22).
+      // Solo con el desplegable ABIERTO — cerrado, Escape sigue siendo del
+      // chat aunque el foco esté en el botón.
+      e.stopPropagation();
       cerrar();
       return;
     }
