@@ -129,6 +129,30 @@ pub fn modelo_admisible(provider: &str, model: &str) -> Result<(), String> {
     veredicto_modelo(provider, model, estado, &motivo)
 }
 
+/// El JSON con el que /api/preguntar contesta al movil. Pura.
+///
+/// Los campos se enumeran a mano —no se serializa `RelayAnswer` entero— porque
+/// la PWA vive en un origen ajeno y no tiene por que ver el detalle del relevo.
+/// El precio de enumerar es olvidarse de algo, y paso: `aviso` llego el
+/// 2026-09-22 para contar que un turno se ha respondido SIN punto de control
+/// (arbol demasiado grande, git ausente, la foto que no salio) y MariaChat lo
+/// pinta, pero aqui se quedaba dentro del PC. Una pregunta desde el movil sobre
+/// una conversacion con proyecto y «Acceso total» podia dejar al agente
+/// escribiendo en la carpeta sin red y sin decirselo a nadie: solo quedaba un
+/// `tracing::warn` que el telefono no ve.
+fn respuesta_preguntar(r: &crate::maria::relay::RelayAnswer) -> serde_json::Value {
+    serde_json::json!({
+        "thread_id": r.thread_id,
+        "provider": r.provider,
+        "model": r.model,
+        "effort": r.effort,
+        "decided_by": r.decided_by,
+        "text": r.text,
+        "chosen_by_local": r.chosen_by_local,
+        "aviso": r.aviso,
+    })
+}
+
 /// Estado del servidor para la interfaz.
 #[derive(Debug, Clone, Serialize)]
 pub struct WebStatus {
@@ -468,19 +492,7 @@ fn atender(mut req: Request) {
                 },
             };
             match crate::maria::relay::ask(&hilo, &prompt, forzado.as_ref()) {
-                Ok(r) => responder_json(
-                    req,
-                    200,
-                    &serde_json::json!({
-                        "thread_id": r.thread_id,
-                        "provider": r.provider,
-                        "model": r.model,
-                        "effort": r.effort,
-                        "decided_by": r.decided_by,
-                        "text": r.text,
-                        "chosen_by_local": r.chosen_by_local,
-                    }),
-                ),
+                Ok(r) => responder_json(req, 200, &respuesta_preguntar(&r)),
                 Err(e) => error_json(req, 502, &e),
             }
         }
@@ -687,6 +699,51 @@ mod tests {
         // Y sin motivo, tampoco se inventa uno.
         let sin = veredicto_modelo("codex", "gpt-9", Permitido::No, "   ").expect_err("vetado");
         assert!(sin.contains("gpt-9") && sin.contains("codex"), "{sin}");
+    }
+
+    /// Una respuesta del relevo con lo minimo para construirla.
+    fn respuesta(aviso: Option<&str>) -> crate::maria::relay::RelayAnswer {
+        crate::maria::relay::RelayAnswer {
+            thread_id: "hilo-1".into(),
+            provider: "claude".into(),
+            model: "opus-5".into(),
+            effort: "medium".into(),
+            decided_by: "local".into(),
+            text: "hecho".into(),
+            skipped: Vec::new(),
+            chosen_by_local: None,
+            tokens_in: None,
+            tokens_out: None,
+            coste_usd: None,
+            ms: None,
+            aviso: aviso.map(str::to_string),
+            punto: None,
+        }
+    }
+
+    #[test]
+    fn el_movil_recibe_el_aviso_de_que_el_turno_fue_sin_red() {
+        // Caso negativo del 2026-09-22: el JSON de /api/preguntar enumeraba los
+        // campos a mano y se dejo fuera `aviso`, que es justo lo que cuenta que
+        // el turno se ha respondido SIN punto de control. Preguntar desde la
+        // PWA sobre una conversacion con proyecto y «Acceso total» dejaba al
+        // agente escribiendo en la carpeta sin red, y el telefono no se
+        // enteraba: el aviso se quedaba en un warn del PC.
+        let v = respuesta_preguntar(&respuesta(Some(
+            "Sin punto de control: el arbol es enorme.",
+        )));
+        assert_eq!(
+            v.get("aviso").and_then(|x| x.as_str()),
+            Some("Sin punto de control: el arbol es enorme."),
+            "{v}"
+        );
+        // Y lo que ya iba sigue yendo.
+        assert_eq!(v["thread_id"], "hilo-1");
+        assert_eq!(v["text"], "hecho");
+        // Sin nada que advertir, el campo va pero vacio: el cliente solo pinta
+        // cuando hay algo, y un `undefined` y un `null` se comportan igual.
+        let sin = respuesta_preguntar(&respuesta(None));
+        assert!(sin["aviso"].is_null(), "{sin}");
     }
 
     #[test]

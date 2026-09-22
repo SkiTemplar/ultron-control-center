@@ -109,6 +109,10 @@ async function preguntar(texto) {
     hiloActual = r.thread_id || hiloActual;
     esperando.remove();
     pintarTurno(r.provider || "mar.ia", r.text || "(sin respuesta)", "asistente");
+    // Lo que hay que contar aunque la respuesta haya salido bien (2026-09-22):
+    // hoy, que el turno se ha contestado SIN punto de control. Si no se pinta,
+    // el movil deja trabajando a un agente sin red y sin decirlo.
+    if (r.aviso) mostrarError(r.aviso);
     if ($("#leer-en-voz").checked) leerEnVoz(r.text || "");
   } catch (e) {
     esperando.remove();

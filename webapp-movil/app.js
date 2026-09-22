@@ -133,6 +133,10 @@ async function preguntar(texto) {
     esperando.remove();
     const quien = [r.provider, r.model].filter(Boolean).join(" · ") || "mar.ia";
     pintarTurno(quien, r.text || "(sin respuesta)", "asistente");
+    // Lo que hay que contar aunque la respuesta haya salido bien (2026-09-22):
+    // hoy, que el turno se ha contestado SIN punto de control. Si no se pinta,
+    // el móvil deja trabajando a un agente sin red y sin decirlo.
+    if (r.aviso) mostrarError(r.aviso);
     if ($("#leer-en-voz").checked) leerEnVoz(r.text || "");
   } catch (e) {
     esperando.remove();
