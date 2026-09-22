@@ -15,13 +15,25 @@
 // poder deshacer —el problema documentado de otras herramientas— obligaria al
 // usuario a trabajar para nosotros.
 //
-// LO QUE ESTE MODULO NO HACE TODAVIA (mandamiento 13, alcance explicito): no
-// esta cableado a nada. No hay comando Tauri, ni foto por turno, ni boton de
-// «volver a aqui». Es la mitad autonoma —foto, restauracion, listado y barrido
-// por antiguedad— con sus pruebas; el cableado al relevo, a los encargos y al
-// chat es un paso aparte, para que un fallo aqui no se coma trabajo del
-// usuario antes de estar probado.
-#![allow(dead_code)] // se consume en el paso de cableado; ver el parrafo de arriba
+// YA ESTA CABLEADO (2026-09-22). La mitad autonoma se escribio primero a
+// proposito —foto, restauracion, listado y barrido, con sus pruebas— para que
+// un fallo aqui no se comiera trabajo del usuario antes de estar probada. Hoy
+// la consume el producto:
+//
+//   * `relay::ask_inner` fotografia JUSTO ANTES de lanzar al proveedor y deja
+//     el sha en el turno del asistente (`Turn.punto`).
+//   * `encargos::lanzar` hace lo mismo antes de soltar a un agente en paralelo
+//     (`Encargo.punto`).
+//   * `maria_puntos_listar` y `maria_punto_volver` (al final de este fichero)
+//     son lo que pulsa la interfaz.
+//   * `lib.rs` llama a `barrer(30)` en un hilo al arrancar.
+//
+// LO QUE SIGUE SIN HACER (mandamiento 13, alcance explicito): solo se
+// fotografia si la conversacion tiene CARPETA DE PROYECTO. Sin proyecto los
+// agentes trabajan en la carpeta comun del hilo y no hay arbol del usuario que
+// proteger. Cuando la foto se pide y no sale (arbol enorme, git ausente), el
+// turno NO se descarta: se contesta igual y se dice —ver `del_turno`—, porque
+// una red de seguridad que no salta y encima calla es peor que no tenerla.
 
 use std::path::{Path, PathBuf};
 
@@ -252,6 +264,24 @@ pub fn lista_en(raiz: &Path, proyecto: &Path, hilo: &str) -> Result<Vec<Punto>, 
         .collect())
 }
 
+/// Comprueba que `sha` es un punto de ESTA conversacion.
+///
+/// Se mira el tipo del objeto y no solo que el nombre exista: un sha de otro
+/// repositorio, o el de un arbol o una etiqueta, no es algo a lo que se pueda
+/// volver. Decir «he vuelto a X» sin que X sea un punto seria mentir.
+pub fn existe_en(raiz: &Path, proyecto: &Path, hilo: &str, sha: &str) -> Result<(), String> {
+    let sombra = sombra_en(raiz, hilo)?;
+    if !sombra.join("HEAD").exists() {
+        return Err("esta conversacion no tiene puntos de control".into());
+    }
+    let tipo = git(&sombra, proyecto, &["cat-file", "-t", sha])
+        .map_err(|_| format!("no tengo ningun punto {sha}"))?;
+    if tipo != "commit" {
+        return Err(format!("{sha} no es un punto de control"));
+    }
+    Ok(())
+}
+
 /// Devuelve el arbol de trabajo al estado de `sha`.
 ///
 /// Antes de tocar nada se toma OTRA foto: volver tambien se puede deshacer, y
@@ -269,15 +299,7 @@ pub fn volver_en(
     sha: &str,
 ) -> Result<Restauracion, String> {
     let sombra = sombra_en(raiz, hilo)?;
-    if !sombra.join("HEAD").exists() {
-        return Err("esta conversacion no tiene puntos de control".into());
-    }
-    // Que el punto exista Y sea un commit de ESTE repositorio en la sombra.
-    let tipo = git(&sombra, proyecto, &["cat-file", "-t", sha])
-        .map_err(|_| format!("no tengo ningun punto {sha}"))?;
-    if tipo != "commit" {
-        return Err(format!("{sha} no es un punto de control"));
-    }
+    existe_en(raiz, proyecto, hilo, sha)?;
     let red = foto_en(raiz, proyecto, hilo, "antes de volver atras")?;
     let cambios = git(
         &sombra,
@@ -329,9 +351,10 @@ pub fn barrer_en(raiz: &Path, dias: u64) -> usize {
 // Las mismas, contra la carpeta de verdad
 // ---------------------------------------------------------------------------
 
-pub fn foto(proyecto: &Path, hilo: &str, etiqueta: &str) -> Result<Punto, String> {
-    foto_en(&raiz()?, proyecto, hilo, etiqueta)
-}
+// No hay `foto(proyecto, hilo, etiqueta)` a secas: quien fotografia en
+// produccion es `del_turno`, que decide tambien que hacer cuando no sale la
+// foto. Un atajo que solo devuelve `Result` invitaria a un `let _ =` y a
+// perder el aviso, que es justo lo que no puede pasar aqui (mandamiento 11).
 
 pub fn lista(proyecto: &Path, hilo: &str) -> Result<Vec<Punto>, String> {
     lista_en(&raiz()?, proyecto, hilo)
@@ -341,9 +364,198 @@ pub fn volver(proyecto: &Path, hilo: &str, sha: &str) -> Result<Restauracion, St
     volver_en(&raiz()?, proyecto, hilo, sha)
 }
 
+pub fn existe(proyecto: &Path, hilo: &str, sha: &str) -> Result<(), String> {
+    existe_en(&raiz()?, proyecto, hilo, sha)
+}
+
 /// Barrido por antiguedad, con el mismo plazo que usa Claude Code.
 pub fn barrer(dias: u64) -> usize {
     raiz().map(|r| barrer_en(&r, dias)).unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Lo que consumen el relevo y los encargos
+// ---------------------------------------------------------------------------
+
+/// Letras de prompt que caben en la etiqueta de un punto.
+const LETRAS_ETIQUETA: usize = 40;
+
+/// Etiqueta del punto de un turno: «turno 12: arregla el login…». Pura.
+///
+/// `n` es la POSICION del mensaje del usuario en el hilo (1 = el primero), no
+/// el numero de intercambios: es lo unico que se puede decir sin suponer que
+/// cada pregunta tuvo respuesta.
+#[must_use]
+pub fn etiqueta_turno(n: usize, prompt: &str) -> String {
+    let limpio = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let corto: String = limpio.chars().take(LETRAS_ETIQUETA).collect();
+    if corto.is_empty() {
+        return format!("turno {n}");
+    }
+    let puntos = if limpio.chars().count() > LETRAS_ETIQUETA {
+        "…"
+    } else {
+        ""
+    };
+    format!("turno {n}: {corto}{puntos}")
+}
+
+/// El punto que le toca a un turno o a un encargo: `(sha, aviso)`.
+///
+/// Los dos van por separado a proposito. Un `None` a secas obligaria a
+/// adivinar si es que la conversacion no tiene proyecto —normal, no hay nada
+/// que fotografiar— o es que la foto se cayo, que es justo lo que el usuario
+/// tiene que saber ANTES de dejar a un agente suelto (mandamiento 11). Sin
+/// proyecto no hay aviso; con proyecto y sin foto, siempre.
+///
+/// No devuelve `Result`: que falle la red de seguridad no puede impedir que se
+/// conteste al usuario. Se avisa y se sigue.
+#[must_use]
+pub fn del_turno_en(
+    raiz: &Path,
+    proyecto: Option<&Path>,
+    hilo: &str,
+    etiqueta: &str,
+) -> (Option<String>, Option<String>) {
+    let Some(p) = proyecto else {
+        return (None, None);
+    };
+    match foto_en(raiz, p, hilo, etiqueta) {
+        Ok(punto) => (Some(punto.sha), None),
+        Err(motivo) => {
+            tracing::warn!(
+                proyecto = %p.display(), hilo, error = %motivo,
+                "sin punto de control para este turno"
+            );
+            (
+                None,
+                Some(format!(
+                    "Sin punto de control: {motivo}. Lo que toquen los agentes en esta \
+                     carpeta no se podra deshacer desde el chat."
+                )),
+            )
+        }
+    }
+}
+
+/// Igual, contra la carpeta de verdad.
+#[must_use]
+pub fn del_turno(
+    proyecto: Option<&Path>,
+    hilo: &str,
+    etiqueta: &str,
+) -> (Option<String>, Option<String>) {
+    if proyecto.is_none() {
+        return (None, None);
+    }
+    match raiz() {
+        Ok(r) => del_turno_en(&r, proyecto, hilo, etiqueta),
+        Err(e) => {
+            tracing::warn!(error = %e, "sin carpeta donde guardar los puntos de control");
+            (None, Some(format!("Sin punto de control: {e}.")))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Comandos: lo que pulsa la interfaz
+// ---------------------------------------------------------------------------
+
+/// Lo que ha pasado al volver, tal y como lo lee la interfaz.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Restaurado {
+    /// Ficheros del arbol que han cambiado. 0 en modo «conversacion», que no
+    /// toca el codigo.
+    pub ficheros: usize,
+    /// Punto tomado justo ANTES de restaurar: con el se deshace la vuelta.
+    /// Vacio en modo «conversacion», que no fotografia nada.
+    pub antes: String,
+    /// Turnos que quedan en el hilo. 0 en modo «codigo».
+    pub turnos: usize,
+}
+
+/// Que toca cada modo de volver: `(codigo, conversacion)`. Pura.
+///
+/// Un modo que no se reconoce es un error, no un «pues no hagas nada»: un
+/// boton que no puede actuar tiene que decirlo (mandamiento 11).
+pub fn modo_volver(modo: &str) -> Result<(bool, bool), String> {
+    match modo.trim() {
+        "codigo" => Ok((true, false)),
+        "conversacion" => Ok((false, true)),
+        "todo" => Ok((true, true)),
+        otro => Err(format!(
+            "no se volver en modo «{otro}»: los modos son codigo, conversacion o todo"
+        )),
+    }
+}
+
+/// El trabajo de `maria_punto_volver`, sincrono y sin Tauri por medio.
+fn volver_por_modo(
+    thread_id: &str,
+    sha: &str,
+    modo: &str,
+    conservar: Option<usize>,
+) -> Result<Restaurado, String> {
+    let (codigo, conversacion) = modo_volver(modo)?;
+    let proyecto = crate::maria::threads::project_de(thread_id).ok_or_else(|| {
+        "esta conversacion no tiene carpeta de proyecto, asi que no hay arbol al que volver"
+            .to_string()
+    })?;
+    let mut r = Restaurado::default();
+    if codigo {
+        let vuelta = volver(&proyecto, thread_id, sha)?;
+        r.ficheros = vuelta.ficheros;
+        r.antes = vuelta.antes;
+    } else {
+        // Aqui el sha no se usa para restaurar nada, pero se comprueba igual:
+        // si el punto no existe, lo honesto es negarse, no truncar el hilo y
+        // dar por buena una vuelta a ninguna parte.
+        existe(&proyecto, thread_id, sha)?;
+    }
+    if conversacion {
+        let n = conservar.ok_or_else(|| {
+            "no se cuantos turnos hay que conservar para volver la conversacion".to_string()
+        })?;
+        r.turnos = crate::maria::relay::truncar(thread_id, n)?;
+    }
+    Ok(r)
+}
+
+/// Los puntos de una conversacion, del mas nuevo al mas viejo.
+///
+/// Sin proyecto no hay puntos y la lista sale vacia: es el estado normal de una
+/// conversacion que no trabaja sobre una carpeta, no un fallo.
+#[tauri::command]
+pub async fn maria_puntos_listar(thread_id: String) -> Vec<Punto> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(p) = crate::maria::threads::project_de(&thread_id) else {
+            return Vec::new();
+        };
+        match lista(&p, &thread_id) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(hilo = %thread_id, error = %e, "no pude listar los puntos de control");
+                Vec::new()
+            }
+        }
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Vuelve a un punto: el codigo, la conversacion o las dos cosas.
+#[tauri::command]
+pub async fn maria_punto_volver(
+    thread_id: String,
+    sha: String,
+    modo: String,
+    conservar: Option<usize>,
+) -> Result<Restaurado, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        volver_por_modo(&thread_id, &sha, &modo, conservar)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 #[cfg(test)]
@@ -494,6 +706,88 @@ mod tests {
         assert!(!sombra_en(r, "hilo-1").expect("sombra").exists());
         // Y barrer una carpeta vacia no es un error.
         assert_eq!(barrer_en(r, 0), 0);
+    }
+
+    #[test]
+    fn un_turno_con_proyecto_deja_punto_y_sin_proyecto_no_deja_ni_aviso() {
+        // Lo que se cablea en `relay::ask_inner`: con carpeta de proyecto hay
+        // sha; sin carpeta no hay nada que fotografiar y tampoco hay nada que
+        // avisar, porque no falta ninguna red de seguridad.
+        let (puntos, proyecto) = escenario();
+        let (r, p) = (puntos.path(), proyecto.path());
+
+        let (sha, aviso) = del_turno_en(r, Some(p), "hilo-1", "turno 1: hola");
+        assert!(sha.is_some(), "con proyecto tiene que haber punto");
+        assert!(aviso.is_none(), "y nada que avisar: {aviso:?}");
+        assert_eq!(
+            lista_en(r, p, "hilo-1").expect("lista")[0].etiqueta,
+            "turno 1: hola"
+        );
+
+        assert_eq!(del_turno_en(r, None, "hilo-2", "turno 1"), (None, None));
+    }
+
+    #[test]
+    fn cuando_la_foto_no_sale_se_avisa_en_vez_de_callarse() {
+        // Caso negativo: el turno se contesta igual (no devuelve Result), pero
+        // el aviso lleva el motivo. Un `None` mudo haria creer al usuario que
+        // tiene red de seguridad cuando no la tiene.
+        let puntos = tempfile::tempdir().expect("tempdir");
+        let inexistente = puntos.path().join("no-esta");
+        let (sha, aviso) = del_turno_en(puntos.path(), Some(&inexistente), "hilo-1", "turno 1");
+        assert!(sha.is_none());
+        let aviso = aviso.expect("tenia que avisar");
+        assert!(aviso.contains("Sin punto de control"), "{aviso}");
+        assert!(aviso.contains("no existe"), "sin el motivo: {aviso}");
+    }
+
+    #[test]
+    fn la_etiqueta_del_turno_cabe_en_una_linea() {
+        assert_eq!(
+            etiqueta_turno(3, "arregla el login"),
+            "turno 3: arregla el login"
+        );
+        // Los saltos de linea se aplanan: la etiqueta es el asunto de un commit.
+        assert_eq!(
+            etiqueta_turno(1, " hola\n  que tal "),
+            "turno 1: hola que tal"
+        );
+        let largo = etiqueta_turno(7, &"a".repeat(80));
+        assert_eq!(largo.chars().count(), "turno 7: ".chars().count() + 41);
+        assert!(largo.ends_with('…'), "{largo}");
+        // Un prompt en blanco no deja una etiqueta acabada en dos puntos.
+        assert_eq!(etiqueta_turno(2, "   "), "turno 2");
+    }
+
+    #[test]
+    fn los_modos_de_volver_son_tres_y_lo_demas_es_un_error() {
+        assert_eq!(modo_volver("codigo"), Ok((true, false)));
+        assert_eq!(modo_volver("conversacion"), Ok((false, true)));
+        assert_eq!(modo_volver(" todo "), Ok((true, true)));
+        // Caso negativo: un modo inventado no puede pasar por «no hago nada».
+        let e = modo_volver("conversación").expect_err("con tilde no es un modo");
+        assert!(e.contains("codigo"), "el error dice cuales hay: {e}");
+        assert!(modo_volver("").is_err());
+    }
+
+    #[test]
+    fn un_punto_inventado_no_pasa_la_comprobacion_ni_toca_el_arbol() {
+        // La comprobacion que usan tanto `volver_en` como el modo
+        // «conversacion»: sin ella se podria truncar un hilo diciendo que se ha
+        // vuelto a un punto que no existe.
+        let (puntos, proyecto) = escenario();
+        let (r, p) = (puntos.path(), proyecto.path());
+        assert!(existe_en(r, p, "hilo-1", "deadbeef").is_err());
+
+        let punto = foto_en(r, p, "hilo-1", "turno 1").expect("foto");
+        assert!(existe_en(r, p, "hilo-1", &punto.sha).is_ok());
+        std::fs::write(p.join("uno.txt"), "tocado\n").expect("escribir");
+        assert!(existe_en(r, p, "hilo-1", "0".repeat(40).as_str()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(p.join("uno.txt")).expect("leer"),
+            "tocado\n",
+            "una comprobacion que falla no puede tocar el arbol"
+        );
     }
 
     #[test]

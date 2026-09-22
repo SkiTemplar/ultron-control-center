@@ -56,6 +56,14 @@ pub struct Encargo {
     pub fin: String,
     /// Resultado o motivo del fallo, recortado: el completo esta en el hilo.
     pub resumen: String,
+    /// Punto de control tomado ANTES de soltar al agente (2026-09-22), para
+    /// poder deshacer lo que haga. `None` si la conversacion no tiene proyecto
+    /// —entonces trabaja en la carpeta comun del hilo y no hay arbol del
+    /// usuario que proteger— o si la foto no salio, y entonces el motivo queda
+    /// en el log (ver `puntos::del_turno`). `#[serde(default)]` para que los
+    /// `encargos.json` escritos antes de hoy se sigan leyendo.
+    #[serde(default)]
+    pub punto: Option<String>,
 }
 
 static ENCARGOS: Mutex<Vec<Encargo>> = Mutex::new(Vec::new());
@@ -265,8 +273,21 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
     let trabajo = relay::carpeta_de_trabajo(thread_id)?;
     let turnos = relay::read_thread(thread_id)?;
 
+    // El id se saca antes que el encargo porque la etiqueta del punto lo
+    // lleva: en el listado de puntos hay que poder distinguir «encargo ab12cd34»
+    // de los turnos del chat, que corren sobre la misma carpeta.
+    let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    // La foto, ANTES de lanzar (2026-09-22). Un encargo corre en paralelo y sin
+    // que nadie lo mire: es todavia mas importante que en el chat poder volver
+    // al estado de antes. Si no hay proyecto no hay nada que fotografiar.
+    let (punto, _) = crate::maria::puntos::del_turno(
+        crate::maria::threads::project_de(thread_id).as_deref(),
+        thread_id,
+        &format!("encargo {id}"),
+    );
+
     let encargo = Encargo {
-        id: uuid::Uuid::new_v4().simple().to_string()[..8].to_string(),
+        id,
         thread_id: thread_id.to_string(),
         provider: provider.to_string(),
         texto: texto.to_string(),
@@ -274,6 +295,7 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
         creado: chrono::Utc::now().to_rfc3339(),
         fin: String::new(),
         resumen: String::new(),
+        punto,
     };
     con(|v| v.push(encargo.clone()));
     persistir(thread_id);
@@ -362,6 +384,11 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
                 tokens_out: consumo.tokens_out,
                 coste_usd: consumo.coste_usd,
                 ms: Some(reloj.elapsed().as_millis() as u64),
+                // El punto del encargo es el de ANTES de lanzarlo y vive en el
+                // `Encargo`; este turno solo trae el resultado, asi que repetir
+                // el sha aqui haria creer que se puede volver al estado previo
+                // a escribir la respuesta, que no es el mismo.
+                punto: None,
             },
         );
         let hecho = con(|v| {
@@ -441,6 +468,7 @@ mod tests {
             creado: String::new(),
             fin: String::new(),
             resumen: String::new(),
+            punto: None,
         }
     }
 

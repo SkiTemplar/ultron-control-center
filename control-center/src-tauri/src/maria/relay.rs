@@ -104,6 +104,14 @@ pub struct Turn {
     /// Tiempo de pared del turno. Lo mide mar.ia, asi que lo hay siempre.
     #[serde(default)]
     pub ms: Option<u64>,
+    /// Punto de control tomado ANTES de que corriera el proveedor (2026-09-22).
+    /// Solo en el turno del ASISTENTE: es el estado al que devuelve «volver
+    /// aqui». `None` cuando la conversacion no tiene proyecto, cuando el arbol
+    /// era demasiado grande o cuando la foto fallo — en los dos ultimos casos
+    /// la respuesta trae ademas el `aviso` de `RelayAnswer`. `#[serde(default)]`
+    /// como el resto: los hilos escritos antes de hoy se siguen leyendo.
+    #[serde(default)]
+    pub punto: Option<String>,
 }
 
 /// Resultado de una vuelta de relevo.
@@ -135,6 +143,12 @@ pub struct RelayAnswer {
     pub tokens_out: Option<u64>,
     pub coste_usd: Option<f64>,
     pub ms: Option<u64>,
+    /// Lo que hay que contarle al usuario de este turno aunque haya contestado
+    /// bien (2026-09-22). Hoy solo lo usa el punto de control: si no se ha
+    /// podido fotografiar el proyecto, el turno sale igual pero SIN red de
+    /// seguridad, y eso se dice. No es un `SkipReason`: no se ha descartado a
+    /// nadie. `None` = no hay nada que advertir.
+    pub aviso: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1611,6 +1625,21 @@ fn ask_inner(
             origen = decided_by, "destino del turno"
         );
     }
+
+    // La red de seguridad, ANTES de que corra nadie (2026-09-22). Con «Acceso
+    // total» las tres CLI escriben en la carpeta del proyecto sin preguntar, y
+    // hasta hoy lo unico que podia deshacerlo era el git del usuario a mano.
+    // La foto se toma aqui, con el arbol todavia como lo dejo el, y una sola
+    // vez para todo el turno: si el relevo salta de proveedor, el punto al que
+    // se vuelve sigue siendo el de antes de empezar, que es el que el usuario
+    // reconoce. `puntos::del_turno` no devuelve `Result` a proposito: que falle
+    // la red no puede impedir que se conteste; se avisa y se sigue.
+    let (punto, aviso) = crate::maria::puntos::del_turno(
+        proyecto.as_deref(),
+        thread_id,
+        &crate::maria::puntos::etiqueta_turno(turnos_antes + 1, prompt),
+    );
+
     for provider in &orden {
         if cfg.disabled.iter().any(|d| d == provider) {
             mutar_estado(|s| record_attempt(s, provider, "desactivado", "apagado en relay.json"));
@@ -1797,6 +1826,7 @@ fn ask_inner(
                         tokens_out: respuesta.consumo.tokens_out,
                         coste_usd: respuesta.consumo.coste_usd,
                         ms: Some(ms),
+                        punto: punto.clone(),
                     },
                 )?;
                 return Ok(RelayAnswer {
@@ -1812,6 +1842,7 @@ fn ask_inner(
                     tokens_out: respuesta.consumo.tokens_out,
                     coste_usd: respuesta.consumo.coste_usd,
                     ms: Some(ms),
+                    aviso: aviso.clone(),
                 });
             }
             Err((detail, cuota)) => {
@@ -2145,6 +2176,33 @@ mod tests {
         assert!(msg.contains("sin cuota"), "sin el paso: {msg}");
         // Caso negativo: sin descartes tampoco se devuelve una lista vacia.
         assert!(sin_respuesta(&[]).contains("relevo"));
+    }
+
+    #[test]
+    fn el_punto_de_control_viaja_en_el_turno_y_los_hilos_viejos_se_siguen_leyendo() {
+        // El contrato con la interfaz: el turno del ASISTENTE lleva el sha del
+        // punto tomado antes de que corriera el proveedor, y un hilo escrito
+        // antes de que este campo existiera se lee igual, con `punto` a None.
+        // Sin `#[serde(default)]` la conversacion entera dejaria de cargar.
+        let viejo: Turn = serde_json::from_str(
+            r#"{"ts":"2026-09-21T10:00:00Z","role":"assistant","text":"hola"}"#,
+        )
+        .expect("un hilo de ayer tiene que seguir leyendose");
+        assert_eq!(viejo.punto, None);
+
+        let nuevo = Turn {
+            ts: "2026-09-22T10:00:00Z".into(),
+            role: "assistant".into(),
+            text: "hecho".into(),
+            punto: Some("0123456789abcdef0123456789abcdef01234567".into()),
+            ..Turn::default()
+        };
+        let json = serde_json::to_string(&nuevo).expect("serializar");
+        let leido: Turn = serde_json::from_str(&json).expect("releer");
+        assert_eq!(leido.punto, nuevo.punto);
+        // Y el turno del USUARIO no lo lleva: el punto es de antes de que
+        // corriera el proveedor, no de antes de escribir el mensaje.
+        assert_eq!(turno("user", "", "que tal").punto, None);
     }
 
     fn turno(role: &str, provider: &str, text: &str) -> Turn {

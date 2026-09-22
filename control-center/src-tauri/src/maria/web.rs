@@ -94,6 +94,41 @@ pub fn origen_permitido(origen: &str, permitidos: &[String]) -> Option<String> {
         .map(|_| o.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// El modelo que pide el movil, antes de gastar
+// ---------------------------------------------------------------------------
+
+/// El veredicto sobre un modelo, sin tocar el disco. Pura: se prueba sin
+/// catalogo y sin servidor.
+///
+/// Solo se rechaza el veto EXPLICITO (`Permitido::No`). `Desconocido` pasa a
+/// proposito: significa que ese id no esta en el catalogo que mar.ia conoce
+/// —que se rellena con lo que publica la suscripcion—, y negarse ahi seria
+/// impedirle al usuario estrenar un modelo nuevo desde el movil. Del vetado si
+/// se sabe que no va a contestar: intentarlo es gastar una peticion y esperar
+/// para que la CLI diga lo mismo.
+pub fn veredicto_modelo(
+    provider: &str,
+    model: &str,
+    estado: crate::maria::models::Permitido,
+    motivo: &str,
+) -> Result<(), String> {
+    if estado != crate::maria::models::Permitido::No {
+        return Ok(());
+    }
+    let motivo = motivo.trim();
+    if motivo.is_empty() {
+        return Err(format!("{provider} no admite «{model}» con tu cuenta"));
+    }
+    Err(format!("{provider} no admite «{model}»: {motivo}"))
+}
+
+/// Lo mismo, preguntandole al catalogo vivo.
+pub fn modelo_admisible(provider: &str, model: &str) -> Result<(), String> {
+    let (estado, motivo) = crate::maria::models::estado_modelo(provider, model);
+    veredicto_modelo(provider, model, estado, &motivo)
+}
+
 /// Estado del servidor para la interfaz.
 #[derive(Debug, Clone, Serialize)]
 pub struct WebStatus {
@@ -388,22 +423,39 @@ fn atender(mut req: Request) {
                 .get("thread_id")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            // El modelo tal y como VIENE en la peticion, antes de rellenarlo
+            // con el por defecto: solo se valida lo que el movil ha pedido de
+            // verdad. Si se validara el por defecto, un id de casa vetado
+            // dejaria al movil sin poder preguntar siquiera.
+            let pedido = cuerpo
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .map(str::to_string);
             let forzado = cuerpo
                 .get("provider")
                 .and_then(|v| v.as_str())
                 .filter(|p| !p.trim().is_empty())
                 .map(|p| crate::maria::models::Eleccion {
-                    model: cuerpo
-                        .get("model")
-                        .and_then(|v| v.as_str())
-                        .filter(|m| !m.trim().is_empty())
-                        .map(str::to_string)
+                    model: pedido
+                        .clone()
                         .unwrap_or_else(|| crate::maria::models::modelo_por_defecto(p)),
                     effort: crate::maria::models::normaliza_esfuerzo(
                         cuerpo.get("effort").and_then(|v| v.as_str()).unwrap_or(""),
                     ),
                     provider: p.to_string(),
                 });
+            // El modelo, a la puerta (2026-09-22). Hasta hoy el movil podia
+            // pedir un id vetado y se enteraba medio minuto despues, con la
+            // peticion ya gastada y un 502 que no decia por que. Un 400 antes
+            // de abrir siquiera la conversacion cuesta cero y explica el motivo.
+            if let (Some(f), Some(m)) = (&forzado, &pedido) {
+                if let Err(motivo) = modelo_admisible(&f.provider, m) {
+                    error_json(req, 400, &motivo);
+                    return;
+                }
+            }
             // Sin hilo, se abre uno: el movil no deberia tener que crear nada.
             let hilo = match hilo.filter(|h| !h.trim().is_empty()) {
                 Some(h) => h,
@@ -619,6 +671,34 @@ mod tests {
     #[test]
     fn el_token_se_compara_entero() {
         assert!(token_valido("abc123", "abc123"));
+    }
+
+    #[test]
+    fn un_modelo_vetado_se_para_en_la_puerta_y_dice_por_que() {
+        use crate::maria::models::Permitido;
+        // Caso negativo del 400: el veto es lo unico que corta. El mensaje
+        // lleva el motivo, que es lo que el movil enseña; un "no" pelado
+        // obligaria a mirar los logs del PC desde el telefono.
+        let e = veredicto_modelo("claude", "opus-9", Permitido::No, "tu plan no lo incluye")
+            .expect_err("un modelo vetado no puede pasar");
+        assert!(e.contains("opus-9"), "{e}");
+        assert!(e.contains("tu plan no lo incluye"), "{e}");
+        assert!(e.contains("claude"), "{e}");
+        // Y sin motivo, tampoco se inventa uno.
+        let sin = veredicto_modelo("codex", "gpt-9", Permitido::No, "   ").expect_err("vetado");
+        assert!(sin.contains("gpt-9") && sin.contains("codex"), "{sin}");
+    }
+
+    #[test]
+    fn lo_desconocido_no_se_prohibe() {
+        use crate::maria::models::Permitido;
+        // `Desconocido` = ese id no esta en el catalogo que mar.ia conoce, no
+        // que la cuenta lo rechace. Cortarlo aqui impediria estrenar un modelo
+        // recien salido desde el movil, que es donde menos se puede arreglar.
+        assert!(
+            veredicto_modelo("claude", "opus-6", Permitido::Desconocido, "no lo conozco").is_ok()
+        );
+        assert!(veredicto_modelo("claude", "opus-5", Permitido::Si, "tu cuenta lo admite").is_ok());
     }
 
     #[test]

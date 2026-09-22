@@ -393,6 +393,22 @@ pub fn run() {
                 }
             });
 
+            // Puntos de control viejos (2026-09-22). Cada conversacion con
+            // proyecto deja su repositorio en la sombra y nadie los quita: sin
+            // este barrido la carpeta crece sin freno. 30 dias es el mismo
+            // plazo que usa Claude Code para sus checkpoints. En su propio
+            // hilo, como el de arriba: recorre carpetas y borra, y eso no puede
+            // retrasar la aparicion de la ventana.
+            std::thread::spawn(|| {
+                let viejos = crate::maria::puntos::barrer(30);
+                if viejos > 0 {
+                    tracing::info!(
+                        conversaciones = viejos,
+                        "puntos de control de mas de 30 dias borrados"
+                    );
+                }
+            });
+
             // Autocompletado global `//maria`. Apagado por defecto: un hook de
             // teclado no se enciende por sorpresa (ver `maria_teclado`).
             crate::maria::teclado::arrancar_si_procede();

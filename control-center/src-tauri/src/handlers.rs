@@ -211,6 +211,11 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         maria::paneles::maria_carpeta_de,
         maria::paneles::maria_web_ventana,
         maria::relay::maria_relay_truncar,
+        // Puntos de control (2026-09-22): deshacer lo que hizo un agente sin
+        // tocar el git del usuario. La foto se toma sola en cada turno con
+        // proyecto (`relay::ask_inner`); esto es lo que pulsa la interfaz.
+        maria::puntos::maria_puntos_listar,
+        maria::puntos::maria_punto_volver,
         maria::relay::maria_relay_ramas,
         maria::relay::maria_relay_rama_restaurar,
         maria::relay::maria_relay_exportar,
@@ -390,6 +395,9 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::hotkeys::set_global_hotkey,
         // -- commands defined directly in their domain modules --
         in_app_shortcuts::get_in_app_shortcuts,
+        // Editor de atajos (2026-09-22): hasta hoy solo se leian, y cambiarlos
+        // era editar el JSON a mano. Valida antes de escribir.
+        in_app_shortcuts::set_in_app_shortcuts,
         features::read_features,
         // -- AI Router (zone -> provider routing, providers catalog, --
         // -- health checks, metrics, end-to-end zone test) --
