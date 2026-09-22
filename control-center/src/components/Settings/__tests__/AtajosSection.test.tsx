@@ -12,13 +12,38 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { AtajosSection, comboDeTecla, filasDelError } from "../AtajosSection";
 
+/**
+ * Las acciones que el backend conoce: `in_app_shortcuts::default_bindings`.
+ *
+ * Hace falta aquí porque el doble de `set_in_app_shortcuts` tiene que
+ * RECHAZAR lo mismo que rechaza Rust (`validar`, in_app_shortcuts.rs:233: «no
+ * conozco la accion …»). El doble anterior devolvía `{ ...ATAJOS, ...bindings }`
+ * sin mirar las claves, así que certificaba en verde un guardado que en
+ * producción siempre daba error (2026-09-22).
+ *
+ * `tab.futura` está a propósito: una acción que Rust ya tiene y esta pantalla
+ * todavía no sabe nombrar. Es el caso que justifica enseñar el id crudo, y NO
+ * es lo mismo que un id que el backend no conoce.
+ */
+const CATALOGO = ["command.palette", "chat.nueva", "chat.parar", "tab.futura"];
+
 /** Lo que sirve Rust: por defecto + fichero, ya fundidos. */
 const ATAJOS: Record<string, string> = {
   "command.palette": "Ctrl+K",
   "chat.nueva": "Alt+N",
   "chat.parar": "Escape",
-  "accion.que.no.conozco": "Alt+Q",
+  "tab.futura": "Alt+Q",
 };
+
+/** `set_in_app_shortcuts` con el contrato del de verdad. */
+function guardarComoRust(bindings: Record<string, string>): Record<string, string> {
+  for (const id of Object.keys(bindings)) {
+    if (!CATALOGO.includes(id)) {
+      throw new Error(`no conozco la accion «${id}»: quitala del fichero`);
+    }
+  }
+  return { ...ATAJOS, ...bindings };
+}
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
@@ -90,14 +115,14 @@ describe("la pestaña Atajos", () => {
     // La etiqueta de las chat.* sale de la lista única de acciones del chat.
     expect(screen.getByText("Chat · conversación nueva")).toBeTruthy();
     // Un id que Rust tenga y React no: se enseña, no se esconde.
-    expect(fila("accion.que.no.conozco").textContent).toContain("Alt+Q");
+    expect(fila("tab.futura").textContent).toContain("Alt+Q");
   });
 
   it("captura una combinación, la guarda y avisa a la ventana", async () => {
     vi.mocked(invoke).mockImplementation(async (cmd, args) => {
       if (cmd === "get_in_app_shortcuts") return ATAJOS;
       if (cmd === "set_in_app_shortcuts") {
-        return { ...ATAJOS, ...(args as { bindings: Record<string, string> }).bindings };
+        return guardarComoRust((args as { bindings: Record<string, string> }).bindings);
       }
       return null;
     });
@@ -130,9 +155,13 @@ describe("la pestaña Atajos", () => {
   });
 
   it("«por defecto» manda la cadena vacía", async () => {
-    vi.mocked(invoke).mockImplementation(async (cmd) => {
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
       if (cmd === "get_in_app_shortcuts") return ATAJOS;
-      if (cmd === "set_in_app_shortcuts") return ATAJOS;
+      if (cmd === "set_in_app_shortcuts") {
+        // La cadena vacía es un valor válido para una acción conocida: es
+        // «devuélvela a la de fábrica», no un id inventado.
+        return guardarComoRust((args as { bindings: Record<string, string> }).bindings);
+      }
       return null;
     });
     render(<AtajosSection />);
@@ -179,6 +208,38 @@ describe("la pestaña Atajos", () => {
     // Lo tocado NO se pierde al fallar: el usuario puede corregirlo sin
     // volver a capturarlo.
     expect(fila("chat.nueva").textContent).toContain("Ctrl+K");
+  });
+
+  it("un id que el backend no conoce deja el guardado bloqueado, y se ve dónde", async () => {
+    // Caso negativo y el que el doble tapaba: `guardar()` manda el mapa ENTERO
+    // (lo efectivo + lo tocado), así que basta UNA clave retirada en el fichero
+    // —`tab.logs` salió de `default_bindings` en 5279b94— para que `validar`
+    // corte en ella y NINGÚN cambio se pueda guardar. Hasta que el backend deje
+    // de servir esas claves, esta pantalla al menos tiene que decir cuál es y
+    // en qué fila, no fallar con un error genérico.
+    const conRetirada = { ...ATAJOS, "tab.logs": "Alt+9" };
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+      if (cmd === "get_in_app_shortcuts") return conRetirada;
+      if (cmd === "set_in_app_shortcuts") {
+        return guardarComoRust((args as { bindings: Record<string, string> }).bindings);
+      }
+      return null;
+    });
+    render(<AtajosSection />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /capturar la combinación de Chat · conversación nueva/i,
+      }),
+    );
+    fireEvent.keyDown(document, { key: "j", altKey: true, ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "guardar" }));
+
+    const alerta = await screen.findByRole("alert");
+    expect(alerta.textContent).toContain("no conozco la accion «tab.logs»");
+    // Y colgado de la fila que lo provoca, no de la que el usuario tocó.
+    expect(alerta.closest("tr")?.textContent).toContain("tab.logs");
+    // Nada de «guardado» cuando el backend ha dicho que no.
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("sin cambios el botón de guardar no puede actuar, y lo dice", async () => {

@@ -42,7 +42,10 @@ const ETIQUETAS: Record<string, string> = {
   "tab.plans": "Ir a Planes",
   "tab.memory": "Ir a Memoria",
   "tab.skills": "Ir a Skills",
-  "tab.logs": "Ir a Registros",
+  // `tab.logs` se retiro de `default_bindings` en 5279b94 y no ha vuelto:
+  // dejarlo aqui solo servia para ponerle nombre bonito a una fila que el
+  // backend ya no sirve, o —si alguien lo tenia en su fichero— a una accion
+  // que ningun atajo puede ejecutar (2026-09-22).
   "tab.settings": "Ir a Ajustes",
 };
 
