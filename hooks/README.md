@@ -88,6 +88,56 @@ Con la exec, `command` es solo `"node"`: sin leer `args[0]` los 20 hooks
 colapsaban al mismo id y el manifiesto perdia script, checksum y metadatos de
 todos a la vez. Lo fija `hooks/regen-manifest.selftest.mjs`.
 
+## Forma exec: por que la plantilla ya no pasa por un shell (2026-09-22)
+
+Desde `_schema_version: 4`, **todas** las entradas de
+`templates/settings-hooks.json` (y las del plugin de Cowork) van en forma exec:
+
+```jsonc
+{ "type": "command", "command": "node", "args": ["{USERPROFILE}/.ultron/hooks/scripts/x.js"], "timeout": 5 }
+```
+
+El esquema del binario (`BashCommandHookSchema`, Claude Code 2.1.278) lo dice
+asi: *«Argument list for exec form. When present, `command` is resolved as an
+executable and spawned directly with these arguments — no shell. (…) When
+absent, `command` runs through a shell (bash on POSIX, PowerShell on Windows
+without Git Bash)»*. Dos motivos para el cambio:
+
+1. **Coste.** Medido en esta maquina con un script vacio, 10 ejecuciones por
+   forma, media: `node x.js` **34,4 ms**, `bash -c "node x.js"` **50,0 ms**
+   (+15,6 ms, 31 %), `powershell -Command "node x.js"` **227,3 ms**
+   (+192,9 ms, 85 %). En Windows **sin Git Bash** el interprete por defecto es
+   PowerShell, asi que ahi cada hook pagaba ~0,2 s de shell para no hacer nada.
+   Con 6 hooks sincronos en `UserPromptSubmit`, eso era mas de un segundo por
+   prompt tirado en arrancar interpretes.
+2. **Seguridad.** Sin shell no hay parser de shell: una ruta con espacios,
+   comillas, `$` o backticks llega al proceso tal cual. Los marcadores
+   (`${CLAUDE_PLUGIN_ROOT}`) se sustituyen **por elemento**, como texto plano.
+
+`node` y `uv` se resuelven por PATH igual que los resolveria un shell, asi que
+en Windows no hace falta ruta absoluta al interprete.
+
+**Lo que NO se usa: el campo `if`.** Se busco en el binario 2.1.278 y
+`BashCommandHookSchema` solo declara `command`, `args`, `shell`, `timeout`,
+`statusMessage`, `once`, `async`, `asyncRewake` y campos `@internal` de
+asyncRewake y de sesiones cloud. No hay campo condicional, asi que estrechar
+`guardrails-pre` a `Bash(git push *)` habria sido configuracion muerta — y un
+hook que no dispara es exactamente el no-op silencioso que prohibe el
+mandamiento 11.
+
+**`statusMessage`** (*«Custom status message to display in spinner while hook
+runs»*) se pone solo en los sincronos que pueden tardar y bloquean el prompt:
+`memory-orchestrate` («memoria…»), `memory-session-resume` («resume…») y
+`ensure-qdrant` («qdrant…»). En el resto seria ruido.
+
+Los dos instaladores expanden `{USERPROFILE}` sobre el **texto crudo** del
+fichero antes de parsear el JSON (`install.ps1`: `$raw -replace`;
+`install.sh`: `sed`), asi que la sustitucion alcanza igual a `command` y a
+cada elemento de `args` — no hubo que tocarlos. Verificado ademas que
+PowerShell 5.1 conserva los arrays de un solo elemento en el
+`ConvertFrom-Json` -> `ConvertTo-Json -Depth 20` del merge (un `args` que
+volviera como cadena habria roto todos los hooks en silencio).
+
 ## Fail-safe y observabilidad
 
 No hay un runner común: `scripts/lib/hook-runner.js` (circuit-breaker +
@@ -117,7 +167,25 @@ de contenido: solo etiquetas de un conjunto cerrado (que se decidio, que regla
 caso, en que fase se fue el tiempo). **Nunca** rutas, nombres de fichero ni
 prompts — el log se comparte con la app y el repo es publico.
 
-## Inventario de hooks VIVOS (settings.json, 2026-06-04 HEAD f936a66)
+## Inventario de hooks VIVOS (`templates/settings-hooks.json`, 2026-09-22)
+
+**38 entradas**, 22 antes de la tanda H6. Hasta ese dia el manifiesto
+documentaba 18 hooks que **no estaban instalados**: tenian ficha, checksum y
+descripcion, pero jamas se disparaban. Se revisaron uno a uno con tres
+criterios — (a) corre con payload sintetico y sale 0, (b) tiene consumidor real
+de su salida, (c) cabe en el presupuesto de su evento — y entraron 16. Los dos
+que no, con su motivo, en `deregistered` del manifiesto:
+
+| Hook | Por que no se registra |
+|------|------------------------|
+| `uni-deliverable-guard.js` | Decision del usuario: bloquea la escritura del entregable en proyectos de asignatura y el **modo universitario** no esta activo. El script y su selftest se quedan: es el limite duro del modo `uni` de `socratic-gate` y se cablea el dia que se active. |
+| `routing-dispatcher.v3.js` | Es la **variante** no elegida del dispatcher; lo vivo es la v2. Registrar las dos duplicaria el enrutado de cada prompt (v3 p50 72 ms, v2 p50 65 ms) e inyectaria un segundo bloque con las mismas skills. El script se queda: CI valida que carga. |
+
+Presupuesto por evento, medido en esta maquina (p50 de 5 ejecuciones en frio,
+con el arranque de node incluido): los sincronos de `UserPromptSubmit` pasan de
+**114 ms a 294 ms** (tope acordado 300 ms) y los de `SessionStart` suman
+**+161 ms** (tope +1 s). Todo lo que entra en `Stop`, `SessionEnd`,
+`SubagentStart` y `SubagentStop` va `async`, que no bloquea el turno.
 
 ### `Stop`
 | Hook | Proposito |
@@ -146,25 +214,59 @@ contexto al modelo. El sitio para «lo de despues de compactar» es
 
 | Hook | Proposito |
 |------|-----------|
+| `ensure-qdrant.js` | `startup\|resume\|fork`. GET `/healthz` (~80 ms en caliente); si Qdrant esta caido dispara el watchdog detached y vuelve sin esperar. |
+| `ensure-codegraph.js` | `startup\|resume\|fork` (nuevo en la plantilla, 2026-09-22). Mismo patron: si `daemon.pid` apunta a un proceso vivo sale en ~50 ms; si no, arranca el daemon de CodeGraph detached. Sin el, el indice queda stale y la exploracion cae a Glob/Grep a ciegas. |
+| `memory-warmup.js` | `startup\|resume\|fork`. Precalienta el daemon de memoria (E5) para que el primer prompt no pague la carga. |
 | `load-cross-project-memory.js` | Inyecta el indice de `MEMORY.md` de proyectos recientes. |
 | `session-start-override.js` | Fallback de resumen de sesion previa por nombre de proyecto. |
-| `workday-session-linker.js` | Auto-enlaza la sesion al Workday in_progress (offline -> `_pending-links.jsonl`). |
+| `project-roster-context.js` | Nuevo en la plantilla (2026-09-22). Inyecta el roster de subagentes del proyecto (los «empleados» delegables) y lo genera de forma determinista la primera vez, sin LLM. Filtra los agentes que ya no existen en disco: un agente fantasma no da error, simplemente no hace nada. Coste p50 51 ms. |
+| `ensure-project.js` | Nuevo en la plantilla (2026-09-22). Da de alta el proyecto en el Control Center si falta, avisa si no tiene `CLAUDE.md` y lanza el indexado de CodeGraph detached. Como mucho dos lineas de contexto; coste p50 59 ms. |
 | `memory-session-resume.js` | Resume canonico (workflows/tareas/decisiones/pinned) leido del SoT via `ultron-memory resume`. Desde 2026-09-04 anade `feedback_pendiente`/`session_feedback`, `response_meter` y el bloque `codegraph` (tamano del indice, zonas, hubs; cache en `.codegraph/ultron-summary.json`). |
 
 ### `UserPromptSubmit`
 | Hook | Proposito |
 |------|-----------|
-| `routing-dispatcher.js` | Sugiere skill/persona por intencion del prompt (scoring determinista). |
+| `routing-dispatcher.v2.js` | Sugiere skill/persona por intencion del prompt (scoring determinista). La `v3` (semantica, via daemon) existe pero **no** esta registrada. |
 | `socratic-gate.js` | Protocolo socratico en cada prompt (escalada ante acks de bajo esfuerzo). Modo por proyecto: `socratic: strict|light|off` en `cockpit/projects.json` (ausente = strict); `scripts/project-socratic.mjs <id> <modo>`. |
 | `save-user-prompt.js` | Archiva cada prompt no trivial en el inbox diario (candidate a promover). |
-| `memory-orchestrate.js` | Enruta el prompt por el orquestador canonico (`ultron-memory orchestrate`). |
+| `memory-orchestrate.js` | Enruta el prompt por el orquestador canonico (`ultron-memory orchestrate`). Presupuesto propio de 8 s con `timeout: 10` (ver abajo). |
 | `session-feedback-capture.js` | Metrica externa (ULTRON 4, 12.1): captura `fb: si|no|estorbo [nota]` en `logs/session-feedback.jsonl`, retira el `feedback-pending.json` del proyecto y propone la nota como candidato de memoria. Sin `fb:`: silencio. |
 | `run-project-tests-report.js` | Reporter de F4.1: en el turno siguiente dice los tests rotos (nombres), el timeout o, una vez por sesion, que no hay comando de test; anuncia el verde solo tras un fallo reportado. |
 
-### `PostToolUse` (`Edit|Write|MultiEdit|NotebookEdit`, async)
+### `PreToolUse`
+| Hook | Matcher | Proposito |
+|------|---------|-----------|
+| `deny-secrets.js` | `Read\|Edit\|Write\|NotebookEdit\|Bash` | Puerta de secretos. **El unico hook que falla CERRADO.** |
+| `codegraph-reminder.js` | `Read\|Grep\|Glob\|Bash` | Recuerda usar el indice de CodeGraph antes de explorar a ciegas. |
+| `guardrails-pre.js` | `Bash\|Agent\|Task` | Nuevo en la plantilla (2026-09-22). Ver abajo: entra con las DENY de Bash **apagadas**. |
+
+#### `guardrails-pre`: que bloquea de verdad
+
+| Regla | Decision | Estado |
+|-------|----------|--------|
+| `agente-fantasma` (Agent/Task) | **DENY** | Activa. Un `subagent_type` que no existe en disco no da error: Claude Code lo ignora y la delegacion se pierde entera. Fail-open si el catalogo de disco trae menos de 20 nombres (entonces es que no supimos leerlo). |
+| `force-push` (Bash) | **ASK** | Activa. Pregunta, no bloquea. |
+| `uv`, `commit-format`, `skip-permissions` (Bash) | DENY | **Apagadas** por defecto. Se encienden con `ULTRON_GUARDRAILS_BASH=1`. |
+
+Las tres ultimas son heuristicas sobre **texto de shell**, y un DENY es un
+bloqueo sin apelacion: un falso positivo no avisa, para el trabajo en seco y
+obliga a reescribir el comando a ciegas. Las dos que se quedan activas no
+tienen esa forma — una comprueba pertenencia a un catalogo de disco (o falla
+abierto) y la otra solo pregunta. El selftest cubre los dos estados del flag,
+con el caso negativo explicito de «apagado ⇒ `pip install` PASA».
+
+### `PostToolUse`
+| Hook | Matcher | Proposito |
+|------|---------|-----------|
+| `posttoolfail-capture.js` | `*`, async | Fallos de tool CON resultado -> candidate `error_resolution`. |
+| `guardrails-post.js` | `Write\|Edit`, **sincrono** | Nuevo en la plantilla (2026-09-22). AVISA (nunca bloquea) cuando el texto recien escrito lleva registro coloquial a un artefacto que puede leer un tercero, o conteos de skills/agentes dentro de la skill ULTRON. Sincrono a proposito: `async` descartaria su stdout y el aviso no llegaria nunca. Coste p50 35 ms. |
+| `run-project-tests.js` | `Edit\|Write\|MultiEdit\|NotebookEdit`, async | F4.1: tras editar codigo del proyecto lanza la suite COMPLETA en un runner desacoplado (tope 120 s, debounce 60 s, un runner por proyecto). Comando: linea `test: <cmd>` en el CLAUDE.md del proyecto, o package.json / Cargo.toml / pyproject / go.mod. Resultado en `.tmp/run-tests/<project>.result.json`, que lee `run-project-tests-report.js` en el turno siguiente. |
+
+### `SubagentStart` / `SubagentStop` (async) — en la plantilla desde 2026-09-22
 | Hook | Proposito |
 |------|-----------|
-| `run-project-tests.js` | F4.1: tras editar codigo del proyecto lanza la suite COMPLETA en un runner desacoplado (tope 120 s, debounce 60 s). Comando: linea `test: <cmd>` en el CLAUDE.md del proyecto, o package.json / Cargo.toml / pyproject / go.mod. Resultado en `.tmp/run-tests/<project>.result.json`. |
+| `subagent-lifecycle.js` | El MISMO script en los dos eventos: una linea `{ts, event:"start"\|"stop", agent_id, agent, label}` en `.tmp/subagent-lifecycle.jsonl`. El backend (`live_session.rs`) reduce por `agent_id`: si el ultimo evento es `start`, ese subagente esta EN VUELO y el Monitor lo pinta. Sin el par start/stop el Monitor solo veia resultados, nunca trabajo en curso. |
+| `subagent-harvest.js` | Solo en `SubagentStop`: recoge el resultado del subagente. |
 
 ### `PostToolUseFailure` (`*`, async) — cableado el 2026-09-22
 | Hook | Proposito |
@@ -183,8 +285,59 @@ contexto al modelo. El sitio para «lo de despues de compactar» es
 | `lesson-distill.js` | Destila 0-3 candidatos `lesson` (sintoma, causa, regla) via el daemon. |
 | `project-profile.js` | Mantiene `cockpit/projects/<id>/profile.json` (que es, stack, arquitectura, estado, decisiones). |
 | `session-feedback-mark.js` | Deja `feedback-pending.json` (minutos, turnos humanos, commits) para que el siguiente SessionStart del proyecto pregunte si ULTRON ayudo. Solo proyectos registrados que no son ultron y con >=3 turnos; un pending ignorado se registra como `sin_respuesta`. |
+| `memory-gc.js` | En la plantilla desde 2026-09-22. Dispara `ultron-memory gc --days 90` como mucho una vez por semana (cadencia en `.tmp/memory-gc-last.json`, sellada solo tras un exit 0). No toca `brain.db`: el escritor sigue siendo MemoryService. |
+
+## El presupuesto de `memory-orchestrate` (2026-09-22)
+
+Es el unico hook que puede bloquear el prompt varios segundos, asi que su
+presupuesto se decide **con el reparto por fase delante**, no por corazonada.
+Con el daemon vivo cuesta **9 ms** (p50 de 19 ejecuciones con el campo
+`fases`); la cola era otra cosa: p90 9.132 ms, p95 15.693 ms, y las fases que
+mandaban eran `daemon_ms` (409 / 1.605 / 3.031 / 3.153 ms) y
+`relanzamiento_ms` (3.261 y 9.116 ms).
+
+Lo que dice ese dato: (1) esperar 9 s a un daemon que no ha contestado en 4 es
+regalar 5 s por turno, porque ningun `daemon_ms` util pasa de 3,2 s; (2) el
+relanzamiento de 9,1 s es el sintoma mas caro y el menos util — ese daemon no
+llega a servir **ese** turno, solo el siguiente. De ahi el recorte:
+
+| Constante | Antes | Ahora |
+|-----------|-------|-------|
+| `HOOK_BUDGET_MS` (y `timeout` de la plantilla) | 20.000 (20 s) | **8.000** (10 s) |
+| `DAEMON_TIMEOUT_MS` / `_CACHED_MS` | 9.000 / 6.000 | **4.000 / 3.000** |
+| `FIRST_PROMPT_DAEMON_WAIT_MS` | 12.000 | **4.000** |
+| `DAEMON_BOOT_WAIT_MS` / poll | 12.000 / 1.500 | **4.000 / 500** |
+| `BUSY_RETRY_BUDGET_MS` | 6.000 | **2.000** |
+| relanzamiento | deadline absoluta 15.500 | **techo relativo 2.500** + deadline absoluta 5.000 |
+| cap del `--sparse` | 3.000–6.000 | **1.500–3.000** |
+
+El `timeout` de la plantilla tiene que ser **mayor** que el presupuesto: si el
+hook lo vence, Claude Code descarta **toda** su salida en silencio (sintoma
+medido el 2026-08-14 con 12 s contra un presupuesto de 20).
+
+**Puerta de Qdrant.** Sin Qdrant no hay recall denso, y el daemon puede estar
+vivo y aun asi tardar segundos intentando consultar un Qdrant que no esta. Asi
+que antes de gastar nada, el hook hace el mismo `GET /healthz` barato que
+`ensure-qdrant.js` (~2 ms en loopback caliente, tope 300 ms). Si no contesta:
+no espera al daemon, no lo relanza — va directo al respaldo `--sparse` (FTS5,
+que no necesita Qdrant) y **lo dice** en el aviso, con puerto incluido.
+
+Medido con el harness `hooks/scripts/tests/test-orchestrate-recovery.js`
+(hermetico: daemon, Qdrant y sidecar de mentira, `HOME` temporal — no toca
+nada vivo), antes y despues:
+
+| Caso | Antes | Ahora |
+|------|-------|-------|
+| (a) daemon vivo | 61 ms | **61 ms** (sin cambio, que era el requisito) |
+| (b) daemon muerto que reaparece | 3.114 ms | **1.071 ms** |
+| (c) nadie contesta -> sparse | 13.652 ms | **1.580 ms** |
+| (e) nadie contesta y el sparse falla -> degradado | 13.686 ms | **1.579 ms** |
+| (f) Qdrant caido (caso nuevo) | — | **57 ms** |
 
 ## De-registrados / fuera de settings.json (correccion del inventario)
+
+Ademas de los dos de la tanda H6 (`uni-deliverable-guard`,
+`routing-dispatcher.v3`, tabla al principio del inventario):
 
 El inventario anterior listaba como vivos hooks que YA **no** lo estan:
 

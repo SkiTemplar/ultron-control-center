@@ -214,14 +214,25 @@ for (const { group: g, rels } of resolved) {
 }
 A(diffs.length === 0, "K: cada fichero del cierre resuelto es identico a su fuente", diffs.join(","));
 
-// L) hooks.json y .mcp.json del plugin real referencian ficheros existentes
+// L) hooks.json y .mcp.json del plugin real referencian ficheros existentes.
+// (2026-09-22) hooks.json paso a la forma EXEC: la ruta ya no vive en `command`
+// (que ahora es solo "node") sino en `args`. Se miran las DOS formas para que
+// el dia que alguien vuelva a la de shell esto siga comprobando algo.
 const hooksJson = JSON.parse(readFileSync(join(REAL_PLUGIN, "hooks", "hooks.json"), "utf8"));
-const hookCommands = Object.values(hooksJson.hooks).flat().flatMap((m) => m.hooks).map((h) => h.command);
-const hookPathsExist = hookCommands.every((cmd) => {
-  const m = cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/);
+const hookEntries = Object.values(hooksJson.hooks).flat().flatMap((m) => m.hooks);
+const hookRefs = hookEntries.map((h) =>
+  Array.isArray(h.args) && h.args.length ? `${h.command} ${h.args.join(" ")}` : h.command,
+);
+const hookPathsExist = hookRefs.every((ref) => {
+  const m = ref.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+)/);
   return m && existsSync(join(REAL_PLUGIN, m[1]));
 });
-A(hookPathsExist && hookCommands.length === 3, "L: hooks.json referencia 3 comandos y los 3 ficheros existen", hookCommands.join(" | "));
+A(hookPathsExist && hookRefs.length === 3, "L: hooks.json referencia 3 comandos y los 3 ficheros existen", hookRefs.join(" | "));
+// Caso negativo del parser nuevo: una entrada exec con una ruta inventada NO
+// puede dar por bueno el fichero.
+const refFalso = "node ${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/no-existe.js";
+const mFalso = refFalso.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+)/);
+A(!!mFalso && !existsSync(join(REAL_PLUGIN, mFalso[1])), "L NEG: una ruta inventada en forma exec no existe", refFalso);
 const mcpJson = JSON.parse(readFileSync(join(REAL_PLUGIN, ".mcp.json"), "utf8"));
 const mcpArgsExist = Object.values(mcpJson.mcpServers).every((s) =>
   s.args.every((a) => !a.includes("${CLAUDE_PLUGIN_ROOT}") || existsSync(join(REAL_PLUGIN, a.replace("${CLAUDE_PLUGIN_ROOT}/", "")))));

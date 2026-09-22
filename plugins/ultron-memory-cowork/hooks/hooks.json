@@ -1,4 +1,5 @@
 {
+  "_comment_2026_09_22": "Forma EXEC ({command:'node', args:[...]}), igual que templates/settings-hooks.json. El binario 2.1.278 documenta que con `args` el comando se resuelve como ejecutable y se lanza SIN shell, y que los marcadores tipo ${CLAUDE_PLUGIN_ROOT} se sustituyen POR ELEMENTO como texto plano — asi que la ruta del plugin ya no necesita ir entre comillas ni pasa por un parser de shell. Medido en Windows con un script vacio (10 ejecuciones): exec 34,4 ms, bash -c 50,0 ms, powershell -Command 227,3 ms. En una maquina sin Git Bash el shell es PowerShell, que es justo donde mas duele.",
   "hooks": {
     "SessionStart": [
       {
@@ -6,8 +7,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/memory-session-resume.js\"",
-            "timeout": 12
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/memory-session-resume.js"],
+            "timeout": 12,
+            "statusMessage": "resume…"
           }
         ]
       }
@@ -18,7 +21,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/socratic-gate.js\"",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/socratic-gate.js"],
             "timeout": 5
           }
         ]
@@ -30,7 +34,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/session-end-summary.js\"",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/server/hooks-scripts/session-end-summary.js"],
             "timeout": 20,
             "async": true
           }

@@ -10,7 +10,7 @@
     "Regenerar tras cualquier cambio en settings.json: node hooks/regen-manifest.js",
     "Gate de paridad LOCAL (lee ~/.claude/settings.json): node hooks/regen-manifest.js --check",
     "Gate de paridad en CI (plantilla vs manifest, sin ~/.claude): node hooks/regen-manifest.js --check-template",
-    "2026-09-22: las entradas de esta tanda (routing-dispatcher.v2, postcompact-reinject, stopfailure-relay y los matchers de SessionStart) se editaron A MANO, no por regeneracion: el manifest refleja la config de la maquina del mantenedor y regenerarlo desde otra la habria borrado."
+    "2026-09-22 (tanda H3/H6): la plantilla pasa a la FORMA EXEC ({command:\"node\", args:[ruta]}) y se registran los 16 hooks que vivian aqui sin instalarse. Los 2 que no entran estan en `deregistered` con su motivo. Estas entradas se editaron A MANO, no por regeneracion: el manifest refleja lo que INSTALA templates/settings-hooks.json, y regenerarlo desde la config viva de una maquina lo habria borrado. Los checksums siguen siendo los de los ficheros de la maquina del mantenedor (`--check-template` no los juzga a proposito)."
   ],
   "writer_paths_allowed": [
     "MemoryService",
@@ -172,30 +172,14 @@
       "timeout_s": 10,
       "async": false,
       "checksum_sha256": "07de818ec1f7a2175a047441fc5fa2c9c39c6372feba28ca96259f4a9381fba4",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "PreToolUse (Bash|Agent|Task). Convierte en comprobacion determinista las condiciones que vivian como prosa en CLAUDE.md/rules: subagent_type inexistente (DENY; un tipo fantasma no da error, la delegacion se pierde en silencio -- KIRKARDO CRITICAL 2026-05-27), Python fuera de UV (DENY), git commit sin prefijo convencional (DENY), invocar claude saltandose permisos (DENY) y push forzado (ASK). El cuerpo de los here-docs se ignora: son datos, no comandos. NO escribe memoria. FAIL-OPEN: catalogo de agentes incompleto (<20) o error del clasificador -> deja pasar, para no convertirse en el fallo que evita."
-    },
-    {
-      "id": "uni-deliverable-guard",
-      "event": "PreToolUse",
-      "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
-      "command": "node ~/.ultron/hooks/scripts/uni-deliverable-guard.js",
-      "script": "~/.ultron/hooks/scripts/uni-deliverable-guard.js",
-      "timeout_s": 5,
-      "async": false,
-      "checksum_sha256": "233146127ec25ebbf9caa847ea2af70bc533b5695db8c6fecb680206a8ebe94b",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "env_allowlist": [
-        "ULTRON_UNI_GUARD"
+        "ULTRON_GUARDRAILS_BASH"
       ],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse (Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell). Modo trabajo universitario (decidido 2026-09-14): BLOQUEO real (no solo recordatorio) de escritura del entregable en proyectos de asignatura con marcador .ultron-trabajo.json (busqueda hasta 4 niveles por encima del cwd; lo crea project-create.mjs para el template trabajo-entrega, protegidas por defecto borrador+entrega). Complementa a socratic-gate.js (modo uni, UserPromptSubmit): el gate recuerda la norma en cada prompt, este hook la hace cumplir de verdad. Write/Edit/MultiEdit/NotebookEdit: exacto via tool_input.file_path. Bash/PowerShell: heuristica sobre redirecciones (> >>), -Destination y el ultimo argumento de cp/copy/move/mv/xcopy/robocopy/Copy-Item/Move-Item -- declarado que NO cubre variables indirectas, tee, escritura desde otro interprete (python -c, node -e) ni symlinks. Desactivar a proposito: ULTRON_UNI_GUARD=off. Marcador corrupto: NO bloquea (fail-open) pero avisa por systemMessage y deja traza en logHookError -- nunca silencioso en ningun sentido. NO escribe memoria. Fail-safe: error interno -> exit 0 sin decision."
+      "description": "PreToolUse (Bash|Agent|Task). Convierte en comprobacion determinista normas que vivian como prosa. ACTIVAS POR DEFECTO: DENY agente-fantasma (subagent_type que no existe en disco: Claude Code lo ignora en silencio y la delegacion se pierde entera) y ASK force-push (reescribe historia publicada). APAGADAS por defecto desde 2026-09-22, solo con ULTRON_GUARDRAILS_BASH=1 en el entorno: las tres reglas DENY sobre lineas de Bash (uv, commit-format, skip-permissions) — son heuristicas sobre texto de shell y un falso positivo bloquea trabajo legitimo sin apelacion. Fail-open total: catalogo de agentes con menos de 20 nombres o cualquier error del clasificador -> deja pasar."
     },
     {
       "id": "session-end-summary",
@@ -325,7 +309,7 @@
     {
       "id": "ensure-codegraph",
       "event": "SessionStart",
-      "matcher": "*",
+      "matcher": "startup|resume|fork",
       "command": "node ~/.ultron/hooks/scripts/ensure-codegraph.js",
       "script": "~/.ultron/hooks/scripts/ensure-codegraph.js",
       "timeout_s": 10,
@@ -611,22 +595,6 @@
       "description": "UserPromptSubmit: dispatcher DETERMINISTA (scoring por tablas, sin modelo) que sugiere skill/persona segun la intencion del prompt e inyecta la skill on-demand (routing lazy). Es el que esta registrado de verdad en la config viva y el que instala templates/settings-hooks.json; la v3 (abajo) es la variante con fallback semantico por E5 y hoy NO esta cableada. El manifest listaba solo la v3 desde que se cambio el cableado: drift detectado y corregido el 2026-09-22 al estrenar la puerta --check-template. Fail-safe: error -> exit 0 sin salida."
     },
     {
-      "id": "routing-dispatcher.v3",
-      "event": "UserPromptSubmit",
-      "matcher": "*",
-      "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
-      "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
-      "timeout_s": 5,
-      "async": false,
-      "checksum_sha256": "af7adbc772bbcfc70f6caf676592d4f2b44ad3eddc5aa03399f3561354cf5a87",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "UserPromptSubmit: dispatcher v3 = v2 determinista + fallback semantico. En prompts de baja confianza (<0.80) consulta el daemon E5 (skill_query sobre ultron_skills_lazy, incl. .disabled, ~42ms warm) y anade un hint de skills por similitud. Reactivado 2026-06-26 al migrar del subproceso embed_skills.py (~10s) al daemon E5 residente. Fail-safe: sin daemon, degrada al determinista v2 sin coste."
-    },
-    {
       "id": "socratic-gate",
       "event": "UserPromptSubmit",
       "matcher": "*",
@@ -664,7 +632,7 @@
       "matcher": "*",
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
-      "timeout_s": 20,
+      "timeout_s": 10,
       "async": false,
       "checksum_sha256": "ae8abe85c2a3ed7cc52933888843ec63c76038e1e9d3a696755bffb688c659b7",
       "version": "1.0.0",
@@ -760,6 +728,16 @@
       "id": "workday-auto-update",
       "reason": "No es hook de Claude Code: tarea programada de Windows. Vive en hooks/hooks/.",
       "former_event": "scheduled-task"
+    },
+    {
+      "id": "uni-deliverable-guard",
+      "reason": "No se registra (2026-09-22, decision del usuario): bloquea la escritura del entregable en proyectos de asignatura y el modo universitario no esta activo. El script SE QUEDA en el repo (hooks/scripts/uni-deliverable-guard.js) con su selftest en CI: es el limite duro que acompana al modo `uni` de socratic-gate y se cablea el dia que se active ese modo. Corre con payload sintetico y sale 0 (medido: p50 39 ms).",
+      "former_event": "PreToolUse"
+    },
+    {
+      "id": "routing-dispatcher.v3",
+      "reason": "No se registra (2026-09-22): es la VARIANTE no elegida del dispatcher — lo que corre en UserPromptSubmit es routing-dispatcher.v2. Registrar las dos duplicaria el enrutado de cada prompt (medido: v3 p50 72 ms, v2 p50 65 ms) y la v3 emitiria un segundo bloque de additionalContext con las mismas skills. El script SE QUEDA en cockpit/skill-lazy/: CI valida que carga (job routing-dispatcher) y es la rama de trabajo del enrutado por daemon.",
+      "former_event": "UserPromptSubmit"
     }
   ]
 }
