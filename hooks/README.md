@@ -268,7 +268,7 @@ contexto al modelo. El sitio para «lo de despues de compactar» es
 
 | Regla | Decision | Estado |
 |-------|----------|--------|
-| `agente-fantasma` (Agent/Task) | **DENY** | Activa. Un `subagent_type` que no existe en disco no da error: Claude Code lo ignora y la delegacion se pierde entera. Fail-open si el catalogo de disco trae menos de 20 nombres (entonces es que no supimos leerlo). |
+| `agente-fantasma` (Agent/Task) | **ASK** | Activa. Un `subagent_type` que no aparece en el catalogo avisa y pregunta; ya no bloquea (2026-09-22: buscaba los agentes de plugin en `plugins/cache`, que Claude Code 2.1.278 no crea, y vetaba TODOS los de plugin). El catalogo recorre `~/.claude/agents`, `plugins/marketplaces/*/plugins/*/agents`, `plugins/synced/*/*/agents` (con el `name` del manifiesto como prefijo), `plugins/cache` (heredado) y `.claude/agents` del repo abierto; los tipos integrados (general-purpose, Explore, Plan) pasan. Fail-open si el catalogo trae menos de 20 nombres. |
 | `force-push` (Bash) | **ASK** | Activa. Pregunta, no bloquea. |
 | `uv`, `commit-format`, `skip-permissions` (Bash) | DENY | **Apagadas** por defecto. Se encienden con `ULTRON_GUARDRAILS_BASH=1`. |
 
