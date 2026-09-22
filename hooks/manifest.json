@@ -309,7 +309,7 @@
     {
       "id": "ensure-qdrant",
       "event": "SessionStart",
-      "matcher": "startup|resume",
+      "matcher": "startup|resume|fork",
       "command": "node ~/.ultron/hooks/scripts/ensure-qdrant.js",
       "script": "~/.ultron/hooks/scripts/ensure-qdrant.js",
       "timeout_s": 10,
@@ -341,7 +341,7 @@
     {
       "id": "memory-warmup",
       "event": "SessionStart",
-      "matcher": "startup|resume",
+      "matcher": "startup|resume|fork",
       "command": "node ~/.ultron/hooks/scripts/memory-warmup.js",
       "script": "~/.ultron/hooks/scripts/memory-warmup.js",
       "timeout_s": 5,
@@ -389,12 +389,12 @@
     {
       "id": "memory-session-resume",
       "event": "SessionStart",
-      "matcher": "startup|resume|clear",
+      "matcher": "startup|resume|clear|compact|fork",
       "command": "node ~/.ultron/hooks/scripts/memory-session-resume.js",
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
       "async": false,
-      "checksum_sha256": "cdc7ced7a5aeca705e83d1e7a7e3f0db2ea9b135aa0492eb2c694fe3728ef6cd",
+      "checksum_sha256": "83f28e06749573365bd676191b629be174654b8997bd9988d836866d9121efc1",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -709,33 +709,14 @@
       "description": "UserPromptSubmit (sincrono): reporter de F4.1. Lee .tmp/run-tests/<project>.result.json y dice al modelo, una vez por resultado, los tests rotos (nombres), el timeout (pide comando mas corto) o, una vez por sesion, que no hay comando de test; anuncia el paso a verde solo tras un fallo reportado. Sin resultado o ya reportado: silencio. No escribe memoria."
     },
     {
-      "id": "postcompact-reinject",
-      "event": "PostCompact",
-      "matcher": "manual|auto",
-      "command": "node ~/.ultron/hooks/scripts/postcompact-reinject.js",
-      "script": "~/.ultron/hooks/scripts/postcompact-reinject.js",
-      "timeout_s": 10,
-      "async": false,
-      "checksum_sha256": "4357b1e730a62e1e044913bce1c186309055a654a3a4f98457d4c8afc8038fb5",
-      "version": "1.0.0",
-      "env_allowlist": [
-        "CLAUDE_NO_HOOKS",
-        "POSTCOMPACT_REINJECT_DISABLED"
-      ],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "PostCompact (sincrono): despues de compactar devuelve al contexto el resumen que la propia compactacion produjo, leyendolo de compact_summary del payload; si el evento no lo trae, reemite los ultimos prompts del usuario del transcript. Bloque acotado a ~400 tokens (el hook ataca un problema de contexto y no puede empeorarlo) y marcador por sesion para no duplicarlo si SessionStart tambien se dispara con motivo compact. Solo lectura: no toca brain.db ni el sidecar. Fail-safe: error -> exit 0 sin salida."
-    },
-    {
       "id": "stopfailure-relay",
       "event": "StopFailure",
-      "matcher": "rate_limit|overloaded|account_on_hold|billing_error|authentication_failed|verification_required|oauth_org_not_allowed",
+      "matcher": "rate_limit|overloaded|account_on_hold|billing_error|authentication_failed|verification_required|oauth_org_not_allowed|cloud_credential_error",
       "command": "node ~/.ultron/hooks/scripts/stopfailure-relay.js",
       "script": "~/.ultron/hooks/scripts/stopfailure-relay.js",
       "timeout_s": 5,
       "async": true,
-      "checksum_sha256": "bbec7fa3e076220a7ad6a33efbb32f9e7835a619faff8308c845c9bc194f9351",
+      "checksum_sha256": "d7f8f4e6ee06d00c00765a5e76299210bed52563406d7445747ad5fe8ff5f542",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -750,6 +731,11 @@
     }
   ],
   "deregistered": [
+    {
+      "id": "postcompact-reinject",
+      "reason": "Retirado el 2026-09-22, el mismo dia que entro: en Claude Code 2.1.278 PostCompact solo ensena el stdout del hook al usuario (userDisplayMessage) y no admite hookSpecificOutput, asi que nunca pudo reinyectar contexto. Lo que hacia falta era devolver el motivo compact a memory-session-resume.",
+      "former_event": "PostCompact"
+    },
     {
       "id": "mem0-sync",
       "reason": "Mem0 muerto. Borrado del repo 2026-06-08; sus helpers de seguridad viven ahora en hooks/scripts/lib/security-helpers.js (fix require roto 2026-06-10).",

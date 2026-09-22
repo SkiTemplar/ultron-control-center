@@ -131,11 +131,18 @@ prompts — el log se comparte con la app y el repo es publico.
 
 Desde el 2026-09-22 la plantilla reparte estos hooks por **motivo** de arranque
 (`startup|resume|clear|compact|fork`) en vez de correrlos los cinco con `*`:
-`ensure-qdrant` y `memory-warmup` solo con `startup|resume` (levantar Qdrant y
-precalentar modelos no tiene sentido en un `/clear`), `memory-session-resume`
-con `startup|resume|clear`, y el resto se queda en `*` porque cuesta p50 4 ms.
-El motivo `compact` queda cedido a `PostCompact`, que es donde se re-inyecta el
-contexto tras compactar — asi el bloque no se emite dos veces.
+`ensure-qdrant` y `memory-warmup` solo con `startup|resume|fork` (levantar
+Qdrant y precalentar modelos no tiene sentido en un `/clear` ni tras
+compactar; `fork` es una reanudacion), `memory-session-resume` con los cinco
+motivos (es quien reinyecta el resume de memoria y el scratch L0 que
+`precompact-preserve-l0` deja antes de compactar), y el resto se queda en `*`
+porque cuesta p50 4 ms.
+
+No hay ningun hook en `PostCompact`, a proposito: en Claude Code 2.1.278 ese
+evento solo ensena el stdout del hook al **usuario** (`userDisplayMessage`) y
+no acepta `hookSpecificOutput`, asi que nada que viva ahi puede devolver
+contexto al modelo. El sitio para «lo de despues de compactar» es
+`SessionStart` con motivo `compact`.
 
 | Hook | Proposito |
 |------|-----------|
@@ -163,11 +170,6 @@ contexto tras compactar — asi el bloque no se emite dos veces.
 | Hook | Proposito |
 |------|-----------|
 | `posttoolfail-capture.js` | El mismo script que en `PostToolUse`, para la clase de fallo complementaria: la tool NI llego a ejecutarse (permiso, timeout, error del harness) y el payload trae `error` de primer nivel sin `tool_response`. El registro en `PostToolUse` se queda en `*`: estrecharlo tiraria los fallos que SI traen resultado. |
-
-### `PostCompact` (`manual|auto`) — nuevo el 2026-09-22
-| Hook | Proposito |
-|------|-----------|
-| `postcompact-reinject.js` | `precompact-preserve-l0` salva contexto ANTES de compactar; esto es lo de DESPUES. Devuelve al contexto el `compact_summary` que el propio evento entrega (acotado a ~400 tokens), o los ultimos prompts del usuario si el payload no lo trae. Marcador por sesion para no duplicar el bloque. |
 
 ### `StopFailure` (matcher = valores del enum `error`, async) — nuevo el 2026-09-22
 | Hook | Proposito |

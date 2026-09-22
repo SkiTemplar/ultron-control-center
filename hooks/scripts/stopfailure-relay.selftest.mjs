@@ -39,9 +39,13 @@ const AHORA = '2026-09-22T09:41:07.123Z';
 const evento = (extra) => ({ hook_event_name: 'StopFailure', ...extra });
 
 // --- los 13 valores del enum -----------------------------------------------
-// Los 7 que le importan al relevo disparan; los 6 restantes NO. Un fallo de
-// peticion no dice nada sobre la disponibilidad del proveedor, y degradarlo
-// por eso deja al usuario en el modelo local sin motivo.
+// Son los del binario de Claude Code 2.1.278 (los mismos que
+// control-center/src-tauri/src/hooks_admin/claude-events.json). Hasta el
+// 2026-09-22 esta lista llevaba cinco nombres de error de la API de Messages
+// que NO son valores de este enum, y dejaba sin probar cinco reales: el caso
+// negativo pasaba en verde sobre valores que el harness nunca emite.
+// Los 8 que le importan al relevo disparan; los 5 restantes (fallos de esa
+// peticion o del servidor) NO.
 const ENUM_COMPLETO = [
   'rate_limit',
   'overloaded',
@@ -50,16 +54,22 @@ const ENUM_COMPLETO = [
   'authentication_failed',
   'verification_required',
   'oauth_org_not_allowed',
+  'cloud_credential_error',
   'invalid_request',
-  'invalid_api_key',
-  'permission_error',
-  'not_found_error',
-  'request_too_large',
-  'api_error',
+  'model_not_found',
+  'server_error',
+  'max_output_tokens',
+  'unknown',
 ];
+check('el enum tiene 13 valores', ENUM_COMPLETO.length, 13);
 const disparan = ENUM_COMPLETO.filter((e) => construirSenal(evento({ error: e }), AHORA) !== null);
-check('disparan exactamente los 7 del matcher', disparan, [...ERRORES.keys()]);
-check('el resto del enum NO dispara', ENUM_COMPLETO.length - disparan.length, 6);
+check('disparan exactamente los 8 del matcher', disparan, [...ERRORES.keys()]);
+check('el resto del enum NO dispara', ENUM_COMPLETO.length - disparan.length, 5);
+check(
+  'cloud_credential_error es un fallo de cuenta',
+  construirSenal(evento({ error: 'cloud_credential_error' }), AHORA)?.clase,
+  'cuenta',
+);
 
 // --- forma de la linea ------------------------------------------------------
 const s1 = construirSenal(

@@ -15,8 +15,10 @@
  * FORMATO EXACTO DE LA LINEA (contrato con el lector en Rust)
  * -----------------------------------------------------------
  * Fichero: <raiz>/cockpit/maria/relay-cuota.jsonl   (raiz via lib/maria-home)
- * Append-only, una linea por evento, JSON por linea, rotacion a 1 MiB con una
- * generacion (.1) igual que el resto de JSONL del sistema (lib/jsonl-log).
+ * Append-only, una linea por evento, JSON por linea, rotacion a 256 KiB con
+ * una generacion (.1) por el mismo mecanismo que el resto de JSONL del sistema
+ * (lib/jsonl-log; su defecto de 1 MiB se acota aqui a proposito: esto es una
+ * senal operativa, no un historial).
  *
  *   {
  *     "ts": "2026-09-22T09:41:07.123Z",  // ISO-8601 UTC, momento del evento
@@ -67,9 +69,14 @@ const { redactSecrets } = require('./lib/security-helpers');
 observe('stopfailure-relay');
 
 // Valores del enum `error` que interesan al relevo, con su clase. El enum del
-// evento tiene 13 valores; los que no estan aqui (invalid_request, y demas
-// fallos de la peticion) NO dicen nada sobre la disponibilidad del proveedor
-// y degradarlo por ellos dejaria al usuario en el modelo local sin motivo.
+// evento tiene 13 valores (leidos del binario de Claude Code 2.1.278, y
+// replicados en control-center/src-tauri/src/hooks_admin/claude-events.json).
+// Los cinco que NO estan aqui — invalid_request, model_not_found,
+// max_output_tokens, server_error y unknown — hablan de ESA peticion o de un
+// fallo puntual del servidor, no de si el proveedor puede atender la
+// siguiente; degradarlo por ellos dejaria al usuario en el modelo local sin
+// motivo. cloud_credential_error (credenciales de Bedrock/Vertex/Foundry
+// caducadas) es un problema de cuenta como authentication_failed.
 const ERRORES = new Map([
   ['rate_limit', 'cuota'],
   ['overloaded', 'cuota'],
@@ -78,6 +85,7 @@ const ERRORES = new Map([
   ['authentication_failed', 'cuenta'],
   ['verification_required', 'cuenta'],
   ['oauth_org_not_allowed', 'cuenta'],
+  ['cloud_credential_error', 'cuenta'],
 ]);
 
 const MAX_DETALLE = 400;

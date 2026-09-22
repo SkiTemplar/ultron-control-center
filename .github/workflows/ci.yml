@@ -440,7 +440,6 @@ jobs:
           node scripts/package-cowork-plugin.selftest.mjs
       - name: Hook selftests (guardas, enrutado y contexto)
         run: |
-          node hooks/scripts/postcompact-reinject.selftest.mjs
           node hooks/scripts/stopfailure-relay.selftest.mjs
           node hooks/scripts/socratic-gate.selftest.mjs
           node hooks/scripts/uni-deliverable-guard.selftest.mjs
