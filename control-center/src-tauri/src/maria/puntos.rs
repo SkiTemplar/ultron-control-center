@@ -48,9 +48,9 @@ const CORREO: &str = "maria@localhost";
 /// segundos a minutos. Aqui se prefiere NO tomar la foto y decirlo.
 const MAX_ENTRADAS: usize = 20_000;
 
-/// Carpetas que el fusible no cuenta. No es un sustituto del `.gitignore` del
-/// proyecto (de eso ya se encarga git al indexar): es solo para que el conteo
-/// no se vaya en `node_modules` y compania.
+/// Carpetas que el fusible no cuenta CUANDO el proyecto las ignora. Ver
+/// `saltar_en`: descontarlas siempre era mentira, porque si el `.gitignore` no
+/// las cubre git las indexa igual y el fusible no llegaba a saltar.
 const NO_CUENTAN: &[&str] = &[
     ".git",
     "node_modules",
@@ -64,6 +64,10 @@ const NO_CUENTAN: &[&str] = &[
     ".next",
     ".cache",
 ];
+
+/// Lo unico que el fusible se salta SIEMPRE: el `.git` del usuario, que el
+/// `info/exclude` de la sombra ya deja fuera de la foto pase lo que pase.
+const SOLO_EL_GIT: &[&str] = &[".git"];
 
 /// Un punto de control.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -192,11 +196,32 @@ fn asegurar(sombra: &Path, proyecto: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Cuenta entradas del arbol hasta `tope`, saltando las carpetas de siempre.
+/// Que carpetas puede saltarse el fusible EN ESTE proyecto (2026-09-22).
+///
+/// Se le pregunta a git —por el repo en la sombra, que es el que va a indexar,
+/// y no por el del usuario, que puede ni existir— si una ruta dentro de
+/// `node_modules` esta ignorada. Se usa `node_modules/x` y no `node_modules` a
+/// secas porque el patron habitual lleva barra final (`node_modules/`) y solo
+/// casa con directorios: preguntando por la carpeta a pelo, git responde «no
+/// ignorada» mientras no exista, que es justo el caso de un proyecto recien
+/// hecho.
+///
+/// Si no esta ignorada, el proyecto no tiene `.gitignore` que la cubra, git va
+/// a indexarla entera y el fusible TIENE que contarla: es lo unico que separa
+/// «no tomo la foto y lo digo» de un turno bloqueado seis minutos.
+fn saltar_en(sombra: &Path, proyecto: &Path) -> &'static [&'static str] {
+    if git(sombra, proyecto, &["check-ignore", "-q", "node_modules/x"]).is_ok() {
+        NO_CUENTAN
+    } else {
+        SOLO_EL_GIT
+    }
+}
+
+/// Cuenta entradas del arbol hasta `tope`, saltando las carpetas de `saltar`.
 ///
 /// Se para en cuanto llega al tope: el coste esta acotado por construccion, que
 /// es justo lo que le falta a un `git status` sobre un arbol enorme.
-fn entradas_hasta(proyecto: &Path, tope: usize) -> usize {
+fn entradas_hasta(proyecto: &Path, tope: usize, saltar: &[&str]) -> usize {
     let mut n = 0;
     let mut pendientes = vec![proyecto.to_path_buf()];
     while let Some(dir) = pendientes.pop() {
@@ -206,7 +231,7 @@ fn entradas_hasta(proyecto: &Path, tope: usize) -> usize {
         for hijo in hijos.flatten() {
             let nombre = hijo.file_name();
             let nombre = nombre.to_string_lossy();
-            if NO_CUENTAN.iter().any(|x| *x == nombre) {
+            if saltar.iter().any(|x| *x == nombre) {
                 continue;
             }
             n += 1;
@@ -231,10 +256,16 @@ fn entradas_hasta(proyecto: &Path, tope: usize) -> usize {
 /// turno tiene su punto y «volver a aqui» apunta a un sitio real.
 pub fn foto_en(raiz: &Path, proyecto: &Path, hilo: &str, etiqueta: &str) -> Result<Punto, String> {
     let sombra = sombra_en(raiz, hilo)?;
-    if entradas_hasta(proyecto, MAX_ENTRADAS) >= MAX_ENTRADAS {
+    // `asegurar` va ahora ANTES del fusible (2026-09-22): el conteo necesita
+    // preguntarle a git que ignora el proyecto y esa pregunta se hace por el
+    // repo en la sombra. El precio es que un arbol demasiado grande deja la
+    // sombra creada y vacia; se la lleva el barrido y no cuesta nada, mientras
+    // que fiarse del `.git` del usuario fallaria en las carpetas que no son
+    // repositorio, que son justo las que se llenan de `node_modules`.
+    asegurar(&sombra, proyecto)?;
+    if entradas_hasta(proyecto, MAX_ENTRADAS, saltar_en(&sombra, proyecto)) >= MAX_ENTRADAS {
         return Err(ARBOL_DEMASIADO_GRANDE.to_string());
     }
-    asegurar(&sombra, proyecto)?;
     git(&sombra, proyecto, &["add", "-A"])?;
     let ts = chrono::Utc::now().to_rfc3339();
     let mensaje = format!("{ts} · {}", etiqueta.replace('\n', " "));
@@ -952,17 +983,49 @@ mod tests {
     fn un_arbol_enorme_no_se_fotografia_y_se_dice_por_que() {
         // El fusible: mejor no tomar la foto que bloquear el turno. Y el conteo
         // se para en el tope, no recorre el arbol entero.
-        let (_puntos, proyecto) = escenario();
-        let p = proyecto.path();
-        assert!(entradas_hasta(p, 2) >= 2, "hay mas de dos entradas");
-        assert!(entradas_hasta(p, MAX_ENTRADAS) < MAX_ENTRADAS);
-        // Las carpetas pesadas de siempre no cuentan para el fusible.
+        let (puntos, proyecto) = escenario();
+        let (r, p) = (puntos.path(), proyecto.path());
+        let sombra = sombra_en(r, "hilo-1").expect("sombra");
+        asegurar(&sombra, p).expect("asegurar");
+        let saltar = saltar_en(&sombra, p);
+        assert!(entradas_hasta(p, 2, saltar) >= 2, "hay mas de dos entradas");
+        assert!(entradas_hasta(p, MAX_ENTRADAS, saltar) < MAX_ENTRADAS);
+    }
+
+    #[test]
+    fn node_modules_solo_deja_de_contar_si_el_proyecto_lo_ignora() {
+        // Caso negativo del 2026-09-22: el fusible descontaba node_modules,
+        // target, dist… «porque de eso ya se encarga git al indexar». Eso solo
+        // es cierto si el `.gitignore` del proyecto las cubre, y una
+        // conversacion puede apuntar a CUALQUIER carpeta que exista. En un
+        // `mkdir app && npm init && npm i` el fusible contaba unas decenas de
+        // entradas, no saltaba, y `git add -A` se tragaba node_modules entero:
+        // medido, 5 min 58 s y 541 MB escritos, y encima terminando en «fatal:
+        // adding files failed».
+        let (puntos, proyecto) = escenario(); // su .gitignore solo cubre secreto.txt
+        let (r, p) = (puntos.path(), proyecto.path());
+        let sombra = sombra_en(r, "hilo-1").expect("sombra");
+        asegurar(&sombra, p).expect("asegurar");
+
+        let antes = entradas_hasta(p, MAX_ENTRADAS, saltar_en(&sombra, p));
         let pesada = p.join("node_modules");
         std::fs::create_dir_all(&pesada).expect("crear");
-        let antes = entradas_hasta(p, MAX_ENTRADAS);
         for i in 0..20 {
             std::fs::write(pesada.join(format!("{i}.js")), "x").expect("escribir");
         }
-        assert_eq!(entradas_hasta(p, MAX_ENTRADAS), antes);
+        assert_eq!(
+            entradas_hasta(p, MAX_ENTRADAS, saltar_en(&sombra, p)),
+            antes + 21,
+            "sin .gitignore que la cubra, git la va a indexar: tiene que contar"
+        );
+
+        // Y en cuanto el proyecto la ignora vuelve a no contar, que es el caso
+        // bueno: el propio repo de maria cuenta 1.385 entradas y no salta.
+        std::fs::write(p.join(".gitignore"), "secreto.txt\nnode_modules/\n").expect("gitignore");
+        assert_eq!(
+            entradas_hasta(p, MAX_ENTRADAS, saltar_en(&sombra, p)),
+            antes,
+            "lo que el proyecto ignora no lo indexa git, asi que no cuenta"
+        );
     }
 }
