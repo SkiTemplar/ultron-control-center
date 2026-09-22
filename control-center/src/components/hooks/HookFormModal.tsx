@@ -49,7 +49,11 @@ export function HookFormModal({
       if (mode === "add") {
         const res = (await invoke("add_hook", {
           event,
-          matcher: matcher.trim() || null,
+          // Cinturon barato (2026-09-22): si el evento elegido no compara
+          // ningun campo, no se manda matcher pase lo que pase. La limpieza
+          // real la hace el `onChange` del select; esto solo evita que un
+          // camino raro cuele lo que la pantalla dice que no existe.
+          matcher: ficha?.campo ? matcher.trim() || null : null,
           command,
         })) as HookMutationResult;
         onSaved(`Added hook. Backup: ${res.backup_path ?? "n/a"}`);
@@ -90,7 +94,21 @@ export function HookFormModal({
           </div>
           <select
             value={event}
-            onChange={(e) => setEvent(e.target.value)}
+            // Al cambiar de evento se tira el matcher si el evento nuevo no
+            // compara EL MISMO campo (2026-09-22). Antes se quedaba pegado:
+            // escribir "Bash" en PreToolUse y pasar a Stop guardaba
+            // {"Stop":[{"matcher":"Bash"}]} — un filtro que Claude Code ignora
+            // y que la lista de Hooks pintaba como si acotara algo, con el
+            // propio modal diciendo dos lineas mas abajo que ese evento no
+            // admite matcher. Se compara `campo` y no solo `campo != null`
+            // para cazar tambien la variante silenciosa: de tool_name
+            // (PreToolUse) a source (SessionStart) el matcher no casaria nunca.
+            onChange={(e) => {
+              const nuevo = e.target.value;
+              const fichaNueva = eventos?.find((x) => x.nombre === nuevo) ?? null;
+              if (fichaNueva?.campo !== ficha?.campo) setMatcher("");
+              setEvent(nuevo);
+            }}
             disabled={mode === "edit"}
             className="w-full rounded px-2 py-1"
             style={{
