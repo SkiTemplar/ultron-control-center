@@ -654,7 +654,7 @@ export function Catalog() {
             <div className="text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
               {cuota?.con_token
                 ? "Son 30 búsquedas por minuto."
-                : "Sin token son 10 búsquedas por minuto para toda la aplicación. Pon un GITHUB_TOKEN en Ajustes → Claves para subir a 30."}
+                : "Sin token son 10 búsquedas por minuto para toda la aplicación. Pon un GITHUB_TOKEN en Ajustes → API Keys para subir a 30."}
               {esperaCuota !== null && ` Se reinicia en ${Math.ceil(esperaCuota)} s.`}
             </div>
           </div>

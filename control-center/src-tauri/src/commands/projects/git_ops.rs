@@ -338,20 +338,11 @@ pub fn git_discard_file(path: String, file: String) -> Result<String, String> {
     if file.trim().is_empty() {
         return Err("no se ha dicho qué fichero descartar".to_string());
     }
-    // `ls-files --error-unmatch` sale con codigo != 0 si git no conoce la ruta.
-    let seguido = crate::proc::oculto("git")
-        .args(["ls-files", "--error-unmatch", "--", &file])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| format!("git not found: {e}"))?
-        .status
-        .success();
-    if !seguido {
-        return Err(format!(
-            "«{file}» no está en git todavía: descartarlo sería borrarlo y no \
-             habría de dónde recuperarlo. Bórralo tú si es lo que quieres."
-        ));
-    }
+    // La unica puerta que bloquea es HEAD: si el fichero existe ahi, volver a
+    // el nunca pierde nada, este o no en el indice. Hasta el 2026-09-22 se
+    // preguntaba primero a `ls-files`, y un borrado ya preparado (`D `, que
+    // el indice ya no conoce) se rechazaba acusando al fichero de «no estar
+    // en git»: justo el caso en que descartar es recuperar.
     let en_head = crate::proc::oculto("git")
         .args(["cat-file", "-e", &format!("HEAD:{file}")])
         .current_dir(&path)
@@ -359,15 +350,30 @@ pub fn git_discard_file(path: String, file: String) -> Result<String, String> {
         .map_err(|e| format!("git not found: {e}"))?
         .status
         .success();
-    if !en_head {
+    if en_head {
+        // `checkout HEAD --` pisa indice Y arbol de trabajo: sin el `HEAD`, lo
+        // preparado sobreviviria y el fichero seguiria saliendo como cambiado.
+        return run_git(&["checkout", "HEAD", "--", &file], &path);
+    }
+    // Sin version en HEAD no hay a que volver. `ls-files --error-unmatch`
+    // (codigo != 0 si el indice no conoce la ruta) solo decide el mensaje.
+    let seguido = crate::proc::oculto("git")
+        .args(["ls-files", "--error-unmatch", "--", &file])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?
+        .status
+        .success();
+    if seguido {
         return Err(format!(
             "«{file}» es nuevo: no hay versión anterior a la que volver. \
              Quítalo de preparado y bórralo tú si no lo quieres."
         ));
     }
-    // `checkout HEAD --` pisa indice Y arbol de trabajo: sin el `HEAD`, lo
-    // preparado sobreviviria y el fichero seguiria saliendo como cambiado.
-    run_git(&["checkout", "HEAD", "--", &file], &path)
+    Err(format!(
+        "«{file}» no está en git todavía: descartarlo sería borrarlo y no \
+         habría de dónde recuperarlo. Bórralo tú si es lo que quieres."
+    ))
 }
 
 /// One commit in the history list.
@@ -652,6 +658,29 @@ mod tests {
             git_changes(ruta).expect("status").is_empty(),
             "el arbol de trabajo tiene que quedar limpio"
         );
+    }
+
+    #[test]
+    fn descartar_recupera_un_borrado_ya_preparado() {
+        // Caso negativo (2026-09-22): con `rm` + `git add -A` el fichero sale
+        // como `D ` y el indice ya no lo conoce; preguntar primero a
+        // `ls-files` lo rechazaba como «no esta en git» cuando descartar es
+        // exactamente recuperarlo desde HEAD.
+        let (dir, ruta) = repo_de_prueba();
+        let f = dir.path().join("borrado.txt");
+        std::fs::write(&f, "estaba\n").expect("escribir");
+        run_git(&["add", "-A"], &ruta).expect("add");
+        run_git(&["commit", "-m", "con fichero", "--quiet"], &ruta).expect("commit");
+        std::fs::remove_file(&f).expect("borrar");
+        run_git(&["add", "-A"], &ruta).expect("preparar el borrado");
+        let cambios = git_changes(ruta.clone()).expect("status");
+        assert_eq!(cambios.len(), 1);
+        assert_eq!(cambios[0].index_status, "D", "el borrado esta preparado");
+
+        git_discard_file(ruta.clone(), "borrado.txt".into()).expect("descartar el borrado");
+
+        assert_eq!(std::fs::read_to_string(&f).expect("leer"), "estaba\n");
+        assert!(git_changes(ruta).expect("status").is_empty());
     }
 
     #[test]

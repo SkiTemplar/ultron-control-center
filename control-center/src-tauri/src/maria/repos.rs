@@ -1627,6 +1627,20 @@ fn destino_de(plan: &PlanAplicar) -> Result<PathBuf, String> {
     })
 }
 
+/// Donde acaba cada fichero del plan. Pura.
+///
+/// Un agente es UN fichero `<nombre>.md` y el nombre lo elige el usuario en el
+/// modal (campo «renombrar»): hasta el 2026-09-22 se escribia con el nombre
+/// que traia el repositorio y el campo era un no-op. `plan.nombre` ya paso
+/// `is_kebab`, asi que no puede traer separadores ni `..`. Una skill es una
+/// carpeta y conserva sus rutas relativas tal cual.
+fn ruta_final(tipo: &TipoRepo, destino: &Path, nombre: &str, destino_rel: &str) -> PathBuf {
+    match tipo {
+        TipoRepo::Agente => destino.join(format!("{nombre}.md")),
+        _ => destino.join(destino_rel),
+    }
+}
+
 /// Aplica un plan ya aprobado. Vuelve a validarlo ENTERO antes de escribir:
 /// el plan viene de la interfaz, y la interfaz recibio datos de un tercero.
 ///
@@ -1782,7 +1796,7 @@ fn aplicar_ficheros(plan: &PlanAplicar) -> Result<ResultadoAplicar, String> {
         if let Ok(texto) = std::str::from_utf8(&datos) {
             avisos.extend(escanear_texto(&f.destino_rel, texto));
         }
-        let final_ = destino.join(&f.destino_rel);
+        let final_ = ruta_final(&plan.tipo, &destino, &plan.nombre, &f.destino_rel);
         // Segundo candado: tras resolver, el destino tiene que seguir dentro.
         if !dentro_de(&destino, &final_) {
             return Err(format!(
@@ -2500,6 +2514,18 @@ mod tests {
     fn un_destino_no_puede_salirse_de_su_carpeta() {
         let base = Path::new("C:/x/.claude/skills/_disabled/pdf");
         assert!(dentro_de(base, &base.join("SKILL.md")));
+        // Renombrar un agente al aplicarlo cambia el fichero que se escribe;
+        // una skill conserva sus rutas. Caso negativo: el nombre del repo
+        // («OtroNombre.md») no puede acabar en disco cuando se ha renombrado.
+        let agentes = Path::new("C:/x/.claude/agents");
+        let f = ruta_final(&TipoRepo::Agente, agentes, "mi-agente", "OtroNombre.md");
+        assert_eq!(f, agentes.join("mi-agente.md"));
+        assert!(!f.to_string_lossy().contains("OtroNombre"));
+        let skill = Path::new("C:/x/.claude/skills/_disabled/mi-skill");
+        assert_eq!(
+            ruta_final(&TipoRepo::Skill, skill, "mi-skill", "scripts/run.py"),
+            skill.join("scripts/run.py")
+        );
         assert!(!dentro_de(base, Path::new("C:/x/.claude/settings.json")));
         assert!(!dentro_de(base, base));
     }

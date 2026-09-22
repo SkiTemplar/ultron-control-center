@@ -18,7 +18,7 @@ Instrucciones de proyecto para trabajar en este repo. Se carga automáticamente 
 - **Proveedores del relevo (2026-09-20)**: `claude`, `codex`, `antigravity` (binario `agy`) y `local`. Gemini fuera: su OAuth individual murió el 18/06/2026 y Antigravity da los mismos modelos de Google con la suscripción viva. **No clavar ids de modelo** en `maria_models::catalogo()` para codex ni antigravity — con cuenta ChatGPT, `-m gpt-5-codex` devuelve 400 ("not supported when using Codex with a ChatGPT account") y el proveedor entero cae; el `default_model` vacío deja elegir a la CLI. Y en `cli_invocation`, la bandera del prompt (`-p`) va SIEMPRE la última: `-p` se come el argumento siguiente, así que `-m modelo` delante la rompe.
 - Scripts `.ps1`: **ASCII puro** (sin em-dash) — PowerShell 5.1 rompe el parser si no.
 - **Tokens (2026-09-06)**: subagentes y workflows en Sonnet por defecto (`CLAUDE_CODE_SUBAGENT_MODEL` en settings); Fable solo en la sesión principal. Nunca un `Workflow` sin `model` explícito en cada `agent()`: 14 subagentes en Fable fueron el 85 % del gasto de un día. `/clear` por tarea y `/compact` antes de 100 k.
-- test: `cd control-center && npx vitest run --silent` (suite que lanza el hook `run-project-tests` tras editar código; 151 tests, ~5 s. `cargo test --lib`: 920 tests, se lanza a mano). `serve::lockfile::…carrera_de_hilos…` falla de forma intermitente bajo carga en Windows; aislado pasa.
+- test: `cd control-center && npx vitest run --silent` (suite que lanza el hook `run-project-tests` tras editar código, ~3 s). `cargo test --lib` (desde `control-center/src-tauri/`) se lanza a mano. `serve::lockfile::…carrera_de_hilos…` falla de forma intermitente bajo carga en Windows; aislado pasa.
 
 ## Mapa del código
 
