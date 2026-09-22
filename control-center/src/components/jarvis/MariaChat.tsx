@@ -222,6 +222,17 @@ type Encargo = {
   /** Punto de control tomado antes de lanzarlo, si la conversación tenía
    *  proyecto (`maria/encargos.rs`). Vacío = no hay nada que deshacer. */
   punto?: string | null;
+  /**
+   * Por qué el encargo ha arrancado SIN punto de control (`puntos::del_turno`
+   * devuelve el sha y el aviso por separado, y `encargos.rs` propaga los dos
+   * desde el 2026-09-22).
+   *
+   * Opcional porque los `encargos.json` escritos antes de hoy no lo traen —
+   * igual que en Rust, donde el campo es `Option<String>` con `serde(default)`.
+   * Un agente suelto, sin supervisión y con acceso total a la carpeta, es el
+   * caso en que MÁS hace falta saberlo, así que no se descarta como antes.
+   */
+  aviso?: string | null;
 };
 
 const ESTADO_ENCARGO: Record<Encargo["estado"], string> = {
@@ -1202,6 +1213,10 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       const en = await invoke<Encargo>("maria_encargo_lanzar", { threadId, provider: p, texto });
       setEncargos((prev) => [...prev.filter((x) => x.id !== en.id), en]);
       avisar(`encargo ${en.id} en marcha con ${p}; puedes seguir hablando`);
+      // Si ha arrancado sin foto del proyecto, se dice AQUÍ y en rojo: el
+      // agente ya está suelto en la carpeta y esto es lo que hay que saber
+      // antes de dejarlo trabajar (2026-09-22).
+      if (en.aviso) avisar(en.aviso, "error");
     } catch (e) {
       avisar(String(e), "error");
     }
@@ -1230,6 +1245,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       await invoke("maria_encargo_olvidar", { threadId, id: en.id });
       setEncargos((prev) => [...prev.filter((x) => x.id !== en.id), nuevo]);
       avisar(`encargo ${nuevo.id} relanzado con ${en.provider}`);
+      // Relanzar es soltar al agente otra vez: la foto puede fallar ahora
+      // aunque la primera vez saliera (2026-09-22).
+      if (nuevo.aviso) avisar(nuevo.aviso, "error");
     } catch (e) {
       avisar(String(e), "error");
     }
@@ -1899,6 +1917,20 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                     >
                       {en.provider} · {ESTADO_ENCARGO[en.estado]}
                     </span>
+                    {/* Arrancó sin foto del proyecto. Va en la tira y no solo
+                        en el aviso del momento de lanzarlo: un encargo dura, y
+                        el aviso se lo lleva el siguiente. Mientras esté ahí,
+                        nada de lo que toque ese agente se podrá deshacer desde
+                        el chat (2026-09-22). */}
+                    {en.aviso && (
+                      <span
+                        title={en.aviso}
+                        className="shrink-0"
+                        style={{ color: "var(--color-danger)" }}
+                      >
+                        sin punto de control
+                      </span>
+                    )}
                     <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-text-tertiary)" }}>
                       {en.estado === "en_curso" ? (vivoEncargo[en.id] ?? en.texto) : en.texto}
                     </span>

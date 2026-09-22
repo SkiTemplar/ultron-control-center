@@ -78,6 +78,24 @@ const ENCARGO_CON_PUNTO = {
   punto: "eeeeeeeeffffffff0000000011111111ffffffff",
 };
 
+/** El otro caso: la foto no salió, así que no hay punto y SÍ hay aviso. Es lo
+ *  que devuelve `puntos::del_turno` cuando el árbol es demasiado grande, no
+ *  hay git o el `index.lock` estaba cogido. */
+const AVISO_SIN_PUNTO =
+  "Sin punto de control: el arbol tiene demasiadas entradas. Lo que toquen los agentes en esta conversacion no se podra deshacer desde el chat.";
+const ENCARGO_SIN_PUNTO = {
+  id: "enc-2",
+  thread_id: "hilo-1",
+  provider: "claude",
+  texto: "toca lo que quieras",
+  estado: "en_curso",
+  creado: "2026-09-22T10:04:00Z",
+  fin: "",
+  resumen: "",
+  punto: null,
+  aviso: AVISO_SIN_PUNTO,
+};
+
 /** Lo que devuelve `maria_punto_volver`, con el contrato del comando.
  *  OJO con `turnos`: son los que QUEDAN en el hilo (lo que devuelve
  *  `relay::truncar`), no los que se han quitado. */
@@ -366,5 +384,52 @@ describe("deshacer con una respuesta en curso", () => {
       ).toBe(true),
     );
     expect(llamada("maria_punto_volver")).toBeUndefined();
+  });
+});
+
+describe("un encargo que arranca sin punto de control lo dice", () => {
+  /** Escribe una línea en la caja y la envía. */
+  function escribir(texto: string) {
+    const caja = screen.getByLabelText("mensaje") as HTMLInputElement;
+    fireEvent.change(caja, { target: { value: texto } });
+    fireEvent.submit(caja.closest("form") as HTMLFormElement);
+  }
+
+  it("/delegar enseña el aviso del encargo recién lanzado", async () => {
+    // El caso peligroso: un agente en paralelo, sin supervisión y con acceso
+    // total a la carpeta, corriendo sin red. Antes `encargos.rs` tiraba el
+    // aviso y la interfaz no tenía nada que pintar, así que el usuario no se
+    // enteraba de nada.
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "maria_threads_list") return [HILO];
+      if (cmd === "maria_relay_thread") return TURNOS;
+      if (cmd === "maria_encargos") return [];
+      if (cmd === "maria_encargo_lanzar") return ENCARGO_SIN_PUNTO;
+      if (cmd === "maria_relay_config") return { order: ["claude"], disabled: [] };
+      return null;
+    });
+    render(<MariaChat compacto hiloInicial="hilo-1" />);
+    await screen.findAllByText("borrado");
+    escribir("/delegar claude toca lo que quieras");
+
+    expect(await screen.findByText(new RegExp(AVISO_SIN_PUNTO.slice(0, 40)))).toBeTruthy();
+  });
+
+  it("la tira del encargo lo sigue diciendo mientras corre", async () => {
+    // El aviso del momento de lanzarlo se lo lleva el siguiente; el encargo
+    // dura. Y lo contrario también: con punto no se pinta nada, que sería
+    // ruido en la única línea que tiene cada encargo.
+    montar({ encargos: [ENCARGO_SIN_PUNTO] });
+    const marca = await screen.findByText("sin punto de control");
+    expect(marca.title).toBe(AVISO_SIN_PUNTO);
+    // Y sin punto no hay «deshacer» que ofrecer (mandamiento 11).
+    expect(screen.queryByRole("button", { name: /deshacer/i })).toBeNull();
+  });
+
+  it("un encargo con punto no pinta la marca", async () => {
+    // Caso negativo: si la marca saliera siempre, dejaría de significar nada.
+    montar({ encargos: [ENCARGO_CON_PUNTO] });
+    await screen.findByRole("button", { name: /deshacer/i });
+    expect(screen.queryByText("sin punto de control")).toBeNull();
   });
 });
