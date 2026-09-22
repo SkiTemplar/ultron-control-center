@@ -52,7 +52,7 @@ type Turn = {
   text: string;
   /** Lo que costó el turno, según lo que dé cada proveedor (`maria/cli.rs`).
    *  Vacío = no lo da: se escribe «sin dato», nunca una cifra inventada.
-   *  Claude da tokens y coste; Codex solo tokens; agy y el modelo local, nada.
+   *  Claude da tokens y coste; Codex y el modelo local solo tokens; agy, nada.
    *  El tiempo lo mide mar.ia, así que lo hay siempre. */
   tokens_in?: number | null;
   tokens_out?: number | null;
@@ -138,6 +138,11 @@ type RelayAnswer = {
   skipped: SkipReason[];
   /** Proveedor que propuso el modelo local para esta tarea. */
   chosen_by_local: string | null;
+  /** Consumo y tiempo del turno, lo mismo que queda en el hilo (`maria/relay.rs`). */
+  tokens_in?: number | null;
+  tokens_out?: number | null;
+  coste_usd?: number | null;
+  ms?: number | null;
 };
 
 type RelayConfig = { order: string[]; disabled: string[] };
@@ -818,6 +823,12 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           model: ans.model,
           effort: ans.effort,
           text: ans.text,
+          // Sin esto la línea de consumo decía «sin dato» hasta reabrir el
+          // hilo, aunque el fichero ya tuviera la cifra (2026-09-22).
+          tokens_in: ans.tokens_in ?? null,
+          tokens_out: ans.tokens_out ?? null,
+          coste_usd: ans.coste_usd ?? null,
+          ms: ans.ms ?? null,
         },
       ]);
       // El primer intercambio le pone nombre a la conversacion: sin esto la

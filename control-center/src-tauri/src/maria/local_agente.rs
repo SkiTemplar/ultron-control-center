@@ -237,7 +237,7 @@ fn vuelta(
     mensajes: &[serde_json::Value],
     con_herramientas: bool,
     pensar: bool,
-) -> Result<(String, Vec<serde_json::Value>), (String, bool)> {
+) -> Result<(String, Vec<serde_json::Value>, super::cli::Consumo), (String, bool)> {
     let mut body = serde_json::json!({
         "model": crate::ollama::toggle::model_name(),
         "stream": true,
@@ -262,6 +262,7 @@ fn vuelta(
 
     let mut texto = String::new();
     let mut llamadas: Vec<serde_json::Value> = Vec::new();
+    let mut consumo = super::cli::Consumo::default();
     for linea in BufReader::new(resp).lines() {
         let Ok(linea) = linea else { break };
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&linea) else {
@@ -277,14 +278,47 @@ fn vuelta(
         if let Some(tc) = v.pointer("/message/tool_calls").and_then(|t| t.as_array()) {
             llamadas.extend(tc.iter().cloned());
         }
+        let hecho = v.get("done").and_then(serde_json::Value::as_bool) == Some(true);
+        if hecho {
+            consumo = consumo_de_ollama(&v);
+        }
         // Soltar `resp` cierra la conexion y Ollama deja de generar.
-        if crate::maria::flujo::cancelado(clave)
-            || v.get("done").and_then(serde_json::Value::as_bool) == Some(true)
-        {
+        if crate::maria::flujo::cancelado(clave) || hecho {
             break;
         }
     }
-    Ok((texto, llamadas))
+    Ok((texto, llamadas, consumo))
+}
+
+/// Lo que Ollama publica en su ultima linea (`done: true`): tokens del prompt
+/// (`prompt_eval_count`) y de la respuesta (`eval_count`). Sin coste, que el
+/// modelo local es gratis. Hasta el 2026-09-22 el relevo daba por hecho que el
+/// local «no publica su consumo» y el chat pintaba «sin dato». Si una version
+/// no trae los contadores quedan en None: «sin dato», nunca un cero inventado.
+pub(crate) fn consumo_de_ollama(v: &serde_json::Value) -> super::cli::Consumo {
+    super::cli::Consumo {
+        tokens_in: v
+            .get("prompt_eval_count")
+            .and_then(serde_json::Value::as_u64),
+        tokens_out: v.get("eval_count").and_then(serde_json::Value::as_u64),
+        coste_usd: None,
+    }
+}
+
+/// Suma el consumo de varias vueltas con herramientas. None + None = None.
+pub(crate) fn sumar_consumo(
+    a: &super::cli::Consumo,
+    b: &super::cli::Consumo,
+) -> super::cli::Consumo {
+    let suma = |x: Option<u64>, y: Option<u64>| match (x, y) {
+        (None, None) => None,
+        _ => Some(x.unwrap_or(0) + y.unwrap_or(0)),
+    };
+    super::cli::Consumo {
+        tokens_in: suma(a.tokens_in, b.tokens_in),
+        tokens_out: suma(a.tokens_out, b.tokens_out),
+        coste_usd: None,
+    }
 }
 
 /// Respuesta del modelo local para `clave` (un hilo o un encargo).
@@ -296,6 +330,19 @@ pub fn responder(
     acceso_total: bool,
     trabajo: Option<&Path>,
 ) -> Result<String, (String, bool)> {
+    responder_con_consumo(clave, prompt, effort, adjuntos, acceso_total, trabajo).map(|(t, _)| t)
+}
+
+/// Igual que `responder`, con los tokens que Ollama publica (sumados si hubo
+/// varias vueltas con herramientas). El chat los pinta junto al modelo.
+pub fn responder_con_consumo(
+    clave: &str,
+    prompt: &str,
+    effort: &str,
+    adjuntos: &Adjuntos,
+    acceso_total: bool,
+    trabajo: Option<&Path>,
+) -> Result<(String, super::cli::Consumo), (String, bool)> {
     let pensar = crate::maria::models::razonar_en_local(effort);
     let mut mensajes: Vec<serde_json::Value> = Vec::new();
     if acceso_total {
@@ -319,8 +366,10 @@ pub fn responder(
     }));
 
     let mut total = String::new();
+    let mut consumo = super::cli::Consumo::default();
     for n in 0..MAX_VUELTAS {
-        let (texto, llamadas) = vuelta(clave, &mensajes, acceso_total, pensar)?;
+        let (texto, llamadas, c) = vuelta(clave, &mensajes, acceso_total, pensar)?;
+        consumo = sumar_consumo(&consumo, &c);
         total.push_str(&texto);
         if llamadas.is_empty() || crate::maria::flujo::cancelado(clave) {
             break;
@@ -361,12 +410,32 @@ pub fn responder(
         };
         return Err((motivo.into(), false));
     }
-    Ok(total)
+    Ok((total, consumo))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn los_tokens_del_local_salen_de_la_linea_final_de_ollama() {
+        let fin = serde_json::json!({"done": true, "prompt_eval_count": 812, "eval_count": 57});
+        let c = consumo_de_ollama(&fin);
+        assert_eq!(
+            (c.tokens_in, c.tokens_out, c.coste_usd),
+            (Some(812), Some(57), None)
+        );
+        // Caso negativo: sin contadores no se inventa un cero.
+        let sin = consumo_de_ollama(&serde_json::json!({"done": true}));
+        assert_eq!((sin.tokens_in, sin.tokens_out), (None, None));
+        // Dos vueltas con herramientas se suman; None + None sigue siendo None.
+        let dos = sumar_consumo(
+            &c,
+            &consumo_de_ollama(&serde_json::json!({"eval_count": 3})),
+        );
+        assert_eq!((dos.tokens_in, dos.tokens_out), (Some(812), Some(60)));
+        assert_eq!(sumar_consumo(&sin, &sin).tokens_in, None);
+    }
 
     #[test]
     fn lo_irreversible_no_se_ejecuta_nunca() {

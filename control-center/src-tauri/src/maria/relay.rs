@@ -126,6 +126,15 @@ pub struct RelayAnswer {
     /// Proveedor que propuso el modelo local para esta tarea (None si no
     /// estaba disponible o contesto algo que no existe).
     pub chosen_by_local: Option<String>,
+    /// Consumo del turno tal cual lo publica el proveedor (`cli::Consumo`) y
+    /// el tiempo medido aqui: lo mismo que se guarda en el hilo, para que la
+    /// interfaz pinte el turno recien llegado sin releer el fichero. Hasta el
+    /// 2026-09-22 la respuesta optimista salia con «tokens: sin dato» aunque
+    /// el hilo en disco ya tuviera la cifra.
+    pub tokens_in: Option<u64>,
+    pub tokens_out: Option<u64>,
+    pub coste_usd: Option<f64>,
+    pub ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1583,7 +1592,7 @@ fn ask_inner(
             } else {
                 String::new()
             };
-            super::local_agente::responder(
+            super::local_agente::responder_con_consumo(
                 thread_id,
                 &format!("{skills}{completo}"),
                 &esfuerzo,
@@ -1591,11 +1600,11 @@ fn ask_inner(
                 ajustes.acceso_total,
                 trabajo.as_deref(),
             )
-            .map(|texto| super::cli::Respuesta {
+            .map(|(texto, consumo)| super::cli::Respuesta {
                 texto,
                 sesion: None,
-                // El modelo local es gratis y no publica su consumo.
-                consumo: super::cli::Consumo::default(),
+                // Gratis, pero Ollama si publica sus tokens (2026-09-22).
+                consumo,
             })
         } else {
             let sesion = if ajustes.sesion_continua {
@@ -1696,6 +1705,7 @@ fn ask_inner(
                 }
                 guardar_sesiones(thread_id, &sesiones);
                 mutar_estado(|s| record_attempt(s, provider, "ok", "contesto"));
+                let ms = reloj.elapsed().as_millis() as u64;
                 append_turn(
                     thread_id,
                     &Turn {
@@ -1708,7 +1718,7 @@ fn ask_inner(
                         tokens_in: respuesta.consumo.tokens_in,
                         tokens_out: respuesta.consumo.tokens_out,
                         coste_usd: respuesta.consumo.coste_usd,
-                        ms: Some(reloj.elapsed().as_millis() as u64),
+                        ms: Some(ms),
                     },
                 )?;
                 return Ok(RelayAnswer {
@@ -1720,6 +1730,10 @@ fn ask_inner(
                     text,
                     skipped,
                     chosen_by_local,
+                    tokens_in: respuesta.consumo.tokens_in,
+                    tokens_out: respuesta.consumo.tokens_out,
+                    coste_usd: respuesta.consumo.coste_usd,
+                    ms: Some(ms),
                 });
             }
             Err((detail, cuota)) => {

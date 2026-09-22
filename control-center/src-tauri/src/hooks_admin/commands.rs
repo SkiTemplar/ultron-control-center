@@ -323,8 +323,14 @@ pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookT
 }
 
 pub fn recent_hook_fires_inner(limit: Option<usize>) -> Result<HookFiresReport, String> {
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let path = home.join(".ultron/.tmp/hook-fires.jsonl");
+    // Hasta el 2026-09-22 esto leia ~/.ultron/.tmp/hook-fires.jsonl, un fichero
+    // que ningun hook escribe: la pantalla decia «sin historial» para siempre
+    // y la instrumentacion de hooks/scripts/lib/hook-obs.js — una linea por
+    // disparo en logs/hook-timing.jsonl con exit_code, elapsed_ms y las
+    // anotaciones de deny-secrets (decision, rule) — no tenia consumidor.
+    let path = crate::maria::paths::home()
+        .join("logs")
+        .join("hook-timing.jsonl");
     let log_path = path.to_string_lossy().to_string();
     if !path.exists() {
         return Ok(HookFiresReport {
@@ -333,55 +339,66 @@ pub fn recent_hook_fires_inner(limit: Option<usize>) -> Result<HookFiresReport, 
             instrumented: false,
         });
     }
-    let raw = fs::read_to_string(&path).map_err(|e| format!("read hook-fires.jsonl: {}", e))?;
-    let lim = limit.unwrap_or(100).clamp(1, 2000);
-    let mut lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
-    let n = lines.len();
-    let start = n.saturating_sub(lim);
-    lines.drain(0..start);
-    let mut fires: Vec<HookFire> = Vec::with_capacity(lines.len());
-    for line in lines.iter().rev() {
-        let parsed: serde_json::Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let timestamp = parsed
-            .get("timestamp")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                parsed
-                    .get("ts")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            });
-        let event = parsed
-            .get("event")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let hook_id = parsed
-            .get("hook_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let matcher = parsed
-            .get("matcher")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let exit_code = parsed.get("exit_code").and_then(|v| v.as_i64());
-        fires.push(HookFire {
-            timestamp,
-            event,
-            hook_id,
-            matcher,
-            exit_code,
-            raw: parsed,
-        });
-    }
+    let raw = fs::read_to_string(&path).map_err(|e| format!("read hook-timing.jsonl: {}", e))?;
+    let hooks = list_hooks_inner().map(|l| l.hooks).unwrap_or_default();
     Ok(HookFiresReport {
-        fires,
+        fires: fires_de_timing(&raw, &hooks, limit.unwrap_or(100).clamp(1, 2000)),
         log_path,
         instrumented: true,
     })
+}
+
+/// Nombre con el que `observe()` registra un hook: el fichero del comando sin
+/// extension (`node …/deny-secrets.js` -> `deny-secrets`).
+fn nombre_de_script(command: &str) -> Option<String> {
+    command
+        .split_whitespace()
+        .find(|t| {
+            [".js", ".mjs", ".cjs", ".py", ".ps1"]
+                .iter()
+                .any(|e| t.ends_with(e))
+        })
+        .and_then(|t| std::path::Path::new(t).file_stem())
+        .map(|s| s.to_string_lossy().to_string())
+}
+
+/// Convierte las lineas de `hook-timing.jsonl` (mas reciente primero, como
+/// mucho `lim`) en disparos con el id que usa la pantalla. Las lineas nombran
+/// al hook por su script; la pantalla lo identifica por el id calculado de
+/// evento + matcher + comando, asi que se cruza por el nombre del fichero.
+/// Un hook que ya no esta registrado conserva su nombre como id: se ve, no se
+/// pierde. Pura.
+pub(crate) fn fires_de_timing(raw: &str, hooks: &[Hook], lim: usize) -> Vec<HookFire> {
+    let por_script: std::collections::HashMap<String, &Hook> = hooks
+        .iter()
+        .filter_map(|h| nombre_de_script(&h.command).map(|n| (n, h)))
+        .collect();
+    let mut lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+    let n = lines.len();
+    lines.drain(0..n.saturating_sub(lim));
+    let mut fires: Vec<HookFire> = Vec::with_capacity(lines.len());
+    for line in lines.iter().rev() {
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let nombre = parsed
+            .get("hook")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let registro = nombre.as_deref().and_then(|n| por_script.get(n).copied());
+        fires.push(HookFire {
+            timestamp: parsed
+                .get("ts")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            event: registro.map(|h| h.event.clone()),
+            hook_id: registro.map(|h| h.id.clone()).or(nombre),
+            matcher: registro.and_then(|h| h.matcher.clone()),
+            exit_code: parsed.get("exit_code").and_then(|v| v.as_i64()),
+            raw: parsed,
+        });
+    }
+    fires
 }
 
 pub fn hooks_last_fired_inner(id: String) -> HookLastFired {
@@ -529,4 +546,71 @@ pub async fn request_hook_via_ai_inner(
         crate::sessions::spawn_session_inner(app, "claude".to_string(), Some(prompt), None, None)
             .await?;
     Ok("Claude session abierta -- pega el JSON resultante en Add hook".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hook(id: &str, event: &str, command: &str) -> Hook {
+        Hook {
+            id: id.into(),
+            event: event.into(),
+            matcher: Some("*".into()),
+            command: command.into(),
+            enabled: true,
+            source: "user".into(),
+            description: None,
+            extra: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn los_disparos_se_cruzan_con_el_hook_por_el_nombre_del_script() {
+        let hooks = vec![
+            hook("a1", "PreToolUse", "node C:/x/.ultron/hooks/scripts/deny-secrets.js"),
+            hook(
+                "b2",
+                "Stop",
+                "uv run python C:/x/.ultron/scripts/cockpit/route_quality_aggregator.py aggregate --today",
+            ),
+        ];
+        let raw = "\
+{\"ts\":\"2026-09-22T10:00:00Z\",\"hook\":\"deny-secrets\",\"elapsed_ms\":3,\"exit_code\":0}\n\
+esto no es json\n\
+{\"ts\":\"2026-09-22T10:00:01Z\",\"hook\":\"route_quality_aggregator\",\"elapsed_ms\":9,\"exit_code\":0}\n\
+{\"ts\":\"2026-09-22T10:00:02Z\",\"hook\":\"deny-secrets\",\"elapsed_ms\":4,\"exit_code\":2,\"decision\":\"deny\",\"rule\":\"dotenv\"}\n\
+{\"ts\":\"2026-09-22T10:00:03Z\",\"hook\":\"huerfano\",\"elapsed_ms\":1,\"exit_code\":0}\n";
+        let f = fires_de_timing(raw, &hooks, 100);
+        assert_eq!(f.len(), 4, "la linea rota se salta, el resto entra");
+        // Mas reciente primero.
+        assert_eq!(f[0].hook_id.as_deref(), Some("huerfano"));
+        assert_eq!(f[0].event, None, "sin registro no se inventa el evento");
+        assert_eq!(f[1].hook_id.as_deref(), Some("a1"));
+        assert_eq!(f[1].event.as_deref(), Some("PreToolUse"));
+        assert_eq!(f[1].exit_code, Some(2));
+        // Las anotaciones de deny-secrets viajan en `raw`, que es lo que pinta la ficha.
+        assert_eq!(
+            f[1].raw.get("rule").and_then(|v| v.as_str()),
+            Some("dotenv")
+        );
+        assert_eq!(f[2].hook_id.as_deref(), Some("b2"));
+        // Caso negativo del tope: con lim=1 solo queda el ultimo disparo.
+        let uno = fires_de_timing(raw, &hooks, 1);
+        assert_eq!(uno.len(), 1);
+        assert_eq!(uno[0].hook_id.as_deref(), Some("huerfano"));
+    }
+
+    #[test]
+    fn el_nombre_del_script_sale_del_fichero_del_comando() {
+        assert_eq!(
+            nombre_de_script("node C:/x/hooks/scripts/deny-secrets.js").as_deref(),
+            Some("deny-secrets")
+        );
+        assert_eq!(
+            nombre_de_script("node C:/x/cockpit/skill-lazy/routing-dispatcher.v2.js").as_deref(),
+            Some("routing-dispatcher.v2")
+        );
+        assert_eq!(nombre_de_script("echo hola"), None);
+    }
 }

@@ -556,7 +556,7 @@ export function Hooks() {
             color: "var(--color-text-tertiary)",
           }}
         >
-          Fire history not available — no hook-fires log found.
+          Fire history not available — logs/hook-timing.jsonl not found (every hook writes one line there via lib/hook-obs.js).
         </div>
       )}
 
