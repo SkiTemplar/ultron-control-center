@@ -136,7 +136,22 @@ fichero antes de parsear el JSON (`install.ps1`: `$raw -replace`;
 cada elemento de `args` — no hubo que tocarlos. Verificado ademas que
 PowerShell 5.1 conserva los arrays de un solo elemento en el
 `ConvertFrom-Json` -> `ConvertTo-Json -Depth 20` del merge (un `args` que
-volviera como cadena habria roto todos los hooks en silencio).
+volviera como cadena habria roto todos los hooks en silencio): las 38 entradas
+salen con `args` en corchetes y la ruta ya expandida.
+
+**Dentro de `hooks` se escribe en ASCII puro**, `statusMessage` incluido.
+`install.ps1` lee la plantilla con `Get-Content -Raw` **sin** `-Encoding UTF8`,
+y PowerShell 5.1 sin BOM la interpreta como ANSI: los puntos suspensivos
+tipograficos de `"memoria…"` (E2 80 A6) aterrizaban en `settings.json` como
+tres caracteres basura y el spinner ensenaba `memoriaâ‚¬Â¦`. Por eso los
+`statusMessage` llevan tres puntos normales. Las notas `_notas_*` si pueden
+llevar acentos: nunca se copian a la config viva.
+
+**Aviso para el dia que un hook vuelva a ser un `.ps1`:** `install.sh` filtra
+las entradas de Windows con `select(.command | test("\\.ps1") | not)`, y en
+forma exec `command` es solo `"node"` — la ruta vive en `args`, asi que ese
+filtro no la veria. Hoy no hay ninguna entrada `.ps1` en la plantilla, asi que
+no cambia nada; si se anade una, hay que mirar tambien `args`.
 
 ## Fail-safe y observabilidad
 
@@ -181,11 +196,20 @@ que no, con su motivo, en `deregistered` del manifiesto:
 | `uni-deliverable-guard.js` | Decision del usuario: bloquea la escritura del entregable en proyectos de asignatura y el **modo universitario** no esta activo. El script y su selftest se quedan: es el limite duro del modo `uni` de `socratic-gate` y se cablea el dia que se active. |
 | `routing-dispatcher.v3.js` | Es la **variante** no elegida del dispatcher; lo vivo es la v2. Registrar las dos duplicaria el enrutado de cada prompt (v3 p50 72 ms, v2 p50 65 ms) e inyectaria un segundo bloque con las mismas skills. El script se queda: CI valida que carga. |
 
-Presupuesto por evento, medido en esta maquina (p50 de 5 ejecuciones en frio,
-con el arranque de node incluido): los sincronos de `UserPromptSubmit` pasan de
-**114 ms a 294 ms** (tope acordado 300 ms) y los de `SessionStart` suman
-**+161 ms** (tope +1 s). Todo lo que entra en `Stop`, `SessionEnd`,
-`SubagentStart` y `SubagentStop` va `async`, que no bloquea el turno.
+Presupuesto por evento, medido en esta maquina (p50 de 9 ejecuciones, arranque
+de node incluido y sumados **en serie**, que es la cota pesimista): los seis
+sincronos de `UserPromptSubmit` pasan de **141 ms a 255 ms** (tope acordado
+300 ms) y los de `SessionStart` suman **+161 ms** (`ensure-codegraph` 51,
+`project-roster-context` 51, `ensure-project` 59) sobre un tope de +1 s. Todo
+lo que entra en `Stop`, `SessionEnd`, `SubagentStart` y `SubagentStop` va
+`async`, que no bloquea el turno.
+
+Detalle de `UserPromptSubmit` (p50, ms): `routing-dispatcher.v2` 50,
+`save-user-prompt` 38, `socratic-gate` 38, `session-feedback-capture` 36,
+`run-project-tests-report` 41, `memory-orchestrate` 53 (camino corto, con la
+puerta de Qdrant cerrando el denso). Buena parte de ese coste es el arranque de
+node, y es justo lo que abarata la forma exec: por la via del shell habria que
+sumarle ~15,6 ms por hook en Git Bash y ~193 ms por hook en PowerShell.
 
 ### `Stop`
 | Hook | Proposito |
