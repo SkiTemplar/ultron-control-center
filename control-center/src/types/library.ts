@@ -158,6 +158,10 @@ export type Manifiesto = {
   asset: string;
   tipo: TipoRepo;
   ficheros: FicheroPlan[];
+  /** Límites de tamaño de ESTE asset. 2026-09-22: antes viajaban en
+   *  `DetalleRepo.avisos`, que el modal lee como bloqueo global, así que una
+   *  skill grande dejaba muerto el botón de las pequeñas del mismo repo. */
+  avisos: AvisoRepo[];
 };
 
 /** Lo que trae un repo y lo que costaría aplicarlo. Los manifiestos SON lo
@@ -188,6 +192,10 @@ export type PlanAplicar = {
   destino: TargetScope;
   project_id: string | null;
   overwrite: boolean;
+  /** Segunda confirmación. 2026-09-22: los avisos del escáner de contenido se
+   *  pintaban con la skill ya escrita. Con esto en `false` el primer Aplicar
+   *  vuelve con los avisos y sin escribir nada; sólo el segundo escribe. */
+  avisos_aceptados: boolean;
 };
 
 export type ResultadoAplicar = {

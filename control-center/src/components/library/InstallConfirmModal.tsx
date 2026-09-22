@@ -164,12 +164,21 @@ export function InstallConfirmModal(props: Props) {
 
   // Un aviso que BLOQUEA no se puede saltar desde la interfaz: el backend
   // aborta igualmente, así que el botón se deshabilita y dice por qué.
+  //
+  // 2026-09-22 — el bloqueo sale del manifiesto ELEGIDO, no del repositorio.
+  // Antes se buscaba en `detalle.avisos`, donde el backend metía los límites
+  // de la primera skill: una skill de 600 KB dejaba muerto el botón de la
+  // skill de 4 KB del mismo repo —e incluso el «Ver qué haría» de un
+  // marketplace— con un mensaje que hablaba de otro asset.
   const bloqueo = useMemo(
-    () => detalle?.avisos.find((a) => a.severidad === "bloquea") ?? null,
-    [detalle],
+    () =>
+      escribeFicheros(tipo)
+        ? (manifiesto?.avisos.find((a) => a.severidad === "bloquea") ?? null)
+        : null,
+    [manifiesto, tipo],
   );
 
-  async function aplicar() {
+  async function aplicar(avisosAceptados = false) {
     setBusy(true);
     setErr(null);
     try {
@@ -197,6 +206,7 @@ export function InstallConfirmModal(props: Props) {
         destino: scope,
         project_id: scope === "project" ? projectId : null,
         overwrite,
+        avisos_aceptados: avisosAceptados,
       };
       const res = await reposAplicar(plan);
       setResultado(res);
@@ -237,14 +247,27 @@ export function InstallConfirmModal(props: Props) {
         {/* ------------------------------------------------------------- */}
         {resultado ? (
           <div className="space-y-3 p-4 text-sm">
+            {/* `ok: false` no es un error: es la segunda confirmación. El
+                backend ha descargado, ha escaneado y NO ha escrito nada. */}
             <div
               className="flex items-start gap-2 rounded border p-2 text-[12px]"
-              style={{
-                borderColor: "rgba(63, 185, 80, 0.30)",
-                background: "rgba(63, 185, 80, 0.08)",
-              }}
+              style={
+                resultado.ok
+                  ? {
+                      borderColor: "rgba(63, 185, 80, 0.30)",
+                      background: "rgba(63, 185, 80, 0.08)",
+                    }
+                  : {
+                      borderColor: "rgba(210, 153, 34, 0.35)",
+                      background: "rgba(210, 153, 34, 0.08)",
+                    }
+              }
             >
-              <Check size={13} className="mt-0.5 shrink-0" />
+              {resultado.ok ? (
+                <Check size={13} className="mt-0.5 shrink-0" />
+              ) : (
+                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              )}
               <span>{resultado.que_paso}</span>
             </div>
 
@@ -303,20 +326,50 @@ export function InstallConfirmModal(props: Props) {
 
             <ListaAvisos avisos={resultado.avisos} />
 
-            <div className="flex justify-end">
-              <button
-                className="rounded px-3 py-1 text-xs font-medium"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-                onClick={() => {
-                  onInstalled(resultado.que_paso);
-                  onClose();
-                }}
-              >
-                Hecho
-              </button>
+            {err && (
+              <div className="rounded border border-[var(--color-error)] bg-[var(--color-surface-1)] p-2 text-xs text-[var(--color-error)]">
+                {err}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              {resultado.ok ? (
+                <button
+                  className="rounded px-3 py-1 text-xs font-medium"
+                  style={{
+                    background: "var(--color-accent)",
+                    color: "var(--color-accent-text)",
+                  }}
+                  onClick={() => {
+                    onInstalled(resultado.que_paso);
+                    onClose();
+                  }}
+                >
+                  Hecho
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="rounded border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
+                    onClick={onClose}
+                    disabled={busy}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
+                    style={{
+                      background: "var(--color-accent)",
+                      color: "var(--color-accent-text)",
+                    }}
+                    onClick={() => aplicar(true)}
+                    disabled={busy}
+                    title="Ya has visto los avisos: esto sí escribe"
+                  >
+                    {busy ? "Aplicando…" : "Aplicar de todos modos"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -455,7 +508,13 @@ export function InstallConfirmModal(props: Props) {
                     </div>
                   )}
 
-                  <ListaAvisos avisos={detalle.avisos} />
+                  {/* Los del asset elegido primero: son los que bloquean. */}
+                  <ListaAvisos
+                    avisos={[
+                      ...(escribeFicheros(tipo) ? (manifiesto?.avisos ?? []) : []),
+                      ...detalle.avisos,
+                    ]}
+                  />
                 </>
               )}
 
@@ -545,7 +604,7 @@ export function InstallConfirmModal(props: Props) {
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
                 }}
-                onClick={aplicar}
+                onClick={() => aplicar(false)}
                 disabled={
                   busy ||
                   bloqueo !== null ||

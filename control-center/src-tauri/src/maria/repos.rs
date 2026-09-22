@@ -174,6 +174,17 @@ pub struct Manifiesto {
     pub asset: String,
     pub tipo: TipoRepo,
     pub ficheros: Vec<FicheroPlan>,
+    /// Limites de tamano de ESTE asset, y de ningun otro.
+    ///
+    /// 2026-09-22: antes los limites se median solo sobre `manifiestos.first()`
+    /// y el aviso viajaba en `DetalleRepo.avisos`, que la interfaz lee como
+    /// bloqueo GLOBAL. Una skill grande dejaba muerto el boton de las pequenas
+    /// del mismo repositorio —con un mensaje que hablaba de otra skill— y una
+    /// skill enorme que no fuera la primera no salia bloqueada en la
+    /// previsualizacion: reventaba al pulsar Aplicar. El bloqueo tiene que
+    /// pertenecer al asset elegido, asi que vive aqui.
+    #[serde(default)]
+    pub avisos: Vec<Aviso>,
 }
 
 /// Lo que trae el repo y lo que costaria aplicarlo. Los manifiestos SON lo
@@ -218,6 +229,17 @@ pub struct PlanAplicar {
     pub project_id: Option<String>,
     #[serde(default)]
     pub overwrite: bool,
+    /// Segunda confirmacion, cuando el escaner de contenido tiene algo que
+    /// decir.
+    ///
+    /// 2026-09-22: los avisos de `escanear_texto` se calculaban sobre el
+    /// contenido ya descargado pero viajaban dentro de `ResultadoAplicar`, o
+    /// sea que la interfaz los pintaba con la skill ya en el disco. El usuario
+    /// no decidia, se enteraba. Con esta bandera en `false` (el valor por
+    /// defecto) el primer Aplicar vuelve con los avisos y SIN escribir nada;
+    /// solo un segundo Aplicar, ya con los avisos delante, escribe.
+    #[serde(default)]
+    pub avisos_aceptados: bool,
 }
 
 fn destino_global() -> String {
@@ -735,6 +757,21 @@ fn ruta_cache(clave: &str) -> Result<PathBuf, String> {
     Ok(dir_cache()?.join(format!("{}.json", nombre_seguro(clave))))
 }
 
+/// Si una lista se puede guardar en la cache.
+///
+/// 2026-09-22: `EntradaCache` solo persiste los hits, y el camino de lectura
+/// (arriba) devuelve `avisos: vec![]` y `parcial: false`. Una lista de
+/// Oficiales que llego a medias —con «Lista incompleta: cuota agotada» o con
+/// «owner/repo: GitHub responde 404»— se servia luego durante 6 h como si
+/// estuviera completa, y la pantalla solo decia «servido de cache». Eso es
+/// exactamente lo que la cabecera del modulo promete que no pasa. Lo barato es
+/// no guardarla: la siguiente visita vuelve a pedir y, si la cuota sigue seca,
+/// cae en la rama `Err`, que ya etiqueta el dato viejo con `parcial: true`.
+#[must_use]
+fn lista_cacheable(avisos: &[String]) -> bool {
+    avisos.is_empty()
+}
+
 fn escribir_cache<T: Serialize>(clave: &str, dato: &T, etag: Option<String>) {
     let Ok(ruta) = ruta_cache(clave) else { return };
     let e = EntradaCache {
@@ -812,7 +849,15 @@ pub fn buscar(fuente: Fuente, libre: &str, limite: u32, refrescar: bool) -> Resp
                 ordenar_en_alza(&mut hits);
             }
             hits.truncate(limite as usize);
-            escribir_cache(&clave, &hits, etag);
+            // Una lista que llega con avisos llego incompleta: no se guarda.
+            // (Aqui `avisos` solo puede venir lleno de Oficiales; el aviso de
+            // lista vacia se anade DESPUES, asi que no afecta a la decision.)
+            if lista_cacheable(&avisos) {
+                escribir_cache(&clave, &hits, etag);
+            }
+            // Se mira ANTES del aviso de lista vacia: "sin resultados" no es
+            // lo mismo que "falta media lista".
+            let parcial = !avisos.is_empty();
             if hits.is_empty() {
                 avisos.push(
                     "GitHub no devuelve ningun repositorio para esta fuente. Prueba otra o escribe una busqueda libre."
@@ -823,7 +868,7 @@ pub fn buscar(fuente: Fuente, libre: &str, limite: u32, refrescar: bool) -> Resp
                 fuente: fuente.id().to_string(),
                 hits,
                 consulta,
-                parcial: false,
+                parcial,
                 avisos,
                 cuota: cuota_de(recurso_de(fuente)),
                 desde_cache: false,
@@ -1086,7 +1131,9 @@ pub fn resumen_de(c: &Clasificacion, truncado: bool) -> String {
         partes.push("configuracion de un servidor MCP".into());
     }
     if c.tipos.contains(&TipoRepo::Hook) {
-        partes.push("hooks (solo se ensenan, nunca se instalan solos)".into());
+        // 2026-09-22: antes decia "solo se ensenan", y no se ensenaba nada:
+        // el "cambio propuesto" de un repo de hooks eran tres comentarios.
+        partes.push("hooks (mar.ia no los instala ni los descarga)".into());
     }
     let mut s = if partes.is_empty() {
         "No sigue ninguna convencion conocida: es un proyecto normal, asi que lo unico que se puede hacer es clonarlo.".to_string()
@@ -1195,10 +1242,14 @@ pub fn manifiestos_de(
             if ficheros.is_empty() {
                 continue;
             }
+            // Cada asset lleva SU bloqueo de tamano: el de la skill grande no
+            // puede dejar muerto el boton de la pequena de al lado.
+            let avisos = avisos_de_limites(&ficheros);
             out.push(Manifiesto {
                 asset: nombre.clone(),
                 tipo,
                 ficheros,
+                avisos,
             });
         }
     }
@@ -1255,12 +1306,11 @@ pub fn detalle(owner: &str, repo: &str, refrescar: bool) -> Result<DetalleRepo, 
     // ni la entrada de cache.
     let manifiestos = manifiestos_de(&entradas, &c, 30);
 
+    // Aqui solo va lo GLOBAL del repositorio (reputacion, truncado, rutas,
+    // hooks). Los limites de tamano son de cada asset y viven en su
+    // `Manifiesto`: la interfaz lee este `avisos` como bloqueo global, asi que
+    // un `bloquea` aqui apagaria el boton para todo el repositorio.
     let mut avisos = Vec::new();
-    // Los limites se miran sobre el manifiesto por defecto (el primero), que
-    // es el que se aplicaria si el usuario no toca nada.
-    if let Some(m) = manifiestos.first() {
-        avisos.extend(avisos_de_limites(&m.ficheros));
-    }
     avisos.extend(avisos_de_reputacion(&hit, ahora));
     if truncado {
         avisos.push(Aviso::mira(
@@ -1280,7 +1330,7 @@ pub fn detalle(owner: &str, repo: &str, refrescar: bool) -> Result<DetalleRepo, 
     if c.tipos.contains(&TipoRepo::Hook) {
         avisos.push(Aviso::mira(
             "trae-hooks",
-            "Trae hooks: un hook es ejecucion en cada evento, asi que aqui solo se ensena el cambio propuesto.",
+            "Trae hooks: un hook es ejecucion en cada evento, asi que mar.ia no los instala ni los descarga. Se miran en el repositorio y se copian a mano.",
         ));
     }
 
@@ -1593,22 +1643,28 @@ pub fn aplicar(plan: PlanAplicar) -> Result<ResultadoAplicar, String> {
     match plan.tipo {
         // Un hook es ejecucion arbitraria en cada evento: instalarlo con un
         // clic seria la peor decision posible de todo este camino.
+        //
+        // 2026-09-22: aqui se devolvia un `diff_propuesto` de tres lineas de
+        // comentario —ni un hook dentro— que la interfaz pintaba bajo el
+        // rotulo «Cambio propuesto (no se ha aplicado nada)», y el texto
+        // mandaba «revisa el cambio propuesto». No habia nada que revisar: era
+        // un boton que no hacia nada disfrazado de accion. Se dice la verdad y
+        // se dice donde mirar, que es el repositorio fijado a este commit.
         TipoRepo::Hook => Ok(ResultadoAplicar {
             ok: true,
-            que_paso: "Este repositorio trae hooks. mar.ia NO instala hooks automaticamente: \
-                       revisa el cambio propuesto y aplicalo tu desde la pestana Hooks."
-                .to_string(),
+            que_paso: format!(
+                "Este repositorio trae hooks. mar.ia NO los instala nunca ni los descarga: un \
+                 hook es ejecucion en cada evento. Abre hooks/, hooks.json o \
+                 .claude/settings.json en https://github.com/{}/{}/tree/{} y copia tu a mano lo \
+                 que quieras desde la pestana Hooks.",
+                plan.owner, plan.repo, plan.sha
+            ),
             escritos: Vec::new(),
             comando_sugerido: None,
-            diff_propuesto: Some(format!(
-                "# Cambio propuesto sobre ~/.claude/settings.json\n\
-                 # Origen: {}/{} @ {}\n\
-                 # NADA de esto se ha escrito. Revisalo hook por hook antes de copiarlo.\n",
-                plan.owner, plan.repo, plan.sha
-            )),
+            diff_propuesto: None,
             avisos: vec![Aviso::mira(
                 "hooks-no-automaticos",
-                "Los hooks se ensenan, nunca se instalan solos.",
+                "Los hooks no se instalan solos ni se descargan: se miran en el repositorio.",
             )],
             assets: Vec::new(),
         }),
@@ -1645,6 +1701,33 @@ pub fn aplicar(plan: PlanAplicar) -> Result<ResultadoAplicar, String> {
         TipoRepo::Mcp => aplicar_mcp(&plan),
         TipoRepo::Skill | TipoRepo::Agente => aplicar_ficheros(&plan),
     }
+}
+
+/// Freno entre la descarga y la escritura.
+///
+/// 2026-09-22: `escanear_texto` corria sobre el contenido ya descargado, pero
+/// sus avisos solo viajaban dentro de `ResultadoAplicar`, que la interfaz
+/// pinta con la skill YA escrita. El usuario no decidia, se enteraba. Con
+/// esto, la primera vuelta devuelve `ok: false` y `escritos: []`, con los
+/// avisos delante; el usuario los lee y vuelve a pulsar, ya con
+/// `avisos_aceptados: true`. Cuesta una ida y vuelta extra solo cuando el
+/// escaner tiene de verdad algo que decir.
+#[must_use]
+fn freno_por_avisos(avisos: &[Aviso], aceptados: bool) -> Option<ResultadoAplicar> {
+    if avisos.is_empty() || aceptados {
+        return None;
+    }
+    Some(ResultadoAplicar {
+        ok: false,
+        que_paso: "No se ha escrito nada. Revisa estos avisos del contenido descargado y vuelve \
+                   a pulsar Aplicar."
+            .to_string(),
+        escritos: Vec::new(),
+        comando_sugerido: None,
+        diff_propuesto: None,
+        avisos: avisos.to_vec(),
+        assets: Vec::new(),
+    })
 }
 
 fn aplicar_ficheros(plan: &PlanAplicar) -> Result<ResultadoAplicar, String> {
@@ -1710,6 +1793,12 @@ fn aplicar_ficheros(plan: &PlanAplicar) -> Result<ResultadoAplicar, String> {
         cargados.push((final_, datos));
     }
 
+    // Todo sigue en memoria: si el escaner tiene algo que decir, se dice AHORA
+    // y no despues de escribir.
+    if let Some(r) = freno_por_avisos(&avisos, plan.avisos_aceptados) {
+        return Ok(r);
+    }
+
     for (ruta, _) in &cargados {
         if ruta.exists() && !plan.overwrite {
             return Err(format!(
@@ -1768,22 +1857,13 @@ fn dentro_de(base: &Path, candidato: &Path) -> bool {
     c.len() > b.len() && c[..b.len()] == b[..]
 }
 
-/// El servidor entra DESHABILITADO y se valida con un ping. Un MCP habilitado
-/// de un desconocido es un proceso que arranca con cada sesion.
-fn aplicar_mcp(plan: &PlanAplicar) -> Result<ResultadoAplicar, String> {
-    if !crate::library::helpers::is_kebab(&plan.nombre) {
-        return Err(format!(
-            "nombre no valido (debe ser kebab-case): {}",
-            plan.nombre
-        ));
-    }
-    let crudo = contenido(&plan.owner, &plan.repo, ".mcp.json", &plan.sha)
-        .or_else(|_| contenido(&plan.owner, &plan.repo, "server.json", &plan.sha))?;
-    let texto = String::from_utf8(crudo).map_err(|e| format!("el .mcp.json no es utf-8: {e}"))?;
-    let mut avisos = escanear_texto(".mcp.json", &texto);
-
+/// El `.mcp.json` de un tercero, convertido en la entrada que se escribiria en
+/// `settings.json`: SIEMPRE con `disabled: true`, y con los avisos del escaner
+/// del texto descargado. Pura, para poder fijarla en un test sin red.
+fn config_mcp_de_texto(texto: &str) -> Result<(serde_json::Value, Vec<Aviso>), String> {
+    let avisos = escanear_texto(".mcp.json", texto);
     let doc: serde_json::Value =
-        serde_json::from_str(&texto).map_err(|e| format!("el .mcp.json no es JSON: {e}"))?;
+        serde_json::from_str(texto).map_err(|e| format!("el .mcp.json no es JSON: {e}"))?;
     // Se acepta `{"mcpServers": {...}}` y tambien la entrada suelta.
     let mut config = doc
         .get("mcpServers")
@@ -1794,25 +1874,77 @@ fn aplicar_mcp(plan: &PlanAplicar) -> Result<ResultadoAplicar, String> {
         return Err("el .mcp.json no describe ningun servidor".to_string());
     };
     obj.insert("disabled".to_string(), serde_json::Value::Bool(true));
+    Ok((config, avisos))
+}
 
-    crate::mcps::add_mcp_inner(plan.nombre.clone(), config)?;
+/// El comando que quedaria escrito, en una linea y saneado: es texto de un
+/// tercero y acaba en la pantalla. Se ensena porque es LO UNICO que el usuario
+/// necesita mirar antes de decidir si habilita el servidor.
+#[must_use]
+fn comando_de_config(config: &serde_json::Value) -> String {
+    if let Some(url) = config.get("url").and_then(serde_json::Value::as_str) {
+        return texto_de_tercero(url, 200);
+    }
+    let Some(command) = config.get("command").and_then(serde_json::Value::as_str) else {
+        return "(sin command: no hay nada que lanzar)".to_string();
+    };
+    let args: Vec<String> = config
+        .get("args")
+        .and_then(serde_json::Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|v| v.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    texto_de_tercero(&format!("{command} {}", args.join(" ")), 200)
+}
 
-    let ping = crate::mcps::mcp_ping_inner(plan.nombre.clone());
-    if !ping.ok {
-        avisos.push(Aviso::mira(
-            "ping-fallido",
-            format!(
-                "El servidor no responde al ping ({}). Se queda deshabilitado.",
-                ping.error.unwrap_or_else(|| "sin detalle".to_string())
-            ),
+/// El servidor entra DESHABILITADO y NO se arranca.
+///
+/// 2026-09-22 — agujero cerrado. Esto escribia el servidor con
+/// `disabled: true` y acto seguido llamaba a `crate::mcps::mcp_ping_inner`,
+/// que hace `spawn()` del `command`. Como el allowlist admite `npx`, `uvx`,
+/// `node`, `python`…, un `.mcp.json` con
+/// `{"command":"npx","args":["-y","<paquete>"]}` descargaba y ejecutaba codigo
+/// arbitrario del tercero con UN clic. El `disabled: true` protege a Claude
+/// Code en sesiones futuras, no a ese clic, asi que la garantia del modulo
+/// ("no ejecuta NADA del repositorio") no cubria el momento peligroso —
+/// ademas de que los avisos del escaner se calculaban antes del `spawn` y se
+/// devolvian despues, o sea que el usuario ni los veia. Ahora no se lanza
+/// nada: se escribe la entrada, se ensena el comando y decide el usuario.
+fn aplicar_mcp(plan: &PlanAplicar) -> Result<ResultadoAplicar, String> {
+    if !crate::library::helpers::is_kebab(&plan.nombre) {
+        return Err(format!(
+            "nombre no valido (debe ser kebab-case): {}",
+            plan.nombre
         ));
     }
+    let crudo = contenido(&plan.owner, &plan.repo, ".mcp.json", &plan.sha)
+        .or_else(|_| contenido(&plan.owner, &plan.repo, "server.json", &plan.sha))?;
+    let texto = String::from_utf8(crudo).map_err(|e| format!("el .mcp.json no es utf-8: {e}"))?;
+
+    let (config, mut avisos) = config_mcp_de_texto(&texto)?;
+
+    // Nada toca `settings.json` hasta que el usuario haya visto los avisos del
+    // escaner. El aviso con el comando se anade DESPUES para no convertir cada
+    // MCP limpio en dos clics: ahi ya no frena nada, solo informa.
+    if let Some(r) = freno_por_avisos(&avisos, plan.avisos_aceptados) {
+        return Ok(r);
+    }
+
+    let comando = comando_de_config(&config);
+    crate::mcps::add_mcp_inner(plan.nombre.clone(), config)?;
+    avisos.push(Aviso::mira(
+        "mcp-comando",
+        format!("Quedo escrito este comando, sin lanzarlo: {comando}"),
+    ));
 
     Ok(ResultadoAplicar {
         ok: true,
         que_paso: format!(
-            "Servidor MCP '{}' anadido DESHABILITADO a settings.json. Habilitalo tu desde la \
-             pestana MCPs cuando hayas mirado su configuracion.",
+            "Servidor MCP '{}' anadido DESHABILITADO a settings.json. No se ha lanzado ningun \
+             proceso: revisa command/args en la pestana MCPs y habilitalo tu.",
             plan.nombre
         ),
         escritos: Vec::new(),
@@ -2164,6 +2296,194 @@ mod tests {
     }
 
     #[test]
+    fn el_limite_de_tamano_es_de_cada_skill_y_no_del_repositorio() {
+        // Los limites se median SOLO sobre `manifiestos.first()` y el aviso
+        // salia en `DetalleRepo.avisos`, que la interfaz usa como bloqueo
+        // global: una skill grande dejaba muerto el boton de la pequena de al
+        // lado —con un mensaje que hablaba de otra skill— y una skill enorme
+        // que no fuera la primera no salia bloqueada hasta reventar al aplicar.
+        let entradas = vec![
+            EntradaArbol {
+                ruta: "skills/a-pequena/SKILL.md".into(),
+                es_fichero: true,
+                tamano: Some(4_000),
+            },
+            EntradaArbol {
+                ruta: "skills/b-grande/SKILL.md".into(),
+                es_fichero: true,
+                tamano: Some(MAX_BYTES_FICHERO + 1),
+            },
+        ];
+        let c = clasificar(&entradas);
+        let ms = manifiestos_de(&entradas, &c, 30);
+
+        let pequena = ms
+            .iter()
+            .find(|m| m.asset == "a-pequena")
+            .expect("la skill pequena tiene manifiesto");
+        let grande = ms
+            .iter()
+            .find(|m| m.asset == "b-grande")
+            .expect("la skill grande tiene manifiesto");
+
+        // La pequena se puede instalar aunque su vecina no quepa.
+        assert!(pequena.avisos.is_empty(), "{:?}", pequena.avisos);
+        // Y la grande, que NO es la primera, sale bloqueada en la
+        // previsualizacion en vez de reventar al pulsar Aplicar.
+        assert!(
+            grande
+                .avisos
+                .iter()
+                .any(|a| a.severidad == Severidad::Bloquea && a.regla == "fichero-enorme"),
+            "{:?}",
+            grande.avisos
+        );
+    }
+
+    // --- aplicar: ningun camino arranca un proceso (2026-09-22) ---
+
+    /// El propio fichero, para fijar una invariante de ARQUITECTURA que no se
+    /// puede comprobar de otra forma sin red ni procesos: el tramo que va de
+    /// `pub fn aplicar(` al modulo de tests no puede lanzar nada.
+    const FUENTE: &str = include_str!("repos.rs");
+
+    /// El codigo de ese tramo SIN los comentarios: los comentarios explican
+    /// justo el agujero que se cerro y nombran lo prohibido.
+    fn cuerpo_de_aplicar() -> String {
+        let inicio = FUENTE
+            .find("pub fn aplicar(")
+            .expect("aplicar() sigue existiendo");
+        let fin = FUENTE[inicio..]
+            .find("#[cfg(test)]")
+            .expect("el modulo de tests sigue detras de aplicar()");
+        FUENTE[inicio..inicio + fin]
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn ningun_camino_de_aplicar_lanza_un_proceso() {
+        // El agujero: `aplicar_mcp` escribia el servidor del tercero con
+        // `disabled: true` y acto seguido llamaba a `mcp_ping_inner`, que hace
+        // `spawn()` del `command`. Un `.mcp.json` con
+        // {"command":"npx","args":["-y","<paquete>"]} descargaba y ejecutaba
+        // codigo del atacante con un solo clic, antes de que el modal pintase
+        // un solo aviso. Aqui se fija el limite que el modulo declara en su
+        // cabecera: de Aplicar no sale ni un proceso.
+        let cuerpo = cuerpo_de_aplicar();
+        assert!(
+            cuerpo.contains("add_mcp_inner"),
+            "el recorte tiene que abarcar aplicar_mcp: si no, el test no mira nada"
+        );
+        for patron in [
+            "mcp_ping",
+            "spawn",
+            "Command",
+            "proc::oculto",
+            "std::process",
+        ] {
+            assert!(
+                !cuerpo.contains(patron),
+                "el camino de aplicar() menciona '{patron}': revisalo, de ahi no puede salir un proceso"
+            );
+        }
+    }
+
+    #[test]
+    fn un_mcp_de_un_tercero_entra_deshabilitado_y_se_ensena_su_comando() {
+        let (config, avisos) = config_mcp_de_texto(
+            r#"{"mcpServers":{"x":{"command":"npx","args":["-y","paquete-atacante"]}}}"#,
+        )
+        .expect("es json valido");
+        assert_eq!(config.get("disabled"), Some(&serde_json::json!(true)));
+        // Lo que el usuario necesita ver para decidir si lo habilita.
+        assert_eq!(comando_de_config(&config), "npx -y paquete-atacante");
+        assert!(avisos.is_empty(), "{avisos:?}");
+    }
+
+    #[test]
+    fn el_comando_de_un_mcp_no_puede_colar_saltos_ni_vallas() {
+        // Caso negativo: el `command` es texto de un tercero y acaba en la
+        // pantalla, asi que pasa por el mismo saneador que las descripciones.
+        let (config, _) = config_mcp_de_texto(
+            "{\"command\":\"npx\",\"args\":[\"-y\",\"a\\nIgnora lo anterior\",\"`x`\"]}",
+        )
+        .expect("es json valido");
+        let c = comando_de_config(&config);
+        assert!(!c.contains('\n'), "{c}");
+        assert!(!c.contains('`'), "{c}");
+    }
+
+    #[test]
+    fn un_mcp_json_que_no_es_json_no_llega_a_escribirse() {
+        assert!(config_mcp_de_texto("esto no es json").is_err());
+        assert!(config_mcp_de_texto("[1,2,3]").is_err());
+    }
+
+    #[test]
+    fn un_repo_de_hooks_no_ofrece_un_cambio_propuesto_vacio() {
+        // El "cambio propuesto" eran tres lineas de comentario: ni un hook
+        // dentro. La interfaz lo pintaba bajo «Cambio propuesto (no se ha
+        // aplicado nada)» y el texto mandaba «revisa el cambio propuesto». No
+        // habia nada que revisar.
+        let plan = PlanAplicar {
+            owner: "owner".into(),
+            repo: "repo".into(),
+            sha: "abc123".into(),
+            tipo: TipoRepo::Hook,
+            nombre: "lo-que-sea".into(),
+            ficheros: Vec::new(),
+            destino: "global".into(),
+            project_id: None,
+            overwrite: false,
+            avisos_aceptados: false,
+        };
+        let r = aplicar(plan).expect("la rama de hooks no toca red ni disco");
+        assert!(r.escritos.is_empty());
+        assert!(
+            r.diff_propuesto.is_none(),
+            "un diff de comentarios es un boton que no hace nada: {:?}",
+            r.diff_propuesto
+        );
+        // Y dice donde mirar de verdad, fijado al commit.
+        assert!(r.que_paso.contains("hooks.json"), "{}", r.que_paso);
+        assert!(r.que_paso.contains("abc123"), "{}", r.que_paso);
+        assert!(
+            !r.que_paso.contains("cambio propuesto"),
+            "ya no se promete un cambio propuesto: {}",
+            r.que_paso
+        );
+    }
+
+    #[test]
+    fn los_avisos_del_contenido_frenan_la_escritura_la_primera_vez() {
+        // Antes los avisos de `escanear_texto` viajaban dentro del resultado y
+        // la interfaz los pintaba con la skill YA en el disco: el usuario no
+        // decidia, se enteraba.
+        let avisos = escanear_texto("SKILL.md", "---\nallowed-tools: Bash(*)\n---\n");
+        assert!(
+            !avisos.is_empty(),
+            "la fixture tiene que disparar el escaner"
+        );
+
+        let freno = freno_por_avisos(&avisos, false).expect("la primera vuelta para");
+        assert!(!freno.ok);
+        assert!(freno.escritos.is_empty(), "no se escribe nada al frenar");
+        assert_eq!(freno.avisos.len(), avisos.len());
+    }
+
+    #[test]
+    fn el_freno_no_se_repite_ni_estorba_a_lo_limpio() {
+        // Los dos gemelos negativos: con el usuario ya avisado se escribe, y
+        // una skill limpia no paga ninguna vuelta extra.
+        let avisos = escanear_texto("SKILL.md", "---\nallowed-tools: Bash(*)\n---\n");
+        assert!(freno_por_avisos(&avisos, true).is_none());
+        assert!(freno_por_avisos(&[], false).is_none());
+    }
+
+    #[test]
     fn la_falta_de_licencia_avisa_pero_no_bloquea() {
         let sin_licencia = RepoHit {
             full_name: "a/b".into(),
@@ -2213,6 +2533,23 @@ mod tests {
         // Caso negativo del reloj hacia atras: no puede dar "vencida" por un
         // escrito_en en el futuro.
         assert!(esta_vigente(ahora + 500, TTL_BUSQUEDA, ahora));
+    }
+
+    #[test]
+    fn una_lista_incompleta_no_se_guarda_para_servirla_luego_como_completa() {
+        // `EntradaCache` solo persiste los hits: el camino de lectura devuelve
+        // `avisos: vec![]` y `parcial: false`. Una lista de Oficiales que
+        // llego a medias —«Lista incompleta: cuota agotada»— se servia 6 h
+        // como completa, y la pantalla solo decia «servido de cache».
+        assert!(!lista_cacheable(&[
+            "Lista incompleta: Cuota de la API de GitHub agotada".to_string()
+        ]));
+        assert!(!lista_cacheable(&[
+            "anthropics/skills: GitHub responde 404".to_string()
+        ]));
+        // Gemelo negativo: sin avisos SI se cachea, que es lo que sostiene el
+        // caso sin token (las busquedas libres siempre llegan asi).
+        assert!(lista_cacheable(&[]));
     }
 
     // --- escapado ---
