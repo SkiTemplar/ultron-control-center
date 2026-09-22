@@ -112,7 +112,20 @@ fn leer_en(path: &Path) -> HashMap<String, String> {
         for (k, v) in map {
             if let Some(combo) = v.as_str() {
                 let trimmed = combo.trim();
-                if !trimmed.is_empty() {
+                // Solo acciones QUE EXISTEN (2026-09-22). El fichero se venia
+                // editando a mano por diseno y hay ids retirados por el camino
+                // (`tab.logs`, que se quito en 5279b94). Si una clave
+                // desconocida entraba en el mapa efectivo, `get` la devolvia,
+                // `AtajosSection.guardar()` la mandaba de vuelta con el resto y
+                // `validar` cortaba en ella ANTES de mirar nada mas: el editor
+                // no podia guardar NADA, ni siquiera volver a los valores por
+                // defecto, y no hay boton para borrar una fila — la unica
+                // salida era editar el JSON a mano, que es justo lo que esta
+                // pantalla existe para evitar. Filtrando aqui, el ciclo
+                // get->set vuelve a cerrar y el fichero se limpia solo en el
+                // siguiente guardado, porque `guardar_en` reescribe unicamente
+                // lo que difiere de los valores por defecto.
+                if !trimmed.is_empty() && out.contains_key(k) {
                     out.insert(k.clone(), trimmed.to_string());
                 }
             }
@@ -445,6 +458,43 @@ mod tests {
         let antes = fs::read_to_string(&path).expect("leer");
         assert!(guardar_en(&path, cambios(&[("chat.nueva", "Ctrl+")])).is_err());
         assert_eq!(fs::read_to_string(&path).expect("leer"), antes);
+    }
+
+    #[test]
+    fn una_accion_retirada_del_fichero_no_bloquea_el_editor() {
+        // Caso negativo del 2026-09-22: `leer_en` metia en el mapa efectivo
+        // CUALQUIER clave del JSON, incluidas acciones que ya no existen.
+        // `AtajosSection.guardar()` devuelve el mapa entero y `validar` corta
+        // en la primera clave desconocida, asi que cambiar cualquier atajo
+        // fallaba siempre con «no conozco la accion «tab.logs»» y el boton de
+        // «por defecto» tampoco servia. Sin boton para borrar la fila, la
+        // unica salida era el JSON a mano.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("in-app-shortcuts.json");
+        fs::write(
+            &path,
+            r#"{"tab.logs": "Alt+9", "chat.deshacer": "Ctrl+Shift+Z"}"#,
+        )
+        .expect("escribir");
+
+        // Lo que ve la interfaz: la accion retirada ya no sale…
+        let efectivos = leer_en(&path);
+        assert!(!efectivos.contains_key("tab.logs"), "{efectivos:?}");
+        // …y lo que SI existe se respeta.
+        assert_eq!(efectivos["chat.deshacer"], "Ctrl+Shift+Z");
+
+        // Y el ciclo get -> set vuelve a cerrar: guardar lo que se acaba de
+        // leer tiene que pasar la validacion, que es lo que estaba roto.
+        let tras = guardar_en(&path, efectivos.clone()).expect("el mapa leido tiene que guardarse");
+        assert_eq!(tras, efectivos);
+        // El fichero se limpia solo: ya no queda ni rastro de la retirada.
+        let crudo: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("leer")).expect("json");
+        assert_eq!(crudo.as_object().expect("objeto").len(), 1, "{crudo}");
+        assert_eq!(crudo["chat.deshacer"], "Ctrl+Shift+Z");
+
+        // Lo que NO cambia: la API sigue negandose a acciones inventadas.
+        assert!(guardar_en(&path, cambios(&[("tab.logs", "Alt+9")])).is_err());
     }
 
     #[test]
