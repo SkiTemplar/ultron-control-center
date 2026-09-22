@@ -171,7 +171,7 @@
       "script": "~/.ultron/hooks/scripts/guardrails-pre.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "07de818ec1f7a2175a047441fc5fa2c9c39c6372feba28ca96259f4a9381fba4",
+      "checksum_sha256": "dae147f1cf0003aa2950c78c20b9e018484a87e2beffda977730b678c6f735f3",
       "version": "1.1.0",
       "env_allowlist": [
         "ULTRON_GUARDRAILS_BASH"
@@ -634,8 +634,8 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "ae8abe85c2a3ed7cc52933888843ec63c76038e1e9d3a696755bffb688c659b7",
-      "version": "1.0.0",
+      "checksum_sha256": "fd3171c615a3199c6df40c635513c95ec08d9abf01ff4260db9640786409a7f8",
+      "version": "3.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
       ],
