@@ -27,12 +27,25 @@ import { PopupHost } from "./components/PopupHost";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { useAccionesChat } from "./lib/accionesChat";
-import { useAtajos } from "./lib/atajos";
-import { seDisparaEscribiendo } from "./components/jarvis/chatAcciones";
+import { decidirAtajo, esCajaDeTexto, useAtajos } from "./lib/atajos";
 import { estadoGlobal } from "./lib/status";
 import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { AlertEntry } from "./types";
+
+/** Los saltos de pestaña: id del atajo -> pestaña. Fuera del manejador para
+ *  poder pasarle a `decidirAtajo` los ids que esta pantalla sabe ejecutar. */
+const TAB_ACTIONS: [string, Tab][] = [
+  ["tab.usage", "usage"],
+  ["tab.notifications", "notifications"],
+  ["tab.sessions", "sessions"],
+  ["tab.projects", "projects"],
+  // tab.memory estaba definido en in_app_shortcuts.rs (Alt+7) pero faltaba
+  // aqui: el atajo existia y no hacia nada (2026-09-17).
+  ["tab.memory", "memory"],
+  ["tab.skills", "skills"],
+  ["tab.settings", "settings"],
+];
 
 export default function App() {
   return (
@@ -245,109 +258,34 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    // Parse a stored combo string ("Ctrl+Alt+K", "Alt+1", ...) into a
-    // predicate against a KeyboardEvent. Returns null when the combo is
-    // unparseable so it's silently ignored rather than throwing.
-    function matchCombo(combo: string, e: KeyboardEvent): boolean {
-      const parts = combo
-        .split("+")
-        .map((p) => p.trim().toLowerCase())
-        .filter(Boolean);
-      if (parts.length === 0) return false;
-      let needCtrl = false;
-      let needAlt = false;
-      let needShift = false;
-      let needMeta = false;
-      let keyPart: string | null = null;
-      for (const p of parts) {
-        if (p === "ctrl" || p === "control") needCtrl = true;
-        else if (p === "alt" || p === "option") needAlt = true;
-        else if (p === "shift") needShift = true;
-        else if (p === "meta" || p === "super" || p === "win" || p === "cmd")
-          needMeta = true;
-        else keyPart = p;
-      }
-      if (!keyPart) return false;
-      if (e.ctrlKey !== needCtrl) return false;
-      if (e.altKey !== needAlt) return false;
-      if (e.shiftKey !== needShift) return false;
-      if (e.metaKey !== needMeta) return false;
-      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
-      return k === keyPart;
-    }
-
-    function isTypingTarget(active: Element | null): boolean {
-      const tag = active?.tagName?.toLowerCase();
-      return (
-        tag === "input" ||
-        tag === "textarea" ||
-        (active as HTMLElement | null)?.isContentEditable === true
-      );
-    }
-
+    // Quien decide es `decidirAtajo` (`lib/atajos.ts`), no este manejador: la
+    // regla de «con el cursor en una caja solo se dispara lo que lleva
+    // modificador» vale para las TRES familias y ahi se puede probar sin
+    // montar la app entera (2026-09-22). Aqui queda leer el foco, cortar la
+    // tecla y ejecutar.
     function onKey(e: KeyboardEvent) {
-      const b = bindingsRef.current;
-      if (!b || Object.keys(b).length === 0) return;
-
-      // Palette / settings / refresh — always active, even inside inputs
-      // because the historical behaviour was Ctrl+K etc. swallows the
-      // input chord anyway.
-      if (b["command.palette"] && matchCombo(b["command.palette"], e)) {
-        e.preventDefault();
-        setPaletteOpen((open) => !open);
+      const que = decidirAtajo({
+        bindings: bindingsRef.current,
+        tecla: e,
+        escribiendo: esCajaDeTexto(document.activeElement),
+        paletaAbierta: paletteOpenRef.current,
+        chat: accionesChatRef.current.map((a) => a.id),
+        tabs: TAB_ACTIONS.map(([id]) => id),
+      });
+      if (!que) return;
+      e.preventDefault();
+      if (que.tipo === "global") {
+        if (que.id === "command.palette") setPaletteOpen((open) => !open);
+        else if (que.id === "open.settings") setTab("settings");
+        else refreshAll();
         return;
       }
-      if (b["open.settings"] && matchCombo(b["open.settings"], e)) {
-        e.preventDefault();
-        setTab("settings");
+      if (que.tipo === "chat") {
+        accionesChatRef.current.find((a) => a.id === que.id)?.run();
         return;
       }
-      if (b["refresh.all"] && matchCombo(b["refresh.all"], e)) {
-        e.preventDefault();
-        refreshAll();
-        return;
-      }
-
-      const escribiendo = isTypingTarget(document.activeElement);
-
-      // Acciones del chat. Van ANTES del corte por "estoy escribiendo" porque
-      // ese es justo el momento en que hacen falta: con el cursor en la caja.
-      // Solo las que llevan modificador (o Escape) se disparan ahi, para no
-      // robar una letra — `seDisparaEscribiendo`. Con la paleta abierta no se
-      // tocan: ahi Escape es suyo.
-      if (!paletteOpenRef.current) {
-        for (const a of accionesChatRef.current) {
-          const combo = b[a.id];
-          if (!combo || !matchCombo(combo, e)) continue;
-          if (escribiendo && !seDisparaEscribiendo(combo)) continue;
-          e.preventDefault();
-          a.run();
-          return;
-        }
-      }
-
-      // Tab jumps — suppressed while typing so they don't eat keystrokes.
-      if (escribiendo) return;
-
-      const TAB_ACTIONS: [string, Tab][] = [
-        ["tab.usage", "usage"],
-        ["tab.notifications", "notifications"],
-        ["tab.sessions", "sessions"],
-        ["tab.projects", "projects"],
-        // tab.memory estaba definido en in_app_shortcuts.rs (Alt+7) pero
-        // faltaba aqui: el atajo existia y no hacia nada (2026-09-17).
-        ["tab.memory", "memory"],
-        ["tab.skills", "skills"],
-        ["tab.settings", "settings"],
-      ];
-      for (const [actionKey, tabKey] of TAB_ACTIONS) {
-        const combo = b[actionKey];
-        if (combo && matchCombo(combo, e)) {
-          e.preventDefault();
-          setTab(tabKey);
-          return;
-        }
-      }
+      const salto = TAB_ACTIONS.find(([id]) => id === que.id);
+      if (salto) setTab(salto[1]);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

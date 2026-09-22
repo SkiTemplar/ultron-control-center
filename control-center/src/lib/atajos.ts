@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { seDisparaEscribiendo } from "../components/jarvis/chatAcciones";
 
 /** Eventos de ventana que obligan a releer el mapa.
  *
@@ -61,4 +62,131 @@ export function useAtajos(): { bindings: Atajos; ref: React.RefObject<Atajos> } 
   }, []);
 
   return { bindings, ref };
+}
+
+// ---------------------------------------------------------------------------
+// Qué hace una pulsación
+// ---------------------------------------------------------------------------
+//
+// Vive aquí por lo mismo que `useAtajos` (2026-09-22): dentro de App.tsx la
+// regla solo se podía probar montando la aplicación entera —terminales
+// incluidas—, y la suite pasaba de 7,5 s a unos 80 s por un fichero. App.tsx se
+// queda con lo que no es decisión: leer el foco, `preventDefault` y ejecutar.
+
+/** Lo que hace falta de un `KeyboardEvent`. Se pide así, y no el evento
+ *  entero, para poder decidir con un objeto plano — igual que `comboDeTecla`
+ *  en el editor de atajos. */
+export type Pulsacion = {
+  key: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+};
+
+/** Las acciones que valen en toda la ventana, en el orden en que se miran. */
+export const ACCIONES_GLOBALES = [
+  "command.palette",
+  "open.settings",
+  "refresh.all",
+] as const;
+
+/** ¿El foco está donde se escribe? Ahí una tecla suelta es una letra, no un
+ *  atajo. */
+export function esCajaDeTexto(el: Element | null): boolean {
+  const tag = el?.tagName?.toLowerCase();
+  return (
+    tag === "input" ||
+    tag === "textarea" ||
+    (el as HTMLElement | null)?.isContentEditable === true
+  );
+}
+
+/**
+ * ¿Casa la combinación guardada («Ctrl+Alt+K», «Alt+1», «Escape») con esta
+ * pulsación? Los modificadores tienen que coincidir EXACTAMENTE: si no,
+ * «Alt+N» se dispararía también con Ctrl+Alt+N, que puede ser otra acción.
+ *
+ * Un combo que no se puede leer devuelve `false` en vez de reventar: el
+ * fichero se puede editar a mano.
+ */
+export function casaCombo(combo: string, tecla: Pulsacion): boolean {
+  const partes = combo
+    .split("+")
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+  if (partes.length === 0) return false;
+  let ctrl = false;
+  let alt = false;
+  let shift = false;
+  let meta = false;
+  let letra: string | null = null;
+  for (const p of partes) {
+    if (p === "ctrl" || p === "control") ctrl = true;
+    else if (p === "alt" || p === "option") alt = true;
+    else if (p === "shift") shift = true;
+    else if (p === "meta" || p === "super" || p === "win" || p === "cmd") meta = true;
+    else letra = p;
+  }
+  if (!letra) return false;
+  if (tecla.ctrlKey !== ctrl) return false;
+  if (tecla.altKey !== alt) return false;
+  if (tecla.shiftKey !== shift) return false;
+  if (tecla.metaKey !== meta) return false;
+  return tecla.key.toLowerCase() === letra;
+}
+
+/** La acción que le toca a una pulsación, o `null` si no le toca ninguna. */
+export type QueHaceLaTecla = { tipo: "global" | "chat" | "tab"; id: string } | null;
+
+/**
+ * Qué hace esta pulsación, con las tres familias en orden.
+ *
+ * La regla que manda es `escribiendo`: con el cursor dentro de una caja de
+ * texto SOLO se dispara lo que lleva modificador (o Escape/F1-F12), porque una
+ * tecla suelta dejaría esa letra intecleable en toda la ventana. Hasta el
+ * 2026-09-22 eso solo protegía a las acciones del chat: las tres globales se
+ * miraban antes del corte y hacían `preventDefault()` pase lo que pase, así
+ * que guardar la Q sola en «Abrir la paleta de comandos» —cosa que
+ * `normaliza_combo` acepta a propósito— dejaba esa letra sin poder escribirse
+ * en el chat, en Ajustes y en el editor de settings.json, con la paleta
+ * parpadeando en cada intento.
+ *
+ * Los saltos de pestaña siguen sin dispararse mientras se escribe, lleven lo
+ * que lleven: es lo que ya hacían.
+ */
+export function decidirAtajo(estado: {
+  bindings: Atajos;
+  tecla: Pulsacion;
+  escribiendo: boolean;
+  /** Con la paleta abierta, las acciones del chat no se tocan: ahí Escape es
+   *  suyo. */
+  paletaAbierta: boolean;
+  /** Ids de las acciones que el chat publica AHORA. Vacío = no hay chat. */
+  chat: readonly string[];
+  /** Ids de los saltos de pestaña que App.tsx sabe ejecutar. */
+  tabs: readonly string[];
+}): QueHaceLaTecla {
+  const { bindings, tecla, escribiendo, paletaAbierta, chat, tabs } = estado;
+  if (!bindings || Object.keys(bindings).length === 0) return null;
+
+  const dispara = (id: string): boolean => {
+    const combo = bindings[id];
+    if (!combo || !casaCombo(combo, tecla)) return false;
+    return !escribiendo || seDisparaEscribiendo(combo);
+  };
+
+  for (const id of ACCIONES_GLOBALES) {
+    if (dispara(id)) return { tipo: "global", id };
+  }
+  if (!paletaAbierta) {
+    for (const id of chat) {
+      if (dispara(id)) return { tipo: "chat", id };
+    }
+  }
+  if (escribiendo) return null;
+  for (const id of tabs) {
+    if (dispara(id)) return { tipo: "tab", id };
+  }
+  return null;
 }
