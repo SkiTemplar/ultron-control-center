@@ -317,7 +317,7 @@ describe("el modelo concreto y el menú de «/» (2026-09-23)", () => {
     expect(screen.getByText(/modelo-medio/)).toBeTruthy();
   });
 
-  it("«/» a secas abre una lista con alto máximo y lleva la marca a la vista", async () => {
+  it("«/» a secas abre una lista con alto máximo y no arrastra el chat", async () => {
     const vista = vi.fn();
     Element.prototype.scrollIntoView = vista;
     render(<MariaChat compacto hiloInicial="hilo-1" />);
@@ -330,9 +330,10 @@ describe("el modelo concreto y el menú de «/» (2026-09-23)", () => {
     const opciones = screen.getAllByRole("option");
     expect(opciones.length).toBeGreaterThan(10);
     vista.mockClear();
-    // Flecha arriba desde la primera = la última: tiene que traerse a la vista.
+    // Flecha arriba desde la primera = la última.
     fireEvent.keyDown(caja, { key: "ArrowUp" });
-    await waitFor(() => expect(vista).toHaveBeenCalled());
+    // Caso negativo: nada de scrollIntoView, que desplazaba el chat entero.
+    expect(vista).not.toHaveBeenCalled();
     const todas = screen.getAllByRole("option");
     const marcada = todas.find((o) => o.getAttribute("aria-selected") === "true");
     expect(marcada).toBe(todas[todas.length - 1]);

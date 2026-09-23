@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
+import { scrollParaVer,
   COMMANDS,
   helpText,
   parseEsfuerzo,
@@ -95,5 +95,18 @@ describe("helpText", () => {
     expect(lineas).toHaveLength(COMMANDS.length);
     expect(lineas[0]).toContain("/nueva");
     expect(helpText()).toContain("/migrar <claude|codex|antigravity|local>");
+  });
+});
+
+describe("scrollParaVer (menú de «/», 2026-09-23)", () => {
+  it("baja justo lo necesario para ver el elemento de abajo", () => {
+    // 24 filas de 24 px en una lista de 320 px: la última empieza en 552.
+    expect(scrollParaVer(552, 24, 0, 320)).toBe(256);
+  });
+  it("sube hasta el elemento si está por encima", () => {
+    expect(scrollParaVer(0, 24, 256, 320)).toBe(0);
+  });
+  it("no mueve nada si ya se ve (caso negativo)", () => {
+    expect(scrollParaVer(48, 24, 0, 320)).toBeNull();
   });
 });

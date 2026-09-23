@@ -86,6 +86,26 @@ export function suggestFor(input: string): SlashCommand[] {
   return COMMANDS.filter((c) => c.name.startsWith(head.toLowerCase()));
 }
 
+/**
+ * Cuánto hay que desplazar una lista para que se vea el elemento marcado, o
+ * null si ya se ve. Pura (en jsdom no hay maquetación que medir).
+ *
+ * Existe porque `scrollIntoView` desplaza TODOS los contenedores con scroll
+ * hasta la ventana: con el menú de «/» abierto arrastraba el chat entero hacia
+ * arriba y dejaba media pantalla en blanco (2026-09-23). Esto solo mueve la
+ * lista.
+ */
+export function scrollParaVer(
+  arriba: number,
+  alto: number,
+  scrollActual: number,
+  visible: number,
+): number | null {
+  if (arriba < scrollActual) return arriba;
+  if (arriba + alto > scrollActual + visible) return arriba + alto - visible;
+  return null;
+}
+
 export type ParsedLine =
   | { kind: "message"; text: string }
   | { kind: "command"; name: string; arg: string }

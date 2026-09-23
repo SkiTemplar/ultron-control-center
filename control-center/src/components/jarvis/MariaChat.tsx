@@ -40,6 +40,7 @@ import {
   parseLine,
   parseProvider,
   suggestFor,
+  scrollParaVer,
   type Esfuerzo,
   type Provider,
 } from "./chatCommands";
@@ -335,6 +336,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   const [sugerido, setSugerido] = useState(0);
   /** Un nodo por sugerencia, para llevar la marcada a la vista. */
   const sugerenciaRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listaSugerenciasRef = useRef<HTMLUListElement | null>(null);
   /** Respuesta que se esta escribiendo ahora mismo (eventos del relevo). */
   const [enVivo, setEnVivo] = useState<{ provider: string; texto: string } | null>(null);
   /** Ficheros que acompañaran al proximo mensaje. */
@@ -687,9 +689,14 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   // y scroll, y la marcada se trae a la vista al moverse con las flechas. Sin
   // esto la lista crecía hacia arriba por encima del chat, la primera opción
   // quedaba fuera del recorte y las flechas movían una marca invisible
-  // (2026-09-23).
+  // (2026-09-23). Se desplaza SOLO la lista: `scrollIntoView` movía también el
+  // chat entero hacia arriba.
   useEffect(() => {
-    sugerenciaRefs.current[sugerido]?.scrollIntoView?.({ block: "nearest" });
+    const lista = listaSugerenciasRef.current;
+    const el = sugerenciaRefs.current[sugerido];
+    if (!lista || !el) return;
+    const nuevo = scrollParaVer(el.offsetTop, el.offsetHeight, lista.scrollTop, lista.clientHeight);
+    if (nuevo !== null) lista.scrollTop = nuevo;
   }, [sugerido]);
 
   async function nuevaConversacion(folder?: string) {
@@ -1901,6 +1908,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         <div className="relative">
           {sugerencias.length > 0 && (
             <ul
+              ref={listaSugerenciasRef}
               className="hud-panel hud-menu absolute bottom-full left-0 mb-1 w-full max-w-[520px] overflow-y-auto py-1"
               style={{ maxHeight: "min(45vh, 320px)" }}
               role="listbox"
