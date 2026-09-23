@@ -48,13 +48,23 @@ function dateFilter({ yearFrom, yearTo }) {
   return parts;
 }
 
+/**
+ * Texto apto para ir DENTRO de `filter=`: ahí «,» separa filtros, «:» separa
+ * clave y valor y «|» es el OR, así que un título como "Sim-to-Real: bridging
+ * the gap, again" rompía la sintaxis y OpenAlex devolvía HTTP 400 (2026-09-23).
+ * Se sustituyen por espacios; para la búsqueda de texto son irrelevantes.
+ */
+function filterSafeText(text) {
+  return String(text).replace(/[,:|]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 /** GET /works crudo para un `variant` ({mode:'search'|'title_and_abstract', text}). */
 async function fetchVariant(variant, { perPage, yearFrom, yearTo }) {
   const params = authParams();
   params.set('per-page', String(Math.max(1, Math.min(100, perPage))));
   const filters = dateFilter({ yearFrom, yearTo });
   if (variant.mode === 'title_and_abstract') {
-    filters.push(`title_and_abstract.search:${variant.text}`);
+    filters.push(`title_and_abstract.search:${filterSafeText(variant.text)}`);
   } else {
     params.set('search', variant.text);
   }
@@ -184,6 +194,7 @@ module.exports = {
   getWorkByDoi,
   buildSearchVariants,
   extractPhrases,
+  filterSafeText,
   getReferencedWorkIds,
   getWorksByIds,
   getCitingWorks,

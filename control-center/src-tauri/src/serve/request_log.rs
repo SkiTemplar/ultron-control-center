@@ -73,8 +73,19 @@ pub(super) fn log_request(req: &Req, resp: &Value, elapsed: Duration, models_bef
         .append(true)
         .open(&path)
     {
-        let _ = writeln!(f, "{line}");
+        let _ = f.write_all(&jsonl_line(&line));
     }
+}
+
+/// La línea completa (con `\n`) en un solo búfer. `writeln!(f, "{value}")`
+/// sobre un `File` sin búfer emite un `write` por token de `serde_json`, y con
+/// peticiones concurrentes las líneas salían entrelazadas carácter a carácter
+/// (`{{{{""""busy…`: 22 de 3.964 líneas ilegibles el 2026-09-23). Un único
+/// `write_all` en modo append deja cada línea entera.
+fn jsonl_line(value: &Value) -> Vec<u8> {
+    let mut buf = value.to_string().into_bytes();
+    buf.push(b'\n');
+    buf
 }
 
 /// Rotación de un nivel: pasado el tope, el fichero actual pasa a `.1` y se
@@ -86,5 +97,54 @@ fn rotate_if_large(path: &Path) {
     if too_big {
         let rotated = path.with_extension("jsonl.1");
         let _ = std::fs::rename(path, rotated);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jsonl_line_es_una_linea_json_completa() {
+        let v = json!({"cmd": "orchestrate", "ms": 12, "error": null});
+        let bytes = jsonl_line(&v);
+        assert_eq!(*bytes.last().unwrap(), b'\n');
+        let texto = std::str::from_utf8(&bytes[..bytes.len() - 1]).unwrap();
+        assert!(!texto.contains('\n'));
+        assert_eq!(serde_json::from_str::<Value>(texto).unwrap(), v);
+    }
+
+    #[test]
+    fn escrituras_concurrentes_no_entrelazan_lineas() {
+        let dir = std::env::temp_dir().join(format!("ultron-reqlog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("log.jsonl");
+        let _ = std::fs::remove_file(&path);
+        let hilos: Vec<_> = (0..8)
+            .map(|t| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for i in 0..200 {
+                        let v = json!({"hilo": t, "i": i, "relleno": "x".repeat(64)});
+                        let mut f = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&path)
+                            .unwrap();
+                        f.write_all(&jsonl_line(&v)).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in hilos {
+            h.join().unwrap();
+        }
+        let contenido = std::fs::read_to_string(&path).unwrap();
+        let lineas: Vec<&str> = contenido.lines().collect();
+        assert_eq!(lineas.len(), 8 * 200);
+        assert!(lineas
+            .iter()
+            .all(|l| serde_json::from_str::<Value>(l).is_ok()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

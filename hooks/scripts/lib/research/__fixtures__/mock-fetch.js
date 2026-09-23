@@ -20,14 +20,16 @@ function fakeResponse({ status = 200, body = '', headers = {}, isText = false })
   };
 }
 
-/** Instala el mock; devuelve { calls, restore() } para inspeccionar/desmontar. */
+/** Instala el mock; devuelve { calls, requests, restore() }: calls son las URLs y requests { url, headers }. */
 function installMockFetch(routes) {
   const original = global.fetch;
   const calls = [];
+  const requests = [];
   const cursors = new Map();
 
-  global.fetch = async (url) => {
+  global.fetch = async (url, init = {}) => {
     calls.push(String(url));
+    requests.push({ url: String(url), headers: { ...(init.headers || {}) } });
     const route = routes.find((r) => r.test(String(url)));
     if (!route) throw new Error(`mock-fetch: sin ruta para ${url}`);
     const step = cursors.get(route) ?? 0;
@@ -39,6 +41,7 @@ function installMockFetch(routes) {
 
   return {
     calls,
+    requests,
     restore: () => {
       global.fetch = original;
     },

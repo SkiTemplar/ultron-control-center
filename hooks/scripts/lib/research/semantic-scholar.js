@@ -28,17 +28,47 @@ function minIntervalMs() {
   return process.env.SEMANTIC_SCHOLAR_API_KEY ? 1_000 : 3_000;
 }
 
+// La clave dejo de valer el 2026-09-23 (403 con clave, 200 sin ella): cada
+// llamada fallaba entera en vez de degradar al pool compartido. Tras el primer
+// 401/403 con clave se deja de enviar durante el resto del proceso.
+let keyRejected = false;
+
 function authHeaders() {
-  return process.env.SEMANTIC_SCHOLAR_API_KEY ? { 'x-api-key': process.env.SEMANTIC_SCHOLAR_API_KEY } : {};
+  const key = process.env.SEMANTIC_SCHOLAR_API_KEY;
+  return key && !keyRejected ? { 'x-api-key': key } : {};
+}
+
+/**
+ * request() con la clave si la hay; si S2 la rechaza (401/403), avisa una vez
+ * por stderr y repite sin clave (pool compartido: puede dar 429 en rafagas,
+ * pero no falla por la clave).
+ */
+async function s2Request(url, opts) {
+  try {
+    return await request(url, { ...opts, headers: authHeaders() });
+  } catch (e) {
+    const rejected = e instanceof HttpError && (e.status === 401 || e.status === 403);
+    if (!rejected || keyRejected || !process.env.SEMANTIC_SCHOLAR_API_KEY) throw e;
+    keyRejected = true;
+    process.stderr.write(
+      `[research] Semantic Scholar rechaza SEMANTIC_SCHOLAR_API_KEY (HTTP ${e.status}): se sigue sin clave. ` +
+        'Regenerala en https://www.semanticscholar.org/product/api\n',
+    );
+    return request(url, { ...opts, headers: {} });
+  }
+}
+
+/** Solo para tests: vuelve a enviar la clave. */
+function _resetKeyRejected() {
+  keyRejected = false;
 }
 
 /** Busca papers en Semantic Scholar. Devuelve data[] tal cual la API. */
 async function searchPapers(query, { limit = 25 } = {}) {
   const params = new URLSearchParams({ query, fields: FIELDS, limit: String(Math.max(1, Math.min(100, limit))) });
-  const { body } = await request(`${BASE}/paper/search?${params}`, {
+  const { body } = await s2Request(`${BASE}/paper/search?${params}`, {
     namespace: NAMESPACE,
     minIntervalMs: minIntervalMs(),
-    headers: authHeaders(),
     retries: 4, // el pool sin clave satura con frecuencia: mas margen de backoff
   });
   return body.data ?? [];
@@ -48,10 +78,9 @@ async function searchPapers(query, { limit = 25 } = {}) {
 async function getPaperByDoi(doi) {
   const url = `${BASE}/paper/DOI:${encodeURIComponent(doi)}?fields=${FIELDS}`;
   try {
-    const { body } = await request(url, {
+    const { body } = await s2Request(url, {
       namespace: NAMESPACE,
       minIntervalMs: minIntervalMs(),
-      headers: authHeaders(),
       retries: 3,
     });
     return body;
@@ -72,7 +101,7 @@ async function getReferences(doi, { limit = 25 } = {}) {
   const params = new URLSearchParams({ fields: RELATION_FIELDS, limit: String(Math.max(1, Math.min(1000, limit))) });
   const url = `${BASE}/paper/DOI:${encodeURIComponent(doi)}/references?${params}`;
   try {
-    const { body } = await request(url, { namespace: NAMESPACE, minIntervalMs: minIntervalMs(), headers: authHeaders(), retries: 3 });
+    const { body } = await s2Request(url, { namespace: NAMESPACE, minIntervalMs: minIntervalMs(), retries: 3 });
     return body.data ?? [];
   } catch (e) {
     if (e instanceof HttpError && e.status === 404) {
@@ -91,7 +120,7 @@ async function getCitations(doi, { limit = 25 } = {}) {
   const params = new URLSearchParams({ fields: RELATION_FIELDS, limit: String(Math.max(1, Math.min(1000, limit))) });
   const url = `${BASE}/paper/DOI:${encodeURIComponent(doi)}/citations?${params}`;
   try {
-    const { body } = await request(url, { namespace: NAMESPACE, minIntervalMs: minIntervalMs(), headers: authHeaders(), retries: 3 });
+    const { body } = await s2Request(url, { namespace: NAMESPACE, minIntervalMs: minIntervalMs(), retries: 3 });
     return body.data ?? [];
   } catch (e) {
     if (e instanceof HttpError && e.status === 404) {
@@ -101,4 +130,4 @@ async function getCitations(doi, { limit = 25 } = {}) {
   }
 }
 
-module.exports = { searchPapers, getPaperByDoi, getReferences, getCitations };
+module.exports = { searchPapers, getPaperByDoi, getReferences, getCitations, _resetKeyRejected };

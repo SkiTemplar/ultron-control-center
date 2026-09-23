@@ -82,6 +82,7 @@ const BATCH_CMDS: &[&str] = &[
     "reindex-skills-lazy",
     "catalog",
     "sweep",
+    "hubs",
 ];
 
 /// Baja la prioridad del PROPIO proceso a BELOW_NORMAL (best-effort, solo
@@ -233,6 +234,25 @@ fn run() -> Result<serde_json::Value, String> {
             let to = flag_value(&args, "--to")
                 .ok_or_else(|| "reassign-project requiere --to <slug-canonico>".to_string())?;
             ul::memory::backfill::reassign_project(&from, &to, has_flag(&args, "--apply"))
+        }
+        // Hubs del recall (2026-09-23): repite prompts reales de orchestrate.jsonl
+        // por el recall en crudo y lista los items que se inyectan en una fracción
+        // alta de ellos. --apply escribe cockpit/memory-hubs.json, que el motor
+        // usa para bajarles el rrf_score (ULTRON_HUB_PENALTY).
+        //   ultron-memory hubs [--prompts 200] [--threshold 0.2] [--min-count 5] [--apply] [--with-penalty] [--with-penalty]
+        "hubs" => {
+            let num = |flag: &str, def: f64| {
+                flag_value(&args, flag)
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(def)
+            };
+            to_json(ul::commands::memory::recall_unified::hubs::compute_hubs(
+                num("--prompts", 200.0) as usize,
+                num("--threshold", 0.2) as f32,
+                num("--min-count", 5.0) as usize,
+                has_flag(&args, "--apply"),
+                has_flag(&args, "--with-penalty"),
+            )?)
         }
         "reindex" => {
             let (indexed, errors) =

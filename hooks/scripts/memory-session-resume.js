@@ -34,6 +34,9 @@ observe('memory-session-resume');
 // arrancaba tras el primer MISS. spawnDetached es idempotente (sale al momento
 // si ya hay uno vivo) y no bloquea el resume.
 try { spawnDetached(['serve']); } catch { /* fail-safe: el resume sigue */ }
+// (2026-09-23) Lista de comodines del recall: se regenera desacoplada, como
+// mucho una vez por semana (lib/hubs-refresh.js).
+try { require('./lib/hubs-refresh').maybeRefreshHubs(spawnDetached); } catch { /* fail-safe */ }
 
 function emit(additionalContext) {
   const ctx = additionalContext || '';

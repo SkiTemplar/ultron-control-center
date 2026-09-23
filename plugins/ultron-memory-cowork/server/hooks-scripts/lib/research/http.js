@@ -18,6 +18,29 @@ const DEFAULT_RETRIES = 3;
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 8_000;
 
+// Parametros de query que llevan credenciales o datos personales: OpenAlex
+// (api_key, mailto), Crossref (mailto), Unpaywall (email). Nunca pueden salir
+// en un mensaje de error: los avisos de research_search llegan al chat.
+const SENSITIVE_PARAMS = new Set(['api_key', 'apikey', 'key', 'mailto', 'email', 'token', 'access_token']);
+
+/**
+ * La URL con los parametros sensibles sustituidos por `***`, para mensajes y
+ * errores. 2026-09-23: un aviso de OpenAlex llevo al chat la URL completa con
+ * `api_key=` y el correo de la universidad. Si la URL no se puede parsear se
+ * devuelve sin query antes que arriesgar la fuga.
+ */
+function redactUrl(url) {
+  try {
+    const u = new URL(url);
+    for (const name of [...u.searchParams.keys()]) {
+      if (SENSITIVE_PARAMS.has(name.toLowerCase())) u.searchParams.set(name, '***');
+    }
+    return u.toString();
+  } catch {
+    return String(url).split('?')[0];
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -43,10 +66,11 @@ async function fetchOnce(url, { method, headers, timeoutMs }) {
   try {
     return await fetch(url, { method, headers, signal: controller.signal });
   } catch (e) {
+    const safeUrl = redactUrl(url);
     if (e.name === 'AbortError') {
-      throw new TimeoutError(`timeout tras ${timeoutMs}ms: ${url}`, { url, timeoutMs });
+      throw new TimeoutError(`timeout tras ${timeoutMs}ms: ${safeUrl}`, { url: safeUrl, timeoutMs });
     }
-    throw new HttpError(`fallo de red: ${String(e.message ?? e)}`, { url });
+    throw new HttpError(`fallo de red: ${String(e.message ?? e)}`, { url: safeUrl });
   } finally {
     clearTimeout(timer);
   }
@@ -99,9 +123,10 @@ async function request(url, opts = {}) {
     }
 
     const bodyText = await res.text().catch(() => '');
-    throw new HttpError(`HTTP ${res.status} en ${url}`, { status: res.status, url, body: bodyText.slice(0, 500) });
+    const safeUrl = redactUrl(url);
+    throw new HttpError(`HTTP ${res.status} en ${safeUrl}`, { status: res.status, url: safeUrl, body: bodyText.slice(0, 500) });
   }
-  throw lastErr ?? new HttpError(`fallo desconocido en ${url}`, { url });
+  throw lastErr ?? new HttpError(`fallo desconocido en ${redactUrl(url)}`, { url: redactUrl(url) });
 }
 
 /** Igual que request(), pero con cache en disco por TTL cuando se pasa cacheKey. */
@@ -112,4 +137,4 @@ async function requestCached(url, opts = {}) {
   return value;
 }
 
-module.exports = { request, requestCached };
+module.exports = { request, requestCached, redactUrl };

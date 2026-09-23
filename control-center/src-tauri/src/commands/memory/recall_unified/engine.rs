@@ -221,6 +221,7 @@ pub fn build_trace_typed(
         // proyecto. En cross-project (cerebro entero) sigue visible; el ambiente
         // Session/Agent mantiene solo el down-rank del 07-13.
         let ambient_penalty = env_knob_f32("ULTRON_AMBIENT_PENALTY", AMBIENT_PENALTY);
+        let hub_penalty = super::hubs::hub_penalty();
         fused.retain_mut(|hit| {
             let (confidence, updated_at, item_project, item_scope) =
                 store::get_item(&conn, &hit.canonical_id)
@@ -254,7 +255,10 @@ pub fn build_trace_typed(
                 item_scope,
                 ambient_penalty,
             );
-            hit.rrf_score *= quality_factor * recency_factor * ambient_factor;
+            // (2026-09-23) Hubs: items que el recall en crudo inyecta en una
+            // fracción alta de prompts sin relación (ver hubs.rs).
+            let hub = super::hubs::hub_factor(&hit.canonical_id, hub_penalty);
+            hit.rrf_score *= quality_factor * recency_factor * ambient_factor * hub;
             true
         });
         // Re-sort after quality adjustment (preserves dense_score as final tie-break).
@@ -327,7 +331,17 @@ pub fn build_trace_typed(
             })
             .collect();
 
-        match crate::qdrant::rerank_pairs_bounded(query, &pairs) {
+        // El techo de 3,5 s y el "uno en vuelo" protegen el hot path, que lo
+        // sirve el daemon. Fuera de él (eval, trace, one-shot) no hay hook que
+        // proteger: con el techo, el eval del golden cortaba el rerank en las
+        // 13 queries del v3 (8 timeouts + 5 "ya en curso") y el A/B de
+        // ULTRON_RERANK medía dos veces el orden fusionado (2026-09-23).
+        let reranked = if crate::daemon_client::is_in_daemon() {
+            crate::qdrant::rerank_pairs_bounded(query, &pairs)
+        } else {
+            crate::qdrant::rerank_pairs(query, &pairs)
+        };
+        match reranked {
             Ok(ranked) => {
                 // Build a score lookup: id → cross-encoder score.
                 let score_map: HashMap<&str, f32> =
