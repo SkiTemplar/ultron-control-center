@@ -689,8 +689,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   // y scroll, y la marcada se trae a la vista al moverse con las flechas. Sin
   // esto la lista crecía hacia arriba por encima del chat, la primera opción
   // quedaba fuera del recorte y las flechas movían una marca invisible
-  // (2026-09-23). Se desplaza SOLO la lista: `scrollIntoView` movía también el
-  // chat entero hacia arriba.
+  // (2026-09-23). Se desplaza SOLO la lista (`scrollIntoView` arrastraría a los
+  // contenedores de arriba). Que el menú flote encima del historial en vez de
+  // comérselo depende de `.hud-panel` en `@layer components` (ver styles.css).
   useEffect(() => {
     const lista = listaSugerenciasRef.current;
     const el = sugerenciaRefs.current[sugerido];
@@ -1909,7 +1910,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           {sugerencias.length > 0 && (
             <ul
               ref={listaSugerenciasRef}
-              className="hud-panel hud-menu absolute bottom-full left-0 mb-1 w-full max-w-[520px] overflow-y-auto py-1"
+              className="hud-panel hud-menu absolute bottom-full left-0 z-40 mb-1 w-full max-w-[520px] overflow-y-auto py-1"
               style={{ maxHeight: "min(45vh, 320px)" }}
               role="listbox"
               aria-label="comandos disponibles"
