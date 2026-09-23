@@ -48,6 +48,10 @@ $BackupScriptPath = Join-Path $env:USERPROFILE ".ultron\scripts\backup\weekly-ba
 # Task name prefix in Windows Task Scheduler
 $TaskPrefix = "Ultron"
 
+# Arranque con Windows desactivado en mar.ia -> la tarea se crea APAGADA.
+$ArranquePref = Join-Path $PSScriptRoot '..\arranque-pref.ps1'
+if (Test-Path -LiteralPath $ArranquePref) { . $ArranquePref }
+
 # -- Status --------------------------------------------------------------------
 if ($Status) {
     Write-Host "[Cockpit] Scheduled tasks status:" -ForegroundColor Cyan
@@ -230,6 +234,11 @@ foreach ($prop in $config.tasks.PSObject.Properties) {
                            -Settings $settings `
                            -Principal $principal `
                            -Description "ULTRON Cockpit: $($taskCfg.description)" | Out-Null
+    if (Get-Command Disable-MariaTareaSiArranqueApagado -ErrorAction SilentlyContinue) {
+        [void](Disable-MariaTareaSiArranqueApagado -TaskName $fullName)
+    } else {
+        Write-Warning "Falta $ArranquePref : no puedo comprobar si el arranque de mar.ia esta desactivado."
+    }
 
     Write-Host ("[Cockpit] [INSTALL] {0,-32} login+{1,2}min - {2}" -f `
                 $fullName, $taskCfg.delay_minutes, $taskCfg.frequency) -ForegroundColor Green

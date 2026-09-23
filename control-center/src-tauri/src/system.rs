@@ -370,6 +370,15 @@ pub async fn edit_task_inner(
 ) -> Result<EditTaskResult, String> {
     validate_task_name(&name)?;
     validate_trigger_type(&new_trigger_type)?;
+    // Con el arranque desactivado en Ajustes, ninguna tarea de mar.ia puede
+    // quedar lanzándose al iniciar sesión (2026-09-23): se explica y no se
+    // toca, en vez de crearla y apagarla por detrás.
+    let arranque_activado = crate::maria::arranque::leer_pref().is_none_or(|p| p.activado);
+    if let Some(motivo) =
+        crate::maria::arranque::choque_con_edicion(arranque_activado, &new_trigger_type, catch_up)
+    {
+        return Err(motivo);
+    }
 
     let at_value = new_trigger_at.unwrap_or_default();
     // For Daily/Weekly the HH:MM is required; AtLogon does not need it.

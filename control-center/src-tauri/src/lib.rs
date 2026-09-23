@@ -78,7 +78,6 @@ pub mod commands;
 use std::path::PathBuf;
 
 use tauri::{Emitter, Manager};
-use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 // ---------------------------------------------------------------------------
@@ -186,6 +185,16 @@ pub fn run() {
     // severity >= error, and exit without UI. Used by the daily
     // ULTRON-Daily-Diagnostic scheduled task (see commands/diagnostics_native).
     let args: Vec<String> = std::env::args().collect();
+
+    // Arranque con Windows desactivado en Ajustes y aun asi lanzada por
+    // Windows (una entrada que dejo otra copia, un build viejo...): se quita la
+    // entrada y se sale AQUI, antes de levantar Qdrant, el daemon de memoria,
+    // la voz u Ollama. Una apertura a mano no pasa por aqui (2026-09-23).
+    if maria::arranque::debe_salir(&args, maria::arranque::leer_pref().as_ref()) {
+        maria::arranque::quitar_entradas_run();
+        std::process::exit(0);
+    }
+
     if args.iter().any(|a| a == "--run-diagnostic") {
         let report = diagnostics_native::run_full_diagnostic_native();
         let _ = persist_headless(&report);
@@ -209,10 +218,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--from-autostart"]),
-        ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -348,10 +353,11 @@ pub fn run() {
                 tracing::error!(error = %e, "tray init failed");
             }
 
-            // mar.ia arranca con Windows: es un asistente, no una herramienta
-            // que se abre a mano. Solo se registra la primera vez (ver
-            // `ensure_autostart`), asi que desactivarlo en Ajustes es firme.
-            maria::ensure_autostart(app.handle());
+            // Arranque con Windows: el sistema queda como diga Ajustes
+            // (`cockpit/maria/arranque.json`). Activado: la entrada apunta a
+            // este ejecutable. Desactivado: ni entrada ni tareas de inicio.
+            // En su hilo: lee tareas con PowerShell y no debe frenar la ventana.
+            std::thread::spawn(maria::arranque::aplicar_al_arrancar);
 
             // Quota watchdog — polls quota-state.json every 60 s and emits
             // quota:updated / quota:critical / quota:reset events so the

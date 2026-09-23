@@ -244,12 +244,11 @@ pub fn settings_save_inner(payload: SettingsSavePayload) -> Result<SettingsSaveR
 // Autostart legacy artifact purge
 // ---------------------------------------------------------------------------
 //
-// Background. The "Start with Windows" toggle in the General section uses
-// `tauri-plugin-autostart` as the single source of truth. On Windows the
-// plugin reads/writes a value under
-//   HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-// whose name is the app's productName ("ULTRON Control Center"). Its
-// `isEnabled()` only inspects that registry value.
+// Background. Since 2026-09-23 the single source of truth for "start with
+// Windows" is `maria::arranque` (the user's choice saved in
+// `cockpit/maria/arranque.json`); `tauri-plugin-autostart` was removed. The
+// Run value is named "mar.ia". This purge still matters: turning the startup
+// OFF calls it, so no leftover shortcut launches mar.ia at logon.
 //
 // Earlier builds of ULTRON (and at least one manual debug session during
 // 2026-05-14) seeded a *different* autostart mechanism: a shortcut file
@@ -297,7 +296,7 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
         // Match the legacy display name(s) we know about. Keep this list
         // narrow — we must never delete a shortcut the user installed for
         // an unrelated program.
-        let candidates = ["ULTRON Control Center.lnk", "ULTRON.lnk"];
+        let candidates = ["ULTRON Control Center.lnk", "ULTRON.lnk", "mar.ia.lnk"];
         for name in candidates {
             let p = startup.join(name);
             if p.exists() {

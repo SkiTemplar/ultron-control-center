@@ -10,7 +10,8 @@
 #   1. Borra los accesos directos del lanzador viejo (menu, escritorio, barra).
 #   2. Crea "mar.ia" en el menu de inicio y en el escritorio, apuntando al
 #      binario de ESTE repo, con el icono del reactor.
-#   3. Deja la entrada de arranque con Windows apuntando al mismo binario.
+#   3. Deja la entrada de arranque con Windows como diga la app (Ajustes ->
+#      Arranque): la quita si esta desactivada y NUNCA la crea por su cuenta.
 #
 # Es idempotente: se puede volver a lanzar despues de cada build sin ensuciar
 # nada. Con -DryRun solo dice lo que haria.
@@ -86,11 +87,20 @@ Nuevo-Acceso (Join-Path $menu "mar.ia.lnk")
 Nuevo-Acceso (Join-Path $escritorio "mar.ia.lnk")
 
 # --- 4. Arranque con Windows ------------------------------------------------
-# La app tambien lo registra sola la primera vez (`ensure_autostart`), pero esa
-# marca no se actualiza si el binario cambia de sitio. Aqui se deja siempre
-# apuntando al bueno.
+# Manda lo que el usuario eligio en la app (Ajustes -> Arranque), guardado en
+# <raiz>\cockpit\maria\arranque.json. Hasta el 2026-09-23 este paso escribia la
+# entrada SIEMPRE, y cada build volvia a meter mar.ia en el arranque aunque el
+# usuario lo hubiera desactivado. Ahora este script NUNCA la crea:
+#   - desactivado en la app -> se quita si esta;
+#   - activado              -> se deja apuntando a este binario;
+#   - sin decision todavia  -> solo se reapunta si ya existe (la decide la app
+#                              la primera vez que abre).
 $run = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$valor = "$Exe --from-autostart"
+$valor = "`"$Exe`" --from-autostart"
+$helperArranque = Join-Path $PSScriptRoot "arranque-pref.ps1"
+if (-not (Test-Path -LiteralPath $helperArranque)) { throw "Falta $helperArranque" }
+. $helperArranque
+$activado = Get-MariaArranqueActivado
 $actual = (Get-ItemProperty -Path $run -Name "mar.ia" -ErrorAction SilentlyContinue)."mar.ia"
 foreach ($viejo in @("ULTRON", "ULTRON Control Center", "ultron-control-center")) {
     if (Get-ItemProperty -Path $run -Name $viejo -ErrorAction SilentlyContinue) {
@@ -102,13 +112,26 @@ foreach ($viejo in @("ULTRON", "ULTRON Control Center", "ultron-control-center")
         }
     }
 }
-if ($actual -eq $valor) {
-    Write-Output "Arranque con Windows: ya correcto."
-} elseif ($DryRun) {
-    Write-Output "[dry-run] Pondria en el arranque: $valor"
+if ($activado -eq $false) {
+    if (-not $actual) {
+        Write-Output "Arranque con Windows: desactivado en la app, sin entrada."
+    } elseif ($DryRun) {
+        Write-Output "[dry-run] Quitaria la entrada: el arranque esta desactivado en la app."
+    } else {
+        Remove-ItemProperty -Path $run -Name "mar.ia" -Force
+        Write-Output "Arranque con Windows: desactivado en la app, entrada quitada."
+    }
+} elseif (($activado -eq $true) -or $actual) {
+    if ($actual -eq $valor) {
+        Write-Output "Arranque con Windows: ya correcto."
+    } elseif ($DryRun) {
+        Write-Output "[dry-run] Pondria en el arranque: $valor"
+    } else {
+        Set-ItemProperty -Path $run -Name "mar.ia" -Value $valor
+        Write-Output "Arranque con Windows: $valor"
+    }
 } else {
-    Set-ItemProperty -Path $run -Name "mar.ia" -Value $valor
-    Write-Output "Arranque con Windows: $valor"
+    Write-Output "Arranque con Windows: sin decision todavia; lo decide la app al abrir."
 }
 
 if ($DryRun) { exit 0 }
@@ -121,7 +144,8 @@ foreach ($p in @((Join-Path $menu "mar.ia.lnk"), (Join-Path $escritorio "mar.ia.
     if ($d -ine $Exe) { $errores += "$p apunta a $d" }
 }
 $tras = (Get-ItemProperty -Path $run -Name "mar.ia" -ErrorAction SilentlyContinue)."mar.ia"
-if ($tras -ne $valor) { $errores += "el arranque quedo en: $tras" }
+if (($activado -eq $false) -and $tras) { $errores += "el arranque esta desactivado en la app y la entrada sigue: $tras" }
+if (($activado -eq $true) -and ($tras -ne $valor)) { $errores += "el arranque quedo en: $tras" }
 # Que no quede NINGUN acceso directo a otro control-center.exe.
 foreach ($sitio in @($menu, $escritorio, $barra)) {
     if (-not (Test-Path -LiteralPath $sitio)) { continue }

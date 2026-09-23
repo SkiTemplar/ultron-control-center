@@ -23,6 +23,10 @@
 $ErrorActionPreference = 'Stop'
 
 $taskName = 'ULTRON-QdrantBoot'
+
+# Arranque con Windows desactivado en mar.ia -> la tarea se crea APAGADA.
+$ArranquePref = Join-Path $PSScriptRoot '..\arranque-pref.ps1'
+if (Test-Path -LiteralPath $ArranquePref) { . $ArranquePref }
 # v15.5.15: all Qdrant scripts now live in scripts/qdrant/ (fix for incomplete
 # v15.5.14 move that left ensure-qdrant.ps1 only in qdrant/ while 3 callers
 # still referenced the hooks/ path). session-init.ps1 also updated.
@@ -110,6 +114,12 @@ switch ($Action) {
             -Settings $taskSettings `
             -Principal $taskPrincipal `
             -Description 'ULTRON - check the native Qdrant binary on logon and show a retry panel if it is down. No Docker, no admin required.' | Out-Null
+
+        if (Get-Command Disable-MariaTareaSiArranqueApagado -ErrorAction SilentlyContinue) {
+            [void](Disable-MariaTareaSiArranqueApagado -TaskName $taskName)
+        } else {
+            Write-Warning "Falta $ArranquePref : no puedo comprobar si el arranque de mar.ia esta desactivado."
+        }
 
         Write-Host "Task '$taskName' registered."
         Write-Host "Trigger:  at logon of $env:USERNAME"

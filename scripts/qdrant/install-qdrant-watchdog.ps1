@@ -22,6 +22,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $taskName  = 'ULTRON-QdrantWatchdog'
+
+# Arranque con Windows desactivado en mar.ia -> la tarea se crea APAGADA.
+$ArranquePref = Join-Path $PSScriptRoot '..\arranque-pref.ps1'
+if (Test-Path -LiteralPath $ArranquePref) { . $ArranquePref }
 $qdrantDir = "$env:USERPROFILE\.ultron\scripts\qdrant"
 $watchdog  = Join-Path $qdrantDir 'qdrant-watchdog.ps1'
 $vbsWrap   = Join-Path $qdrantDir 'qdrant-watchdog-hidden.vbs'
@@ -105,6 +109,12 @@ switch ($Action) {
             -Settings $taskSettings `
             -Principal $taskPrincipal `
             -Description 'ULTRON - watchdog periodico de Qdrant: healthz cada 5 min y relaunch via ensure-qdrant si esta caido. Nunca mata el proceso (lock RocksDB).' | Out-Null
+
+        if (Get-Command Disable-MariaTareaSiArranqueApagado -ErrorAction SilentlyContinue) {
+            [void](Disable-MariaTareaSiArranqueApagado -TaskName $taskName)
+        } else {
+            Write-Warning "Falta $ArranquePref : no puedo comprobar si el arranque de mar.ia esta desactivado."
+        }
 
         Write-Host "Task '$taskName' registered."
         Write-Host "Trigger:  cada $IntervalMinutes min (repeticion indefinida)"

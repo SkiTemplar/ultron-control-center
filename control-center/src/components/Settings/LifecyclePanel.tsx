@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { confirmDialog } from "../../lib/dialog";
 
 // ---------------------------------------------------------------------------
@@ -201,7 +200,10 @@ export function LifecyclePanel() {
     (async () => {
       await purgeLegacy();
       try {
-        setAutostartEnabled(await isAutostartEnabled());
+        // El mismo backend que Ajustes → Arranque: la decisión se guarda y la
+        // respetan el build, la app al abrir y los instaladores de tareas.
+        const e = await invoke<{ activado_en_ajustes: boolean }>("maria_arranque_estado");
+        setAutostartEnabled(e.activado_en_ajustes);
       } catch (e) {
         setError(String(e));
       }
@@ -213,13 +215,10 @@ export function LifecyclePanel() {
     setAutostartBusy(true);
     setError(null);
     try {
-      if (autostartEnabled) {
-        await disableAutostart();
-        setAutostartEnabled(false);
-      } else {
-        await enableAutostart();
-        setAutostartEnabled(true);
-      }
+      const e = await invoke<{ activado_en_ajustes: boolean }>("maria_arranque_set", {
+        activar: !autostartEnabled,
+      });
+      setAutostartEnabled(e.activado_en_ajustes);
       await purgeLegacy();
     } catch (e) {
       setError(String(e));
@@ -300,10 +299,10 @@ export function LifecyclePanel() {
         }}
       >
         <div className="min-w-0">
-          <div className="text-[13px] font-semibold">Start with Windows</div>
+          <div className="text-[13px] font-semibold">Arrancar con Windows</div>
           <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
-            Launches the Control Center at Windows logon via{" "}
-            <code style={{ fontFamily: "var(--font-mono)" }}>HKCU\...\Run</code>.
+            Desactivado, no se lanza nada de mar.ia al iniciar sesión: ni la app ni sus
+            tareas programadas. Detalle en Ajustes → Arranque.
           </p>
         </div>
         <button
@@ -316,7 +315,7 @@ export function LifecyclePanel() {
             border: "1px solid var(--color-border-strong)",
             padding: "1px",
           }}
-          title={autostartEnabled ? "Disable autostart" : "Enable autostart"}
+          title={autostartEnabled ? "desactivar el arranque con Windows" : "activar el arranque con Windows"}
         >
           <span
             className="block h-3.5 w-3.5 rounded-full transition-transform"
