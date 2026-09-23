@@ -161,7 +161,7 @@ function hookMain() {
     return;
   }
 
-  const detected = T.detectTestCommand(cwd);
+  const detected = T.detectTestCommandInRepo(cwd, repoRootFor(cwd));
   const state = T.readState(project);
   if (!detected) {
     const prev = T.readResult(project);
@@ -192,7 +192,7 @@ function hookMain() {
   T.writeState(project, { ...state, last_trigger_at: new Date(now).toISOString(), last_edit_at: new Date(now).toISOString(), dirty: false, cmd: detected.cmd, source: detected.source });
   const launched = launchRunner({
     RUN_TESTS_PROJECT: project,
-    RUN_TESTS_CWD: cwd,
+    RUN_TESTS_CWD: detected.dir,
     RUN_TESTS_CMD: detected.cmd,
     RUN_TESTS_SOURCE: detected.source,
     RUN_TESTS_SESSION: sessionId || '',

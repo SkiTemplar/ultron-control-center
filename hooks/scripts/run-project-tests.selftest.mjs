@@ -214,6 +214,22 @@ A(r.status === 0 && JSON.stringify(readResult()) === resBefore9 && JSON.stringif
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline && readState().running) spawnSync("node", ["-e", "setTimeout(()=>{},250)"]);
 }
+// Regresión 2026-09-23: con la sesión en un subdirectorio sin CLAUDE.md pero
+// con carpeta tests/, ganaba el heurístico de pytest (exit 5) en vez de la
+// línea `test:` del CLAUDE.md de la raíz del repo.
+{
+  const T = createRequire(import.meta.url)(join(__dirname, "lib", "run-project-tests.js"));
+  const raiz = join(FIXTURE, "repo-raiz");
+  const sub = join(raiz, "hooks", "scripts");
+  mkdirSync(join(sub, "tests"), { recursive: true });
+  writeFileSync(join(raiz, "CLAUDE.md"), "- test: `npm run check`\n");
+  const d = T.detectTestCommandInRepo(sub, raiz);
+  const ok1 = d && d.cmd === "npm run check" && d.dir === raiz;
+  (ok1 ? ok : (n) => ko(n, JSON.stringify(d)))("subdirectorio: gana el test: del CLAUDE.md de la raiz y se ejecuta en la raiz");
+  const soloCwd = T.detectTestCommandInRepo(sub, sub);
+  const ok2 = soloCwd && soloCwd.source === "pyproject/pytest" && soloCwd.dir === sub;
+  (ok2 ? ok : (n) => ko(n, JSON.stringify(soloCwd)))("sin raiz distinta: se conserva el comportamiento por cwd (caso negativo)");
+}
 rmSync(FIXTURE, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
 console.log(fail === 0 ? "\nSELFTEST run-project-tests: VERDE" : `\nSELFTEST run-project-tests: ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -133,6 +133,27 @@ function detectTestCommand(cwd) {
   return fromClaudeMd(cwd) || fromManifest(cwd);
 }
 
+/**
+ * Como detectTestCommand, pero mirando también la raíz del repo, y con `dir`:
+ * el directorio donde se encontró el comando, que es donde hay que ejecutarlo.
+ * Orden: CLAUDE.md del cwd, CLAUDE.md de la raíz, manifiesto del cwd,
+ * manifiesto de la raíz. 2026-09-23: con la sesión en ~/.ultron/hooks/scripts
+ * (sin CLAUDE.md, pero con una carpeta tests/) ganaba el heurístico de pytest
+ * — exit 5, "no hay tests" — y nunca se leía la línea `test:` de la raíz.
+ * @returns {{cmd: string, source: string, dir: string}|null}
+ */
+function detectTestCommandInRepo(cwd, root) {
+  if (!cwd) return null;
+  const dirs = root && path.resolve(root) !== path.resolve(cwd) ? [cwd, root] : [cwd];
+  for (const finder of [fromClaudeMd, fromManifest]) {
+    for (const dir of dirs) {
+      const hit = finder(dir);
+      if (hit) return { ...hit, dir };
+    }
+  }
+  return null;
+}
+
 function statePath(project) {
   return path.join(STATE_DIR, `${project}.state.json`);
 }
@@ -273,6 +294,7 @@ module.exports = {
   isUnder,
   isGitWorktree,
   detectTestCommand,
+  detectTestCommandInRepo,
   statePath,
   resultPath,
   readState,
