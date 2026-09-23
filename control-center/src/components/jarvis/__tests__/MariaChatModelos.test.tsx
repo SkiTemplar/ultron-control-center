@@ -333,7 +333,8 @@ describe("el modelo concreto y el menú de «/» (2026-09-23)", () => {
     // Flecha arriba desde la primera = la última: tiene que traerse a la vista.
     fireEvent.keyDown(caja, { key: "ArrowUp" });
     await waitFor(() => expect(vista).toHaveBeenCalled());
-    const marcada = screen.getAllByRole("option").find((o) => o.getAttribute("aria-selected") === "true");
-    expect(marcada).toBe(screen.getAllByRole("option").at(-1));
+    const todas = screen.getAllByRole("option");
+    const marcada = todas.find((o) => o.getAttribute("aria-selected") === "true");
+    expect(marcada).toBe(todas[todas.length - 1]);
   });
 });
