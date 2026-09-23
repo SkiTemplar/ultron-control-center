@@ -71,9 +71,8 @@ pub struct ProjectInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     /// v2.6.2 — Quick Launch executables surfaced on the project home. Each
-    /// entry pairs a display name with an .exe / .lnk / .bat / .cmd path
-    /// that `launch_project_executable` can spawn directly. Distinct from
-    /// `items[]` (the Projects-tab launcher chips): this list is intentionally
+    /// entry pairs a display name with an .exe / .lnk / .bat / .cmd path.
+    /// Distinct from `items[]` (the Projects-tab launcher chips): this list is intentionally
     /// kept thin so the Project home can show big buttons without forcing the
     /// user to use the chip wizard.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,10 +95,9 @@ pub struct ProjectInfo {
 }
 
 /// v2.6.2 — single Quick Launch executable. `name` is the user-facing label;
-/// `path` must point at a .exe / .lnk / .bat / .cmd that
-/// `launch_project_executable` can spawn. `args` / `icon` are reserved for
-/// future expansion; serde keeps them optional so older registries round-trip
-/// without rewriting.
+/// `path` must point at a .exe / .lnk / .bat / .cmd. `args` / `icon` are
+/// reserved for future expansion; serde keeps them optional so older
+/// registries round-trip without rewriting.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExecutableEntry {
     pub name: String,

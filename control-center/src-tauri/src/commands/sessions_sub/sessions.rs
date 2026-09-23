@@ -13,16 +13,6 @@ pub async fn spawn_session(
 }
 
 #[tauri::command]
-pub async fn run_inline(
-    app: tauri::AppHandle,
-    provider: String,
-    model: Option<String>,
-    prompt: String,
-) -> Result<sessions::InlineResult, String> {
-    sessions::run_inline_inner(&app, provider, model, prompt).await
-}
-
-#[tauri::command]
 pub async fn list_claude_sessions(
     limit: Option<usize>,
 ) -> Result<Vec<claude_sessions::ClaudeSession>, String> {

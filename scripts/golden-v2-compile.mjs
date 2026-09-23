@@ -10,7 +10,9 @@
 // conservan con expect_ids vacío: el eval las salta (skipped_no_expectation)
 // y así se ve cuántas quedaron sin etiquetar en vez de inflar el recall.
 //
-// USO: node scripts/golden-v2-compile.mjs [--out <ruta>]
+// USO: node scripts/golden-v2-compile.mjs [--dir golden-v3] [--out <ruta>]
+//   --dir: carpeta hermana bajo evals/ (defecto golden-v2); la salida por
+//   defecto es golden_labels.<sufijo>.json (golden-v3 -> golden_labels.v3.json).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,10 +20,14 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DIR = path.join(ROOT, 'cockpit', 'memory-rework', 'evals', 'golden-v2');
 const args = process.argv.slice(2);
+const dirIdx = args.indexOf('--dir');
+const DIR_NAME = dirIdx >= 0 && args[dirIdx + 1] ? path.basename(args[dirIdx + 1]) : 'golden-v2';
+const DIR = path.join(ROOT, 'cockpit', 'memory-rework', 'evals', DIR_NAME);
 const outIdx = args.indexOf('--out');
-const OUT = outIdx >= 0 && args[outIdx + 1] ? path.resolve(args[outIdx + 1]) : path.join(DIR, 'golden_labels.v2.json');
+const OUT = outIdx >= 0 && args[outIdx + 1]
+  ? path.resolve(args[outIdx + 1])
+  : path.join(DIR, `golden_labels.${DIR_NAME.replace(/^golden-/, '')}.json`);
 
 const CHECK_IDS = path.join(ROOT, 'benchmarks', 'memory', 'check_ids.py');
 

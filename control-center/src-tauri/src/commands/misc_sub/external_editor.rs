@@ -9,8 +9,7 @@
 //    examples + python helpers) come up with the whole folder visible while
 //    the requested file is the active tab. When `file_path` is empty (e.g. a
 //    standalone agent .md), it falls back to opening just that single file.
-//    Windows ships `code` as a `.cmd` shim, so we wrap with `cmd.exe /C` the
-//    same way `open_folder_in_vscode` already does.
+//    Windows ships `code` as a `.cmd` shim, so we wrap with `cmd.exe /C`.
 //
 // 2. `read_text_file(path)` — bounded read of any UTF-8 text file inside the
 //    user's `~/.claude/`, `~/.ultron/`, or `<project>/.claude/` trees. The

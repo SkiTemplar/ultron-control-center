@@ -33,6 +33,7 @@ pub(crate) const VALID_IDES: &[&str] = &[
     "nvim",
     "sublime",
     "zed",
+    "obsidian",
 ];
 
 /// fb-016 — coerce a raw `default_shell` to one of the four supported
@@ -120,6 +121,7 @@ pub(crate) fn normalise_ide(raw: Option<&str>) -> Option<String> {
         "nvim" | "neovim" => Some("nvim"),
         "sublime" | "sublime text" | "subl" => Some("sublime"),
         "zed" => Some("zed"),
+        "obsidian" => Some("obsidian"),
         _ => None,
     };
     canonical.map(|s| s.to_string()).or_else(|| {

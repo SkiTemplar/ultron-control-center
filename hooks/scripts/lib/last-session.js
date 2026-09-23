@@ -72,9 +72,37 @@ function summaryMtimeMs(projectId, sessionId) {
   }
 }
 
+// Bytes que se leen de cada summary.md para sacar `rango:` del frontmatter.
+const FRONTMATTER_BYTES = 1024;
+
 /**
- * El summary.md mas reciente (por mtime) de `projectId`, excluyendo
+ * Fin (ms) de la sesion segun el `rango: <inicio> .. <fin>` del frontmatter
+ * que escribe session-summarize-previous.js, o null si no esta o no parsea.
+ * Solo lee la cabecera del fichero.
+ */
+function sessionEndMs(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(FRONTMATTER_BYTES);
+    const n = fs.readSync(fd, buf, 0, FRONTMATTER_BYTES, 0);
+    const m = buf.toString('utf8', 0, n).match(/^rango:\s*\S+\s*\.\.\s*(\S+)\s*$/m);
+    const ms = m ? Date.parse(m[1]) : NaN;
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * El summary.md de la sesion que TERMINO mas tarde en `projectId` (fin del
+ * `rango:` del frontmatter; mtime si no lo tiene), excluyendo
  * `excludeSessionId` (la sesion actual, que nunca tiene resumen de si misma).
+ * No se ordena por mtime: el 2026-09-22 un lote de resumenes atrasados hizo
+ * que el de una sesion del 02-09 fuera el mas reciente en disco y el arranque
+ * siguiente lo inyecto como "sesion anterior".
  * `opts.sinceMs`: ignora summaries con mtime <= sinceMs (usado por la entrega
  * diferida para no confundir un summary.md YA existente antes de que empezara
  * la espera con el que genero el resumidor de ESTA sesion).
@@ -92,14 +120,16 @@ function latestSummary(projectId, excludeSessionId, opts = {}) {
   let best = null;
   for (const e of entries) {
     if (!e.isDirectory() || e.name === excludeSessionId) continue;
+    const file = path.join(sessionsDir, e.name, 'summary.md');
     let st;
     try {
-      st = fs.statSync(path.join(sessionsDir, e.name, 'summary.md'));
+      st = fs.statSync(file);
     } catch {
       continue;
     }
     if (Number.isFinite(opts.sinceMs) && st.mtimeMs <= opts.sinceMs) continue;
-    if (!best || st.mtimeMs > best.mtimeMs) best = { sessionId: e.name, mtimeMs: st.mtimeMs };
+    const endMs = sessionEndMs(file) ?? st.mtimeMs;
+    if (!best || endMs > best.endMs) best = { sessionId: e.name, endMs };
   }
   if (!best) return null;
   return readSummary(projectId, best.sessionId);

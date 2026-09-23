@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// How a provider is currently being accessed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AccessKind {
     /// Logged-in session (subscription). Does not spend API credit.
@@ -41,13 +41,8 @@ pub enum AccessKind {
     /// API key: billed per token.
     ApiKey,
     /// Neither a session nor a key.
+    #[default]
     NoAccess,
-}
-
-impl Default for AccessKind {
-    fn default() -> Self {
-        AccessKind::NoAccess
-    }
 }
 
 /// One CLI provider's account state, as shown in the UI.

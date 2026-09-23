@@ -52,6 +52,9 @@ pub struct LabeledGoldenReport {
     /// Number of queries that were actually averaged into `aggregate`
     /// (i.e. `total_queries - zero_relevant`). Provided for transparency.
     pub aggregated_over: usize,
+    /// Expected ids removed from the oracle because the item is no longer
+    /// ACTIVE (deprecated, rejected, stale): recall cannot return them.
+    pub dropped_inactive: usize,
     /// Per-query breakdown for full reproducibility (ALL queries, incl. zero-relevant).
     pub per_query: Vec<LabeledQueryResult>,
     /// `true` when the file could not be loaded/parsed; all counts will be 0.
@@ -72,6 +75,7 @@ impl LabeledGoldenReport {
             aggregate: EvalMetrics::aggregate(&[]),
             aggregate_precision_at_3: 0.0,
             aggregated_over: 0,
+            dropped_inactive: 0,
             per_query: Vec::new(),
             degraded: true,
             note: note.into(),
@@ -114,34 +118,61 @@ pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
 /// Un grupo que se queda sin ids desaparece; una query que se queda sin grupos
 /// cae en la rama `relevant.is_empty()` de arriba y sale del agregado como
 /// "zero-relevant", que es el trato correcto para un oráculo sin juicio válido.
-fn filtrar_tipos_vetados(groups: Vec<HashSet<String>>) -> Vec<HashSet<String>> {
+///
+/// (2026-09-23) Mismo razonamiento para los ids que ya no están ACTIVE: el
+/// recall solo devuelve items activos, así que una etiqueta que apunta a un
+/// item deprecado es un label caducado, no un fallo del retriever. El golden
+/// v2 pasó de recall@8 0,864 (06-09) a 0,409 con 8 de sus 24 ids deprecados
+/// por limpiezas legítimas (cifras de disco del 16-09, colas de transcript del
+/// 07-09). Devuelve también cuántos ids se retiraron por inactivos, para que el
+/// informe diga cuánto ha encogido el oráculo en vez de encogerlo en silencio.
+fn filtrar_tipos_vetados(groups: Vec<HashSet<String>>) -> (Vec<HashSet<String>>, usize) {
     let vetados = crate::memory::recall_policy::excluded_types();
-    if vetados.is_empty() {
-        return groups;
-    }
     let conn = match crate::memory::sqlite_store::open_conn() {
         Ok(c) => c,
-        // Sin base no se puede juzgar el tipo: se deja el oráculo intacto antes
-        // que inventar un filtro a ciegas.
-        Err(_) => return groups,
+        // Sin base no se puede juzgar el tipo ni el estado: se deja el oráculo
+        // intacto antes que inventar un filtro a ciegas.
+        Err(_) => return (groups, 0),
     };
-    groups
+    retener_recuperables(
+        groups,
+        &vetados,
+        |id| match crate::memory::sqlite_store::get_item(&conn, id) {
+            Ok(Some(item)) => Some((item.kind.as_str().to_string(), item.status)),
+            _ => None,
+        },
+    )
+}
+
+/// Núcleo puro de [`filtrar_tipos_vetados`]: `lookup` da (tipo, estado) de un
+/// id, o `None` si no se puede leer. Un id ilegible o ausente se conserva: el
+/// filtro solo retira lo que se ha comprobado que es vetado o inactivo.
+fn retener_recuperables(
+    groups: Vec<HashSet<String>>,
+    vetados: &[String],
+    lookup: impl Fn(&str) -> Option<(String, crate::memory::model::Status)>,
+) -> (Vec<HashSet<String>>, usize) {
+    let mut inactivos = 0usize;
+    let grupos = groups
         .into_iter()
         .map(|grupo| {
             grupo
                 .into_iter()
-                .filter(|id| {
-                    match crate::memory::sqlite_store::get_item(&conn, id) {
-                        Ok(Some(item)) => !vetados.iter().any(|t| t == item.kind.as_str()),
-                        // Un id ilegible o ausente se conserva: el veto solo
-                        // retira lo que se ha comprobado que es de tipo vetado.
-                        _ => true,
+                .filter(|id| match lookup(id) {
+                    Some((kind, status)) => {
+                        if status != crate::memory::model::Status::Active {
+                            inactivos += 1;
+                            return false;
+                        }
+                        !vetados.contains(&kind)
                     }
+                    None => true,
                 })
                 .collect::<HashSet<String>>()
         })
         .filter(|grupo| !grupo.is_empty())
-        .collect()
+        .collect();
+    (grupos, inactivos)
 }
 
 /// Variante con knobs EXPLÍCITOS (2026-08-10): el doctor mide el oráculo sin
@@ -197,12 +228,14 @@ pub fn run_labeled_golden_with(
     let mut scored_p3: Vec<f64> = Vec::with_capacity(total);
     let mut zero_relevant = 0usize;
     let mut queries_with_zero_recall = 0usize;
+    let mut dropped_inactive = 0usize;
 
     for label in &labeled_set.labeled {
         // Grupos de equivalencia (higiene multi-id 2026-07-22): un gemelo no
         // listado del expect vale el slot de su grupo; sin expect_groups el
         // comportamiento es identico al historico (grupos de 1).
-        let groups = filtrar_tipos_vetados(label.groups());
+        let (groups, inactivos) = filtrar_tipos_vetados(label.groups());
+        dropped_inactive += inactivos;
 
         // build_trace directo (recall_pack fija dense=true): .injected son las
         // mismas entries que el pack, con dense/rerank gobernados por los knobs.
@@ -270,11 +303,66 @@ pub fn run_labeled_golden_with(
         aggregate,
         aggregate_precision_at_3,
         aggregated_over,
+        dropped_inactive,
         per_query,
         degraded: false,
         note: format!(
-            "loaded {} labels from '{}' ({} aggregated, {} zero-relevant excluded)",
-            total, path, aggregated_over, zero_relevant
+            "loaded {} labels from '{}' ({} aggregated, {} zero-relevant excluded, \
+             {} expected ids dropped as no longer active)",
+            total, path, aggregated_over, zero_relevant, dropped_inactive
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::model::Status;
+
+    fn grupos(v: &[&[&str]]) -> Vec<HashSet<String>> {
+        v.iter()
+            .map(|g| g.iter().map(|s| s.to_string()).collect())
+            .collect()
+    }
+
+    fn lookup(id: &str) -> Option<(String, Status)> {
+        match id {
+            "activo" | "gemelo" => Some(("fact".into(), Status::Active)),
+            "deprecado" => Some(("fact".into(), Status::Deprecated)),
+            "nota" => Some(("agent_note".into(), Status::Active)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn retira_ids_inactivos_y_los_cuenta() {
+        let (g, n) = retener_recuperables(
+            grupos(&[&["activo"], &["deprecado"], &["deprecado", "gemelo"]]),
+            &[],
+            lookup,
+        );
+        assert_eq!(n, 2, "los dos 'deprecado' cuentan");
+        assert_eq!(
+            g,
+            grupos(&[&["activo"], &["gemelo"]]),
+            "el grupo vacío desaparece"
+        );
+    }
+
+    #[test]
+    fn sigue_retirando_tipos_vetados_sin_contarlos_como_inactivos() {
+        let (g, n) = retener_recuperables(
+            grupos(&[&["nota"], &["activo"]]),
+            &["agent_note".to_string()],
+            lookup,
+        );
+        assert_eq!(n, 0);
+        assert_eq!(g, grupos(&[&["activo"]]));
+    }
+
+    #[test]
+    fn conserva_ids_que_no_se_pueden_leer() {
+        let (g, n) = retener_recuperables(grupos(&[&["desconocido"]]), &[], lookup);
+        assert_eq!((g, n), (grupos(&[&["desconocido"]]), 0));
     }
 }

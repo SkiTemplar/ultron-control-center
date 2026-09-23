@@ -20,9 +20,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // unico dato de /usage que obligaba a abrir una terminal.
         commands::misc::claude_plan_limits,
         // Wiring 2026-08-11 (audit 08-09 #43): heatmap dia x fuente +
-        // eventos recientes en Usage -> Activity. El resto de misc.rs
-        // (list_logs/tail_log/compute_cost/...) sigue sin registrar a
-        // proposito hasta tener consumidor en la UI.
+        // eventos recientes en Usage -> Activity.
         commands::misc::compute_activity_timeline,
         // -- Lab TFG (wiring 2026-08-12): deteccion determinista de patrones
         //    de texto IA sobre el catalogo docs/research/patrones-texto-ia.json.
@@ -97,12 +95,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         //    subject/mkdir/create) que consume NewProjectWizard.tsx. --
         commands::projects::project_create_cli,
         // -- editor CLAUDE.md por proyecto (wiring 2026-08-11, audit #39;
-        //    modal en ProjectWorkspace, fila Codigo). Del mismo bloque
-        //    quedan SIN registrar a proposito: project_context_load (su
-        //    payload agrega el KG retirado en jul-02 — actualizar payload
-        //    antes de cablear un panel que mostraria datos muertos) y
-        //    launch_project_executable/reorder_launcher_items (esperan la
-        //    pasada por la UI del launcher). --
+        //    modal en ProjectWorkspace, fila Codigo). --
         // -- Bitacora (2026-09-21): el historial de resumenes por sesion, que
         //    hasta ahora solo leia el hook de SessionStart, se ve en el
         //    workspace del proyecto. --
@@ -332,8 +325,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::library::library_list_pinned,
         // v2.6 (v27-f14): sibling-file listing for Skills/Agents detail.
         commands::library::list_skill_files,
-        // v2.9.5: AI-driven install (P1 Library>Catalog)
-        // v2.9.8: catalog compat analysis + bulk install (card-1779825112840)
         // FRENTE 7: analizar repo local + integrar al routing/memoria
         commands::library::analyze_local_repo,
         // -- git ops por proyecto --
@@ -408,15 +399,11 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         ollama::commands::editor_engine_status,
         ollama::commands::editor_engine_set,
         // -- workflow YAML composability + SQLite run history (KIRKARDO 23
-        //    P2; wiring 2026-08-11, audit #32: los 6 llevaban desde jun-26
-        //    sin registrar y la tabla se creaba vacía en cada boot. El
-        //    escritor real es delegate.rs; el historial vive en el
-        //    LiveSessionMonitor) --
-        commands::workflows::workflow_record_run,
-        commands::workflows::workflow_update_run,
+        //    P2; wiring 2026-08-11, audit #32). El escritor real de runs es
+        //    batches.rs (record_run_inner/update_run_inner); workflow_record_run/
+        //    workflow_update_run/workflow_set_state/workflow_get_state nunca
+        //    tuvieron llamador en la UI y se podaron el 2026-09-23. --
         commands::workflows::workflow_get_runs,
         commands::workflows::workflow_load_user_defined,
-        commands::workflows::workflow_set_state,
-        commands::workflows::workflow_get_state,
     ]
 }

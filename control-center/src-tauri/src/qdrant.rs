@@ -705,14 +705,6 @@ pub fn qdrant_ping() -> Result<String, String> {
     Ok(pr.version.or(pr.title).unwrap_or_else(|| "ok".to_string()))
 }
 
-/// Tauri command: ping Qdrant. Used by the Memory status panel.
-#[tauri::command]
-pub async fn qdrant_status() -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(qdrant_ping)
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
 // ---------------------------------------------------------------------------
 // Cross-encoder re-ranker — BGERerankerV2M3 (feature = "qdrant")
 // ---------------------------------------------------------------------------

@@ -9,11 +9,13 @@
 //   2026-06-19); el modulo muerto crate::recall y su placeholder se eliminaron (2026-06-22).
 // memory_graph (unified search + tree snapshot): borrado entero (2026-07-04) —
 //   quedó sin callers al des-registrarse sus comandos y erradicarse el codegraph interno.
+// migrate (memory_migrate, ETL one-shot): borrado entero (2026-09-23) — nunca
+//   tuvo llamador en la UI; el ETL en si (crate::memory::migrations::run_full_etl)
+//   sigue vivo, lo ejercita un test de recall_unified.
 
 pub mod catalog;
 pub mod inbox;
 pub mod kanban_signal;
-pub mod migrate;
 pub mod portrait;
 pub mod recall_hybrid;
 pub mod recall_unified;
@@ -21,7 +23,6 @@ pub mod session_resume;
 
 pub use catalog::*;
 pub use inbox::*;
-pub use migrate::*;
 pub use portrait::*;
 pub use recall_hybrid::*;
 pub use recall_unified::*;

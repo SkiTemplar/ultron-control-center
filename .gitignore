@@ -496,6 +496,7 @@ benchmarks/skill-routing-ab/votes.json
 
 # Golden v2 (F1.5): prompts reales y resúmenes de memoria — local, nunca al repo ni al espejo
 cockpit/memory-rework/evals/golden-v2/
+cockpit/memory-rework/evals/golden-v3/
 
 # Paquete del plugin de Cowork: artefacto de build, se regenera desde plugins/ultron-memory-cowork/
 plugins/*.zip

@@ -8,16 +8,7 @@
 // reads the GUIDE.md automatically instead of re-deriving the rules each
 // time.
 
-use serde::Serialize;
 use std::path::PathBuf;
-
-#[derive(Debug, Serialize, Clone)]
-pub struct InstructionEntry {
-    pub kind: String,
-    pub path: String,
-    pub exists: bool,
-    pub label: String,
-}
 
 const KINDS: &[(&str, &str)] = &[
     ("skills", "Skill"),
@@ -29,21 +20,6 @@ const KINDS: &[(&str, &str)] = &[
 
 fn root() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron/instructions"))
-}
-
-pub fn list_instruction_folders_inner() -> Result<Vec<InstructionEntry>, String> {
-    let root = root().ok_or_else(|| "no HOME".to_string())?;
-    let mut out: Vec<InstructionEntry> = Vec::with_capacity(KINDS.len());
-    for (kind, label) in KINDS {
-        let p = root.join(kind);
-        out.push(InstructionEntry {
-            kind: kind.to_string(),
-            path: p.to_string_lossy().to_string(),
-            exists: p.join("GUIDE.md").exists(),
-            label: label.to_string(),
-        });
-    }
-    Ok(out)
 }
 
 pub fn instruction_path_inner(kind: String) -> Result<String, String> {

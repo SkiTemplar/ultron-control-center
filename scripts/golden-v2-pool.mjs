@@ -36,9 +36,14 @@ const { isSystemTurnPrompt } = require('../hooks/scripts/lib/system-turn.js');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORCH_LOG = path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
-const OUT_DIR = path.join(ROOT, 'cockpit', 'memory-rework', 'evals', 'golden-v2');
-
 const args = process.argv.slice(2);
+// --dir <nombre>: carpeta hermana bajo evals/ (p. ej. golden-v3) para montar un
+// oráculo nuevo sin pisar el pool.json/labeling.md del v2.
+const dirIdx = args.indexOf('--dir');
+const OUT_DIR = path.join(
+  ROOT, 'cockpit', 'memory-rework', 'evals',
+  dirIdx >= 0 && args[dirIdx + 1] ? path.basename(args[dirIdx + 1]) : 'golden-v2',
+);
 const num = (flag, def) => {
   const i = args.indexOf(flag);
   return i >= 0 && args[i + 1] ? Number(args[i + 1]) : def;

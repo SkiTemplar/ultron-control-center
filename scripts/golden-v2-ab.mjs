@@ -21,7 +21,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = process.env.ULTRON_MEMORY_BIN || path.join(ROOT, 'bin', 'ultron-memory.exe');
 const args = process.argv.slice(2);
 const onlyIdx0 = args.indexOf('--only');
-const goldenArg = args.find((a, i) => !a.startsWith('--') && i !== onlyIdx0 + 1);
+// Sin --only, onlyIdx0 + 1 vale 0 y la condición descartaba justo el primer
+// positional: la ruta del golden se ignoraba en silencio y se medía el v2.
+const goldenArg = args.find((a, i) => !a.startsWith('--') && (onlyIdx0 < 0 || i !== onlyIdx0 + 1));
 const GOLDEN = goldenArg
   ? path.resolve(goldenArg)
   : path.join(ROOT, 'cockpit', 'memory-rework', 'evals', 'golden-v2', 'golden_labels.v2.json');

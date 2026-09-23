@@ -48,8 +48,8 @@ pub struct MemoryStats {
 
 /// Outcome of [`MemoryService::deprecate_by_type`]: how many ACTIVE items of a
 /// given type matched and how many were deprecated, plus per-id failures. Used
-/// by the `deprecate` sidecar subcommand and the `memory_bulk_deprecate` Tauri
-/// command to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5 /
+/// by the `deprecate` sidecar subcommand and the `memory_items_deprecate_by_type`
+/// Tauri command to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5 /
 /// Qdrant out of sync — each item still goes through the proven `set_status` path.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BulkDeprecateResult {

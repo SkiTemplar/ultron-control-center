@@ -8,7 +8,6 @@
 //!   `~/.ultron/cockpit/projects/<id>/pinned-agents.json` (shared with the
 //!   P4 `agents_pinned_*` commands).
 
-pub(crate) mod ai_install;
 pub(crate) mod cache;
 pub(crate) mod create;
 pub(crate) mod gh_helpers;
@@ -18,12 +17,16 @@ pub(crate) mod pinning;
 pub(crate) mod search;
 pub(crate) mod types;
 
-pub use ai_install::install_via_ai_inner;
+// ai_install (AI-driven install via ai_router) se elimino entero 2026-09-23:
+// su unico comando Tauri, library_install_via_ai, nunca tuvo llamador en la
+// UI. pick_analysis_zone() era el unico llamante real de las zonas
+// code-edit/code-review del AI Router; las zonas se dejan tal cual (no es
+// alcance de esta poda).
+
 pub use create::{agent_create_inner, skill_create_inner};
 pub use install_gh::install_from_github_inner;
 pub use pinning::{pin_agent_inner, pinned_load, unpin_agent_inner};
 pub use search::search_github_inner;
 pub use types::{
-    AgentCreateSpec, AiInstallResult, LibraryKind, PinnedAgents, RemoteItem, SkillCreateSpec,
-    TargetScope,
+    AgentCreateSpec, LibraryKind, PinnedAgents, RemoteItem, SkillCreateSpec, TargetScope,
 };

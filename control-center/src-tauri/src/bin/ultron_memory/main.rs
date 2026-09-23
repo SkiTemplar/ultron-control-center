@@ -559,6 +559,15 @@ fn run() -> Result<serde_json::Value, String> {
             // forget es borrado duro (PII); esto conserva el item fuera de recall.
             if let Some(id_prefix) = flag_value(&args, "--id") {
                 let resolved_id = resolve_id_prefix(&id_prefix)?;
+                // --dry-run se ignoraba en el modo por-id y el item se deprecaba
+                // de verdad (2026-09-23): ahora solo informa de lo que haria.
+                if has_flag(&args, "--dry-run") {
+                    return Ok(serde_json::json!({
+                        "would_deprecate": resolved_id,
+                        "dry_run": true,
+                        "ok": true,
+                    }));
+                }
                 let reason = flag_value(&args, "--reason");
                 let item = ul::memory::MemoryService::deprecate(
                     &resolved_id,

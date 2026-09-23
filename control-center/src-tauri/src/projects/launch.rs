@@ -280,68 +280,6 @@ fn spawn_app_command(_name: &str, app_command: &str, cwd: &std::path::Path) -> R
     Ok(())
 }
 
-/// Spawn a Quick Launch executable. We validate the same security envelope as
-/// the `exe` launcher chip (`path_ps_safe`) and prefer a direct
-/// `Command::new(path)` spawn for `.exe` so we never enter a shell.
-pub async fn launch_project_executable_inner(
-    app: &tauri::AppHandle,
-    path: String,
-) -> Result<ProjectActionResult, String> {
-    use tauri_plugin_shell::ShellExt;
-    if path.trim().is_empty() {
-        return Err("path is empty".into());
-    }
-    if path.starts_with(r"\\") || path.starts_with("//") {
-        return Err("UNC paths are not allowed".into());
-    }
-    path_ps_safe(&path)?;
-    let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".exe") {
-        let mut cmd = std::process::Command::new(&path);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        return match cmd.spawn() {
-            Ok(_) => Ok(ProjectActionResult {
-                success: true,
-                stdout: format!("spawned {}", path),
-                stderr: String::new(),
-                exit_code: Some(0),
-            }),
-            Err(e) => Ok(ProjectActionResult {
-                success: false,
-                stdout: String::new(),
-                stderr: format!("spawn {}: {}", path, e),
-                exit_code: None,
-            }),
-        };
-    }
-    let ps_quoted = format!("'{}'", path.replace('\'', "''"));
-    let ps_cmd = format!("Start-Process -FilePath {}", ps_quoted);
-    let output = app
-        .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &ps_cmd,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("spawn ps: {}", e))?;
-    Ok(ProjectActionResult {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code(),
-    })
-}
-
 /// Spawn a single launcher item. Returns Ok(()) on success.
 pub async fn launch_item_inner(
     app: tauri::AppHandle,
@@ -463,7 +401,7 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), ide:
                 cli
             ))
         })?;
-        return ide::spawn_launcher(&program, &cleaned);
+        return ide::spawn_launcher(&program, &ide::launch_target(cli, &cleaned));
     }
 
     for cli in ide::AUTODETECT_ORDER {

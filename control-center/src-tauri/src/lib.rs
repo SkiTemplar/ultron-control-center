@@ -29,7 +29,6 @@ mod button_prompts;
 mod claude_sessions;
 mod claude_theme;
 mod commands_registry;
-mod cost_watchdog;
 pub mod daemon_client; // cliente del daemon: una sola copia de los modelos
 mod detach;
 mod diagnostics_native;
@@ -46,7 +45,6 @@ mod instructions;
 mod kanban;
 mod kg;
 mod library;
-mod logs;
 mod maintenance;
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)

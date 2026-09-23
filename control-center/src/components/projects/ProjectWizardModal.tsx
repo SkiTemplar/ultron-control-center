@@ -190,6 +190,7 @@ export function ProjectWizardModal({
               <option value="fleet">JetBrains Fleet</option>
               <option value="nvim">Neovim</option>
               <option value="sublime">Sublime Text</option>
+              <option value="obsidian">Obsidian</option>
             </select>
           </div>
 

@@ -7,8 +7,8 @@
 // it from the dense index (retire-from-index).
 
 use crate::memory::{
-    auto_approve, qdrant_index, Actor, BulkDeprecateResult, MemoryCandidate, MemoryEvent,
-    MemoryItem, MemoryService, MemoryStats, MemoryType, Scope, Status,
+    auto_approve, qdrant_index, Actor, BulkDeprecateResult, MemoryCandidate, MemoryItem,
+    MemoryService, MemoryStats, MemoryType, Status,
 };
 
 // ---------------------------------------------------------------------------
@@ -187,54 +187,6 @@ pub async fn memory_candidate_edit(
 // Item governance (post-active)
 // ---------------------------------------------------------------------------
 
-/// Edit an active item's editable fields.
-#[tauri::command]
-pub async fn memory_item_edit(
-    id: String,
-    title: Option<String>,
-    summary: Option<String>,
-    content: Option<String>,
-    importance: Option<f32>,
-    confidence: Option<f32>,
-) -> Result<MemoryItem, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        MemoryService::edit(
-            &id,
-            title,
-            summary,
-            content,
-            importance,
-            confidence,
-            Actor::User,
-        )
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
-/// Change an item's scope and/or type (strings parsed to the controlled vocab).
-#[tauri::command]
-pub async fn memory_item_relabel(
-    id: String,
-    scope: Option<String>,
-    item_type: Option<String>,
-) -> Result<MemoryItem, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let scope = match scope {
-            Some(s) => Some(Scope::parse(&s).ok_or_else(|| format!("invalid scope: {s}"))?),
-            None => None,
-        };
-        let kind = match item_type {
-            Some(t) => Some(MemoryType::parse(&t).ok_or_else(|| format!("invalid type: {t}"))?),
-            None => None,
-        };
-        MemoryService::relabel(&id, scope, kind, Actor::User).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
 /// Deprecate an item (no longer recall-eligible) + retire from the dense index.
 #[tauri::command]
 pub async fn memory_item_deprecate(
@@ -244,64 +196,17 @@ pub async fn memory_item_deprecate(
     retire(id, Status::Deprecated, reason).await
 }
 
-/// Quarantine an item (suspect; held out of recall) + retire from the index.
-#[tauri::command]
-pub async fn memory_item_quarantine(
-    id: String,
-    reason: Option<String>,
-) -> Result<MemoryItem, String> {
-    retire(id, Status::Quarantined, reason).await
-}
-
-/// "Do not use this again" — mark rejected + retire from the index + log event.
-/// The recall path also rechecks status on load, so injection is doubly blocked.
-#[tauri::command]
-pub async fn memory_do_not_use(id: String, reason: Option<String>) -> Result<MemoryItem, String> {
-    retire(
-        id,
-        Status::Rejected,
-        reason.or_else(|| Some("user: do not use again".to_string())),
-    )
-    .await
-}
-
 /// Forget an item — PERMANENT, IRREVERSIBLE hard delete (H4: verifiable forget).
 ///
-/// Unlike `memory_item_deprecate` / `memory_do_not_use` (which keep the row but
-/// hold it out of recall), this purges the row from the SoT (`brain.db`) and the
-/// dense index entirely. Intended for right-to-be-forgotten / leaked-secret purge.
-/// The append-only audit log retains a `forgotten` event with the erased item's
+/// Unlike `memory_item_deprecate` (which keeps the row but holds it out of
+/// recall), this purges the row from the SoT (`brain.db`) and the dense index
+/// entirely. Intended for right-to-be-forgotten / leaked-secret purge. The
+/// append-only audit log retains a `forgotten` event with the erased item's
 /// json as the sole surviving provenance.
 #[tauri::command]
 pub async fn memory_forget(id: String, reason: Option<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         MemoryService::forget(&id, Actor::User, reason).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
-/// Bulk-deprecate every active item of a given type (e.g. purge `codebase_fact`
-/// bloat). Reuses the per-item governance path so FTS5 + Qdrant stay in sync.
-/// `dry_run` (default false) only counts. Returns matched/deprecated + failures.
-#[tauri::command]
-pub async fn memory_bulk_deprecate(
-    item_type: String,
-    dry_run: Option<bool>,
-    project: Option<String>,
-    reason: Option<String>,
-) -> Result<BulkDeprecateResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let kind = MemoryType::parse(&item_type)
-            .ok_or_else(|| format!("invalid memory type: {item_type}"))?;
-        MemoryService::deprecate_by_type(
-            kind,
-            dry_run.unwrap_or(false),
-            project.as_deref(),
-            reason,
-            Actor::User,
-        )
-        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -391,20 +296,6 @@ pub async fn memory_item_pin(id: String) -> Result<MemoryItem, String> {
 pub async fn memory_item_unpin(id: String) -> Result<MemoryItem, String> {
     tauri::async_runtime::spawn_blocking(move || {
         MemoryService::unpin(&id, Actor::User).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
-/// Full audit history (events) for one memory.
-#[tauri::command]
-pub async fn memory_item_history(
-    id: String,
-    limit: Option<u32>,
-) -> Result<Vec<MemoryEvent>, String> {
-    let n = limit.map(|n| n as usize).unwrap_or(50);
-    tauri::async_runtime::spawn_blocking(move || {
-        MemoryService::history(&id, n).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

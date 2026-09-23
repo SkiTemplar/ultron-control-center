@@ -40,6 +40,7 @@ export const IDE_OPTIONS: IdeOption[] = [
   { value: "fleet", label: "JetBrains Fleet" },
   { value: "nvim", label: "Neovim" },
   { value: "sublime", label: "Sublime Text" },
+  { value: "obsidian", label: "Obsidian" },
 ];
 
 export const labelStyle = { color: "var(--color-text-tertiary)" } as const;

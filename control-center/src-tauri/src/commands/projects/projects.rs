@@ -115,16 +115,6 @@ pub async fn project_open_app(id: String) -> Result<projects::ProjectActionResul
     projects::project_open_app_inner(id).await
 }
 
-/// v2.6.2 — spawn a Quick Launch executable. Validated server-side via the
-/// same hardening helpers as the launcher chips.
-#[tauri::command]
-pub async fn launch_project_executable(
-    app: tauri::AppHandle,
-    path: String,
-) -> Result<projects::ProjectActionResult, String> {
-    projects::launch_project_executable_inner(&app, path).await
-}
-
 /// Surgical patch for `Project.default_provider`. The Projects tab's inline
 /// radio invokes this on every selection change without needing to assemble
 /// a full update payload; keeps the on-disk write to a single field.
@@ -159,15 +149,6 @@ pub async fn remove_launcher_item(
     index: usize,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::remove_launcher_item_inner(project_id, index)
-}
-
-#[tauri::command]
-pub async fn reorder_launcher_items(
-    project_id: String,
-    from: usize,
-    to: usize,
-) -> Result<projects::UpdateProjectResult, String> {
-    projects::reorder_launcher_items_inner(project_id, from, to)
 }
 
 #[tauri::command]
@@ -263,9 +244,6 @@ pub async fn open_project_in_ide(
 }
 
 // ---- P4: per-project CLAUDE.md editor ----
-// NOTE: project_claude_md_load / project_claude_md_save remain here for
-// backward compat with the legacy editor. The richer `project_context_load`
-// command below supersedes them for the new Context tab.
 
 fn resolve_claude_md(project_path: &str) -> std::path::PathBuf {
     let p = std::path::PathBuf::from(project_path);
@@ -303,20 +281,6 @@ pub async fn project_claude_md_save(project_path: String, content: String) -> Re
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-// ---- v2.9.5: rich project context aggregator ----
-
-/// Load all context signals for the per-project Context sub-tab in one call:
-/// CLAUDE.md content + path, KG entities, bug cards,
-/// decision records, git summary, and next-step suggestions.
-#[tauri::command]
-pub async fn project_context_load(
-    project_id: String,
-    project_name: String,
-    project_path: String,
-) -> Result<project_context::ProjectContextPayload, String> {
-    project_context::load_inner(project_id, project_name, project_path).await
 }
 
 /// Create a starter CLAUDE.md stub at <project_path>/CLAUDE.md.

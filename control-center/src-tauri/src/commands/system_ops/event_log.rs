@@ -88,29 +88,6 @@ pub async fn event_log_recent(
         .map_err(|e| format!("join: {e}"))?
 }
 
-/// Launches the Windows Event Viewer MMC snap-in (`eventvwr.msc`) so the
-/// user can drill into raw events with the native UI.
-#[tauri::command]
-pub async fn open_event_viewer() -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        tauri::async_runtime::spawn_blocking(|| {
-            let mut cmd = std::process::Command::new("cmd.exe");
-            cmd.args(["/C", "start", "", "eventvwr.msc"]);
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            cmd.spawn().map_err(|e| format!("spawn eventvwr: {e}"))
-        })
-        .await
-        .map_err(|e| format!("join: {e}"))??;
-        Ok(())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("Event Viewer is Windows-only".to_string())
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Windows implementation
 // ---------------------------------------------------------------------------

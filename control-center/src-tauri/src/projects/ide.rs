@@ -75,6 +75,7 @@ pub(crate) fn slug_to_cli(slug: &str) -> Option<&'static str> {
         "nvim" => Some("nvim"),
         "sublime" => Some("subl"),
         "zed" => Some("zed"),
+        "obsidian" => Some("obsidian"),
         _ => None,
     }
 }
@@ -99,6 +100,7 @@ pub(crate) fn display_name(cli: &str) -> &'static str {
         "nvim" => "Neovim",
         "subl" => "Sublime Text",
         "zed" => "Zed",
+        "obsidian" => "Obsidian",
         _ => "IDE",
     }
 }
@@ -236,12 +238,68 @@ fn fixed_install(cli: &str) -> Option<String> {
             })
             .into_iter()
             .collect(),
+        "obsidian" => local
+            .as_ref()
+            .map(|d| d.join("Programs").join("Obsidian").join("Obsidian.exe"))
+            .into_iter()
+            .collect(),
         _ => Vec::new(),
     };
     candidates
         .into_iter()
         .find(|p| p.is_file())
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// What to hand the launcher for `path`. Editors take the folder itself;
+/// Obsidian ignores a folder argument and only opens vaults through its
+/// `obsidian://` URI, so the folder is resolved to the vault that contains it.
+pub(crate) fn launch_target(cli: &str, path: &str) -> String {
+    if cli != "obsidian" {
+        return path.to_string();
+    }
+    let registry = env_dir("APPDATA")
+        .map(|d| d.join("obsidian").join("obsidian.json"))
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .unwrap_or_default();
+    obsidian_uri(&registry, path)
+}
+
+/// `obsidian://open?vault=<id>` for the registered vault whose root is `path`
+/// or contains it (deepest root wins); `obsidian://open?path=<path>` when no
+/// registered vault matches. `registry` is the content of Obsidian's
+/// `obsidian.json`; unreadable or malformed content falls back to `path=`.
+fn obsidian_uri(registry: &str, path: &str) -> String {
+    let norm = |p: &str| p.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    let target = norm(path);
+    let vault = serde_json::from_str::<serde_json::Value>(registry)
+        .ok()
+        .and_then(|v| v.get("vaults").and_then(|x| x.as_object()).cloned())
+        .into_iter()
+        .flatten()
+        .filter_map(|(id, v)| {
+            let root = norm(v.get("path")?.as_str()?);
+            let inside = target == root || target.starts_with(&format!("{root}\\"));
+            inside.then_some((root.len(), id))
+        })
+        .max_by_key(|(len, _)| *len)
+        .map(|(_, id)| id);
+    match vault {
+        Some(id) => format!("obsidian://open?vault={}", percent_encode(&id)),
+        None => format!("obsidian://open?path={}", percent_encode(path)),
+    }
+}
+
+/// RFC 3986 percent-encoding of everything outside the unreserved set.
+fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Choose the launcher to spawn out of what `where` / `which` printed, one
@@ -538,6 +596,42 @@ mod tests {
     #[test]
     fn a_launcher_that_cannot_exist_resolves_to_none() {
         assert_eq!(resolve_launcher("ultron-no-such-ide"), None);
+    }
+
+    const OBSIDIAN_REGISTRY: &str = r#"{"vaults":{
+        "aaa":{"path":"C:\\Users\\r\\notes","ts":1},
+        "bbb":{"path":"C:\\Users\\r\\CARRERA\\TFG — Trabajo","ts":2}}}"#;
+
+    #[test]
+    fn obsidian_opens_the_registered_vault_by_id() {
+        let uri = obsidian_uri(OBSIDIAN_REGISTRY, "C:\\Users\\r\\CARRERA\\TFG — Trabajo");
+        assert_eq!(uri, "obsidian://open?vault=bbb");
+        // Case and trailing separator must not break the match.
+        let uri = obsidian_uri(OBSIDIAN_REGISTRY, "c:/users/r/carrera/tfg — trabajo/");
+        assert_eq!(uri, "obsidian://open?vault=bbb");
+    }
+
+    #[test]
+    fn obsidian_matches_a_folder_inside_a_vault_but_not_a_sibling_prefix() {
+        let inside = obsidian_uri(OBSIDIAN_REGISTRY, "C:\\Users\\r\\notes\\daily");
+        assert_eq!(inside, "obsidian://open?vault=aaa");
+        let sibling = obsidian_uri(OBSIDIAN_REGISTRY, "C:\\Users\\r\\notes-old");
+        assert!(sibling.starts_with("obsidian://open?path="), "{sibling}");
+    }
+
+    #[test]
+    fn obsidian_falls_back_to_an_encoded_path_without_a_registry() {
+        let uri = obsidian_uri("not json", "C:\\a b\\TFG — X");
+        assert_eq!(
+            uri,
+            "obsidian://open?path=C%3A%5Ca%20b%5CTFG%20%E2%80%94%20X"
+        );
+        assert!(!uri.contains('"') && !uri.contains(' '));
+    }
+
+    #[test]
+    fn launch_target_leaves_editor_paths_untouched() {
+        assert_eq!(launch_target("code", "C:\\x y"), "C:\\x y");
     }
 
     #[test]
