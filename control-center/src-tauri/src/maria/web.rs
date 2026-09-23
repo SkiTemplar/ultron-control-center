@@ -718,6 +718,7 @@ mod tests {
             ms: None,
             aviso: aviso.map(str::to_string),
             punto: None,
+            modelo_real: None,
         }
     }
 

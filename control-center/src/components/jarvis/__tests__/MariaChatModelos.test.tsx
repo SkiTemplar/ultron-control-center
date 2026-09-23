@@ -279,3 +279,61 @@ describe("degradación con un backend que no sabe de suscripciones", () => {
     });
   });
 });
+
+describe("el modelo concreto y el menú de «/» (2026-09-23)", () => {
+  it("un turno pedido con alias enseña el modelo que contestó, con su nombre", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "maria_threads_list") return [HILO];
+      if (cmd === "maria_relay_thread")
+        return [
+          { ts: "2026-09-23T10:00:00Z", role: "user", provider: "", text: "hola" },
+          {
+            ts: "2026-09-23T10:00:05Z",
+            role: "assistant",
+            provider: "claude",
+            model: "alias-grande",
+            effort: "medio",
+            text: "hola",
+            modelo_real: "modelo-grande-20260901",
+          },
+          {
+            ts: "2026-09-23T10:01:00Z",
+            role: "assistant",
+            provider: "claude",
+            model: "modelo-medio",
+            effort: "bajo",
+            text: "adiós",
+          },
+        ];
+      if (cmd === "maria_relay_config") return { order: ["claude", "codex"], disabled: [] };
+      if (cmd === "maria_models_catalog") return CATALOGO;
+      return null;
+    });
+    render(<MariaChat compacto hiloInicial="hilo-1" />);
+    // Con fecha de versión o sin ella, el catálogo lo nombra: «Grande».
+    const chip = await screen.findByTitle(/se pidió «alias-grande» y contestó modelo-grande-20260901/);
+    expect(chip.textContent).toContain("Grande");
+    // Caso negativo: sin modelo_real se enseña lo que se pidió, sin inventar.
+    expect(screen.getByText(/modelo-medio/)).toBeTruthy();
+  });
+
+  it("«/» a secas abre una lista con alto máximo y lleva la marca a la vista", async () => {
+    const vista = vi.fn();
+    Element.prototype.scrollIntoView = vista;
+    render(<MariaChat compacto hiloInicial="hilo-1" />);
+    const caja = (await screen.findByLabelText("mensaje")) as HTMLInputElement;
+    fireEvent.change(caja, { target: { value: "/" } });
+    const lista = await screen.findByRole("listbox", { name: "comandos disponibles" });
+    expect(lista.style.maxHeight).toContain("320px");
+    expect(lista.className).toContain("overflow-y-auto");
+    expect(lista.className).not.toContain("overflow-hidden");
+    const opciones = screen.getAllByRole("option");
+    expect(opciones.length).toBeGreaterThan(10);
+    vista.mockClear();
+    // Flecha arriba desde la primera = la última: tiene que traerse a la vista.
+    fireEvent.keyDown(caja, { key: "ArrowUp" });
+    await waitFor(() => expect(vista).toHaveBeenCalled());
+    const marcada = screen.getAllByRole("option").find((o) => o.getAttribute("aria-selected") === "true");
+    expect(marcada).toBe(screen.getAllByRole("option").at(-1));
+  });
+});

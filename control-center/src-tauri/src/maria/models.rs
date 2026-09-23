@@ -189,10 +189,19 @@ pub fn catalogo() -> Vec<CatalogoProveedor> {
                     "Fable (el Fable vigente)",
                     "lo mas capaz: tareas largas y dificiles; puede pedir creditos",
                 ),
+                // Lista de RESPALDO: solo se usa hasta que se lee la tabla de
+                // modelos de la CLI instalada (`suscripcion::modelos_de_la_cli`,
+                // al arrancar y con /modelos). Desde el 2026-09-23 la lista
+                // buena sale de ahi y no de aqui.
+                m(
+                    "claude-opus-5-5",
+                    "Opus 5.5",
+                    "el Opus de hoy, clavado a esta version",
+                ),
                 m(
                     "claude-opus-5",
                     "Opus 5",
-                    "el Opus de hoy, clavado a esta version",
+                    "el Opus anterior, clavado a esta version",
                 ),
                 m(
                     "claude-opus-4-6",
@@ -529,6 +538,13 @@ pub fn fundir(
                 c.plan.clone_from(&s.plan);
                 c.plan_origen.clone_from(&s.origen);
                 c.refrescado.clone_from(&s.at);
+                if !s.nota.is_empty() {
+                    c.nota = if c.nota.is_empty() {
+                        s.nota.clone()
+                    } else {
+                        format!("{} {}", s.nota, c.nota)
+                    };
+                }
                 for id in &s.permitidos {
                     // La guarda de forma se aplica AQUI, que es por donde
                     // entra lo que no ha escrito un humano.
@@ -568,11 +584,78 @@ pub fn fundir(
 }
 
 /// Catalogo de casa con el modelo local real relleno.
+/// Familias que NO se ofrecen desde la tabla de la CLI. Mythos va por
+/// aprobacion de la organizacion (404 medido en esta cuenta el 2026-09-22):
+/// si el servidor se lo ofrece a la cuenta, entra por
+/// `additionalModelOptionsCache` como cualquier extra.
+const FAMILIAS_OCULTAS: &[&str] = &["mythos"];
+/// Orden de las familias en el selector; una familia nueva va detras.
+const ORDEN_FAMILIAS: &[&str] = &["fable", "opus", "sonnet", "haiku"];
+
+/// Numeros de version de un id, para ordenar: "claude-opus-5-5" -> [5, 5].
+fn version(id: &str) -> Vec<u32> {
+    id.split('-')
+        .filter_map(|p| p.parse::<u32>().ok())
+        .collect()
+}
+
+/// Los modelos de Claude que ofrece el selector, a partir de la tabla de la CLI
+/// instalada: por familia y de mas nuevo a mas viejo, sin la generacion 3.x
+/// (legado) ni las familias ocultas. Pura.
+///
+/// Es lo que hace que un modelo nuevo aparezca SOLO al actualizar Claude Code
+/// (2026-09-23: Opus 5.5 no salia porque la lista estaba escrita a mano).
+#[must_use]
+pub fn modelos_desde_la_cli(cli: &[crate::maria::suscripcion::ModeloCli]) -> Vec<ModeloInfo> {
+    let mut vistos: Vec<&crate::maria::suscripcion::ModeloCli> = cli
+        .iter()
+        .filter(|m| !FAMILIAS_OCULTAS.contains(&m.familia.as_str()))
+        .filter(|m| !m.id.starts_with("claude-3"))
+        .filter(|m| id_con_forma_de_modelo(&m.id))
+        .collect();
+    let rango = |f: &str| {
+        ORDEN_FAMILIAS
+            .iter()
+            .position(|x| *x == f)
+            .unwrap_or(ORDEN_FAMILIAS.len())
+    };
+    vistos.sort_by(|a, b| {
+        rango(&a.familia)
+            .cmp(&rango(&b.familia))
+            .then_with(|| a.familia.cmp(&b.familia))
+            .then_with(|| version(&b.id).cmp(&version(&a.id)))
+    });
+    let mut out = Vec::new();
+    let mut familia_anterior = String::new();
+    for m in vistos {
+        let para = if m.familia == familia_anterior {
+            "version anterior, clavada".to_string()
+        } else {
+            format!("lo mas nuevo de {} en tu Claude Code, clavado", m.familia)
+        };
+        familia_anterior.clone_from(&m.familia);
+        out.push(ModeloInfo {
+            id: m.id.clone(),
+            label: m.etiqueta.clone(),
+            para,
+            origen: Origen::Casa,
+            ..ModeloInfo::default()
+        });
+    }
+    out
+}
+
 fn base_viva() -> Vec<CatalogoProveedor> {
     let local = crate::ollama::toggle::model_name();
+    let de_la_cli = modelos_desde_la_cli(&crate::maria::suscripcion::modelos_cli_cacheados());
     catalogo()
         .into_iter()
         .map(|mut c| {
+            if c.provider == "claude" && !de_la_cli.is_empty() {
+                // Quedan los alias (no caducan) y el resto sale de la CLI.
+                c.models.retain(|m| !m.id.starts_with("claude-"));
+                c.models.extend(de_la_cli.iter().cloned());
+            }
             if c.provider == "local" && !local.is_empty() {
                 c.models = vec![m(&local, &local, "gratis y sin cuota; el mas flojo")];
                 c.default_model.clone_from(&local);
@@ -859,6 +942,7 @@ mod tests {
                 origen: "fixture".into(),
                 permitidos: permitidos.iter().map(|s| (*s).to_string()).collect(),
                 vetados: vetados.iter().map(|s| (*s).to_string()).collect(),
+                nota: String::new(),
                 at: hace(0),
             },
         );
@@ -1365,5 +1449,45 @@ mod tests {
         sirve.at = hace(3);
         let (p, motivo, _) = estado_de("claude-opus-5", Some(&sirve), Some(&vs), false, ahora);
         assert_eq!(p, Permitido::No, "{motivo}");
+    }
+
+    #[test]
+    fn un_modelo_nuevo_de_la_cli_sale_primero_en_su_familia() {
+        use crate::maria::suscripcion::ModeloCli;
+        let mc = |id: &str, f: &str, e: &str| ModeloCli {
+            id: id.into(),
+            familia: f.into(),
+            etiqueta: e.into(),
+        };
+        let cli = vec![
+            mc("claude-3-5-haiku", "haiku", "Haiku 3.5"),
+            mc("claude-haiku-4-5", "haiku", "Haiku 4.5"),
+            mc("claude-sonnet-5", "sonnet", "Sonnet 5"),
+            mc("claude-opus-4-8", "opus", "Opus 4.8"),
+            mc("claude-opus-5", "opus", "Opus 5"),
+            mc("claude-opus-5-5", "opus", "Opus 5.5"),
+            mc("claude-fable-5-1", "fable", "Fable 5.1"),
+            mc("claude-mythos-5", "mythos", "Mythos 5"),
+            mc("claude-poeta-1", "poeta", "Poeta 1"),
+        ];
+        let ids: Vec<String> = modelos_desde_la_cli(&cli)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "claude-fable-5-1",
+                "claude-opus-5-5",
+                "claude-opus-5",
+                "claude-opus-4-8",
+                "claude-sonnet-5",
+                "claude-haiku-4-5",
+                "claude-poeta-1",
+            ],
+            "familias en orden, lo mas nuevo arriba; fuera 3.x y mythos; lo desconocido detras"
+        );
+        // Caso negativo: sin tabla no se inventa nada (queda el respaldo de casa).
+        assert!(modelos_desde_la_cli(&[]).is_empty());
     }
 }

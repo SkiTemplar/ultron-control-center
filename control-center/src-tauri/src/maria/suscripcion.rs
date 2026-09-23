@@ -62,6 +62,13 @@ pub struct Suscripcion {
     /// Ids que la cuenta tiene vetados con evidencia (entitled:false).
     #[serde(default)]
     pub vetados: Vec<String>,
+    /// Algo que la cuenta ofrece y ESTA version de la CLI no sabe usar. El
+    /// servidor de Claude manda entradas como `cc-update-required-1` cuando un
+    /// modelo nuevo exige una CLI mas moderna (visto el 2026-09-22 con Opus
+    /// 5.5): no son ids de modelo y pasarlas a `--model` falla. Se dicen junto
+    /// al selector. Vacia = nada que decir.
+    #[serde(default)]
+    pub nota: String,
     /// RFC 3339 del sondeo.
     #[serde(default)]
     pub at: String,
@@ -288,18 +295,9 @@ pub fn sonda_claude(
     }
 
     // Lo que el SERVIDOR ofrece a esta cuenta ademas de los alias de siempre.
-    let mut permitidos: Vec<String> = claude_json
-        .get("additionalModelOptionsCache")
-        .and_then(serde_json::Value::as_array)
-        .map(|filas| {
-            filas
-                .iter()
-                .filter_map(|f| f.get("value").and_then(serde_json::Value::as_str))
-                .filter(|v| !v.trim().is_empty())
-                .map(|v| v.trim().to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    // Solo entran ids de modelo de verdad; lo demas se cuenta en `nota`.
+    let (mut permitidos, raros) = ofertas_de_claude(claude_json);
+    let nota = nota_de_ofertas_raras(&raros);
 
     // `modelAccessCache` es la lista de entitlements: `entitled:false` es la
     // UNICA evidencia de veto que Claude deja en disco. Vacia = sin restriccion.
@@ -333,8 +331,245 @@ pub fn sonda_claude(
         origen,
         permitidos,
         vetados,
+        nota,
         at: ahora(),
     }
+}
+
+/// ¿Es un id de modelo de Claude que se puede pasar a `--model`? Pura.
+#[must_use]
+pub fn es_id_de_claude(id: &str) -> bool {
+    let base = id
+        .strip_suffix("[1m]")
+        .or_else(|| id.strip_suffix("[1M]"))
+        .unwrap_or(id);
+    base.starts_with("claude-") && crate::maria::models::id_con_forma_de_modelo(id)
+}
+
+/// Parte `additionalModelOptionsCache` en ids de modelo y «el resto» (lo que
+/// no es un id: se devuelve su etiqueta, o su valor si no la trae). Pura.
+fn ofertas_de_claude(claude_json: &serde_json::Value) -> (Vec<String>, Vec<String>) {
+    let mut ids = Vec::new();
+    let mut raros = Vec::new();
+    let filas = claude_json
+        .get("additionalModelOptionsCache")
+        .and_then(serde_json::Value::as_array);
+    for f in filas.into_iter().flatten() {
+        let valor = f
+            .get("value")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if valor.is_empty() {
+            continue;
+        }
+        if es_id_de_claude(valor) {
+            ids.push(valor.to_string());
+        } else {
+            let etiqueta = f
+                .get("label")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .unwrap_or(valor);
+            raros.push(etiqueta.to_string());
+        }
+    }
+    (ids, raros)
+}
+
+/// Frase para el selector cuando la cuenta ofrece algo que esta CLI no sabe
+/// usar. Lo que viene del servidor se limpia y se recorta: es texto ajeno que
+/// acaba en la pantalla. Pura.
+fn nota_de_ofertas_raras(raros: &[String]) -> String {
+    if raros.is_empty() {
+        return String::new();
+    }
+    let lista: Vec<String> = raros
+        .iter()
+        .map(|r| {
+            let limpio: String = r.chars().filter(|c| !c.is_control()).collect();
+            format!("«{}»", crate::maria::relay::recorta(limpio.trim(), 60))
+        })
+        .collect();
+    format!(
+        "Tu cuenta ofrece {}, pero esta version de Claude Code no lo sabe usar: actualiza \
+         la CLI (`claude update`) y pulsa /modelos.",
+        lista.join(", ")
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Los modelos que conoce la CLI de Claude INSTALADA
+// ---------------------------------------------------------------------------
+//
+// Claude Code no tiene un comando que liste modelos, pero su binario lleva la
+// tabla entera: `{id:"claude-opus-5-5",family:"opus",display_name:"Opus
+// 5.5"}`. Hasta el 2026-09-23 la lista del selector estaba escrita a mano y
+// Opus 5.5 no aparecia aunque la CLI ya lo tenia: cada modelo nuevo habria
+// exigido tocar el codigo. Ahora sale de ahi, y se relee solo cuando el
+// binario cambia (actualizacion de la CLI): leer 237 MB cuesta ~130 ms y
+// buscar la tabla, otros tantos, asi que se hace al arrancar en un hilo y con
+// /modelos, nunca en un turno.
+
+const FICHERO_CLI: &str = "modelos-cli-claude.json";
+
+/// Un modelo que la CLI de Claude instalada sabe usar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeloCli {
+    pub id: String,
+    pub familia: String,
+    /// Nombre humano que trae la propia CLI ("Opus 5.5").
+    pub etiqueta: String,
+}
+
+/// Lo que se guarda: la tabla y la firma del binario del que salio.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct CacheCli {
+    #[serde(default)]
+    ruta: String,
+    #[serde(default)]
+    bytes: u64,
+    #[serde(default)]
+    mtime: u64,
+    #[serde(default)]
+    modelos: Vec<ModeloCli>,
+}
+
+/// Busca la tabla de modelos en el contenido de la CLI. Pura.
+///
+/// Todo id pasa `id_con_forma_de_modelo`: sale de un fichero que no ha escrito
+/// un humano y acaba en `Command::args`.
+#[must_use]
+pub fn modelos_en_binario(datos: &[u8]) -> Vec<ModeloCli> {
+    static PATRON: std::sync::OnceLock<Option<regex::bytes::Regex>> = std::sync::OnceLock::new();
+    let Some(re) = PATRON
+        .get_or_init(|| {
+            regex::bytes::Regex::new(
+                r#"\{id:"(claude-[a-z0-9-]{1,48})",family:"([a-z]{1,16})",display_name:"([A-Za-z0-9 .]{1,40})""#,
+            )
+            .ok()
+        })
+        .as_ref()
+    else {
+        return Vec::new();
+    };
+    let mut out: Vec<ModeloCli> = Vec::new();
+    for c in re.captures_iter(datos) {
+        let id = String::from_utf8_lossy(&c[1]).into_owned();
+        if !crate::maria::models::id_con_forma_de_modelo(&id) || out.iter().any(|m| m.id == id) {
+            continue;
+        }
+        out.push(ModeloCli {
+            id,
+            familia: String::from_utf8_lossy(&c[2]).into_owned(),
+            etiqueta: String::from_utf8_lossy(&c[3]).into_owned(),
+        });
+    }
+    out
+}
+
+/// Fichero donde vive la tabla: el binario nativo, o el `cli.js` si la CLI se
+/// instalo con npm (entonces lo que hay en el PATH es un `.cmd`).
+fn binario_de_claude() -> Option<PathBuf> {
+    let ruta = PathBuf::from(crate::maria::relay::ruta_de_cli("claude")?);
+    let ext = ruta
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if matches!(ext.as_str(), "cmd" | "ps1" | "bat") {
+        let js = ruta
+            .parent()?
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("cli.js");
+        return js.is_file().then_some(js);
+    }
+    ruta.is_file().then_some(ruta)
+}
+
+fn firma(p: &Path) -> Option<(u64, u64)> {
+    let md = std::fs::metadata(p).ok()?;
+    let mtime = md
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some((md.len(), mtime))
+}
+
+fn cli_cache_en(dir: &Path) -> CacheCli {
+    std::fs::read_to_string(dir.join(FICHERO_CLI))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn guardar_cli_en(dir: &Path, c: &CacheCli) {
+    if let Ok(t) = serde_json::to_string_pretty(c) {
+        let _ = std::fs::write(dir.join(FICHERO_CLI), t);
+    }
+}
+
+/// Lo ultimo que se leyo de la CLI, SIN tocar el binario. Es lo que usa el
+/// catalogo (camino caliente).
+#[must_use]
+pub fn modelos_cli_cacheados() -> Vec<ModeloCli> {
+    carpeta()
+        .map(|d| cli_cache_en(&d).modelos)
+        .unwrap_or_default()
+}
+
+/// Decide con la firma si hay que releer. Pura.
+fn hay_que_releer(viejo: &CacheCli, ruta: &str, bytes: u64, mtime: u64) -> bool {
+    viejo.ruta != ruta || viejo.bytes != bytes || viejo.mtime != mtime || viejo.modelos.is_empty()
+}
+
+/// Relee la tabla del binario SI ha cambiado desde la ultima vez (o no se ha
+/// leido nunca). Si la busqueda no encuentra nada —una CLI futura que cambie el
+/// formato— se conserva lo ultimo bueno y se apunta la firma para no releer
+/// 237 MB en cada llamada.
+pub fn modelos_de_la_cli() -> Vec<ModeloCli> {
+    let Some(dir) = carpeta() else {
+        return Vec::new();
+    };
+    let viejo = cli_cache_en(&dir);
+    let Some(bin) = binario_de_claude() else {
+        return viejo.modelos;
+    };
+    let Some((bytes, mtime)) = firma(&bin) else {
+        return viejo.modelos;
+    };
+    let ruta = bin.display().to_string();
+    if !hay_que_releer(&viejo, &ruta, bytes, mtime) {
+        return viejo.modelos;
+    }
+    let Ok(datos) = std::fs::read(&bin) else {
+        return viejo.modelos;
+    };
+    let leidos = modelos_en_binario(&datos);
+    let modelos = if leidos.is_empty() {
+        tracing::warn!(
+            "la CLI de Claude no trae la tabla de modelos esperada; se conserva la ultima"
+        );
+        viejo.modelos
+    } else {
+        leidos
+    };
+    guardar_cli_en(
+        &dir,
+        &CacheCli {
+            ruta,
+            bytes,
+            mtime,
+            modelos: modelos.clone(),
+        },
+    );
+    crate::maria::models::invalidar();
+    modelos
 }
 
 /// Que permite la cuenta de Codex, a partir de `models_cache.json` ya parseado
@@ -380,6 +615,7 @@ pub fn sonda_codex(models_cache: &serde_json::Value, plan: Option<&str>) -> Susc
         plan: etiqueta,
         permitidos: filas.into_iter().map(|(_, s)| s).collect(),
         vetados: Vec::new(),
+        nota: String::new(),
         at: ahora(),
     }
 }
@@ -408,6 +644,7 @@ pub fn sonda_antigravity(tsv: &str) -> Suscripcion {
         origen: String::new(),
         permitidos,
         vetados: Vec::new(),
+        nota: String::new(),
         at: ahora(),
     }
 }
@@ -594,6 +831,9 @@ fn leer_cola(path: &Path, max: u64) -> String {
 /// sesion hoy, es mejor la lista de ayer —con su fecha a la vista— que un
 /// selector vacio.
 pub fn refrescar() -> Suscripciones {
+    // Primero la tabla de la CLI: si se acaba de actualizar Claude Code, los
+    // modelos nuevos tienen que salir con este mismo /modelos.
+    modelos_de_la_cli();
     let mut out = cache();
     for s in [claude_de_disco(), codex_refrescado(), antigravity_de_cli()] {
         if s.permitidos.is_empty() && s.vetados.is_empty() && s.plan.is_empty() {
@@ -766,6 +1006,7 @@ mod tests {
                 origen: "auth.json (id_token: chatgpt_plan_type)".into(),
                 permitidos: vec!["gpt-5.6-terra".into()],
                 vetados: Vec::new(),
+                nota: String::new(),
                 at: "2026-09-22T10:00:00Z".into(),
             },
         );
@@ -810,5 +1051,83 @@ mod tests {
             &serde_json::json!({ "fetched_at": "ayer" }),
             ahora
         ));
+    }
+
+    // ---- tabla de modelos de la CLI (2026-09-23) --------------------------
+
+    #[test]
+    fn la_tabla_de_la_cli_se_lee_del_binario_y_lo_raro_no_entra() {
+        let blob = br#"basura{id:"claude-opus-5-5",family:"opus",display_name:"Opus 5.5",knowledge_cutoff:"x"}mas
+            {id:"claude-opus-5",family:"opus",display_name:"Opus 5"}
+            {id:"claude-opus-5-5",family:"opus",display_name:"Opus 5.5"}
+            {id:"claude-x --dangerously-skip-permissions",family:"opus",display_name:"Malo"}
+            {id:"gpt-5",family:"gpt",display_name:"No es de Claude"}"#;
+        let m = modelos_en_binario(blob);
+        let ids: Vec<&str> = m.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["claude-opus-5-5", "claude-opus-5"],
+            "sin repetidos ni ajenos"
+        );
+        assert_eq!(m[0].etiqueta, "Opus 5.5");
+        assert_eq!(m[0].familia, "opus");
+        // Caso negativo: sin tabla, lista vacia (y quien llama conserva lo ultimo).
+        assert!(modelos_en_binario(b"nada que ver").is_empty());
+    }
+
+    #[test]
+    fn la_tabla_solo_se_relee_si_cambia_el_binario() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let c = CacheCli {
+            ruta: "claude.exe".into(),
+            bytes: 10,
+            mtime: 20,
+            modelos: vec![ModeloCli {
+                id: "claude-opus-5".into(),
+                familia: "opus".into(),
+                etiqueta: "Opus 5".into(),
+            }],
+        };
+        guardar_cli_en(dir.path(), &c);
+        let leido = cli_cache_en(dir.path());
+        assert_eq!(leido, c);
+        assert!(!hay_que_releer(&leido, "claude.exe", 10, 20));
+        assert!(
+            hay_que_releer(&leido, "claude.exe", 11, 20),
+            "otro tamaño = CLI nueva"
+        );
+        assert!(
+            hay_que_releer(&leido, "claude.exe", 10, 21),
+            "otra fecha = CLI nueva"
+        );
+        assert!(
+            hay_que_releer(&CacheCli::default(), "claude.exe", 10, 20),
+            "vacia = leer"
+        );
+    }
+
+    #[test]
+    fn una_oferta_que_no_es_un_modelo_no_entra_y_se_dice() {
+        let perfil = serde_json::json!({
+            "additionalModelOptionsCache": [
+                {"value": "claude-fable-5-1[1m]", "label": "Fable", "description": "x"},
+                {"value": "cc-update-required-1", "label": "Opus 5.5", "description": "Update"}
+            ]
+        });
+        let s = sonda_claude(&perfil, &serde_json::Value::Null);
+        assert_eq!(s.permitidos, vec!["claude-fable-5-1[1m]".to_string()]);
+        assert!(
+            s.nota.contains("«Opus 5.5»") && s.nota.contains("claude update"),
+            "{}",
+            s.nota
+        );
+        // Caso negativo: sin rarezas, nota vacia.
+        let limpio =
+            serde_json::json!({"additionalModelOptionsCache": [{"value": "claude-opus-5-5"}]});
+        assert!(sonda_claude(&limpio, &serde_json::Value::Null)
+            .nota
+            .is_empty());
+        assert!(!es_id_de_claude("cc-update-required-1"));
+        assert!(es_id_de_claude("claude-opus-5-5[1m]"));
     }
 }

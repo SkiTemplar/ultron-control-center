@@ -112,6 +112,11 @@ pub struct Turn {
     /// como el resto: los hilos escritos antes de hoy se siguen leyendo.
     #[serde(default)]
     pub punto: Option<String>,
+    /// Modelo CONCRETO que contesto, si el proveedor lo dice ("claude-opus-5-5"
+    /// cuando se pidio el alias `opus`). Vacio en hilos anteriores al
+    /// 2026-09-23 y en proveedores que no lo publican.
+    #[serde(default)]
+    pub modelo_real: Option<String>,
 }
 
 /// Resultado de una vuelta de relevo.
@@ -154,6 +159,8 @@ pub struct RelayAnswer {
     /// hilo (2026-09-22: sin esto el enlace solo salia al reabrir la
     /// conversacion, igual que le paso al consumo).
     pub punto: Option<String>,
+    /// El mismo `Turn.modelo_real`, para pintarlo sin releer el hilo.
+    pub modelo_real: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1714,6 +1721,7 @@ fn ask_inner(
                 sesion: None,
                 // Gratis, pero Ollama si publica sus tokens (2026-09-22).
                 consumo,
+                modelo_real: None,
             })
         } else {
             let sesion = if ajustes.sesion_continua {
@@ -1832,6 +1840,7 @@ fn ask_inner(
                         coste_usd: respuesta.consumo.coste_usd,
                         ms: Some(ms),
                         punto: punto.clone(),
+                        modelo_real: respuesta.modelo_real.clone(),
                     },
                 )?;
                 return Ok(RelayAnswer {
@@ -1849,6 +1858,7 @@ fn ask_inner(
                     ms: Some(ms),
                     aviso: aviso.clone(),
                     punto: punto.clone(),
+                    modelo_real: respuesta.modelo_real.clone(),
                 });
             }
             Err((detail, cuota)) => {

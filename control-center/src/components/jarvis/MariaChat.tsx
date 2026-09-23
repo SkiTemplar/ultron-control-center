@@ -66,6 +66,9 @@ type Turn = {
    *  proyecto, el árbol era demasiado grande o la foto falló: entonces no hay
    *  «volver» que ofrecer, y no se ofrece. */
   punto?: string | null;
+  /** Modelo concreto que contestó, cuando el proveedor lo dice. Con el alias
+   *  `opus` la etiqueta «opus» no decía qué Opus era (2026-09-23). */
+  modelo_real?: string | null;
 };
 
 /** Un punto de control, tal y como lo sirve `maria_puntos_listar`. */
@@ -183,6 +186,8 @@ type RelayAnswer = {
   aviso?: string | null;
   /** Punto de control tomado antes de este turno (el mismo `Turn.punto`). */
   punto?: string | null;
+  /** Modelo concreto que contestó ("claude-opus-5-5" para el alias `opus`). */
+  modelo_real?: string | null;
   /** Consumo y tiempo del turno, lo mismo que queda en el hilo (`maria/relay.rs`). */
   tokens_in?: number | null;
   tokens_out?: number | null;
@@ -328,6 +333,8 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   /** Turno al que hay que bajar en cuanto cargue el hilo. null = a ninguno. */
   const [irATurno, setIrATurno] = useState<number | null>(null);
   const [sugerido, setSugerido] = useState(0);
+  /** Un nodo por sugerencia, para llevar la marcada a la vista. */
+  const sugerenciaRefs = useRef<Array<HTMLButtonElement | null>>([]);
   /** Respuesta que se esta escribiendo ahora mismo (eventos del relevo). */
   const [enVivo, setEnVivo] = useState<{ provider: string; texto: string } | null>(null);
   /** Ficheros que acompañaran al proximo mensaje. */
@@ -378,6 +385,20 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
   const fichaDe = useCallback(
     (p: string | null) => (p ? catalogo?.providers.find((c) => c.provider === p) : undefined),
     [catalogo],
+  );
+
+  /** Nombre humano de un modelo concreto ("claude-opus-5-5" -> "Opus 5.5"),
+   *  sacado del catálogo; si no está, el id sin la fecha de versión, y si
+   *  tampoco, el id tal cual. Nunca se inventa. */
+  const nombreDeModelo = useCallback(
+    (provider: string, id: string) => {
+      const ms = fichaDe(provider)?.models ?? [];
+      const sinFecha = id.replace(/-\d{8}$/, "");
+      return (
+        ms.find((m) => m.id === id)?.label ?? ms.find((m) => m.id === sinFecha)?.label ?? sinFecha
+      );
+    },
+    [fichaDe],
   );
 
   /** Modelos del proveedor fijado. Sin proveedor fijado no se ofrece ninguno:
@@ -662,6 +683,15 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
     setMenuCerrado(false);
   }, [prompt]);
 
+  // Con «/» a secas salen TODOS los comandos (24): la lista tiene alto máximo
+  // y scroll, y la marcada se trae a la vista al moverse con las flechas. Sin
+  // esto la lista crecía hacia arriba por encima del chat, la primera opción
+  // quedaba fuera del recorte y las flechas movían una marca invisible
+  // (2026-09-23).
+  useEffect(() => {
+    sugerenciaRefs.current[sugerido]?.scrollIntoView?.({ block: "nearest" });
+  }, [sugerido]);
+
   async function nuevaConversacion(folder?: string) {
     const nueva = await invoke<ThreadMeta>("maria_thread_create", {
       folder: folder ?? null,
@@ -931,7 +961,10 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
       });
       setLastSkips(ans.skipped ?? []);
       setLastChoice(ans.chosen_by_local ?? null);
-      setUltimo({ model: ans.model ?? "", effort: ans.effort ?? "" });
+      setUltimo({
+        model: ans.modelo_real ? nombreDeModelo(ans.provider, ans.modelo_real) : (ans.model ?? ""),
+        effort: ans.effort ?? "",
+      });
       // Un turno sin foto del proyecto no es un fallo, pero hay que saberlo
       // antes de fiarse de «volver a antes de esta respuesta» (2026-09-22).
       if (ans.aviso) avisar(ans.aviso, "error");
@@ -953,6 +986,7 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
           // Y el punto de control: sin él, «volver a antes de esta
           // respuesta» solo salía al reabrir la conversación (2026-09-22).
           punto: ans.punto ?? null,
+          modelo_real: ans.modelo_real ?? null,
         },
       ]);
       // El primer intercambio le pone nombre a la conversacion: sin esto la
@@ -1667,9 +1701,13 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                         color: "var(--color-text-secondary)",
                         fontFamily: "var(--font-mono)",
                       }}
-                      title="modelo y esfuerzo con los que se contestó"
+                      title={
+                        t.modelo_real
+                          ? `se pidió «${t.model}» y contestó ${t.modelo_real}`
+                          : "modelo y esfuerzo con los que se contestó"
+                      }
                     >
-                      {t.model}
+                      {t.modelo_real ? nombreDeModelo(t.provider, t.modelo_real) : t.model}
                       {t.effort ? ` · ${t.effort}` : ""}
                     </span>
                   )}
@@ -1863,7 +1901,8 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
         <div className="relative">
           {sugerencias.length > 0 && (
             <ul
-              className="hud-panel hud-menu absolute bottom-full left-0 mb-1 w-full max-w-[520px] overflow-hidden py-1"
+              className="hud-panel hud-menu absolute bottom-full left-0 mb-1 w-full max-w-[520px] overflow-y-auto py-1"
+              style={{ maxHeight: "min(45vh, 320px)" }}
               role="listbox"
               aria-label="comandos disponibles"
             >
@@ -1872,6 +1911,9 @@ export function MariaChat({ hiloInicial, compacto = false, onHilo }: Props = {})
                   <button
                     type="button"
                     role="option"
+                    ref={(el) => {
+                      sugerenciaRefs.current[i] = el;
+                    }}
                     aria-selected={i === sugerido}
                     onMouseDown={(e) => {
                       // mousedown, no click: el input pierde el foco antes de

@@ -357,6 +357,7 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
         // es el mismo proveedor y la misma cuota, solo que en paralelo.
         let reloj = std::time::Instant::now();
         let mut consumo = super::cli::Consumo::default();
+        let mut modelo_real: Option<String> = None;
         let r = if e.provider == "local" {
             let _en_uso = crate::maria::local::EnUso::nuevo();
             super::local_agente::responder(
@@ -385,6 +386,7 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
             })
             .map(|r| {
                 consumo = r.consumo;
+                modelo_real = r.modelo_real.clone();
                 r.texto
             })
         };
@@ -421,6 +423,7 @@ pub fn lanzar(thread_id: &str, provider: &str, texto: &str) -> Result<Encargo, S
                 // el sha aqui haria creer que se puede volver al estado previo
                 // a escribir la respuesta, que no es el mismo.
                 punto: None,
+                modelo_real: modelo_real.clone(),
             },
         );
         let hecho = con(|v| {

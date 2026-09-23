@@ -100,6 +100,9 @@ pub struct Respuesta {
     pub sesion: Option<String>,
     /// Tokens y coste, vacios donde el proveedor no los da.
     pub consumo: Consumo,
+    /// Modelo CONCRETO que contesto, si el proveedor lo dice (Claude, en
+    /// `modelUsage`). El alias `opus` dice poco: hoy es Opus 5.5 y mañana otro.
+    pub modelo_real: Option<String>,
 }
 
 /// Binario de cada proveedor, o None si no es una CLI.
@@ -519,7 +522,29 @@ pub fn leer_json_agy(todo: &str) -> Result<Respuesta, String> {
             .and_then(|c| c.as_str())
             .map(str::to_string),
         consumo: Consumo::default(),
+        modelo_real: None,
     })
+}
+
+/// Modelo concreto de la linea `result` de Claude: la clave de `modelUsage`
+/// con mas tokens de salida (las llamadas auxiliares de la CLI usan otro
+/// modelo y gastan menos). Pura.
+#[must_use]
+pub fn modelo_claude(linea: &str) -> Option<String> {
+    let v = serde_json::from_str::<serde_json::Value>(linea).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("result") {
+        return None;
+    }
+    v.get("modelUsage")?
+        .as_object()?
+        .iter()
+        .max_by_key(|(_, u)| {
+            u.get("outputTokens")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
+        })
+        .map(|(k, _)| k.clone())
+        .filter(|k| crate::maria::models::id_con_forma_de_modelo(k))
 }
 
 // ---------------------------------------------------------------------------
@@ -658,6 +683,7 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
     };
     let mut cierre: Option<Result<String, String>> = None;
     let mut consumo = Consumo::default();
+    let mut modelo_real: Option<String> = None;
     let mut parado = false;
     loop {
         match rx.recv_timeout(Duration::from_millis(80)) {
@@ -695,6 +721,9 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
                             }
                             if let Some(c) = consumo_claude(&linea) {
                                 consumo = c;
+                            }
+                            if let Some(m) = modelo_claude(&linea) {
+                                modelo_real = Some(m);
                             }
                         } else {
                             if let Some(c) = consumo_codex(&linea) {
@@ -750,6 +779,7 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
                 texto: t,
                 sesion,
                 consumo,
+                modelo_real,
             })
         };
     }
@@ -776,6 +806,7 @@ pub fn ejecutar(p: &Peticion<'_>) -> Result<Respuesta, (String, bool)> {
             texto: salida,
             sesion,
             consumo,
+            modelo_real,
         });
     }
     let motivo = if stderr.is_empty() { salida } else { stderr };
@@ -1125,6 +1156,7 @@ mod tests {
                 // agy no publica consumo en una salida que se haya podido
                 // verificar: se queda vacio, no se estima.
                 consumo: Consumo::default(),
+                modelo_real: None,
             })
         );
         assert!(leer_json_agy(r#"{"status":"ERROR","response":""}"#).is_err());
@@ -1170,5 +1202,14 @@ mod tests {
         // Caso negativo: el evento de fin de otro proveedor no cuela.
         assert_eq!(consumo_codex(r#"{"type":"result","usage":{}}"#), None);
         assert_eq!(consumo_codex(r#"{"type":"item.completed"}"#), None);
+    }
+
+    #[test]
+    fn el_modelo_concreto_sale_de_model_usage() {
+        let fin = r#"{"type":"result","result":"ok","modelUsage":{"claude-haiku-4-5-20251001":{"outputTokens":3},"claude-opus-5-5":{"outputTokens":45}}}"#;
+        assert_eq!(modelo_claude(fin).as_deref(), Some("claude-opus-5-5"));
+        // Caso negativo: otra linea, o sin modelUsage, no inventa nada.
+        assert_eq!(modelo_claude(r#"{"type":"result","result":"ok"}"#), None);
+        assert_eq!(modelo_claude(r#"{"type":"assistant"}"#), None);
     }
 }

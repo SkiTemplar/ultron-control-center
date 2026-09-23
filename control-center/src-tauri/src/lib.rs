@@ -399,6 +399,15 @@ pub fn run() {
             // plazo que usa Claude Code para sus checkpoints. En su propio
             // hilo, como el de arriba: recorre carpetas y borra, y eso no puede
             // retrasar la aparicion de la ventana.
+            // Modelos de Claude (2026-09-23): la lista del selector sale de la
+            // tabla que trae la CLI instalada. Se relee aqui, en su hilo, solo
+            // si el binario ha cambiado desde la ultima vez (una actualizacion
+            // de Claude Code): asi un modelo nuevo aparece sin tocar codigo.
+            std::thread::spawn(|| {
+                let n = crate::maria::suscripcion::modelos_de_la_cli().len();
+                tracing::debug!(modelos = n, "tabla de modelos de la CLI de Claude");
+            });
+
             std::thread::spawn(|| {
                 let viejos = crate::maria::puntos::barrer(30);
                 if viejos > 0 {
