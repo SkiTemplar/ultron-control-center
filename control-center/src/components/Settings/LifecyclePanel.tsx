@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../../lib/dialog";
 
 // ---------------------------------------------------------------------------
-// LifecyclePanel — autostart toggle + Rebuild + Close + global hotkey.
+// LifecyclePanel — Rebuild + Close + global hotkey (el arranque con Windows va en ArranqueSection).
 // "Check for updates" removed (the user owns the binary).
 // "Uninstall" removed (deprecated).
 // v2.5.2 (wave 2): merged the "Show/hide Control Center" global hotkey
@@ -179,53 +179,19 @@ function HotkeyEditor() {
 }
 
 export function LifecyclePanel() {
-  const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
-  const [autostartBusy, setAutostartBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [showCloseAfterRebuild, setShowCloseAfterRebuild] = useState(false);
 
-  // --- autostart helpers ---
-
-  async function purgeLegacy(): Promise<void> {
-    try {
-      await invoke("purge_legacy_autostart");
-    } catch {
-      // best-effort
-    }
-  }
-
+  // --- restos de arranques viejos ---
+  // El interruptor de «arrancar con Windows» vive en Ajustes → General →
+  // ArranqueSection, justo debajo (2026-09-23): había dos en la misma página y
+  // pulsar uno dejaba el otro desfasado. Aquí queda solo la limpieza de
+  // accesos directos que dejaron versiones antiguas en la carpeta Inicio.
   useEffect(() => {
-    (async () => {
-      await purgeLegacy();
-      try {
-        // El mismo backend que Ajustes → Arranque: la decisión se guarda y la
-        // respetan el build, la app al abrir y los instaladores de tareas.
-        const e = await invoke<{ activado_en_ajustes: boolean }>("maria_arranque_estado");
-        setAutostartEnabled(e.activado_en_ajustes);
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
+    void invoke("purge_legacy_autostart").catch(() => undefined);
   }, []);
-
-  async function toggleAutostart() {
-    if (autostartEnabled === null) return;
-    setAutostartBusy(true);
-    setError(null);
-    try {
-      const e = await invoke<{ activado_en_ajustes: boolean }>("maria_arranque_set", {
-        activar: !autostartEnabled,
-      });
-      setAutostartEnabled(e.activado_en_ajustes);
-      await purgeLegacy();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setAutostartBusy(false);
-    }
-  }
 
   // --- rebuild helper ---
 
@@ -289,43 +255,6 @@ export function LifecyclePanel() {
       {/* Global hotkey (only hotkey kept after v2.5.2 wave 2 — the in-app
           and project hotkey editors were retired). */}
       <HotkeyEditor />
-
-      {/* Start with Windows */}
-      <div
-        className="flex items-center justify-between gap-4 rounded p-4"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border-strong)",
-        }}
-      >
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold">Arrancar con Windows</div>
-          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
-            Desactivado, no se lanza nada de mar.ia al iniciar sesión: ni la app ni sus
-            tareas programadas. Detalle en Ajustes → Arranque.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={toggleAutostart}
-          disabled={autostartBusy || autostartEnabled === null}
-          className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
-          style={{
-            background: autostartEnabled ? "var(--color-success)" : "var(--color-surface-3)",
-            border: "1px solid var(--color-border-strong)",
-            padding: "1px",
-          }}
-          title={autostartEnabled ? "desactivar el arranque con Windows" : "activar el arranque con Windows"}
-        >
-          <span
-            className="block h-3.5 w-3.5 rounded-full transition-transform"
-            style={{
-              background: "var(--color-text)",
-              transform: autostartEnabled ? "translateX(16px)" : "translateX(0)",
-            }}
-          />
-        </button>
-      </div>
 
       {/* Rebuild from source */}
       <div
