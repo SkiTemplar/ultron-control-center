@@ -36,6 +36,9 @@ const BASE_ENV = { ...process.env, RUN_TESTS_STATE_DIR: STATE_DIR, RUN_TESTS_PRO
 function reset() {
   if (existsSync(FIXTURE)) rmSync(FIXTURE, { recursive: true, force: true });
   mkdirSync(join(PROJ_DIR, "src"), { recursive: true });
+  // El fixture vive dentro del repo de ULTRON: sin su propio .git, la
+  // deteccion subiria hasta la raiz y heredaria su linea `test:` del CLAUDE.md.
+  mkdirSync(join(PROJ_DIR, ".git"), { recursive: true });
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(join(PROJ_DIR, "src", "a.ts"), "export const a = 1;\n");
   writeFileSync(join(PROJ_DIR, "README.md"), "# fixture\n");

@@ -112,7 +112,9 @@ function packageManager(cwd) {
   return 'npm test --silent';
 }
 
-function fromManifest(cwd) {
+// Manifiesto con evidencia real de tests (package.json con script, Cargo.toml,
+// ficheros de configuración de pytest, go.mod).
+function fromStrongManifest(cwd) {
   const pkg = readJson(path.join(cwd, 'package.json'));
   if (pkg && pkg.scripts && typeof pkg.scripts.test === 'string' && pkg.scripts.test.trim()
     && !NPM_PLACEHOLDER_RE.test(pkg.scripts.test)) {
@@ -120,11 +122,20 @@ function fromManifest(cwd) {
   }
   if (fileExists(path.join(cwd, 'Cargo.toml'))) return { cmd: 'cargo test --quiet', source: 'Cargo.toml' };
   if (fileExists(path.join(cwd, 'pyproject.toml')) || fileExists(path.join(cwd, 'pytest.ini'))
-    || fileExists(path.join(cwd, 'conftest.py')) || fileExists(path.join(cwd, 'tests'))) {
+    || fileExists(path.join(cwd, 'conftest.py'))) {
     return { cmd: 'uv run pytest -q', source: 'pyproject/pytest' };
   }
   if (fileExists(path.join(cwd, 'go.mod'))) return { cmd: 'go test ./...', source: 'go.mod' };
   return null;
+}
+
+// Heurístico débil: una carpeta tests/ suelta. Solo cuenta si nada más lo hace.
+function fromWeakHeuristic(cwd) {
+  return fileExists(path.join(cwd, 'tests')) ? { cmd: 'uv run pytest -q', source: 'pyproject/pytest' } : null;
+}
+
+function fromManifest(cwd) {
+  return fromStrongManifest(cwd) || fromWeakHeuristic(cwd);
 }
 
 // { cmd, source } o null.
@@ -136,20 +147,24 @@ function detectTestCommand(cwd) {
 /**
  * Como detectTestCommand, pero mirando también la raíz del repo, y con `dir`:
  * el directorio donde se encontró el comando, que es donde hay que ejecutarlo.
- * Orden: CLAUDE.md del cwd, CLAUDE.md de la raíz, manifiesto del cwd,
- * manifiesto de la raíz. 2026-09-23: con la sesión en ~/.ultron/hooks/scripts
- * (sin CLAUDE.md, pero con una carpeta tests/) ganaba el heurístico de pytest
- * — exit 5, "no hay tests" — y nunca se leía la línea `test:` de la raíz.
+ * Orden por fuerza de la evidencia: CLAUDE.md del cwd, manifiesto real del cwd
+ * (un subproyecto con su package.json manda sobre el monorepo), CLAUDE.md de
+ * la raíz, manifiesto de la raíz y, al final, el heurístico de la carpeta
+ * tests/. 2026-09-23: con la sesión en ~/.ultron/hooks/scripts (sin CLAUDE.md,
+ * con una carpeta tests/) ganaba ese heurístico — pytest, exit 5, "no hay
+ * tests" — y nunca se leía la línea `test:` de la raíz.
  * @returns {{cmd: string, source: string, dir: string}|null}
  */
 function detectTestCommandInRepo(cwd, root) {
   if (!cwd) return null;
-  const dirs = root && path.resolve(root) !== path.resolve(cwd) ? [cwd, root] : [cwd];
-  for (const finder of [fromClaudeMd, fromManifest]) {
-    for (const dir of dirs) {
-      const hit = finder(dir);
-      if (hit) return { ...hit, dir };
-    }
+  const hasRoot = root && path.resolve(root) !== path.resolve(cwd);
+  const steps = [[fromClaudeMd, cwd], [fromStrongManifest, cwd]];
+  if (hasRoot) steps.push([fromClaudeMd, root], [fromStrongManifest, root]);
+  steps.push([fromWeakHeuristic, cwd]);
+  if (hasRoot) steps.push([fromWeakHeuristic, root]);
+  for (const [finder, dir] of steps) {
+    const hit = finder(dir);
+    if (hit) return { ...hit, dir };
   }
   return null;
 }
