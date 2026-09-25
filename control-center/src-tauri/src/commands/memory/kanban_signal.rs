@@ -8,6 +8,14 @@
 //
 // Pure helpers (text/recency gates, card selection over parsed JSON) are unit
 // tested with fixtures; the only IO is reading `kanban.json` and is isolated.
+//
+// (2026-09-25) The kanban card itself can also rot: a card untouched for
+// weeks was still winning `next_action` by column order alone, only
+// annotated with its age. Cards past `next_action_hard_cutoff_days` (default
+// 14, `ULTRON_NEXT_ACTION_STALE_DAYS`) no longer win outright — they surface
+// via `stale_open_cards` instead, so the resume can list them separately
+// ("estancadas: …") for the user to close or keep, rather than executing them
+// as a live order.
 
 use serde_json::Value;
 use std::path::Path;
@@ -150,29 +158,140 @@ fn annotate_stale(title: &str, updated_ms: Option<i64>, now_ms: i64) -> String {
     }
 }
 
+/// Corte duro (días) a partir del cual una card YA NO puede convertirse en
+/// `next_action`, aunque sea la primera In-Progress/Backlog por orden de
+/// columna. Configurable via `ULTRON_NEXT_ACTION_STALE_DAYS`; default 14.
+///
+/// (2026-09-25) Antes de esto, `next_action_from_kanban` elegía SIEMPRE la
+/// primera card doing/todo por orden de columna sin mirar su edad — el
+/// resume la ejecutaba como ORDEN ("FIATE de este resume") aunque llevara
+/// semanas sin tocarse. `annotate_stale` avisaba de la vejez pero no evitaba
+/// que se siguiera proponiendo como la tarea viva. Las cards que superan el
+/// corte se anotan igual (ver `annotate_stale`) pero dejan de ganar por
+/// orden; se listan aparte via `stale_open_cards`.
+fn next_action_hard_cutoff_days() -> i64 {
+    std::env::var("ULTRON_NEXT_ACTION_STALE_DAYS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(14)
+}
+
+/// Edad en días de una card, o `None` sin `updated_at` parseable (no se
+/// inventa vejez, mismo criterio que `annotate_stale`).
+fn card_age_days(card: &Value, now_ms: i64) -> Option<i64> {
+    card_updated_at_ms(card).map(|updated| (now_ms.saturating_sub(updated)) / (24 * 60 * 60 * 1000))
+}
+
+/// Elegible para `next_action`: por debajo del corte duro, o sin `updated_at`
+/// (no se excluye lo que no se puede fechar).
+fn is_next_action_eligible(card: &Value, now_ms: i64, cutoff_days: i64) -> bool {
+    card_age_days(card, now_ms)
+        .map(|age| age < cutoff_days)
+        .unwrap_or(true)
+}
+
 /// Pick the live next-action title from an already-parsed kanban document.
 /// Order: first In-Progress (role == "doing") card by column order, else the
-/// top Backlog (role == "todo") card. Returns the card title, anotado con su
-/// edad cuando la card lleva >= STALE_ANNOTATION_AFTER_DAYS sin tocarse.
+/// top Backlog (role == "todo") card — pero SOLO entre las elegibles (por
+/// debajo del corte duro de `next_action_hard_cutoff_days`). Si ninguna card
+/// viva es elegible (todas superan el corte), en vez de devolver `None`
+/// (mandamiento 11: nada de no-op silencioso) se elige la MENOS vieja de
+/// todas — sigue anotada con su edad, así que el modelo la trata con la
+/// desconfianza que merece en vez de recibir un resume vacío.
 ///
 /// Pure over the parsed JSON so it is testable from a fixture without IO
 /// (`now_ms` inyectado).
 pub fn next_action_from_kanban(doc: &Value, now_ms: i64) -> Option<String> {
     let columns = doc.get("columns")?.as_array()?;
     let cards = doc.get("cards")?.as_array()?;
-    ordered_cards(cards, &ordered_col_ids(columns, "doing"))
-        .into_iter()
-        .next()
+    let cutoff = next_action_hard_cutoff_days();
+
+    let mut candidates = ordered_cards(cards, &ordered_col_ids(columns, "doing"));
+    candidates.extend(ordered_cards(cards, &ordered_col_ids(columns, "todo")));
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let chosen = candidates
+        .iter()
+        .find(|card| is_next_action_eligible(card, now_ms, cutoff))
+        .copied()
         .or_else(|| {
-            ordered_cards(cards, &ordered_col_ids(columns, "todo"))
-                .into_iter()
-                .next()
+            candidates
+                .iter()
+                .copied()
+                .min_by_key(|card| card_age_days(card, now_ms).unwrap_or(i64::MAX))
+        })?;
+
+    chosen
+        .get("title")
+        .and_then(|t| t.as_str())
+        .map(|title| annotate_stale(title, card_updated_at_ms(chosen), now_ms))
+}
+
+/// Card estancada para el aviso "estancadas (N días): …" del resume — nunca
+/// se convierte en `next_action` (ver arriba) pero sigue viva en el kanban,
+/// así que el usuario decide si cerrarla en vez de que se pierda de vista.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaleCard {
+    pub id: String,
+    pub title: String,
+    pub age_days: i64,
+}
+
+/// Cards doing/todo que superan el corte duro, ordenadas de más a menos
+/// vieja y acotadas a `limit`. `[]` cuando ninguna es elegible para IDs/edad
+/// (sin `id`/`title`/`updated_at` parseable) o ninguna supera el corte.
+pub fn stale_open_cards(doc: &Value, now_ms: i64, limit: usize) -> Vec<StaleCard> {
+    let cutoff = next_action_hard_cutoff_days();
+    let columns = match doc.get("columns").and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    let cards = match doc.get("cards").and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    let mut candidates = ordered_cards(cards, &ordered_col_ids(columns, "doing"));
+    candidates.extend(ordered_cards(cards, &ordered_col_ids(columns, "todo")));
+
+    let mut stale: Vec<StaleCard> = candidates
+        .into_iter()
+        .filter_map(|card| {
+            let age = card_age_days(card, now_ms)?;
+            if age < cutoff {
+                return None;
+            }
+            let id = card.get("id").and_then(|v| v.as_str())?.to_string();
+            let title = card.get("title").and_then(|v| v.as_str())?.to_string();
+            Some(StaleCard {
+                id,
+                title,
+                age_days: age,
+            })
         })
-        .and_then(|card| {
-            card.get("title")
-                .and_then(|t| t.as_str())
-                .map(|title| annotate_stale(title, card_updated_at_ms(card), now_ms))
-        })
+        .collect();
+    stale.sort_by(|a, b| b.age_days.cmp(&a.age_days));
+    stale.truncate(limit);
+    stale
+}
+
+/// Read the project's kanban and return its stale (>= corte duro) live cards,
+/// capped at `limit`. `None` when there is no kanban or none are stale.
+pub fn kanban_stale_cards(root: &Path, project: &str, limit: usize) -> Option<Vec<StaleCard>> {
+    let path = root
+        .join("cockpit")
+        .join("projects")
+        .join(project)
+        .join("kanban.json");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let stale = stale_open_cards(&doc, crate::memory::model::now_millis(), limit);
+    if stale.is_empty() {
+        None
+    } else {
+        Some(stale)
+    }
 }
 
 /// Live OPEN TASKS for the resume: titles of In-Progress (role "doing") then
@@ -405,5 +524,84 @@ mod tests {
             {"id": "b3", "column_id": "c-back", "title": "c", "order": 2}
         ]));
         assert_eq!(open_tasks_from_kanban(&doc, 2), vec!["a", "b"]);
+    }
+
+    // (2026-09-25) Corte duro: una card doing de 20 días NO puede ganar
+    // next_action aunque sea la primera por orden de columna — se salta en
+    // favor de la siguiente elegible (un backlog fresco de 1 día).
+    #[test]
+    fn next_action_skips_a_stale_in_progress_card() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "Card vieja en curso", "order": 0,
+             "updated_at": "2026-06-23T00:00:00.000Z"},
+            {"id": "b1", "column_id": "c-back", "title": "Backlog fresca", "order": 0,
+             "updated_at": "2026-07-12T00:00:00.000Z"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("Backlog fresca"),
+            "la card doing de 20 dias no puede ser next_action; gana el backlog fresco"
+        );
+    }
+
+    // Caso negativo: si TODAS las cards vivas superan el corte, next_action
+    // no se queda vacio (mandamiento 11) — elige la MENOS vieja de todas.
+    #[test]
+    fn next_action_falls_back_to_least_stale_when_everything_is_stale() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "Muy vieja", "order": 0,
+             "updated_at": "2026-06-13T00:00:00.000Z"},
+            {"id": "b1", "column_id": "c-back", "title": "Menos vieja", "order": 0,
+             "updated_at": "2026-06-23T00:00:00.000Z"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("Menos vieja (kanban: sin tocar hace 20 días — verifica que siga vigente)"),
+            "sin ninguna elegible, gana la menos vieja (20d) sobre la mas vieja (30d)"
+        );
+    }
+
+    // stale_open_cards: solo cards >= corte duro, mas vieja primero, Done fuera.
+    #[test]
+    fn stale_open_cards_lists_only_cards_past_the_cutoff() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d1", "column_id": "c-doing", "title": "Fresca", "order": 0,
+             "updated_at": "2026-07-12T00:00:00.000Z"},
+            {"id": "b1", "column_id": "c-back", "title": "Estancada A", "order": 0,
+             "updated_at": "2026-06-13T00:00:00.000Z"},
+            {"id": "b2", "column_id": "c-back", "title": "Estancada B", "order": 1,
+             "updated_at": "2026-06-23T00:00:00.000Z"},
+            {"id": "z1", "column_id": "c-done", "title": "Vieja pero Done", "order": 0,
+             "updated_at": "2026-01-01T00:00:00.000Z"}
+        ]));
+        let stale = stale_open_cards(&doc, NOW_MS, 8);
+        assert_eq!(
+            stale,
+            vec![
+                StaleCard {
+                    id: "b1".into(),
+                    title: "Estancada A".into(),
+                    age_days: 30
+                },
+                StaleCard {
+                    id: "b2".into(),
+                    title: "Estancada B".into(),
+                    age_days: 20
+                },
+            ],
+            "solo las >= 14 dias, mas vieja primero; Done y las frescas fuera"
+        );
+    }
+
+    // Caso negativo: el limite recorta stale_open_cards igual que open_tasks.
+    #[test]
+    fn stale_open_cards_respects_limit() {
+        let doc = kanban(serde_json::json!([
+            {"id": "b1", "column_id": "c-back", "title": "A", "order": 0,
+             "updated_at": "2026-06-01T00:00:00.000Z"},
+            {"id": "b2", "column_id": "c-back", "title": "B", "order": 1,
+             "updated_at": "2026-06-05T00:00:00.000Z"}
+        ]));
+        assert_eq!(stale_open_cards(&doc, NOW_MS, 1).len(), 1);
     }
 }

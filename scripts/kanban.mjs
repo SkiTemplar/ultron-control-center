@@ -17,8 +17,8 @@
  * Uso:
  *   node scripts/kanban.mjs list   [proyecto]
  *   node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]
- *   node scripts/kanban.mjs mv     <proyecto> "<id|substr-titulo>" <rol|nombre-columna>
- *   node scripts/kanban.mjs rm     <proyecto> "<id|substr-titulo>"
+ *   node scripts/kanban.mjs mv     <proyecto> "<id|substr-id|substr-titulo>" <rol|nombre-columna>
+ *   node scripts/kanban.mjs rm     <proyecto> "<id|substr-id|substr-titulo>"
  *   node scripts/kanban.mjs archive-done <proyecto>   (mueve las Done a archives/<fecha>.json)
  *
  * Proyecto por defecto: "ultron" (el kanban principal del producto).
@@ -86,6 +86,15 @@ function findCard(board, needle) {
   let hit = cards.find((c) => c.id === needle);
   if (hit) return hit;
   const low = needle.toLowerCase();
+  // Substring del ID antes que del titulo: los ids son `card-<ts>-<sufijo>` y
+  // el sufijo (p.ej. "b7kug3") es lo que se suele pegar del listado, sin el
+  // resto del id completo. Bug real: `mv tortunabo b7kug3` decia "ninguna
+  // card matchea" aunque `card-1790093849652-b7kug3` existia.
+  const idMatches = cards.filter((c) => (c.id || '').toLowerCase().includes(low));
+  if (idMatches.length === 1) return idMatches[0];
+  if (idMatches.length > 1) {
+    fail(`"${needle}" es ambiguo por id (${idMatches.length} matches):\n` + idMatches.map((m) => `  - ${m.id}  ${m.title}`).join('\n'));
+  }
   const matches = cards.filter((c) => (c.title || '').toLowerCase().includes(low));
   if (matches.length === 0) fail(`ninguna card matchea "${needle}"`);
   if (matches.length > 1) {

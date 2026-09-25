@@ -209,6 +209,19 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
             stats.candidates_pending
         ));
     }
+    // (2026-09-25) Cards vivas que ya no pueden ganar `next_action` por edad
+    // (ver kanban_signal) pero siguen en el tablero: se listan aparte para que
+    // el usuario decida si cerrarlas, en vez de desaparecer del resume.
+    if let (Some(root), Some(p)) = (root.as_deref(), proj) {
+        if let Some(stale) = kanban_signal::kanban_stale_cards(root, p, 5) {
+            let items = stale
+                .iter()
+                .map(|c| format!("{} ({}d, {})", c.title, c.age_days, c.id))
+                .collect::<Vec<_>>()
+                .join(", ");
+            warnings.push(format!("estancadas en el kanban: {items}"));
+        }
+    }
 
     Ok(SessionResume {
         project_id,

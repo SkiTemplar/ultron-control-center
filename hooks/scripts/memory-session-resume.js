@@ -26,6 +26,11 @@ const codegraphSummary = require('./lib/codegraph-summary');
 const lastSession = require('./lib/last-session');
 const sessionSummaryDelivery = require('./lib/session-summary-delivery');
 const sessionSummarizer = require('./session-summarize-previous');
+// TAREA 3 (2026-09-25): "cierres pendientes de confirmar" -- cruza la
+// seccion "## Cierres propuestos" de la ultima bitacora contra el kanban
+// vivo del proyecto (lib/kanban-closures.js, puro).
+const kanbanClosures = require('./lib/kanban-closures');
+const { safeId } = require('./lib/safe-id');
 observe('memory-session-resume');
 
 // HOOKS-04 (auditoria 2026-07-16): calentar el daemon de memoria DESDE
@@ -317,11 +322,35 @@ function launchPortraitRefreshIfStale() {
  * lib/session-summary-delivery.js). Fail-safe: cualquier error deja el resume
  * sin este bloque, nunca lo rompe.
  */
+/**
+ * "cierres pendientes de confirmar" (TAREA 3, 2026-09-25): la bitacora mas
+ * reciente puede dar una card por cerrada/terminada en su seccion
+ * "## Cierres propuestos" sin que nadie la haya movido a Done en el kanban.
+ * Cruce puro en lib/kanban-closures.js; aqui solo la IO (leer kanban.json) y
+ * el fail-safe -- sin kanban, sin seccion o sin match, [] sin romper el resume.
+ */
+function computeCierresPendientesLines(project, summary) {
+  if (!project || !summary || !summary.content) return [];
+  try {
+    const mentions = kanbanClosures.parseClosureMentions(summary.content);
+    if (!mentions.length) return [];
+    const boardPath = path.join(PROJECTS_DIR, safeId(project), 'kanban.json');
+    const board = JSON.parse(fs.readFileSync(boardPath, 'utf8'));
+    const matches = kanbanClosures.openCardsMatchingMentions(board, mentions);
+    return kanbanClosures.renderCierresPendientesLines(project, matches);
+  } catch {
+    return []; // sin kanban.json / bitacora sin esa seccion / JSON roto -> nada que avisar
+  }
+}
+
 function computeLastSessionLines({ cwd, sessionId, transcriptPath, project }) {
   const out = [];
   try {
     const summary = lastSession.latestSummary(project, sessionId);
-    if (summary) out.push(...lastSession.renderLastSessionLines(summary));
+    if (summary) {
+      out.push(...lastSession.renderLastSessionLines(summary));
+      out.push(...computeCierresPendientesLines(project, summary));
+    }
     if (!project || !sessionId) return out;
     const transcriptsDir = sessionSummarizer.transcriptsDirFor(cwd, transcriptPath);
     const cheapCandidate = sessionSummarizer.hasCheapPendingCandidate({ transcriptsDir, currentSessionId: sessionId, projectId: project });
@@ -469,5 +498,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectProfile, renderProfileLines, render, readHarnessNote, readHead, isStaleMetricLine, isTrivialDecision, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS };
+  module.exports = { readL0Scratch, readProjectProfile, renderProfileLines, render, readHarnessNote, readHead, isStaleMetricLine, isTrivialDecision, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS, computeCierresPendientesLines, PROJECTS_DIR };
 }
