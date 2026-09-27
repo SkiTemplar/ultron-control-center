@@ -145,6 +145,56 @@ run('rotateIfNeeded no lanza excepcion si el archivo no existe (fail-safe)', () 
   // Si llega aqui, el fail-safe funciona.
 });
 
+// ---- Retencion por edad (appendJsonlRetained, 2026-09-27) -----------------
+const { appendJsonlRetained, rotateRetained, retainedFiles } = require('../lib/jsonl-log');
+const RET_DIR = path.join(SUITE_TMP, 'retained');
+const RET_FILE = path.join(RET_DIR, 'hook-timing.jsonl');
+const DAY = 24 * 60 * 60 * 1000;
+
+function resetRetained() {
+  try { fs.rmSync(RET_DIR, { recursive: true, force: true }); } catch { /* no existia */ }
+  fs.mkdirSync(RET_DIR, { recursive: true });
+}
+
+run('appendJsonlRetained rota a un archivo con fecha y conserva la historia', () => {
+  resetRetained();
+  fs.writeFileSync(RET_FILE, Buffer.alloc(2048, 'x'));
+  appendJsonlRetained(RET_FILE, { gen: 1 }, { maxBytes: 1024, retainDays: 8 });
+  const files = retainedFiles(RET_FILE);
+  assert.strictEqual(files.length, 2, `archivo + vivo, hay ${files.length}`);
+  assert.ok(/hook-timing\.\d{8}T\d{6}Z-\d+\.jsonl$/.test(files[0]), `nombre de archivo: ${files[0]}`);
+  assert.strictEqual(files[1], RET_FILE, 'el vivo va el ultimo');
+  assert.strictEqual(JSON.parse(fs.readFileSync(RET_FILE, 'utf8').trim()).gen, 1);
+});
+
+run('la poda borra solo archivos mas viejos que retainDays', () => {
+  resetRetained();
+  const viejo = path.join(RET_DIR, 'hook-timing.20260901T000000Z-1.jsonl');
+  const reciente = path.join(RET_DIR, 'hook-timing.20260925T000000Z-2.jsonl');
+  const ajeno = path.join(RET_DIR, 'hook-timing-otro.20260901T000000Z-3.jsonl');
+  for (const f of [viejo, reciente, ajeno]) fs.writeFileSync(f, '{}\n');
+  const now = Date.now();
+  fs.utimesSync(viejo, new Date(now - 9 * DAY), new Date(now - 9 * DAY));
+  fs.utimesSync(reciente, new Date(now - 6 * DAY), new Date(now - 6 * DAY));
+  fs.utimesSync(ajeno, new Date(now - 30 * DAY), new Date(now - 30 * DAY));
+  fs.writeFileSync(RET_FILE, Buffer.alloc(2048, 'x'));
+  rotateRetained(RET_FILE, 1024, 8, now);
+  assert.ok(!fs.existsSync(viejo), 'el archivo de 9 dias debe podarse');
+  assert.ok(fs.existsSync(reciente), 'el de 6 dias se conserva (< 8)');
+  assert.ok(fs.existsSync(ajeno), 'un fichero de OTRO log no se toca');
+});
+
+run('sin pasar de maxBytes no rota ni poda (caso negativo)', () => {
+  resetRetained();
+  const viejo = path.join(RET_DIR, 'hook-timing.20260901T000000Z-1.jsonl');
+  fs.writeFileSync(viejo, '{}\n');
+  fs.utimesSync(viejo, new Date(Date.now() - 30 * DAY), new Date(Date.now() - 30 * DAY));
+  fs.writeFileSync(RET_FILE, '{"a":1}\n');
+  appendJsonlRetained(RET_FILE, { gen: 2 }, { maxBytes: 1024, retainDays: 8 });
+  assert.strictEqual(retainedFiles(RET_FILE).length, 2, 'ni archivo nuevo ni poda');
+  assert.strictEqual(fs.readFileSync(RET_FILE, 'utf8').trim().split('\n').length, 2);
+});
+
 // ---- Limpieza ------------------------------------------------------------
 cleanup();
 

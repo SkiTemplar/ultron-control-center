@@ -402,6 +402,79 @@ run('lock: una segunda adquisicion para la MISMA sesion objetivo falla mientras 
   summarizer.releaseLock(l3);
 });
 
+// ---- Cuota del plan agotada (fallos del 2026-09-26) -------------------------
+const LIMIT_STDOUT = JSON.stringify({
+  type: 'result', is_error: true, api_error_status: 429,
+  result: "You've hit your session limit · resets 6:40pm (Europe/Madrid)",
+});
+run('el motivo de un status!=0 se lee del JSON de STDOUT (stderr vacio)', () => {
+  const txt = summarizer.describeClaudeFailure({ status: 1, stdout: LIMIT_STDOUT, stderr: '' });
+  assert.ok(txt.includes('session limit') && txt.includes('429'), txt);
+  assert.strictEqual(summarizer.describeClaudeFailure({ status: 1, stdout: '', stderr: '' }), '(sin salida)');
+});
+run('isQuotaError: limites del plan y 429 si; un error de modelo NO', () => {
+  assert.ok(summarizer.isQuotaError("You've hit your session limit"));
+  assert.ok(summarizer.isQuotaError('Request rejected (429) · rate limit'));
+  assert.ok(!summarizer.isQuotaError("There's an issue with the selected model (x)"));
+});
+run('cuota agotada: sin summary.md, NO cuenta como fallo de la sesion y congela los resumenes', () => {
+  const projectId = 'demo-quota';
+  const dir = makeTranscriptsDir({
+    previa: [userTurn('primer prompt real'), assistantTurn('ok'), userTurn('segundo prompt real'), assistantTurn('listo')],
+  });
+  let calls = 0;
+  fakeImpl = () => { calls++; return { status: 1, stdout: LIMIT_STDOUT, stderr: '', error: null, signal: null }; };
+  process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR = dir;
+  runMainWithArgs(['--cwd', 'X', '--project', projectId, '--session', 'nueva', '--target-session', 'previa']);
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(summarizer.readAttempts('previa').failures, 0, 'la cuota no acerca la sesion al abandono');
+  assert.ok(summarizer.quotaCooldownRemainingMs() > 0, 'queda la pausa global');
+  // NEGATIVO: durante la pausa ni se llama a claude -p.
+  runMainWithArgs(['--cwd', 'X', '--project', projectId, '--session', 'nueva', '--target-session', 'previa']);
+  delete process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR;
+  assert.strictEqual(calls, 1, 'con la pausa activa no se gasta otro intento');
+  fs.rmSync(path.join(process.env.SESSION_SUMMARY_ATTEMPTS_DIR, '_quota-cooldown.json'), { force: true });
+  assert.strictEqual(summarizer.quotaCooldownRemainingMs(), 0);
+});
+run('NEGATIVO: un error que no es de cuota SI cuenta para el backoff y no congela', () => {
+  const dir = makeTranscriptsDir({
+    otra: [userTurn('primer prompt real'), assistantTurn('ok'), userTurn('segundo prompt real'), assistantTurn('listo')],
+  });
+  fakeImpl = () => ({ status: 1, stdout: JSON.stringify({ is_error: true, api_error_status: 404, result: 'modelo inexistente' }), stderr: '', error: null, signal: null });
+  process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR = dir;
+  runMainWithArgs(['--cwd', 'X', '--project', 'demo-noquota', '--session', 'nueva', '--target-session', 'otra']);
+  delete process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR;
+  assert.strictEqual(summarizer.readAttempts('otra').failures, 1);
+  assert.strictEqual(summarizer.quotaCooldownRemainingMs(), 0);
+  const log = fs.readFileSync(process.env.SESSION_SUMMARY_LOG, 'utf8');
+  assert.ok(log.includes('modelo inexistente'), 'el motivo real llega al log');
+});
+
+// ---- Digest sin cambios: no se re-resume ---------------------------------------
+run('mismo digest que el resumen existente: no llama a claude -p y refresca el mtime', () => {
+  const projectId = 'demo-sha';
+  const dir = makeTranscriptsDir({
+    fija: [userTurn('primer prompt real'), assistantTurn('ok'), userTurn('segundo prompt real'), assistantTurn('listo')],
+  });
+  let calls = 0;
+  fakeImpl = () => { calls++; return { status: 0, stdout: JSON.stringify({ is_error: false, result: '## Temas\n- x\n' }), stderr: '', error: null, signal: null }; };
+  process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR = dir;
+  const argv = ['--cwd', 'X', '--project', projectId, '--session', 'nueva', '--target-session', 'fija'];
+  runMainWithArgs(argv);
+  assert.strictEqual(calls, 1);
+  assert.ok(summarizer.existingDigestSha(projectId, 'fija'), 'la cabecera guarda digest_sha');
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(lastSession.summaryPath(projectId, 'fija'), old, old);
+  runMainWithArgs(argv);
+  assert.strictEqual(calls, 1, 'digest identico: sin segunda llamada');
+  assert.ok(lastSession.summaryMtimeMs(projectId, 'fija') > Date.now() - 60000, 'el resumen vuelve a cubrir el transcript');
+  // NEGATIVO: si el transcript gana contenido real, se regenera.
+  fs.appendFileSync(path.join(dir, 'fija.jsonl'), JSON.stringify(userTurn('tercer prompt nuevo')) + '\n');
+  runMainWithArgs(argv);
+  delete process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR;
+  assert.strictEqual(calls, 2, 'contenido nuevo: se vuelve a resumir');
+});
+
 // ---- Resultado final --------------------------------------------------------
 console.log('');
 fs.rmSync(ROOT, { recursive: true, force: true });

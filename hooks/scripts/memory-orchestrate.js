@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { runCli, projectIdFromCwd, daemonRequest, spawnDetached, findBinary, readDaemonLock } = require('./lib/ultron-memory-cli');
+const { runCli, projectIdFromCwd, daemonRequestDetailed, spawnDetached, findBinary, readDaemonLock } = require('./lib/ultron-memory-cli');
 const { appendJsonl } = require('./lib/jsonl-log');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
@@ -20,97 +20,43 @@ const lastSession = require('./lib/last-session');
 const sessionSummaryDelivery = require('./lib/session-summary-delivery');
 observe('memory-orchestrate');
 
-// Hot path budget for the resident daemon (E5 warm -> sub-second). The one-shot
-// spawn fallback keeps the wider colchon for cold-hit E5 (see runCli call below).
-// (2026-08-13) Subido de 3000 a 6000 por el RERANK SELECTIVO: los prompts
-// tecnicos ahora pasan por el cross-encoder (+2-2.4s) para doblar el recall
-// (0.491 -> 0.810 medido). Con 3000 esos turnos vencian el plazo SIEMPRE y
-// caian al one-shot, que es peor (E5 frio, cap de 6s). El coste real del cambio
-// es solo cuando el daemon esta colgado de verdad: 6s en vez de 3s antes de
-// degradar. La charla no paga nada: no se rerankea (ver orchestrate.rs).
-// (2026-08-17) Subido de 6000 a 9000: el primer prompt tras una pausa larga
-// pilla al daemon VIVO pero con los modelos soltados por idle; recargar E5
-// (~2-5s) + resolver pasaba de los 6s por decimas (12 fallos medidos a
-// 6159-6219ms) y el prompt entraba SIN memoria. Con 9s ese prompt espera la
-// recarga y llega con recall; el precio real es solo con daemon colgado de
-// verdad (9s antes de degradar, caso raro). Presupuesto total abajo.
-// (2026-09-22) Subido de 9000 a 14000: el rerank selectivo (bug_fix/feature)
-// no tenia tope propio dentro de `orchestrate` — 80/300 llamadas reales
-// midieron mas de 8s y hasta 65338 ms, con el modelo YA caliente. Causa raiz
-// cerrada en Rust (`rerank_pairs_bounded`, `qdrant_rerank.rs`): tope duro de
-// 3500 ms por llamada + guard de una sola inferencia en vuelo (evita que un
-// timeout deje un hilo huerfano compitiendo por CPU con la siguiente). Con el
-// tope puesto, un turno bug_fix paga como mucho ~2x3500 ms (memories +
-// lessons) mas los embeds — medido en vivo tras el fix: 2,5-13 s segun carga
-// de la maquina (antes: hasta 65 s sin tope). 9000 ms seguia cortando ese
-// turno ANTES de que el daemon respondiera, así que el hook lo consideraba
-// "muerto" y disparaba HOOKS-07 (relanzamiento + reintento) sobre el MISMO
-// daemon vivo — doble trabajo real por el mismo prompt. 14000 ms cubre el
-// peor caso ya acotado con margen; ver `HOOK_BUDGET_MS` para el presupuesto
-// total actualizado en consecuencia.
-const DAEMON_TIMEOUT_MS = 14000;
-// Check 1.5 (2026-07-22): con pack cacheado FRESCO del proyecto, el peor caso
-// del hook queda ~1200 (daemon) + 800 (one-shot cap) + overhead < 3000ms POR
-// CONSTRUCCION. Sin cache fresco se mantiene el colchon completo de 3000ms
-// porque no hay red de seguridad si el daemon tarda.
-// Subido de 1200 a 4000 por el mismo motivo: con pack cacheado fresco el
-// presupuesto era mas corto que el propio rerank, asi que un turno tecnico se
-// servia SIEMPRE del cache stale en vez de esperar al pack bueno.
-// (2026-08-17) 4000 -> 6000: medido en el harness (22.1/22.2), un prompt
-// tecnico con rerank quedaba AL LIMITE de los 4s y caia al cache stale de
-// forma reproducible (route de otro prompt, sin directiva). 6s = el mismo
-// presupuesto que sin cache; el cache fresco sigue siendo la red si el daemon
-// esta colgado de verdad.
-const DAEMON_TIMEOUT_CACHED_MS = 6000;
+// POLITICA DE ESPERA AL DAEMON (reescrita 2026-09-27, decidido por el usuario:
+// "la latencia da igual; el resultado tiene que salir COMPLETO").
+//
+// Medido ese dia con 3 sesiones simultaneas x 10 rondas por los hooks reales:
+// 27 de 30 prompts con memoria degradada, 92 respuestas "busy" y 92 peticiones
+// orchestrate al daemon para 30 prompts. La causa no era el daemon lento sino
+// esta politica: plazos cortos (6 s con pack cacheado, 14 s sin el) tratados
+// como "daemon muerto", que disparaban HOOKS-07 y REENVIABAN el mismo
+// orchestrate a un daemon que ya lo estaba calculando. Cada reenvio anadia
+// trabajo a la cola que habia provocado el plazo vencido.
+//
+// Ahora, con el daemon atendiendo todas las conexiones a la vez y el computo de
+// los modelos en un turno FIFO sin descartes (serve/tcp.rs,
+// qdrant_inference_gate.rs):
+//   - Daemon vivo (conecta): UNA peticion y una espera larga (DAEMON_WAIT_MS).
+//     Nunca se reenvia. Si vence, es un cuelgue real -> sparse.
+//   - Daemon que responde {error} (no "busy"): sparse directo, sin relanzar.
+//   - "busy" (solo un daemon anterior a este cambio lo emite): se reintenta
+//     contra el mismo daemon dentro de DAEMON_WAIT_MS.
+//   - Daemon muerto (sin lockfile, nadie escucha, o cerro sin responder):
+//     relanzar `serve` y esperarle hasta DAEMON_RELAUNCH_WAIT_MS (carga en frio
+//     de E5 medida hasta 18,7 s), luego sparse.
+// Historial de los plazos anteriores (3 -> 6 -> 9 -> 14 s, cache 1,2 -> 4 -> 6 s,
+// primer prompt 15 -> 12 -> 14 s): cada subida perseguia el peor caso bajo
+// contencion; con la contencion convertida en cola ordenada ya no hay que
+// perseguirlo con plazos, basta con esperar.
 
-// HOOKS-04 (auditoria 2026-07-16, decidido por el usuario 2026-07-17): el
-// respaldo local + pack cacheado. Medido entonces: daemon HIT p50=562ms, MISS
-// p50=4145ms (35% de prompts). (2026-09-07) El one-shot de 800/6000 ms que
-// cargaba E5 se sustituye por `orchestrate --sparse` (SPARSE_MIN_CAP_MS,
-// mas abajo): ver alli el porque. SessionStart ademas precalienta el daemon.
-// OJO al presupuesto TOTAL contra el timeout del hook en settings.json — ver
-// `HOOK_BUDGET_MS` — cualquier overhead que lo venza hace que Claude Code
-// DESCARTE todo el prefetch en silencio (visto 2026-08-14 con 12s/12s). Peores
-// casos (2026-09-22, tras subir DAEMON_TIMEOUT_MS/FIRST_PROMPT_DAEMON_WAIT_MS
-// a 14s por el tope de rerank en Rust; ver esa nota. HOOK_BUDGET_MS subido en
-// consecuencia a 26s):
-//   daemon muerto:  0s (sin lockfile) + recuperacion 21,5s + sparse 3s = 24,5s
-//   normal:         DAEMON_TIMEOUT_MS 14s + recuperacion 21,5s + sparse 3s = 24,5s
-//   busy:           2,5s + BUSY_RETRY_BUDGET_MS 6s + sparse dinamico 6s = 14,5s
-//   daemon en boot: DAEMON_BOOT_WAIT_MS 12s + recuperacion 21,5s + sparse 3s = 24,5s
-//   primer prompt:  FIRST_PROMPT_DAEMON_WAIT_MS 14s + recuperacion 21,5s + sparse 3s = 24,5s
-// La recuperacion NO se suma a las esperas previas: su deadline es absoluta
-// desde t0 (DAEMON_RELAUNCH_DEADLINE_MS), asi que el techo del encadenado es
-// siempre 21,5s + sparse.
+// HOOKS-04 (auditoria 2026-07-16): el pack cacheado del proyecto (<30 min) queda
+// como ULTIMA red, solo si ni el daemon ni el sparse devuelven nada. Ya no
+// acorta la espera al daemon: servir el pack de otro prompt es justo la
+// degradacion que se quiere evitar.
 const ORCH_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
-// HOOKS-05 (2026-08-15, decidido por el usuario): espera extendida en ARRANQUE
-// FRIO. Sintoma medido: el primer prompt tras un arranque llegaba con el daemon
-// recien spawneado (memory-warmup) pero E5 aun cargando -> timeout de 6s ->
-// one-shot compitiendo por CPU con el warmup -> tambien fallaba -> prompt SIN
-// memoria (hook-errors.jsonl: 2026-08-15T09:17, 4 casos el 08-14). Cura: si el
-// lockfile es JOVEN (<BOOT_WINDOW: daemon en warmup, no colgado), poll al daemon
-// hasta agotar BOOT_WAIT (presupuesto TOTAL desde t0). Un lock viejo que no
-// responde sigue degradando de inmediato (daemon colgado de verdad).
-// Presupuesto peor caso con espera: BOOT_WAIT (12s, incluye los 6s del primer
-// intento) + ONE_SHOT_CAP_UNCACHED_MS (6s) = 18s < 26s del timeout del hook
-// (ONE_SHOT_CAP_UNCACHED_MS es historico — ese camino ya no spawnea one-shot,
-// ver HOOKS-07 mas abajo; el margen contra HOOK_BUDGET_MS sigue de sobra).
-const DAEMON_BOOT_WINDOW_MS = 90_000;
-const DAEMON_BOOT_WAIT_MS = 12_000;
-const DAEMON_BOOT_POLL_MS = 1_500;
-
-// HOOKS-06 (2026-08-22): "busy" NO es un daemon caido. El daemon responde
-// {error:"busy"} cuando su lock global sigue ocupado tras ORCH_LOCK_WAIT (2,5s)
-// — otra sesion embebiendo, o E5 recargandose tras el idle-release. El codigo
-// anterior lo metia en el mismo saco que "sin respuesta" y disparaba el
-// fallback one-shot, que carga OTRA copia de E5 (~1,5 GB) y compite por CPU con
-// quien ya la estaba cargando. Con 5 sesiones abiertas eso son 5 cargas
-// simultaneas del mismo modelo: 15s medidos (9000 daemon + 6000 one-shot),
-// 5/5 prompts degradados. Ante "busy" se reintenta contra el MISMO daemon
-// dentro de este presupuesto y NUNCA se spawnea competencia.
-// Peor caso: 2500 (busy del daemon) + 6000 (reintentos) = 8,5s < 26s del hook.
-const BUSY_RETRY_BUDGET_MS = 6000;
+// HOOKS-06 (2026-08-22): "busy" NO es un daemon caido. Ante "busy" se reintenta
+// contra el MISMO daemon y NUNCA se spawnea competencia (una estampida de cargas
+// de E5 degrado 5/5 prompts ese dia). El daemon actual ya no lo emite; se
+// conserva para convivir con un binario anterior durante el redeploy.
 const BUSY_RETRY_POLL_MS = 400;
 
 /** ¿La respuesta es un "busy" del daemon (vivo pero con el lock ocupado)? */
@@ -158,63 +104,48 @@ const FAST_LANE_LOG = path.join(os.homedir(), '.ultron', 'logs', 'fast-lane.json
 const { decide: decideLane, markPrompt, readState: readLaneState } = require('./lib/fast-lane');
 
 // Presupuesto TOTAL del hook: el `timeout` de UserPromptSubmit en
-// settings.json. Si el hook lo vence, Claude Code descarta TODA su salida en
-// silencio, asi que cada espera nueva se resta de aqui, nunca se suma encima.
-// (2026-09-22) Subido de 20000 a 26000 junto con DAEMON_TIMEOUT_MS/
-// FIRST_PROMPT_DAEMON_WAIT_MS (14s cada uno, ver esa nota): con el rerank
-// acotado en Rust el peor caso normal ronda 14s de espera al daemon; a 20s de
-// presupuesto total la recuperacion (HOOKS-07) casi no tenia margen. El
-// `timeout` de settings.json (y su plantilla) tiene que subir IGUAL —
-// mismo numero en los tres sitios, o el hook lo corta Claude Code por fuera
-// antes de que el propio hook decida degradar.
-const HOOK_BUDGET_MS = 26_000;
+// settings.json (y en su plantilla, hooks/install-hooks.ps1). Si el hook lo
+// vence, Claude Code descarta TODA su salida en silencio, asi que cada espera se
+// resta de aqui. MISMO numero en los tres sitios.
+// (2026-09-27) 26 s -> 90 s: con la contencion convertida en cola, el peor caso
+// medido son varias sesiones esperando su turno de CPU, no un daemon roto; el
+// plazo tiene que cubrir esa cola en vez de cortarla. Claude Code admite
+// timeouts de hook de 60 s o mas.
+const HOOK_BUDGET_MS = 90_000;
 // Colchon reservado para lo que viene DESPUES de la ultima espera: render,
 // token-meter, escritura del cache y del log, mas el arranque de node. El hook
 // tiene que terminar por debajo del presupuesto, no rozarlo.
 const SAFETY_MARGIN_MS = 1_500;
 
-// Primer prompt de la sesion (2026-09-07, decidido por el usuario: "el primero
-// siempre deberia ser tocho"): es el que mas memoria necesita y el que entraba
-// vacio (2026-09-07 08:34: daemon mudo 9 s + one-shot 6 s = 15,1 s y nada).
-// Se le da UNA espera larga al daemon en vez de dos cortas con un one-shot en
-// medio que carga otra copia de E5 y compite por la CPU con el daemon que se
-// esta recuperando.
-// (2026-09-10) 15 s -> 12 s: esta espera ya no es el ultimo recurso. Detras
-// viene la recuperacion del daemon (HOOKS-07) y solo despues el sparse, asi que
-// el encadenado tiene que caber igual en HOOK_BUDGET_MS.
-// (2026-09-22) 12 s -> 14 s, igualada a DAEMON_TIMEOUT_MS (ver esa nota: tope
-// de rerank en Rust, peor caso medido ~13 s bajo carga): 14 s de espera, la
-// recuperacion hasta DAEMON_RELAUNCH_DEADLINE_MS (21,5 s desde t0, ya con
-// HOOK_BUDGET_MS=26000) y sparse 3 s = 24,5 s < 26 s.
-const FIRST_PROMPT_DAEMON_WAIT_MS = 14_000;
-
 // Respaldo cuando el daemon no ha contestado: `orchestrate --sparse` (FTS5 +
-// reglas, sin E5, sin volver a esperar al daemon). Antes el one-shot esperaba
-// al daemon otros 30 s por dentro y cargaba E5 si no: con el daemon vivo pero
-// lento nunca llegaba a resolver dentro de su cap de 6 s.
-// (2026-09-10) El cap pasa a ser DINAMICO entre estos dos limites: con el
-// daemon muerto de golpe sobra presupuesto y con el daemon lento falta. Medido
-// ese dia: el one-shot sparse tarda 626 ms aislado en frio, pero 3101/3126/3102
-// ms — o sea, TIMEOUT con el cap fijo de 3 s — cuando compite por CPU con el
-// daemon recien relanzado cargando E5. Con el cap dinamico esos turnos disponen
-// de hasta SPARSE_MAX_CAP_MS.
+// reglas, sin E5, sin volver a esperar al daemon). El cap es DINAMICO entre
+// estos dos limites (2026-09-10): el sparse tarda 626 ms aislado en frio, pero
+// ~3,1 s compitiendo por CPU con un daemon recien relanzado cargando E5.
 const SPARSE_MIN_CAP_MS = 3_000;
 const SPARSE_MAX_CAP_MS = 6_000;
 
-// HOOKS-07 (2026-09-10): recuperacion del daemon MUERTO. Sintoma medido en
-// logs/hook-timing.jsonl y logs/capture.jsonl: sin daemon, daemonRequest
-// devuelve null al instante, el hook hacia spawnDetached(['serve']) y caia YA
-// al sparse; el daemon relanzado no llegaba a servir nada a ese turno y encima
-// su carga de E5 ahogaba al one-shot (3101/3126/3102 ms contra un cap de
-// 3000 ms) — tres prompts seguidos con "[memoria degradada]" tras 3,1 s.
-// Ahora el turno ESPERA al daemon nuevo: el presupuesto se gasta en el unico
-// camino que trae recall de verdad. La deadline es absoluta desde t0 y reserva
-// SPARSE_MIN_CAP_MS + SAFETY_MARGIN_MS para que el sparse siga siendo posible
-// si el daemon sigue mudo.
+// Espera UNICA a un daemon vivo: todo el presupuesto menos el sparse maximo y
+// el colchon (82,5 s). Solo un cuelgue real la agota.
+const DAEMON_WAIT_MS = HOOK_BUDGET_MS - SPARSE_MAX_CAP_MS - SAFETY_MARGIN_MS;
+
+// HOOKS-07 (2026-09-10): recuperacion del daemon MUERTO. Sin daemon, el hook
+// lanzaba `serve` y caia YA al sparse, que competia con la carga de E5 del
+// daemon nuevo y vencia su cap: tres prompts seguidos con "[memoria degradada]".
+// Ahora el turno ESPERA al daemon nuevo hasta DAEMON_RELAUNCH_WAIT_MS desde el
+// relanzamiento, y nunca mas alla de DAEMON_RELAUNCH_DEADLINE_MS desde t0 (que
+// reserva sitio para el sparse).
+const DAEMON_RELAUNCH_WAIT_MS = 30_000;
 const DAEMON_RELAUNCH_DEADLINE_MS = HOOK_BUDGET_MS - SPARSE_MIN_CAP_MS - SAFETY_MARGIN_MS;
+// Sondeo del lockfile mientras el daemon relanzado arranca.
+const DAEMON_BOOT_POLL_MS = 1_500;
 // Sonda minima contra el daemon nuevo: por debajo de 1 s no le da tiempo ni a
 // aceptar la conexion, asi que no se lanza una sonda mas corta que esto.
 const DAEMON_RELAUNCH_MIN_PROBE_MS = 1_000;
+
+/** Motivos de daemonRequestDetailed que significan "no hay daemon que escuche". */
+function daemonIsDown(reason) {
+  return reason === 'no_lock' || reason === 'connect' || reason === 'closed';
+}
 
 /** Rastro de un prompt servido por el carril rapido (sin orchestrate). */
 function logFastLane({ sessionId, project, prompt, lane, elapsedMs }) {
@@ -574,96 +505,62 @@ async function main() {
   const firstPrompt = !laneState || laneState.prompts === 0;
   markPrompt(sessionId, { full: true });
 
-  // Cache leida ANTES del daemon: con pack fresco (<30 min) el presupuesto del
-  // daemon baja a DAEMON_TIMEOUT_CACHED_MS — el fallback cacheado garantiza
-  // respuesta util aunque el daemon este contendido.
+  // Red de ultimo recurso (HOOKS-04): solo se usa si ni el daemon ni el sparse
+  // devuelven nada. No acorta la espera al daemon.
   const cached = readOrchCache(project);
+  const orchPayload = { cmd: 'orchestrate', prompt, project: project || undefined };
 
-  // FAST PATH: ask the resident daemon (E5 warm) over TCP loopback. Drops the
-  // hot path from ~3.5s (cold model load every spawn) to sub-second.
-  // Primer prompt de la sesion: una sola espera larga (ver FIRST_PROMPT_DAEMON_WAIT_MS).
-  const daemonWaitMs = firstPrompt
-    ? FIRST_PROMPT_DAEMON_WAIT_MS
-    : cached
-      ? DAEMON_TIMEOUT_CACHED_MS
-      : DAEMON_TIMEOUT_MS;
-  let ctx = await daemonRequest(
-    { cmd: 'orchestrate', prompt, project: project || undefined },
-    daemonWaitMs
-  );
-  // HOOKS-06: separar "busy" (daemon VIVO, lock ocupado) de "caido/roto". Solo
-  // el segundo justifica el fallback one-shot; ante el primero se espera al
-  // mismo daemon, que es justo lo que evita la estampida de cargas de E5.
-  let daemonBusy = isDaemonBusy(ctx);
-  if (ctx && ctx.error) ctx = null; // daemon answered but failed -> fall back
-
-  // (primer prompt: la espera larga ya ha consumido su presupuesto; sin reintentos)
-  if (!ctx && daemonBusy && !firstPrompt) {
-    const busyDeadline = Date.now() + BUSY_RETRY_BUDGET_MS;
-    while (Date.now() + BUSY_RETRY_POLL_MS < busyDeadline) {
-      await sleep(BUSY_RETRY_POLL_MS);
-      const retry = await daemonRequest(
-        { cmd: 'orchestrate', prompt, project: project || undefined },
-        Math.max(1000, busyDeadline - Date.now())
-      );
-      daemonBusy = isDaemonBusy(retry);
-      if (retry && !retry.error) {
-        ctx = retry;
-        break;
-      }
-      // Un error que NO es "busy" (o silencio) sí es daemon roto: se abandona
-      // el reintento y se cae al camino de degradación de abajo.
-      if (!daemonBusy) break;
-    }
+  // UNA peticion al daemon y una espera larga (ver POLITICA DE ESPERA arriba).
+  // El daemon atiende todas las conexiones a la vez y encola el computo de los
+  // modelos: si tarda es porque hay cola, y reenviar solo la alargaria.
+  let first = await daemonRequestDetailed(orchPayload, DAEMON_WAIT_MS);
+  // HOOKS-06: "busy" de un daemon anterior -> reintentar contra el MISMO.
+  while (
+    isDaemonBusy(first.resp) &&
+    Date.now() - t0 + BUSY_RETRY_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS < DAEMON_WAIT_MS
+  ) {
+    await sleep(BUSY_RETRY_POLL_MS);
+    first = await daemonRequestDetailed(orchPayload, DAEMON_WAIT_MS - (Date.now() - t0));
   }
+  let ctx = first.resp && !first.resp.error ? first.resp : null;
+  // Por que no hubo pack del daemon (se anota en el warning del sparse).
+  let daemonFailure = ctx
+    ? null
+    : first.resp && first.resp.error
+      ? `el daemon respondio error: ${String(first.resp.error).slice(0, 80)}`
+      : first.reason === 'timeout'
+        ? `el daemon no respondio en ${DAEMON_WAIT_MS} ms (colgado)`
+        : `daemon no disponible (${first.reason})`;
 
-  // HOOKS-05: daemon en warmup (lock joven) -> poll hasta DAEMON_BOOT_WAIT_MS
-  // en vez de degradar al one-shot (que compite por CPU con la carga de E5).
-  if (!ctx && !firstPrompt) {
-    const lock = readDaemonLock();
-    const bootAge =
-      lock && Number.isFinite(lock.started_at) ? Date.now() - lock.started_at : Infinity;
-    if (bootAge >= 0 && bootAge < DAEMON_BOOT_WINDOW_MS) {
-      const deadline = t0 + DAEMON_BOOT_WAIT_MS;
-      while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS < deadline) {
-        await sleep(DAEMON_BOOT_POLL_MS);
-        ctx = await daemonRequest(
-          { cmd: 'orchestrate', prompt, project: project || undefined },
-          Math.max(1000, deadline - Date.now())
-        );
-        if (ctx && ctx.error) ctx = null;
-      }
-    }
-  }
-
-  // HOOKS-07: daemon MUERTO (sin lockfile, o con lockfile pero mudo y sin decir
-  // "busy") -> relanzarlo y ESPERARLE dentro del presupuesto, en vez de caer al
-  // sparse de inmediato y competir con su carga de E5. "busy" queda fuera a
-  // proposito: ahi el daemon esta VIVO y ya se le ha reintentado arriba.
-  if (!ctx && !daemonBusy) {
+  // HOOKS-07: daemon MUERTO -> relanzarlo y ESPERARLE. Un daemon vivo que
+  // tarda, o que responde con error, no entra aqui: relanzar no lo arregla y
+  // reenviar duplica trabajo.
+  if (!ctx && daemonIsDown(first.reason)) {
     const relaunchT0 = Date.now();
     spawnDetached(['serve']); // idempotente: sale al momento si ya hay uno vivo
-    const deadline = t0 + DAEMON_RELAUNCH_DEADLINE_MS;
-    while (
-      !ctx &&
-      Date.now() + DAEMON_BOOT_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS <= deadline
-    ) {
+    const deadline = Math.min(relaunchT0 + DAEMON_RELAUNCH_WAIT_MS, t0 + DAEMON_RELAUNCH_DEADLINE_MS);
+    while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS <= deadline) {
       await sleep(DAEMON_BOOT_POLL_MS);
       // Sin lockfile el daemon nuevo todavia no escucha: no se gasta un connect.
       if (!readDaemonLock()) continue;
-      const resp = await daemonRequest(
-        { cmd: 'orchestrate', prompt, project: project || undefined },
-        deadline - Date.now()
+      // Ya escucha: una sola peticion, con todo lo que quede del presupuesto
+      // (no solo de la ventana de arranque): a partir de aqui es un daemon vivo.
+      const r = await daemonRequestDetailed(
+        orchPayload,
+        t0 + DAEMON_RELAUNCH_DEADLINE_MS - Date.now()
       );
-      // "busy" durante el arranque = vivo pero cargando: se sigue esperando.
-      if (isDaemonBusy(resp)) continue;
-      if (resp && !resp.error) ctx = resp;
+      if (daemonIsDown(r.reason) || isDaemonBusy(r.resp)) continue;
+      if (r.resp && !r.resp.error) ctx = r.resp;
+      else daemonFailure = r.resp ? `el daemon relanzado respondio error` : `el daemon relanzado no respondio (${r.reason})`;
+      break;
     }
     if (ctx) {
       if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
       ctx.warnings.push(
         `daemon relanzado en ${Date.now() - relaunchT0} ms — este turno lo sirve el daemon nuevo`
       );
+    } else if (!daemonFailure || /no disponible/.test(daemonFailure)) {
+      daemonFailure = `daemon caido y sin recuperar en ${Date.now() - relaunchT0} ms`;
     }
   }
 
@@ -694,7 +591,7 @@ async function main() {
     if (ctx && typeof ctx === 'object') {
       if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
       ctx.warnings.push(
-        `respaldo sparse (FTS5, sin E5, cap ${sparseCapMs} ms): el daemon no respondio en ` +
+        `respaldo sparse (FTS5, sin E5, cap ${sparseCapMs} ms): ${daemonFailure} tras ` +
           `${daemonWaitedMs} ms` +
           (firstPrompt ? ' (primer prompt de la sesion)' : '')
       );

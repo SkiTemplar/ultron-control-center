@@ -270,6 +270,69 @@ run('lock single-flight: una pasada ya en marcha bloquea a la siguiente (no se s
   }
 });
 
+run('sesion abierta en un SUBDIRECTORIO del proyecto: se barre y se atribuye al proyecto, con --transcript', () => {
+  const { root, stub, stubLog } = makeWorkspace();
+  const cwd = 'C:\\proyectos\\demo-sub';
+  const subCwd = 'C:\\proyectos\\demo-sub\\Source\\Game';
+  writeProjects(root, [{ id: 'demo-sub', path: cwd }]);
+  const turns = substantialTranscript().map((t) => ({ ...t, cwd: subCwd }));
+  const file = writeTranscript(root, subCwd, 'sess-sub', turns, 30);
+
+  const r = fire(root, stub);
+  assert.equal(r.status, 0, r.stderr);
+  const inv = readStubLog(stubLog);
+  assert.equal(inv.length, 1, 'la sesion del subdirectorio se resume');
+  assert.equal(inv[0].project, 'demo-sub');
+  assert.equal(inv[0].args[inv[0].args.indexOf('--transcript') + 1], file, 'el resumidor recibe la ruta real del transcript');
+});
+
+run('CASO NEGATIVO: carpeta HERMANA con prefijo de slug comun (demo-sub-v2) no se atribuye al proyecto', () => {
+  const { root, stub, stubLog } = makeWorkspace();
+  const cwd = 'C:\\proyectos\\demo-sub';
+  const siblingCwd = 'C:\\proyectos\\demo-sub-v2';
+  writeProjects(root, [{ id: 'demo-sub', path: cwd }]);
+  const turns = substantialTranscript().map((t) => ({ ...t, cwd: siblingCwd }));
+  writeTranscript(root, siblingCwd, 'sess-hermana', turns, 30);
+
+  const r = fire(root, stub);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(readStubLog(stubLog).length, 0, 'el slug empieza igual pero el cwd no cuelga del proyecto');
+});
+
+run('CASO NEGATIVO: subdirectorio que es OTRO proyecto registrado se queda en ese proyecto (gana el mas profundo)', () => {
+  const { root, stub, stubLog } = makeWorkspace();
+  const parent = 'C:\\proyectos\\padre';
+  const child = 'C:\\proyectos\\padre\\hijo';
+  writeProjects(root, [{ id: 'padre', path: parent }, { id: 'hijo', path: child }]);
+  const turns = substantialTranscript().map((t) => ({ ...t, cwd: child }));
+  writeTranscript(root, child, 'sess-hijo', turns, 30);
+
+  const r = fire(root, stub);
+  assert.equal(r.status, 0, r.stderr);
+  const inv = readStubLog(stubLog);
+  assert.equal(inv.length, 1, 'se resume una sola vez, no una por proyecto');
+  assert.equal(inv[0].project, 'hijo');
+});
+
+run('CASO NEGATIVO: con la cuota del plan agotada (cooldown) el sweep no lanza el resumidor', () => {
+  const { root, stub, stubLog } = makeWorkspace();
+  const cwd = 'C:\\proyectos\\demo-quota';
+  writeProjects(root, [{ id: 'demo-quota', path: cwd }]);
+  writeTranscript(root, cwd, 'sess-quota', substantialTranscript(), 30);
+  const attempts = join(root, '.ultron', '.tmp', 'session-summary-attempts');
+  mkdirSync(attempts, { recursive: true });
+  writeFileSync(join(attempts, '_quota-cooldown.json'), JSON.stringify({ until: Date.now() + 10 * 60 * 1000 }));
+
+  const r = fire(root, stub);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /cuota del plan agotada/);
+  assert.equal(readStubLog(stubLog).length, 0, 'sin cuota no se gasta ni un intento');
+  rmSync(join(attempts, '_quota-cooldown.json'));
+  const r2 = fire(root, stub);
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.equal(readStubLog(stubLog).length, 1, 'sin cooldown vuelve a resumir');
+});
+
 console.log('');
 if (failed === 0) {
   console.log(`PASS  bitacora-sweep (${passed} pruebas, 0 fallos)`);

@@ -37,10 +37,10 @@
  * TIMEOUT BUDGET — SHARED DEADLINE
  * ----------------------------------
  * See WARNING comment near HOOK_DEADLINE_MS below for the full invariant.
- *   Total hook budget  : 5 000 ms (Claude Code hard limit)
- *   All async I/O      : <= 4 500 ms (HOOK_DEADLINE_MS, shared across branches)
+ *   Total hook budget  : 60 000 ms (timeout del hook en settings.json)
+ *   All async I/O      : <= 57 000 ms (HOOK_DEADLINE_MS, shared across branches)
  *   v2 deterministic   : < 50 ms
- *   Safety margin      : ~450 ms
+ *   Safety margin      : ~3 000 ms
  *
  * OUTPUT FORMAT
  * -------------
@@ -163,15 +163,15 @@ const MAX_PROMPT_CHARS = 4000;
  * Hard deadline for ALL async I/O in this hook (ms from the moment mainV3 starts).
  *
  * WARNING — TIMING INVARIANT:
- *   Claude Code's UserPromptSubmit hook has a hard 5 000 ms wall-clock limit.
+ *   The hook's timeout in settings.json (60 s since 2026-09-27) is a hard wall-clock limit.
  *   v3 has TWO potentially expensive async branches:
  *     A) Lazy skill injection  (runs when topConfidence >= SEMANTIC_FALLBACK_THRESHOLD)
  *     B) Semantic Qdrant query (runs when topConfidence <  SEMANTIC_FALLBACK_THRESHOLD)
  *
  *   Today both thresholds equal 0.80, so A and B are mutually exclusive.
  *   BUT if either threshold is changed they could BOTH execute sequentially,
- *   potentially spending up to (lazy timeout + semantic timeout) ≈ 9 s — far
- *   exceeding the 5 s budget and causing the hook to be killed mid-flight.
+ *   potentially spending up to (lazy timeout + semantic timeout) — beyond
+ *   the hook budget and causing the hook to be killed mid-flight.
  *
  *   FIX: a single shared deadline of HOOK_DEADLINE_MS is established once at
  *   the start of mainV3().  Each async branch receives only its remaining time
@@ -184,10 +184,18 @@ const MAX_PROMPT_CHARS = 4000;
  *     Lazy inject (branch A)   : <= remainingMs (capped, typically ~500 ms warm)
  *     Semantic query (branch B): <= remainingMs (capped, typically ~800 ms warm)
  *     Output serialisation     : <  10 ms
- *     Safety margin            : ~440 ms
- *   Total guaranteed max       : 4 500 ms  (HOOK_DEADLINE_MS)
+ *     Safety margin            : ~3 000 ms
+ *   Total guaranteed max       : HOOK_DEADLINE_MS
  */
-const HOOK_DEADLINE_MS = 4500;
+// (2026-09-27, decidido por el usuario: "la latencia da igual; el resultado
+// completo") 4 500 -> 57 000 ms, con el timeout del hook en settings.json a
+// 60 s. Medido ese dia con 3 sesiones simultaneas: p50 4 611 ms, es decir, el
+// hook vivia pegado a su propio plazo y el juez/denso se cortaban sin
+// respuesta. El daemon ya no descarta nada por contencion: encola el computo
+// de los modelos, asi que el plazo tiene que cubrir esa cola. Los hooks de
+// UserPromptSubmit corren en paralelo: este no alarga el turno mas alla de lo
+// que ya espera memory-orchestrate (90 s de techo).
+const HOOK_DEADLINE_MS = 57000;
 
 /**
  * Default maximum milliseconds to wait for the embed_skills.py subprocess.
@@ -226,7 +234,9 @@ async function querySemanticSkills(promptText, topN, timeoutMs) {
     : SEMANTIC_TIMEOUT_MS;
   // The daemon returns a JSON array of skill hits on success, or {error:...}.
   const resp = await daemonRequest(
-    { cmd: 'skill_query', prompt: promptText.slice(0, 500), top: topN },
+    // Prompt ENTERO (2026-09-27): es el mismo texto que embebe el orchestrate
+    // del turno, asi que el daemon calcula un solo embed E5 para los dos.
+    { cmd: 'skill_query', prompt: promptText, top: topN },
     effectiveTimeout,
   );
   return Array.isArray(resp) ? resp : null;
@@ -412,7 +422,11 @@ function filtrarNombresPersona(nombres, prompt) {
  * (ULTRON_SKILL_LLM_TIMEOUT_MS); aqui se acota otra vez para que, si el juez
  * agota su tiempo, aun quede presupuesto del hook para el fallback denso.
  */
-const JUDGE_TIMEOUT_MS = 2600;
+// (2026-09-27) 2 600 -> 45 000 ms: el juez incluye el prefiltro denso (un
+// embed E5, que ahora espera turno en vez de competir) y la llamada al
+// proveedor (acotada en el daemon por ULTRON_SKILL_LLM_TIMEOUT_MS). Quedan
+// ~12 s de HOOK_DEADLINE_MS para el denso, que reutiliza el embed ya calculado.
+const JUDGE_TIMEOUT_MS = 45000;
 
 /**
  * Skills elegidas por el juez LLM (`skill_judge` del daemon). El daemon le pasa
@@ -435,7 +449,9 @@ const JUDGE_TIMEOUT_MS = 2600;
  */
 async function judgeSkills(promptText, timeoutMs) {
   const resp = await daemonRequest(
-    { cmd: 'skill_judge', prompt: promptText.slice(0, 500) },
+    // Prompt ENTERO (2026-09-27): comparte embed con el orchestrate del turno;
+    // el recorte a 500 caracteres de lo que ve el juez LLM lo hace el daemon.
+    { cmd: 'skill_judge', prompt: promptText },
     timeoutMs,
   );
   if (!resp || !Array.isArray(resp.skills)) return { skills: null, decided: false };
@@ -576,7 +592,10 @@ async function mainV3() {
     return;
   }
 
-  const prompt = String(payload.prompt || payload.user_prompt || '').trim();
+  // Sin recortar para el daemon: el hook memory-orchestrate manda el prompt tal
+  // cual llega, y el memo de embeds del daemon va por texto exacto.
+  const rawPrompt = String(payload.prompt || payload.user_prompt || '');
+  const prompt = rawPrompt.trim();
   if (!prompt) {
     emitContextV3('');
     return;
@@ -715,7 +734,7 @@ async function mainV3() {
       try {
         // El juez LLM decide primero; el denso queda como respaldo cuando no
         // hay proveedor, no hay clave o se agota el tiempo.
-        const veredicto = await judgeSkills(prompt, Math.min(semBudget, JUDGE_TIMEOUT_MS));
+        const veredicto = await judgeSkills(rawPrompt, Math.min(semBudget, JUDGE_TIMEOUT_MS));
         const judged = filtrarNombresPersona(veredicto.skills, prompt);
         if (judged && judged.length) {
           semanticBlock = buildJudgeHint(judged);
@@ -747,7 +766,7 @@ async function mainV3() {
         const semResults = (semanticBlock || juezDijoNinguna)
           ? null
           : filtrarNombresPersona(
-              await querySemanticSkills(prompt, effectiveSemanticTopN, remainingMs()),
+              await querySemanticSkills(rawPrompt, effectiveSemanticTopN, remainingMs()),
               prompt,
             );
         if (semResults && semResults.length > 0) {

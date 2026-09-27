@@ -111,6 +111,13 @@ const GUARD_ENV = 'ULTRON_SUMMARY_SUBPROCESS';
 const BACKOFF_AFTER_FAILURES = 2;
 const BACKOFF_MS = 6 * 60 * 60 * 1000;
 const ABANDON_AFTER_FAILURES = 5;
+// Cuota del plan agotada (diagnostico 2026-09-26): `claude -p` sale con
+// status=1 en 2-4 s y el motivo viaja en el JSON de STDOUT ("You've hit your
+// session limit"), no en stderr. No es culpa de la sesion objetivo: no cuenta
+// para el backoff/abandono y congela TODOS los resumenes un rato (ver
+// recordQuotaCooldown) en vez de gastar un intento por sesion y pasada.
+const QUOTA_COOLDOWN_MIN = Number(process.env.SESSION_SUMMARY_QUOTA_COOLDOWN_MIN) || 30;
+const QUOTA_ERROR_RE = /session limit|usage limit|weekly limit|hit your (?:\w+ )?limit|rate[ _-]?limit|\b429\b|overloaded|\b529\b/i;
 
 // ---------------------------------------------------------------------------
 // Redaccion — lib/security-helpers.js (mismo modulo que stop-compress-session.js
@@ -252,6 +259,39 @@ function clearAttempts(sessionId) {
     fs.rmSync(attemptsPath(sessionId), { force: true });
   } catch {
     /* best effort */
+  }
+}
+
+function quotaCooldownPath() {
+  return path.join(ATTEMPTS_DIR, '_quota-cooldown.json');
+}
+
+/** ¿El error de `claude -p` es de cuota/limite del plan (transitorio y global)? */
+function isQuotaError(text) {
+  return QUOTA_ERROR_RE.test(String(text || ''));
+}
+
+/** Congela todos los resumenes durante QUOTA_COOLDOWN_MIN (best effort). */
+function recordQuotaCooldown(reason) {
+  try {
+    fs.mkdirSync(ATTEMPTS_DIR, { recursive: true });
+    const p = quotaCooldownPath();
+    const tmp = `${p}.tmp.${process.pid}`;
+    const until = Date.now() + QUOTA_COOLDOWN_MIN * 60 * 1000;
+    fs.writeFileSync(tmp, JSON.stringify({ until, reason: String(reason || '').slice(0, 200) }));
+    fs.renameSync(tmp, p);
+  } catch {
+    /* best effort: sin fichero, la siguiente pasada vuelve a intentarlo */
+  }
+}
+
+/** Milisegundos que quedan de congelacion por cuota (0 = se puede llamar a claude -p). */
+function quotaCooldownRemainingMs() {
+  try {
+    const o = JSON.parse(fs.readFileSync(quotaCooldownPath(), 'utf8'));
+    return Math.max(0, Number(o.until) - Date.now()) || 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -457,7 +497,11 @@ function runClaude(promptText) {
   if (res.error) return { ok: false, error: `spawnSync error: ${String(res.error.message || res.error)}` };
   if (res.signal) return { ok: false, error: `claude -p señal ${res.signal} (probable timeout de ${TIMEOUT_MS} ms)` };
   if (res.status !== 0) {
-    return { ok: false, error: `claude -p status=${res.status}: ${String(res.stderr || '').slice(0, 300)}` };
+    // Con --output-format json el motivo (cuota, modelo, API) va en el JSON de
+    // STDOUT y stderr suele venir vacio: sin leerlo, el log decia solo
+    // "status=1: " (6 fallos del 2026-09-26, todos por limite de sesion).
+    const error = `claude -p status=${res.status}: ${describeClaudeFailure(res)}`;
+    return { ok: false, error, quota: isQuotaError(error) };
   }
   let parsed;
   try {
@@ -466,18 +510,52 @@ function runClaude(promptText) {
     return { ok: false, error: `salida no-JSON de claude -p: ${String(e.message)}` };
   }
   if (parsed.is_error || typeof parsed.result !== 'string' || !parsed.result.trim()) {
-    return { ok: false, error: `claude -p is_error=${!!parsed.is_error}: ${String(parsed.result || '').slice(0, 300)}` };
+    const error = `claude -p is_error=${!!parsed.is_error}: ${String(parsed.result || '').slice(0, 300)}`;
+    return { ok: false, error, quota: isQuotaError(error) };
   }
   return { ok: true, text: parsed.result.trim(), model: MODEL };
 }
 
-function summaryHeader({ sessionId, range, model, generatedAt }) {
+/** Motivo legible de un `claude -p` con status != 0: JSON de stdout primero, luego stderr. */
+function describeClaudeFailure(res) {
+  const parts = [];
+  try {
+    const o = JSON.parse(String(res.stdout || ''));
+    if (o && o.api_error_status) parts.push(`api_error_status=${o.api_error_status}`);
+    if (o && typeof o.result === 'string' && o.result.trim()) parts.push(o.result.trim());
+  } catch {
+    const raw = String(res.stdout || '').trim();
+    if (raw) parts.push(`stdout: ${raw}`);
+  }
+  const err = String(res.stderr || '').trim();
+  if (err) parts.push(`stderr: ${err}`);
+  return parts.join(' | ').slice(0, 400) || '(sin salida)';
+}
+
+/** Huella corta del digest: si no cambia, el resumen existente sigue valiendo. */
+function digestSha(text) {
+  return require('crypto').createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
+}
+
+/** `digest_sha` del frontmatter del summary.md existente, o null. */
+function existingDigestSha(projectId, sessionId) {
+  try {
+    const head = fs.readFileSync(lastSession.summaryPath(projectId, sessionId), 'utf8').slice(0, 1024);
+    const m = /^digest_sha: ([0-9a-f]{16})$/m.exec(head);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function summaryHeader({ sessionId, range, model, generatedAt, digestShaValue }) {
   return [
     '---',
     `session_id: ${sessionId}`,
     `rango: ${(range && range.start) || '?'} .. ${(range && range.end) || '?'}`,
     `modelo: ${model}`,
     `generated_at: ${generatedAt}`,
+    ...(digestShaValue ? [`digest_sha: ${digestShaValue}`] : []),
     '---',
     '',
     '',
@@ -525,6 +603,10 @@ function main() {
   const cwd = args.cwd || process.cwd();
   const projectId = args.project || resolveProjectId(cwd);
   if (!projectId) return logResult({ skipped: 'sin project_id', cwd });
+  const coolMs = quotaCooldownRemainingMs();
+  if (coolMs > 0) {
+    return logResult({ project: projectId, skipped: `cuota del plan agotada: pausa ${Math.ceil(coolMs / 60000)} min` });
+  }
 
   // `--transcript` (SessionEnd, 2026-09-22): el hook trae transcript_path; con
   // el se resuelve el directorio real aunque el cwd no case con el slug (worktrees).
@@ -553,16 +635,30 @@ function main() {
     // Redaccion ANTES de que el digest salga de la maquina hacia claude -p.
     const digestText = redactSecrets(digest.buildDigest(entries, { maxChars: MAX_DIGEST_CHARS }));
     const range = digest.sessionTimeRange(entries);
+    const sha = digestSha(digestText);
+    // Transcript tocado sin contenido nuevo (cost-state, away_summary, bridge
+    // de una sesion remota): el 25-09 la misma sesion se re-resumio 10 veces
+    // con el mismo digest. Se da el resumen por vigente sin llamar a claude -p.
+    if (existingDigestSha(projectId, target.sessionId) === sha) {
+      const now = new Date();
+      fs.utimesSync(lastSession.summaryPath(projectId, target.sessionId), now, now);
+      return logResult({ project: projectId, session_id: target.sessionId, skipped: 'digest sin cambios: resumen vigente' });
+    }
     const result = runClaude(buildPrompt(digestText));
     if (!result.ok) {
       logHookError('session-summarize-previous', result.error);
+      if (result.quota) {
+        // Global y transitorio: no penaliza a la sesion (no la acerca al abandono).
+        recordQuotaCooldown(result.error);
+        return logResult({ project: projectId, session_id: target.sessionId, ok: false, quota: true, error: result.error, ms: Date.now() - t0 });
+      }
       const attempts = recordFailure(target.sessionId);
       return logResult({ project: projectId, session_id: target.sessionId, ok: false, error: result.error, ms: Date.now() - t0, failures: attempts.failures });
     }
     // Redaccion de nuevo sobre el resultado (defensa en profundidad: el modelo
     // podria haber citado algo del digest en su resumen) ANTES de escribir a disco.
     const redactedText = redactSecrets(result.text);
-    const header = summaryHeader({ sessionId: target.sessionId, range, model: result.model, generatedAt: new Date().toISOString() });
+    const header = summaryHeader({ sessionId: target.sessionId, range, model: result.model, generatedAt: new Date().toISOString(), digestShaValue: sha });
     writeSummaryAtomic(lastSession.summaryPath(projectId, target.sessionId), header + redactedText + '\n');
     clearAttempts(target.sessionId);
     logResult({ project: projectId, session_id: target.sessionId, ok: true, ms: Date.now() - t0, digest_chars: digestText.length });
@@ -603,6 +699,12 @@ if (require.main === module) {
     recordFailure,
     clearAttempts,
     backoffReason,
+    isQuotaError,
+    recordQuotaCooldown,
+    quotaCooldownRemainingMs,
+    describeClaudeFailure,
+    digestSha,
+    existingDigestSha,
     securityHelpersLoaded,
     main,
   };

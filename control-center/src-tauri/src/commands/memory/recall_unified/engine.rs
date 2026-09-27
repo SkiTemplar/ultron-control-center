@@ -331,11 +331,12 @@ pub fn build_trace_typed(
             })
             .collect();
 
-        // El techo de 3,5 s y el "uno en vuelo" protegen el hot path, que lo
-        // sirve el daemon. Fuera de él (eval, trace, one-shot) no hay hook que
-        // proteger: con el techo, el eval del golden cortaba el rerank en las
-        // 13 queries del v3 (8 timeouts + 5 "ya en curso") y el A/B de
-        // ULTRON_RERANK medía dos veces el orden fusionado (2026-09-23).
+        // En el daemon, el re-rank espera su turno de inferencia (FIFO, sin
+        // descartar por contención) y solo se abandona ante un cuelgue real
+        // del cómputo (`RERANK_HANG_TIMEOUT`, 2026-09-27). Fuera de él (eval,
+        // trace, one-shot) no hay hook que proteger y se espera sin techo: con
+        // el antiguo tope de 3,5 s el eval del golden cortaba el rerank en las
+        // 13 queries del v3 (2026-09-23).
         let reranked = if crate::daemon_client::is_in_daemon() {
             crate::qdrant::rerank_pairs_bounded(query, &pairs)
         } else {

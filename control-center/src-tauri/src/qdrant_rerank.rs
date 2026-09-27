@@ -80,6 +80,22 @@ pub fn reranker_model_id() -> &'static str {
 
 #[cfg(feature = "qdrant")]
 pub fn rerank_pairs(query: &str, docs: &[(String, String)]) -> Result<Vec<(String, f32)>, String> {
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Un forward pass a la vez en el proceso (ver qdrant_inference_gate.rs).
+    let _turno = super::inference_turn();
+    rerank_pairs_en_turno(query, docs)
+}
+
+/// Cuerpo de `rerank_pairs` para quien YA tiene el turno de inferencia. La
+/// carga perezosa del modelo también ocurre dentro del turno: cargar ocupa la
+/// CPU igual que inferir.
+#[cfg(feature = "qdrant")]
+fn rerank_pairs_en_turno(
+    query: &str,
+    docs: &[(String, String)],
+) -> Result<Vec<(String, f32)>, String> {
     use fastembed::{RerankInitOptions, TextRerank};
 
     if docs.is_empty() {
@@ -137,84 +153,70 @@ pub fn rerank_pairs(
     Err("rerank_pairs: qdrant feature not enabled".to_string())
 }
 
-/// Tope duro de la etapa de rerank (2026-09-22, medido): el baseline
-/// "caliente" documentado arriba era 2-2.7 s/llamada, pero en producción el
-/// daemon registró orchestrates con `rerank_hot: true` de 15-25 s (24 pares,
-/// mismo modelo residente) — sin ningún tope, esa varianza se comía el
-/// presupuesto del hook (9-20 s) y el prompt entraba SIN memoria. El rerank
-/// es una etapa OPCIONAL de calidad: nunca debe poder bloquear el pack. Si
-/// vence, se cae al orden fusionado existente — igual que un `Err`.
+/// Techo de CUELGUE del forward pass del cross-encoder, contado desde que la
+/// llamada consigue el turno de inferencia (no incluye la cola).
+///
+/// Historia: 2026-09-22 se puso un tope de 3,5 s porque, con el modelo
+/// caliente, había re-ranks de 15-25 s que se comían el presupuesto del hook.
+/// Esa varianza no era el cómputo sino la CONTENCIÓN: varias inferencias de
+/// ONNX a la vez, cada una con 32 hilos intra-op, sobresuscribiendo la CPU. El
+/// tope convertía la contención en degradación — medido 2026-09-27 con 3
+/// sesiones simultáneas: 40 re-ranks abandonados en 30 prompts ("timeout tras
+/// 3500ms" o "ya en curso"). Con el turno FIFO (qdrant_inference_gate.rs) el
+/// forward pass corre solo y a velocidad plena (2-3 s con 24 pares), así que
+/// la espera por contención ya no cuenta aquí y este techo queda solo para un
+/// cuelgue real: 10 veces el cómputo normal.
 #[cfg(feature = "qdrant")]
-const RERANK_TIMEOUT: Duration = Duration::from_millis(3500);
+const RERANK_HANG_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Un solo forward-pass del cross-encoder a la vez (2026-09-22, medido tras
-/// el fix del timeout): un `recv_timeout` vencido no cancela el hilo — un
-/// forward pass de ONNX no se puede interrumpir a medias — así que quedaba
-/// calculando de fondo, huérfano. Con orchestrates consecutivos (memories +
-/// lessons del mismo turno bug_fix, o dos prompts seguidos) esos huérfanos se
-/// APILABAN compitiendo por CPU con el turno siguiente: en la reproducción,
-/// el 3er/4º orchestrate de la sesión medía 5,1 s SOLO en el embed E5 del
-/// catálogo de agentes (normal: <400 ms) con el rerank anterior aún vivo de
-/// fondo. Este guard limita a UN cómputo real en vuelo: si ya hay uno
-/// corriendo (huérfano o no), la llamada nueva NO lanza un segundo hilo — cae
-/// directa al fallback, coste ~0. Evita la degradación en cascada sin tocar
-/// el techo por llamada (`RERANK_TIMEOUT`).
-#[cfg(feature = "qdrant")]
-static RERANK_COMPUTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Libera `RERANK_COMPUTING` al salir de ámbito, incluido el desenrollado
-/// por pánico.
-#[cfg(feature = "qdrant")]
-struct ComputingGuard;
-
-#[cfg(feature = "qdrant")]
-impl Drop for ComputingGuard {
-    fn drop(&mut self) {
-        RERANK_COMPUTING.store(false, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-/// Igual que `rerank_pairs` pero con techo duro `RERANK_TIMEOUT` y como mucho
-/// UN cómputo real en vuelo (`RERANK_COMPUTING`): el llamante espera como
-/// mucho el timeout y, si vence, el hilo sigue calculando en segundo plano
-/// (no se puede cancelar un forward pass de ONNX a medias) pero su resultado
-/// se descarta — el pack de memoria de ESTE turno no se queda esperando.
-/// `docs` se clona una vez para que el hilo no dependa del tiempo de vida del
-/// llamante.
+/// `rerank_pairs` para el daemon: ESPERA su turno de inferencia sin tope (la
+/// contención ya no degrada el pack) y acota solo el cómputo a
+/// `RERANK_HANG_TIMEOUT`. Si ese techo vence es un cuelgue: el hilo sigue
+/// calculando (un forward pass de ONNX no se interrumpe a medias) pero
+/// CONSERVA el turno hasta acabar, así que ningún huérfano compite por CPU con
+/// la inferencia siguiente — ese era el papel del antiguo guard "uno en vuelo",
+/// que en vez de encolar descartaba el re-rank de quien llegaba segundo.
 #[cfg(feature = "qdrant")]
 pub fn rerank_pairs_bounded(
     query: &str,
     docs: &[(String, String)],
 ) -> Result<Vec<(String, f32)>, String> {
-    use std::sync::atomic::Ordering;
-
     if docs.is_empty() {
         return Ok(Vec::new());
     }
-    if RERANK_COMPUTING.swap(true, Ordering::SeqCst) {
-        return Err(
-            "rerank ya en curso (llamada anterior todavia calculando) — pack servido con el orden fusionado"
-                .to_string(),
-        );
-    }
+    let turno = super::inference_turn();
     let query = query.to_string();
     let docs = docs.to_vec();
+    computo_acotado(turno, RERANK_HANG_TIMEOUT, move || {
+        rerank_pairs_en_turno(&query, &docs)
+    })
+}
+
+/// Ejecuta `computo` en un hilo que se lleva `turno` y espera su resultado
+/// como mucho `techo`. Separado de `rerank_pairs_bounded` para probar el
+/// mecanismo sin cargar el modelo real.
+#[cfg(feature = "qdrant")]
+fn computo_acotado<T, F>(
+    turno: super::qdrant_inference_gate::InferenceTurn,
+    techo: Duration,
+    computo: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        // RAII: el guard se libera también si el forward pass entra en pánico
-        // (FFI de ONNX, OOM). Con un `store(false)` tras la llamada, un pánico
-        // dejaba RERANK_COMPUTING a true para siempre y el rerank quedaba
-        // apagado en silencio hasta reiniciar el daemon.
-        let _liberar = ComputingGuard;
-        let resultado = rerank_pairs(&query, &docs);
-        // El receptor puede haber vencido el timeout y desconectado: `send`
-        // devuelve Err en ese caso y se ignora — el resultado ya no importa.
-        let _ = tx.send(resultado);
+        // El turno se suelta al acabar el cómputo (también por pánico, al
+        // desenrollar), nunca al vencer el techo del llamante.
+        let _turno = turno;
+        // Si el llamante ya se rindió, `send` falla y se ignora.
+        let _ = tx.send(computo());
     });
-    rx.recv_timeout(RERANK_TIMEOUT).unwrap_or_else(|_| {
+    rx.recv_timeout(techo).unwrap_or_else(|_| {
         Err(format!(
-            "rerank timeout tras {}ms — pack servido con el orden fusionado (sin cross-encoder)",
-            RERANK_TIMEOUT.as_millis()
+            "rerank colgado: sin resultado tras {} s de cómputo — pack servido con el orden fusionado",
+            techo.as_secs()
         ))
     })
 }
@@ -231,73 +233,79 @@ pub fn rerank_pairs_bounded(
 #[cfg(all(test, feature = "qdrant"))]
 mod bounded_tests {
     use super::*;
+    use std::time::Instant;
 
-    /// Caso negativo: si el cómputo tarda más que el tope, el llamante no se
-    /// queda colgado — vuelve con `Err` dentro del presupuesto, nunca a los
-    /// 15-25 s medidos en producción. No dispara el modelo real (pesado);
-    /// prueba el mecanismo de timeout aislado con un cómputo simulado.
+    /// Los tests que toman el turno GLOBAL se serializan entre sí: el runner
+    /// de cargo los lanza en paralelo y uno retendría el turno del otro.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Caso negativo: un cómputo colgado no retiene al llamante más allá del
+    /// techo — vuelve con `Err` y el pack sale con el orden fusionado.
     #[test]
-    fn una_etapa_lenta_no_bloquea_mas_alla_del_tope() {
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), ()>>();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(3600)); // nunca llega a tiempo
-            let _ = tx.send(Ok(()));
+    fn un_computo_colgado_vuelve_al_vencer_el_techo() {
+        let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let turno = super::super::inference_turn();
+        let t0 = Instant::now();
+        let r: Result<(), String> = computo_acotado(turno, Duration::from_millis(100), || {
+            std::thread::sleep(Duration::from_millis(400));
+            Ok(())
         });
-        let start = std::time::Instant::now();
-        let resultado = rx.recv_timeout(Duration::from_millis(100));
-        assert!(resultado.is_err(), "debe vencer, no esperar al hilo lento");
+        assert!(r.is_err(), "debe vencer el techo");
+        assert!(t0.elapsed() < Duration::from_millis(350));
+        // El huérfano CONSERVA el turno: el siguiente espera a que acabe en vez
+        // de competir con él por la CPU.
+        let t1 = Instant::now();
+        let _siguiente = super::super::inference_turn();
         assert!(
-            start.elapsed() < Duration::from_millis(500),
-            "el tope debe cortar en milisegundos, no en horas"
+            t1.elapsed() >= Duration::from_millis(150),
+            "el turno sigue tomado por el cómputo huérfano"
         );
     }
 
-    /// Caso negativo: con un cómputo ya "en vuelo" (guard puesto a mano, sin
-    /// cargar el modelo real), una llamada nueva NO debe lanzar un segundo
-    /// hilo — cae directa al fallback. Así no se apilan huérfanos compitiendo
-    /// por CPU con el resto del daemon (causa raíz de la degradación en
-    /// cascada medida el 2026-09-22).
-    /// Los tests que tocan el estático `RERANK_COMPUTING` se serializan: el
-    /// runner de cargo los lanza en hilos paralelos.
-    static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Caso negativo: un pánico dentro del cómputo no puede dejar el guard
-    /// tomado para siempre (el rerank quedaría apagado en silencio).
+    /// Lo que cambia el 2026-09-27: con el turno ocupado, la llamada nueva
+    /// ESPERA y devuelve el resultado completo — ni "ya en curso" ni timeout.
     #[test]
-    fn un_panico_en_el_computo_libera_el_guard() {
-        use std::sync::atomic::Ordering;
-        let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
-        RERANK_COMPUTING.store(true, Ordering::SeqCst);
-        let hilo = std::thread::spawn(|| {
-            let _liberar = ComputingGuard;
-            panic!("forward pass simulado que revienta");
+    fn con_el_turno_ocupado_se_espera_y_no_se_degrada() {
+        let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let ocupado = super::super::inference_turn();
+        let liberador = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(ocupado);
         });
-        assert!(hilo.join().is_err(), "el hilo debe haber entrado en pánico");
-        assert!(
-            !RERANK_COMPUTING.load(Ordering::SeqCst),
-            "el guard debe quedar libre tras el pánico"
+        let t0 = Instant::now();
+        let turno = super::super::inference_turn();
+        let r = computo_acotado(turno, Duration::from_secs(5), || Ok(42));
+        liberador.join().unwrap();
+        assert_eq!(
+            r,
+            Ok(42),
+            "tras esperar su turno, el cómputo se sirve entero"
         );
+        assert!(t0.elapsed() >= Duration::from_millis(250), "esperó la cola");
+    }
+
+    /// Un pánico en el cómputo no deja el turno tomado para siempre.
+    #[test]
+    fn un_panico_en_el_computo_devuelve_el_turno() {
+        let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let turno = super::super::inference_turn();
+        let r: Result<(), String> = computo_acotado(turno, Duration::from_secs(2), || {
+            panic!("forward pass simulado que revienta")
+        });
+        assert!(r.is_err());
+        let t0 = Instant::now();
+        let _t = super::super::inference_turn();
+        assert!(t0.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
-    fn una_llamada_en_vuelo_bloquea_una_segunda_sin_lanzar_otro_hilo() {
-        use std::sync::atomic::Ordering;
-        let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
-        RERANK_COMPUTING.store(true, Ordering::SeqCst);
-        let start = std::time::Instant::now();
-        let resultado = rerank_pairs_bounded(
-            "query",
-            &[("id".to_string(), "documento cualquiera".to_string())],
-        );
-        RERANK_COMPUTING.store(false, Ordering::SeqCst);
-        assert!(
-            resultado.is_err(),
-            "una segunda llamada concurrente cae al fallback"
-        );
-        assert!(
-            start.elapsed() < Duration::from_millis(200),
-            "el guard debe cortar al instante, sin esperar el timeout completo"
-        );
+    fn sin_documentos_no_toma_turno_ni_modelo() {
+        let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let _ocupado = super::super::inference_turn();
+        // Con el turno tomado por este mismo hilo, pedir otro colgaría el
+        // test: la vía rápida tiene que salir antes de pedirlo.
+        assert_eq!(rerank_pairs_bounded("q", &[]), Ok(Vec::new()));
+        assert_eq!(rerank_pairs("q", &[]), Ok(Vec::new()));
     }
 }
 

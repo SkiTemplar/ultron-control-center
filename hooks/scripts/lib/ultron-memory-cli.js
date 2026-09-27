@@ -46,36 +46,57 @@ function readDaemonLock() {
  * @returns {Promise<object|null>}
  */
 function daemonRequest(payload, timeoutMs) {
+  return daemonRequestDetailed(payload, timeoutMs).then((r) => r.resp);
+}
+
+/**
+ * Igual que daemonRequest, pero dice POR QUE no hubo respuesta (2026-09-27).
+ * Sin esto, "daemon vivo calculando" y "daemon muerto" eran el mismo null, y
+ * memory-orchestrate reenviaba el MISMO orchestrate a un daemon que ya lo
+ * estaba resolviendo: trabajo doble justo cuando habia contencion.
+ *   reason: 'ok'       respuesta JSON (puede traer {error})
+ *           'no_lock'  sin lockfile publicado (daemon ausente o arrancando)
+ *           'connect'  fallo antes de conectar (nadie escucha en el puerto)
+ *           'timeout'  conectado, pero sin respuesta en timeoutMs (vivo y ocupado, o colgado)
+ *           'closed'   conectado y cerrado sin respuesta (el daemon murio a mitad)
+ *           'bad_json' respuesta ilegible
+ * @param {{cmd: string, prompt?: string, project?: string}} payload
+ * @param {number} timeoutMs
+ * @returns {Promise<{resp: object|null, reason: string}>}
+ */
+function daemonRequestDetailed(payload, timeoutMs) {
   return new Promise((resolve) => {
     const lock = readDaemonLock();
-    if (!lock) return resolve(null);
+    if (!lock) return resolve({ resp: null, reason: 'no_lock' });
     let settled = false;
+    let connected = false;
     let buf = '';
     const sock = net.connect({ host: '127.0.0.1', port: lock.port });
-    const done = (val) => {
+    const done = (resp, reason) => {
       if (settled) return;
       settled = true;
       try { sock.destroy(); } catch { /* ignore */ }
-      resolve(val);
+      resolve({ resp, reason });
     };
     sock.setTimeout(Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS);
     sock.on('connect', () => {
+      connected = true;
       try {
         sock.write(JSON.stringify({ token: lock.token, ...payload }) + '\n');
       } catch {
-        done(null);
+        done(null, 'closed');
       }
     });
     sock.on('data', (chunk) => {
       buf += chunk.toString('utf8');
       const nl = buf.indexOf('\n');
       if (nl >= 0) {
-        try { done(JSON.parse(buf.slice(0, nl))); } catch { done(null); }
+        try { done(JSON.parse(buf.slice(0, nl)), 'ok'); } catch { done(null, 'bad_json'); }
       }
     });
-    sock.on('timeout', () => done(null));
-    sock.on('error', () => done(null));
-    sock.on('close', () => done(null));
+    sock.on('timeout', () => done(null, connected ? 'timeout' : 'connect'));
+    sock.on('error', () => done(null, connected ? 'closed' : 'connect'));
+    sock.on('close', () => done(null, connected ? 'closed' : 'connect'));
   });
 }
 
@@ -206,6 +227,7 @@ module.exports = {
   logMs,
   projectIdFromCwd,
   daemonRequest,
+  daemonRequestDetailed,
   readDaemonLock,
   daemonLockPath,
 };

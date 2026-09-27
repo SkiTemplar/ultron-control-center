@@ -309,6 +309,18 @@ pub fn embed_e5(text: &str, is_query: bool) -> Result<Vec<f32>, String> {
         .as_ref()
         .ok_or_else(|| "E5 model released mid-flight".to_string())?;
 
+    // Turno de inferencia (ver qdrant_inference_gate.rs): un forward pass a la
+    // vez en todo el proceso. Tras conseguirlo se vuelve a mirar el memo: si
+    // otra petición del MISMO prompt (el `skill_judge`/`skill_query` del
+    // dispatcher y el `orchestrate` llegan casi a la vez) lo calculó mientras
+    // esta esperaba, se reutiliza en vez de repetir el embed. Es el
+    // single-flight por texto, sin mapa de peticiones en vuelo.
+    let _turno = inference_turn();
+    if let Ok(memo) = cache.lock() {
+        if let Some(v) = memo.get(&prefixed) {
+            return Ok(v.clone());
+        }
+    }
     let mut results = model
         .embed(vec![prefixed.clone()], None)
         .map_err(|e| format!("fastembed E5 embed: {e}"))?;
@@ -813,6 +825,19 @@ pub fn cr_enabled() -> bool {
 #[path = "qdrant_rerank.rs"]
 mod qdrant_rerank;
 pub use qdrant_rerank::*;
+// Turno FIFO de los forward pass de ONNX (E5 + cross-encoder): uno a la vez.
+#[cfg(feature = "qdrant")]
+#[path = "qdrant_inference_gate.rs"]
+mod qdrant_inference_gate;
+#[cfg(feature = "qdrant")]
+pub(crate) use qdrant_inference_gate::inference_turn;
+#[cfg(feature = "qdrant")]
+pub use qdrant_inference_gate::take_inference_wait_ms;
+/// Sin la feature no hay modelos ni, por tanto, espera de turno.
+#[cfg(not(feature = "qdrant"))]
+pub fn take_inference_wait_ms() -> u64 {
+    0
+}
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

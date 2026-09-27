@@ -30,7 +30,13 @@ fn request_log_path() -> Option<PathBuf> {
 /// (`ok`, `busy` o el `error` devuelto), estado de los modelos antes y después,
 /// y para `orchestrate`/`recall` el proyecto, el tamaño del prompt y cuántas
 /// memorias salieron. Best-effort: nunca falla la petición por el log.
-pub(super) fn log_request(req: &Req, resp: &Value, elapsed: Duration, models_before: &[&str]) {
+pub(super) fn log_request(
+    req: &Req,
+    resp: &Value,
+    elapsed: Duration,
+    models_before: &[&str],
+    inference_wait_ms: u64,
+) {
     let Some(path) = request_log_path() else {
         return;
     };
@@ -50,6 +56,9 @@ pub(super) fn log_request(req: &Req, resp: &Value, elapsed: Duration, models_bef
         "pid": std::process::id(),
         "cmd": req.cmd,
         "ms": elapsed.as_millis() as u64,
+        // Parte de `ms` esperando el turno de inferencia (contención con otras
+        // peticiones), no calculando.
+        "inference_wait_ms": inference_wait_ms,
         "ok": error.is_none(),
         "busy": error == Some("busy"),
         "error": error,

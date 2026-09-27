@@ -28,7 +28,9 @@
 //! ESTRUCTURA (troceado 2026-09-10, cat7.3 — antes 1.053 líneas en un fichero):
 //! - `lockfile`: descubrimiento y propiedad (claim atómico, ping, retirada).
 //! - `protocol`: la petición JSON y el handler puro que la resuelve.
-//! - `concurrency`: semáforo de las peticiones que embeben contra E5.
+//! - (`concurrency` se retiró el 2026-09-27: el semáforo de peticiones pesadas
+//!   que respondía "busy" lo sustituye el turno FIFO de inferencia de
+//!   `qdrant_inference_gate.rs`; las conexiones se atienden todas a la vez.)
 //! - `watchdog`: liberación de modelos por inactividad y guard de huérfano.
 //! - `request_log`: la traza JSONL de cada petición servida.
 //! - `tcp`: arranque del daemon y bucle de aceptación.
@@ -36,7 +38,6 @@
 //! El troceo no cambió ni un comportamiento ni un contrato JSON: es el mismo
 //! código repartido.
 
-mod concurrency;
 mod lockfile;
 mod protocol;
 mod request_log;

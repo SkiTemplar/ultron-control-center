@@ -18,7 +18,13 @@
 
 const os = require('os');
 const path = require('path');
-const { appendJsonl } = require('./jsonl-log');
+const { appendJsonl, appendJsonlRetained } = require('./jsonl-log');
+
+// hook-timing.jsonl conserva 8 dias por EDAD, no 1 MiB (2026-09-27): con la
+// rotacion de una generacion solo guardaba entre 2 y 13 h segun la carga, y
+// medir la latencia de una semana era imposible. Archivos rotados:
+// logs/hook-timing.<stamp>-<pid>.jsonl (ver jsonl-log.retainedFiles).
+const TIMING_RETAIN = { maxBytes: 4 * 1024 * 1024, retainDays: 8 };
 
 const LOGS_DIR = path.join(os.homedir(), '.ultron', 'logs');
 const TIMING_LOG = path.join(LOGS_DIR, 'hook-timing.jsonl');
@@ -34,12 +40,16 @@ function observe(hookId) {
   const t0 = Date.now();
   try {
     process.on('exit', () => {
-      appendJsonl(TIMING_LOG, {
-        hook: String(hookId || 'unknown'),
-        elapsed_ms: Date.now() - t0,
-        exit_code: typeof process.exitCode === 'number' ? process.exitCode : 0,
-        ...extraFields,
-      });
+      appendJsonlRetained(
+        TIMING_LOG,
+        {
+          hook: String(hookId || 'unknown'),
+          elapsed_ms: Date.now() - t0,
+          exit_code: typeof process.exitCode === 'number' ? process.exitCode : 0,
+          ...extraFields,
+        },
+        TIMING_RETAIN
+      );
     });
   } catch {
     /* observability must never break a hook */

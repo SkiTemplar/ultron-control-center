@@ -88,8 +88,89 @@ function loadProjects() {
  * del resumidor (backoff, ya-sabemos-trivial) para no repetir trabajo que
  * SessionStart ya descarto. Fail-safe: sin transcripts -> [].
  */
-function pendingSessions(project, inactiveMs, now) {
-  const dir = summarizer.transcriptsDirFor(project.path, null);
+function normDir(p) {
+  return path.resolve(String(p)).replace(/[\\/]+$/, '').toLowerCase();
+}
+
+/** `cwd` de la primera entrada que lo lleve, leyendo solo la cabeza del transcript. */
+function transcriptCwd(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(64 * 1024);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const m = /"cwd":("(?:[^"\\]|\\.)*")/.exec(buf.toString('utf8', 0, n));
+    return m ? JSON.parse(m[1]) : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * Directorios de transcripts de `project`: el de su ruta exacta y, ademas, los
+ * de sus SUBDIRECTORIOS y worktrees (una sesion abierta en
+ * Tortunabo\Source\Tortunabo guarda sus transcripts en otro slug y ni el sweep
+ * ni SessionStart la veian). La pertenencia se confirma con el `cwd` real del
+ * transcript, no solo con el prefijo del slug (el slug no distingue
+ * `risk-ranking\sub` de una carpeta hermana `risk-ranking-v2`), y gana el
+ * proyecto registrado mas profundo (`mcps` dentro de `ultron`). El home
+ * (`__home`) no hereda subdirectorios: cualquier carpeta cuelga de el.
+ */
+function transcriptDirsFor(project, projects) {
+  const exact = summarizer.transcriptsDirFor(project.path, null);
+  const out = [exact];
+  if (process.env.SESSION_SUMMARY_TRANSCRIPTS_DIR) return out;
+  const own = normDir(project.path);
+  if (own === normDir(HOME)) return out;
+  const root = path.dirname(exact);
+  const prefix = path.basename(exact) + '-';
+  let dirs;
+  try {
+    dirs = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const d of dirs) {
+    if (!d.isDirectory() || !d.name.startsWith(prefix)) continue;
+    const dir = path.join(root, d.name);
+    let sample;
+    try {
+      sample = fs.readdirSync(dir).find((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    const cwd = sample && transcriptCwd(path.join(dir, sample));
+    if (!cwd || !normDir(cwd).startsWith(own + path.sep)) continue;
+    if (ownerOf(cwd, projects) === project.id) out.push(dir);
+  }
+  return out;
+}
+
+/** Proyecto registrado mas profundo que contiene `cwd` (sin contar el home). */
+function ownerOf(cwd, projects) {
+  const c = normDir(cwd);
+  let best = null;
+  for (const p of projects) {
+    const pp = normDir(p.path);
+    if (pp === normDir(HOME)) continue;
+    if ((c === pp || c.startsWith(pp + path.sep)) && (!best || pp.length > best.len)) best = { id: p.id, len: pp.length };
+  }
+  return best ? best.id : null;
+}
+
+function pendingSessions(project, inactiveMs, now, projects = [project]) {
+  const pending = [];
+  for (const dir of transcriptDirsFor(project, projects)) {
+    pending.push(...pendingInDir(project, dir, inactiveMs, now));
+  }
+  // La que mas tiempo lleva esperando primero: es la mas urgente.
+  pending.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  return pending;
+}
+
+function pendingInDir(project, dir, inactiveMs, now) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -124,17 +205,18 @@ function pendingSessions(project, inactiveMs, now) {
     }
     pending.push({ sessionId, transcriptPath, mtimeMs: st.mtimeMs });
   }
-  // La que mas tiempo lleva esperando primero: es la mas urgente.
-  pending.sort((a, b) => a.mtimeMs - b.mtimeMs);
   return pending;
 }
 
 /** Lanza el resumidor (o su stub de test) para UNA sesion y espera el resultado. */
-function summarizeOne(project, sessionId) {
+function summarizeOne(project, sessionId, transcriptPath) {
   const t0 = Date.now();
   const r = spawnSync(
     process.execPath,
-    [SUMMARIZER_SCRIPT, '--cwd', project.path, '--project', project.id, '--session', SWEEP_LOCK_ID, '--target-session', sessionId],
+    [
+      SUMMARIZER_SCRIPT, '--cwd', project.path, '--project', project.id, '--session', SWEEP_LOCK_ID,
+      '--target-session', sessionId, '--transcript', transcriptPath,
+    ],
     { encoding: 'utf8', stdio: 'pipe', windowsHide: true, timeout: 5 * 60 * 1000 }
   );
   const written = lastSession.summaryMtimeMs(project.id, sessionId);
@@ -147,10 +229,10 @@ function summarizeOne(project, sessionId) {
  * mezcladas y ordenadas por la que mas tiempo lleva esperando resumen,
  * independientemente del proyecto al que pertenezca.
  */
-function collectCandidates(projects, inactiveMs, now) {
+function collectCandidates(projects, inactiveMs, now, allProjects = projects) {
   const out = [];
   for (const project of projects) {
-    for (const s of pendingSessions(project, inactiveMs, now)) {
+    for (const s of pendingSessions(project, inactiveMs, now, allProjects)) {
       out.push({ project, ...s });
     }
   }
@@ -177,9 +259,18 @@ function main() {
   }
 
   try {
+    // Cuota del plan agotada: ni se lanza el resumidor (cada intento seria un
+    // fallo seguro y, antes del 2026-09-27, un paso mas hacia el abandono).
+    const coolMs = summarizer.quotaCooldownRemainingMs();
+    if (coolMs > 0) {
+      console.log(`bitacora-sweep: cuota del plan agotada, pausa ${Math.ceil(coolMs / 60000)} min`);
+      process.exitCode = 0;
+      return;
+    }
     const now = Date.now();
-    const projects = loadProjects().filter((p) => !args.project || p.id === args.project);
-    const candidates = collectCandidates(projects, inactiveMs, now);
+    const allProjects = loadProjects();
+    const projects = allProjects.filter((p) => !args.project || p.id === args.project);
+    const candidates = collectCandidates(projects, inactiveMs, now, allProjects);
 
     console.log(`bitacora-sweep: ${candidates.length} sesion(es) pendiente(s) en ${projects.length} proyecto(s) (inactividad >= ${inactiveMin} min); limite ${max}`);
 
@@ -190,7 +281,7 @@ function main() {
         console.log(`  [dry-run] ${c.project.id}/${c.sessionId}`);
         continue;
       }
-      const r = summarizeOne(c.project, c.sessionId);
+      const r = summarizeOne(c.project, c.sessionId, c.transcriptPath);
       appendJsonl(LOG_PATH, {
         trigger: 'sweep',
         project: c.project.id,

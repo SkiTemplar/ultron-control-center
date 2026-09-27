@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use super::concurrency::{orch_concurrency, Semaforo, ORCH_LOCK_WAIT};
 use super::lockfile::{
     claim_lockfile, gen_token, lockfile_path, now_ms, ping_existing, read_lockfile,
     remove_lockfile_if_owned,
@@ -120,14 +119,6 @@ pub fn run_daemon() -> Result<Value, String> {
     let last_activity = Arc::new(AtomicI64::new(now_ms()));
     spawn_idle_watchdog(Arc::clone(&last_activity), token.clone());
 
-    // Un solo modelo residente sirviendo a varias sesiones a la vez (ver
-    // ORCH_CONCURRENCY_DEFAULT). Sustituye al Mutex que serializaba TODO.
-    let orch_sem = Arc::new(Semaforo::nuevo(orch_concurrency()));
-    eprintln!(
-        "ultron-memory serve: concurrencia de orchestrate = {}",
-        orch_concurrency()
-    );
-
     for incoming in listener.incoming() {
         let stream = match incoming {
             Ok(s) => s,
@@ -135,9 +126,8 @@ pub fn run_daemon() -> Result<Value, String> {
         };
         let token = token.clone();
         let last = Arc::clone(&last_activity);
-        let orch_sem = Arc::clone(&orch_sem);
         std::thread::spawn(move || {
-            handle_conn(stream, &token, &last, &orch_sem, started);
+            handle_conn(stream, &token, &last, started);
         });
     }
     // `incoming()` only ends on a listener error; treat as clean shutdown.
@@ -145,13 +135,7 @@ pub fn run_daemon() -> Result<Value, String> {
     Ok(json!({ "stopped": true }))
 }
 
-fn handle_conn(
-    stream: TcpStream,
-    token: &str,
-    last_activity: &AtomicI64,
-    orch_sem: &Semaforo,
-    started: Instant,
-) {
+fn handle_conn(stream: TcpStream, token: &str, last_activity: &AtomicI64, started: Instant) {
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let _ = stream.set_write_timeout(Some(READ_TIMEOUT));
     let mut writer = match stream.try_clone() {
@@ -182,34 +166,21 @@ fn handle_conn(
     let t0 = Instant::now();
     let models_before = crate::qdrant::loaded_models();
 
-    // Acota cuántas peticiones pesadas (orchestrate, skill_query y embed: las
-    // tres embeben contra el E5 residente) se sirven a la vez; ping/shutdown
-    // quedan libres. Espera ACOTADA (ORCH_LOCK_WAIT): sin hueco a tiempo se
-    // responde "busy" y el hook espera al MISMO daemon — nunca cola infinita ni
-    // proceso rival.
-    let pesada = matches!(req.cmd.as_str(), "orchestrate" | "skill_query" | "embed");
-    let (resp, shutdown) = if pesada {
-        match orch_sem.adquirir(ORCH_LOCK_WAIT) {
-            Some(_permiso) => handle_request(&req, token, started),
-            None => (
-                json!({
-                    "error": "busy",
-                    "detail": format!(
-                        "sin hueco en {}ms con {} plazas — daemon saturado; el hook espera y degrada",
-                        ORCH_LOCK_WAIT.as_millis(),
-                        orch_concurrency()
-                    ),
-                }),
-                false,
-            ),
-        }
-    } else {
-        handle_request(&req, token, started)
-    };
+    // Todas las peticiones se atienden A LA VEZ (2026-09-27). Lo único que se
+    // serializa es el forward pass de los modelos, en un turno FIFO sin tope
+    // (`crate::qdrant::inference_turn`): lectura de SQLite, búsquedas en
+    // Qdrant y llamadas a proveedores LLM corren en paralelo. Antes un semáforo
+    // de 2 plazas respondía "busy" a los 2,5 s y el hook reintentaba o
+    // degradaba: medido con 3 sesiones simultáneas, 92 "busy" y 27 de 30
+    // prompts sin memoria completa. La espera por contención ya no degrada;
+    // solo cuesta latencia, y se anota por petición (`inference_wait_ms`).
+    let _ = crate::qdrant::take_inference_wait_ms();
+    let (resp, shutdown) = handle_request(&req, token, started);
+    let inference_wait_ms = crate::qdrant::take_inference_wait_ms();
 
     let _ = writeln!(writer, "{resp}");
     let _ = writer.flush();
-    log_request(&req, &resp, t0.elapsed(), &models_before);
+    log_request(&req, &resp, t0.elapsed(), &models_before, inference_wait_ms);
     if shutdown {
         remove_lockfile_if_owned(token);
         std::process::exit(0);

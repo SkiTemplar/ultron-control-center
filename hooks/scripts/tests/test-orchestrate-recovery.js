@@ -25,7 +25,11 @@
  *
  * Casos: (a) daemon vivo, (b) daemon ausente que aparece a los 2 s,
  * (c) nadie contesta nunca -> sparse dentro del cap, (d) turno de sistema/vacio,
- * (e) nadie contesta y el sparse tambien falla -> "[memoria degradada]".
+ * (e) nadie contesta y el sparse tambien falla -> "[memoria degradada]",
+ * (f) daemon vivo pero LENTO (8 s) -> se le espera con UNA sola peticion,
+ * (g) daemon que responde {error} -> sparse directo, sin relanzar ni reenviar.
+ * (f) y (g) cubren la politica del 2026-09-27: antes, un daemon ocupado se
+ * trataba como muerto a los 6-14 s y se le reenviaba el mismo orchestrate.
  */
 
 'use strict';
@@ -42,8 +46,9 @@ const HOOK = path.join(__dirname, '..', 'memory-orchestrate.js');
 // Presupuesto del hook (settings.json) y deadline de recuperacion, replicados
 // aqui como ESPERADOS del test: si el hook los cambia, estas aserciones deben
 // fallar y obligar a revisar el presupuesto.
-const HOOK_BUDGET_MS = 20_000;
-const RELAUNCH_DEADLINE_MS = 15_500;
+const HOOK_BUDGET_MS = 90_000;
+// Espera maxima al daemon relanzado (DAEMON_RELAUNCH_WAIT_MS del hook).
+const RELAUNCH_DEADLINE_MS = 30_000;
 const SPARSE_MIN_CAP_MS = 3_000;
 const SPARSE_MAX_CAP_MS = 6_000;
 
@@ -107,7 +112,7 @@ function writeLock(home, port, token) {
 }
 
 /** Daemon falso: una respuesta JSON por linea, validando el token del lockfile. */
-function startFakeDaemon(token, pack) {
+function startFakeDaemon(token, pack, { delayMs = 0, stats = { orchestrate: 0 } } = {}) {
   return new Promise((resolve) => {
     const server = net.createServer((sock) => {
       let buf = '';
@@ -125,11 +130,14 @@ function startFakeDaemon(token, pack) {
             req = null;
           }
           const ok = req && req.token === token && req.cmd === 'orchestrate';
-          try {
-            sock.write(JSON.stringify(ok ? pack : { error: 'bad request' }) + '\n');
-          } catch {
-            /* el hook puede haber cerrado */
-          }
+          if (ok) stats.orchestrate += 1;
+          setTimeout(() => {
+            try {
+              sock.write(JSON.stringify(ok ? pack : { error: 'bad request' }) + '\n');
+            } catch {
+              /* el hook puede haber cerrado */
+            }
+          }, delayMs);
         }
       });
     });
@@ -346,7 +354,71 @@ async function caseE() {
   results.push(['(e) degradado real', r.elapsedMs]);
 }
 
+async function caseF() {
+  const c = makeCase('f-daemon-lento');
+  const token = 'tok-f';
+  const stats = { orchestrate: 0 };
+  const { server, port } = await startFakeDaemon(
+    token,
+    { route: 'daemon-lento', memories: [{ scope: 'project', summary: 'pack completo tras la cola' }] },
+    { delayMs: 16_000, stats }
+  );
+  writeLock(c.home, port, token);
+  try {
+    const r = await runHook({ ...c, prompt: PROMPT, sessionId: 'sess-f' });
+    assert.strictEqual(r.code, 0, 'el hook debe salir 0 (fail-safe)');
+    assert.ok(
+      r.additionalContext && r.additionalContext.includes('route="daemon-lento"'),
+      'un daemon vivo que tarda 16 s (mas que el antiguo plazo de 14 s) debe servir SU pack'
+    );
+    assert.ok(!r.additionalContext.includes('respaldo sparse'), 'no debe caer al sparse');
+    assert.ok(!r.additionalContext.includes('daemon relanzado'), 'no debe relanzar un daemon vivo');
+    assert.strictEqual(stats.orchestrate, 1, 'una sola peticion orchestrate: nada de reenvios');
+    const spawns = readStubLog(c.stubLog).filter((e) => e.kind === 'spawn');
+    assert.strictEqual(spawns.length, 0, 'no debe spawnear nada');
+    assert.ok(r.elapsedMs >= 16_000, 'tiene que haber esperado la respuesta');
+    results.push(['(f) daemon lento, una peticion', r.elapsedMs]);
+  } finally {
+    server.close();
+  }
+}
+
+async function caseG() {
+  const c = makeCase('g-daemon-error');
+  const token = 'tok-g';
+  const stats = { orchestrate: 0 };
+  const { server, port } = await startFakeDaemon(
+    token,
+    { error: 'serialize: fallo simulado' },
+    { stats }
+  );
+  writeLock(c.home, port, token);
+  try {
+    const r = await runHook({
+      ...c,
+      prompt: PROMPT,
+      sessionId: 'sess-g',
+      sparsePack: { route: 'sparse-stub', memories: [{ scope: 'project', summary: 'pack sparse' }] },
+    });
+    assert.strictEqual(r.code, 0, 'el hook debe salir 0 (fail-safe)');
+    assert.ok(
+      r.additionalContext.includes('route="sparse-stub"'),
+      'un error del daemon cae al sparse'
+    );
+    assert.ok(/el daemon respondio error/.test(r.additionalContext), 'el warning debe decir por que');
+    assert.strictEqual(stats.orchestrate, 1, 'no se reenvia a un daemon que responde error');
+    const spawns = readStubLog(c.stubLog).filter((e) => e.kind === 'spawn');
+    assert.strictEqual(spawns.length, 0, 'un daemon vivo con error no se relanza');
+    assert.ok(r.elapsedMs < 10_000, `sin esperas inutiles: ${r.elapsedMs} ms`);
+    results.push(['(g) daemon con error -> sparse', r.elapsedMs]);
+  } finally {
+    server.close();
+  }
+}
+
 async function main() {
+  await caseF();
+  await caseG();
   await caseA();
   await caseB();
   await caseC();

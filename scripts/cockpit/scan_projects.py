@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -270,6 +271,14 @@ def scan_root(root: Path, *, verbose: bool = False) -> list[Project]:
             return
         if path.name in SKIP_DIR_NAMES:
             return
+        # ~/.claude/skills/synced/ holds ephemeral marketplace copies (ids
+        # like <uuid>/<skill-name>) — never real projects, and a frequent
+        # source of basename collisions with real projects of the same name
+        # (e.g. .../synced/<uuid>/ultron vs the real ~/.ultron).
+        if path == SKILLS_DIR / "synced":
+            if verbose:
+                print(f"  [skip-synced] {path}")
+            return
         try:
             entries = list(path.iterdir())
         except (PermissionError, OSError):
@@ -325,26 +334,96 @@ def scan_root(root: Path, *, verbose: bool = False) -> list[Project]:
     return found
 
 
-def merge_with_existing(scanned: list[Project]) -> dict:
-    """Merge newly-scanned projects with existing projects.json, preserving manual edits."""
-    existing_data = Cockpit.read_json(PROJECTS_JSON, default={"projects": []})
-    existing = {p["id"]: p for p in existing_data.get("projects", [])}
+def normalize_path(path_str: str) -> str:
+    """Normalize a path for identity comparison: separators, case, no trailing slash."""
+    return str(path_str).replace("\\", "/").rstrip("/").lower()
 
-    # Deduplicate scanned list — if same ID appears twice (e.g. worktree copy),
-    # keep the first occurrence (canonical path wins, worktrees are filtered upstream).
+
+def free_id(base_id: str, path_str: str, occupied: dict[str, str]) -> str | None:
+    """Return an id for `path_str` that never fights another path for the same id.
+
+    Mirrors idLibre() in hooks/scripts/ensure-project.js (same fallback chain:
+    base -> parent-prefixed -> base-N) so the scanner and the session-start hook
+    can never assign incompatible ids to the same project name.
+
+    `occupied` maps id -> normalized path of whoever currently holds it.
+    """
+    target = normalize_path(path_str)
+
+    def taken(candidate: str) -> bool:
+        holder = occupied.get(candidate)
+        return holder is not None and holder != target
+
+    if not taken(base_id):
+        return base_id
+
+    p = Path(path_str)
+    with_parent = slug(f"{p.parent.name}-{p.name}")
+    if not taken(with_parent):
+        return with_parent
+
+    for n in range(2, 50):
+        candidate = f"{base_id}-{n}"
+        if not taken(candidate):
+            return candidate
+
+    return None  # sin hueco: mejor no dar de alta que pisar una entrada existente
+
+
+def merge_with_existing(scanned: list[Project]) -> dict:
+    """Merge newly-scanned projects with existing projects.json, preserving manual edits.
+
+    An id collision between two DIFFERENT paths (e.g. two folders named "ultron":
+    the real ~/.ultron and an ephemeral ~/.claude/skills/synced/*/ultron copy)
+    must never let the newcomer overwrite the incumbent. Paths are matched first
+    (normalized), ids second; a colliding newcomer gets a free id instead of
+    touching the existing entry — see free_id().
+    """
+    existing_data = Cockpit.read_json(PROJECTS_JSON, default={"projects": []})
+    existing_list = existing_data.get("projects", [])
+    existing_by_id: dict[str, dict] = {p["id"]: p for p in existing_list}
+    existing_by_path: dict[str, str] = {
+        normalize_path(p["path"]): p["id"] for p in existing_list if p.get("path")
+    }
+    # id -> normalized path of whoever currently holds it. Seeded from
+    # existing entries, then grown as scanned projects claim ids below — the
+    # single source free_id() consults to decide whether an id is really free.
+    occupied: dict[str, str] = {
+        pid: normalize_path(p.get("path", "")) for pid, p in existing_by_id.items()
+    }
+
+    # Deduplicate scanned list and resolve id collisions against `existing`.
     seen_ids: set[str] = set()
     deduped_scanned: list[Project] = []
     for proj in scanned:
-        if proj.id not in seen_ids:
-            seen_ids.add(proj.id)
-            deduped_scanned.append(proj)
+        norm_path = normalize_path(proj.path)
+
+        # Same path already registered under a different id: this scan result
+        # IS that entry (e.g. it was renamed by hand) — reuse its id.
+        existing_id = existing_by_path.get(norm_path)
+        if existing_id is not None and existing_id != proj.id:
+            proj = replace(proj, id=existing_id)
+        elif proj.id in occupied and occupied[proj.id] != norm_path:
+            new_id = free_id(proj.id, proj.path, occupied)
+            if new_id is None:
+                print(f"[scan] [collision] sin id libre para {proj.path} (base '{proj.id}'); se descarta")
+                continue
+            print(f"[scan] [collision] id '{proj.id}' ya pertenece a otra ruta -> se usa '{new_id}' para {proj.path}")
+            proj = replace(proj, id=new_id)
+
+        # Deduplicate within this scan (e.g. worktree copy) — keep first occurrence.
+        if proj.id in seen_ids:
+            continue
+        seen_ids.add(proj.id)
+        occupied[proj.id] = norm_path
+        deduped_scanned.append(proj)
 
     merged = []
     for proj in deduped_scanned:
         d = proj.__dict__.copy()
-        if proj.id in existing:
+        old = existing_by_id.get(proj.id)
+        if old is not None:
             # Preserve fields that may have been manually edited
-            old = existing[proj.id]
             d["status"] = old.get("status", d["status"])
             d["deadline"] = old.get("deadline", d["deadline"])
             # MANUAL tags: user-owned — scanner never overwrites
@@ -359,7 +438,7 @@ def merge_with_existing(scanned: list[Project]) -> dict:
     # Preserve manually-added projects that the scanner didn't find.
     # These are entries the user created by hand (status != 'auto-detected') whose
     # path is outside SCAN_ROOTS or was otherwise not picked up this scan.
-    for pid, proj in existing.items():
+    for pid, proj in existing_by_id.items():
         if pid not in seen_ids and proj.get("status") not in ("auto-detected",):
             merged.append(proj)
 

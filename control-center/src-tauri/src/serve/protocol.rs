@@ -71,7 +71,13 @@ pub(super) fn handle_request(req: &Req, expected_token: &str, started: Instant) 
             // El catalogo va prefiltrado por el denso: el completo son ~2.400
             // tokens por consulta y con eso ningun tier gratis aguanta un dia
             // de trabajo (medido 2026-08-28: 0 enrutados desde el despliegue).
+            // El prefiltro denso embebe el prompt ENTERO, el mismo texto que
+            // embebe el `orchestrate` de ese turno: el memo de E5 (con su
+            // single-flight bajo el turno de inferencia) sirve un solo embed a
+            // las dos peticiones. Al juez LLM solo le llega el principio
+            // (`JUEZ_MAX_CHARS`), como cuando el recorte lo hacía el hook.
             let catalogo = crate::orchestrator::skill_llm::catalogo_para(prompt);
+            let prompt = recortar_chars(prompt, JUEZ_MAX_CHARS);
             // `decided` separa "el juez dijo que ninguna encaja" de "no pude
             // preguntarle". Con un solo array vacio eran indistinguibles y el
             // dispatcher caia al denso en ambos casos, que es como se colaron
@@ -257,6 +263,20 @@ pub(super) fn handle_request(req: &Req, expected_token: &str, started: Instant) 
     }
 }
 
+/// Caracteres del prompt que ve el juez LLM de `skill_judge`. Antes del
+/// 2026-09-27 el dispatcher mandaba ya el prompt recortado a 500; ahora manda
+/// el entero (para compartir el embed con `orchestrate`) y el recorte del
+/// texto que va al proveedor se hace aquí, con el mismo tope.
+const JUEZ_MAX_CHARS: usize = 500;
+
+/// Los primeros `max` caracteres (no bytes: nunca parte un carácter UTF-8).
+fn recortar_chars(texto: &str, max: usize) -> &str {
+    match texto.char_indices().nth(max) {
+        Some((corte, _)) => &texto[..corte],
+        None => texto,
+    }
+}
+
 /// Politica dense del request 'orchestrate' del daemon (fast-path, check 9.5).
 /// dense=true = hibrido completo (E5 query embed ~1.1s warm por request);
 /// dense=false = sparse-first (FTS5 + re-ranker, p50 ~134ms) — el presupuesto
@@ -293,6 +313,16 @@ mod tests {
             rerank: None,
             text: None,
         }
+    }
+
+    #[test]
+    fn recortar_chars_corta_por_caracteres_y_no_por_bytes() {
+        assert_eq!(recortar_chars("hola", 10), "hola");
+        assert_eq!(recortar_chars("hola", 2), "ho");
+        // Multibyte: cortar por bytes partiría la ñ y haría pánico.
+        assert_eq!(recortar_chars("añoñé", 3), "año");
+        assert_eq!(recortar_chars("", 5), "");
+        assert_eq!(recortar_chars(&"x".repeat(600), JUEZ_MAX_CHARS).len(), 500);
     }
 
     #[test]

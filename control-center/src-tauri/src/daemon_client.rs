@@ -26,9 +26,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// Espera del `embed` remoto: el daemon ya tiene E5 caliente, pero puede estar
 /// sirviendo otra petición o recargando el modelo tras el release por
-/// inactividad (`ULTRON_MODEL_IDLE_MIN`). 8 s cubre esa recarga; agotarlo cae al
-/// camino local, que paga lo mismo pero en este proceso.
-const EMBED_TIMEOUT: Duration = Duration::from_secs(8);
+/// inactividad (`ULTRON_MODEL_IDLE_MIN`). Agotarlo cae al camino local, que
+/// carga OTRA copia de E5 (~1,5 GB) en este proceso.
+/// 8 s -> 60 s (2026-09-27): desde que el daemon encola los forward pass en un
+/// turno FIFO en vez de responder "busy", esperar la cola es siempre más barato
+/// que cargar el modelo aquí; 60 s solo se agotan con el daemon colgado.
+const EMBED_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Dimensión del espacio E5-large. Una respuesta con otra longitud no es un
 /// vector de este índice: se descarta y se recalcula en local.

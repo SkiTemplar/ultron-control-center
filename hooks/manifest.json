@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-25",
+  "generated_at": "2026-09-27",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -665,9 +665,9 @@
       "matcher": "*",
       "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
       "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
-      "timeout_s": 5,
+      "timeout_s": 60,
       "async": false,
-      "checksum_sha256": "8edaf2069cfe588d47830c514a4a5c9e34550112211ab22a0c2604bf0a65aa54",
+      "checksum_sha256": "d2f58fa7fcdee374da12c1d0ff72117aa5072f49b3c302b0daf2609d49912dc4",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -713,9 +713,9 @@
       "matcher": "*",
       "command": "node ~/.ultron/hooks/scripts/memory-orchestrate.js",
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
-      "timeout_s": 26,
+      "timeout_s": 90,
       "async": false,
-      "checksum_sha256": "6507165d9a960665a00f628f5c46770ae1ae2456054b5455b18becf5491e55e4",
+      "checksum_sha256": "61d6536ff07653c007a62929501eea8bed6935a35a8c1f22bc71e8de009b6319",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -756,6 +756,22 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "UserPromptSubmit (sincrono): reporter de F4.1. Lee .tmp/run-tests/<project>.result.json y dice al modelo, una vez por resultado, los tests rotos (nombres), el timeout (pide comando mas corto) o, una vez por sesion, que no hay comando de test; anuncia el paso a verde solo tras un fallo reportado. Sin resultado o ya reportado: silencio. No escribe memoria."
+    },
+    {
+      "id": "context-guard",
+      "event": "UserPromptSubmit",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/context-guard.js",
+      "script": "~/.ultron/hooks/scripts/context-guard.js",
+      "timeout_s": 15,
+      "async": false,
+      "checksum_sha256": "8f3611ec0ca22e519369334df74fd214a4eb42cf63f91ce60b6cd34bfa782211",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "A partir de 200k de contexto avisa y una LLM secundaria (Groq) decide con la bitácora si compactar; si procede bloquea el turno con /compact <foco>. A 500k siempre. Escape: ULTRON_CONTEXT_GUARD=0 o prefijo forzar:."
     }
   ],
   "deregistered": [
