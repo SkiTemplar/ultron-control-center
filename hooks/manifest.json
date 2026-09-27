@@ -46,7 +46,7 @@
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
       "async": true,
-      "checksum_sha256": "884bfce39f769dfc71ca63be45a3a2ca07ed7bd512e091575a6980dff8da1c71",
+      "checksum_sha256": "a1f365f70a749aba889b7d2a5e547c5536fbd56d62071b87d056af788769c4a6",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -133,7 +133,7 @@
       "script": "~/.ultron/hooks/scripts/posttoolfail-capture.js",
       "timeout_s": 15,
       "async": true,
-      "checksum_sha256": "884bfce39f769dfc71ca63be45a3a2ca07ed7bd512e091575a6980dff8da1c71",
+      "checksum_sha256": "a1f365f70a749aba889b7d2a5e547c5536fbd56d62071b87d056af788769c4a6",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -247,26 +247,6 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "PreToolUse (Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell). Modo trabajo universitario (decidido 2026-09-14): BLOQUEO real (no solo recordatorio) de escritura del entregable en proyectos de asignatura con marcador .ultron-trabajo.json (busqueda hasta 4 niveles por encima del cwd; lo crea project-create.mjs para el template trabajo-entrega, protegidas por defecto borrador+entrega). Complementa a socratic-gate.js (modo uni, UserPromptSubmit): el gate recuerda la norma en cada prompt, este hook la hace cumplir de verdad. Write/Edit/MultiEdit/NotebookEdit: exacto via tool_input.file_path. Bash/PowerShell: heuristica sobre redirecciones (> >>), -Destination y el ultimo argumento de cp/copy/move/mv/xcopy/robocopy/Copy-Item/Move-Item -- declarado que NO cubre variables indirectas, tee, escritura desde otro interprete (python -c, node -e) ni symlinks. Desactivar a proposito: ULTRON_UNI_GUARD=off. Marcador corrupto: NO bloquea (fail-open) pero avisa por systemMessage y deja traza en logHookError -- nunca silencioso en ningun sentido. NO escribe memoria. Fail-safe: error interno -> exit 0 sin decision."
-    },
-    {
-      "id": "session-end-summary",
-      "event": "SessionEnd",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/session-end-summary.js",
-      "script": "~/.ultron/hooks/scripts/session-end-summary.js",
-      "timeout_s": 20,
-      "async": true,
-      "checksum_sha256": "f753f75d5a526d3deedec2936394d9cdc4445634846b09d9b885e224d5e3501a",
-      "version": "1.0.0",
-      "env_allowlist": [
-        "CLAUDE_NO_HOOKS",
-        "SESSION_END_SUMMARY_DISABLED",
-        "ULTRON_MEMORY_BIN"
-      ],
-      "failure_policy": "no_op",
-      "writes_memory": true,
-      "writer_path": "MemoryService",
-      "description": "Al cerrar la sesion compone un resumen breve (rule-based, sin LLM) del tail del transcript y lo PROPONE como candidate session_summary via 'ultron-memory candidate' (escritor unico = sidecar). Cae al inbox gobernado como pending; nunca auto-promueve. NO escribe brain.db directamente. Fail-safe: sin transcript/sin binario/error -> exit 0 sin escribir."
     },
     {
       "id": "session-end-bitacora",

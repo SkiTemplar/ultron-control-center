@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { detectError, buildCandidate } = require(join(__dirname, "..", "hooks", "scripts", "posttoolfail-capture.js"));
+const { detectError, buildFailure, buildResolutionCandidate, inputSimilarity } = require(join(__dirname, "..", "hooks", "scripts", "posttoolfail-capture.js"));
 
 let fail = 0;
 const ok = (n) => console.log(`  [PASS] ${n}`);
@@ -71,49 +71,67 @@ A(e9 === "net fail", "exit_code explicito -> detectado aun sin ser shell", JSON.
 // Una memoria "tool exit code 1" sin stderr ni contexto no ayuda a nadie.
 // ---------------------------------------------------------------------------
 
-A(typeof buildCandidate === "function", "buildCandidate exportado", typeof buildCandidate);
+A(typeof buildFailure === "function" && typeof buildResolutionCandidate === "function",
+  "buildFailure y buildResolutionCandidate exportados", typeof buildFailure);
 
-// Fallo real pero SIN sustancia (solo el marcador generico) -> no se propone.
-const c1 = buildCandidate && buildCandidate({ tool_name: "Bash", tool_response: { is_error: true } });
-A(c1 === null, "fallo generico sin detalle -> null (gate de informatividad)", JSON.stringify(c1));
+// Fallo real pero SIN sustancia (solo el marcador generico) -> no se aparca.
+const f1 = buildFailure({ tool_name: "Bash", tool_response: { is_error: true } });
+A(f1 === null, "fallo generico sin detalle -> null (gate de informatividad)", JSON.stringify(f1));
 
-// Fallo informativo -> candidato con QUE se intento (input=) y QUE fallo (error=).
-const c2 = buildCandidate && buildCandidate({
-  tool_name: "Bash",
-  tool_input: { command: "npm run biuld" },
-  tool_response: { code: 1, stderr: "npm ERR! missing script: biuld" },
-});
-A(!!c2 && c2.content.includes("input=npm run biuld"), "candidato incluye el input que fallo", JSON.stringify(c2));
-A(!!c2 && c2.content.includes("npm ERR! missing script"), "candidato incluye el error real", JSON.stringify(c2));
-A(!!c2 && c2.summary.includes("npm run biuld"), "summary lleva el gist del input", JSON.stringify(c2));
+// Sonda de exploracion que falla -> no se aparca.
+const f2 = buildFailure({ tool_name: "Bash", tool_input: { command: "ls nope" }, tool_response: { code: 2, stderr: "No such file" } });
+A(f2 === null, "sonda ls fallida -> null", JSON.stringify(f2));
 
-// Exito -> null tambien via buildCandidate (paridad con detectError).
-const c3 = buildCandidate && buildCandidate({ tool_name: "Read", tool_response: { content: "ok" } });
-A(c3 === null, "exito -> buildCandidate null", JSON.stringify(c3));
+// Exito -> no es un fallo.
+const f3 = buildFailure({ tool_name: "Read", tool_response: { content: "ok" } });
+A(f3 === null, "exito -> buildFailure null", JSON.stringify(f3));
 
 // ---------------------------------------------------------------------------
-// Provenance episodica (feedback 2026-07-02): el candidato lleva la sesion de
-// origen (emit.rs la mapea a source_session_id; `provenance --id` la resuelve
-// al transcript real). Caso negativo: sin session_id en el payload -> null,
-// no se inventa procedencia.
+// SOLO FALLO + ARREGLO (2026-09-27): el candidato nace del acierto posterior de
+// la misma tool con un input parecido, y lleva fallo, error y arreglo.
 // ---------------------------------------------------------------------------
 
-const c4 = buildCandidate && buildCandidate({
+const bashFail = buildFailure({
   tool_name: "Bash",
-  session_id: "1a333f26-3721-4b76-b975-7e9dbbab15a7",
-  tool_input: { command: "cargo build" },
-  tool_response: { code: 101, stderr: "error[E0308]: mismatched types" },
+  tool_input: { command: "cd app/src && cat components/PhotoFocus.tsx" },
+  tool_response: { code: 1, stderr: "cd: app/src: No such file or directory" },
 });
-A(!!c4 && c4.session_id === "1a333f26-3721-4b76-b975-7e9dbbab15a7",
-  "candidato lleva session_id (provenance episodica)", JSON.stringify(c4));
+A(!!bashFail && bashFail.input.includes("PhotoFocus") && bashFail.error.includes("No such file"),
+  "buildFailure guarda input y error", JSON.stringify(bashFail));
 
-const c5 = buildCandidate && buildCandidate({
+const SID = "1a333f26-3721-4b76-b975-7e9dbbab15a7";
+const fix = {
   tool_name: "Bash",
-  tool_input: { command: "cargo build" },
-  tool_response: { code: 101, stderr: "error[E0308]: mismatched types" },
-});
-A(!!c5 && c5.session_id === null,
-  "sin session_id en payload -> null (no se inventa origen)", JSON.stringify(c5));
+  session_id: SID,
+  tool_input: { command: "cat src/components/PhotoFocus.tsx" },
+  tool_response: { code: 0, stdout: "..." },
+};
+const c1 = buildResolutionCandidate(bashFail, fix, bashFail.ts + 1000);
+A(!!c1 && c1.content.includes("fallo=cd app/src") && c1.content.includes("arreglo=cat src/components/PhotoFocus.tsx"),
+  "candidato lleva el input que fallo y el que funciono", JSON.stringify(c1));
+A(!!c1 && c1.content.includes("error=cd: app/src"), "candidato lleva el error real", JSON.stringify(c1));
+A(!!c1 && c1.type === "error_resolution" && c1.title === "Fallo de Bash resuelto",
+  "tipo error_resolution y titulo de resolucion", JSON.stringify(c1));
+A(!!c1 && c1.session_id === SID, "candidato lleva session_id (provenance episodica)", JSON.stringify(c1));
+
+// Casos NEGATIVOS: nada de esto es un arreglo.
+const otherTool = buildResolutionCandidate(bashFail, { ...fix, tool_name: "PowerShell" }, bashFail.ts + 1000);
+A(otherTool === null, "acierto de otra tool -> null", JSON.stringify(otherTool));
+
+const unrelated = buildResolutionCandidate(bashFail, { ...fix, tool_input: { command: "git status --short" } }, bashFail.ts + 1000);
+A(unrelated === null, "comando sin parecido -> null", JSON.stringify(unrelated));
+
+const retry = buildResolutionCandidate(bashFail, { ...fix, tool_input: { command: bashFail.input } }, bashFail.ts + 1000);
+A(retry === null, "mismo input (reintento) -> null", JSON.stringify(retry));
+
+const late = buildResolutionCandidate(bashFail, fix, bashFail.ts + 11 * 60 * 1000);
+A(late === null, "acierto pasados 10 min -> null", JSON.stringify(late));
+
+const noSid = buildResolutionCandidate(bashFail, { ...fix, session_id: undefined }, bashFail.ts + 1000);
+A(!!noSid && noSid.session_id === null, "sin session_id en payload -> null (no se inventa origen)", JSON.stringify(noSid));
+
+A(inputSimilarity("a b", "") === 0 && inputSimilarity("cat foo.ts", "cat foo.ts") === 1,
+  "inputSimilarity: vacio 0, identico 1", "");
 
 console.log(fail === 0 ? "\nSELFTEST 3.9 (posttoolfail): VERDE" : `\nSELFTEST 3.9 (posttoolfail): ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);

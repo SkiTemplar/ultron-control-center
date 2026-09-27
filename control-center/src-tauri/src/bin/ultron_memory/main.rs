@@ -660,7 +660,9 @@ fn run() -> Result<serde_json::Value, String> {
         // Baja a `internal` los items activos Secret cuyo unico marcador de
         // redaccion es [REDACTED_PHONE]: hasta el 2026-09-22 el detector de PII
         // tomaba las fechas ISO por telefonos y el pack del recall excluia esas
-        // memorias para siempre (35 de 69 Secret activos). --dry-run solo cuenta.
+        // memorias para siempre (35 de 69 Secret activos). Tambien devuelve la
+        // fecha a los titulos generados por hooks ("Resumen SessionEnd <fecha>")
+        // a partir de created_at. --dry-run solo cuenta.
         //   ultron-memory secret-backfill [--dry-run]
         "secret-backfill" => {
             reject_unknown_flags(&args, &["--dry-run"])?;

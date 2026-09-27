@@ -106,7 +106,7 @@ se registra con `observe()` del mismo módulo.
 ### `SessionEnd` (async: no hablan al modelo)
 | Hook | Proposito |
 |------|-----------|
-| `session-end-summary.js` | Resumen corto de la sesion como candidato `session_summary` (inbox gobernado). |
+| `session-end-summary.js` | Retirado de Claude Code el 2026-09-27 (redundante con la bitacora `summary.md`); solo lo empaqueta el plugin de Cowork. |
 | `lesson-distill.js` | Destila 0-3 candidatos `lesson` (sintoma, causa, regla) via el daemon. |
 | `project-profile.js` | Mantiene `cockpit/projects/<id>/profile.json` (que es, stack, arquitectura, estado, decisiones). |
 | `session-feedback-mark.js` | Deja `feedback-pending.json` (minutos, turnos humanos, commits) para que el siguiente SessionStart del proyecto pregunte si ULTRON ayudo. Solo proyectos registrados que no son ultron y con >=3 turnos; un pending ignorado se registra como `sin_respuesta`. |

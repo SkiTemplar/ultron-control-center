@@ -171,12 +171,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-summary.js",
-            "timeout": 20,
-            "async": true
-          },
-          {
-            "type": "command",
             "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-bitacora.js",
             "timeout": 10,
             "async": true

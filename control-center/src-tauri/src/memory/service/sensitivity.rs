@@ -33,6 +33,9 @@ pub struct SecretBackfillResult {
     pub downgraded: Vec<String>,
     /// Items que siguen Secret porque llevan otro marcador de redacción.
     pub kept_secret: usize,
+    /// Ids cuyo título generado recuperó la fecha (con `dry_run`, los que la
+    /// recuperarían). Ver [`restore_title_date`].
+    pub titles_restored: Vec<String>,
     /// `(id, error)` de los que no se pudieron escribir.
     pub failed: Vec<(String, String)>,
 }
@@ -78,6 +81,27 @@ pub fn only_phone_marker(text: &str) -> bool {
     has_phone
 }
 
+/// Prefijos de título que generan los hooks con la fecha UTC de creación
+/// detrás (`session-end-summary.js`, feedback de sesión). Solo en ellos se
+/// sabe qué había bajo el marcador.
+const DATED_TITLE_PREFIXES: [&str; 2] = ["Resumen SessionEnd ", "Feedback de sesion "];
+
+/// Puro: si `title` es un título generado cuya fecha quedó como
+/// `[REDACTED_PHONE]`, devuelve el título con la fecha UTC de `created_at_ms`
+/// (la misma que puso el hook: `new Date().toISOString().slice(0, 10)`).
+/// Cualquier otro título → `None`: fuera de esos prefijos no se sabe qué borró
+/// la redacción.
+pub fn restore_title_date(title: &str, created_at_ms: i64) -> Option<String> {
+    let prefix = DATED_TITLE_PREFIXES
+        .iter()
+        .find(|p| title.starts_with(*p))?;
+    let rest = title[prefix.len()..].strip_prefix(PHONE_MARKER)?;
+    let date = chrono::DateTime::from_timestamp_millis(created_at_ms)?
+        .format("%Y-%m-%d")
+        .to_string();
+    Some(format!("{prefix}{date}{rest}"))
+}
+
 impl MemoryService {
     /// Baja a `Internal` los items activos Secret cuyo único marcador de
     /// redacción es `[REDACTED_PHONE]`. Con `dry_run` solo cuenta. Cada cambio
@@ -93,37 +117,62 @@ impl MemoryService {
             scanned_secret: 0,
             downgraded: Vec::new(),
             kept_secret: 0,
+            titles_restored: Vec::new(),
             failed: Vec::new(),
         };
-        for item in items
-            .into_iter()
-            .filter(|i| i.sensitivity == Sensitivity::Secret)
-        {
-            result.scanned_secret += 1;
-            if !only_phone_marker(&item_text(&item)) {
-                result.kept_secret += 1;
+        for item in items {
+            let is_secret = item.sensitivity == Sensitivity::Secret;
+            let text = item_text(&item);
+            let downgrade = is_secret && only_phone_marker(&text);
+            if is_secret {
+                result.scanned_secret += 1;
+                if !downgrade {
+                    result.kept_secret += 1;
+                }
+            }
+            let new_title = item
+                .title
+                .as_deref()
+                .filter(|_| only_phone_marker(&text))
+                .and_then(|t| restore_title_date(t, item.created_at));
+            if !downgrade && new_title.is_none() {
                 continue;
             }
             if dry_run {
-                result.downgraded.push(item.id.clone());
+                if downgrade {
+                    result.downgraded.push(item.id.clone());
+                }
+                if new_title.is_some() {
+                    result.titles_restored.push(item.id.clone());
+                }
                 continue;
             }
             let before = serde_json::to_string(&item).unwrap_or_default();
             let mut updated = item.clone();
-            updated.sensitivity = Sensitivity::Internal;
+            if downgrade {
+                updated.sensitivity = Sensitivity::Internal;
+            }
+            if let Some(t) = new_title.clone() {
+                updated.title = Some(t);
+            }
             updated.updated_at = now_millis();
             match store::insert_item(&conn, &updated) {
                 Ok(()) => {
                     sync_index(&updated);
                     let ev = MemoryEvent::new(EventType::Updated, Some(updated.id.clone()), actor)
                         .with_reason(
-                            "secret-backfill: solo [REDACTED_PHONE] (fecha ISO tomada por teléfono, 2026-09-22)"
+                            "secret-backfill: [REDACTED_PHONE] era una fecha ISO (falso positivo del detector de PII, 2026-09-22)"
                                 .to_string(),
                         )
                         .with_before(before)
                         .with_after(serde_json::to_string(&updated).unwrap_or_default());
                     let _ = store::insert_event(&conn, &ev);
-                    result.downgraded.push(updated.id);
+                    if downgrade {
+                        result.downgraded.push(updated.id.clone());
+                    }
+                    if new_title.is_some() {
+                        result.titles_restored.push(updated.id);
+                    }
                 }
                 Err(e) => result.failed.push((item.id.clone(), e.to_string())),
             }
@@ -155,5 +204,28 @@ mod tests {
         assert!(!only_phone_marker("sin marcadores, secret por otro motivo"));
         assert!(!only_phone_marker("roto [REDACTED_PHONE"));
         assert!(!only_phone_marker(""));
+    }
+
+    // 2026-09-21T17:04:01.510Z
+    const TS: i64 = 1_790_010_241_510;
+
+    #[test]
+    fn titulo_generado_recupera_la_fecha_utc_de_creacion() {
+        assert_eq!(
+            restore_title_date("Resumen SessionEnd [REDACTED_PHONE]", TS).as_deref(),
+            Some("Resumen SessionEnd 2026-09-21")
+        );
+        assert_eq!(
+            restore_title_date("Feedback de sesion [REDACTED_PHONE]: sí", TS).as_deref(),
+            Some("Feedback de sesion 2026-09-21: sí")
+        );
+    }
+
+    // Caso negativo: fuera de los prefijos generados no se inventa nada.
+    #[test]
+    fn titulos_ajenos_o_sin_marcador_no_se_tocan() {
+        assert!(restore_title_date("llamar al [REDACTED_PHONE]", TS).is_none());
+        assert!(restore_title_date("Resumen SessionEnd 2026-09-21", TS).is_none());
+        assert!(restore_title_date("Resumen SessionEnd x [REDACTED_PHONE]", TS).is_none());
     }
 }

@@ -474,10 +474,23 @@ fn extraction_prompt(transcript: &str) -> String {
 /// Parse the `TIPO | titulo | resumen` line format. Skips malformed lines and a
 /// bare `NADA`. Pure -> unit-tested.
 fn parse_facts(resp: &str) -> Vec<Fact> {
+    let lines: Vec<&str> = resp
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['-', '*', '•', ' ']))
+        .filter(|l| !l.is_empty() && !l.eq_ignore_ascii_case("nada"))
+        .collect();
+    // Una respuesta cortada por el tope de tokens deja la última línea a medias
+    // (candidato 569e209d, 2026-09-25: "Existe `scripts/bitacora-sweep.mjs` que
+    // rec", sin importancia ni origen). Si el modelo ya seguía el formato de 5
+    // campos en otra línea, una última línea con menos campos se da por
+    // truncada y se descarta. Sin ninguna línea completa se mantiene la
+    // tolerancia a los formatos antiguos de 3 y 4 campos.
+    let field_count = |l: &str| l.splitn(5, '|').count();
+    let has_full_line = lines.iter().any(|l| field_count(l) == 5);
+    let last = lines.len().saturating_sub(1);
     let mut out = Vec::new();
-    for line in resp.lines() {
-        let line = line.trim().trim_start_matches(['-', '*', '•', ' ']);
-        if line.eq_ignore_ascii_case("nada") || line.is_empty() {
+    for (i, line) in lines.iter().enumerate() {
+        if has_full_line && i == last && field_count(line) < 5 {
             continue;
         }
         // Accept the legacy 3-field form, the 4-field form with a trailing
@@ -491,20 +504,38 @@ fn parse_facts(resp: &str) -> Vec<Fact> {
             continue;
         }
         let kind = MemoryType::parse(&parts[0].to_lowercase()).unwrap_or(MemoryType::Fact);
-        let llm_score = parts.get(3).and_then(|s| parse_score(s));
-        let origin = parts
-            .get(4)
+        // El modelo a veces omite el resumen y mete el hecho entero en el título:
+        // `preference | <hecho> | 0.6 | user` (candidatos d89295a5 y 3d51609d,
+        // 2026-09-25, guardados con "0.6" como contenido). Si el tercer campo es
+        // solo una puntuación, el hecho es el título y los campos se desplazan.
+        let (body, score_field, origin_field) = if is_bare_score(parts[2]) {
+            (parts[1], parts.get(2), parts.get(3))
+        } else {
+            (parts[2], parts.get(3), parts.get(4))
+        };
+        let llm_score = score_field.and_then(|s| parse_score(s));
+        let origin = origin_field
             .map(|s| FactOrigin::parse(s))
             .unwrap_or(FactOrigin::Unknown);
         out.push(Fact {
             kind,
             title: parts[1].chars().take(120).collect(),
-            body: parts[2].chars().take(400).collect(),
+            body: body.chars().take(400).collect(),
             llm_score,
             origin,
         });
     }
     out
+}
+
+/// True cuando el campo es solo una puntuación (`0.6`, `0,8`, `80%`): el modelo
+/// puso la importancia donde iba el resumen.
+fn is_bare_score(field: &str) -> bool {
+    let f = field.trim();
+    !f.is_empty()
+        && f.chars().any(|c| c.is_ascii_digit())
+        && f.chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '%'))
 }
 
 /// Marcadores del formato de `extraction_prompt` devueltos tal cual por el

@@ -396,19 +396,22 @@ fn clone_fact(f: &Fact) -> Fact {
 #[test]
 fn parses_trailing_origin_field_and_defaults_to_unknown() {
     // 5-field form carries who stated the fact; older forms leave it Unknown.
+    // Las formas antiguas van delante: una línea corta al FINAL de una respuesta
+    // con líneas completas se trata como truncada (ver
+    // parse_facts_drops_truncated_last_line_after_full_lines).
     let facts = parse_facts(
-        "decision | Codex bajo demanda | solo review y rescue | 0.9 | user\n\
-         decision | Astra es gpt-5.5 | interpretacion del asistente | 0.8 | assistant\n\
-         fact | algo | sin origen | 0.5\n\
-         fact | otro | formato viejo",
+        "fact | algo | sin origen | 0.5\n\
+         fact | otro | formato viejo\n\
+         decision | Codex bajo demanda | solo review y rescue | 0.9 | user\n\
+         decision | Astra es gpt-5.5 | interpretacion del asistente | 0.8 | assistant",
     );
     assert_eq!(facts.len(), 4);
-    assert_eq!(facts[0].origin, FactOrigin::User);
-    assert_eq!(facts[0].llm_score, Some(0.9));
-    assert_eq!(facts[1].origin, FactOrigin::Assistant);
-    assert_eq!(facts[2].origin, FactOrigin::Unknown);
-    assert_eq!(facts[3].origin, FactOrigin::Unknown);
-    assert!(facts[3].llm_score.is_none());
+    assert_eq!(facts[0].origin, FactOrigin::Unknown);
+    assert_eq!(facts[1].origin, FactOrigin::Unknown);
+    assert!(facts[1].llm_score.is_none());
+    assert_eq!(facts[2].origin, FactOrigin::User);
+    assert_eq!(facts[2].llm_score, Some(0.9));
+    assert_eq!(facts[3].origin, FactOrigin::Assistant);
 }
 
 #[test]
@@ -435,6 +438,44 @@ fn candidate_carries_origin_tag_and_capture_source() {
     let c = fact_to_candidate(f, Scope::Project, Some("ultron"), true, Some("s1"));
     assert!(c.proposed_tags.iter().any(|t| t == "origin:assistant"));
     assert_eq!(c.capture_source.as_deref(), Some("stop_capture"));
+}
+
+#[test]
+fn parse_facts_shifts_fields_when_summary_is_missing() {
+    // Candidatos d89295a5/3d51609d (2026-09-25): el modelo omitió el resumen y
+    // el contenido guardado fue "0.6". El hecho es el título; score y origen
+    // se leen desplazados un campo.
+    let facts = parse_facts("preference | Prefiere cañones naturales con crevasses | 0.6 | user");
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].body, "Prefiere cañones naturales con crevasses");
+    assert_eq!(facts[0].llm_score, Some(0.6));
+    assert_eq!(facts[0].origin, FactOrigin::User);
+}
+
+#[test]
+fn parse_facts_keeps_numeric_text_that_is_not_a_bare_score() {
+    // Caso negativo: un resumen con cifras pero con texto NO se desplaza.
+    let facts = parse_facts("constraint | cota del camino | Pendiente máxima 20 | 0.7 | user");
+    assert_eq!(facts[0].body, "Pendiente máxima 20");
+    assert_eq!(facts[0].llm_score, Some(0.7));
+}
+
+#[test]
+fn parse_facts_drops_truncated_last_line_after_full_lines() {
+    // Candidato 569e209d (2026-09-25): respuesta cortada por el tope de tokens.
+    let resp = "decision | usar E5 | se eligio E5 por recall | 0.8 | user\n\
+                fact | Barrido de bitacoras | Existe `scripts/bitacora-sweep.mjs` que rec";
+    let facts = parse_facts(resp);
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].title, "usar E5");
+}
+
+#[test]
+fn parse_facts_keeps_short_last_line_when_no_line_is_complete() {
+    // Caso negativo: sin ninguna línea de 5 campos, el formato antiguo sigue
+    // valiendo también en la última línea.
+    let facts = parse_facts("decision | usar E5 | recall\nfact | otro | detalle");
+    assert_eq!(facts.len(), 2);
 }
 
 #[test]

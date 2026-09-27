@@ -8,12 +8,15 @@
 //   - PostToolUseFailure (matcher "*") — fallos donde la tool NI ejecutó (permiso /
 //                                        timeout / error de harness): payload sin
 //                                        tool_response pero con `error` top-level.
-// `detectError` cubre ambos shapes; en éxito (PostToolUse) retorna null -> no-op.
-// Cuando hay fallo PROPONE un `error_resolution` candidate via `ultron-memory
-// candidate` (writer_path = MemoryService — single writer).
-// The candidate captures the failing tool + error snippet so a future session
-// can recall "we hit this error before". Lands pending in the governed inbox;
-// never auto-promoted.
+// `detectError` cubre ambos shapes; en éxito (PostToolUse) retorna null.
+//
+// SOLO FALLO + ARREGLO (decidido por el usuario 2026-09-27): un fallo NO se
+// memoriza al ocurrir; se guarda como pendiente por sesión y tool. Si después
+// la MISMA tool acierta en la misma sesión con un input parecido, se propone un
+// `error_resolution` con el input que falló, el error y el input que funcionó
+// (via `ultron-memory candidate`, writer_path = MemoryService). Un fallo que
+// nadie arregla caduca sin escribir nada. Medido antes del cambio: 165
+// memorias activas "Fallo de <tool>" con el error crudo, 11 con resolución.
 //
 // FAILURE DETECTION (conservative, to avoid noise):
 //   - tool_response.is_error === true / status === "error" / success === false
@@ -64,6 +67,13 @@ const MAX_CANDIDATES_PER_SESSION = 3;
 const MARKER_MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48h
 const MARKER_PREFIX = 'ultron-ptf-count-';
 
+// Fallo pendiente de arreglo: uno por (sesión, tool), el más reciente manda.
+const PENDING_PREFIX = 'ultron-ptf-pending-';
+const PENDING_TTL_MS = 10 * 60 * 1000; // 10 min: un acierto posterior ya no es "el arreglo"
+// Solapamiento mínimo de tokens entre el input que falló y el que acertó para
+// considerarlo el mismo intento corregido (y no un comando cualquiera).
+const MIN_INPUT_SIMILARITY = 0.3;
+
 let markersPurged = false;
 
 // Purga best-effort de marcadores con mtime > 48h. Tolerante a errores (un
@@ -76,7 +86,7 @@ function purgeStaleMarkers() {
     const dir = os.tmpdir();
     const now = Date.now();
     for (const name of fs.readdirSync(dir)) {
-      if (!name.startsWith(MARKER_PREFIX)) continue;
+      if (!name.startsWith(MARKER_PREFIX) && !name.startsWith(PENDING_PREFIX)) continue;
       const p = path.join(dir, name);
       try {
         const st = fs.statSync(p);
@@ -176,43 +186,124 @@ function inputGist(toolInput) {
   return String(raw).replace(/\s+/g, ' ').trim().slice(0, MAX_INPUT_CHARS);
 }
 
-// Construye el candidato de memoria, o null si no debe proponerse nada.
+// Registro de un fallo memorizable, o null si no merece memoria.
 // GATE DE INFORMATIVIDAD (2026-07-02): un fallo sin sustancia (solo el marcador
 // generico, sin stderr/mensaje) no se memoriza — recordar humo es peor que no
-// recordar. Cuando SI hay señal, el contenido lleva tool + input + error.
-function buildCandidate(stdin) {
+// recordar. Las sondas de exploracion tampoco.
+function buildFailure(stdin) {
   const errText = detectError(stdin);
   if (!errText) return null;
   if (GENERIC_ONLY_RE.test(errText.trim())) return null;
 
-  const toolName = stdin.tool_name || stdin.toolName || 'unknown_tool';
+  const tool = String(stdin.tool_name || stdin.toolName || 'unknown_tool');
   const input = inputGist(stdin.tool_input || stdin.toolInput);
 
   // Sondas de exploracion (ls/test/cmp/which/Test-Path...) que fallan son
   // parte normal de investigar — no son un error que merezca memoria.
-  if (SHELL_TOOLS_RE.test(String(toolName)) && PROBE_CMD_RE.test(input)) return null;
+  if (SHELL_TOOLS_RE.test(tool) && PROBE_CMD_RE.test(input)) return null;
 
-  // Cap por sesion: acota la auto-contaminacion en sesiones de auditoria.
-  if (sessionCapReached(stdin.session_id || stdin.sessionId)) return null;
-  const clipped = errText.replace(/\s+/g, ' ').slice(0, MAX_ERROR_CHARS);
+  return {
+    tool,
+    input,
+    error: errText.replace(/\s+/g, ' ').slice(0, MAX_ERROR_CHARS),
+    ts: Date.now(),
+  };
+}
 
+function inputTokens(s) {
+  return new Set(
+    String(s || '')
+      .toLowerCase()
+      .split(/[^a-z0-9_]+/)
+      .filter((t) => t.length >= 2)
+  );
+}
+
+// Jaccard de tokens: 0 = nada en común, 1 = mismos tokens.
+function inputSimilarity(a, b) {
+  const ta = inputTokens(a);
+  const tb = inputTokens(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let common = 0;
+  for (const t of ta) if (tb.has(t)) common++;
+  return common / (ta.size + tb.size - common);
+}
+
+// Candidato `error_resolution` a partir de un fallo pendiente y del acierto
+// posterior de la misma tool, o null si el acierto no es su arreglo: otra
+// tool, fuera de plazo, input idéntico (reintento, no arreglo) o sin parecido.
+function buildResolutionCandidate(failure, successStdin, now = Date.now()) {
+  if (!failure || !successStdin) return null;
+  const tool = String(successStdin.tool_name || successStdin.toolName || '');
+  if (tool !== failure.tool) return null;
+  if (now - failure.ts > PENDING_TTL_MS) return null;
+  const fix = inputGist(successStdin.tool_input || successStdin.toolInput);
+  if (!fix || !failure.input || fix === failure.input) return null;
+  if (inputSimilarity(failure.input, fix) < MIN_INPUT_SIMILARITY) return null;
+
+  const err = failure.error;
   return {
     type: 'error_resolution',
     scope: 'project',
-    title: `Fallo de ${toolName}`,
-    summary: `Error en ${toolName}${input ? ` (${input.slice(0, 80)})` : ''}: ${clipped.slice(0, 180)}`,
-    content: `tool=${toolName}\n${input ? `input=${input}\n` : ''}error=${clipped}`,
-    // 0.74 (>= banda A 0.72): un fallo de tool es un HECHO OBSERVADO del harness
-    // (no inferencia LLM) y el gate de informatividad ya garantizo sustancia ->
-    // con auto-approve ON entra solo (feedback del usuario 2026-07-02: inbox autonomo).
+    title: `Fallo de ${tool} resuelto`,
+    summary: `${tool}: \`${failure.input.slice(0, 80)}\` falló (${err.slice(0, 120)}); funcionó \`${fix.slice(0, 80)}\``,
+    content: `tool=${tool}\nfallo=${failure.input}\nerror=${err}\narreglo=${fix}`,
+    // 0.74 (>= banda A 0.72): fallo y arreglo son HECHOS OBSERVADOS del harness
+    // (no inferencia LLM) -> con auto-approve ON entra solo.
     confidence: 0.74,
     source: 'posttoolfail-capture',
     capture_source: 'posttoolfail-capture',
     recommended_action: 'review',
     // Provenance episódica: sesión de origen -> `ultron-memory provenance --id`
     // resuelve el transcript real. null cuando el payload no la trae (honesto).
-    session_id: stdin.session_id || stdin.sessionId || null,
+    session_id: successStdin.session_id || successStdin.sessionId || null,
   };
+}
+
+function pendingPath(sessionId, tool) {
+  const safe = (v) => String(v).replace(/[^A-Za-z0-9_-]/g, '');
+  return path.join(os.tmpdir(), `${PENDING_PREFIX}${safe(sessionId)}-${safe(tool)}.json`);
+}
+
+function readPending(sessionId, tool) {
+  try {
+    return JSON.parse(fs.readFileSync(pendingPath(sessionId, tool), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function writePending(sessionId, failure) {
+  try {
+    fs.writeFileSync(pendingPath(sessionId, failure.tool), JSON.stringify(failure));
+  } catch (_) {
+    // best-effort: sin pendiente solo se pierde el posible arreglo.
+  }
+}
+
+function clearPending(sessionId, tool) {
+  try {
+    fs.unlinkSync(pendingPath(sessionId, tool));
+  } catch (_) {
+    // ya no estaba.
+  }
+}
+
+function emitCandidate(candidate, cwd) {
+  const bin = findBinary();
+  if (!bin) return;
+  try {
+    spawnSync(bin, ['candidate', '--project', projectName(cwd)], {
+      input: JSON.stringify(candidate),
+      encoding: 'utf8',
+      timeout: SIDECAR_TIMEOUT_MS,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+  } catch (_) {
+    // sidecar failure must never break PostToolUse
+  }
 }
 
 function main() {
@@ -228,28 +319,31 @@ function main() {
     return; // bad payload -> nothing to do
   }
 
-  // SUCCESS o fallo sin sustancia: exit 0, no sidecar call, no write.
-  const candidate = buildCandidate(stdin);
-  if (!candidate) return;
+  const sessionId = stdin.session_id || stdin.sessionId;
+  const tool = String(stdin.tool_name || stdin.toolName || '');
+  if (!sessionId || !tool) return; // sin sesion no hay emparejamiento posible
+  purgeStaleMarkers();
 
-  const bin = findBinary();
-  if (!bin) return;
-
-  const cwd = stdin.cwd || process.cwd();
-  const project = projectName(cwd);
-
-  try {
-    spawnSync(bin, ['candidate', '--project', project], {
-      input: JSON.stringify(candidate),
-      encoding: 'utf8',
-      timeout: SIDECAR_TIMEOUT_MS,
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-      stdio: ['pipe', 'ignore', 'ignore'],
-    });
-  } catch (_) {
-    // sidecar failure must never break PostToolUse
+  // Fallo: se aparca hasta ver si se arregla. Nunca escribe memoria aqui.
+  if (detectError(stdin)) {
+    const failure = buildFailure(stdin);
+    if (failure) writePending(sessionId, failure);
+    return;
   }
+
+  // Acierto: solo interesa si hay un fallo pendiente de esta tool.
+  const failure = readPending(sessionId, tool);
+  if (!failure) return;
+  if (Date.now() - failure.ts > PENDING_TTL_MS) {
+    clearPending(sessionId, tool);
+    return;
+  }
+  const candidate = buildResolutionCandidate(failure, stdin);
+  if (!candidate) return; // otro comando cualquiera: el fallo sigue esperando
+  clearPending(sessionId, tool);
+  // Cap por sesion: acota la auto-contaminacion en sesiones de auditoria.
+  if (sessionCapReached(sessionId)) return;
+  emitCandidate(candidate, stdin.cwd || process.cwd());
 }
 
 if (require.main === module) {
@@ -263,4 +357,4 @@ if (require.main === module) {
 }
 
 // Exportado para el check conductual (scripts/posttoolfail-capture.selftest.mjs).
-module.exports = { detectError, buildCandidate };
+module.exports = { detectError, buildFailure, buildResolutionCandidate, inputSimilarity };
