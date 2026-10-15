@@ -25,6 +25,22 @@
   saltar, ventanas sólidas, espachurrarse, tamaño, gravedad, rebote, minutos
   hasta dormirse, modelos de Claude/Codex y el estado del puente.
   Configuración guardada en `~/.ultron/cockpit/mascot.json`.
+- **Ánimo y celos de la mascota**: cinco ejes (alegría, energía, celos,
+  enfado, aburrimiento) que derivan en 8 estados con nombre (emocionada,
+  feliz, contenta, aburrida, cansada, celosa, triste, enfadada), visibles en un
+  chip al pasar el ratón y guardados entre arranques. Elegir **GPT o Gemini** le
+  da celos: se sorprende, llora, se da la vuelta con un «hmph» y se disfraza
+  del color de ese agente (verde o azul) con un estallido de chispas; al
+  cerrar la conversación vuelve a su terracota. Elegir a Claude la pone
+  contenta (saltos y corazones). Las caricias (frotar el cursor) la enamoran;
+  cuatro clics seguidos o los golpes fuertes la enfadan; cansada se duerme sola.
+- **17 animaciones nuevas con guion** (bailar, piruetas, saltitos, bostezar,
+  estirarse, suspirar, estornudar, zapatear, asomarse, menearse, sorpresa,
+  enfado, enamorada, alegría, celos, «poof», mirar alrededor) que elige según
+  su ánimo, más cejas, rubor, ojos de corazón, iconos de emoción y partículas
+  (corazones, notas, lágrimas, chispas). Más fluidez: el aplastamiento es un
+  muelle que rebota, el estiramiento en el aire sigue a la velocidad, el paseo
+  tiene 4 fases con bote suave, respira y el parpadeo tiene 3 fases.
 - Alcance: solo Windows y solo el monitor principal.
 
 ## [15.8.0] - 2026-09-10

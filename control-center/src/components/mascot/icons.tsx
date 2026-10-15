@@ -1,6 +1,8 @@
 // Mascota — iconos de los tres botones (dibujos propios, no logotipos).
 
-export type AgentId = "claude" | "codex" | "antigravity";
+import type { AgentId } from "./mood";
+
+export type { AgentId };
 
 export const AGENTS: { id: AgentId; label: string; color: string }[] = [
   { id: "claude", label: "Claude", color: "#D97757" },

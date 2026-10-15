@@ -45,6 +45,24 @@ html.mascot-root #root {
   animation: mascot-pop 140ms steps(3, end);
 }
 
+.mascot-mood {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  translate: -50% 0;
+  white-space: nowrap;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 600;
+  color: #141413;
+  background: #fffdf8;
+  border: 2px solid #141413;
+  border-radius: 5px;
+  box-shadow: 2px 2px 0 #141413;
+  padding: 0 6px;
+  pointer-events: none;
+}
+
 .mascot-btn {
   width: 30px;
   height: 30px;

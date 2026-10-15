@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { DEFAULT_SETTINGS, MascotEngine, type ChatState, type MascotSettings } from "./engine";
+import { MOOD_EMOJI, parseMood, type MoodName } from "./mood";
 import { renderFrame, type Dirty } from "./render";
 import type { WinRect } from "./world";
 import { AGENTS, AgentIcon, agentBackground, type AgentId } from "./icons";
@@ -62,6 +63,7 @@ type DrivePayload =
   | { phase: "end" };
 
 const I32_MIN = -2147483648;
+const MOOD_KEY = "ultron.mascot.mood";
 
 function chatStateOf(c: ChatView): ChatState {
   switch (c.phase) {
@@ -111,8 +113,13 @@ export function MascotApp() {
   const [showButtons, setShowButtons] = useState(false);
   const [chat, setChatState] = useState<ChatView>({ phase: "closed" });
   const [draft, setDraft] = useState("");
+  const [mood, setMood] = useState<MoodName>("contenta");
+  const moodRef = useRef<MoodName>("contenta");
 
   const setChat = useCallback((c: ChatView) => {
+    const prev = chatRef.current;
+    // Cerrar la conversación devuelve a la mascota a su color.
+    if (c.phase === "closed" && prev.phase !== "closed") engineRef.current?.chatEnded();
     chatRef.current = c;
     setChatState(c);
     if (c.phase === "reply" || c.phase === "error") {
@@ -154,8 +161,17 @@ export function MascotApp() {
         envRef.current = env;
         const W = env.width / env.scale_factor;
         const H = env.height / env.scale_factor;
-        if (!engineRef.current) engineRef.current = new MascotEngine(W, H, settingsRef.current);
-        else engineRef.current.setArea(W, H);
+        if (!engineRef.current) {
+          const eng = new MascotEngine(W, H, settingsRef.current);
+          // El ánimo sobrevive a reinicios (comodidad local, no dato crítico).
+          try {
+            const saved = parseMood(window.localStorage.getItem(MOOD_KEY));
+            if (saved) eng.mood = saved;
+          } catch {
+            /* sin almacenamiento: ánimo por defecto */
+          }
+          engineRef.current = eng;
+        } else engineRef.current.setArea(W, H);
         if (alive) setReady(true);
       } catch {
         /* la ventana aún no existe o se está cerrando */
@@ -174,6 +190,15 @@ export function MascotApp() {
     })();
 
     const envTimer = window.setInterval(loadEnv, 4000);
+    const moodTimer = window.setInterval(() => {
+      const eng = engineRef.current;
+      if (!eng) return;
+      try {
+        window.localStorage.setItem(MOOD_KEY, JSON.stringify(eng.mood));
+      } catch {
+        /* sin almacenamiento */
+      }
+    }, 15000);
 
     void listen<MascotSettings>("mascot:settings", (e) => {
       settingsRef.current = { ...DEFAULT_SETTINGS, ...e.payload };
@@ -203,6 +228,7 @@ export function MascotApp() {
     return () => {
       alive = false;
       window.clearInterval(envTimer);
+      window.clearInterval(moodTimer);
       unlisten.forEach((u) => u());
     };
   }, [toCss]);
@@ -316,7 +342,18 @@ export function MascotApp() {
       }
 
       const chatState = chatStateOf(chatNow);
-      eng.update({ dt, cursor: cur, hovered: petHot || onButtons || onPanel, chat: chatState });
+      eng.update({
+        dt,
+        cursor: cur,
+        hovered: petHot || onButtons || onPanel,
+        petHover: petHot && !dragging,
+        chat: chatState,
+      });
+      const m = eng.moodName;
+      if (m !== moodRef.current) {
+        moodRef.current = m;
+        setMood(m);
+      }
       dirty = renderFrame(ctx, eng, chatState, dpr, dirty);
 
       // Zona de clic sobre la mascota.
@@ -406,6 +443,8 @@ export function MascotApp() {
   // Conversación
   // ---------------------------------------------------------------------------
   const openChat = (agent: AgentId) => {
+    // Elegir a GPT o a Gemini le da celos (y se disfraza de su color).
+    engineRef.current?.chooseAgent(agent);
     setChat({ phase: "input", agent });
     invoke("mascot_focus")
       .catch(() => {})
@@ -432,7 +471,10 @@ export function MascotApp() {
         { role: "user" as const, text },
         { role: "assistant" as const, text: r.text },
       ].slice(-16);
-      if (id === reqRef.current) setChat({ phase: "reply", agent, text: r.text, via: r.via });
+      if (id === reqRef.current) {
+        engineRef.current?.replyArrived(agent);
+        setChat({ phase: "reply", agent, text: r.text, via: r.via });
+      }
     } catch (err) {
       if (id === reqRef.current) setChat({ phase: "error", agent, text: String(err) });
     }
@@ -469,6 +511,9 @@ export function MascotApp() {
 
       {showButtons && (
         <div ref={buttonsRef} className="mascot-buttons">
+          <span className="mascot-mood" title={`Ánimo: ${mood}`}>
+            {MOOD_EMOJI[mood]} {mood}
+          </span>
           {AGENTS.map((a) => (
             <button
               key={a.id}
