@@ -27,7 +27,7 @@
 // and `AccountEntry::warnings`.
 
 mod parse;
-mod probe;
+pub(crate) mod probe;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

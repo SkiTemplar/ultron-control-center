@@ -77,6 +77,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Qdrant semantic recall (optional — enable with --features qdrant).
 # fastembed provides ONNX-based BGE-small-EN-v1.5 (384-d) locally, no API key.
 fastembed = { version = "4", optional = true }
+# Capturas de pantalla del MCP de escritorio (mascot/bridge.rs). Ya estaba en
+# Cargo.lock como dependencia transitiva de tauri (image-png).
+png = "0.17"
 
 [dev-dependencies]
 tempfile = "3"
@@ -102,7 +105,15 @@ finance = []
 wmi = "0.13"
 # SetPriorityClass(BELOW_NORMAL) para los subcomandos batch de ultron-memory
 # (ya presente transitivamente en Cargo.lock; no añade descarga nueva).
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading"] }
+# Mascota (mascot/win.rs): cursor global, ventanas, SendInput y captura GDI.
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+] }
 
 # ---------------------------------------------------------------------------
 # CI-tuned test profile (applies to `cargo test` and `cargo clippy --profile

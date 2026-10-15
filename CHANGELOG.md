@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added
+- **Mascota de escritorio** (ventana `mascot`, `src-tauri/src/mascot/` +
+  `src/components/mascot/`): una Clawd en pixel art (proporciones sacadas del
+  logo de bloques de la CLI de Claude Code) vive sobre la barra de tareas del
+  monitor principal. Ojos que siguen al cursor; pasea, se sienta y se duerme.
+  Física con gravedad y rebote: se lanza arrastrando y soltando, se estampa
+  contra los bordes de la pantalla (y, si se activa, contra las ventanas) y se
+  queda mareada. **Ctrl al soltar** la deja colgada de una chincheta. Se sube a
+  los bordes superiores de las ventanas visibles, va montada si las mueves y
+  salta entre ellas.
+- **Tres botones al pasar el ratón**: Claude (`claude -p`), Codex (`codex exec`)
+  y Antigravity (`agy -p`). Cada uno cae a la API equivalente del AI Router
+  (Anthropic, OpenAI o Gemini) si su CLI falla. Cuadro de texto, respuesta en
+  bocadillo con historial corto por agente; el bocadillo dice qué camino
+  contestó.
+- **MCP de escritorio** `tools/ultron-desktop-mcp/server.mjs` para Claude Code
+  en terminal: captura, ratón, rueda, teclado y ventanas, a través de un puente
+  HTTP local con token (`mascot/bridge.rs`). Mientras un agente lo usa, la
+  mascota lleva el cursor. Se registra con un botón.
+- **Settings → Mascota**: mostrar/ocultar, llamar, pasear, subirse a ventanas,
+  saltar, ventanas sólidas, espachurrarse, tamaño, gravedad, rebote, minutos
+  hasta dormirse, modelos de Claude/Codex y el estado del puente.
+  Configuración guardada en `~/.ultron/cockpit/mascot.json`.
+- Alcance: solo Windows y solo el monitor principal.
+
 ## [15.8.0] - 2026-09-10
 
 Sprint ultracode 2026-07-22: cierre del harness kirkardo (OVERALL 9.73 · CORE

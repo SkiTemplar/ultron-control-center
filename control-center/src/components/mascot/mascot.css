@@ -1,0 +1,246 @@
+/* Mascota — ventana transparente. Estilo «cómic pixelado»: borde negro,
+   sombra dura desplazada y nada de desenfoques. */
+
+html.mascot-root,
+html.mascot-root body,
+html.mascot-root #root {
+  background: transparent !important;
+  overflow: hidden;
+  user-select: none;
+}
+
+.mascot-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mascot-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.mascot-hit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.mascot-hit:active {
+  cursor: grabbing;
+}
+
+.mascot-buttons {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+  animation: mascot-pop 140ms steps(3, end);
+}
+
+.mascot-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #141413;
+  border-radius: 8px;
+  box-shadow: 2px 2px 0 #141413;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 80ms steps(2, end);
+}
+.mascot-btn:hover {
+  transform: translateY(-2px);
+}
+.mascot-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+.mascot-panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 320px;
+  max-width: calc(100vw - 12px);
+  pointer-events: auto;
+  background: #fffdf8;
+  color: #141413;
+  border: 2px solid #141413;
+  border-radius: 6px;
+  box-shadow: 3px 3px 0 #141413;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 10px 9px;
+  user-select: text;
+  animation: mascot-pop 160ms steps(3, end);
+}
+
+.mascot-tail {
+  position: absolute;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  background: #fffdf8;
+  border-right: 2px solid #141413;
+  border-bottom: 2px solid #141413;
+  transform: rotate(45deg);
+}
+
+.mascot-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.mascot-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid #141413;
+  display: grid;
+  place-items: center;
+}
+
+.mascot-agent {
+  font-weight: 700;
+  flex: 1;
+}
+
+.mascot-x {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: #141413;
+  padding: 0 2px;
+}
+
+.mascot-link {
+  border: none;
+  background: transparent;
+  color: #b8532f;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mascot-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.mascot-input {
+  flex: 1;
+  resize: none;
+  border: 2px solid #141413;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font: inherit;
+  color: #141413;
+  background: #fff;
+  outline: none;
+  max-height: 140px;
+  field-sizing: content;
+}
+.mascot-input:focus {
+  border-color: #d97757;
+}
+
+.mascot-send {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #141413;
+  border-radius: 6px;
+  background: #d97757;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #141413;
+}
+.mascot-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mascot-thinking {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #555;
+}
+.mascot-question {
+  font-style: italic;
+  color: #777;
+  font-size: 12px;
+}
+.mascot-dots::after {
+  content: "";
+  animation: mascot-dots 1.2s steps(4, end) infinite;
+}
+
+.mascot-reply {
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mascot-error {
+  color: #b42318;
+  font-size: 12px;
+}
+
+.mascot-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.mascot-via {
+  flex: 1;
+  color: #8a8a8a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes mascot-pop {
+  from {
+    opacity: 0;
+    transform-origin: bottom center;
+    scale: 0.6;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes mascot-dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75% {
+    content: "...";
+  }
+}

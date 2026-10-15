@@ -10,6 +10,7 @@ import { ApiKeysSection } from "./ApiKeysSection";
 import { McpAccountsSection } from "./McpAccountsSection";
 import { AccountsSection } from "./AccountsSection";
 import { ToolsSection } from "./ToolsSection";
+import { MascotSection } from "./MascotSection";
 
 // Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
@@ -24,6 +25,7 @@ type Section =
   | "mcp-accounts"
   | "accounts"
   | "tools"
+  | "mascot"
   | "backups"
   | "button-prompts"
   | "raw";
@@ -163,6 +165,7 @@ export function Settings(_props: SettingsProps = {}) {
           { id: "mcp-accounts" as Section, label: "MCP Accounts" },
           { id: "accounts" as Section, label: "Cuentas y modelos" },
           { id: "tools" as Section, label: "Herramientas" },
+          { id: "mascot" as Section, label: "Mascota" },
           { id: "backups" as Section, label: "Backups" },
           { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "raw" as Section, label: "settings.json" },
@@ -219,6 +222,7 @@ export function Settings(_props: SettingsProps = {}) {
         {section === "mcp-accounts" && <McpAccountsSection />}
         {section === "accounts" && <AccountsSection />}
         {section === "tools" && <ToolsSection />}
+        {section === "mascot" && <MascotSection />}
 
         {section === "raw" && draft && (
           <JsonEditor

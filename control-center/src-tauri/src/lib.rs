@@ -46,6 +46,7 @@ mod kanban;
 mod kg;
 mod library;
 mod maintenance;
+mod mascot; // mascota de escritorio + puente del MCP de escritorio (tools/ultron-desktop-mcp)
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod migration;
@@ -333,6 +334,10 @@ pub fn run() {
                 tracing::error!(error = %e, "tray init failed");
             }
 
+            // Mascota de escritorio (ventana «mascot») + puente local del MCP
+            // de escritorio. Best-effort: un fallo se registra y no bloquea.
+            mascot::init(app.handle());
+
             // Quota watchdog — polls quota-state.json every 60 s and emits
             // quota:updated / quota:critical / quota:reset events so the
             // frontend can update the Usage quota card and Sidebar dot.
@@ -389,11 +394,16 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
+            // Solo la ventana principal: este manejador ve TODAS las ventanas,
+            // y cerrar la de la mascota (Settings -> Mascota) o un proyecto
+            // desacoplado no debe tumbar el proxy de la app.
             if let tauri::WindowEvent::Destroyed = event {
-                // Matar el proxy al cerrar para no dejar :8082 huerfano.
-                // Cubre el caso normal (cierre de ventana principal).
-                let _ = proxy::proxy_stop_inner();
+                if window.label() == "main" {
+                    // Matar el proxy al cerrar para no dejar :8082 huerfano.
+                    // Cubre el caso normal (cierre de ventana principal).
+                    let _ = proxy::proxy_stop_inner();
+                }
             }
         })
         .build(tauri::generate_context!())

@@ -219,6 +219,18 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         commands::batches::batches_dismiss_queue,
         // -- project detach / reattach (ventanas independientes) --
         commands::detach::detach_project_window,
+        // -- mascota de escritorio (ventana «mascot» + Settings → Mascota) --
+        mascot::mascot_get_settings,
+        mascot::mascot_save_settings,
+        mascot::mascot_summon,
+        mascot::mascot_env,
+        mascot::mascot_cursor,
+        mascot::mascot_windows,
+        mascot::mascot_set_interactive,
+        mascot::mascot_focus,
+        mascot::mascot_ask,
+        mascot::mascot_bridge_status,
+        mascot::mascot_register_mcp,
         // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
         commands::opengl_project::create_opengl_project,
         // -- global notes (memory context pipeline) --

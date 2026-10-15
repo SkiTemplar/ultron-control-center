@@ -760,6 +760,7 @@ dependencies = [
  "fastembed",
  "mockall",
  "once_cell",
+ "png 0.17.16",
  "portable-pty",
  "regex",
  "reqwest 0.12.28",
