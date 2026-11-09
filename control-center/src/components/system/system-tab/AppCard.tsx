@@ -2,7 +2,7 @@
 // previous dense grid row.
 
 import type { InstalledApp } from "../../../types";
-import { type AppCategory, CATEGORY_ORDER } from "./types";
+import { type AppCategory, CATEGORY_LABELS, CATEGORY_ORDER } from "./types";
 import { classifyApp } from "./app-classifiers";
 
 export function AppCard({
@@ -44,7 +44,7 @@ export function AppCard({
                 color: "var(--color-text-secondary)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Category overridden manually (or by Auto-categorize)"
+              title="Categoría cambiada a mano (o con «Categorizar automáticamente»)"
             >
               manual
             </span>
@@ -79,11 +79,11 @@ export function AppCard({
             border: "1px solid var(--color-border-strong)",
             maxWidth: 140,
           }}
-          title="Change category for this app"
+          title="Cambiar la categoría de esta aplicación"
         >
           {CATEGORY_ORDER.map((c) => (
             <option key={c} value={c}>
-              {c}
+              {CATEGORY_LABELS[c]}
             </option>
           ))}
         </select>
@@ -97,9 +97,9 @@ export function AppCard({
               color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border)",
             }}
-            title="Reset to auto-classified category"
+            title="Volver a la categoría automática"
           >
-            Reset
+            Restablecer
           </button>
         )}
         <button
@@ -112,9 +112,9 @@ export function AppCard({
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title={hasFolder ? app.install_location! : "No install location reported"}
+          title={hasFolder ? app.install_location! : "No se ha informado de la carpeta de instalación"}
         >
-          Folder
+          Carpeta
         </button>
         <button
           type="button"
@@ -126,7 +126,7 @@ export function AppCard({
             border: "1px solid rgba(248, 81, 73, 0.32)",
           }}
         >
-          Uninstall
+          Desinstalar
         </button>
       </div>
     </div>

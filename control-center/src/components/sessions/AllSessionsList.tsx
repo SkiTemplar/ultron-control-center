@@ -34,21 +34,21 @@ export function AllSessionsList({
       >
         <History size={13} />
         <span className="text-[12.5px] font-semibold">
-          All Claude sessions
+          Todas las sesiones de Claude
         </span>
         <span
           className="text-[11.5px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {historyLoading
-            ? "loading…"
-            : `${filteredHistory.length} of ${history.length}`}
+            ? "cargando…"
+            : `${filteredHistory.length} de ${history.length}`}
         </span>
         <span
           className="ml-auto text-[11.5px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          {showAllSessions ? "hide" : "show"}
+          {showAllSessions ? "ocultar" : "mostrar"}
         </span>
       </button>
 
@@ -70,8 +70,8 @@ export function AllSessionsList({
               }}
             >
               {history.length === 0
-                ? "No sessions recorded yet."
-                : `No session matches "${search}".`}
+                ? "Todavía no hay sesiones registradas."
+                : `Ninguna sesión coincide con «${search}».`}
             </div>
           )}
           <div className="space-y-1.5">
@@ -100,7 +100,7 @@ export function AllSessionsList({
                       className="ml-auto shrink-0 tabular-nums text-[10.5px]"
                       style={{ color: "var(--color-text-faint)" }}
                     >
-                      {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
+                      {formatRel(s.last_activity)} · {s.line_count} turnos ·{" "}
                       {formatBytes(s.size_bytes)}
                     </span>
                     <button
@@ -113,7 +113,7 @@ export function AllSessionsList({
                       }}
                       title={`claude -r ${s.id}`}
                     >
-                      Resume
+                      Reanudar
                     </button>
                   </div>
                   {s.preview && (

@@ -37,22 +37,8 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@tauri-apps/plugin-process", () => ({
-  exit: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn().mockResolvedValue(undefined),
   disable: vi.fn().mockResolvedValue(undefined),
   isEnabled: vi.fn().mockResolvedValue(false),
-}));
-
-vi.mock("@tauri-apps/plugin-global-shortcut", () => ({
-  register: vi.fn().mockResolvedValue(undefined),
-  unregister: vi.fn().mockResolvedValue(undefined),
-  isRegistered: vi.fn().mockResolvedValue(false),
-}));
-
-vi.mock("@tauri-apps/plugin-updater", () => ({
-  check: vi.fn().mockResolvedValue(null),
 }));

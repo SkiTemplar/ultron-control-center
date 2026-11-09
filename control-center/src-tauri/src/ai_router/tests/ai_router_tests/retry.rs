@@ -1,9 +1,10 @@
 // KIRKARDO P2 — with_retry correctness + call_cli sandbox flag test.
 
 use crate::ai_router::exec::{call_cli, with_retry};
-use crate::ai_router::seed::{seed_providers, seed_zones};
+use crate::ai_router::seed::seed_providers;
 use crate::ai_router::types::{
     ApiKeyStatus, CallOutcome, FailReason, Provider, ProviderClass, ProviderKind, TokenUsage,
+    ZoneAssignment,
 };
 use crate::ai_router::CLI_CACHE;
 
@@ -131,6 +132,8 @@ fn call_cli_codex_includes_sandbox_read_only_flag() {
         default_model: "gpt-5.6-terra".to_string(),
         models: vec![],
         cli_command: Some("codex".to_string()),
+        api_format: crate::ai_router::types::ApiFormat::Cli,
+        custom: false,
     };
 
     // Pass the model explicitly (as try_assignment_call does with the
@@ -255,6 +258,8 @@ fn call_cli_codex_preserves_a_prompt_with_shell_metacharacters_via_stdin() {
         default_model: "gpt-5.6-terra".to_string(),
         models: vec![],
         cli_command: Some("codex".to_string()),
+        api_format: crate::ai_router::types::ApiFormat::Cli,
+        custom: false,
     };
 
     let dangerous_prompt = "Responde solo con la palabra OK: \"comillas dobles\" y 'simples', \
@@ -313,36 +318,30 @@ fn call_cli_codex_preserves_a_prompt_with_shell_metacharacters_via_stdin() {
 // -----------------------------------------------------------------------
 // Real end-to-end call — REQUIRES the `codex` CLI logged into the ChatGPT
 // subscription. Not run by default (`cargo test`); invoke explicitly with
-// `cargo test --lib ai_router:: -- --ignored real_codex_cli_call_uses_the_code_edit_zone_model`.
+// `cargo test --lib ai_router:: -- --ignored real_codex_cli_call_uses_the_provider_model`.
 // -----------------------------------------------------------------------
 
 #[test]
 #[ignore]
-fn real_codex_cli_call_uses_the_code_edit_zone_model() {
-    // Exercises the actual router wiring end to end: seed_zones() ->
-    // code-edit's codex-cli fallback assignment -> call_cli -> a real
-    // `codex exec -m gpt-5.6-terra` process. Verifies the 2026-09-11 wiring
-    // fix (ZoneAssignment.model now reaches the CLI) against the live
-    // binary, not just the pure arg-builder unit tests above.
-    let zone = seed_zones()
-        .into_iter()
-        .find(|z| z.id == "code-edit")
-        .expect("code-edit zone must exist in the seed");
-    let assignment = zone
-        .fallbacks
-        .iter()
-        .find(|f| f.provider_id == "codex-cli")
-        .expect("code-edit must carry a codex-cli fallback")
-        .clone();
-    assert_eq!(
-        assignment.model, "gpt-5.6-terra",
-        "code-edit's codex-cli fallback must be terra (basic-tier subscription model)"
-    );
-
+fn real_codex_cli_call_uses_the_provider_model() {
+    // Exercises call_cli end to end against a real `codex exec -m
+    // gpt-5.6-terra` process. Verifies the 2026-09-11 wiring fix (the model
+    // reaches the CLI) against the live binary, not just the pure arg-builder
+    // unit tests above. No seed zone routes to codex-cli since the code zones
+    // were pruned (2026-10-23); the provider stays in the catalog.
     let provider = seed_providers()
         .into_iter()
         .find(|p| p.id == "codex-cli")
         .expect("codex-cli must exist in the seed");
+    let assignment = ZoneAssignment {
+        provider_id: provider.id.clone(),
+        model: provider.default_model.clone(),
+        max_tokens: 256,
+    };
+    assert_eq!(
+        assignment.model, "gpt-5.6-terra",
+        "codex-cli's default model must be terra (basic-tier subscription model)"
+    );
 
     // Multi-word prompt WITH a shell metacharacter (&) — this used to break
     // on Windows via the old `cmd /C` shell-string wrapper (mis-split argv);
@@ -361,4 +360,54 @@ fn real_codex_cli_call_uses_the_code_edit_zone_model() {
         }
         Err((msg, _)) => panic!("real codex-cli call failed: {msg}"),
     }
+}
+
+// -----------------------------------------------------------------------
+// Retry hints (2026-09-28): plazo explícito del proveedor en el 429
+// -----------------------------------------------------------------------
+
+#[test]
+fn with_retry_long_retry_hint_stops_without_retrying() {
+    let mut calls = 0u32;
+    let started = std::time::Instant::now();
+    let result = with_retry(3, || {
+        calls += 1;
+        Err((
+            "groq 429: tokens per day [retry-after=433s]".to_string(),
+            FailReason::RateLimit,
+        ))
+    });
+    assert_eq!(
+        calls, 1,
+        "plazo > 10 s: ni un reintento, directo al fallback"
+    );
+    assert!(started.elapsed().as_millis() < 500, "sin esperas");
+    assert!(matches!(result, Err((_, FailReason::RateLimit))));
+}
+
+#[test]
+fn with_retry_short_retry_hint_waits_that_long_and_retries() {
+    let mut calls = 0u32;
+    let started = std::time::Instant::now();
+    let result = with_retry(3, || {
+        calls += 1;
+        if calls == 1 {
+            Err((
+                "groq 429: rpm [retry-after=1s]".to_string(),
+                FailReason::RateLimit,
+            ))
+        } else {
+            Ok(CallOutcome {
+                text: "ok".into(),
+                usage: TokenUsage::default(),
+            })
+        }
+    });
+    let elapsed = started.elapsed().as_millis();
+    assert_eq!(calls, 2);
+    assert!(result.is_ok());
+    assert!(
+        (1_000..2_000).contains(&elapsed),
+        "espera el plazo indicado (1 s + 250 ms), no la escala fija de 2 s: {elapsed} ms"
+    );
 }

@@ -3,7 +3,7 @@
 // Extracted from Plans.tsx as part of the cat7 split refactor.
 
 import { type DragEvent as ReactDragEvent } from "react";
-import { ColumnActions } from "./ColumnActions";
+import { ColumnActions, type FlowTargetCount } from "./ColumnActions";
 import { PlanCard } from "./PlanCard";
 import type { PlanItem } from "./types";
 
@@ -35,6 +35,7 @@ export type KanbanColumnProps = {
   onArchiveSelected: () => void;
   archiveDisabled: boolean;
   archiveCount: number;
+  flowTargetCount: FlowTargetCount;
 };
 
 export function KanbanColumn({
@@ -64,6 +65,7 @@ export function KanbanColumn({
   onArchiveSelected,
   archiveDisabled,
   archiveCount,
+  flowTargetCount,
 }: KanbanColumnProps) {
   const isOver = dragOverColumn === columnKey;
 
@@ -113,6 +115,7 @@ export function KanbanColumn({
         onArchiveSelected={onArchiveSelected}
         archiveDisabled={archiveDisabled}
         archiveCount={archiveCount}
+        flowTargetCount={flowTargetCount}
       />
       <div
         className="flex-1 space-y-2 overflow-auto p-2 transition-colors"

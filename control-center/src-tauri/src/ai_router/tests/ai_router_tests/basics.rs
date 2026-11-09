@@ -74,33 +74,85 @@ fn seed_providers_includes_all_targets() {
     }
 }
 
+// Herméticos: `load_zones` lee y, si migra algo, REESCRIBE zones.json y
+// providers.json; con `TestRootGuard` lo hace en un directorio temporal y no
+// en la configuración real del usuario.
 #[test]
 fn primary_model_for_known_zone_is_some() {
-    assert!(primary_model_for_zone("light").is_some());
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _root = crate::ai_router::types::TestRootGuard::new(dir.path());
+    assert_eq!(
+        primary_model_for_zone("light").as_deref(),
+        Some("openai/gpt-oss-20b")
+    );
 }
 
 #[test]
 fn primary_model_for_unknown_zone_is_none() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _root = crate::ai_router::types::TestRootGuard::new(dir.path());
     assert!(primary_model_for_zone("no-such-zone-xyz").is_none());
 }
 
+/// Zonas que el código fuente enruta de verdad: literales de
+/// `ai_router::route("<zona>"` y constantes `const <..ZONE..>: &str = "<zona>"`
+/// (los llamantes que pasan la zona por una constante), fuera de `ai_router/`.
+fn zones_routed_by_the_source() -> std::collections::BTreeSet<String> {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let literal = regex::Regex::new(r#"ai_router::route\(\s*"([^"]+)""#).expect("regex");
+    let constant =
+        regex::Regex::new(r#"const\s+\w*ZONE\w*\s*:\s*&str\s*=\s*"([^"]+)""#).expect("regex");
+    let mut zones = std::collections::BTreeSet::new();
+    for entry in walkdir::WalkDir::new(&src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        let in_router = path.components().any(|c| c.as_os_str() == "ai_router");
+        if in_router || path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for re in [&literal, &constant] {
+            zones.extend(re.captures_iter(&text).map(|c| c[1].to_string()));
+        }
+    }
+    zones
+}
+
+/// La semilla lista SOLO zonas que alguien invoca de verdad, comprobado
+/// contra el código fuente y no contra una lista escrita a mano (la lista
+/// anterior fijaba code-edit y code-review, sin llamante desde el
+/// 2026-09-23). Falla si se añade al seed una zona sin llamante y también si
+/// el código enruta a una zona que el seed no define.
 #[test]
 fn seed_zones_are_exactly_the_zones_with_a_caller() {
-    // 2026-09-21: la semilla lista SOLO zonas que alguien invoca de verdad.
-    // Es una igualdad, no un "contiene": si se añade una zona sin llamante
-    // (o vuelve una de las podadas) este test lo caza.
-    let ids: Vec<String> = seed_zones().into_iter().map(|z| z.id).collect();
-    assert_eq!(
-        ids,
-        vec![
-            "chat",
-            "code-edit",
-            "code-review",
-            "summarize",
-            "utility",
-            "light",
-        ]
+    let seeded: std::collections::BTreeSet<String> =
+        seed_zones().into_iter().map(|z| z.id).collect();
+    let routed = zones_routed_by_the_source();
+    assert!(
+        routed.len() >= 4,
+        "el escaneo no encuentra los llamantes: {routed:?}"
     );
+    assert_eq!(
+        seeded, routed,
+        "zonas del seed frente a zonas con llamante en src/"
+    );
+}
+
+/// Caso negativo del escaneo: una zona retirada no tiene llamante, así que
+/// reintroducirla en el seed rompería la igualdad de arriba.
+#[test]
+fn retired_zones_have_no_caller_in_the_source() {
+    let routed = zones_routed_by_the_source();
+    for retired in crate::ai_router::store::RETIRED_ZONE_IDS {
+        assert!(
+            !routed.contains(retired),
+            "la zona retirada '{retired}' vuelve a tener llamante"
+        );
+    }
 }
 
 #[test]
@@ -265,25 +317,6 @@ fn ninguna_cadena_del_seed_repite_proveedor_y_modelo() {
     }
 }
 
-/// La politica CLI-first del CLAUDE.md, convertida en test: si alguien vuelve
-/// a poner una zona de codigo en un proveedor de pago por token, salta aqui.
-#[test]
-fn las_zonas_de_codigo_arrancan_por_cli() {
-    let de_codigo: Vec<_> = seed_zones()
-        .into_iter()
-        .filter(|z| z.category == "code")
-        .collect();
-    assert!(!de_codigo.is_empty(), "el seed debe tener zonas de codigo");
-    for z in de_codigo {
-        assert_eq!(
-            z.primary.provider_id, "codex-cli",
-            "la zona de codigo '{}' deberia arrancar por codex-cli (politica CLI-first, \
-             CLAUDE.md); su primary es '{}'",
-            z.id, z.primary.provider_id
-        );
-    }
-}
-
 /// La dedup de `repair_zones_against_catalog` NO puede colapsar dos entradas
 /// del mismo proveedor con modelos distintos: eso es la estrategia anti-429 de
 /// Groq, no un duplicado. `maria-core` deduplica solo por provider_id y aqui
@@ -357,14 +390,10 @@ fn reparar_zonas_asciende_el_primer_fallback_cuando_el_primary_no_existe() {
     assert_eq!(zonas[0].fallbacks[0].provider_id, "deepseek");
 }
 
-/// Sin ningun fallback vigente queda el modelo local, que no gasta cuota.
-#[test]
-fn reparar_zonas_cae_al_local_cuando_no_queda_nadie() {
-    use crate::ai_router::store::repair_zones_against_catalog;
+fn zona_fantasma(id: &str) -> crate::ai_router::types::Zone {
     use crate::ai_router::types::{Zone, ZoneAssignment};
-
-    let mut zonas = vec![Zone {
-        id: "utility".into(),
+    Zone {
+        id: id.into(),
         label: "u".into(),
         category: "chat".into(),
         primary: ZoneAssignment {
@@ -378,12 +407,41 @@ fn reparar_zonas_cae_al_local_cuando_no_queda_nadie() {
             max_tokens: 512,
         }],
         system_prompt: None,
-    }];
-    let catalogo = vec!["ollama".to_string()];
+    }
+}
+
+/// Sin ningun fallback vigente, una zona del seed recupera la cadena del seed
+/// (filtrada por el catalogo). Ollama ya no es el destino de ultimo recurso:
+/// desde el 2026-10-19 solo se usa para programar.
+#[test]
+fn reparar_zonas_recupera_la_cadena_del_seed_cuando_no_queda_nadie() {
+    use crate::ai_router::store::repair_zones_against_catalog;
+
+    let mut zonas = vec![zona_fantasma("utility")];
+    let catalogo: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
 
     assert!(repair_zones_against_catalog(&mut zonas, &catalogo));
-    assert_eq!(zonas[0].primary.provider_id, "ollama");
-    assert!(zonas[0].fallbacks.is_empty());
+    let seed = seed_zones()
+        .into_iter()
+        .find(|z| z.id == "utility")
+        .expect("utility");
+    assert_eq!(zonas[0].primary, seed.primary);
+    assert_eq!(zonas[0].fallbacks, seed.fallbacks);
+    assert_ne!(zonas[0].primary.provider_id, "ollama");
+}
+
+/// Caso negativo: una zona ajena al seed sin proveedor vigente NO se manda a
+/// ollama; se queda como esta y route() fallara con un error explicito.
+#[test]
+fn reparar_zonas_no_manda_a_ollama_una_zona_ajena_al_seed() {
+    use crate::ai_router::store::repair_zones_against_catalog;
+
+    let mut zonas = vec![zona_fantasma("zona-del-operador")];
+    let catalogo = vec!["ollama".to_string(), "groq".to_string()];
+
+    repair_zones_against_catalog(&mut zonas, &catalogo);
+    assert_eq!(zonas[0].primary.provider_id, "fantasma");
+    assert!(zonas[0].fallbacks.is_empty(), "el fallback muerto se cae");
 }
 
 /// El merge del catalogo repara el caso medido: providers.json sin 'claude'.

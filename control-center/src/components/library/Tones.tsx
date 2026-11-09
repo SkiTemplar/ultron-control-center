@@ -53,6 +53,8 @@ type ToneDetection = {
 };
 
 const PROFANITY_LEVELS = ["none", "mild", "full"];
+/** Etiqueta visible de cada nivel; el valor guardado sigue en inglés. */
+const PROFANITY_LABELS: Record<string, string> = { none: "ninguno", mild: "suave", full: "sin filtro" };
 
 type SpinnerVerbsConfig = {
   mode: string;
@@ -293,7 +295,7 @@ export function Tones() {
                 </>
               ) : (
                 <>
-                  Ningún tono cruza el umbral — se queda el default (
+                  Ningún tono cruza el umbral — se queda el de por defecto (
                   {detection.default_tone}). Floor: 2 señales, o 1 fuerte.
                 </>
               )}
@@ -370,10 +372,10 @@ export function Tones() {
                   color: "var(--color-text)",
                   border: "1px solid var(--color-border)",
                 }}
-                title="replace = solo tus verbos · append = los tuyos además de los de serie"
+                title="reemplazar = solo tus verbos · añadir = los tuyos además de los de serie"
               >
-                <option value="replace">replace</option>
-                <option value="append">append</option>
+                <option value="replace">reemplazar</option>
+                <option value="append">añadir</option>
               </select>
               <button
                 type="button"
@@ -400,7 +402,7 @@ export function Tones() {
       {/* Header lista + default */}
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[12.5px] font-medium">
-          Tonos ({file.tones.length}) · default:{" "}
+          Tonos ({file.tones.length}) · por defecto:{" "}
           <select
             value={file.default_tone}
             onChange={(e) => setFile({ ...file, default_tone: e.target.value })}
@@ -453,8 +455,8 @@ export function Tones() {
                   className="text-[10px] uppercase tracking-wide"
                   style={{ color: "var(--color-text-faint)" }}
                 >
-                  {t.id} · {t.lang} · insultos: {t.profanity}
-                  {t.id === file.default_tone ? " · DEFAULT" : ""}
+                  {t.id} · {t.lang} · insultos: {PROFANITY_LABELS[t.profanity] ?? t.profanity}
+                  {t.id === file.default_tone ? " · por defecto" : ""}
                 </span>
                 <span
                   className="ml-auto truncate text-[11.5px]"
@@ -552,7 +554,7 @@ export function Tones() {
                     >
                       {PROFANITY_LEVELS.map((p) => (
                         <option key={p} value={p}>
-                          {p}
+                          {PROFANITY_LABELS[p] ?? p}
                         </option>
                       ))}
                     </select>

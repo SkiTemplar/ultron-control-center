@@ -1,0 +1,32 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "sesiones",
+  "description": "Capability de la ventana «ULTRON Sessions» (label sesiones). Los comandos propios de la app (sesiones_*) no necesitan permiso: no hay AppManifest de comandos en build.rs.",
+  "windows": ["sesiones", "sesiones-*"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "core:window:allow-start-dragging",
+    "core:window:allow-request-user-attention",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "opener:default",
+    "opener:allow-open-url",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-confirm",
+    "dialog:allow-ask",
+    "dialog:allow-message"
+  ]
+}

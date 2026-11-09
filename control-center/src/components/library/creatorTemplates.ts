@@ -1,4 +1,4 @@
-// Creator templates for the in-app Skill / Agent / MCP authoring modals.
+// Creator templates for the in-app Skill / Agent authoring modals.
 //
 // Each template seeds the body editor with a battle-tested scaffold so
 // the user never starts from a blank textarea. Bodies follow the same
@@ -27,12 +27,6 @@ export type AgentTemplateId =
   | "debugger"
   | "coordinator";
 
-export type McpTemplateId =
-  | "stdio-python"
-  | "stdio-node"
-  | "http"
-  | "sse";
-
 export type SkillTemplate = {
   id: SkillTemplateId;
   label: string;
@@ -47,17 +41,6 @@ export type AgentTemplate = {
   tools: string[];
   model: "" | "haiku" | "sonnet" | "opus";
   body: string;
-};
-
-export type McpTemplateBase = {
-  id: McpTemplateId;
-  label: string;
-  hint: string;
-  transport: "stdio" | "http" | "sse";
-  command?: string;
-  args?: string[];
-  env?: Array<{ key: string; value: string }>;
-  url?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -216,32 +199,32 @@ Assistant: "<opinion with reasoning, then the fix>"
 export const SKILL_TEMPLATES: SkillTemplate[] = [
   {
     id: "empty",
-    label: "Empty",
-    hint: "Minimal scaffold. Headings only, fill in yourself.",
+    label: "Vacía",
+    hint: "Esqueleto mínimo: solo encabezados, para rellenar a mano.",
     body: EMPTY_SKILL,
   },
   {
     id: "workflow",
     label: "Workflow",
-    hint: "Repeatable 5-phase pipeline with report output.",
+    hint: "Pipeline repetible de 5 fases con informe de salida.",
     body: WORKFLOW_SKILL,
   },
   {
     id: "reviewer",
-    label: "Code reviewer",
-    hint: "Severity-ranked findings with fixes. Pairs with the code-reviewer skill style.",
+    label: "Revisor de código",
+    hint: "Hallazgos ordenados por severidad y con arreglo. En la línea de la skill code-reviewer.",
     body: REVIEWER_SKILL,
   },
   {
     id: "mcp-builder",
-    label: "MCP builder",
-    hint: "End-to-end MCP server build. Companion to mcp-builder.",
+    label: "Constructor de MCP",
+    hint: "Construcción completa de un servidor MCP. Complementa a mcp-builder.",
     body: MCP_BUILDER_SKILL,
   },
   {
     id: "domain-expert",
-    label: "Domain expert",
-    hint: "Opinionated persona with reference frame and personality.",
+    label: "Experto en un dominio",
+    hint: "Persona con criterio propio, marco de referencia y personalidad.",
     body: DOMAIN_EXPERT_SKILL,
   },
 ];
@@ -368,92 +351,51 @@ You orchestrate other subagents. You never do the work yourself.
 export const AGENT_TEMPLATES: AgentTemplate[] = [
   {
     id: "empty",
-    label: "Empty",
-    hint: "Minimal subagent scaffold.",
+    label: "Vacío",
+    hint: "Esqueleto mínimo de subagente.",
     tools: ["Read", "Grep", "Glob"],
     model: "",
     body: EMPTY_AGENT,
   },
   {
     id: "reviewer",
-    label: "Reviewer",
-    hint: "Severity-ranked code review with fixes.",
+    label: "Revisor",
+    hint: "Revisión de código ordenada por severidad y con arreglos.",
     tools: ["Read", "Grep", "Glob", "Bash"],
     model: "sonnet",
     body: REVIEWER_AGENT,
   },
   {
     id: "researcher",
-    label: "Researcher",
-    hint: "Decomposes questions, returns cited answers.",
+    label: "Investigador",
+    hint: "Descompone preguntas y devuelve respuestas con fuentes.",
     tools: ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
     model: "sonnet",
     body: RESEARCHER_AGENT,
   },
   {
     id: "implementer",
-    label: "Implementer",
-    hint: "Executes one well-scoped task with tests.",
+    label: "Implementador",
+    hint: "Ejecuta una tarea bien acotada, con tests.",
     tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
     model: "sonnet",
     body: IMPLEMENTER_AGENT,
   },
   {
     id: "debugger",
-    label: "Debugger",
-    hint: "Bisects failures, proposes minimal fixes.",
+    label: "Depurador",
+    hint: "Acota fallos y propone arreglos mínimos.",
     tools: ["Read", "Grep", "Glob", "Bash"],
     model: "sonnet",
     body: DEBUGGER_AGENT,
   },
   {
     id: "coordinator",
-    label: "Coordinator",
-    hint: "Orchestrates other subagents.",
+    label: "Coordinador",
+    hint: "Orquesta a otros subagentes.",
     tools: ["Read", "Grep", "Glob"],
     model: "opus",
     body: COORDINATOR_AGENT,
-  },
-];
-
-// ---------------------------------------------------------------------------
-// MCP templates
-// ---------------------------------------------------------------------------
-
-export const MCP_TEMPLATES: McpTemplateBase[] = [
-  {
-    id: "stdio-python",
-    label: "stdio · Python (uvx)",
-    hint: "Local Python MCP server invoked via uvx.",
-    transport: "stdio",
-    command: "uvx",
-    args: ["<package-name>"],
-    env: [],
-  },
-  {
-    id: "stdio-node",
-    label: "stdio · Node (npx)",
-    hint: "Local Node MCP server invoked via npx.",
-    transport: "stdio",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-<name>"],
-    env: [],
-  },
-  {
-    id: "http",
-    label: "HTTP (streamable)",
-    hint: "Remote MCP server over streamable HTTP. Auth via env header.",
-    transport: "http",
-    url: "https://api.example.com/mcp",
-    env: [{ key: "AUTH_TOKEN", value: "${MY_AUTH_TOKEN}" }],
-  },
-  {
-    id: "sse",
-    label: "SSE (legacy)",
-    hint: "Server-Sent Events transport — legacy, only when the server requires it.",
-    transport: "sse",
-    url: "https://api.example.com/sse",
-    env: [],
   },
 ];
 

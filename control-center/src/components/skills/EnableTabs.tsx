@@ -10,9 +10,9 @@ export interface EnableTabsProps {
 
 export function EnableTabs({ value, onChange, activeCount, disabledCount }: EnableTabsProps) {
   const tabs: { id: EnableFilter; label: string; count: number }[] = [
-    { id: "active", label: "Active", count: activeCount },
-    { id: "disabled", label: "Disabled", count: disabledCount },
-    { id: "all", label: "All", count: activeCount + disabledCount },
+    { id: "active", label: "Activadas", count: activeCount },
+    { id: "disabled", label: "Desactivadas", count: disabledCount },
+    { id: "all", label: "Todas", count: activeCount + disabledCount },
   ];
 
   return (

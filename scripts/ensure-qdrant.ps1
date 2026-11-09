@@ -88,11 +88,12 @@ $listening = Get-PortListenCount
 
 if ($listening -eq 0) {
     # Canonical path overridable via ULTRON_QDRANT_EXE / ULTRON_QDRANT_DIR
-    # (same contract as lib.rs spawn_qdrant_exe). Fallback chain: instalacion
-    # real en D:\Ultron\qdrant, luego el default portable qdrant-native.
-    if ($env:ULTRON_QDRANT_EXE) { $exe = $env:ULTRON_QDRANT_EXE }
-    elseif (Test-Path "D:\Ultron\qdrant\qdrant.exe") { $exe = "D:\Ultron\qdrant\qdrant.exe" }
-    else { $exe = "$env:USERPROFILE\.ultron\qdrant-native\qdrant.exe" }
+    # (same contract as lib.rs spawn_qdrant_exe). Sin variables, el default
+    # portable es qdrant-native en la raiz del repo (relativo a este script):
+    # ninguna ruta de maquina fija en el codigo.
+    if ($env:ULTRON_QDRANT_DIR) { $qdrantDir = $env:ULTRON_QDRANT_DIR }
+    else { $qdrantDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\qdrant-native')) }
+    if ($env:ULTRON_QDRANT_EXE) { $exe = $env:ULTRON_QDRANT_EXE } else { $exe = Join-Path $qdrantDir 'qdrant.exe' }
     if ($env:ULTRON_QDRANT_DIR) { $wd = $env:ULTRON_QDRANT_DIR } else { $wd = Split-Path -Parent $exe }
 
     # --- Diagnostico pre-lanzamiento: procesos qdrant.exe ya vivos --------

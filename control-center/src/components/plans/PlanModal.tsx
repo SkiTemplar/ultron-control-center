@@ -38,16 +38,16 @@ export function PlanModal({
           style={{ borderColor: "var(--color-border)" }}
         >
           <h2 className="text-[14px] font-semibold">
-            {state.id ? `Edit plan: ${state.id}` : "New plan"}
+            {state.id ? `Editar plan: ${state.id}` : "Nuevo plan"}
           </h2>
           <button
             type="button"
             onClick={onClose}
             className="rounded px-2 py-0.5 text-[12px]"
             style={{ color: "var(--color-text-tertiary)" }}
-            aria-label="Close"
+            aria-label="Cerrar"
           >
-            close
+            cerrar
           </button>
         </header>
         <div className="flex-1 space-y-3 overflow-auto px-5 py-4">
@@ -56,13 +56,13 @@ export function PlanModal({
               className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Title
+              Título
             </label>
             <input
               type="text"
               value={state.title}
               onChange={(e) => onChange({ ...state, title: e.target.value })}
-              placeholder="Short, imperative title"
+              placeholder="Título corto, en imperativo"
               className="w-full rounded px-2.5 py-1.5 text-[12.5px]"
               style={{
                 background: "var(--color-surface-2)",
@@ -78,7 +78,7 @@ export function PlanModal({
                 className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Priority
+                Prioridad
               </label>
               <select
                 value={state.priority}
@@ -102,7 +102,7 @@ export function PlanModal({
                 className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Kind
+                Tipo
               </label>
               <select
                 value={state.kind}
@@ -127,7 +127,7 @@ export function PlanModal({
               className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Tags (comma-separated)
+              Tags (separadas por comas)
             </label>
             <input
               type="text"
@@ -148,7 +148,7 @@ export function PlanModal({
               className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Description
+              Descripción
             </label>
             <textarea
               value={state.description}
@@ -194,7 +194,7 @@ export function PlanModal({
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -206,7 +206,7 @@ export function PlanModal({
               color: "var(--color-accent-text)",
             }}
           >
-            {busy ? "Saving..." : state.id ? "Save" : "Create"}
+            {busy ? "Guardando…" : state.id ? "Guardar" : "Crear"}
           </button>
         </footer>
       </div>

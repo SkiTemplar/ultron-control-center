@@ -30,24 +30,14 @@ type TabsState = {
   select: (id: string) => void;
   reorder: (id: string, beforeId: string | null) => void;
   rename: (id: string, title: string) => void;
-  /**
-   * V1 redesign compat shim: per-project sub-tabs were removed. Kept callers
-   * (App.tsx) still read `subTabs[id] ?? "board"`, so we expose an always-empty
-   * record — every lookup falls through to the `"board"` default. Remove this
-   * once App.tsx stops reading it.
-   */
-  subTabs: Record<string, "board">;
 };
-
-/** Frozen empty record so `subTabs[id]` is always `undefined` → `"board"`. */
-const EMPTY_SUBTABS: Record<string, "board"> = Object.freeze({});
 
 const Ctx = createContext<TabsState | null>(null);
 
 const HOME_TAB: OpenTab = {
   id: "home",
   kind: "home",
-  title: "Projects",
+  title: "Proyectos",
   order: 0,
 };
 
@@ -179,7 +169,6 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
       select,
       reorder,
       rename,
-      subTabs: EMPTY_SUBTABS,
     }),
     [tabs, currentId, open, close, select, reorder, rename],
   );

@@ -35,6 +35,9 @@ pub struct HookMutationResult {
     pub success: bool,
     pub hook: Option<Hook>,
     pub backup_path: Option<String>,
+    /// Resultado de regenerar hooks/manifest.json tras el cambio (hooks-8);
+    /// lo rellena el comando de Tauri, no la función interna.
+    pub manifest_sync: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

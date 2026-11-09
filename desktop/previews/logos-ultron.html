@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · logos ULTRON (Control Center + Sessions)</title>
+<style>
+  body { margin: 0; padding: 36px 40px; background: radial-gradient(circle at 30% 20%, #2a3550, #07080b 70%);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; color: #F2F3F5; min-height: 100vh; }
+  h1 { font-weight: 600; margin: 0 0 6px; }
+  p { color: #9AA0AE; margin: 0 0 26px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px 40px; max-width: 1150px; }
+  .row { display: flex; align-items: center; gap: 18px; }
+  .num { width: 32px; height: 32px; border-radius: 50%; background: #F2F3F5; color: #000; display: grid; place-items: center; font-weight: 700; flex: none; }
+  .pair { display: flex; gap: 14px; align-items: flex-end; }
+  .pair figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: #9AA0AE; }
+  .pair svg { width: 96px; height: 96px; }
+  .tiny { display: flex; gap: 6px; } .tiny svg { width: 28px; height: 28px; }
+  .name { font-size: 13px; color: #9AA0AE; width: 150px; }
+</style>
+</head>
+<body>
+<h1>Logos ULTRON: Control Center + Sessions</h1>
+<p>Negro y blanco, con acento azul o naranja Claude. Cada número es una pareja. Dime el número (y el acento si dudas).</p>
+<div class="grid" id="grid"></div>
+<script>
+  const K = '#000', W = '#F2F3F5', B = '#8AB4FF', O = '#D97757';
+  const serif = `Georgia, 'Times New Roman', serif`, mono = `'JetBrainsMono NF', monospace`, sans = `'Segoe UI Variable Display', 'Segoe UI', sans-serif`;
+  const U = (o) => `<text x="64" y="${o.y ?? 86}" text-anchor="middle" font-family="${o.f ?? serif}" font-weight="${o.w ?? 700}" font-size="${o.s ?? 78}" fill="${o.c ?? W}">U</text>`;
+  const sq = (bg, r = 28) => `<rect width="128" height="128" rx="${r}" fill="${bg}"/>`;
+  // Cada pareja: [nombre, controlCenter, sessions]
+  const P = [
+    ['Serifa · naranja', sq(K) + U({}) + `<rect x="28" y="100" width="72" height="3" fill="${W}"/>`,
+                         sq(K) + U({}) + `<rect x="28" y="100" width="72" height="3" fill="${O}"/>`],
+    ['Serifa · azul', sq(K) + U({}) + `<rect x="28" y="100" width="72" height="3" fill="${W}"/>`,
+                      sq(K) + U({}) + `<rect x="28" y="100" width="72" height="3" fill="${B}"/>`],
+    ['Blanco / negro', sq(W) + U({ c: K }) + `<rect x="28" y="100" width="72" height="3" fill="${O}"/>`,
+                       sq(K) + U({}) + `<rect x="28" y="100" width="72" height="3" fill="${O}"/>`],
+    ['Mono · prompt', sq(K) + U({ f: mono, s: 66, y: 84 }) + `<rect x="30" y="98" width="68" height="4" rx="2" fill="${W}"/>`,
+                      sq(K) + `<text x="64" y="84" text-anchor="middle" font-family="${mono}" font-weight="700" font-size="56" fill="${W}">&gt;U</text><rect x="30" y="98" width="68" height="4" rx="2" fill="${O}"/>`],
+    ['Geométrico', sq(K) + `<path d="M38 30 v42 a26 26 0 0 0 52 0 v-42" fill="none" stroke="${W}" stroke-width="13"/>`,
+                   sq(K) + `<path d="M38 30 v42 a26 26 0 0 0 52 0 v-42" fill="none" stroke="${W}" stroke-width="13"/><circle cx="64" cy="58" r="8" fill="${O}"/>`],
+    ['Geométrico · azul', sq(K) + `<path d="M38 30 v42 a26 26 0 0 0 52 0 v-42" fill="none" stroke="${W}" stroke-width="13"/>`,
+                          sq(K) + `<path d="M38 30 v42 a26 26 0 0 0 52 0 v-42" fill="none" stroke="${B}" stroke-width="13"/>`],
+    ['Anillo', sq(K) + `<circle cx="64" cy="64" r="44" fill="none" stroke="${W}" stroke-width="4"/>` + U({ s: 60, y: 84 }),
+               sq(K) + `<circle cx="64" cy="64" r="44" fill="none" stroke="${O}" stroke-width="4" stroke-dasharray="210 70"/>` + U({ s: 60, y: 84 })],
+    ['Esquina', sq(K) + U({ f: sans, s: 74, y: 88 }) + `<path d="M98 14 h16 v16" fill="none" stroke="${W}" stroke-width="5"/>`,
+                sq(K) + U({ f: sans, s: 74, y: 88 }) + `<path d="M98 14 h16 v16" fill="none" stroke="${O}" stroke-width="5"/><path d="M14 98 v16 h16" fill="none" stroke="${O}" stroke-width="5"/>`],
+    ['Pastilla', sq(K, 64) + U({ f: sans, s: 70, y: 86 }),
+                 sq(K, 64) + U({ f: sans, s: 70, y: 86 }) + `<circle cx="100" cy="28" r="10" fill="${O}"/>`],
+    ['Bocadillo', sq(K) + U({ s: 70, y: 82 }) + `<rect x="28" y="96" width="72" height="3" fill="${W}"/>`,
+                  `<path d="M28 4 h72 a24 24 0 0 1 24 24 v58 a24 24 0 0 1 -24 24 h-48 l-22 16 v-16 a24 24 0 0 1 -26 -24 v-58 a24 24 0 0 1 24 -24 z" fill="${K}"/>` + U({ s: 66, y: 80 }) + `<rect x="34" y="92" width="60" height="3" fill="${O}"/>`],
+  ];
+  const svg = (inner) => `<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+  const grid = document.getElementById('grid');
+  P.forEach(([name, cc, ss], i) => {
+    grid.insertAdjacentHTML('beforeend', `
+      <div class="row"><div class="num">${i + 1}</div><div class="name">${name}</div>
+        <div class="pair">
+          <figure>${svg(cc)}Control Center</figure>
+          <figure>${svg(ss)}Sessions</figure>
+          <div class="tiny">${svg(cc)}${svg(ss)}</div>
+        </div></div>`);
+  });
+</script>
+</body>
+</html>

@@ -5,8 +5,9 @@
 // category surfaces playlists and then the individual tracks.
 //
 // Levels:
-//   0  →  big tiles per top-level group (origin: Global / Project / plugin
-//         names like "ecc", "superpowers", …). Click drills down.
+//   0  →  tiles per top-level group (origin: Global / Project / plugin
+//         names like "ecc", "superpowers", …). Click drills down. Skipped
+//         when the whole dataset fits on one screen (FLAT_BELOW items).
 //   1  →  tiles per sub-category derived from the path segments below the
 //         top-level (e.g. for the "ecc" plugin: "agent", "tooling", …).
 //   2  →  flat list of leaves (skills / agents / rules). Renders via a
@@ -28,12 +29,14 @@ import { ArrowLeft, Folder, Sparkle } from "./icons";
 export type BlocksItem<T> = {
   /** Stable key used by React lists. */
   key: string;
-  /** Top-level group label — e.g. "Global", "Project", or a plugin name. */
+  /** Grupo superior visible: «Global», «Proyecto» o el nombre de un plugin. */
   topGroup: string;
   /** Sub-group label — e.g. category derived from path segments. Pass
    *  `null` if the item has no sub-grouping; the BlocksView will bucket it
    *  under a "General" tile on level 1. */
   subGroup: string | null;
+  /** Display name shown in the tile preview (first names of each group). */
+  label?: string;
   /** Original entry — opaque to BlocksView, forwarded back via onSelect. */
   data: T;
 };
@@ -47,11 +50,37 @@ type BlocksViewProps<T> = {
   topGroupAccent?: (group: string) => string | null;
   /** Friendly label shown when the dataset is empty. */
   emptyLabel: string;
-  /** Singular noun for the count badge — "skill", "agent", "rule". */
+  /** Nombre en singular para el recuento: «skill», «agente», «regla». */
   noun: string;
+  /** Caption of the level-0 tiles: what the top group means for this
+   *  dataset («Origen», «Evento», «Carpeta»…). Por defecto, «Origen». */
+  topSublabel?: string;
 };
 
 const GENERAL_SUB = "general";
+/** Below this many items the level-0 tiles cost a click for nothing: the
+ *  whole list fits on one screen, so it is rendered directly. */
+const FLAT_BELOW = 12;
+/** Names previewed under each tile title. */
+const PREVIEW_NAMES = 3;
+
+type GroupSummary = { name: string; count: number; preview: string[] };
+
+/** Counts items per group key and keeps the first names as a preview. */
+function summarize<T>(
+  items: BlocksItem<T>[],
+  keyOf: (it: BlocksItem<T>) => string,
+): GroupSummary[] {
+  const groups = new Map<string, GroupSummary>();
+  for (const it of items) {
+    const name = keyOf(it);
+    const g = groups.get(name) ?? { name, count: 0, preview: [] };
+    const preview =
+      it.label && g.preview.length < PREVIEW_NAMES ? [...g.preview, it.label] : g.preview;
+    groups.set(name, { name, count: g.count + 1, preview });
+  }
+  return Array.from(groups.values());
+}
 
 // ---------------------------------------------------------------------------
 // Implementation
@@ -63,6 +92,7 @@ export function BlocksView<T>({
   topGroupAccent,
   emptyLabel,
   noun,
+  topSublabel = "Origen",
 }: BlocksViewProps<T>) {
   // Drill state — `null` means level 0. When `top` is set, we're on level 1
   // (sub-category tiles). When `sub` is also set, level 2 (leaf list).
@@ -71,19 +101,14 @@ export function BlocksView<T>({
 
   // ---- Aggregations ----
 
-  // Level 0: count per top-level group, sorted alphabetically with "Global"
-  // and "Project" pinned to the front (the user's most-used scopes).
+  // Nivel 0: recuento por grupo superior, en orden alfabético con «Global»
+  // y «Proyecto» fijados delante (los ámbitos más usados).
   const topGroups = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const it of items) counts.set(it.topGroup, (counts.get(it.topGroup) ?? 0) + 1);
-    const arr = Array.from(counts.entries()).map(([name, count]) => ({
-      name,
-      count,
-    }));
+    const arr = summarize(items, (it) => it.topGroup);
     arr.sort((a, b) => {
       const pin = (n: string): number => {
         if (n === "Global") return 0;
-        if (n === "Project") return 1;
+        if (n === "Proyecto") return 1;
         return 2;
       };
       const p = pin(a.name) - pin(b.name);
@@ -96,16 +121,10 @@ export function BlocksView<T>({
   // Level 1: sub-categories within the currently-drilled top group.
   const subGroups = useMemo(() => {
     if (!top) return [];
-    const counts = new Map<string, number>();
-    for (const it of items) {
-      if (it.topGroup !== top) continue;
-      const key = it.subGroup ?? GENERAL_SUB;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const arr = Array.from(counts.entries()).map(([name, count]) => ({
-      name,
-      count,
-    }));
+    const arr = summarize(
+      items.filter((it) => it.topGroup === top),
+      (it) => it.subGroup ?? GENERAL_SUB,
+    );
     arr.sort((a, b) => {
       if (a.name === GENERAL_SUB) return 1;
       if (b.name === GENERAL_SUB) return -1;
@@ -144,12 +163,15 @@ export function BlocksView<T>({
     );
   }
 
+  // Small dataset: no drill-down, the list itself is the view.
+  if (items.length < FLAT_BELOW) return <>{renderLeaves(items)}</>;
+
   // ---- Breadcrumb (shown on level >0) ----
 
   const breadcrumb = (top !== null || sub !== null) && (
     <nav
       className="mb-4 flex flex-wrap items-center gap-1.5 text-[12px]"
-      aria-label="Breadcrumb"
+      aria-label="Ruta de navegación"
     >
       <button
         type="button"
@@ -163,10 +185,10 @@ export function BlocksView<T>({
           color: "var(--color-text-secondary)",
           border: "1px solid var(--color-border)",
         }}
-        title="Back to all categories"
+        title="Volver a todas las categorías"
       >
         <ArrowLeft size={11} />
-        All
+        Todo
       </button>
       {top && (
         <>
@@ -208,12 +230,14 @@ export function BlocksView<T>({
   const Tile = ({
     label,
     count,
+    preview,
     onClick,
     accent,
     sublabel,
   }: {
     label: string;
     count: number;
+    preview: string[];
     onClick: () => void;
     accent?: string | null;
     sublabel?: string;
@@ -221,7 +245,7 @@ export function BlocksView<T>({
     <button
       type="button"
       onClick={onClick}
-      className="group flex h-[180px] flex-col justify-between rounded-xl p-5 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      className="group flex h-24 min-w-0 flex-col justify-between rounded-xl px-4 py-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       style={{
         background: "var(--color-surface-2)",
         border: `1px solid ${accent ?? "var(--color-border)"}`,
@@ -246,33 +270,40 @@ export function BlocksView<T>({
           ? `inset 0 3px 0 ${accent}`
           : "inset 0 3px 0 var(--color-border)";
       }}
-      title={`${count} ${noun}${count === 1 ? "" : "s"} in ${label}`}
+      title={`${count} ${noun}${count === 1 ? "" : "s"} en ${label}`}
     >
-      <div
-        className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-[0.08em]"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        <Folder size={13} />
-        {sublabel ?? "Category"}
-      </div>
-      <div className="flex items-end justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div
-          className="line-clamp-2 text-[26px] font-semibold leading-tight tracking-tight"
-          style={{ color: "var(--color-text)" }}
+          className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
+          style={{ color: "var(--color-text-tertiary)" }}
         >
-          {label}
+          <Folder size={12} />
+          {sublabel ?? "Categoría"}
         </div>
         <div
-          className="flex shrink-0 items-baseline gap-1 rounded-md px-2.5 py-1 text-[13px] font-medium tabular-nums"
+          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[12px] font-medium tabular-nums"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text-secondary)",
             border: "1px solid var(--color-border)",
           }}
         >
-          <Sparkle size={12} />
+          <Sparkle size={11} />
           {count}
         </div>
+      </div>
+      <div
+        className="truncate text-[19px] font-semibold leading-tight tracking-tight"
+        style={{ color: "var(--color-text)" }}
+      >
+        {label}
+      </div>
+      <div
+        className="truncate text-[11px]"
+        style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
+      >
+        {preview.join(" · ")}
+        {count > preview.length && preview.length > 0 ? " …" : ""}
       </div>
     </button>
   );
@@ -291,12 +322,13 @@ export function BlocksView<T>({
             key={g.name}
             label={g.name}
             count={g.count}
+            preview={g.preview}
             accent={topGroupAccent ? topGroupAccent(g.name) : null}
             onClick={() => {
               setTop(g.name);
               setSub(null);
             }}
-            sublabel="Origin"
+            sublabel={topSublabel}
           />
         ))}
       </div>
@@ -329,10 +361,11 @@ export function BlocksView<T>({
           {subGroups.map((g) => (
             <Tile
               key={g.name}
-              label={g.name === GENERAL_SUB ? "Uncategorized" : g.name}
+              label={g.name === GENERAL_SUB ? "Sin categoría" : g.name}
               count={g.count}
+              preview={g.preview}
               onClick={() => setSub(g.name)}
-              sublabel="Subcategory"
+              sublabel="Subcategoría"
             />
           ))}
         </div>

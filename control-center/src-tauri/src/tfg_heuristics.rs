@@ -514,6 +514,9 @@ pub fn ejecutar(id: &str, texto: &str) -> Option<Vec<Span>> {
         "espanol_neutro" => espanol_neutro(texto),
         "hedging_denso" => hedging_denso(texto),
         "tricolon" => tricolon(texto),
+        "negrita_densa" => crate::tfg_heuristics_densidad::negrita_densa(texto),
+        "contraste_negativo" => crate::tfg_heuristics_densidad::contraste_negativo(texto),
+        "metacomentario" => crate::tfg_heuristics_densidad::metacomentario(texto),
         _ => return None,
     };
     Some(spans)
@@ -533,6 +536,9 @@ pub fn existe(id: &str) -> bool {
             | "espanol_neutro"
             | "hedging_denso"
             | "tricolon"
+            | "negrita_densa"
+            | "contraste_negativo"
+            | "metacomentario"
     )
 }
 
@@ -680,6 +686,9 @@ mod tests {
             "espanol_neutro",
             "hedging_denso",
             "tricolon",
+            "negrita_densa",
+            "contraste_negativo",
+            "metacomentario",
         ];
 
         // Corpus: todo el fixture (positivos y negativos) mas textos que lo
@@ -706,6 +715,9 @@ mod tests {
                 "Uno —dos— tres —cuatro— cinco —seis— siete.",
                 "Dicho del skill agents, lo que te he mencionado del color no encaja.",
                 "El equipo usa una computadora con Linux; nadie presiona nada raro.",
+                "Intro con **ánimo** y **éxito**.\n\n- **Versión**: 1\n- **Clave:** valor\n| **a** | **b** |\n```\n**código** **dentro**\n```\n- **Índice** — rápido.\n- **Caché** — sin\nsalto **cruzado\nde línea** al final.",
+                "No reemplaza a Claude\nCode: lo envuelve. No es caro, sino barato. Él no es un adorno, es la pieza. No sólo eso, sino más. Tampoco cobra, sino que regala.",
+                "Esta documentación lo explica; en esta sección y a continuación se detalla. En las siguientes secciones, el presente texto.",
                 "",
                 "   ",
             ]

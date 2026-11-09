@@ -11,8 +11,9 @@
 //     en JS y se traduce al flag 'i'; una regex intraducible se salta en
 //     silencio, igual que el Rust degrada las que no compilan).
 //
-// Consumidor: ai-text-warn.js (hook PostToolUse) y cualquier skill que quiera
-// analizar/reescribir bajo demanda.
+// Consumidores: scripts/ai-text-scan.js y scripts/ai-text-eval.mjs (bajo
+// demanda); el Lab TFG (tfg_lab.rs) es su gemelo en Rust. El hook PostToolUse
+// ai-text-warn.js se retiro el 2026-09-29.
 
 'use strict';
 
@@ -220,8 +221,8 @@ function compileRules(patrones) {
     // viejos) la deja correr siempre. Ver scan() para el filtrado real.
     const idioma = (patron && patron.idioma) || '*';
     // "alerta": el patrón se comunica al autor aunque sea rol "aviso" y no haya
-    // señales (caracteres invisibles). No toca densidad ni veredicto; solo lo
-    // lee el hook ai-text-warn.js.
+    // señales (caracteres invisibles). No toca densidad ni veredicto; viaja en
+    // cada hallazgo para quien quiera avisar al autor.
     const alerta = Boolean(patron && patron.alerta);
     for (const senal of senales) {
       const tipo = (senal && senal.tipo) || '';
@@ -293,8 +294,8 @@ function patternKey(name) {
  * `opts.skipPatterns` desactiva patrones por nombre (substring normalizado).
  * Los patrones saltados NO cuentan para `total_patterns_scanned` ni para la
  * densidad: el informe describe lo que de verdad se miró. Se usa para el
- * destino Markdown, donde la negrita y el guion largo son sintaxis legítima y
- * no artefactos de haber pegado la salida de un chatbot.
+ * destino Markdown, donde la negrita es sintaxis legítima y no un artefacto de
+ * haber pegado la salida de un chatbot (ver MARKDOWN_NATIVE_PATTERNS).
  *
  * `opts.minWords`/`opts.densityThreshold`/`opts.densityBand` pasan a
  * `computeVerdict` (overrides puntuales; ver esa función para los valores por
@@ -384,7 +385,12 @@ function scan(text, patrones, opts) {
 
 // Patrones que describen "he pegado la salida del chatbot en un formato que NO
 // es Markdown". En un destino .md son sintaxis legitima, no artefactos.
-const MARKDOWN_NATIVE_PATTERNS = ['artefactos de markup', 'guion largo'];
+// El guion largo salio de esta lista el 2026-10-18: la raya no es sintaxis
+// Markdown y su heuristica (emdash_incisos) ya exige acumulacion; omitirla en
+// .md dejaba un README con 8 rayas en `sin_indicios`. La negrita en prosa de
+// un .md la mide "Negrita decorativa en prosa" (por densidad, sin tablas ni
+// listas de definiciones), que no se omite.
+const MARKDOWN_NATIVE_PATTERNS = ['artefactos de markup'];
 
 module.exports = {
   loadCatalog,

@@ -40,7 +40,7 @@ export const PORTRAIT_DIR = path.join(HOME, '.ultron', 'cockpit', 'memory-portra
 export const PORTRAIT_PATH = path.join(PORTRAIT_DIR, 'portrait.json');
 const BRAIN_DB = path.join(HOME, '.ultron', 'brain.db');
 const PROJECTS_DIR = path.join(HOME, '.claude', 'projects');
-const MODEL = process.env.MEMORY_PORTRAIT_MODEL || 'sonnet';
+const MODEL = process.env.MEMORY_PORTRAIT_MODEL || 'claude-sonnet-5-5';
 const TIMEOUT_MS = Number(process.env.MEMORY_PORTRAIT_TIMEOUT_MS || 240000);
 const MAX_FILE_CHARS = 900;
 

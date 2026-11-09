@@ -145,11 +145,38 @@ function writeRegistry(mutate) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const tmp = target + '.tmp.' + process.pid;
     fs.writeFileSync(tmp, JSON.stringify(reg, null, 2));
-    fs.renameSync(tmp, target);
-    return reg;
+    return replaceFile(tmp, target) ? reg : null;
   } catch {
     return null;
   }
+}
+
+const RENAME_ATTEMPTS = 3;
+const RENAME_BACKOFF_MS = 15;
+
+/**
+ * `rename` atómico con reintento corto: en Windows falla con EPERM/EBUSY
+ * mientras otro hook tiene abierto el destino. Si no lo consigue borra el
+ * temporal; antes se quedaba en `cockpit/` (cuatro `*.tmp.<pid>` entre el
+ * 2026-09-27 y el 2026-10-03). Devuelve si el destino quedó reemplazado.
+ */
+function replaceFile(tmp, target, rename = fs.renameSync) {
+  for (let attempt = 1; attempt <= RENAME_ATTEMPTS; attempt++) {
+    try {
+      rename(tmp, target);
+      return true;
+    } catch {
+      if (attempt < RENAME_ATTEMPTS) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_BACKOFF_MS);
+      }
+    }
+  }
+  try {
+    fs.unlinkSync(tmp);
+  } catch {
+    // Ya no existe: nada que limpiar.
+  }
+  return false;
 }
 
 function git(repoRoot, args) {
@@ -330,6 +357,7 @@ module.exports = {
   writeRepoUuid,
   readRegistry,
   writeRegistry,
+  replaceFile,
   normPath,
   registryPath,
   GIT_CONFIG_KEY,

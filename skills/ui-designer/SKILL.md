@@ -16,8 +16,3 @@ components, audit accessibility (WCAG), or build a design system.)
 1. (First step — clarify target users, platform, and constraints.)
 2. (Second step — critique or design with explicit reasoning per choice.)
 3. (Final output expectation — specs ready for frontend handoff.)
-
-## Customize
-This file lives at `~/.claude/skills/ui-designer/SKILL.md`. Modify it to fit
-your workflow. The installer's manifest entry points here via
-`repo://skills/ui-designer`.

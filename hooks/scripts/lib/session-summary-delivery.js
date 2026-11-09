@@ -5,7 +5,7 @@
  * de la sesion anterior entre memory-session-resume.js (SessionStart) y
  * memory-orchestrate.js (UserPromptSubmit).
  *
- * SessionStart no puede esperar los 20-40s que tarda `claude -p`
+ * SessionStart no puede esperar los 10-60 s que tarda la LLM secundaria
  * (session-summarize-previous.js), asi que si una comprobacion BARATA (stat/
  * mtime, sin leer transcripts — la seleccion completa vive en el proceso
  * desacoplado) sugiere que hay una sesion anterior sin resumir, la lanza en
@@ -34,9 +34,10 @@ const path = require('path');
 const { safeId } = require('./safe-id');
 
 const STATE_DIR = path.join(os.homedir(), '.ultron', '.tmp');
-// Plazo de espera: TIMEOUT_MS de session-summarize-previous.js (180s) + 20s de
-// margen para el arranque del proceso desacoplado y la escritura del fichero.
-const MAX_WAIT_MS = 200 * 1000;
+// Plazo de espera: plazo de Codex (120s) + TIMEOUT_MS de la cadena Groq ->
+// Gemini (180s) en session-summarize-previous.js + 20s de margen para el
+// arranque del proceso desacoplado y la escritura del fichero.
+const MAX_WAIT_MS = 320 * 1000;
 
 function pendingPath(sessionId) {
   return path.join(STATE_DIR, `session-summary-pending-${safeId(sessionId)}.json`);

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · 10 diseños del menú de Apagado</title>
+<style>
+  :root { --ink: #F4F5F7; --muted: rgba(244,245,247,.6); --tint: rgba(14,15,18,.94); --danger: #E55B4F; --claude: #D97757; --blue: #8AB4FF; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 40px 60px; min-height: 100vh; color: var(--ink);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+         background: url('assets/fondo.jpg') center/cover fixed, #1b222b; }
+  h1 { font-weight: 600; margin: 0 0 4px; text-shadow: 0 2px 8px #000; }
+  p.sub { margin: 0 0 26px; color: #d8dce4; text-shadow: 0 1px 6px #000; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 26px; }
+  .cell { position: relative; height: 430px; border-radius: 18px; overflow: hidden;
+          background: rgba(0,0,0,.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+  .tag { position: absolute; top: 14px; left: 16px; display: flex; gap: 10px; align-items: center; z-index: 2; }
+  .num { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: #000; display: grid; place-items: center; font-weight: 700; }
+  .tag b { font-weight: 600; text-shadow: 0 1px 6px #000; }
+  .tag span { font-size: 12px; color: #dfe3ea; text-shadow: 0 1px 6px #000; }
+  .stage { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; padding: 0 0 12px 40px; }
+  .dock { display: flex; gap: 6px; padding: 6px 10px; border-radius: 16px; background: rgba(10,11,14,.78);
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), 0 6px 20px rgba(0,0,0,.4); }
+  .dock i { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font: 16px 'Segoe Fluent Icons'; font-style: normal; color: #fff; opacity: .9; }
+  .dock i.on { background: rgba(255,255,255,.10); }
+  .dock i.fake { background: rgba(255,255,255,.06); opacity: .45; }
+  .pop { margin-bottom: 12px; animation: up .22s ease-out both; }
+  @keyframes up { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  .g { font-family: 'Segoe Fluent Icons'; font-style: normal; }
+  .hov { transition: background .12s, transform .12s, color .12s; cursor: pointer; }
+  /* Filo degradado (el «metálico» del dock) */
+  .halo { position: relative; }
+  .halo::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.10) 35%, rgba(255,255,255,.06));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  .shadow { box-shadow: 0 10px 30px rgba(0,0,0,.55); }
+
+  /* 1 · Actual compacto */
+  .d1 { background: var(--tint); border-radius: 12px; padding: 4px; min-width: 168px; }
+  .d1 .r { display: flex; align-items: center; padding: 6px 14px 6px 10px; border-radius: 7px; font-size: 13px; }
+  .d1 .r .g { width: 24px; font-size: 13px; opacity: .85; }
+  .d1 .r:hover { background: rgba(255,255,255,.10); } .d1 .r.x:hover { background: rgba(229,91,79,.33); }
+  .d1 hr { border: 0; height: 1px; background: rgba(255,255,255,.12); margin: 3px 8px; }
+
+  /* 2 · Píldora horizontal de iconos */
+  .d2 { display: flex; gap: 4px; padding: 5px; border-radius: 999px; background: var(--tint); }
+  .d2 .b { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; position: relative; }
+  .d2 .b:hover { background: rgba(255,255,255,.12); } .d2 .b.x:hover { background: rgba(229,91,79,.45); }
+  .d2 .b::after { content: attr(data-t); position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+    font: 12px 'Segoe UI Variable Text'; padding: 3px 8px; border-radius: 6px; background: rgba(14,15,18,.95); opacity: 0; transition: opacity .12s; pointer-events: none; }
+  .d2 .b:hover::after { opacity: 1; }
+  .d2 .sep { width: 1px; margin: 9px 2px; background: rgba(255,255,255,.14); }
+
+  /* 3 · Fichas 3×2 */
+  .d3 { display: grid; grid-template-columns: repeat(3, 72px); gap: 6px; padding: 8px; border-radius: 16px; background: rgba(14,15,18,.86); }
+  .d3 .t { height: 66px; border-radius: 11px; background: rgba(255,255,255,.05); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; }
+  .d3 .t .g { font-size: 17px; }
+  .d3 .t:hover { background: rgba(255,255,255,.12); } .d3 .t.x:hover { background: rgba(229,91,79,.4); }
+  .d3 .t.x .g { color: #ff8f86; }
+
+  /* 4 · Arco de burbujas */
+  .d4 { position: relative; width: 230px; height: 150px; margin-left: -30px; }
+  .d4 .b { position: absolute; width: 44px; height: 44px; border-radius: 50%; background: var(--tint); display: grid; place-items: center; font-size: 15px; }
+  .d4 .b:hover { transform: scale(1.12); background: #1d1f25; } .d4 .b.x:hover { background: #5a2420; }
+  .d4 .lbl { position: absolute; bottom: -2px; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--muted); }
+
+  /* 5 · Con cabecera de usuario */
+  .d5 { width: 250px; border-radius: 14px; background: var(--tint); overflow: hidden; }
+  .d5 .hd { display: flex; gap: 10px; align-items: center; padding: 12px 14px; background: linear-gradient(180deg, rgba(255,255,255,.06), transparent); }
+  .d5 .av { width: 34px; height: 34px; border-radius: 50%; background: #2a2d35; display: grid; place-items: center; font-weight: 700; }
+  .d5 .hd small { display: block; color: var(--muted); font-size: 11.5px; }
+  .d5 .r { display: flex; align-items: center; gap: 12px; padding: 7px 14px; font-size: 13px; }
+  .d5 .r:hover { background: rgba(255,255,255,.08); }
+  .d5 .ft { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+  .d5 .ft div { flex: 1; text-align: center; padding: 7px 0; border-radius: 8px; font-size: 12.5px; background: rgba(255,255,255,.06); }
+  .d5 .ft div:hover { background: rgba(255,255,255,.12); } .d5 .ft div.x { background: rgba(229,91,79,.25); } .d5 .ft div.x:hover { background: rgba(229,91,79,.5); }
+
+  /* 6 · Segmentado: suaves arriba, fuertes abajo */
+  .d6 { width: 232px; padding: 8px; border-radius: 16px; background: var(--tint); }
+  .d6 .top { display: flex; gap: 4px; margin-bottom: 8px; }
+  .d6 .top div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 9px 0 7px; border-radius: 10px; font-size: 11px; color: var(--muted); }
+  .d6 .top div .g { font-size: 16px; color: var(--ink); }
+  .d6 .top div:hover { background: rgba(255,255,255,.08); color: var(--ink); }
+  .d6 .bot { display: flex; gap: 6px; }
+  .d6 .bot div { flex: 1; display: flex; gap: 8px; justify-content: center; align-items: center; padding: 9px 0; border-radius: 10px; font-size: 13px; background: rgba(255,255,255,.07); }
+  .d6 .bot div:hover { background: rgba(255,255,255,.14); }
+  .d6 .bot div.x { background: var(--danger); color: #fff; } .d6 .bot div.x:hover { background: #f06b5f; }
+
+  /* 7 · Solo texto, mono */
+  .d7 { padding: 10px 6px; border-radius: 10px; background: rgba(8,9,11,.95); font-family: 'JetBrains Mono', 'Cascadia Code', monospace; min-width: 190px; }
+  .d7 .h { font-size: 10.5px; letter-spacing: .18em; color: var(--muted); padding: 2px 12px 8px; }
+  .d7 .r { display: flex; justify-content: space-between; padding: 5px 12px; font-size: 12.5px; border-radius: 6px; }
+  .d7 .r span:last-child { color: var(--muted); font-size: 11px; }
+  .d7 .r:hover { background: rgba(255,255,255,.08); } .d7 .r:hover span:first-child::before { content: '› '; color: var(--blue); }
+  .d7 .r.x { color: #ff8f86; } .d7 .r.x:hover span:first-child::before { color: #ff8f86; }
+
+  /* 8 · Extensión del dock (mismo filo) */
+  .d8 { display: flex; gap: 2px; padding: 5px 8px; border-radius: 14px; background: rgba(10,11,14,.82); }
+  .d8 .b { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 54px; padding: 6px 0 5px; border-radius: 9px; font-size: 10.5px; color: var(--muted); }
+  .d8 .b .g { font-size: 15px; color: var(--ink); }
+  .d8 .b:hover { color: var(--ink); transform: translateY(-2px); } .d8 .b.x .g { color: #ff8f86; }
+
+  /* 9 · Apagar protagonista */
+  .d9 { width: 220px; padding: 14px; border-radius: 20px; background: var(--tint); text-align: center; }
+  .d9 .big { width: 86px; height: 86px; margin: 4px auto 6px; border-radius: 50%; display: grid; place-items: center; font-size: 30px;
+             background: radial-gradient(circle at 50% 35%, #3a1d1b, #1a0e0d); box-shadow: inset 0 0 0 2px rgba(229,91,79,.7), 0 0 24px rgba(229,91,79,.25); color: #ff9a90; }
+  .d9 .big:hover { box-shadow: inset 0 0 0 2px #ff8f86, 0 0 34px rgba(229,91,79,.45); transform: scale(1.04); }
+  .d9 .cap { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .d9 .row { display: flex; justify-content: space-between; }
+  .d9 .row div { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; font-size: 14px; background: rgba(255,255,255,.06); }
+  .d9 .row div:hover { background: rgba(255,255,255,.14); }
+
+  /* 10 · Anillos ULTRON */
+  .d10 { display: flex; gap: 10px; padding: 12px 14px 10px; border-radius: 18px; background: rgba(8,9,11,.92); }
+  .d10 .b { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .d10 .ring { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; color: var(--ink);
+               background: conic-gradient(from 210deg, transparent 0 90deg, var(--c, #F2F3F5) 90deg 360deg); position: relative; }
+  .d10 .ring::before { content: ''; position: absolute; inset: 2.5px; border-radius: 50%; background: #0b0c0f; }
+  .d10 .ring .g { position: relative; }
+  .d10 .b:hover { color: var(--ink); } .d10 .b:hover .ring { transform: rotate(-20deg); } .d10 .b:hover .ring .g { transform: rotate(20deg); }
+  .d10 .ring, .d10 .ring .g { transition: transform .2s; }
+</style>
+</head>
+<body>
+<h1>Elige el menú de Apagado</h1>
+<p class="sub">Pasa el ratón por encima: cada uno tiene su resalte. Está pintado encima del dock, como saldría de verdad. Dime el número (o mezcla, p. ej. «el 6 con el filo del 8»).</p>
+
+<div class="grid">
+
+  <div class="cell"><div class="tag"><div class="num">1</div><div><b>Actual compacto</b><br><span>Lista vertical, negro casi opaco. Referencia.</span></div></div>
+    <div class="stage"><div class="pop d1 halo shadow">
+      <div class="r hov"><i class="g">&#xE72E;</i>Bloquear</div>
+      <div class="r hov"><i class="g">&#xE708;</i>Suspender</div>
+      <div class="r hov"><i class="g">&#xF3B1;</i>Cerrar sesión</div>
+      <hr>
+      <div class="r hov x"><i class="g">&#xE777;</i>Reiniciar</div>
+      <div class="r hov x"><i class="g">&#xE7E8;</i>Apagar</div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">2</div><div><b>Píldora de iconos</b><br><span>Fila de botones redondos; el nombre sale al pasar el ratón.</span></div></div>
+    <div class="stage"><div class="pop d2 halo shadow">
+      <div class="b hov" data-t="Bloquear"><i class="g">&#xE72E;</i></div>
+      <div class="b hov" data-t="Suspender"><i class="g">&#xE708;</i></div>
+      <div class="b hov" data-t="Cerrar sesión"><i class="g">&#xF3B1;</i></div>
+      <div class="sep"></div>
+      <div class="b hov x" data-t="Reiniciar"><i class="g">&#xE777;</i></div>
+      <div class="b hov x" data-t="Apagar"><i class="g">&#xE7E8;</i></div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">3</div><div><b>Fichas</b><br><span>Rejilla 3×2 como las carpetas; cada acción es una ficha.</span></div></div>
+    <div class="stage"><div class="pop d3 halo shadow">
+      <div class="t hov"><i class="g">&#xE72E;</i>Bloquear</div>
+      <div class="t hov"><i class="g">&#xE708;</i>Suspender</div>
+      <div class="t hov"><i class="g">&#xF3B1;</i>Salir</div>
+      <div class="t hov"><i class="g">&#xE713;</i>Ajustes</div>
+      <div class="t hov x"><i class="g">&#xE777;</i>Reiniciar</div>
+      <div class="t hov x"><i class="g">&#xE7E8;</i>Apagar</div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">4</div><div><b>Arco de burbujas</b><br><span>Las acciones se abren en abanico sobre el botón.</span></div></div>
+    <div class="stage"><div class="pop d4">
+      <div class="b hov shadow halo" style="left:6px;top:96px"><i class="g">&#xE72E;</i></div>
+      <div class="b hov shadow halo" style="left:34px;top:40px"><i class="g">&#xE708;</i></div>
+      <div class="b hov shadow halo" style="left:93px;top:12px"><i class="g">&#xF3B1;</i></div>
+      <div class="b hov shadow halo x" style="left:152px;top:40px"><i class="g">&#xE777;</i></div>
+      <div class="b hov shadow halo x" style="left:180px;top:96px;color:#ff8f86"><i class="g">&#xE7E8;</i></div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">5</div><div><b>Con tu sesión</b><br><span>Cabecera con usuario y tiempo encendido; Reiniciar/Apagar abajo.</span></div></div>
+    <div class="stage"><div class="pop d5 halo shadow">
+      <div class="hd"><div class="av">U</div><div>Usuario<small>Encendido 2 h 14 min</small></div></div>
+      <div class="r hov"><i class="g">&#xE72E;</i>Bloquear</div>
+      <div class="r hov"><i class="g">&#xE708;</i>Suspender</div>
+      <div class="r hov"><i class="g">&#xF3B1;</i>Cerrar sesión</div>
+      <div class="ft"><div class="hov">Reiniciar</div><div class="hov x">Apagar</div></div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">6</div><div><b>Segmentado</b><br><span>Lo suave arriba en iconos; Reiniciar y Apagar, botones grandes.</span></div></div>
+    <div class="stage"><div class="pop d6 halo shadow">
+      <div class="top"><div class="hov"><i class="g">&#xE72E;</i>Bloquear</div><div class="hov"><i class="g">&#xE708;</i>Suspender</div><div class="hov"><i class="g">&#xF3B1;</i>Salir</div></div>
+      <div class="bot"><div class="hov"><i class="g">&#xE777;</i>Reiniciar</div><div class="hov x"><i class="g">&#xE7E8;</i>Apagar</div></div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">7</div><div><b>Terminal</b><br><span>Solo texto en mono, a juego con el reloj; atajo de teclado a la derecha.</span></div></div>
+    <div class="stage"><div class="pop d7 halo shadow">
+      <div class="h">ENERGÍA</div>
+      <div class="r hov"><span>bloquear</span><span>Win+L</span></div>
+      <div class="r hov"><span>suspender</span><span>S</span></div>
+      <div class="r hov"><span>cerrar sesión</span><span>C</span></div>
+      <div class="r hov x"><span>reiniciar</span><span>R</span></div>
+      <div class="r hov x"><span>apagar</span><span>A</span></div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">8</div><div><b>Extensión del dock</b><br><span>Una segunda barra con el mismo filo metálico del dock.</span></div></div>
+    <div class="stage"><div class="pop d8 halo shadow">
+      <div class="b hov"><i class="g">&#xE72E;</i>Bloquear</div>
+      <div class="b hov"><i class="g">&#xE708;</i>Suspender</div>
+      <div class="b hov"><i class="g">&#xF3B1;</i>Salir</div>
+      <div class="b hov x"><i class="g">&#xE777;</i>Reiniciar</div>
+      <div class="b hov x"><i class="g">&#xE7E8;</i>Apagar</div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">9</div><div><b>Apagar protagonista</b><br><span>Botón grande de apagar; el resto, iconos pequeños debajo.</span></div></div>
+    <div class="stage"><div class="pop d9 halo shadow">
+      <div class="big hov"><i class="g">&#xE7E8;</i></div>
+      <div class="cap">Apagar</div>
+      <div class="row"><div class="hov" title="Bloquear"><i class="g">&#xE72E;</i></div><div class="hov" title="Suspender"><i class="g">&#xE708;</i></div><div class="hov" title="Cerrar sesión"><i class="g">&#xF3B1;</i></div><div class="hov" title="Reiniciar"><i class="g">&#xE777;</i></div></div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+  <div class="cell"><div class="tag"><div class="num">10</div><div><b>Anillos ULTRON</b><br><span>Cada acción dentro de un anillo abierto como los logos; Apagar en naranja Claude.</span></div></div>
+    <div class="stage"><div class="pop d10 halo shadow">
+      <div class="b hov"><div class="ring"><i class="g">&#xE72E;</i></div>Bloquear</div>
+      <div class="b hov"><div class="ring"><i class="g">&#xE708;</i></div>Suspender</div>
+      <div class="b hov"><div class="ring"><i class="g">&#xF3B1;</i></div>Salir</div>
+      <div class="b hov"><div class="ring" style="--c:#8AB4FF"><i class="g">&#xE777;</i></div>Reiniciar</div>
+      <div class="b hov"><div class="ring" style="--c:#D97757"><i class="g">&#xE7E8;</i></div>Apagar</div>
+    </div><div class="dock"><i class="on">&#xE7E8;</i><i>&#xE721;</i><i>&#xE7C4;</i><i class="fake"></i><i class="fake"></i><i class="fake"></i></div></div></div>
+
+</div>
+</body>
+</html>

@@ -5,16 +5,38 @@
 //   - call_anthropic, call_openai_compat, call_gemini, call_ollama
 //   - try_assignment_call
 
+use crate::ai_router::api_format::openai_api_root;
 use crate::ai_router::exec::{call_cli, with_retry};
 use crate::ai_router::health::http_client;
+use crate::ai_router::key_source::resolve_key;
+use crate::ai_router::retry_hint;
 use crate::ai_router::store::{detect_cli, load_providers, looks_like_placeholder};
 use crate::ai_router::types::{
-    CallOutcome, FailReason, Provider, ProviderKind, TokenUsage, ZoneAssignment,
+    ApiFormat, CallOutcome, FailReason, Provider, ProviderKind, TokenUsage, ZoneAssignment,
 };
 
 // ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
+
+/// Raw `Retry-After` header, read before the body consumes the response.
+fn retry_after_header(resp: &reqwest::blocking::Response) -> Option<String> {
+    resp.headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+}
+
+/// `[retry-after=Ns]` marker for a rate-limited response, parsed from the
+/// header or the FULL body (before truncation); empty otherwise.
+fn retry_hint_suffix(reason: FailReason, header: Option<&str>, body: &str) -> String {
+    if reason != FailReason::RateLimit {
+        return String::new();
+    }
+    retry_hint::parse_retry_after(header, body)
+        .map(retry_hint::marker)
+        .unwrap_or_default()
+}
 
 /// Truncate `s` to at most `max` Unicode scalar values, appending `...`.
 pub(crate) fn truncate(s: &str, max: usize) -> String {
@@ -46,7 +68,7 @@ pub(crate) fn call_anthropic(
     max_tokens: u32,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let client = http_client().map_err(|e| (e, FailReason::Error))?;
-    let key = std::env::var(&provider.key_env_var).map_err(|_| {
+    let key = resolve_key(&provider.key_env_var).ok_or_else(|| {
         (
             format!("missing {} env var", provider.key_env_var),
             FailReason::Error,
@@ -88,11 +110,13 @@ pub(crate) fn call_anthropic(
             (format!("anthropic request failed: {}", e), reason)
         })?;
     let status = resp.status();
+    let retry_after = retry_after_header(&resp);
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
+        let hint = retry_hint_suffix(reason, retry_after.as_deref(), &text);
         return Err((
-            format!("anthropic {}: {}", status, truncate(&text, 200)),
+            format!("anthropic {}: {}{}", status, truncate(&text, 200), hint),
             reason,
         ));
     }
@@ -139,16 +163,19 @@ pub(crate) fn call_openai_compat(
     max_tokens: u32,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let client = http_client().map_err(|e| (e, FailReason::Error))?;
-    let key = std::env::var(&provider.key_env_var).map_err(|_| {
-        (
-            format!("missing {} env var", provider.key_env_var),
-            FailReason::Error,
-        )
-    })?;
-    let url = format!(
-        "{}/v1/chat/completions",
-        provider.base_url.trim_end_matches('/')
-    );
+    // Sin variable de key (p. ej. un servidor local personalizado) no se
+    // manda cabecera de autorización.
+    let key = if provider.key_env_var.is_empty() {
+        None
+    } else {
+        Some(resolve_key(&provider.key_env_var).ok_or_else(|| {
+            (
+                format!("missing {} env var", provider.key_env_var),
+                FailReason::Error,
+            )
+        })?)
+    };
+    let url = format!("{}/chat/completions", openai_api_root(&provider.base_url));
     let mut messages: Vec<serde_json::Value> = Vec::new();
     if let Some(sys) = system {
         if !sys.is_empty() {
@@ -161,9 +188,11 @@ pub(crate) fn call_openai_compat(
         "messages": messages,
         "max_tokens": clamp_max_tokens(max_tokens, 1024),
     });
-    let resp = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", key))
+    let mut req = client.post(&url);
+    if let Some(key) = key {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    let resp = req
         .header("content-type", "application/json")
         .json(&body)
         .send()
@@ -176,11 +205,19 @@ pub(crate) fn call_openai_compat(
             (format!("{} request failed: {}", provider.id, e), reason)
         })?;
     let status = resp.status();
+    let retry_after = retry_after_header(&resp);
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
+        let hint = retry_hint_suffix(reason, retry_after.as_deref(), &text);
         return Err((
-            format!("{} {}: {}", provider.id, status, truncate(&text, 200)),
+            format!(
+                "{} {}: {}{}",
+                provider.id,
+                status,
+                truncate(&text, 200),
+                hint
+            ),
             reason,
         ));
     }
@@ -231,7 +268,7 @@ pub(crate) fn call_gemini(
     max_tokens: u32,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let client = http_client().map_err(|e| (e, FailReason::Error))?;
-    let key = std::env::var(&provider.key_env_var).map_err(|_| {
+    let key = resolve_key(&provider.key_env_var).ok_or_else(|| {
         (
             format!("missing {} env var", provider.key_env_var),
             FailReason::Error,
@@ -281,11 +318,13 @@ pub(crate) fn call_gemini(
             (format!("gemini request failed: {}", e), reason)
         })?;
     let status = resp.status();
+    let retry_after = retry_after_header(&resp);
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
+        let hint = retry_hint_suffix(reason, retry_after.as_deref(), &text);
         return Err((
-            format!("gemini {}: {}", status, truncate(&text, 200)),
+            format!("gemini {}: {}{}", status, truncate(&text, 200), hint),
             reason,
         ));
     }
@@ -328,18 +367,43 @@ pub(crate) fn call_gemini(
 /// sidecar que lanzan los hooks de cualquier sesión de Claude Code). Función
 /// pura y testeable, separada del `spawn`/HTTP de `call_ollama`.
 ///
-/// `keep_alive: 0` es intencional: sin él, Ollama aplica SU plazo por
-/// defecto de 5 minutos. Estas llamadas son sueltas — nadie gana nada con
-/// que el modelo se quede cargado en VRAM tras cada una (medido el
-/// 2026-09-21: 8,6 GB tomados 5 min tras cerrar la aplicación, visibles con
-/// `ollama ps`).
-pub(crate) fn build_ollama_generate_body(model: &str, prompt: &str) -> serde_json::Value {
+/// `keep_alive` lo decide `ollama_keep_alive`: `0` para un modelo suelto y
+/// el plazo del motor para el modelo del motor local activo.
+pub(crate) fn build_ollama_generate_body(
+    model: &str,
+    prompt: &str,
+    active_local: Option<(&str, &str)>,
+) -> serde_json::Value {
     serde_json::json!({
         "model": model,
         "prompt": prompt,
         "stream": false,
-        "keep_alive": 0,
+        "keep_alive": ollama_keep_alive(model, active_local),
     })
+}
+
+/// `keep_alive` de una llamada interna a Ollama.
+///
+/// `0` por defecto: sin él, Ollama aplica SU plazo de 5 minutos, y estas
+/// llamadas son sueltas — nadie gana nada con que el modelo se quede en VRAM
+/// tras cada una (medido el 2026-09-21: 8,6 GB tomados 5 min tras cerrar la
+/// aplicación, visibles con `ollama ps`).
+///
+/// Si `model` es el del motor local activo (`active_local` = modelo y plazo),
+/// se reenvía el plazo del motor (`"5m"`, `"10m"` u `ollamaTab.keepAlive`):
+/// con `0` cada despacho del router echaría de VRAM el modelo del
+/// autocompletado, y con otro valor alteraría su caducidad (Ollama la
+/// reajusta con el `keep_alive` de cada petición).
+pub(crate) fn ollama_keep_alive(
+    model: &str,
+    active_local: Option<(&str, &str)>,
+) -> serde_json::Value {
+    match active_local {
+        Some((active, keep_alive)) if crate::ollama::switch::same_model(active, model) => {
+            crate::ollama::editor::keep_alive_json(keep_alive)
+        }
+        _ => serde_json::Value::from(0),
+    }
 }
 
 pub(crate) fn call_ollama(
@@ -360,7 +424,12 @@ pub(crate) fn call_ollama(
         ));
     }
     let url = format!("{}/api/generate", provider.base_url.trim_end_matches('/'));
-    let mut body = build_ollama_generate_body(model, prompt);
+    let active = crate::ollama::engine::active_local_model();
+    let mut body = build_ollama_generate_body(
+        model,
+        prompt,
+        active.as_ref().map(|(m, k)| (m.as_str(), k.as_str())),
+    );
     if let Some(sys) = system {
         if !sys.is_empty() {
             body["system"] = serde_json::Value::String(sys.to_string());
@@ -380,11 +449,13 @@ pub(crate) fn call_ollama(
             (format!("ollama request failed: {}", e), reason)
         })?;
     let status = resp.status();
+    let retry_after = retry_after_header(&resp);
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
+        let hint = retry_hint_suffix(reason, retry_after.as_deref(), &text);
         return Err((
-            format!("ollama {}: {}", status, truncate(&text, 200)),
+            format!("ollama {}: {}{}", status, truncate(&text, 200), hint),
             reason,
         ));
     }
@@ -409,8 +480,25 @@ pub(crate) fn call_ollama(
 // Assignment call (with retry)
 // ---------------------------------------------------------------------------
 
+/// The model that `try_assignment_call` really dispatches for `assignment`.
+///
+/// For `ollama` it is the active local model (`ollama::toggle::model_name`:
+/// env > editor's local engine > `cockpit/ollama/config.json`), NOT the
+/// assignment's fixed model; every other provider gets `assignment.model`.
+/// Metrics and the route-decision log use this so they never record a model
+/// that was not called (2026-10-23: they logged `qwen2.5-coder:32b`, which is
+/// not even installed on this machine).
+pub(crate) fn dispatch_model(assignment: &ZoneAssignment) -> String {
+    if assignment.provider_id == "ollama" {
+        crate::ollama::toggle::model_name()
+    } else {
+        assignment.model.clone()
+    }
+}
+
 /// Try a single provider+model assignment with up to 3 retries for transient
-/// errors on cloud providers. CLI and local providers are not retried.
+/// errors on HTTP providers (cloud and the local ollama). CLI providers are
+/// not retried.
 ///
 /// Returns `(CallOutcome, retry_count)` on success; `(error_msg, FailReason)`
 /// on terminal failure.
@@ -425,16 +513,31 @@ pub(crate) fn try_assignment_call(
         .find(|p| p.id == assignment.provider_id)
         .ok_or_else(|| {
             (
-                format!("unknown provider '{}'", assignment.provider_id),
+                format!(
+                    "unknown provider '{}' (not in cockpit/ai-router/providers.json; \
+                     fix the zone in AI Router > Zones)",
+                    assignment.provider_id
+                ),
                 FailReason::Error,
             )
         })?
         .clone();
 
+    let is_cli = provider.kind == ProviderKind::Cli || provider.api_format == ApiFormat::Cli;
     match provider.kind {
-        ProviderKind::Cli => {
-            let cmd = provider.cli_command.as_deref().unwrap_or("");
-            if cmd.is_empty() || !detect_cli(cmd) {
+        _ if is_cli => {
+            let cmd = provider.cli_command.as_deref().unwrap_or("").trim();
+            if cmd.is_empty() {
+                return Err((
+                    format!(
+                        "provider '{}' uses api_format 'cli' but has no cli_command \
+                         (set it in cockpit/ai-router/providers.json)",
+                        assignment.provider_id
+                    ),
+                    FailReason::Error,
+                ));
+            }
+            if !detect_cli(cmd) {
                 let install_hint = match cmd {
                     "codex" => "Install with: npm install -g @openai/codex",
                     "gemini" => "Install with: npm install -g @google/gemini-cli",
@@ -448,13 +551,13 @@ pub(crate) fn try_assignment_call(
             return call_cli(&provider, prompt, &assignment.model).map(|co| (co, 0));
         }
         ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
-            match std::env::var(&provider.key_env_var) {
-                Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
+            match resolve_key(&provider.key_env_var) {
+                Some(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
                 _ => {
                     return Err((
                         format!(
                             "Provider '{}' has no API key. \
-                             Set {} or configure it in Settings > AI Router.",
+                             Set {} or configure it in Settings > API Keys.",
                             assignment.provider_id, provider.key_env_var
                         ),
                         FailReason::Error,
@@ -466,8 +569,8 @@ pub(crate) fn try_assignment_call(
     }
 
     const MAX_RETRIES: u32 = 3;
-    match provider.id.as_str() {
-        "claude" | "claude-haiku" => with_retry(MAX_RETRIES, || {
+    match provider.api_format {
+        ApiFormat::Anthropic => with_retry(MAX_RETRIES, || {
             call_anthropic(
                 &provider,
                 &assignment.model,
@@ -476,7 +579,7 @@ pub(crate) fn try_assignment_call(
                 assignment.max_tokens,
             )
         }),
-        "codex" | "groq" | "deepseek" => with_retry(MAX_RETRIES, || {
+        ApiFormat::OpenaiCompat => with_retry(MAX_RETRIES, || {
             call_openai_compat(
                 &provider,
                 &assignment.model,
@@ -485,7 +588,7 @@ pub(crate) fn try_assignment_call(
                 assignment.max_tokens,
             )
         }),
-        "gemini" => with_retry(MAX_RETRIES, || {
+        ApiFormat::Gemini => with_retry(MAX_RETRIES, || {
             call_gemini(
                 &provider,
                 &assignment.model,
@@ -494,18 +597,15 @@ pub(crate) fn try_assignment_call(
                 assignment.max_tokens,
             )
         }),
-        "ollama" => {
+        ApiFormat::Ollama => {
             // (2026-09-16) El modelo local activo lo resuelve
-            // `ollama::toggle::model_name` (precedencia env > config
-            // persistido > por defecto), NO el modelo fijo que trae la
+            // `dispatch_model` (precedencia env > modelo del motor local del
+            // editor, ver `ollama::engine`), NO el modelo fijo que trae la
             // ZoneAssignment del zones.json: `qwen2.5-coder:32b` no está
-            // descargado y no cabe en 8 GB de VRAM en esta máquina, así
-            // que despachar con `assignment.model` a ciegas rompía
-            // `code-fast-local` y el fallback local de `light`. Punto de
-            // despacho elegido por ser el único lugar donde TODAS las
-            // llamadas al proveedor `ollama` pasan, sin importar la zona
-            // ni si el modelo llega como primary o como fallback.
-            let model = crate::ollama::toggle::model_name();
+            // descargado y no cabe en 8 GB de VRAM en esta máquina. Las
+            // métricas y el log de rutas usan la misma función, así que
+            // registran el modelo que de verdad se llama.
+            let model = dispatch_model(assignment);
             with_retry(MAX_RETRIES, || {
                 call_ollama(
                     &provider,
@@ -516,8 +616,13 @@ pub(crate) fn try_assignment_call(
                 )
             })
         }
-        other => Err((
-            format!("no wrapper implemented for provider '{}'", other),
+        // `Cli` ya salió arriba; queda aquí solo para que el match sea total.
+        ApiFormat::Unknown | ApiFormat::Cli => Err((
+            format!(
+                "no wrapper implemented for provider '{}': unknown api_format; set one of openai_compat, \
+                 anthropic, gemini, ollama or cli in cockpit/ai-router/providers.json",
+                provider.id
+            ),
             FailReason::Error,
         )),
     }
@@ -529,7 +634,7 @@ mod tests {
 
     #[test]
     fn el_cuerpo_de_ollama_suelta_el_modelo_al_acabar() {
-        let body = build_ollama_generate_body("qwen2.5-coder:7b", "hola");
+        let body = build_ollama_generate_body("qwen2.5-coder:7b", "hola", None);
         assert_eq!(
             body.get("keep_alive").and_then(|v| v.as_i64()),
             Some(0),
@@ -541,6 +646,51 @@ mod tests {
         );
         assert_eq!(body.get("prompt").and_then(|v| v.as_str()), Some("hola"));
         assert_eq!(body.get("stream").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    /// El modelo del motor local activo se reenvía con el plazo del motor:
+    /// el router lo usa sin echarlo de VRAM ni cambiar su caducidad.
+    #[test]
+    fn el_modelo_del_motor_activo_conserva_su_plazo() {
+        let body = build_ollama_generate_body(
+            "qwen2.5-coder:3b-base",
+            "hola",
+            Some(("qwen2.5-coder:3b-base", "5m")),
+        );
+        assert_eq!(body.get("keep_alive"), Some(&serde_json::json!("5m")));
+        assert_eq!(
+            ollama_keep_alive("llama3", Some(("llama3:latest", "10m"))),
+            serde_json::json!("10m")
+        );
+    }
+
+    /// Caso negativo: ya no se fija indefinidamente (`-1`) el modelo del
+    /// motor, salvo que el usuario lo pida con `ollamaTab.keepAlive`.
+    #[test]
+    fn el_modelo_del_motor_no_se_fija_indefinidamente() {
+        let value = ollama_keep_alive("m:3b", Some(("m:3b", "5m")));
+        assert_ne!(value, serde_json::json!(-1));
+        assert_eq!(
+            ollama_keep_alive("m:3b", Some(("m:3b", "-1"))),
+            serde_json::json!(-1)
+        );
+    }
+
+    /// Caso negativo: con OTRO modelo activo (o ninguno), el del router se
+    /// suelta igual que antes.
+    #[test]
+    fn un_modelo_distinto_del_activo_se_suelta() {
+        assert_eq!(
+            ollama_keep_alive(
+                "qwen2.5-coder:7b-base",
+                Some(("qwen2.5-coder:3b-base", "5m"))
+            ),
+            serde_json::json!(0)
+        );
+        assert_eq!(
+            ollama_keep_alive("qwen2.5-coder:3b-base", None),
+            serde_json::json!(0)
+        );
     }
 
     /// Caso negativo: un cuerpo construido a mano sin la clave no puede

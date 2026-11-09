@@ -4,14 +4,22 @@
 // plugin_check_updates_bulk (SHA-aware) y nunca registrados.
 use crate::plugins_info as pi;
 
+/// Recorre la caché de plugins: en el pool bloqueante.
 #[tauri::command]
-pub fn list_all_plugins() -> Result<Vec<pi::PluginEntry>, String> {
-    pi::list_all_plugins_inner()
+pub async fn list_all_plugins() -> Result<Vec<pi::PluginEntry>, String> {
+    tauri::async_runtime::spawn_blocking(pi::list_all_plugins_inner)
+        .await
+        .map_err(|e| format!("list_all_plugins: la tarea de fondo falló: {e}"))?
 }
 
+/// Borra un árbol de la caché (`remove_dir_all`): en el pool bloqueante.
 #[tauri::command]
-pub fn uninstall_plugin_cache(name: String, marketplace: String) -> Result<(), String> {
-    pi::uninstall_plugin_cache_inner(&name, &marketplace)
+pub async fn uninstall_plugin_cache(name: String, marketplace: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pi::uninstall_plugin_cache_inner(&name, &marketplace)
+    })
+    .await
+    .map_err(|e| format!("uninstall_plugin_cache: la tarea de fondo falló: {e}"))?
 }
 
 // ---------------------------------------------------------------------------

@@ -2,8 +2,6 @@
 //
 // Surface introduced by the Agents tab redesign ("plantilla de empleados"):
 //
-//   - `list_delegations` reads the delegation log written by the kanban
-//     dispatcher (`kanban_dispatch_card`).
 //   - `list_workflows` returns the preconfigured workflow sequences from
 //     `~/.claude/skills/ultron/references/skill-alignments.md`. We hard-code
 //     the canonical seven so the UI works even when the user has the skill
@@ -15,8 +13,11 @@
 //
 // Sub-modules:
 //   types            — shared data structures
-//   delegation_log   — append-only JSONL delegation log (read side)
 //   workflows        — built-in workflow definitions
+//
+// `delegation_log` (`list_delegations` sobre `cockpit/delegations.jsonl`) se
+// retiró el 2026-10-17: su último escritor, `kanban_dispatch_card`, devuelve
+// DISPATCH_RETIRED desde H12 y ningún hook escribe ese fichero.
 //
 // `delegate` and `provider_router` (fire-and-forget task delegation + multi-IA
 // PTY dispatch) were retired here (2026-09-14, kanban "comandos huérfanos"):
@@ -24,7 +25,6 @@
 // `invoke()` consumers in the frontend. Recoverable from git history if the
 // feature gets wired to a UI later.
 
-pub(crate) mod delegation_log;
 pub(crate) mod types;
 pub(crate) mod usage;
 pub(crate) mod workflows;
@@ -36,6 +36,5 @@ mod tests;
 // Public re-exports — preserve the original flat API of agent_orchestration
 // ---------------------------------------------------------------------------
 
-pub use delegation_log::list_delegations_inner;
-pub use types::{DelegationLogEntry, WorkflowDefinition, WorkflowStep};
+pub use types::{WorkflowDefinition, WorkflowStep};
 pub use workflows::list_workflows_inner;

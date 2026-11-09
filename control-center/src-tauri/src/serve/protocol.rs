@@ -27,6 +27,8 @@ pub(super) struct Req {
     pub(super) cross: Option<bool>,
     /// recall: pasar el cross-encoder (calidad) o quedarse en el híbrido.
     pub(super) rerank: Option<bool>,
+    /// recall: medición (doctor, evals, benchmarks) sin telemetría de uso.
+    pub(super) diagnostic: Option<bool>,
     /// embed: texto suelto a vectorizar contra el E5 ya residente. Campo propio
     /// (no `prompt`) porque no es una consulta que el daemon vaya a resolver,
     /// sino el material del que se devuelve el vector.
@@ -208,11 +210,15 @@ pub(super) fn handle_request(req: &Req, expected_token: &str, started: Instant) 
         // Calentar el catalogo agente/skill EN EL DAEMON. La GUI lo hacia en su
         // propio proceso al arrancar y ese probe bastaba para cargarle E5:
         // 1.522 MB nada mas abrir la ventana, midiera lo que midiera el daemon
-        // (2026-08-15). Aqui el modelo ya esta (o se carga una sola vez).
-        "warm_catalog" => match crate::memory::catalog::maybe_warm_catalog() {
-            Ok((n, errs)) => (json!({ "ok": true, "entities": n, "errors": errs }), false),
-            Err(e) => (json!({ "error": e }), false),
-        },
+        // (2026-08-15). Aqui el modelo ya esta (o se carga una sola vez). Con
+        // ULTRON_DENSE=0 no se toca E5: responde `skipped: dense_off`.
+        "warm_catalog" => {
+            let dense_on = crate::qdrant::dense_enabled();
+            match crate::memory::catalog_warm::warm_with(dense_on) {
+                Ok(outcome) => (outcome.to_json(), false),
+                Err(e) => (json!({ "error": e }), false),
+            }
+        }
         // Recall completo servido por el daemon (2026-08-15). Existe para que
         // NADIE más tenga que cargar E5: la GUI y los one-shot preguntan aquí,
         // donde el modelo ya está caliente, en vez de levantar su propia copia
@@ -225,13 +231,12 @@ pub(super) fn handle_request(req: &Req, expected_token: &str, started: Instant) 
             let top = req.top.unwrap_or(8) as usize;
             let cross = req.cross.unwrap_or(false);
             let rerank = req.rerank.unwrap_or(true);
-            match crate::commands::memory::recall_unified::recall_pack(
-                query,
-                top,
-                req.project.as_deref(),
-                cross,
-                rerank,
-            ) {
+            let pack = if req.diagnostic.unwrap_or(false) {
+                crate::commands::memory::recall_unified::recall_pack_diagnostic
+            } else {
+                crate::commands::memory::recall_unified::recall_pack
+            };
+            match pack(query, top, req.project.as_deref(), cross, rerank) {
                 Ok(pack) => match serde_json::to_value(&pack) {
                     Ok(v) => (v, false),
                     Err(e) => (json!({ "error": format!("serialize: {e}") }), false),
@@ -289,6 +294,9 @@ fn hotpath_dense_enabled() -> bool {
     if std::env::var("ULTRON_HOTPATH_SPARSE").as_deref() == Ok("1") {
         return false;
     }
+    // Esto es lo que PIDE el daemon: orchestrate() solo lo honra con
+    // ULTRON_DENSE activo (con ULTRON_DENSE=0 todo va sparse, ver
+    // orchestrator::orchestrate::effective_dense).
     // Default DENSE, validado contra el oraculo golden (2026-07-22, 29 queries,
     // ambos paths sin rerank como el hook real): sparse-first p@3=0.092 /
     // recall@8=0.164 vs dense p@3=0.414 / recall@8=0.687. La degradacion
@@ -311,6 +319,7 @@ mod tests {
             top: None,
             cross: None,
             rerank: None,
+            diagnostic: None,
             text: None,
         }
     }

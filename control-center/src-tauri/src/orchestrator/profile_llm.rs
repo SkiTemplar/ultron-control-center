@@ -179,7 +179,11 @@ fn lineas_de_memoria(
                 .filter(|s| !s.trim().is_empty())
                 .or(it.title.as_deref())
                 .filter(|s| !s.trim().is_empty())?;
-            Some(format!("- [{}] {}", kind.as_str(), recortar_a(texto, 300)))
+            Some(format!(
+                "- [{}] {}",
+                kind.as_str(),
+                recortar_a(&redactar(texto), 300)
+            ))
         })
         .take(cupo)
         .collect()
@@ -188,8 +192,8 @@ fn lineas_de_memoria(
 /// Junta las fuentes del hook y la memoria, las redacta y las acota. Es lo que
 /// viaja al proveedor.
 pub fn preparar_fuentes(project: &str, repo: &str, memoria: &str) -> String {
-    let repo = cabecera(repo.trim(), MAX_REPO_CHARS);
-    let memoria = cabecera(memoria.trim(), MAX_MEMORIA_CHARS);
+    let repo = cabecera(&redactar(repo.trim()), MAX_REPO_CHARS);
+    let memoria = cabecera(&redactar(memoria.trim()), MAX_MEMORIA_CHARS);
     let mut out = format!("## Proyecto: {project}\n");
     if !repo.is_empty() {
         out.push_str("\n## Documentación y estado del repositorio\n");
@@ -201,7 +205,15 @@ pub fn preparar_fuentes(project: &str, repo: &str, memoria: &str) -> String {
         out.push_str(&memoria);
         out.push('\n');
     }
-    crate::memory::redaction::redact_pii(&crate::memory::redaction::redact(&out))
+    // Segunda pasada sobre el texto final (nombre del proyecto incluido).
+    redactar(&out)
+}
+
+/// Secretos y PII fuera. Se aplica al texto COMPLETO antes de cualquier
+/// recorte: un secreto cortado por un tope queda por debajo del mínimo del
+/// patrón y escaparía a la redacción posterior.
+fn redactar(s: &str) -> String {
+    crate::memory::redaction::redact_pii(&crate::memory::redaction::redact(s))
 }
 
 /// Quita un fence de markdown si el modelo lo puso pese a la instrucción.
@@ -398,5 +410,24 @@ mod tests {
             !l.iter().any(|x| x.contains("ajena")),
             "otro proyecto fuera"
         );
+    }
+
+    #[test]
+    fn el_secreto_que_cruza_un_tope_se_redacta_entero() {
+        let token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        // Línea de memoria: el token empieza 14 caracteres antes del tope de 300.
+        let resumen = format!("{} {token}", "m".repeat(285));
+        let items = vec![item(Some("demo"), Some(&resumen), None)];
+        let l = lineas_de_memoria(&items, "demo", &MemoryType::Decision, 1);
+        assert!(!l[0].contains("ghp_"), "ni el prefijo del token: {}", l[0]);
+        assert!(l[0].contains("[REDACTED"), "{}", l[0]);
+
+        // Cabecera del repo: el token cruza `MAX_REPO_CHARS`.
+        let repo = format!("{} {token} cola", "r".repeat(MAX_REPO_CHARS - 10));
+        let f = preparar_fuentes("demo", &repo, "");
+        assert!(!f.contains("ghp_"), "ni el prefijo del token en el repo");
+        // Caso negativo: recortar antes de redactar deja escapar el prefijo.
+        let recortado = cabecera(&repo, MAX_REPO_CHARS);
+        assert!(crate::memory::redaction::redact(&recortado).contains("ghp_ABCDE"));
     }
 }

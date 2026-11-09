@@ -32,7 +32,6 @@ function DetachedProjectViewInner({ projectId }: DetachedProjectViewProps) {
   useEffect(() => {
     open({ id: projectId, title: projectId });
   // Solo al montar — projectId es estático en una ventana detached.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -47,7 +46,7 @@ function DetachedProjectViewInner({ projectId }: DetachedProjectViewProps) {
         overflow: "hidden",
       }}
     >
-      <ProjectWorkspace key={projectId} projectId={projectId} />
+      <ProjectWorkspace key={projectId} projectId={projectId} detached />
     </div>
   );
 }

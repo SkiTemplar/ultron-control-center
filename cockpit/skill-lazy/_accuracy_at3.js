@@ -67,19 +67,19 @@ const CASES = [
   { prompt: 'tengo un stack trace y un panic, encuentra la causa raiz', expectedId: 'debugger',  lang: 'ES' },
 
   // --- Plugins / skills (ES) ---
-  { prompt: 'haz tdd con red green refactor antes de implementar', expectedId: 'superpowers:test-driven-development', lang: 'ES' },
-  { prompt: 'haz un security scan del repositorio buscando cve',   expectedId: 'security-scan',   lang: 'ES' },
+  { prompt: 'haz tdd con red green refactor antes de implementar', expectedId: 'test-automator',  lang: 'ES' }, // antes superpowers:test-driven-development (plugin desinstalado)
+  { prompt: 'haz un security scan del repositorio buscando cve',   expectedId: 'security-auditor', lang: 'ES' },
   { prompt: 'consolida memoria y ordena el index de .ultron',      expectedId: 'consolidate-memory', lang: 'ES' },
 
   // --- Agents / plugins (EN) ---
   { prompt: 'revisa el pr buscando problemas de calidad de codigo', expectedId: 'pr-review-toolkit:code-reviewer', lang: 'ES' },
   { prompt: 'review this pull request for code quality issues',    expectedId: 'code-reviewer', lang: 'EN' },
   { prompt: 'profile the hot path, there is an n+1 query bottleneck', expectedId: 'performance-engineer', lang: 'EN' },
-  { prompt: 'design a kubernetes helm chart for the cluster',      expectedId: 'kubernetes-specialist', lang: 'EN' },
+  { prompt: 'design a kubernetes helm chart for the cluster',      expectedId: 'devops-engineer', lang: 'EN' }, // antes kubernetes-specialist (agente desactivado)
   { prompt: 'write a rag pipeline with a vector db and embeddings', expectedId: 'ai-engineer',    lang: 'EN' },
   { prompt: 'set up a github actions ci cd pipeline',              expectedId: 'devops-engineer', lang: 'EN' },
   { prompt: 'merge a postgresql schema migration with zero-downtime', expectedId: 'database-migrations', lang: 'EN' },
-  { prompt: 'systematic debugging, I cannot find the intermittent bug', expectedId: 'superpowers:systematic-debugging', lang: 'EN' },
+  { prompt: 'systematic debugging, I cannot find the intermittent bug', expectedId: 'debugger', lang: 'EN' }, // antes superpowers:systematic-debugging (plugin desinstalado)
 ];
 
 const TOP_K = 3;

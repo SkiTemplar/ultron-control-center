@@ -48,21 +48,21 @@ export function TodoCard({ onOpenNotes }: TodoCardProps) {
 
   return (
     <Card
-      title="To-Do"
+      title="Tareas"
       subtitle={
         todos.length > 0
           ? `${pending.length} pendiente${pending.length === 1 ? "" : "s"}`
           : undefined
       }
       action={
-        <SmallButton onClick={onOpenNotes} size="md" title="Gestionar en Notes">
-          Notes
+        <SmallButton onClick={onOpenNotes} size="md" title="Gestionar en Notas">
+          Notas
         </SmallButton>
       }
     >
       {todos.length === 0 ? (
         <div className="text-[13px]" style={{ color: "var(--color-text-faint)" }}>
-          Sin tareas. Añádelas desde Notes.
+          Sin tareas. Añádelas desde Notas.
         </div>
       ) : (
         <ul className="space-y-2">
@@ -83,7 +83,7 @@ export function TodoCard({ onOpenNotes }: TodoCardProps) {
           ))}
           {todos.length > 10 && (
             <li className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-              +{todos.length - 10} más en Notes
+              +{todos.length - 10} más en Notas
             </li>
           )}
         </ul>

@@ -7,12 +7,14 @@
 //
 // Backend: src-tauri/src/commands/system_ops/turn_off.rs
 //   turn_off_schedule(hours) / turn_off_cancel() / turn_off_status()
-// Acción pesada (apaga el PC) → UI pesimista: el toggle solo refleja
-// `active` una vez el backend confirma, nunca de forma optimista.
+// Acción pesada (apaga el PC) → UI pesimista: el estado activo solo se pinta
+// una vez el backend confirma, nunca de forma optimista. Programar pide
+// confirmación antes (2026-10-17: antes bastaba marcar una casilla).
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TurnOffState } from "../../../types/system";
+import { confirmDialog } from "../../../lib/dialog";
 import { formatCountdown, MAX_HOURS, MIN_HOURS, secondsUntil, validateHours } from "./turnOffFormat";
 
 const POLL_INTERVAL_MS = 1000;
@@ -89,6 +91,12 @@ export function TurnOffPanel() {
       setError(validation);
       return;
     }
+    const ok = await confirmDialog(`El PC se apagará dentro de ${hours} h.`, {
+      title: "Programar el apagado",
+      kind: "warning",
+      okLabel: "Programar",
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     setSuccessMsg(null);
@@ -118,27 +126,11 @@ export function TurnOffPanel() {
     }
   }, []);
 
-  const handleToggle = useCallback(
-    (next: boolean) => {
-      if (next) {
-        void handleSchedule();
-      } else {
-        void handleCancel();
-      }
-    },
-    [handleSchedule, handleCancel],
-  );
-
   const active = state?.active ?? false;
+  const disabled = busy || loading;
 
   return (
     <section className="mb-6 space-y-3">
-      <p className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-        Programa el apagado de este PC con antelación. Lo ejecuta Windows
-        (shutdown.exe): el plazo sigue en pie aunque cierres el Control
-        Center.
-      </p>
-
       {error && (
         <div
           className="flex flex-wrap items-center justify-between gap-2 rounded p-3 text-[12.5px]"
@@ -173,47 +165,50 @@ export function TurnOffPanel() {
         </div>
       )}
 
+      {/* One control per state: idle = hours + "Programar el apagado" (confirms
+          first); active = countdown + a single neutral "Cancelar el apagado". */}
       <div
-        className="flex flex-wrap items-center gap-5 rounded p-4"
+        className="flex flex-wrap items-end gap-5 rounded p-4"
         style={{
           background: "var(--color-surface-2)",
           border: "1px solid var(--color-border)",
         }}
       >
-        <label
-          className="flex items-center gap-2 text-[13px] font-medium"
-          style={{ color: "var(--color-text)" }}
-        >
-          <input
-            type="checkbox"
-            checked={active}
-            disabled={busy || loading}
-            onChange={(e) => handleToggle(e.target.checked)}
-          />
-          {loading ? "Comprobando…" : active ? "Apagado programado" : "Programar apagado"}
-        </label>
+        {!active && (
+          <>
+            <label
+              className="flex flex-col gap-1 text-[11px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Horas ({MIN_HOURS}–{MAX_HOURS})
+              <input
+                type="number"
+                step="0.1"
+                min={MIN_HOURS}
+                max={MAX_HOURS}
+                value={hoursInput}
+                disabled={disabled}
+                onChange={(e) => setHoursInput(e.target.value)}
+                className="w-24 rounded px-2 py-1 text-[12px] disabled:opacity-50"
+                style={{
+                  background: "var(--color-surface-1)",
+                  border: "1px solid var(--color-border-strong)",
+                  color: "var(--color-text)",
+                }}
+              />
+            </label>
 
-        <label
-          className="flex flex-col gap-1 text-[11px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Horas ({MIN_HOURS}–{MAX_HOURS})
-          <input
-            type="number"
-            step="0.1"
-            min={MIN_HOURS}
-            max={MAX_HOURS}
-            value={hoursInput}
-            disabled={active || busy || loading}
-            onChange={(e) => setHoursInput(e.target.value)}
-            className="rounded px-2 py-1 text-[12px] disabled:opacity-50"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
-              color: "var(--color-text)",
-            }}
-          />
-        </label>
+            <button
+              type="button"
+              onClick={() => void handleSchedule()}
+              disabled={disabled}
+              className="rounded px-3 py-1.5 text-[12.5px] font-medium disabled:opacity-50"
+              style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
+            >
+              {loading ? "Comprobando…" : busy ? "Programando…" : "Programar el apagado"}
+            </button>
+          </>
+        )}
 
         {active && (
           <>
@@ -221,7 +216,7 @@ export function TurnOffPanel() {
               className="flex flex-col gap-1 text-[11px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Apaga en
+              Se apaga dentro de
               <span
                 className="rounded px-2 py-1 text-[16px] font-semibold tabular-nums"
                 style={{
@@ -238,10 +233,14 @@ export function TurnOffPanel() {
               type="button"
               onClick={() => void handleCancel()}
               disabled={busy}
-              className="rounded px-3 py-2 text-[12.5px] font-medium disabled:opacity-50"
-              style={{ background: "var(--color-danger)", color: "var(--color-accent-text)" }}
+              className="rounded px-3 py-1.5 text-[12.5px] font-medium disabled:opacity-50"
+              style={{
+                background: "var(--color-surface-3)",
+                border: "1px solid var(--color-border-strong)",
+                color: "var(--color-text)",
+              }}
             >
-              {busy ? "…" : "Cancelar"}
+              {busy ? "Cancelando…" : "Cancelar el apagado"}
             </button>
           </>
         )}

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { confirmDialog } from "../../lib/dialog";
+import { OPEN_ONBOARDING_EVENT } from "../Onboarding";
+import { REBUILD_STARTED_MESSAGE, startRebuild } from "./rebuildFlow";
+import { SettingsSwitch } from "./SettingsSwitch";
 
 // ---------------------------------------------------------------------------
 // LifecyclePanel — autostart toggle + Rebuild + Close + global hotkey.
@@ -45,7 +48,7 @@ function HotkeyEditor() {
       const r = await invoke<string>("set_global_hotkey", { spec: draft.trim() });
       setSpec(r);
       setDraft(r);
-      setSuccess(`Registered: ${r}`);
+      setSuccess(`Registrado: ${r}`);
       window.setTimeout(() => setSuccess(null), 2500);
     } catch (e) {
       setError(String(e));
@@ -81,11 +84,11 @@ function HotkeyEditor() {
     >
       <div className="flex items-baseline justify-between">
         <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-          Open ULTRON hotkey
+          Atajo para abrir ULTRON
         </div>
         <span
           className="text-[10.5px]"
-          style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+          style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
         >
           ~/.ultron/.tmp/hotkey.txt
         </span>
@@ -94,10 +97,10 @@ function HotkeyEditor() {
         className="mt-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Press this combination in any Windows app to show/hide the Control
-        Center. Format: <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+U</span>,
+        Pulsa esta combinación en cualquier app de Windows para mostrar u ocultar el
+        Control Center. Formato: <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+U</span>,
         <span style={{ fontFamily: "var(--font-mono)" }}> Ctrl+Shift+F12</span>, etc.
-        Needs at least one modifier.
+        Necesita al menos un modificador.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -128,7 +131,7 @@ function HotkeyEditor() {
             border: `1px solid ${capturing ? "var(--color-border-strong)" : "var(--color-border)"}`,
           }}
         >
-          {capturing ? "Cancel capture" : "Capture key"}
+          {capturing ? "Cancelar captura" : "Capturar tecla"}
         </button>
         <button
           type="button"
@@ -140,10 +143,10 @@ function HotkeyEditor() {
             color: "var(--color-accent-text)",
           }}
         >
-          {busy ? "Applying…" : "Apply"}
+          {busy ? "Aplicando…" : "Aplicar"}
         </button>
-        <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
-          active:{" "}
+        <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+          activo:{" "}
           <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>
             {spec || "—"}
           </span>
@@ -184,7 +187,6 @@ export function LifecyclePanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [showCloseAfterRebuild, setShowCloseAfterRebuild] = useState(false);
 
   // --- autostart helpers ---
 
@@ -233,11 +235,9 @@ export function LifecyclePanel() {
     setBusy("update");
     setError(null);
     setStatus(null);
-    setShowCloseAfterRebuild(false);
     try {
-      await invoke("run_app_lifecycle", { kind: "update" });
-      setStatus("Rebuild opened in a new terminal. Takes ~3-5 minutes the first time.");
-      setShowCloseAfterRebuild(true);
+      const outcome = await startRebuild();
+      if (outcome === "started") setStatus(REBUILD_STARTED_MESSAGE);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -245,12 +245,10 @@ export function LifecyclePanel() {
     }
   }
 
-  async function closeControlCenter(reason: "rebuild" | "manual") {
+  async function closeControlCenter() {
     const msg =
-      reason === "rebuild"
-        ? "Close ULTRON Control Center now?\n\nFrees the file lock on control-center.exe so the rebuild can replace it."
-        : "Close ULTRON Control Center?\n\nFully exits the app. Global hotkeys stop working until you relaunch.";
-    const ok = await confirmDialog(msg, { title: "Close Control Center", kind: "warning" });
+      "¿Cerrar ULTRON Control Center?\n\nSale de la app por completo. Los atajos globales dejan de funcionar hasta que vuelvas a abrirla.";
+    const ok = await confirmDialog(msg, { title: "Cerrar Control Center", kind: "warning" });
     if (!ok) return;
     try {
       await invoke("close_control_center");
@@ -299,32 +297,19 @@ export function LifecyclePanel() {
         }}
       >
         <div className="min-w-0">
-          <div className="text-[13px] font-semibold">Start with Windows</div>
+          <div className="text-[13px] font-semibold">Iniciar con Windows</div>
           <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
-            Launches the Control Center at Windows logon via{" "}
+            Abre el Control Center al iniciar sesión en Windows mediante{" "}
             <code style={{ fontFamily: "var(--font-mono)" }}>HKCU\...\Run</code>.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={toggleAutostart}
+        <SettingsSwitch
+          checked={autostartEnabled === true}
+          onChange={() => void toggleAutostart()}
           disabled={autostartBusy || autostartEnabled === null}
-          className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
-          style={{
-            background: autostartEnabled ? "var(--color-success)" : "var(--color-surface-3)",
-            border: "1px solid var(--color-border-strong)",
-            padding: "1px",
-          }}
-          title={autostartEnabled ? "Disable autostart" : "Enable autostart"}
-        >
-          <span
-            className="block h-3.5 w-3.5 rounded-full transition-transform"
-            style={{
-              background: "var(--color-text)",
-              transform: autostartEnabled ? "translateX(16px)" : "translateX(0)",
-            }}
-          />
-        </button>
+          label="Iniciar con Windows"
+          title={autostartEnabled ? "Desactivar el inicio automático" : "Activar el inicio automático"}
+        />
       </div>
 
       {/* Rebuild from source */}
@@ -337,12 +322,12 @@ export function LifecyclePanel() {
       >
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold">Rebuild from source</div>
+            <div className="text-[13px] font-semibold">Recompilar desde el código</div>
             <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
-              Runs{" "}
+              Abre una terminal que hace git pull, npm install y{" "}
               <code style={{ fontFamily: "var(--font-mono)" }}>npm run build:local</code>{" "}
-              in a new terminal (includes the Finance tab when its local sources
-              are present). Relaunch after the build finishes.
+              (con Finance si están sus fuentes locales). ULTRON sigue abierto: el build aparta el
+              ejecutable en uso y el binario nuevo entra al reiniciar la app.
             </p>
           </div>
           <button
@@ -355,49 +340,37 @@ export function LifecyclePanel() {
               color: "var(--color-accent-text)",
             }}
           >
-            {busy === "update" ? "Opening…" : "Rebuild"}
+            {busy === "update" ? "Abriendo…" : "Recompilar"}
           </button>
         </div>
-        {showCloseAfterRebuild && (
-          <div
-            className="mt-3 flex items-center justify-between gap-3 rounded p-3 text-[11.5px]"
-            style={{
-              background: "rgba(210, 153, 34, 0.06)",
-              border: "1px solid rgba(210, 153, 34, 0.28)",
-              color: "var(--color-text-secondary)",
-            }}
-          >
-            <span>
-              Close this window so the new binary can overwrite{" "}
-              <code style={{ fontFamily: "var(--font-mono)" }}>control-center.exe</code>.
-            </span>
-            <div className="flex shrink-0 gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCloseAfterRebuild(false)}
-                className="rounded px-2.5 py-1 text-[11.5px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                Not yet
-              </button>
-              <button
-                type="button"
-                onClick={() => void closeControlCenter("rebuild")}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium"
-                style={{
-                  background: "var(--color-warn)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                Close now
-              </button>
-            </div>
-          </div>
-        )}
+      </div>
+
+      {/* Pantalla de bienvenida (el pie del onboarding remite aquí) */}
+      <div
+        className="flex items-center justify-between gap-4 rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold">Pantalla de bienvenida</div>
+          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+            Vuelve a mostrar la introducción del primer arranque: pestañas principales y glosario.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(OPEN_ONBOARDING_EVENT))}
+          className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          Mostrar
+        </button>
       </div>
 
       {/* Close Control Center */}
@@ -410,14 +383,14 @@ export function LifecyclePanel() {
       >
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold">Close Control Center</div>
+            <div className="text-[13px] font-semibold">Cerrar Control Center</div>
             <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
-              Fully exits the process (X button only minimizes to tray).
+              Sale del proceso por completo (la X solo lo minimiza a la bandeja).
             </p>
           </div>
           <button
             type="button"
-            onClick={() => void closeControlCenter("manual")}
+            onClick={() => void closeControlCenter()}
             disabled={busy !== null}
             className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
             style={{
@@ -426,7 +399,7 @@ export function LifecyclePanel() {
               border: "1px solid rgba(248, 81, 73, 0.32)",
             }}
           >
-            Close
+            Cerrar
           </button>
         </div>
       </div>

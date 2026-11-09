@@ -41,7 +41,6 @@ REGISTRIES = {
 ULTRON_HOME  = HOME / ".ultron"
 MANIFEST     = ULTRON_HOME / "skills-registry.json"
 PENDING_DIR  = ULTRON_HOME / "pending-sync"
-INDEX_FILE   = ULTRON_HOME / "INDEX.md"
 # Dirs to ignore when scanning a registry
 _META_DIRS = {".git", ".system", ".claude", "__pycache__"}
 _META_FILES = {"README-sync.md", "sync.sh", ".gitignore"}
@@ -104,31 +103,6 @@ def _log_activity(event: str, skill: str) -> None:
         }, ensure_ascii=False)
         with activity_file.open("a", encoding="utf-8") as f:
             f.write(entry + "\n")
-    except OSError:
-        pass
-
-
-def _update_index(skill: str, description: str) -> None:
-    """Append skill to INDEX.md Big Brain under ## Skills section."""
-    if not INDEX_FILE.exists():
-        return
-    try:
-        content = INDEX_FILE.read_text(encoding="utf-8")
-        line = f"- [{skill}](~/.claude/skills/{skill}/SKILL.md) — {description}"
-        if skill in content:
-            return  # already indexed
-        # Find ## Skills section and append after it
-        marker = "## Skills"
-        if marker in content:
-            idx = content.index(marker)
-            # Find the end of the section or next ##
-            rest = content[idx + len(marker):]
-            next_sec = rest.find("\n## ")
-            insert_at = idx + len(marker) + (next_sec if next_sec != -1 else len(rest))
-            content = content[:insert_at].rstrip() + f"\n{line}\n" + content[insert_at:]
-        else:
-            content = content.rstrip() + f"\n\n## Skills\n{line}\n"
-        INDEX_FILE.write_text(content, encoding="utf-8")
     except OSError:
         pass
 
@@ -327,7 +301,6 @@ def cmd_process_pending(args) -> int:
             manifest_entry["registries"] = regs
             manifest_entry["description"] = desc
             if not dry:
-                _update_index(skill, desc)
                 processed.append(pf)
 
     if not dry:

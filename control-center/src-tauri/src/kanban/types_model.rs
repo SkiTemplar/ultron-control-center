@@ -3,9 +3,12 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
-/// Process-wide write lock for kanban RMW operations.
-/// Covers `append_run` and `archive_done` — the two load->mutate->save paths.
-/// Pure reads (`load`, `list_archives`, `load_archive`) are excluded.
+/// Process-wide write lock for kanban RMW operations (threads of this app).
+/// Always taken through `board_io::lock_board`, which also takes the
+/// cross-process file lock `kanban.json.lock` (`file_lock.rs`) shared with the
+/// kanban-auto hook and scripts/kanban.mjs. Covers card and column CRUD,
+/// `archive_done` and `load` (which may persist its self-healing).
+/// `list_archives` and `load_archive` are excluded.
 pub(super) static KANBAN_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 pub(super) fn kanban_lock() -> &'static Mutex<()> {
@@ -36,6 +39,10 @@ pub struct CardRun {
     pub status: RunStatus,
     #[serde(default)]
     pub exit_code: Option<i32>,
+    /// Motivo legible cuando el run acabó en `Failed` o `Killed`. Ausente en
+    /// los JSON anteriores a 2026-10-17.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Deserialize a card timestamp that may arrive as a string (the canonical

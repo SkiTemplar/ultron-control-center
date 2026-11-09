@@ -1,0 +1,6 @@
+{
+  "name": "ultron-mejorar",
+  "version": "0.1.0",
+  "description": "Comando /mejorar: reescribe el borrador del prompt con el contexto del proyecto (rama, cambios, último error) y lo deja en la caja para revisarlo",
+  "types": "./types/index.d.ts"
+}

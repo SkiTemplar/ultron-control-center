@@ -9,9 +9,9 @@ import { Boxes, Grid, ListTree } from "./icons";
 export type LibraryViewMode = "grid" | "tree" | "blocks";
 
 const MODES: { id: LibraryViewMode; label: string; Icon: typeof Grid }[] = [
-  { id: "blocks", label: "Blocks", Icon: Boxes },
-  { id: "grid", label: "Grid", Icon: Grid },
-  { id: "tree", label: "Tree", Icon: ListTree },
+  { id: "blocks", label: "Bloques", Icon: Boxes },
+  { id: "grid", label: "Cuadrícula", Icon: Grid },
+  { id: "tree", label: "Árbol", Icon: ListTree },
 ];
 
 /** Hook: read/write the view mode in localStorage under `library.<key>.view`.
@@ -54,7 +54,7 @@ export function ViewToggle({ mode, onChange }: Props) {
         border: "1px solid var(--color-border-strong)",
       }}
       role="radiogroup"
-      aria-label="View mode"
+      aria-label="Modo de vista"
     >
       {MODES.map(({ id, label, Icon }) => {
         const active = mode === id;
@@ -72,7 +72,7 @@ export function ViewToggle({ mode, onChange }: Props) {
                 ? "var(--color-accent-text)"
                 : "var(--color-text-secondary)",
             }}
-            title={`Switch to ${label} view`}
+            title={`Cambiar a la vista ${label.toLowerCase()}`}
           >
             <Icon size={11} />
             <span>{label}</span>

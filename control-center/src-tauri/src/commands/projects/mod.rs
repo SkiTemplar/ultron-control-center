@@ -2,11 +2,12 @@
 //
 // Groups all project-management Tauri commands:
 //   projects — Project CRUD, launcher, open-in-IDE, CLAUDE.md editor, context
-//   agents   — Agent CRUD, delegations, per-project AI roster, session invocation
+//   agents   — Agent CRUD, per-project AI roster, session invocation
 
 pub mod agents;
 pub mod git_ops;
 pub mod project_create;
+pub mod project_usage;
 #[allow(clippy::module_inception)]
 // commands/projects/projects.rs mirrors parent — intentional grouping
 pub mod projects;
@@ -15,5 +16,6 @@ pub mod terminal;
 pub use agents::*;
 pub use git_ops::*;
 pub use project_create::*;
+pub use project_usage::*;
 pub use projects::*;
 pub use terminal::*;

@@ -14,7 +14,7 @@
 
 </div>
 
-ULTRON is a Windows 11 + Linux x86_64 (v15.5+) orchestrator for Claude Code, Codex and Gemini. The default install runs against existing subscriptions; an opt-in API-key path is welcome as a contribution. It is a small project with strong opinions. This document is the operational guide for getting a dev environment up and landing a PR — not a manifesto. If you only want to *use* ULTRON, read `INSTALL.md` instead.
+ULTRON is a Windows 11 + Linux x86_64 (v15.5+) orchestrator for Claude Code and Codex (Gemini is reachable as a cloud provider through the AI Router). The default install runs against existing subscriptions; an opt-in API-key path is welcome as a contribution. It is a small project with strong opinions. This document is the operational guide for getting a dev environment up and landing a PR — not a manifesto. If you only want to *use* ULTRON, read `INSTALL.md` instead.
 
 ---
 
@@ -32,7 +32,7 @@ npm install ; npm run tauri dev     # launches the desktop app
 
 `install.ps1` is idempotent — re-running is safe. It refuses to continue if Claude Code is missing. If you do not want a desktop build (no Rust toolchain on this machine, headless box, etc.), pass `-NoApp` to `install.ps1` and stop after step 3.
 
-Codex and Gemini CLIs are optional. Most development work only requires Claude Code.
+The Codex CLI is optional (gemini-cli was retired on 2026-06-19). Most development work only requires Claude Code.
 
 ---
 
@@ -57,25 +57,31 @@ ultron/
                                     Each exposes a `*_inner` pure-Rust API.
       src/commands/<group>.rs       Thin #[tauri::command] wrappers (v15.4 split).
                                     Wrappers only delegate to the domain `*_inner`.
-      src/lib.rs                    Runtime plumbing only: plugins, tray, generate_handler!.
+      src/lib.rs                    Runtime plumbing only: plugins, tray, hotkeys.
+      src/handlers.rs               The generate_handler! registry of every Tauri command.
       tauri.conf.json               App identifier, window config, allowlist.
 
   scripts/
     cockpit/                        Python operational layer (brain_index, alerts,
                                     agent_telemetry, context_primer, doctor, etc.).
-    hooks/                          Claude Code hooks (PreToolUse, Stop, SessionStart...).
-                                    Pure Python or PowerShell. Wired into settings.json.
+    hooks/                          Only auto-changelog.py (run by git-hooks/post-commit).
+
+  hooks/
+    scripts/*.js                    Claude Code hooks (Node). Run in place from
+                                    ~/.ultron/hooks/scripts; wired in ~/.claude/settings.json.
+    manifest.json                   Versioned mirror of the live hooks (regen-manifest.js).
 
   templates/                        Files copied into ~/.claude or ~/.ultron at install.
-    settings-hooks.json             The hook spec — single source of truth for hooks.
+    settings-hooks.json             Hook template the installers merge; generated from
+                                    ~/.claude/settings.json by hooks/regen-manifest.js.
     CLAUDE.md.example, MEMORY.md.example, etc.
 
   cockpit/                          Runtime data (catalogs, telemetry). Most files are
                                     gitignored except checked-in catalogs like
-                                    agent-catalog.json and mcp-catalog.json.
+                                    mcp-catalog.json.
 
   skills/, plans/, knowledge/       Sources for the brain_index FTS5 corpus.
-  tests/                            pytest suite. Most cockpit scripts have a test here.
+  tests/                            pytest suite (CI job python-tests).
 ```
 
 Avoid Grep-ing blind for a script. `SYSTEM-MAP.md` at the repo root is the pinned route table.
@@ -86,13 +92,13 @@ Avoid Grep-ing blind for a script. `SYSTEM-MAP.md` at the repo root is the pinne
 
 | You want to add | Edit / create | Wire it via |
 |---|---|---|
-| A new Tauri command | `control-center/src-tauri/src/<domain>.rs` (logic as `*_inner`) + thin wrapper in `control-center/src-tauri/src/commands/<group>.rs` | `pub use` in `commands/mod.rs` and the `generate_handler!` macro in `src/lib.rs` |
+| A new Tauri command | `control-center/src-tauri/src/<domain>.rs` (logic as `*_inner`) + thin wrapper in `control-center/src-tauri/src/commands/<group>.rs` | `pub use` in `commands/mod.rs` and the `generate_handler!` macro in `control-center/src-tauri/src/handlers.rs` |
 | A new React tab | `control-center/src/components/<Name>.tsx` | Add the tab id to the `Tab` union and `SECTIONS` in `control-center/src/components/Sidebar.tsx`, then render it in `App.tsx` |
-| A Claude Code hook | `hooks/scripts/<name>.js` (Node; the two Python hooks live in `scripts/hooks/`) | Add an entry under `hooks.<event>` in `templates/settings-hooks.json` — every script it references must exist (`tests/test_hooks_template.py` enforces this) |
+| A Claude Code hook | `hooks/scripts/<name>.js` (Node) | Register it in `~/.claude/settings.json`, then run `node hooks/regen-manifest.js` to refresh `hooks/manifest.json` and `templates/settings-hooks.json` (the pre-commit `--check` fails on drift; `tests/test_hooks_template.py` checks the template only cites scripts in the repo) |
 | A cockpit Python tool | `scripts/cockpit/<name>.py` (inherit `cockpit_base` where it helps) | A test in `tests/test_<name>.py` and, if user-facing, surface it from a Tauri command or hook |
-| A skill | `~/.claude/skills/<name>/SKILL.md` with mandatory YAML frontmatter (`name`, `description`, `model`) | The skill scanner picks it up automatically; run the **Embed skills index** command (palette) if it should appear in semantic recall |
-| An agent | `~/.claude/agents/<name>.md` (one file, same frontmatter rules) | Add an entry to `cockpit/agent-catalog.json` if you want it discoverable through the catalog |
-| A button prompt | `control-center/src-tauri/src/button_prompts.rs` (the canonical catalog) | Consumers fetch via `getPrompt(key, vars)` from `src/lib/button-prompts.ts` |
+| A skill | `~/.claude/skills/<name>/SKILL.md` with mandatory YAML frontmatter (`name`, `description`, `model`) | The skill scanner picks it up automatically; run `uv run python scripts/cockpit/embed_skills.py index` if it should appear in semantic recall (needs Qdrant) |
+| An agent | `~/.claude/agents/<name>.md` (one file, same frontmatter rules, plus an exact 5.5-family `model` and `maxTurns`) | The Agents tab lists it; it refuses to enable or save as active an agent without both (`control-center/src-tauri/src/agents/policy.rs`) |
+| A button prompt | `control-center/src-tauri/src/button_prompts/defaults.rs` (the canonical catalog, `build_defaults`) | Consumers fetch via `getPrompt(key, vars)` from `src/lib/button-prompts.ts` |
 
 Skill and agent frontmatter uses **full Claude model IDs** (`claude-sonnet-5`, `claude-opus-5`) — never short aliases. The PI001-PI013 prompt-injection scanner in `scripts/cockpit/skill_sync_security.py` runs against both directories with the same rules.
 
@@ -108,11 +114,11 @@ Read the files around yours before adding new code. The patterns are consistent 
 - **PowerShell is strict.** `Set-StrictMode -Version Latest` and `$ErrorActionPreference = 'Stop'` at the top. Use `Test-Path -LiteralPath` to avoid wildcard surprises in user-home paths.
 - **Rust at the Tauri boundary returns `Result<T, String>`.** The frontend deserialises errors as strings; never bubble a typed Rust error across the IPC seam. Domain modules can use richer errors internally; convert at the wrapper.
 - **Python deps via `uv`.** Never `pip install`, never `python script.py`. Use `uv run python script.py` and `uv pip install <pkg>`.
-- **Subscription-first, API keys are opt-in.** ULTRON's default install uses the Claude / Codex / Gemini CLIs against existing subscriptions — no API keys required. A PR that **adds** an opt-in API-key path for users who prefer pay-per-token is welcome (gated behind an off-by-default config flag and clearly marked as optional). What is NOT welcome is removing the subscription path or making the API-key route the default.
+- **Subscription-first, API keys are opt-in.** ULTRON's default install uses the Claude Code and Codex CLIs against existing subscriptions — no API keys required. A PR that **adds** an opt-in API-key path for users who prefer pay-per-token is welcome (gated behind an off-by-default config flag and clearly marked as optional). What is NOT welcome is removing the subscription path or making the API-key route the default.
 - **No telemetry, no silent network calls.** Every outbound request must be user-initiated. This is non-negotiable.
-- **No Docker.** ULTRON dropped Docker in v15.0.2 in favour of the native Qdrant binary. Do not reintroduce.
+- **No Docker.** ULTRON dropped Docker in v15.0.2 in favour of the native Qdrant binary, which only dense recall needs (`ULTRON_DENSE=0` turns it off). Do not reintroduce.
 
-A pre-commit hook runs the PII gate (`audit_personal_data.py`, fails on HIGH), the hooks-manifest parity check (`hooks/regen-manifest.js --check`) and `cargo fmt --check`. Heavy checks (cargo test, vitest, tsc) run in CI. Install it once with:
+A pre-commit hook runs the PII gate (`audit_personal_data.py`, fails on HIGH), the hooks parity check (`hooks/regen-manifest.js --check`, manifest and install template), the selftest classification check (`scripts/run-selftests.mjs --check`) and `cargo fmt --check`. Heavy checks (cargo test, vitest, tsc) run in CI. Install it once with:
 
 ```powershell
 uvx pre-commit install
@@ -155,11 +161,10 @@ Rust **unit** tests are scarce today — the Tauri crate has near-zero coverage.
 These are the issues to grab if you want to start small and land something useful.
 
 - **Rust unit tests for `src-tauri/src/<domain>.rs`.** Each domain module's `*_inner` functions are pure Rust; mock the filesystem with `tempfile` and test them.
-- **Button-prompt migration.** Roughly ten components still inline their AI session prompts as string literals. The pattern to follow lives in `control-center/src/lib/button-prompts.ts` and `src-tauri/src/button_prompts.rs`.
+- **Button-prompt migration.** Roughly ten components still inline their AI session prompts as string literals. The pattern to follow lives in `control-center/src/lib/button-prompts.ts` and `src-tauri/src/button_prompts/defaults.rs`.
 - **Agents tab UX.** The scanner output, batch enable/disable, and bulk edits all need polish. See `control-center/src/components/Agents.tsx`.
-- **Agent catalog growth.** Add new community sources to `cockpit/agent-catalog.json` with verified HEAD URLs and an honest `description`.
 - **Sustainable i18n.** Today the README is bilingual by hand-maintaining two files. A real i18n system (probably gated to long-form docs only) would be welcome.
-- **Hooks observability.** `scripts/cockpit/audit_silent_exec.py` is a starting point; a single hook-execution dashboard tab does not exist yet.
+- **Hooks observability.** Hooks log timings and errors through `hooks/scripts/lib/hook-obs.js` (`hook-errors.jsonl`); a single hook-execution dashboard tab does not exist yet.
 
 If something is not on this list but you think it fits the scope above, open a draft issue first.
 
@@ -174,7 +179,7 @@ These will be declined regardless of code quality. Open a discussion before writ
 | Making paid API keys the **default** path | Subscription-via-CLI is the contract for fresh installs. Adding an opt-in API-key route as a secondary path is fine; replacing or shadowing the CLI path is not. |
 | Personal data, hard-coded user paths, persona names from a single vault | Use generic identifiers; read paths from config. |
 | Telemetry, analytics, silent outbound calls | All network I/O must be initiated by an explicit user action. |
-| Anything that reintroduces Docker | Removed in v15.0.2. Native Qdrant binary is the contract on both Windows and Linux. |
+| Anything that reintroduces Docker | Removed in v15.0.2. When dense recall is on, the native Qdrant binary is the contract on both Windows and Linux. |
 | macOS port | Explicit non-goal for v15.x. Windows 11 + Linux x86_64 (v15.5+) are the supported platforms; if you want macOS, fork and maintain it separately. |
 
 ---

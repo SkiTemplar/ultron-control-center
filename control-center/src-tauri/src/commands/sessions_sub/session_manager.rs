@@ -301,9 +301,15 @@ pub fn list_active_sessions_inner() -> Result<Vec<SessionInfo>, String> {
 
 /// Devuelve todas las sesiones de Claude Code encontradas en disco, ordenadas
 /// por actividad reciente. READ-ONLY — nunca escribe ni accede a PIDs.
+///
+/// Lee la cola de cada transcript y lanza `tasklist`: E/S bloqueante, por eso
+/// va en `spawn_blocking` y no ocupa un hilo del runtime async (la vista lo
+/// consulta cada 4 s).
 #[tauri::command]
 pub async fn list_active_sessions() -> Result<Vec<SessionInfo>, String> {
-    list_active_sessions_inner()
+    tauri::async_runtime::spawn_blocking(list_active_sessions_inner)
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 // ---------------------------------------------------------------------------

@@ -41,7 +41,7 @@ Run every item before following `docs/RELEASE-PROCESS.md` to cut the tag.
 - [ ] Launch the freshly built binary. App opens without crash or console errors.
 - [ ] Settings → About shows the expected version number.
 - [ ] AI Router panel is reachable and at least one zone shows a valid primary.
-- [ ] Memory → Recall returns results for a known query (e.g. "qdrant embeddings").
+- [ ] Dashboard → "Sistema de memoria" shows active items, and `bin/ultron-memory.exe recall "qdrant embeddings"` returns results.
 - [ ] Kanban board loads without JS exceptions.
 
 ## 6. Version numbers

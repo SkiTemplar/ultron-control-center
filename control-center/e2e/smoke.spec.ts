@@ -31,12 +31,10 @@ test.describe("App smoke", () => {
     await page.waitForSelector("nav, [role='navigation'], aside", { timeout: 10000 });
     // At least one of the known top-level nav items should be visible
     const navText = await page.locator("nav, aside").first().innerText();
-    const hasKnownItem =
-      navText.includes("Projects") ||
-      navText.includes("Dashboard") ||
-      navText.includes("Memory") ||
-      navText.includes("Usage");
-    expect(hasKnownItem).toBe(true);
+    // La barra lateral del Control Center va en inglés (decisión del 2026-10-18).
+    for (const item of ["Dashboard", "Usage", "Projects", "Settings"]) {
+      expect(navText).toContain(item);
+    }
   });
 
   test("page title is set", async ({ page }) => {

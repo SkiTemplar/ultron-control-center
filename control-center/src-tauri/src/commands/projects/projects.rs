@@ -16,8 +16,10 @@ pub async fn open_project(
 }
 
 #[tauri::command]
-pub async fn scan_projects(app: tauri::AppHandle) -> Result<Vec<projects::ProjectInfo>, String> {
-    projects::scan_projects_inner(&app).await
+pub async fn scan_projects() -> Result<projects::ScanReport, String> {
+    tauri::async_runtime::spawn_blocking(projects::scan_projects_inner)
+        .await
+        .map_err(|e| format!("scan_projects: la tarea se interrumpió: {e}"))?
 }
 
 /// Bump a project's `last_active` to now so "Most recent" ordering tracks real
@@ -113,6 +115,14 @@ pub async fn update_project(
 #[tauri::command]
 pub async fn project_open_app(id: String) -> Result<projects::ProjectActionResult, String> {
     projects::project_open_app_inner(id).await
+}
+
+/// «Jugar» — abre el juego de un proyecto de Unreal o Unity sin editor
+/// (build empaquetado, o `UnrealEditor -game` si Unreal no tiene empaquetado).
+/// La ruta sale de projects.json, no del front. Unity sin build → error.
+#[tauri::command]
+pub async fn project_play_game(id: String) -> Result<projects::GameLaunchResult, String> {
+    projects::project_play_game_inner(id).await
 }
 
 /// Surgical patch for `Project.default_provider`. The Projects tab's inline

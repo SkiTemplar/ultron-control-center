@@ -1,6 +1,7 @@
 import type { SkillEntry } from "../../types";
 import { Sparkle } from "../library/icons";
 import { ToggleSwitch } from "./ToggleSwitch";
+import { skillOriginLabel } from "./helpers";
 import { SKILL_ACCENT, SKILL_ACCENT_SOFT } from "./constants";
 
 export interface SkillCardGridProps {
@@ -38,12 +39,24 @@ export function SkillCardGrid({
         const isChecked = checked.has(s.name);
         const selectable = selectMode && s.origin === "global";
 
+        const activate = () => (selectable ? onToggleChecked(s.name) : onSelect(s));
+
+        // div role=button y no <button>: la tarjeta contiene el interruptor
+        // (otro <button>) y la casilla, y HTML no admite controles anidados.
         return (
-          <button
+          <div
             key={`${s.origin}-${s.path}`}
-            type="button"
-            onClick={() => (selectable ? onToggleChecked(s.name) : onSelect(s))}
-            className="group relative flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+            role="button"
+            tabIndex={0}
+            onClick={activate}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                activate();
+              }
+            }}
+            className="group relative flex h-[140px] cursor-pointer flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
               background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
               border: `1px solid ${
@@ -65,7 +78,7 @@ export function SkillCardGrid({
             }}
             title={s.description || s.name}
           >
-            {/* Bulk-select checkbox overlay (only in select mode, global skills) */}
+            {/* Casilla de selección en bloque (solo en modo selección y skills globales) */}
             {selectMode && (
               <input
                 type="checkbox"
@@ -73,12 +86,12 @@ export function SkillCardGrid({
                 disabled={s.origin !== "global"}
                 onChange={() => onToggleChecked(s.name)}
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Select ${s.name}`}
+                aria-label={`Seleccionar ${s.name}`}
                 className="absolute right-2 top-2 h-4 w-4"
                 style={{ accentColor: "#38bdf8", cursor: s.origin === "global" ? "pointer" : "not-allowed" }}
               />
             )}
-            {/* Header row: label chip + toggle */}
+            {/* Cabecera: etiqueta y estado */}
             <div className="flex items-center justify-between gap-1.5">
               <div
                 className="flex items-center gap-1 text-[10.5px] uppercase tracking-[0.08em]"
@@ -113,7 +126,7 @@ export function SkillCardGrid({
               {s.name}
             </div>
 
-            {/* Footer: origin badge */}
+            {/* Pie: origen */}
             <div className="flex items-center justify-between">
               <span
                 className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
@@ -123,18 +136,18 @@ export function SkillCardGrid({
                   border: "1px solid rgba(56, 189, 248, 0.35)",
                 }}
               >
-                {s.origin}
+                {skillOriginLabel(s.origin)}
               </span>
               {!enabled && (
                 <span
                   className="text-[9.5px] uppercase tracking-wide"
                   style={{ color: "var(--color-text-faint)" }}
                 >
-                  disabled
+                  desactivada
                 </span>
               )}
             </div>
-          </button>
+          </div>
         );
       })}
     </div>

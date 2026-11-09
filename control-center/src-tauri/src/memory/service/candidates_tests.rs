@@ -91,3 +91,57 @@ mod near_dup_tests {
         assert_eq!(jaccard_overlap("", "lo que sea con tres tokens"), 0.0);
     }
 }
+
+// Auditoría 2026-10-23: el auto-supersede promovía a ACTIVE un candidato en
+// cuarentena (solo PII) o sin verificar, sin humano y sin marca Secret.
+#[cfg(test)]
+mod auto_supersede_gate_tests {
+    use super::super::super::super::model::{CandidateAction, MemoryCandidate, MemoryType, Scope};
+    use super::super::super::SECRET_RISK_MARKER;
+    use super::super::intake::auto_supersede_target;
+
+    fn cand() -> MemoryCandidate {
+        let mut c = MemoryCandidate::new(MemoryType::Fact, Scope::Project);
+        c.recommended_action = CandidateAction::Approve;
+        c
+    }
+
+    #[test]
+    fn candidato_limpio_con_veredicto_supersede() {
+        let mut c = cand();
+        assert_eq!(
+            auto_supersede_target(&mut c, Some("viejo".into())),
+            Some("viejo".to_string())
+        );
+        assert_eq!(c.recommended_action, CandidateAction::Approve);
+    }
+
+    #[test]
+    fn candidato_con_marcador_de_secreto_no_auto_supersede() {
+        let mut c = cand();
+        c.risk_level = SECRET_RISK_MARKER.to_string();
+        assert_eq!(auto_supersede_target(&mut c, Some("viejo".into())), None);
+        assert_eq!(c.recommended_action, CandidateAction::Quarantine);
+    }
+
+    #[test]
+    fn candidato_sin_verificar_no_auto_supersede() {
+        for marker in ["dedup-unverified", "unjudged"] {
+            let mut c = cand();
+            c.proposed_tags = vec![marker.to_string()];
+            assert_eq!(
+                auto_supersede_target(&mut c, Some("viejo".into())),
+                None,
+                "{marker}"
+            );
+            assert_eq!(c.recommended_action, CandidateAction::Quarantine);
+        }
+    }
+
+    #[test]
+    fn sin_veredicto_no_hay_supersede_ni_cambio_de_accion() {
+        let mut c = cand();
+        assert_eq!(auto_supersede_target(&mut c, None), None);
+        assert_eq!(c.recommended_action, CandidateAction::Approve);
+    }
+}

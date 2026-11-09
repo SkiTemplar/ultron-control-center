@@ -1,10 +1,12 @@
 // ULTRON Control Center — Auth status module.
 //
 // Detects whether the two active CLI peers (Claude, Codex) are logged in
-// by checking for known credential files on disk. We never read or expose
-// token material — only `exists`, file size, and last-modified time. The
-// UI uses this to surface "logged in" / "expired" / "not configured" hints
-// without forcing the user to spawn each CLI.
+// by checking for known credential files on disk: `exists`, file size and
+// last-modified time, plus the expiry. To get the expiry the whole file IS
+// read and parsed as JSON (`read_credential_expiry`); only the `expir*`
+// number leaves this module — the token material is never returned, logged
+// or stored. The UI uses this to surface "logged in" / "expired" / "not
+// configured" hints without forcing the user to spawn each CLI.
 //
 // Note: Gemini CLI was removed 2026-06-19 — Google cut the free-tier OAuth
 // that the CLI depended on. `which gemini` == false on this machine.

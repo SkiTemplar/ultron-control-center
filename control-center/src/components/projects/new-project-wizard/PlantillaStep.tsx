@@ -22,7 +22,7 @@ export function PlantillaStep({
   if (!templates) return <p className="text-[12px]" style={labelStyle}>Cargando plantillas…</p>;
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2">
         {templates.map((t) => (
           <button
             key={t.id}

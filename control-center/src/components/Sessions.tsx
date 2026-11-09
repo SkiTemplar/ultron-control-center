@@ -10,7 +10,8 @@
 //     short_title / preview / tags en TODAS las sesiones de TODOS los workspaces.
 //   - Auto-tag: chips de tags debajo del título en cada card. Click en chip filtra.
 //     Botón "Auto-tag all" en header (bulk via sessions_bulk_auto_tag).
-//     Tags persisten en ~/.ultron/cockpit/sessions-tags.jsonl (carga en mount).
+//     Tags se escriben en ~/.ultron/cockpit/sessions-tags.jsonl; la UI aún no
+//     los lee de vuelta. El aviso final cuenta etiquetadas, saltadas y fallidas.
 //
 // Iconos: Plus (New), Sliders (Custom), Share2 (Send Context), Tag (auto-tag),
 //         Search (buscador), RefreshCw, History, Plus (create project badge).
@@ -25,12 +26,17 @@ import type {
 } from "../types";
 import { RefreshCw, Search, Tag } from "./projects/icons";
 import { getPrompt } from "../lib/button-prompts";
+import { confirmDialog } from "../lib/dialog";
 import { PROVIDERS, GROUP_THRESHOLD } from "./sessions/constants";
 import { loadCwd, saveCwd, loadPresets, savePresets, deriveWorkspaceName } from "./sessions/utils";
+import { summarizeAutoTag, type AutoTagOutcome } from "./sessions/autoTagSummary";
 import { LauncherModal } from "./sessions/LauncherModal";
 import { WorkspacesSection } from "./sessions/WorkspacesSection";
 import { AllSessionsList } from "./sessions/AllSessionsList";
 import type { Presets } from "./sessions/types";
+
+/** Debe coincidir con `MAX_TAG_PROMPT_CHARS` de `sessions_tags.rs`. */
+const AUTO_TAG_MAX_CHARS = 400;
 
 // ---------------------------------------------------------------------------
 // Main panel
@@ -145,6 +151,15 @@ export function Sessions() {
 
   async function autoTagAll() {
     if (autoTagging || history.length === 0) return;
+    // El primer mensaje de cada sesión sale a un proveedor externo: se confirma
+    // antes (seguridad MEDIUM de la auditoría 2026-10-17).
+    const ok = await confirmDialog(
+      `Se enviará el primer mensaje de ${history.length} sesiones a Groq (o a Gemini si Groq falla) para generar etiquetas. ` +
+        `Cada mensaje va recortado a ${AUTO_TAG_MAX_CHARS} caracteres, sin secretos y sin el nombre de la cuenta en las rutas. ` +
+        `Las etiquetas se guardan en disco, pero esta pestaña aún no las muestra ni filtra por ellas.`,
+      { title: "Etiquetar con IA", kind: "warning", okLabel: "Enviar", cancelLabel: "Cancelar" },
+    );
+    if (!ok) return;
     setAutoTagging(true);
     setError(null);
     try {
@@ -152,12 +167,13 @@ export function Sessions() {
         session_id: s.id,
         first_prompt: s.preview,
       }));
-      const tagged = await invoke<{ tags: string[] }[]>(
+      const outcomes = await invoke<AutoTagOutcome[]>(
         "sessions_bulk_auto_tag",
         { requests },
       );
-      const withTags = tagged.filter((t) => t.tags.length > 0).length;
-      setToast(`Auto-tagged ${withTags}/${tagged.length} sessions`);
+      const summary = summarizeAutoTag(outcomes);
+      if (summary.hasFailures) setError(summary.message);
+      else setToast(summary.message);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -269,7 +285,7 @@ export function Sessions() {
         cwd: ws.cwd,
         flags: {},
       });
-      setToast(`New session in ${deriveWorkspaceName(ws.cwd)}`);
+      setToast(`Sesión nueva en ${deriveWorkspaceName(ws.cwd)}`);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -292,7 +308,7 @@ export function Sessions() {
       });
       const modelLabel = opts.model ? ` (${opts.model})` : "";
       setToast(
-        `${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
+        `Sesión de ${opts.provider}${modelLabel} en ${deriveWorkspaceName(ws.cwd)}`,
       );
     } catch (e) {
       setError(String(e));
@@ -321,7 +337,7 @@ export function Sessions() {
       });
       const modelLabel = opts.model ? ` (${opts.model})` : "";
       setToast(
-        `Sent context to new ${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
+        `Contexto enviado a una sesión nueva de ${opts.provider}${modelLabel} en ${deriveWorkspaceName(ws.cwd)}`,
       );
     } catch (e) {
       setError(String(e));
@@ -356,13 +372,13 @@ export function Sessions() {
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">
-            Workspaces &amp; sessions
+            Espacios de trabajo y sesiones
           </h1>
           <p
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Pick a recent workspace to start a fresh Claude session.
+            Elige un espacio de trabajo reciente para abrir una sesión nueva de Claude.
           </p>
         </div>
 
@@ -378,7 +394,7 @@ export function Sessions() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search sessions by keyword..."
+              placeholder="Buscar sesiones por palabra clave…"
               className="rounded pl-8 pr-3 py-1.5 text-[12px]"
               style={{
                 background: "var(--color-surface-2)",
@@ -401,10 +417,10 @@ export function Sessions() {
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Generate tags for every loaded session via AI (bulk)"
+            title="Genera con IA (Groq) las etiquetas de todas las sesiones cargadas y las guarda en disco; esta pestaña aún no las muestra. Pide confirmación antes de enviar"
           >
             <Tag size={12} />
-            {autoTagging ? "Tagging..." : "Auto-tag all"}
+            {autoTagging ? "Etiquetando…" : "Etiquetar todo"}
           </button>
 
           {/* Refresh */}
@@ -420,10 +436,10 @@ export function Sessions() {
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Refresh workspaces and session list"
+            title="Recargar los espacios de trabajo y la lista de sesiones"
           >
             <RefreshCw size={12} />
-            Refresh
+            Recargar
           </button>
         </div>
       </header>

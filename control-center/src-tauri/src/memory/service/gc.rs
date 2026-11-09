@@ -20,7 +20,7 @@
 use super::super::model::{Actor, Status};
 use super::super::MemoryError;
 use super::super::{model::now_millis, sqlite_store as store};
-use super::{GcResult, MemoryService};
+use super::{sync_index, GcResult, MemoryService, ScrubSecretsResult};
 
 /// Ventana por defecto del mantenimiento, en dias.
 pub const DEFAULT_GC_DAYS: i64 = 90;
@@ -66,6 +66,11 @@ impl MemoryService {
         let days = days.max(0);
         let cutoff_ms = now_millis() - days * 86_400_000;
         let conn = store::open_conn()?;
+        if !dry_run {
+            // Lo que el gc borra o reescribe (eventos podados, credenciales
+            // barridas) se sobrescribe con ceros en vez de quedar en páginas libres.
+            store::enable_secure_delete(&conn)?;
+        }
         let bytes_before = store::db_size_bytes(&conn)?;
 
         let candidatos = store::select_decayed_active_ids(&conn, cutoff_ms)?;
@@ -73,6 +78,7 @@ impl MemoryService {
         if dry_run {
             let por_regla = store::prune_events(&conn, cutoff_ms, true)?;
             let deprecation_deadlines = Self::apply_deprecation_deadlines(true, actor)?;
+            let (secrets_scrub, secrets_scrub_error) = Self::gc_scrub_secrets(&conn, true, actor);
             return Ok(GcResult {
                 days,
                 stale_marked: candidatos.len(),
@@ -86,6 +92,8 @@ impl MemoryService {
                 dry_run: true,
                 failed: Vec::new(),
                 deprecation_deadlines,
+                secrets_scrub,
+                secrets_scrub_error,
             });
         }
 
@@ -109,6 +117,11 @@ impl MemoryService {
         // `deprecation_entries` (kanban: 478 deadlines vencidos) con el mismo
         // `dry_run` que el resto del gc. Ver `apply_deprecation_deadlines`.
         let deprecation_deadlines = Self::apply_deprecation_deadlines(false, actor)?;
+
+        // Barrido de credenciales con el detector actual: cada mejora del
+        // detector limpia lo ya escrito. Sin compactar aquí (la compactación
+        // sigue el umbral de abajo); `scrub-secrets` sí compacta siempre.
+        let (secrets_scrub, secrets_scrub_error) = Self::gc_scrub_secrets(&conn, false, actor);
 
         // Compactacion condicionada al ahorro real.
         let freelist = store::freelist_bytes(&conn)?;
@@ -140,6 +153,26 @@ impl MemoryService {
             dry_run: false,
             failed,
             deprecation_deadlines,
+            secrets_scrub,
+            secrets_scrub_error,
         })
+    }
+
+    /// `scrub_secrets_on` dentro del gc. Un fallo no aborta el gc (las reglas
+    /// anteriores ya se aplicaron) pero se devuelve en el resultado.
+    fn gc_scrub_secrets(
+        conn: &rusqlite::Connection,
+        dry_run: bool,
+        actor: Actor,
+    ) -> (Option<ScrubSecretsResult>, Option<String>) {
+        match Self::scrub_secrets_on(conn, dry_run, actor) {
+            Ok((result, touched)) => {
+                for item in &touched {
+                    sync_index(item);
+                }
+                (Some(result), None)
+            }
+            Err(e) => (None, Some(e.to_string())),
+        }
     }
 }

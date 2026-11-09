@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · 10 diseños de tarjeta</title>
+<style>
+  body { margin: 0; padding: 30px 40px; min-height: 100vh; color: #F2F3F5;
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+         background: url('assets/fondo.jpg') center/cover fixed, #22303a; }
+  h1 { font-weight: 600; margin: 0 0 4px; text-shadow: 0 2px 8px #000; }
+  p.sub { margin: 0 0 24px; color: #d8dce4; text-shadow: 0 1px 6px #000; }
+  .row { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 30px; }
+  .num { width: 32px; height: 32px; border-radius: 50%; background: #F2F3F5; color: #000; display: grid; place-items: center; font-weight: 700; flex: none; }
+  .col { display: flex; flex-direction: column; gap: 6px; }
+  .lbl { font-size: 12px; color: #e6e8ee; text-shadow: 0 1px 4px #000; }
+  .ico { display: grid; place-items: center; font-weight: 700; color: #fff; flex: none; }
+  .glass { background: linear-gradient(180deg, rgba(36,40,51,.74), rgba(14,15,19,.82)); }
+  .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>Elige el diseño de las tarjetas</h1>
+<p class="sub">Cada número cambia la tarjeta abierta y su forma plegada. Dime el número (o mezcla).</p>
+<div id="list"></div>
+<script src="assets/apps.js"></script>
+<script>
+  const A = (window.LIENZO_APPS || []).filter((a) => a.folder === 'Apps').slice(0, 8).map((a) => [a.name, a.icon]);
+  const ic = (c, n, s, r) => `<img src="${c}" alt="${n}" style="width:${s}px;height:${s}px;object-fit:contain;flex:none">`;
+  const dot = (c, s, r) => `<div style="width:${s}px;height:${s}px;border-radius:${r};background:url(${c}) center/contain no-repeat"></div>`;
+  const tiles = (cols, s, r, w) => `<div style="display:grid;grid-template-columns:repeat(${cols},${w}px);gap:6px">${A.map(([n, c]) =>
+      `<div style="display:flex;flex-direction:column;align-items:center;padding:10px 0;border-radius:12px">${ic(c, n, s, r)}<div class="nm" style="font-size:12.5px;margin-top:7px;width:${w - 8}px;text-align:center">${n}</div></div>`).join('')}</div>`;
+  const mini = (k, s, r, ov = 0) => A.slice(0, k).map(([n, c], i) => `<div style="margin-left:${i ? -ov : 0}px;box-shadow:0 0 0 2px rgba(14,15,19,.9);border-radius:${r}">${ic(c, n, s, r)}</div>`).join('');
+  const D = [
+    { n: 'Dock de cristal', open: `<div class="glass" style="border:1px solid rgba(138,180,255,.5);border-radius:16px;padding:14px 16px">
+        <div style="font-size:12px;letter-spacing:.1em;color:#c9cdd6;font-weight:600;margin-bottom:8px">⌄ APPS</div>${tiles(4, 48, '12px', 96)}</div>`,
+      fold: `<div class="glass" style="display:flex;align-items:center;gap:10px;border:1px solid rgba(138,180,255,.5);border-radius:999px;padding:6px 14px 6px 8px">
+        <div style="display:flex">${mini(4, 26, '50%', 8)}</div><span style="font-weight:600;font-size:13px">Apps</span><span style="opacity:.6;font-size:12px">+4</span></div>` },
+    { n: 'Carpeta macOS', open: `<div style="background:rgba(242,243,245,.16);backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.28);border-radius:24px;padding:18px">
+        <div style="font-size:17px;font-weight:600;margin-bottom:10px">Apps</div>${tiles(4, 56, '14px', 100)}</div>`,
+      fold: `<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:76px;height:76px;border-radius:20px;background:rgba(242,243,245,.18);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.3);display:grid;grid-template-columns:repeat(3,18px);gap:4px;padding:9px;align-content:center;justify-content:center">
+        ${A.map(([n, c]) => dot(c, 18, '5px')).join('')}</div><span style="font-size:12.5px;text-shadow:0 1px 4px #000">Apps</span></div>` },
+    { n: 'Barra de título', open: `<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(217,119,87,.55)">
+        <div style="background:rgba(217,119,87,.85);padding:9px 14px;font-weight:700;font-size:13px;color:#120a07">APPS<span style="float:right">8</span></div>
+        <div class="glass" style="padding:10px 12px">${tiles(4, 46, '11px', 94)}</div></div>`,
+      fold: `<div style="display:inline-flex;border-radius:10px;overflow:hidden;border:1px solid rgba(217,119,87,.6)"><span style="background:rgba(217,119,87,.9);color:#120a07;font-weight:700;padding:7px 12px;font-size:12.5px">APPS</span><span class="glass" style="padding:7px 12px;font-size:12.5px">8 apps ›</span></div>` },
+    { n: 'Lista lateral', open: `<div class="glass" style="border:1px solid rgba(255,255,255,.14);border-left:3px solid #8AB4FF;border-radius:12px;padding:10px;width:250px">
+        <div style="font-size:13px;font-weight:700;margin:2px 6px 8px">Apps</div>${A.slice(0, 6).map(([n, c]) => `<div style="display:flex;align-items:center;gap:12px;padding:7px 8px;border-radius:8px">${ic(c, n, 34, '9px')}<span style="font-size:13.5px">${n}</span></div>`).join('')}</div>`,
+      fold: `<div class="glass" style="writing-mode:vertical-rl;transform:rotate(180deg);border:1px solid rgba(255,255,255,.14);border-right:3px solid #8AB4FF;border-radius:10px;padding:14px 8px;font-weight:700;font-size:13px;letter-spacing:.12em">APPS</div>` },
+    { n: 'Fichas sueltas', open: `<div><div style="font-size:14px;font-weight:700;margin:0 0 8px 4px;text-shadow:0 1px 6px #000">Apps</div>
+        <div style="display:grid;grid-template-columns:repeat(4,92px);gap:10px">${A.map(([n, c]) => `<div class="glass" style="border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px 0;display:flex;flex-direction:column;align-items:center">${ic(c, n, 44, '12px')}<div style="font-size:12px;margin-top:7px">${n}</div></div>`).join('')}</div></div>`,
+      fold: `<div style="position:relative;width:120px;height:60px">${[2, 1, 0].map((k) => `<div class="glass" style="position:absolute;left:${k * 8}px;top:${k * 6}px;width:100px;height:44px;border:1px solid rgba(255,255,255,.18);border-radius:12px;${k ? '' : 'display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px'}">${k ? '' : 'Apps · 8'}</div>`).join('')}</div>` },
+    { n: 'Neón azul', open: `<div style="background:rgba(6,8,14,.82);border:1px solid #8AB4FF;border-radius:14px;padding:14px;box-shadow:0 0 18px rgba(138,180,255,.45), inset 0 0 18px rgba(138,180,255,.12)">
+        <div style="font-family:'JetBrainsMono NF',monospace;font-size:12px;color:#8AB4FF;margin-bottom:8px">~/apps</div>${tiles(4, 44, '10px', 92)}</div>`,
+      fold: `<div style="font-family:'JetBrainsMono NF',monospace;background:rgba(6,8,14,.85);border:1px solid #8AB4FF;border-radius:8px;padding:7px 12px;font-size:12.5px;color:#8AB4FF;box-shadow:0 0 14px rgba(138,180,255,.5)">▸ ~/apps <span style="color:#F2F3F5">[8]</span></div>` },
+    { n: 'Círculos', open: `<div style="background:rgba(10,11,14,.6);border-radius:28px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.35)">
+        <div style="text-align:center;font-weight:600;margin-bottom:10px">Apps</div>${tiles(4, 52, '50%', 98)}</div>`,
+      fold: `<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:64px;height:64px;border-radius:50%;background:rgba(10,11,14,.7);border:2px solid rgba(255,255,255,.25);display:grid;place-items:center;position:relative">
+        <div style="display:grid;grid-template-columns:repeat(2,18px);gap:4px">${A.slice(0, 4).map(([n, c]) => dot(c, 18, '50%')).join('')}</div>
+        <span style="position:absolute;top:-4px;right:-4px;background:#D97757;color:#000;font-size:11px;font-weight:700;border-radius:999px;padding:1px 6px">8</span></div><span style="font-size:12.5px;text-shadow:0 1px 4px #000">Apps</span></div>` },
+    { n: 'Sólida mate', open: `<div style="background:#16181E;border:1px solid #2a2e38;border-radius:10px;padding:0 0 12px">
+        <div style="padding:10px 14px;border-bottom:1px solid #2a2e38;font-size:13px;font-weight:600;display:flex;justify-content:space-between"><span>Apps</span><span style="opacity:.5">— ✕</span></div>
+        <div style="padding:10px 12px 0">${tiles(4, 44, '8px', 94)}</div></div>`,
+      fold: `<div style="background:#16181E;border:1px solid #2a2e38;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px;width:220px"><span style="width:8px;height:8px;border-radius:50%;background:#7EE787"></span><span style="font-size:13px;font-weight:600">Apps</span><span style="margin-left:auto;opacity:.5;font-size:12px">8 ▾</span></div>` },
+    { n: 'Degradado', open: `<div style="background:linear-gradient(135deg, rgba(138,180,255,.35), rgba(217,119,87,.30));backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.3);border-radius:20px;padding:16px">
+        <div style="font-size:15px;font-weight:700;margin-bottom:10px">Apps</div>${tiles(4, 50, '14px', 98)}</div>`,
+      fold: `<div style="background:linear-gradient(135deg, rgba(138,180,255,.55), rgba(217,119,87,.5));border:1px solid rgba(255,255,255,.35);border-radius:16px;padding:10px 16px;display:flex;align-items:center;gap:12px">
+        <div style="display:flex">${mini(3, 24, '7px', 6)}</div><span style="font-weight:700;font-size:14px">Apps</span></div>` },
+    { n: 'Widget grande', open: `<div class="glass" style="border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:16px;width:440px">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px"><span style="font-size:26px;font-weight:700">Apps</span><span style="opacity:.6">8 aplicaciones</span></div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">${A.map(([n, c]) => `<div style="display:flex;align-items:center;gap:8px">${ic(c, n, 38, '10px')}<span style="font-size:12px" class="nm">${n}</span></div>`).join('')}</div></div>`,
+      fold: `<div class="glass" style="border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:12px 16px;display:flex;align-items:center;gap:14px;width:300px">
+        <span style="font-size:22px;font-weight:700">Apps</span><span style="opacity:.6;font-size:12px">8 apps</span><div style="margin-left:auto;display:flex">${mini(4, 22, '6px', 4)}</div></div>` },
+  ];
+  document.getElementById('list').innerHTML = D.map((d, i) => `
+    <div class="row"><div class="num">${i + 1}</div>
+      <div class="col"><span class="lbl">${d.n} · abierta</span>${d.open}</div>
+      <div class="col"><span class="lbl">plegada</span>${d.fold}</div></div>`).join('');
+</script>
+</body>
+</html>

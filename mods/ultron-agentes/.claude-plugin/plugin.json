@@ -1,0 +1,6 @@
+{
+  "name": "ultron-agentes",
+  "version": "0.2.0",
+  "description": "Panel /agentes: subagentes y agentes de workflows, qué hacen y desde cuándo; pulsa uno para ver su detalle",
+  "types": "./types/index.d.ts"
+}

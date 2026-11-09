@@ -90,4 +90,70 @@ function matchProtected(targetPath, marker) {
   return null;
 }
 
-module.exports = { MARKER_NAME, DEFAULT_PROTEGIDAS, MAX_LEVELS, findTrabajoMarker, matchProtected };
+/**
+ * Marcador que gobierna una escritura en `targetPath`: primero subiendo desde
+ * la carpeta del destino y, si no hay, desde el cwd de la sesion.
+ *
+ * Motivo (H27 de la auditoria 2026-10-17): los marcadores viven en
+ * `trabajos/<X>/` y la sesion se abre en la carpeta de la asignatura, POR
+ * ENCIMA del marcador. Buscando solo desde el cwd no se encontraba nunca y el
+ * bloqueo duro no protegia ninguna carpeta real.
+ *
+ * @param {string} targetPath ruta destino ya resuelta (absoluta)
+ * @param {string} cwd
+ */
+function findMarkerForTarget(targetPath, cwd) {
+  const desde = [];
+  try {
+    desde.push(path.dirname(path.resolve(String(targetPath))));
+  } catch (_) {
+    /* ruta irresoluble: queda el cwd */
+  }
+  // Un destino a mas de MAX_LEVELS por debajo del marcador
+  // (`trabajos/T1/entrega/a/b/c/d/x.md`) no lo alcanza subiendo: se mira
+  // tambien la raiz del trabajo deducida de la ruta.
+  const trabajo = trabajoSinMarcador(targetPath);
+  if (trabajo) desde.push(trabajo.trabajoDir);
+  desde.push(cwd);
+  for (const dir of desde) {
+    const marker = findTrabajoMarker(dir);
+    if (marker) return marker;
+  }
+  return null;
+}
+
+/**
+ * Si `targetPath` cae en `trabajos/<X>/<carpeta por defecto>/…` (la estructura
+ * de las asignaturas), devuelve la carpeta del trabajo y la protegida; si no,
+ * null. Sirve para AVISAR de un trabajo sin marcador: sin el, nada lo protege.
+ *
+ * @param {string} targetPath
+ * @returns {null | {trabajoDir:string, carpeta:string}}
+ */
+function trabajoSinMarcador(targetPath) {
+  let resolved;
+  try {
+    resolved = path.resolve(String(targetPath || ''));
+  } catch (_) {
+    return null;
+  }
+  const parts = resolved.split(/[\\/]+/);
+  const low = parts.map((p) => p.toLowerCase());
+  for (let i = low.length - 3; i >= 0; i--) {
+    if (low[i] !== 'trabajos') continue;
+    const carpeta = DEFAULT_PROTEGIDAS.find((c) => c === low[i + 2]);
+    if (!carpeta || i + 3 >= parts.length) continue;
+    return { trabajoDir: parts.slice(0, i + 2).join(path.sep), carpeta };
+  }
+  return null;
+}
+
+module.exports = {
+  MARKER_NAME,
+  DEFAULT_PROTEGIDAS,
+  MAX_LEVELS,
+  findTrabajoMarker,
+  findMarkerForTarget,
+  matchProtected,
+  trabajoSinMarcador,
+};

@@ -22,45 +22,6 @@
     ]
   },
   {
-    "id": "code-edit",
-    "label": "Code edit (multi-file)",
-    "category": "code",
-    "primary": {
-      "provider_id": "codex-cli",
-      "model": "gpt-5.6-terra",
-      "max_tokens": 4096
-    },
-    "fallbacks": [
-      {
-        "provider_id": "codex",
-        "model": "gpt-5",
-        "max_tokens": 4096
-      },
-      {
-        "provider_id": "deepseek",
-        "model": "deepseek-coder",
-        "max_tokens": 4096
-      }
-    ]
-  },
-  {
-    "id": "code-review",
-    "label": "Code review",
-    "category": "code",
-    "primary": {
-      "provider_id": "codex-cli",
-      "model": "gpt-5.6-sol",
-      "max_tokens": 2048
-    },
-    "fallbacks": [
-      {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
-        "max_tokens": 2048
-      }
-    ]
-  },
-  {
     "id": "summarize",
     "label": "Summarize document",
     "category": "chat",
@@ -105,13 +66,13 @@
     },
     "fallbacks": [
       {
-        "provider_id": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider_id": "groq",
+        "model": "openai/gpt-oss-120b",
         "max_tokens": 1024
       },
       {
-        "provider_id": "ollama",
-        "model": "qwen2.5-coder:32b",
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
         "max_tokens": 1024
       }
     ]

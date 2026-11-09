@@ -46,7 +46,7 @@ function EventLogRow({ evt, runFix, fixBusy }: { evt: EventLogEntry; runFix: (fi
                       background: busy ? "var(--color-accent)" : "var(--color-surface-3)",
                       color: busy ? "var(--color-accent-text)" : "var(--color-text)",
                     }}>
-                    {busy ? "Running..." : f.label}
+                    {busy ? "Ejecutando…" : f.label}
                   </button>
                 );
               })}
@@ -88,16 +88,16 @@ export function EventLogPanel({
       >
         <div>
           <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-            Windows Event Log
+            Registro de eventos de Windows
             {events.length > 0 && (
               <span className="ml-2 rounded px-1.5 py-px text-[10px] font-medium"
                 style={{ background: "rgba(248,81,73,0.15)", color: "var(--color-danger)" }}>
-                {events.length} events
+                {events.length} eventos
               </span>
             )}
           </div>
           <div className="mt-0.5 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-            Errores recientes del Event Log de Windows (Critical + Error) con fixes sugeridos por ID.
+            Errores recientes del registro de eventos de Windows (críticos y de error) con arreglos sugeridos por ID.
           </div>
         </div>
         <div className="ml-3 flex shrink-0 items-center gap-1.5">
@@ -108,7 +108,7 @@ export function EventLogPanel({
             className="rounded px-2.5 py-0.5 text-[11.5px] font-medium transition-colors disabled:opacity-50"
             style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
           >
-            {loading ? "..." : "Refresh"}
+            {loading ? "…" : "Actualizar"}
           </button>
           <span className="font-mono text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
             {open ? "▾" : "▸"}
@@ -126,7 +126,7 @@ export function EventLogPanel({
           )}
           {!loading && !error && events.length === 0 && (
             <div className="px-3 py-6 text-center text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
-              No critical or error events found.
+              No hay eventos críticos ni de error.
             </div>
           )}
           {visible.length > 0 && (
@@ -138,7 +138,7 @@ export function EventLogPanel({
           )}
           {events.length > visible.length && (
             <div className="px-3 py-2 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-              ... {events.length - visible.length} more — open Event Viewer for the full list.
+              … y {events.length - visible.length} más: abre el Visor de eventos para ver la lista completa.
             </div>
           )}
         </>

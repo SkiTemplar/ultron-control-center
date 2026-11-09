@@ -16,6 +16,7 @@ interface KeyFieldRowProps {
   isEmail?: boolean;
   onChange: (envVar: string, value: string) => void;
   onToggleVisible: (envVar: string) => void;
+  onRemove: (envVar: string) => void;
   extra?: ReactNode;
 }
 
@@ -26,6 +27,7 @@ export function KeyFieldRow({
   isEmail = false,
   onChange,
   onToggleVisible,
+  onRemove,
   extra,
 }: KeyFieldRowProps) {
   const st = status;
@@ -71,17 +73,32 @@ export function KeyFieldRow({
             </span>
           )}
         </span>
-        <a
-          href={def.docsUrl}
-          target="_blank"
-          onClick={handleExternalClick}
-          rel="noopener noreferrer"
-          className="text-[10.5px] transition-colors"
-          style={{ color: "var(--color-accent)" }}
-          tabIndex={-1}
-        >
-          Obtener key ↗
-        </a>
+        <span className="flex items-center gap-2">
+          {/* Nombre de la variable junto al enlace, fuera de la fila del input
+              para que todos los campos midan lo mismo. */}
+          <span
+            className="rounded px-1.5 py-px text-[10px] font-normal tabular-nums"
+            style={{
+              fontFamily: "var(--font-mono)",
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            {def.envVar}
+          </span>
+          <a
+            href={def.docsUrl}
+            target="_blank"
+            onClick={handleExternalClick}
+            rel="noopener noreferrer"
+            className="text-[10.5px] transition-colors"
+            style={{ color: "var(--color-accent)" }}
+            tabIndex={-1}
+          >
+            Obtener clave ↗
+          </a>
+        </span>
       </label>
       <div className="flex items-center gap-1.5">
         <div className="relative flex-1" style={{ fontFamily: "var(--font-mono)" }}>
@@ -114,6 +131,21 @@ export function KeyFieldRow({
             }}
           />
         </div>
+        {st?.configured && (
+          <button
+            type="button"
+            onClick={() => onRemove(def.envVar)}
+            title="Borra la key del entorno de usuario y de los .env de ULTRON"
+            className="shrink-0 rounded px-2 py-1.5 text-[11px] transition-colors"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-danger)",
+            }}
+          >
+            Quitar
+          </button>
+        )}
         {!isEmail && (
           <button
             type="button"
@@ -135,18 +167,6 @@ export function KeyFieldRow({
             <EyeIcon crossed={state.visible} />
           </button>
         )}
-        {/* Env var name badge */}
-        <span
-          className="shrink-0 rounded px-1.5 py-px text-[10px] tabular-nums"
-          style={{
-            fontFamily: "var(--font-mono)",
-            background: "var(--color-surface-1)",
-            border: "1px solid var(--color-border)",
-            color: "var(--color-text-tertiary)",
-          }}
-        >
-          {def.envVar}
-        </span>
       </div>
       <TutorialDisclosure tutorial={def.tutorial} />
       {extra}

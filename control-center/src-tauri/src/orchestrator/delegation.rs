@@ -506,13 +506,13 @@ mod tests {
         );
     }
 
-    /// (b) intent="refactor": ultron-refactor primero, refactoring-specialist segundo.
+    /// (b) intent="refactor": code-reviewer primero, refactoring-specialist segundo.
     /// La directiva debe apuntar a refactoring-specialist (primer canónico del intent).
     #[test]
     fn canonical_anchor_refactor_ignores_e5_order() {
         use crate::orchestrator::ranking::preferred_specialists;
 
-        let agents = [agent("ultron-refactor"), agent("refactoring-specialist")];
+        let agents = [agent("code-reviewer"), agent("refactoring-specialist")];
         let preferred = preferred_specialists("refactor");
         let directive_agent = preferred
             .iter()
@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(
             directive_agent.map(|a| a.name.as_str()),
             Some("refactoring-specialist"),
-            "intent=refactor: la directiva debe apuntar a refactoring-specialist aunque ultron-refactor sea [0]"
+            "intent=refactor: la directiva debe apuntar a refactoring-specialist aunque code-reviewer sea [0]"
         );
     }
 }

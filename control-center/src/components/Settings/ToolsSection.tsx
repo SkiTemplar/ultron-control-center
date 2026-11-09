@@ -63,7 +63,7 @@ export function ToolsSection() {
   }, [load]);
 
   return (
-    <div className="max-w-[720px]">
+    <div>
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-[15px] font-semibold">Herramientas</h2>
@@ -79,10 +79,11 @@ export function ToolsSection() {
           type="button"
           onClick={() => void load(true)}
           disabled={refreshing || loading}
-          className="shrink-0 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+          className="shrink-0 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
           style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
           }}
         >
           {refreshing ? "Comprobando…" : "Volver a comprobar"}

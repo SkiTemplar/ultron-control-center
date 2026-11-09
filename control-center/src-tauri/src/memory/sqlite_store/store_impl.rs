@@ -1,6 +1,6 @@
-// sqlite_store/store_impl.rs — SqliteStore MemoryStore trait impl + KG import + code edges.
+// sqlite_store/store_impl.rs — SqliteStore MemoryStore trait impl + health.
 
-use rusqlite::params;
+use rusqlite::Connection;
 
 use crate::memory::model::{
     estimate_tokens, Actor, EventType, MemoryEvent, MemoryItem, MemoryType, Scope, Source, Status,
@@ -11,35 +11,10 @@ use crate::memory::{
 
 use super::candidates::count_candidates_pending;
 use super::events::insert_event;
+use super::gc::fts_integrity;
 use super::items::{count_items_by_status, delete_item, insert_item, search_items};
-use super::schema::{fts5_available, open_conn};
-
-// ---------------------------------------------------------------------------
-// KG jsonl import (collapsed into brain.db)
-// ---------------------------------------------------------------------------
-
-/// Import entities + relations from `~/.ultron/cockpit/kg.jsonl`. Idempotent.
-pub fn import_kg_jsonl(conn: &rusqlite::Connection) -> Result<(), MemoryError> {
-    let graph = crate::kg::read_graph_inner()
-        .map_err(|e| MemoryError::ParseError(format!("kg.jsonl read: {e}")))?;
-    for ent in &graph.entities {
-        let obs_json =
-            serde_json::to_string(&ent.observations).unwrap_or_else(|_| "[]".to_string());
-        conn.execute(
-            "INSERT OR REPLACE INTO kg_entities (name, entity_type, observations) VALUES (?1,?2,?3)",
-            params![ent.name, ent.entity_type, obs_json],
-        )
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("kg import entity: {e}")))?;
-    }
-    for rel in &graph.relations {
-        conn.execute(
-            "INSERT OR IGNORE INTO kg_relations (from_name, to_name, relation_type) VALUES (?1,?2,?3)",
-            params![rel.from, rel.to, rel.relation_type],
-        )
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("kg import relation: {e}")))?;
-    }
-    Ok(())
-}
+use super::schema::open_conn;
+use super::tx::in_immediate_tx;
 
 // ---------------------------------------------------------------------------
 // SqliteStore — MemoryStore trait impl (back-compat for recall_hybrid/health)
@@ -54,14 +29,10 @@ impl SqliteStore {
         Self
     }
 
-    /// Open `brain.db`, apply the schema, and best-effort import kg.jsonl.
-    /// Wired into `lib.rs` setup so the canonical DB is live at startup.
+    /// Open `brain.db` and apply the schema. Wired into `lib.rs` setup so the
+    /// canonical DB is live at startup.
     pub fn init() -> Result<(), MemoryError> {
-        let conn = open_conn()?;
-        if let Err(e) = import_kg_jsonl(&conn) {
-            eprintln!("[sqlite_store] kg.jsonl import skipped: {e}");
-        }
-        Ok(())
+        open_conn().map(|_| ())
     }
 }
 
@@ -69,6 +40,46 @@ impl Default for SqliteStore {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Salud de `brain.db` sobre una conexión ya abierta. `healthy` sale del mismo
+/// criterio que el check `fts` del doctor ([`super::FtsIntegrity::in_sync`]:
+/// integridad FTS5 en verde y tantas filas en el índice como items). Antes era
+/// `true` fijo y la tarjeta de memoria seguía en verde con el índice roto
+/// (auditoría 2026-10-23). `details` lleva el estado del FTS5 para la UI.
+pub(crate) fn health_on(conn: &Connection) -> Result<StoreHealth, MemoryError> {
+    let active = count_items_by_status(conn, Status::Active);
+    let pending = count_candidates_pending(conn);
+    let fts = fts_integrity(conn)?;
+    let in_sync = fts.in_sync();
+    let message = if in_sync {
+        format!(
+            "brain.db OK — {active} active, {pending} pending candidates, FTS5 en sync ({} filas)",
+            fts.fts_rows
+        )
+    } else {
+        let detail = fts
+            .error
+            .as_deref()
+            .map(|e| format!(" (integrity-check: {e})"))
+            .unwrap_or_default();
+        format!(
+            "FTS5 desincronizado: {} filas en el índice frente a {} items{detail}; ejecuta `ultron-memory fts-rebuild`",
+            fts.fts_rows, fts.item_rows
+        )
+    };
+    Ok(StoreHealth {
+        healthy: in_sync,
+        message,
+        latency_ms: None,
+        details: Some(serde_json::json!({
+            "fts_rows": fts.fts_rows,
+            "item_rows": fts.item_rows,
+            "integrity_ok": fts.integrity_ok,
+            "in_sync": in_sync,
+            "error": fts.error,
+        })),
+    })
 }
 
 impl MemoryStore for SqliteStore {
@@ -84,9 +95,11 @@ impl MemoryStore for SqliteStore {
         item.content = Some(doc.text.clone());
         item.project_id = doc.namespace.clone();
         item.token_estimate = estimate_tokens(&doc.text);
-        insert_item(&conn, &item)?;
         let ev = MemoryEvent::new(EventType::Created, Some(item.id.clone()), Actor::System);
-        let _ = insert_event(&conn, &ev);
+        in_immediate_tx(&conn, || {
+            insert_item(&conn, &item)?;
+            insert_event(&conn, &ev)
+        })?;
         Ok(MemoryHit {
             id: item.id,
             text: doc.text,
@@ -123,28 +136,16 @@ impl MemoryStore for SqliteStore {
 
     fn delete(&self, id: &str) -> Result<(), MemoryError> {
         let conn = open_conn()?;
-        delete_item(&conn, id)?;
         let ev = MemoryEvent::new(EventType::Deprecated, Some(id.to_string()), Actor::System)
             .with_reason("hard delete via MemoryStore::delete");
-        let _ = insert_event(&conn, &ev);
-        Ok(())
+        in_immediate_tx(&conn, || {
+            delete_item(&conn, id)?;
+            insert_event(&conn, &ev)
+        })
     }
 
     fn health(&self) -> Result<StoreHealth, MemoryError> {
-        let conn = open_conn()?;
-        let active = count_items_by_status(&conn, Status::Active);
-        let pending = count_candidates_pending(&conn);
-        let kg: i64 = conn
-            .query_row("SELECT COUNT(*) FROM kg_entities", [], |r| r.get(0))
-            .unwrap_or(0);
-        Ok(StoreHealth {
-            healthy: true,
-            message: format!(
-                "brain.db OK — {active} active, {pending} pending candidates, {kg} kg_entities, fts5={}",
-                fts5_available(&conn)
-            ),
-            latency_ms: None,
-        })
+        health_on(&open_conn()?)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -154,5 +155,60 @@ impl MemoryStore for SqliteStore {
             persistent: true,
             kind: StoreKind::Sqlite,
         }
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use crate::memory::sqlite_store::apply_schema;
+
+    fn conn_con_items(ids: &[&str]) -> Connection {
+        let c = Connection::open_in_memory().expect("open");
+        apply_schema(&c).expect("schema");
+        for id in ids {
+            let mut it = MemoryItem::new(
+                MemoryType::Fact,
+                Scope::Project,
+                Source::AssistantInferred,
+                Status::Active,
+            );
+            it.id = (*id).to_string();
+            it.title = Some(format!("item {id}"));
+            insert_item(&c, &it).expect("insert");
+        }
+        c
+    }
+
+    #[test]
+    fn health_en_verde_con_el_fts_en_sync() {
+        let c = conn_con_items(&["a", "b"]);
+        let h = health_on(&c).unwrap();
+        assert!(h.healthy, "{}", h.message);
+        let d = h.details.expect("details del FTS5");
+        assert_eq!(d["fts_rows"], 2);
+        assert_eq!(d["item_rows"], 2);
+        assert_eq!(d["in_sync"], true);
+    }
+
+    // Caso negativo: antes `healthy` era `true` fijo. Un borrado sin trigger deja
+    // una fila huérfana en el índice: la salud debe ponerse en rojo con las
+    // mismas cifras que el check `fts` del doctor.
+    #[test]
+    fn health_en_rojo_con_el_fts_desincronizado() {
+        let c = conn_con_items(&["a", "huerfano"]);
+        c.execute_batch(
+            "DROP TRIGGER memory_items_ad; DELETE FROM memory_items WHERE id = 'huerfano';",
+        )
+        .expect("borrado sin trigger");
+        let h = health_on(&c).unwrap();
+        assert!(!h.healthy, "un FTS desincronizado no puede dar healthy");
+        assert!(h.message.contains("desincronizado"), "{}", h.message);
+        let d = h.details.expect("details del FTS5");
+        assert_eq!(
+            (d["fts_rows"].as_i64(), d["item_rows"].as_i64()),
+            (Some(2), Some(1))
+        );
+        assert_eq!(d["in_sync"], false);
     }
 }

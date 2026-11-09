@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · 10 diseños de indicador</title>
+<style>
+  :root { --bg: #0E0F13; --primary: #8AB4FF; --text: #F2F3F5; --muted: #9AA0AE; }
+  body { margin: 0; padding: 40px; background: radial-gradient(circle at 30% 20%, #2a3550, #07080b 70%);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; color: var(--text); min-height: 100vh; }
+  h1 { font-weight: 600; margin: 0 0 6px; }
+  p.sub { color: var(--muted); margin: 0 0 30px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(460px, 1fr)); gap: 24px 32px; }
+  .card { display: flex; align-items: center; gap: 16px; }
+  .num { width: 34px; height: 34px; border-radius: 50%; background: var(--primary); color: var(--bg);
+         display: grid; place-items: center; font-weight: 700; flex: none; }
+  .name { color: var(--muted); font-size: 13px; width: 130px; flex: none; }
+  .dock { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 12px;
+          background: rgba(14, 15, 19, .93); border: 1px solid rgba(138, 180, 255, .55); border-radius: 14px; }
+  .app { position: relative; width: 40px; height: 44px; display: grid; place-items: center; border-radius: 8px; }
+  .ico { width: 26px; height: 26px; border-radius: 7px; }
+  .ind { position: absolute; left: 50%; transform: translateX(-50%); }
+  .legend { font-size: 11px; color: var(--muted); margin-left: 8px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<h1>Elige el indicador de apps</h1>
+<p class="sub">En cada fila: app seleccionada (2.º icono), apps abiertas (3.º y 4.º) y cerradas (1.º y 5.º). Dime el número.</p>
+<div class="grid" id="grid"></div>
+<script>
+  const P = '#8AB4FF', W = '#F2F3F5';
+  // a = estilo de la app activa, o = estilo de las abiertas; bg = fondo opcional del boton activo.
+  const D = [
+    { n: 'Barras (actual)', a: `bottom:2px;width:22px;height:4px;border-radius:2px;background:${P}`, o: `bottom:2px;width:12px;height:4px;border-radius:2px;background:${W}` },
+    { n: 'Puntos', a: `bottom:2px;width:7px;height:7px;border-radius:50%;background:${P}`, o: `bottom:2px;width:6px;height:6px;border-radius:50%;background:${W}` },
+    { n: 'Pastilla + punto', a: `bottom:2px;width:24px;height:5px;border-radius:3px;background:${P}`, o: `bottom:2px;width:6px;height:6px;border-radius:50%;background:${W}` },
+    { n: 'Brillo', a: `bottom:1px;width:24px;height:4px;border-radius:2px;background:${P};box-shadow:0 0 10px 2px ${P}`, o: `bottom:1px;width:10px;height:4px;border-radius:2px;background:${W};box-shadow:0 0 6px ${W}` },
+    { n: 'Fondo activo', bg: 'rgba(138,180,255,.18)', a: `bottom:2px;width:16px;height:3px;border-radius:2px;background:${P}`, o: `bottom:2px;width:6px;height:3px;border-radius:2px;background:${W}` },
+    { n: 'Contorno', bg: 'transparent;box-shadow:inset 0 0 0 1px rgba(138,180,255,.7)', a: `bottom:3px;width:14px;height:3px;border-radius:2px;background:${P}`, o: `bottom:2px;width:5px;height:5px;border-radius:50%;background:${W}` },
+    { n: 'Línea superior', a: `top:0;width:24px;height:4px;border-radius:2px;background:${P}`, o: `top:0;width:10px;height:4px;border-radius:2px;background:${W}` },
+    { n: 'Doble punto', a: `bottom:2px;width:16px;height:5px;border-radius:3px;background:radial-gradient(circle,${P} 60%,transparent 62%) 0 0/8px 5px repeat-x`, o: `bottom:2px;width:5px;height:5px;border-radius:50%;background:${W}` },
+    { n: 'Azul total', a: `bottom:2px;width:22px;height:4px;border-radius:2px;background:${P}`, o: `bottom:2px;width:10px;height:4px;border-radius:2px;background:rgba(138,180,255,.75)` },
+    { n: 'Cápsula grande', bg: 'rgba(242,243,245,.08)', a: `bottom:1px;width:28px;height:5px;border-radius:3px;background:${P}`, o: `bottom:1px;width:14px;height:5px;border-radius:3px;background:${W}` },
+  ];
+  const colors = ['#5865F2', '#4285F4', '#1DB954', '#E0533D', '#2EA043'];
+  const grid = document.getElementById('grid');
+  D.forEach((x, i) => {
+    const apps = colors.map((c, k) => {
+      const state = k === 1 ? 'a' : (k === 2 || k === 3) ? 'o' : null;
+      const bg = state === 'a' && x.bg ? `background:${x.bg}` : '';
+      const ind = state ? `<div class="ind" style="${x[state]}"></div>` : '';
+      return `<div class="app" style="${bg}"><div class="ico" style="background:${c}"></div>${ind}</div>`;
+    }).join('');
+    grid.insertAdjacentHTML('beforeend', `<div class="card"><div class="num">${i + 1}</div><div class="name">${x.n}</div><div class="dock">${apps}</div></div>`);
+  });
+</script>
+</body>
+</html>

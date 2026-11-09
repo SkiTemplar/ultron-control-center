@@ -1,40 +1,67 @@
 // ULTRON Control Center — sección "Ultimo turno" del panel LiveSessionMonitor.
 // Muestra el prompt, intent/workflow, agentes sugeridos, skills aceptadas y
-// memoria inyectada del último turno orquestado (o el aviso de "sin actividad").
+// memoria inyectada del último turno orquestado en modo full, con su fecha.
+// En modo ligero (el de producción) el hook no registra turnos: el panel lo
+// dice y, si queda un turno full antiguo, lo presenta como histórico.
 
-import type { SessionOrchestration } from "../../sessions/sessionTypes";
-import { KIND_TINT, SectionLabel, fmtTime } from "../../sessions/orchShared";
+import type { OrchestrateMode, SessionOrchestration } from "../../sessions/sessionTypes";
+import { KIND_TINT, SectionLabel, daysSince, fmtWhen } from "../../sessions/orchShared";
 
 interface LastTurnPanelProps {
   last: SessionOrchestration | null;
   /** Si hubo error de fetch, no mostramos el aviso de "sin actividad" (ya se ve el error). */
   hasError: boolean;
+  /** Modo del hook memory-orchestrate. */
+  mode: OrchestrateMode;
 }
 
-export function LastTurnPanel({ last, hasError }: LastTurnPanelProps) {
+export const LIGHT_MODE_NOTICE =
+  "Modo ligero (el de producción): el hook UserPromptSubmit solo inyecta el tono; no hay recall, " +
+  "delegación ni skills por prompt, y no registra turnos aquí. Con ULTRON_ORCHESTRATE=full se registrarían.";
+
+/** Cabecera del último turno: deja claro si es histórico. */
+export function lastTurnHeading(mode: OrchestrateMode, ts: string | null, now: Date = new Date()): string {
+  if (mode === "full") return "Último turno";
+  const days = daysSince(ts, now);
+  const age = days > 0 ? `, hace ${days} día${days === 1 ? "" : "s"}` : "";
+  return `Último turno registrado en modo full (${fmtWhen(ts, now)}${age})`;
+}
+
+function ModeNotice() {
+  return (
+    <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+      {LIGHT_MODE_NOTICE}
+    </p>
+  );
+}
+
+export function LastTurnPanel({ last, hasError, mode }: LastTurnPanelProps) {
+  const isLight = mode === "light";
   if (!last) {
     if (hasError) return null;
+    if (isLight) return <ModeNotice />;
     return (
       <p className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-        Sin actividad de orquestacion todavia. Escribe en cualquier sesion de Claude Code y
-        aparecera aqui (el hook UserPromptSubmit la registra).
+        Sin actividad de orquestación todavía. Escribe en cualquier sesión de Claude Code y
+        aparecerá aquí (en modo full el hook UserPromptSubmit la registra).
       </p>
     );
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <SectionLabel>Ultimo turno</SectionLabel>
+      {isLight && <ModeNotice />}
+      <SectionLabel>{lastTurnHeading(mode, last.ts)}</SectionLabel>
       {last.prompt && (
         <div
           className="rounded px-2 py-1 text-[11px]"
           style={{
             background: "var(--color-surface-1)",
-            color: "var(--color-text-secondary)",
+            color: isLight ? "var(--color-text-tertiary)" : "var(--color-text-secondary)",
           }}
           title={last.prompt}
         >
-          <span style={{ color: "var(--color-text-faint)" }}>{fmtTime(last.ts)} </span>
+          <span style={{ color: "var(--color-text-faint)" }}>{fmtWhen(last.ts)} </span>
           {last.prompt}
         </div>
       )}
@@ -47,7 +74,7 @@ export function LastTurnPanel({ last, hasError }: LastTurnPanelProps) {
               color: "var(--color-accent)",
               border: "1px solid rgba(88,166,255,0.28)",
             }}
-            title="Intent detectado"
+            title="Intención detectada"
           >
             {last.route}
           </span>
@@ -79,7 +106,7 @@ export function LastTurnPanel({ last, hasError }: LastTurnPanelProps) {
               border: "1px solid rgba(234,179,8,0.30)",
             }}
           >
-            cross-project
+            entre proyectos
           </span>
         )}
       </div>
@@ -91,7 +118,7 @@ export function LastTurnPanel({ last, hasError }: LastTurnPanelProps) {
           {last.agents.length > 0 ? (
             <div className="flex flex-col gap-0.5">
               {last.agents.map((a) => (
-                <div key={a.name} className="flex items-center justify-between gap-2">
+                <div key={a.name} className="flex min-w-0 items-center gap-2">
                   <span
                     className="truncate text-[11px]"
                     style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}
@@ -121,7 +148,7 @@ export function LastTurnPanel({ last, hasError }: LastTurnPanelProps) {
           {last.skills.length > 0 ? (
             <div className="flex flex-col gap-0.5">
               {last.skills.map((s) => (
-                <div key={s.name} className="flex items-center justify-between gap-2">
+                <div key={s.name} className="flex min-w-0 items-center gap-2">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span
                       className="truncate text-[11px]"

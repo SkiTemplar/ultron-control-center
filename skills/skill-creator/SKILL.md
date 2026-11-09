@@ -16,8 +16,3 @@ file, or syncing between Claude Code and Cowork.)
 1. (First step — discover or define skill purpose and triggers.)
 2. (Second step — write or update the SKILL.md with frontmatter.)
 3. (Final output expectation — packaged skill ready to install.)
-
-## Customize
-This file lives at `~/.claude/skills/skill-creator/SKILL.md`. Modify it to fit
-your workflow. The installer's manifest entry points here via
-`repo://skills/skill-creator`.

@@ -12,8 +12,8 @@ use std::sync::{Mutex, OnceLock};
 // `update_project`) both read the same baseline and the second writer
 // clobbers the first writer's change — silent data loss. The lock is held
 // across the whole read-modify-write so the operation is atomic from the
-// caller's point of view. Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`
-// and `kg::kg_write_lock`. Pure reads (`list_projects_inner`, `load_items_for`)
+// caller's point of view. Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`.
+// Pure reads (`list_projects_inner`, `load_items_for`)
 // are excluded intentionally.
 static PROJECTS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 

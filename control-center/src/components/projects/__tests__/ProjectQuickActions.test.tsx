@@ -8,8 +8,9 @@
 //   (2) The removed actions (Terminal, Refactor IA, README IA) are gone in
 //       both densities.
 //   (3) Click IDE invokes `open_project_in_ide` with {path, preferredIde}.
-//   (4) Click the AI button invokes `spawn_session` (external CLI) with the
-//       project's provider + cwd — NOT pty_spawn.
+//   (4) Claude abre ULTRON Sessions (`sesiones_launch`), sin opción de
+//       terminal clásica. Codex va
+//       siempre por `spawn_session`. Nunca pty_spawn.
 //   (5) Folder + IDE buttons are disabled when path is null.
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -72,7 +73,7 @@ beforeEach(() => {
 describe("ProjectQuickActions — rendering (V1)", () => {
   it("renders Folder, IDE and provider label in compact mode", () => {
     renderActions();
-    expect(screen.getByText("Folder")).toBeTruthy();
+    expect(screen.getByText("Carpeta")).toBeTruthy();
     expect(screen.getByText("IDE")).toBeTruthy();
     // default_provider = "claude" → badge label "Claude"
     expect(screen.getByText("Claude")).toBeTruthy();
@@ -80,12 +81,12 @@ describe("ProjectQuickActions — rendering (V1)", () => {
 
   it("does NOT render Run batch by default (masterplan 3.6 — Batch fuera de la barra)", () => {
     renderActions();
-    expect(screen.queryByText("Run batch")).toBeNull();
+    expect(screen.queryByText("Ejecutar .bat")).toBeNull();
   });
 
   it("renders Run batch only when showBatch=true (opt-in escape hatch)", () => {
     renderActions({}, "compact", true);
-    expect(screen.getByText("Run batch")).toBeTruthy();
+    expect(screen.getByText("Ejecutar .bat")).toBeTruthy();
   });
 
   it("does NOT render the removed Terminal button", () => {
@@ -104,16 +105,45 @@ describe("ProjectQuickActions — rendering (V1)", () => {
     expect(screen.getByText("Codex")).toBeTruthy();
   });
 
-  it("renders Launch all button when items has at least one non-folder item", () => {
+  it("renders Launch all button when items has two or more non-folder items", () => {
     renderActions({
-      items: [{ kind: "claude", cwd: "C:\\projects\\alpha" }],
+      items: [
+        { kind: "claude", cwd: "C:\\projects\\alpha" },
+        { kind: "exe", path: "C:\\tools\\app.exe" },
+      ],
     });
-    expect(screen.getByText(/Launch all/)).toBeTruthy();
+    expect(screen.getByText("Lanzar todo (2)")).toBeTruthy();
+  });
+
+  it("does NOT render Launch all with a single launchable item (it would repeat the provider button)", () => {
+    renderActions({
+      items: [
+        { kind: "claude", cwd: "C:\\projects\\alpha" },
+        { kind: "folder", path: "C:\\projects\\alpha" },
+      ],
+    });
+    expect(screen.queryByText(/Lanzar todo/)).toBeNull();
+  });
+
+  it("does NOT render Launch all when showLaunchAll is false (ProjectRow has its own)", () => {
+    render(
+      <ProjectQuickActions
+        project={{
+          ...BASE_PROJECT,
+          items: [
+            { kind: "claude", cwd: "C:\\projects\\alpha" },
+            { kind: "exe", path: "C:\\tools\\app.exe" },
+          ],
+        }}
+        showLaunchAll={false}
+      />,
+    );
+    expect(screen.queryByText(/Lanzar todo/)).toBeNull();
   });
 
   it("does NOT render Launch all when items is empty", () => {
     renderActions({ items: [] });
-    expect(screen.queryByText(/Launch all/)).toBeNull();
+    expect(screen.queryByText(/Lanzar todo/)).toBeNull();
   });
 
   it("renders individual item buttons in full density", () => {
@@ -195,23 +225,32 @@ describe("ProjectQuickActions — IDE action", () => {
 // (4) AI button → spawn_session (external CLI), NOT pty_spawn
 // ---------------------------------------------------------------------------
 
-describe("ProjectQuickActions — AI (spawn_session) action", () => {
-  it("invokes spawn_session with the project provider + cwd for claude", async () => {
+describe("ProjectQuickActions — AI action (E11)", () => {
+  it("Claude abre la sesión en ULTRON Sessions con sesiones_launch(projectId)", async () => {
     renderActions({ default_provider: "claude" });
     fireEvent.click(screen.getByText("Claude"));
     await waitFor(() => {
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("spawn_session", {
-        provider: "claude",
-        cwd: BASE_PROJECT.path,
-        prompt: null,
-        flags: { dangerouslySkipPermissions: false },
-      });
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("sesiones_launch", { projectId: BASE_PROJECT.id });
     });
-    // Must NOT use the embedded-terminal path.
-    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
-      "pty_spawn",
-      expect.anything(),
-    );
+    // Caso negativo: un clic normal ya no abre la terminal clásica.
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith("spawn_session", expect.anything());
+  });
+
+  it("enseña el error de sesiones_launch en la tarjeta", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("ULTRON Sessions no pudo crear la sesión");
+    renderActions({ default_provider: "claude" });
+    fireEvent.click(screen.getByText("Claude"));
+    expect(await screen.findByText("ULTRON Sessions no pudo crear la sesión")).toBeInTheDocument();
+  });
+
+  it("Claude ya no ofrece la terminal clásica (ni menú ni Mayús+clic)", async () => {
+    renderActions({ default_provider: "claude" });
+    expect(screen.queryByRole("button", { name: "Cómo abrir Claude" })).toBeNull();
+    fireEvent.click(screen.getByText("Claude"), { shiftKey: true });
+    await waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("sesiones_launch", { projectId: BASE_PROJECT.id });
+    });
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith("spawn_session", expect.anything());
   });
 
   it("invokes spawn_session with provider=codex when project uses codex", async () => {
@@ -222,7 +261,9 @@ describe("ProjectQuickActions — AI (spawn_session) action", () => {
         provider: "codex",
         cwd: BASE_PROJECT.path,
         prompt: null,
-        flags: { dangerouslySkipPermissions: false },
+        // Proyecto propio: sin decisión explícita, manda el defecto de
+        // sessions.rs. Un false aquí sí se respetaría (C1).
+        flags: {},
       });
     });
   });
@@ -233,17 +274,14 @@ describe("ProjectQuickActions — AI (spawn_session) action", () => {
 // ---------------------------------------------------------------------------
 
 describe("ProjectQuickActions — Abrir app action", () => {
-  it("is disabled with a 'configure app_command' tooltip when app_command is unset", () => {
+  it("is not rendered when app_command is unset", () => {
     renderActions({ app_command: null });
-    const btn = screen.getByText("Abrir app").closest("button");
-    expect(btn).toHaveProperty("disabled", true);
-    expect(btn?.getAttribute("title")).toMatch(/Configura app_command/);
+    expect(screen.queryByText("Abrir app")).toBeNull();
   });
 
-  it("is disabled when app_command is only whitespace", () => {
+  it("is not rendered when app_command is only whitespace", () => {
     renderActions({ app_command: "   " });
-    const btn = screen.getByText("Abrir app").closest("button");
-    expect(btn).toHaveProperty("disabled", true);
+    expect(screen.queryByText("Abrir app")).toBeNull();
   });
 
   it("invokes project_open_app with {id} when app_command is set", async () => {
@@ -268,5 +306,49 @@ describe("ProjectQuickActions — Abrir app action", () => {
     await waitFor(() => {
       expect(screen.getByText(/project path does not exist/)).toBeTruthy();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (6) «Jugar» — project_play_game (Unreal / Unity)
+// ---------------------------------------------------------------------------
+
+describe("ProjectQuickActions — Jugar action", () => {
+  it("no se pinta en proyectos sin motor de juego", () => {
+    renderActions({ game_engine: null });
+    expect(screen.queryByText("Jugar")).toBeNull();
+  });
+
+  it("invoca project_play_game con {id} y enseña el modo usado", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "project_play_game") {
+        return Promise.resolve({
+          engine: "unreal",
+          mode: "editor_game",
+          executable: "C:\UE\UnrealEditor.exe",
+          message: "Sin build empaquetado: juego sin editor (UnrealEditor -game -windowed) con X.uproject",
+        });
+      }
+      return Promise.resolve(null);
+    });
+    renderActions({ game_engine: "unreal" });
+    fireEvent.click(screen.getByText("Jugar"));
+    await waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("project_play_game", { id: BASE_PROJECT.id });
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(/UnrealEditor -game -windowed/);
+  });
+
+  it("enseña el error del backend cuando Unity no tiene build", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "project_play_game") {
+        return Promise.reject("No hay build de Unity: compila primero (se buscó ...)");
+      }
+      return Promise.resolve(null);
+    });
+    renderActions({ game_engine: "unity" });
+    fireEvent.click(screen.getByText("Jugar"));
+    expect(await screen.findByText(/No hay build de Unity: compila primero/)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

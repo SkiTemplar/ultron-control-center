@@ -101,9 +101,9 @@ $Catalog = @(
     @{ id="cc_skills_comm";  group="Claude Code integration";      label="Community skills";          note="clone curated skills from SkiTemplar/ultron-skills";           default=$false; required=$false }
     @{ id="cc_agents";       group="Claude Code integration";      label="Agents (19 pre-installed)"; note="copy 12 ULTRON + 7 community agent manifests into ~/.claude/agents/ (69 more available from the Agents tab catalog)"; default=$true;  required=$false }
 
-    # ---- Optional UI --------------------------------------------------
-    @{ id="ui_npm";          group="Optional UI";                  label="Control Center deps (npm install)"; note="~150 MB, ~2 min - needed even if you skip the Tauri build"; default=$false; required=$false }
-    @{ id="ui_tauri_build";  group="Optional UI";                  label="Tauri release build";       note="3-5 min Rust compile, produces installer.exe";                 default=$false; required=$false }
+    # ---- Control Center -----------------------------------------------
+    @{ id="ui_npm";          group="Control Center (recommended)"; label="Control Center deps (npm install)"; note="~150 MB, ~2 min - needed by the desktop app build";         default=$true;  required=$false }
+    @{ id="ui_tauri_build";  group="Control Center (recommended)"; label="Desktop app build (Tauri)"; note="Rust compile, up to ~25 min cold; needs the MSVC linker";       default=$true;  required=$false }
 
     # ---- Optional features --------------------------------------------
     @{ id="feat_gaming";        group="Optional features";            label="Gaming utilities";          note="game detector + tweaks panel";                                 default=$false; required=$false }
@@ -126,7 +126,7 @@ foreach ($item in $Catalog) {
 }
 
 # ----------------------------------------------------------------------
-# Colors and fonts. Match the Control Center dark theme — same tokens
+# Colors and fonts. Match the Control Center dark theme - same tokens
 # the Tauri app's CSS variables resolve to (var(--color-surface-*),
 # var(--color-accent)) so the WinForms wizard reads as a sibling of the
 # main app, not a relic.
@@ -294,7 +294,7 @@ $y          = 8
 $groups = $Catalog | ForEach-Object { $_.group } | Select-Object -Unique
 
 foreach ($groupName in $groups) {
-    # Group header — accent-coloured bar on the left + label, no Fixed3D
+    # Group header - accent-coloured bar on the left + label, no Fixed3D
     # separator (the bevels read as scratches on a dark theme).
     $accentBar          = New-Object System.Windows.Forms.Panel
     $accentBar.BackColor = $ColorAccent

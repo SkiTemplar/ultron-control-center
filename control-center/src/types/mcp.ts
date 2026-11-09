@@ -35,27 +35,9 @@ export type McpMutationResult = {
   backup_path: string | null;
 };
 
-export type McpGenerationResult = {
-  success: boolean;
-  name: string;
-  config: Record<string, unknown>;
-  raw_output: string;
-};
-
 // ---------------------------------------------------------------------------
 // Settings (P7): plugin info + MCP ping + hooks last fired.
 // ---------------------------------------------------------------------------
-
-export type PluginInfo = {
-  installed: boolean;
-  version: string | null;
-  root: string | null;
-  last_update_iso: string | null;
-  skills_count: number;
-  agents_count: number;
-  hooks_count: number;
-  mcp_servers_count: number;
-};
 
 export type McpPingResult = {
   name: string;

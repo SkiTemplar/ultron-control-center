@@ -48,7 +48,7 @@ export function BoardToolbar({
         type="text"
         value={boardQuery}
         onChange={(e) => setBoardQuery(e.target.value)}
-        placeholder="Search cards…"
+        placeholder="Buscar tarjetas…"
         className="min-w-[180px] flex-1 rounded px-2 py-1 text-[11.5px] outline-none"
         style={{
           background: "var(--color-surface-2)",
@@ -63,7 +63,7 @@ export function BoardToolbar({
           background: "var(--color-surface-1)",
           border: "1px solid var(--color-border-strong)",
         }}
-        title="Filter by priority"
+        title="Filtrar por prioridad"
       >
         {(["all", "p0", "p1", "p2", "p3"] as const).map((p) => {
           const active = priorityFilter === p;
@@ -82,7 +82,7 @@ export function BoardToolbar({
                   : "var(--color-text-tertiary)",
               }}
             >
-              {p}
+              {p === "all" ? "todas" : p}
             </button>
           );
         })}
@@ -100,9 +100,9 @@ export function BoardToolbar({
             color: "var(--color-text-tertiary)",
             border: "1px solid var(--color-border)",
           }}
-          title="Clear filters"
+          title="Quitar filtros"
         >
-          Clear
+          Limpiar
         </button>
       )}
       {/* v2.6.2 — Archive Done + Show Archived toolbar buttons. Per the
@@ -127,11 +127,11 @@ export function BoardToolbar({
             }}
             title={
               doneCount > 0
-                ? `Move all ${doneCount} Done card${doneCount === 1 ? "" : "s"} into a named archive group`
-                : "No Done cards to archive"
+                ? `Mover ${doneCount === 1 ? "la tarjeta" : `las ${doneCount} tarjetas`} de Done a un archivo con nombre`
+                : "No hay tarjetas en Done para archivar"
             }
           >
-            Archive Done {doneCount > 0 ? `(${doneCount})` : ""}
+            Archivar hechas {doneCount > 0 ? `(${doneCount})` : ""}
           </button>
         );
       })()}
@@ -146,9 +146,9 @@ export function BoardToolbar({
             : "var(--color-text-tertiary)",
           border: `1px solid ${showArchived ? "var(--color-accent)" : "var(--color-border)"}`,
         }}
-        title="Toggle the Library-style grid of historical Done archives"
+        title="Mostrar u ocultar los archivos históricos de Done"
       >
-        {showArchived ? "Hide Archived" : "Show Archived"}
+        {showArchived ? "Ocultar archivados" : "Ver archivados"}
       </button>
       {/* v2.14 — "+ Columna" button + inline popover form. */}
       <div className="relative ml-auto flex items-center gap-2">
@@ -166,7 +166,7 @@ export function BoardToolbar({
             color: addColOpen ? "var(--color-accent-text)" : "var(--color-text-secondary)",
             border: `1px solid ${addColOpen ? "var(--color-accent)" : "var(--color-border-strong)"}`,
           }}
-          title="Agregar columna al board"
+          title="Añadir columna al tablero"
         >
           <Plus size={11} />
           Columna
@@ -214,10 +214,10 @@ export function BoardToolbar({
                 color: "var(--color-text)",
               }}
             >
-              <option value="todo">Todo (backlog / pendiente)</option>
-              <option value="doing">Doing (en progreso)</option>
-              <option value="blocked">Blocked (bloqueado)</option>
-              <option value="done">Done (completado)</option>
+              <option value="todo">Pendiente (rol todo)</option>
+              <option value="doing">En curso (rol doing)</option>
+              <option value="blocked">Bloqueada (rol blocked)</option>
+              <option value="done">Hecha (rol done)</option>
               <option value="other">Otro</option>
             </select>
             <div className="flex items-center justify-end gap-2">
@@ -254,7 +254,7 @@ export function BoardToolbar({
           </div>
         )}
         <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
-          {cardMatchesCount} / {board.cards.length} cards
+          {cardMatchesCount} / {board.cards.length} tarjetas
         </span>
       </div>
     </div>

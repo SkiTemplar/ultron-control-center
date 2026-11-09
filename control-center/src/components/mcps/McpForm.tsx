@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Add / Edit modal — shared form
+// Formulario común de los modales de alta y edición
 // ---------------------------------------------------------------------------
 
 import type { EditableMcp, Transport } from "./types";
@@ -51,13 +51,13 @@ export function McpForm({
     <div className="space-y-3">
       <div>
         <label className="mb-1 block" style={labelStyle}>
-          Name
+          Nombre
         </label>
         <input
           type="text"
           value={value.name}
           onChange={(e) => set("name", e.target.value)}
-          placeholder="kebab-case-name"
+          placeholder="nombre-en-kebab-case"
           disabled={lockName}
           style={{ ...inputStyle, opacity: lockName ? 0.6 : 1 }}
         />
@@ -65,13 +65,13 @@ export function McpForm({
           className="mt-1 text-[11.5px]"
           style={{ color: "var(--color-text-faint)" }}
         >
-          Lowercase letters, digits, '_' or '-'. Must start with letter/digit.
+          Minúsculas, dígitos, '_' o '-'. Debe empezar por letra o dígito.
         </p>
       </div>
 
       <div>
         <label className="mb-1 block" style={labelStyle}>
-          Transport
+          Transporte
         </label>
         <div className="flex gap-2">
           {(["stdio", "http", "sse"] as Transport[]).map((t) => (
@@ -102,7 +102,7 @@ export function McpForm({
         <>
           <div>
             <label className="mb-1 block" style={labelStyle}>
-              Command
+              Comando
             </label>
             <input
               type="text"
@@ -114,7 +114,7 @@ export function McpForm({
           </div>
           <div>
             <label className="mb-1 block" style={labelStyle}>
-              Args (one per line)
+              Args (uno por línea)
             </label>
             <textarea
               value={value.argsText}
@@ -133,7 +133,7 @@ export function McpForm({
                 className="text-[11.5px] underline-offset-2 hover:underline"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                + add row
+                + añadir fila
               </button>
             </div>
             {value.envRows.length === 0 && (
@@ -141,7 +141,7 @@ export function McpForm({
                 className="text-[11.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
-                No environment variables.
+                Sin variables de entorno.
               </p>
             )}
             <div className="space-y-1.5">
@@ -158,7 +158,7 @@ export function McpForm({
                     type="text"
                     value={row.value}
                     onChange={(e) => setEnv(i, { value: e.target.value })}
-                    placeholder="value"
+                    placeholder="valor"
                     style={{ ...inputStyle, flex: "1 1 65%" }}
                   />
                   <button
@@ -170,7 +170,8 @@ export function McpForm({
                       color: "var(--color-text-secondary)",
                       border: "1px solid var(--color-border)",
                     }}
-                    title="Remove"
+                    title="Quitar"
+                    aria-label="Quitar variable"
                   >
                     ×
                   </button>

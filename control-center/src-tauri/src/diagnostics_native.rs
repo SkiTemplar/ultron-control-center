@@ -265,7 +265,7 @@ pub fn check_network() -> NetworkStatus {
         Err(e) => {
             // Should never happen with the compile-time literal above, but
             // returning a diagnostic failure is safer than panicking.
-            eprintln!("[diagnostics] failed to parse network check addr: {e}");
+            tracing::warn!("[diagnostics] failed to parse network check addr: {e}");
             return NetworkStatus {
                 reachable: false,
                 latency_ms: None,
@@ -370,5 +370,131 @@ pub fn run_full_diagnostic_native() -> DiagnosticReport {
         network,
         app,
         max_severity,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Alerta del diagnóstico programado (`--run-diagnostic`)
+// ---------------------------------------------------------------------------
+
+/// Resume qué comprobaciones dieron error, para que la alerta diga algo
+/// accionable en Notifications en vez de un «flagged error» genérico.
+pub fn headless_alert_message(report: &DiagnosticReport) -> String {
+    let mut causes: Vec<String> = Vec::new();
+    if report.system.severity == Severity::Error {
+        causes.push(format!(
+            "RAM al {:.0} % ({} de {} MB)",
+            report.system.ram_usage_percent, report.system.ram_used_mb, report.system.ram_total_mb
+        ));
+    }
+    for d in report
+        .disks
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+    {
+        causes.push(format!(
+            "disco {} al {:.0} % ({:.1} GB libres)",
+            d.mount, d.used_percent, d.free_gb
+        ));
+    }
+    if report.network.severity == Severity::Error {
+        causes.push(format!("sin red ({} inalcanzable)", NETWORK_CHECK_HOST));
+    }
+    if report.app.severity == Severity::Error {
+        causes.push("claude no está en el PATH".to_string());
+    }
+    if causes.is_empty() {
+        causes.push("severidad error sin causa identificada".to_string());
+    }
+    format!(
+        "Diagnóstico diario con errores: {}. Informe en cockpit/diagnostics/{}.json",
+        causes.join("; "),
+        report.timestamp
+    )
+}
+
+/// Añade la alerta del diagnóstico a `~/.ultron/alerts.jsonl`, el fichero que
+/// leen Notifications y la línea de tiempo (antes iba a `cockpit/alerts.jsonl`
+/// y nadie la veía).
+pub fn emit_headless_error_alert(report: &DiagnosticReport) -> std::io::Result<()> {
+    let entry = crate::alerts_admin::build_alert_entry(
+        Some(&report.timestamp),
+        "diagnostic",
+        "critical",
+        &headless_alert_message(report),
+    );
+    crate::alerts_admin::append_alert_entry(&entry).map_err(std::io::Error::other)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(ram: Severity, disk: Severity, net: Severity, app: Severity) -> DiagnosticReport {
+        DiagnosticReport {
+            timestamp: "2026-10-16T07-42-26Z".to_string(),
+            system: SystemInfo {
+                os: String::new(),
+                kernel: String::new(),
+                hostname: String::new(),
+                uptime_seconds: 0,
+                cpu_brand: String::new(),
+                cpu_cores: 1,
+                cpu_usage_percent: 0.0,
+                ram_total_mb: 1000,
+                ram_used_mb: 950,
+                ram_usage_percent: 95.0,
+                severity: ram,
+            },
+            disks: vec![DiskInfo {
+                mount: "C:\\".to_string(),
+                total_gb: 100.0,
+                free_gb: 2.0,
+                used_percent: 98.0,
+                severity: disk,
+            }],
+            top_processes: Vec::new(),
+            event_log: Vec::new(),
+            network: NetworkStatus {
+                reachable: net != Severity::Error,
+                latency_ms: None,
+                severity: net,
+            },
+            app: AppHealth {
+                projects_json_ok: true,
+                claude_in_path: app != Severity::Error,
+                codex_in_path: true,
+                qdrant_running: false,
+                severity: app,
+            },
+            max_severity: Severity::Error,
+        }
+    }
+
+    #[test]
+    fn alert_message_names_each_failing_check() {
+        let msg = headless_alert_message(&report(
+            Severity::Error,
+            Severity::Error,
+            Severity::Ok,
+            Severity::Error,
+        ));
+        assert!(msg.contains("RAM al 95 %"), "{msg}");
+        assert!(msg.contains(r"disco C:\ al 98 %"), "{msg}");
+        assert!(msg.contains("claude no está en el PATH"), "{msg}");
+        assert!(!msg.contains("sin red"), "la red estaba bien: {msg}");
+        assert!(msg.contains("cockpit/diagnostics/2026-10-16T07-42-26Z.json"));
+    }
+
+    #[test]
+    fn alert_message_without_error_checks_says_so() {
+        let msg = headless_alert_message(&report(
+            Severity::Warn,
+            Severity::Ok,
+            Severity::Ok,
+            Severity::Ok,
+        ));
+        assert!(msg.contains("sin causa identificada"), "{msg}");
+        assert!(!msg.contains("RAM al"), "{msg}");
     }
 }

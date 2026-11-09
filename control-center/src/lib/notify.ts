@@ -44,7 +44,7 @@ export interface NotifyInput {
      * row (e.g. "copied to clipboard").
      */
     persist?: boolean;
-    /** Popup auto-dismiss in ms (default 6000, 0 = sticky). */
+    /** Popup auto-dismiss in ms (default 6000; 12000 for warn/critical; blocking is sticky; 0 = sticky). */
     ttlMs?: number;
 }
 
@@ -78,16 +78,6 @@ export function notify(input: NotifyInput): void {
             /* swallow — the popup already gave the user feedback */
         });
     }
-}
-
-/** Convenience wrapper: info-severity notification. */
-export function notifyInfo(message: string, source?: string): void {
-    notify({ message, source, severity: "info" });
-}
-
-/** Convenience wrapper: warn-severity notification. */
-export function notifyWarn(message: string, source?: string): void {
-    notify({ message, source, severity: "warn" });
 }
 
 /** Convenience wrapper: critical-severity notification. */

@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type {
-  McpPingResult,
-  McpMutationResult,
-  SettingsSnapshot,
-  SettingsSaveResult,
-} from "../types";
+import type { McpPingResult, McpMutationResult, SettingsSaveResult } from "../types";
 import { useRoutingTitle } from "../lib/button-prompts";
 import { notifyError } from "../lib/notify";
 import { Card } from "./mcps/McpCard";
-import { EnableDisableSection } from "./mcps/EnableDisableSection";
-import { GenerateModal } from "./mcps/GenerateModal";
 import { McpForm } from "./mcps/McpForm";
 import { Modal } from "./mcps/Modal";
 import type { EditableMcp, McpInfoExt } from "./mcps/types";
@@ -24,13 +17,11 @@ import {
   validateEditable,
 } from "./mcps/utils";
 
-// v2.5.2 (wave 2): EnableDisableSection is intentionally retained but no
-// longer rendered. The per-card toggle in <Card> replaces it. Keep this
-// reference so TS6133 (unused) doesn't fire and we can resurrect the
-// section quickly if the user changes their mind.
-/* eslint-disable @typescript-eslint/no-unused-vars */
-const _keepEnableDisableSection = EnableDisableSection;
-void _keepEnableDisableSection;
+const codeStyle = {
+  fontFamily: "var(--font-mono)",
+  background: "var(--color-surface-3)",
+  color: "var(--color-text-primary)",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Main
@@ -44,12 +35,12 @@ export function MCPs() {
   const [showHidden, setShowHidden] = useState(false);
   const [probing, setProbing] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
-  // P7: per-server ping results (Test button). Independent of the global
-  // health check JSON because the spawn-and-initialize handshake is
-  // far more reliable than reading mcp-health.json.
+  // P7: resultado del ping por servidor (botón «Probar»). Independiente del
+  // JSON de la comprobación global: lanzar el proceso y hacer initialize es
+  // mucho más fiable que leer mcp-health.json.
   const [pings, setPings] = useState<Record<string, McpPingResult>>({});
   const [pingBusy, setPingBusy] = useState<Set<string>>(new Set());
-  // Per-card enable/disable state. Maps MCP name → enabled (true = not disabled).
+  // Estado activado/desactivado por tarjeta: nombre del MCP → activado.
   const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
   const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
 
@@ -82,7 +73,7 @@ export function MCPs() {
   }
   const addWithAiTitle = useRoutingTitle(
     "mcps.add_with_ai",
-    "Register a new MCP server with AI. cwd=instructions/mcps/ with GUIDE.md auto-loaded.",
+    "Registra un servidor MCP nuevo con IA. cwd=instructions/mcps/ con GUIDE.md cargado automáticamente.",
   );
 
   // Modal state
@@ -97,9 +88,8 @@ export function MCPs() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const deleteOrigin = mcps.find((m) => m.name === deleteTarget)?.origin;
   const [deleting, setDeleting] = useState(false);
-
-  const [genOpen, setGenOpen] = useState(false);
 
   useEffect(() => saveHidden(hidden), [hidden]);
 
@@ -112,7 +102,7 @@ export function MCPs() {
       setMcps(list);
       setError(null);
       // Seed enabled/disabled state from the list itself: list_mcps marks
-      // `disabled` both from settings.json mcpServers (user scope) AND from
+      // `disabled` both from the entry itself (`disabled: true`) AND from
       // Claude Code's `disabledMcpjsonServers` (project/.mcp.json scope), so
       // it's the single authoritative source — no separate settings read.
       const map: Record<string, boolean> = {};
@@ -127,53 +117,36 @@ export function MCPs() {
 
   async function toggleEnabled(name: string, origin?: string) {
     if (toggleBusy.has(name)) return;
+    // Solo el ámbito proyecto tiene interruptor en Claude Code
+    // (disabledMcpjsonServers). La tarjeta ya deshabilita el resto; si llega
+    // aquí, se explica en vez de no hacer nada.
+    if (!origin || !origin.startsWith("project:")) {
+      showFlash(`'${name}' no tiene interruptor en Claude Code fuera del ámbito de proyecto.`);
+      return;
+    }
     setToggleBusy((s) => { const n = new Set(s); n.add(name); return n; });
     try {
-      const currentlyEnabled = enabledMap[name] !== false;
-      const wantDisabled = currentlyEnabled; // toggling flips the state
-      if (origin && origin.startsWith("project:")) {
-        // Project / .mcp.json scope → Claude Code's own disabledMcpjsonServers
-        // list in settings.json (the only switch that actually disables these).
-        const res = (await invoke("mcp_set_disabled", {
-          name,
-          disabled: wantDisabled,
-        })) as SettingsSaveResult;
-        if (res.success) setEnabledMap((m) => ({ ...m, [name]: !wantDisabled }));
-      } else {
-        // User scope → settings.json mcpServers[name].disabled. If the server
-        // isn't in settings.json (it lives in ~/.claude.json), say so honestly
-        // instead of silently no-op'ing.
-        const snap = (await invoke("settings_read")) as SettingsSnapshot;
-        const next = JSON.parse(JSON.stringify(snap.content)) as Record<string, unknown>;
-        const servers = (next.mcpServers ?? {}) as Record<string, { disabled?: boolean }>;
-        const cfg = servers[name];
-        if (!cfg) {
-          showFlash(
-            `'${name}' vive en ~/.claude.json (user scope); edítalo ahí para desactivarlo.`,
-          );
-          return;
-        }
-        cfg.disabled = !cfg.disabled;
-        next.mcpServers = servers;
-        const nowEnabled = !cfg.disabled; // cfg.disabled was just set to the new value
-        const res = (await invoke("settings_save", { content: next })) as SettingsSaveResult;
-        if (res.success) {
-          setEnabledMap((m) => ({ ...m, [name]: nowEnabled }));
-        }
-      }
+      const wantDisabled = enabledMap[name] !== false; // toggling flips the state
+      const res = (await invoke("mcp_set_disabled", {
+        name,
+        disabled: wantDisabled,
+      })) as SettingsSaveResult;
+      if (res.success) setEnabledMap((m) => ({ ...m, [name]: !wantDisabled }));
     } catch (e) {
-      showFlash(`Toggle failed: ${e}`);
+      showFlash(`No se pudo cambiar el estado: ${e}`);
     } finally {
       setToggleBusy((s) => { const n = new Set(s); n.delete(name); return n; });
     }
   }
 
   // audit verify-audit-2 rank8: useCallback con deps [] — referencia estable
-  // para el botón "Check now" sin recrear la función en cada render.
+  // para el botón «Comprobar salud» sin recrear la función en cada render.
   const runProbe = useCallback(async () => {
     setProbing(true);
     try {
-      const list = (await invoke("run_mcp_health_check")) as McpInfoExt[];
+      // H15: chequeo real en Rust sobre la misma unión de fuentes que el
+      // listado (el script antiguo solo leía settings.json).
+      const list = (await invoke("mcp_health_check_all")) as McpInfoExt[];
       setMcps(list);
       setError(null);
     } catch (e) {
@@ -202,21 +175,17 @@ export function MCPs() {
   }
 
   // -------------------------------------------------------------------------
-  // Open Edit modal — needs to read settings.json to get the source config
-  // (list_mcps strips env, etc.).
+  // Open Edit modal — reads the raw entry from ~/.claude.json (list_mcps
+  // strips env, etc.).
   // -------------------------------------------------------------------------
   async function openEdit(name: string) {
     try {
-      const snap = (await invoke("settings_read")) as SettingsSnapshot;
-      const servers = (snap.content as Record<string, unknown>).mcpServers as
-        | Record<string, Record<string, unknown>>
-        | undefined;
-      const cfg = servers?.[name] ?? {};
+      const cfg = (await invoke("mcp_get_config", { name })) as Record<string, unknown>;
       setEditModel(configToEditable(name, cfg));
       setEditTarget(name);
       setEditError(null);
     } catch (e) {
-      showFlash(`Failed to load entry: ${e}`);
+      showFlash(`No se pudo cargar la entrada: ${e}`);
     }
   }
 
@@ -230,7 +199,7 @@ export function MCPs() {
       return;
     }
     if (mcps.some((m) => m.name === addModel.name)) {
-      setAddError(`'${addModel.name}' already exists.`);
+      setAddError(`'${addModel.name}' ya existe.`);
       return;
     }
     setAddSaving(true);
@@ -244,7 +213,7 @@ export function MCPs() {
       setAddOpen(false);
       setAddModel(blankMcp());
       showFlash(
-        `Added '${res.name}'. Backup: ${res.backup_path ?? "n/a"}. Restart Claude Code for the new MCP to spawn.`,
+        `Añadido '${res.name}'. Backup: ${res.backup_path ?? "n/d"}. Reinicia Claude Code para que arranque el MCP nuevo.`,
       );
       await fetchList();
     } catch (e) {
@@ -258,7 +227,7 @@ export function MCPs() {
   // Edit
   // -------------------------------------------------------------------------
   async function submitEdit() {
-    const err = validateEditable(editModel);
+    const err = validateEditable(editModel, true);
     if (err) {
       setEditError(err);
       return;
@@ -273,7 +242,7 @@ export function MCPs() {
       })) as McpMutationResult;
       setEditTarget(null);
       showFlash(
-        `Updated '${res.name}'. Backup: ${res.backup_path ?? "n/a"}. Restart Claude Code to apply.`,
+        `Actualizado '${res.name}'. Backup: ${res.backup_path ?? "n/d"}. Reinicia Claude Code para aplicarlo.`,
       );
       await fetchList();
     } catch (e) {
@@ -295,11 +264,11 @@ export function MCPs() {
       })) as McpMutationResult;
       setDeleteTarget(null);
       showFlash(
-        `Removed '${res.name}'. Backup: ${res.backup_path ?? "n/a"}.`,
+        `Borrado '${res.name}'. Backup: ${res.backup_path ?? "n/d"}. Reinicia Claude Code para aplicarlo.`,
       );
       await fetchList();
     } catch (e) {
-      showFlash(`Delete failed: ${e}`);
+      showFlash(`No se pudo borrar: ${e}`);
     } finally {
       setDeleting(false);
     }
@@ -317,20 +286,22 @@ export function MCPs() {
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">MCPs</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            {mcps.length} servers · {okCount} connected · {issueCount} need attention
+            {mcps.length} {mcps.length === 1 ? "servidor" : "servidores"} · {okCount}{" "}
+            {okCount === 1 ? "conectado" : "conectados"} · {issueCount}{" "}
+            {issueCount === 1 ? "requiere atención" : "requieren atención"}
             {(() => {
-              // Surface origin breakdown so the user can sanity-check that
-              // plugin- and project-scope MCPs are showing up (the user
-              // reported that Claudia surfaced many more than CC did).
+              // Desglose por origen, para comprobar que aparecen los MCP de
+              // plugin y de proyecto (otra herramienta mostraba muchos más
+              // que Claude Code).
               const buckets = mcps.reduce<Record<string, number>>((acc, m) => {
                 const k = parseOrigin(m.origin).kind;
                 acc[k] = (acc[k] || 0) + 1;
                 return acc;
               }, {});
               const parts: string[] = [];
-              if (buckets.user) parts.push(`${buckets.user} user`);
-              if (buckets.project) parts.push(`${buckets.project} project`);
-              if (buckets.plugin) parts.push(`${buckets.plugin} plugin`);
+              if (buckets.user) parts.push(`${buckets.user} de usuario`);
+              if (buckets.project) parts.push(`${buckets.project} de proyecto`);
+              if (buckets.plugin) parts.push(`${buckets.plugin} de plugin`);
               return parts.length > 0 ? <> · {parts.join(" · ")}</> : null;
             })()}
           </p>
@@ -345,18 +316,16 @@ export function MCPs() {
             }}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
             style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-primary)",
-              border: "1px solid var(--color-border-strong)",
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
             }}
           >
-            + Add MCP
+            + Añadir MCP
           </button>
-          {/* "Generate from prompt" retired in favor of "Add with AI" —
-              the inline modal kept choking on prompts with special chars
-              and the wt.exe-based flow gives Claude full conversation
-              control, which matters when the user needs to clarify
-              command/args/env shape. */}
+          {/* «Generar desde prompt» se retiró en favor de «Añadir con IA»: el
+              modal en línea fallaba con prompts con caracteres especiales y
+              el flujo con wt.exe da a Claude la conversación completa, útil
+              cuando hay que aclarar comando, args o env. */}
           <button
             type="button"
             onClick={async () => {
@@ -376,17 +345,18 @@ export function MCPs() {
                   flags: { dangerouslySkipPermissions: false },
                 });
               } catch (e) {
-                notifyError(`create mcp with AI failed: ${String(e)}`, "mcps");
+                notifyError(`No se pudo crear el MCP con IA: ${String(e)}`, "mcps");
               }
             }}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
             style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-primary)",
+              border: "1px solid var(--color-border-strong)",
             }}
             title={addWithAiTitle}
           >
-            Add with AI
+            Añadir con IA
           </button>
           <button
             type="button"
@@ -394,12 +364,13 @@ export function MCPs() {
             disabled={probing}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
             style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-primary)",
+              border: "1px solid var(--color-border-strong)",
             }}
-            title="Pings each MCP server (sse via HTTP, stdio via spawn + ListTools) to verify it's reachable. Marks 'degraded' if response > 5s, 'missing' if no response. Updates per-row status icon."
+            title="Prueba todos los servidores activados de todas las fuentes (stdio: ejecuta el comando y espera a initialize; HTTP/SSE: envía initialize a la URL). «degradado» si tarda más de 5 s o pide autenticación; «no encontrado» si no responde. Escribe ~/.ultron/.tmp/mcp-health.json."
           >
-            {probing ? "Probing…" : "Run health check"}
+            {probing ? "Comprobando…" : "Comprobar salud"}
           </button>
         </div>
       </header>
@@ -432,26 +403,20 @@ export function MCPs() {
 
       {hidden.size > 0 && (
         <div className="mb-4 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          {hidden.size} hidden ·{" "}
+          {hidden.size} ocultos ·{" "}
           <button
             type="button"
             onClick={() => setShowHidden(!showHidden)}
             className="underline-offset-2 hover:underline"
           >
-            {showHidden ? "hide them" : "show them"}
+            {showHidden ? "ocultarlos" : "mostrarlos"}
           </button>
         </div>
       )}
 
-      {/* v2.5.2 (wave 2): Global Enable/disable section removed — per-card
-          toggle (rendered in <Card>) is the only enable/disable surface now.
-          EnableDisableSection definition kept below the main component so
-          backend wiring isn't dead and the section can be restored quickly.
-          See SCOPE WARNING in task brief. */}
-
       {loading && (
         <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Loading…
+          Cargando…
         </div>
       )}
 
@@ -464,7 +429,7 @@ export function MCPs() {
             color: "var(--color-text-secondary)",
           }}
         >
-          No MCPs configured in ~/.claude/settings.json mcpServers.
+          No hay ningún MCP configurado (~/.claude.json, .mcp.json del proyecto o plugins).
         </div>
       )}
 
@@ -495,7 +460,7 @@ export function MCPs() {
       {/* ---------------------------------------------------------------- */}
       {addOpen && (
         <Modal
-          title="Add MCP"
+          title="Añadir MCP"
           onClose={() => !addSaving && setAddOpen(false)}
           footer={
             <>
@@ -510,7 +475,7 @@ export function MCPs() {
                   border: "1px solid var(--color-border)",
                 }}
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 type="button"
@@ -522,7 +487,7 @@ export function MCPs() {
                   color: "var(--color-accent-text)",
                 }}
               >
-                {addSaving ? "Saving…" : "Add to settings.json"}
+                {addSaving ? "Guardando…" : "Añadir a ~/.claude.json"}
               </button>
             </>
           }
@@ -544,7 +509,7 @@ export function MCPs() {
       {/* ---------------------------------------------------------------- */}
       {editTarget && (
         <Modal
-          title={`Edit MCP — ${editTarget}`}
+          title={`Editar MCP — ${editTarget}`}
           onClose={() => !editSaving && setEditTarget(null)}
           footer={
             <>
@@ -559,7 +524,7 @@ export function MCPs() {
                   border: "1px solid var(--color-border)",
                 }}
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 type="button"
@@ -571,7 +536,7 @@ export function MCPs() {
                   color: "var(--color-accent-text)",
                 }}
               >
-                {editSaving ? "Saving…" : "Save changes"}
+                {editSaving ? "Guardando…" : "Guardar cambios"}
               </button>
             </>
           }
@@ -593,7 +558,7 @@ export function MCPs() {
       {/* ---------------------------------------------------------------- */}
       {deleteTarget && (
         <Modal
-          title={`Delete ${deleteTarget}?`}
+          title={`¿Borrar ${deleteTarget}?`}
           onClose={() => !deleting && setDeleteTarget(null)}
           footer={
             <>
@@ -608,7 +573,7 @@ export function MCPs() {
                   border: "1px solid var(--color-border)",
                 }}
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 type="button"
@@ -621,7 +586,7 @@ export function MCPs() {
                   border: "1px solid rgba(248, 81, 73, 0.45)",
                 }}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? "Borrando…" : "Borrar"}
               </button>
             </>
           }
@@ -630,34 +595,27 @@ export function MCPs() {
             className="text-[13px] leading-relaxed"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            This removes <strong>{deleteTarget}</strong> from settings.json. A
-            timestamped backup is kept in
-            <code
-              className="ml-1 rounded px-1.5 py-0.5"
-              style={{
-                fontFamily: "var(--font-mono)",
-                background: "var(--color-surface-3)",
-                color: "var(--color-text-primary)",
-              }}
-            >
-              ~/.ultron/backups/control-center-settings/
-            </code>
-            .
+            {deleteOrigin === "settings" ? (
+              <>
+                Esto quita la entrada sin uso <strong>{deleteTarget}</strong> de
+                ~/.claude/settings.json. Se guarda un backup con fecha y hora en
+                <code className="ml-1 rounded px-1.5 py-0.5" style={codeStyle}>
+                  ~/.ultron/backups/control-center-settings/
+                </code>
+                .
+              </>
+            ) : (
+              <>
+                Esto quita <strong>{deleteTarget}</strong> del ámbito de usuario de
+                ~/.claude.json. Se guarda un backup con fecha y hora en
+                <code className="ml-1 rounded px-1.5 py-0.5" style={codeStyle}>
+                  ~/.ultron/backups/claude-json/
+                </code>
+                .
+              </>
+            )}
           </p>
         </Modal>
-      )}
-
-      {/* ---------------------------------------------------------------- */}
-      {/* Generate from prompt                                             */}
-      {/* ---------------------------------------------------------------- */}
-      {genOpen && (
-        <GenerateModal
-          onClose={() => setGenOpen(false)}
-          onAdded={(msg) => {
-            showFlash(msg);
-            void fetchList();
-          }}
-        />
       )}
     </div>
   );

@@ -1,17 +1,13 @@
 // ULTRON Control Center — Sessions & quick actions.
 //
-// Two interaction modes:
-//   1. run_inline       — batch invocation that returns stdout in-app.
-//                         Uses cmd.exe /C as a uniform launcher so .cmd
-//                         shims (codex via npm) and reparse-point
-//                         binaries (claude in ~/.local/bin) resolve via
-//                         the user's PATH and PATHEXT.
-//   2. spawn_session    — opens Windows Terminal (wt.exe) with the chosen
-//                         provider CLI. wt.exe lives in the WindowsApps
-//                         reparse-point directory, so we go through
-//                         cmd.exe /C wt.exe ... to dodge the launcher
-//                         quirks Rust's Command::new exhibits on those
-//                         pseudo-executables.
+// spawn_session opens Windows Terminal (wt.exe) with the chosen provider CLI.
+// wt.exe lives in the WindowsApps reparse-point directory, so we go through
+// cmd.exe /C wt.exe ... to dodge the launcher quirks Rust's Command::new
+// exhibits on those pseudo-executables.
+//
+// `run_inline` (salida de la CLI dentro de la app vía run-inline.ps1) se
+// retiró el 2026-10-17 junto con su único llamante, «Generate MCP from
+// prompt», que no tenía entrada en la UI.
 //
 // PowerShell quoting: prompts are single-quoted and apostrophes doubled
 // ('foo'bar' → 'foo''bar'). The argument that reaches wt.exe goes through
@@ -22,24 +18,10 @@ use std::path::PathBuf;
 
 use tauri_plugin_shell::ShellExt;
 
-// Char-based cap (not bytes) so UTF-8 doesn't underflow. 32k chars is
-// enough for the diagnose/summarize/Codex-assist prompts that pack a full
-// settings.json or system event dump; the wrapper PS script (run-inline.ps1)
-// caps at 12000 for individual CLI invocations which still cover most.
-const PROMPT_CAP: usize = 32_000;
-
 #[derive(Debug, Serialize, Clone)]
 pub struct SpawnResult {
     pub launched: bool,
     pub provider: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct InlineResult {
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: Option<i32>,
 }
 
 /// User-facing flags applied to `claude` sessions launched via wt.exe.
@@ -51,10 +33,16 @@ pub struct InlineResult {
 #[derive(Debug, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnFlags {
-    /// Add `--dangerously-skip-permissions`. Claude will not pause on tool
-    /// confirmations — only enable for sandboxes you trust.
+    /// Saltarse las confirmaciones de permisos (`--dangerously-skip-permissions`
+    /// en Claude, `--dangerously-bypass-approvals-and-sandbox` en Codex).
+    ///
+    /// Tres estados, y por eso es `Option`: `Some(true)` y `Some(false)` son la
+    /// decisión explícita del llamante y se respetan tal cual; `None` (campo
+    /// ausente o `null`) aplica el valor por defecto de los flujos internos de
+    /// ULTRON (ver [`resolve_dangerous`]). Con un `bool` simple un `false`
+    /// explícito era indistinguible de «no puesto» y acababa en bypass.
     #[serde(default)]
-    pub dangerously_skip_permissions: bool,
+    pub dangerously_skip_permissions: Option<bool>,
     /// `--continue` — resume the latest conversation in the chosen cwd. When
     /// true the prompt argument is ignored.
     #[serde(default)]
@@ -158,21 +146,13 @@ fn validate_provider(p: &str) -> Result<&'static str, String> {
     }
 }
 
-fn cap_prompt(p: &str) -> String {
-    if p.chars().count() > PROMPT_CAP {
-        p.chars().take(PROMPT_CAP).collect()
-    } else {
-        p.to_string()
-    }
-}
-
 /// Build the agent directive that gets prepended to a prompt when the
 /// caller (typically the AI Router) wants a specific subagent to handle
 /// the session. We keep the format conservative: a single bracketed line
 /// + blank separator, so the body of the prompt stays readable and the
 ///   directive parses cleanly in Claude's subagent invocation grammar.
 ///
-/// Sanity rules (mirror `ai_router::validate_agent`):
+/// Sanity rules:
 ///   * empty / None  → no prefix.
 ///   * non-empty     → `"[USE AGENT: <slug>]\n\n" + prompt`.
 ///
@@ -183,88 +163,6 @@ fn prepend_agent_directive(prompt: &str, agent: Option<&str>) -> String {
             format!("[USE AGENT: {}]\n\n{}", a.trim(), prompt)
         }
         _ => prompt.to_string(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// run_inline
-// ---------------------------------------------------------------------------
-
-pub async fn run_inline_inner(
-    app: &tauri::AppHandle,
-    provider: String,
-    model: Option<String>,
-    prompt: String,
-) -> Result<InlineResult, String> {
-    let provider = validate_provider(&provider)?;
-    if prompt.trim().is_empty() {
-        return Err("prompt is empty".to_string());
-    }
-    let prompt = cap_prompt(&prompt);
-
-    // Route through the PowerShell wrapper so we avoid the cmd.exe quoting
-    // pitfalls — `?` got interpreted as a wildcard, `---` got tokenised as
-    // a separate argv entry (Claude rejected it as `unknown option '---'`),
-    // and embedded quotes broke the cmd line. The wrapper takes a base64
-    // JSON payload, decodes it inside PowerShell and calls the CLI with
-    // the prompt bound as a single argv entry.
-    let script: PathBuf = dirs::home_dir()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(".ultron/scripts/cockpit/run-inline.ps1");
-    let script_str = script.to_string_lossy().to_string();
-    let payload_json = serde_json::json!({
-        "provider": provider,
-        "prompt": prompt,
-        "model": model.unwrap_or_default(),
-    })
-    .to_string();
-    let payload = base64_encode(&payload_json);
-
-    let output = app
-        .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &script_str,
-            "-Payload",
-            &payload,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("spawn powershell: {}", e))?;
-
-    let raw = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    // The wrapper emits a single JSON object on stdout with the CLI's own
-    // stdout/stderr nested inside. If the wrapper itself crashed (no JSON
-    // object), fall back to surfacing the raw text so the user sees the
-    // diagnostic instead of an empty result.
-    #[derive(serde::Deserialize)]
-    struct Inner {
-        success: bool,
-        stdout: String,
-        stderr: String,
-        exit_code: Option<i32>,
-    }
-
-    match serde_json::from_str::<Inner>(raw.trim()) {
-        Ok(inner) => Ok(InlineResult {
-            success: inner.success,
-            stdout: inner.stdout,
-            stderr: inner.stderr,
-            exit_code: inner.exit_code,
-        }),
-        Err(_) => Ok(InlineResult {
-            success: output.status.success(),
-            stdout: raw,
-            stderr,
-            exit_code: output.status.code(),
-        }),
     }
 }
 
@@ -302,7 +200,7 @@ fn project_colour_for_cwd(cwd: &str) -> Option<String> {
 /// `cwd` (it selects the generated theme). Returns `None` when the directory
 /// isn't a registered project, the project has no colour, or the files can't
 /// be written.
-fn project_theme_for_cwd(cwd: &str) -> Option<String> {
+pub(crate) fn project_theme_for_cwd(cwd: &str) -> Option<String> {
     let projects = crate::projects::list_projects_inner().ok()?;
     let project = projects.iter().find(|p| {
         p.path.as_deref().is_some_and(|path| same_dir(path, cwd))
@@ -315,9 +213,30 @@ fn project_theme_for_cwd(cwd: &str) -> Option<String> {
     match crate::claude_theme::ensure_project_theme(&project.id, name, colour) {
         Ok(settings_path) => Some(settings_path),
         Err(e) => {
-            eprintln!("[sessions] per-project theme skipped: {e}");
+            tracing::warn!("[sessions] per-project theme skipped: {e}");
             None
         }
+    }
+}
+
+/// Decide si la sesión externa (wt.exe) arranca saltándose los permisos.
+///
+/// - `Some(v)`: manda el llamante. Un `false` explícito nunca se convierte en
+///   bypass, sea cual sea `claude_safe_mode`. Lo usan los flujos que tocan
+///   contenido no confiable (p. ej. «Integrar con IA» del catálogo de GitHub,
+///   que abre Claude sobre un repo ajeno cuyo README puede traer inyección de
+///   prompt).
+/// - `None`: flujos internos de ULTRON (noticias, edición de skills, alta de
+///   MCP, diagnóstico, relevo de Codex, abrir el CLI en un proyecto propio).
+///   Decisión de la v15.1.4: el clic del usuario ya autoriza la acción, así
+///   que van con bypass salvo que `features.json:claude_safe_mode` sea `true`.
+///
+/// `safe_mode` es perezoso para no leer `features.json` cuando el llamante ya
+/// decidió.
+pub(crate) fn resolve_dangerous(requested: Option<bool>, safe_mode: impl FnOnce() -> bool) -> bool {
+    match requested {
+        Some(explicit) => explicit,
+        None => !safe_mode(),
     }
 }
 
@@ -339,15 +258,10 @@ pub async fn spawn_session_inner(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
-    let mut flags = flags.unwrap_or_default();
-    // Default claude wt.exe sessions to --dangerously-skip-permissions;
-    // opt out via claude_safe_mode=true in features.json.
-    if provider == "claude" && !flags.dangerously_skip_permissions {
-        let safe_mode = crate::features::read_features_inner().claude_safe_mode;
-        if !safe_mode {
-            flags.dangerously_skip_permissions = true;
-        }
-    }
+    let flags = flags.unwrap_or_default();
+    let dangerous = resolve_dangerous(flags.dangerously_skip_permissions, || {
+        crate::features::read_features_inner().claude_safe_mode
+    });
 
     // v15.2.39 AI Router agent integration: if the caller (typically the
     // AI Router via Settings → AI Router) picked a specific subagent for
@@ -405,7 +319,8 @@ pub async fn spawn_session_inner(
         "effort": flags.effort.clone().unwrap_or_default(),
         "name": flags.name.clone().unwrap_or_default(),
         "resumeId": flags.resume_id.clone().unwrap_or_default(),
-        "dangerous": flags.dangerously_skip_permissions,
+        // Siempre presente y ya resuelto: el wrapper lo obedece tal cual.
+        "dangerous": dangerous,
         "continueLast": flags.continue_last,
         "forkSession": flags.fork_session,
         "pasteOnly": flags.paste_only,
@@ -483,6 +398,98 @@ mod tests {
     fn agent_directive_skipped_when_empty() {
         let out = prepend_agent_directive("hello", Some("   "));
         assert_eq!(out, "hello");
+    }
+
+    // C1 (auditoría 2026-10-17): un `false` explícito del llamante se
+    // convertía en bypass cuando `claude_safe_mode` era `false`.
+    #[test]
+    fn false_explicito_no_se_convierte_en_bypass() {
+        let flags: SpawnFlags =
+            serde_json::from_str(r#"{"dangerouslySkipPermissions": false}"#).unwrap();
+        assert_eq!(flags.dangerously_skip_permissions, Some(false));
+        // safe_mode=false es el valor real de features.json en esta máquina.
+        assert!(!resolve_dangerous(
+            flags.dangerously_skip_permissions,
+            || false
+        ));
+        assert!(!resolve_dangerous(
+            flags.dangerously_skip_permissions,
+            || true
+        ));
+    }
+
+    #[test]
+    fn true_explicito_se_respeta_aunque_haya_modo_seguro() {
+        assert!(resolve_dangerous(Some(true), || true));
+    }
+
+    /// Flujos internos (campo ausente o `null`): bypass salvo `claude_safe_mode`.
+    #[test]
+    fn sin_decision_del_llamante_aplica_el_defecto_interno() {
+        for raw in ["{}", r#"{"dangerouslySkipPermissions": null}"#] {
+            let flags: SpawnFlags = serde_json::from_str(raw).unwrap();
+            assert_eq!(flags.dangerously_skip_permissions, None, "{raw}");
+            assert!(
+                resolve_dangerous(None, || false),
+                "sin modo seguro -> bypass"
+            );
+            assert!(!resolve_dangerous(None, || true), "modo seguro -> permisos");
+        }
+    }
+
+    #[test]
+    fn la_decision_explicita_no_lee_features() {
+        let mut leido = false;
+        let _ = resolve_dangerous(Some(false), || {
+            leido = true;
+            false
+        });
+        assert!(
+            !leido,
+            "con decisión explícita no se consulta claude_safe_mode"
+        );
+    }
+
+    /// El wrapper obedece `dangerous` del payload. Antes fijaba `$true` sin
+    /// condición: este test falla con ese script.
+    #[cfg(windows)]
+    #[test]
+    fn el_wrapper_respeta_dangerous_del_payload() {
+        let script = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/cockpit/spawn-claude-session.ps1"
+        );
+        let inner = |payload: &str| -> String {
+            let encoded = base64_encode(payload);
+            let out = std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    script,
+                    "-Payload",
+                    encoded.as_str(),
+                    "-DryRun",
+                ])
+                .output()
+                .expect("powershell.exe disponible");
+            assert!(
+                out.status.success(),
+                "dry-run falló: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        let skip = "--dangerously-skip-permissions";
+        let bypass = "--dangerously-bypass-approvals-and-sandbox";
+        assert!(!inner(r#"{"provider":"claude","dangerous":false}"#).contains(skip));
+        assert!(inner(r#"{"provider":"claude","dangerous":true}"#).contains(skip));
+        assert!(!inner(r#"{"provider":"codex","dangerous":false}"#).contains(bypass));
+        assert!(inner(r#"{"provider":"codex","dangerous":true}"#).contains(bypass));
+        // Llamante antiguo sin el campo: defecto de los flujos internos.
+        assert!(inner(r#"{"provider":"claude"}"#).contains(skip));
     }
 
     #[test]

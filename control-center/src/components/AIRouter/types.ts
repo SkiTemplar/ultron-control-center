@@ -148,24 +148,25 @@ export interface ModelMetrics {
   latency_p95_ms?: number;
 }
 
+export type RouteOutcome = "primary" | "fallback" | "failed";
+
 export interface RouterMetrics {
   /** Tokens de salida acumulados del proveedor fallback barato (no = ahorro de contexto). */
   fallback_output_tokens: number;
   cost_saved_usd: number;
   by_class: Record<string, ClassMetrics>;
-  /**
-   * @deprecated Nombre legacy — puede seguir presente en versiones antiguas del backend.
-   * Usar real_fallback_rate para la métrica honesta o attempt_failure_rate para EMA de intentos.
-   */
+  /** EMA de fallo por INTENTO (nombre histórico en metrics.json); no es una tasa por ruta. */
   fallback_rate?: number;
-  /** EMA de fallo por intento (nombre correcto del backend). */
-  attempt_failure_rate?: number;
-  /** Fracción de rutas que cayeron a secundario (0.0..=1.0). */
-  real_fallback_rate?: number;
   /** Contador absoluto de rutas con fallback ganador. */
   real_fallback_count?: number;
-  /** Total de invocaciones de route() completadas. */
+  /** Rutas con la cadena agotada (sin respuesta). */
+  routes_failed?: number;
+  /** Total de llamadas a route(), fallidas incluidas. */
   routes_total?: number;
+  /** Desenlace de las últimas rutas (ventana RECENT_FALLBACK_WINDOW del backend). */
+  recent_outcomes?: RouteOutcome[];
+  /** Intentos fallidos por motivo (rate_limit, overloaded, timeout, error). */
+  fail_reasons?: Record<string, number>;
   /** Métricas reales por modelo concreto (rediseño funcional 2026-05-30). */
   by_model?: Record<string, ModelMetrics>;
 }
@@ -182,98 +183,3 @@ export interface TestResult {
   response_excerpt: string;
   error?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Default zone catalog (shown when the backend command is unavailable)
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_ZONES: Zone[] = [
-  {
-    id: "usage.refresh_with_claude",
-    label: "Refresh Usage Stats",
-    category: "usage",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "gemini", model: "gemini-3.8-flash", max_tokens: 0 }],
-  },
-  {
-    id: "usage.analyse",
-    label: "Analyse Usage Patterns",
-    category: "usage",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
-  },
-  {
-    id: "memory.consolidate",
-    label: "Consolidate Memory",
-    category: "memory",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [],
-  },
-  {
-    id: "memory.kg_extract",
-    label: "Extract Knowledge Graph",
-    category: "memory",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "ollama", model: "qwen2.5-coder:32b", max_tokens: 0 }],
-  },
-  {
-    id: "notifications.fix_one",
-    label: "Fix Single Alert",
-    category: "notifications",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
-  },
-  {
-    id: "notifications.fix_all",
-    label: "Bulk Fix Alerts",
-    category: "notifications",
-
-    primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
-  },
-  {
-    id: "plans.sprint_ai",
-    label: "AI Sprint Planning",
-    category: "plans",
-
-    primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
-    fallbacks: [{ provider_id: "gemini", model: "gemini-2.5-pro", max_tokens: 0 }],
-  },
-  {
-    id: "mcps.add_with_ai",
-    label: "Register MCP with AI",
-    category: "mcps",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [],
-  },
-  {
-    id: "code.explain",
-    label: "Explain Code",
-    category: "code",
-
-    primary: { provider_id: "groq", model: "openai/gpt-oss-120b", max_tokens: 0 },
-    fallbacks: [{ provider_id: "anthropic", model: "claude-haiku-4-5-20251001", max_tokens: 0 }],
-  },
-  {
-    id: "code.review",
-    label: "Review Code",
-    category: "code",
-
-    primary: { provider_id: "anthropic", model: "claude-sonnet-4-6", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
-  },
-  {
-    id: "system.diagnose",
-    label: "Diagnose System",
-    category: "system",
-
-    primary: { provider_id: "anthropic", model: "claude-opus-4-7", max_tokens: 0 },
-    fallbacks: [{ provider_id: "codex", model: "gpt-5", max_tokens: 0 }],
-  },
-];

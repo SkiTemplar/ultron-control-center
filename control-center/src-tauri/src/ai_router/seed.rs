@@ -1,13 +1,16 @@
 // Seed data — written on first run if the files don't exist.
 
-use super::types::{ApiKeyStatus, Provider, ProviderClass, ProviderKind, Zone, ZoneAssignment};
+use super::types::{
+    ApiFormat, ApiKeyStatus, Provider, ProviderClass, ProviderKind, Zone, ZoneAssignment,
+};
 
 pub(crate) fn seed_providers() -> Vec<Provider> {
     vec![
-        // Anthropic Claude via the Messages HTTP API (x-api-key auth). The
-        // 'claude' id is the CODE-zone primary (decision 2026-06-24: "primary
-        // con Claude SDK"); 'claude-haiku' stays defined for cheap/light use.
-        // Both dispatch to call_anthropic in try_assignment_call.
+        // Anthropic Claude via the Messages HTTP API (x-api-key auth, pay per
+        // token). No seed zone uses it (the 2026-06-24 decision that made it
+        // the code primary was reverted on 2026-09-21 and the code zones were
+        // pruned on 2026-10-23); it stays in the catalog for zones the
+        // operator configures. Both ids dispatch to call_anthropic.
         Provider {
             id: "claude".into(),
             name: "Anthropic Claude (Sonnet)".into(),
@@ -22,15 +25,18 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "ANTHROPIC_API_KEY".into(),
             base_url: "https://api.anthropic.com".into(),
-            // (2026-08-11) Familia Claude 5: sonnet-5 default equilibrado;
-            // opus-5 y fable-5 (tier Mythos, por encima de Opus) disponibles.
-            default_model: "claude-sonnet-5".into(),
+            // (2026-10-21) Solo familia 5.5: sonnet-5-5 por defecto. Fuera
+            // sonnet-5, opus-5 y fable-5 (migrate_stale_provider_models los
+            // repara en un providers.json ya escrito).
+            default_model: "claude-sonnet-5-5".into(),
             models: vec![
-                "claude-sonnet-5".into(),
-                "claude-opus-5".into(),
-                "claude-fable-5".into(),
+                "claude-sonnet-5-5".into(),
+                "claude-opus-5-5".into(),
+                "claude-haiku-5-5".into(),
             ],
             cli_command: None,
+            api_format: ApiFormat::Anthropic,
+            custom: false,
         },
         Provider {
             id: "claude-haiku".into(),
@@ -46,9 +52,11 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "ANTHROPIC_API_KEY".into(),
             base_url: "https://api.anthropic.com".into(),
-            default_model: "claude-haiku-4-5-20251001".into(),
-            models: vec!["claude-haiku-4-5-20251001".into()],
+            default_model: "claude-haiku-5-5".into(),
+            models: vec!["claude-haiku-5-5".into()],
             cli_command: None,
+            api_format: ApiFormat::Anthropic,
+            custom: false,
         },
         Provider {
             id: "codex".into(),
@@ -76,6 +84,8 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             default_model: "gpt-5".into(),
             models: vec!["gpt-5".into(), "gpt-4o".into(), "gpt-4o-mini".into()],
             cli_command: None,
+            api_format: ApiFormat::OpenaiCompat,
+            custom: false,
         },
         Provider {
             id: "gemini".into(),
@@ -100,6 +110,8 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             default_model: "gemini-2.5-flash".into(),
             models: vec!["gemini-2.5-flash".into(), "gemini-2.5-pro".into()],
             cli_command: None,
+            api_format: ApiFormat::Gemini,
+            custom: false,
         },
         Provider {
             id: "groq".into(),
@@ -119,6 +131,8 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             default_model: "openai/gpt-oss-20b".into(),
             models: vec!["openai/gpt-oss-20b".into(), "openai/gpt-oss-120b".into()],
             cli_command: None,
+            api_format: ApiFormat::OpenaiCompat,
+            custom: false,
         },
         Provider {
             id: "ollama".into(),
@@ -148,6 +162,8 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
                 "deepseek-coder-v2:16b".into(),
             ],
             cli_command: None,
+            api_format: ApiFormat::Ollama,
+            custom: false,
         },
         Provider {
             id: "deepseek".into(),
@@ -159,9 +175,14 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             kind: ProviderKind::Cloud,
             key_env_var: "DEEPSEEK_API_KEY".into(),
             base_url: "https://api.deepseek.com".into(),
-            default_model: "deepseek-coder".into(),
-            models: vec!["deepseek-coder".into(), "deepseek-chat".into()],
+            // (2026-10-26) Verificado contra GET /models: la API solo sirve
+            // `deepseek-flash` (V4.1-Flash, 1M de contexto) y `deepseek-v4-pro`;
+            // `deepseek-coder` y `deepseek-chat` ya no existen.
+            default_model: "deepseek-flash".into(),
+            models: vec!["deepseek-flash".into(), "deepseek-v4-pro".into()],
             cli_command: None,
+            api_format: ApiFormat::OpenaiCompat,
+            custom: false,
         },
         // ----------------------------------------------------------------
         // CLI providers — authenticate via OAuth subscription, no API key.
@@ -191,7 +212,7 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             // hasta call_cli, que ignoraba su parametro de llamada y siempre leía
             // provider.default_model — así que cada llamada usaba mudamente lo que
             // dijera config.toml). Sol y Astra se piden por invocacion explicita
-            // (ZoneAssignment.model, p.ej. code-review usa sol).
+            // (ZoneAssignment.model de una zona configurada por el operador).
             default_model: "gpt-5.6-terra".into(),
             models: vec![
                 "gpt-5.6-terra".into(),
@@ -199,6 +220,8 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
                 "gpt-6-astra".into(),
             ],
             cli_command: Some("codex".into()),
+            api_format: ApiFormat::Cli,
+            custom: false,
         },
         Provider {
             id: "gemini-cli".into(),
@@ -218,15 +241,20 @@ pub(crate) fn seed_providers() -> Vec<Provider> {
             default_model: "gemini-2.5-flash".into(),
             models: vec!["gemini-2.5-flash".into()],
             cli_command: Some("gemini".into()),
+            api_format: ApiFormat::Cli,
+            custom: false,
         },
     ]
+    .into_iter()
+    .chain(super::seed_openai_compat::openai_compat_seed_providers())
+    .collect()
 }
 
 pub(crate) fn seed_zones() -> Vec<Zone> {
-    // Provider policy (revised 2026-06-19): CODE zones go CLI-first
-    // (codex-cli — ChatGPT OAuth, free at point of use, verified live 2026-06-19);
-    // FAST/general zones (chat, summarize, utility, light) go groq-first.
-    // gemini-cli was RETIRED from every chain on 2026-06-19: Google dropped
+    // Provider policy: every zone goes groq-first with the cloud 'gemini' as
+    // fallback (free tiers). Ollama is out of every seed chain: since
+    // 2026-10-19 the local models are only for coding, and no seed zone is a
+    // coding zone. gemini-cli was RETIRED from every chain on 2026-06-19: Google dropped
     // free-tier OAuth for individuals (runtime: IneligibleTierError —
     // "migrate to the Antigravity suite"), so the CLI no longer authenticates.
     // The cloud 'gemini' provider (gemini-2.5-flash via GEMINI_API_KEY;
@@ -234,24 +262,24 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
     // en 55.497 ms, 2.5-flash en 624 ms) replaces it as the general fallback.
     // gemini-cli stays DEFINED in seed_providers in case the tier is restored.
     //
-    // Cada zona de esta lista tiene un consumidor REAL en el código, verificado
-    // el 2026-09-21 (una zona sin llamante es configuración que miente sobre lo
-    // que el sistema hace):
+    // Cada zona de esta lista tiene un consumidor REAL en el código (una zona
+    // sin llamante es configuración que miente sobre lo que el sistema hace).
+    // El test `seed_zones_are_exactly_the_zones_with_a_caller` lo comprueba
+    // contra el código fuente: falla si una zona del seed no tiene llamante.
     //   chat       — memory::capture (CAPTURE_ZONE) y el juez de contradicciones
     //                (memory::ai_tasks::ZONE_JUDGE).
-    //   code-edit  — library::ai_install, zona preferida de pick_analysis_zone.
-    //   code-review— library::ai_install, fallback de pick_analysis_zone.
-    //   summarize  — resumen de sesión, cost_watchdog y sessions_tags.
+    //   summarize  — resumen de sesión y sessions_tags.
     //   utility    — extracción de hechos (ai_tasks::ZONE_EXTRACT) y el naming
     //                de hooks (hooks_admin::naming).
     //   light      — reescritura de query (ai_tasks::ZONE_REWRITE), apps y
-    //                plugins_info::bulk_update.
+    //                plugins_info::bulk_update y /mejorar de ULTRON Sessions
+    //                (sesiones::mejorar).
     //
-    // Podadas el 2026-09-21 por no tener NINGÚN llamante: `research-web`,
-    // `routing-decision` y `code-fast-local` (esta última dejaba además a
-    // Ollama con 0 rutas en metrics.json; el wrapper local sigue vivo como
-    // fallback de `light`). `retire_unused_zones` las borra también del
-    // zones.json ya escrito.
+    // Podadas por no tener NINGÚN llamante: `research-web`, `routing-decision`
+    // y `code-fast-local` (2026-09-21); `code-edit` y `code-review`
+    // (2026-10-23, sin llamante desde el 2026-09-23, cuando se retiró
+    // library::ai_install con pick_analysis_zone). `retire_unused_zones` las
+    // borra también del zones.json ya escrito.
     vec![
         Zone {
             id: "chat".into(),
@@ -281,67 +309,6 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                     max_tokens: 1024,
                 },
             ],
-            system_prompt: None,
-        },
-        Zone {
-            id: "code-edit".into(),
-            label: "Code edit (multi-file)".into(),
-            category: "code".into(),
-
-            // Decision 2026-09-21 (revisa la del 2026-06-24, que ponia 'claude'
-            // de primary): las zonas de codigo arrancan por CLI, que es lo que
-            // la documentacion venia diciendo desde el 2026-06-08 y lo que de
-            // facto pasaba. El 'claude' del seed nunca llegaba a
-            // providers.json -- load_providers no fusionaba proveedores nuevos
-            // del seed -- asi que el primary no existia en el catalogo y TODA
-            // llamada a esta zona fallaba al primary y caia a codex-cli,
-            // contando el salto como fallback real en las metricas. Ademas,
-            // 'claude' por la Messages API es pago por token, mientras que
-            // codex-cli va por la suscripcion de ChatGPT.
-            primary: ZoneAssignment {
-                // (2026-09-11) code-edit = tareas basicas de codigo -> terra.
-                provider_id: "codex-cli".into(),
-                model: "gpt-5.6-terra".into(),
-                max_tokens: 4096,
-            },
-            fallbacks: vec![
-                ZoneAssignment {
-                    // El 'codex' cloud (OPENAI_API_KEY) conserva su id de API
-                    // real (gpt-5); terra/sol/astra son alias de suscripción
-                    // ChatGPT, exclusivos de 'codex-cli' (ver ese provider).
-                    provider_id: "codex".into(),
-                    model: "gpt-5".into(),
-                    max_tokens: 4096,
-                },
-                ZoneAssignment {
-                    provider_id: "deepseek".into(),
-                    model: "deepseek-coder".into(),
-                    max_tokens: 4096,
-                },
-            ],
-            system_prompt: None,
-        },
-        Zone {
-            id: "code-review".into(),
-            label: "Code review".into(),
-            category: "code".into(),
-
-            // Decision 2026-09-21: CLI-first, igual que code-edit y por el
-            // mismo motivo (ver el comentario de esa zona). gemini cloud queda
-            // de fallback. gemini-cli retirado 2026-06-19
-            // (IneligibleTierError); sigue definido en seed_providers por si se
-            // restaura, pero fuera de toda cadena.
-            primary: ZoneAssignment {
-                // (2026-09-11) code-review = trabajo serio -> sol (~Opus).
-                provider_id: "codex-cli".into(),
-                model: "gpt-5.6-sol".into(),
-                max_tokens: 2048,
-            },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "gemini".into(),
-                model: "gemini-2.5-flash".into(),
-                max_tokens: 2048,
-            }],
             system_prompt: None,
         },
         Zone {
@@ -396,16 +363,21 @@ pub(crate) fn seed_zones() -> Vec<Zone> {
                 model: "openai/gpt-oss-20b".into(),
                 max_tokens: 1024,
             },
-            // gemini-cli retirado 2026-06-19 (muerto); gemini cloud + ollama local.
+            // gemini-cli retirado 2026-06-19 (muerto); queda gemini cloud.
+            // (2026-10-21) La cuota de Groq es por modelo: gpt-oss-120b releva
+            // antes de salir de Groq (medido: ~550 ms frente a ~1,9 s de gemini).
+            // (2026-10-23) Fuera ollama (decisión del 2026-10-19: los modelos
+            // locales solo para programar); `retire_seed_ollama_fallback` lo
+            // quita también del zones.json ya escrito.
             fallbacks: vec![
                 ZoneAssignment {
-                    provider_id: "gemini".into(),
-                    model: "gemini-2.5-flash".into(),
+                    provider_id: "groq".into(),
+                    model: "openai/gpt-oss-120b".into(),
                     max_tokens: 1024,
                 },
                 ZoneAssignment {
-                    provider_id: "ollama".into(),
-                    model: "qwen2.5-coder:32b".into(),
+                    provider_id: "gemini".into(),
+                    model: "gemini-2.5-flash".into(),
                     max_tokens: 1024,
                 },
             ],

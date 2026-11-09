@@ -23,12 +23,19 @@ use super::MemoryItem;
 mod candidates;
 mod deprecations;
 mod gc;
+mod maintenance;
 mod mutations;
+mod pii_backfill;
+mod scrub_secrets;
 mod sensitivity;
 
 pub use gc::{DEFAULT_GC_DAYS, VACUUM_MIN_BYTES};
+pub use pii_backfill::PiiBackfillResult;
+pub use scrub_secrets::{secure_compact, ScrubSecretsResult};
 pub use sensitivity::{only_phone_marker, SecretBackfillResult, PHONE_MARKER};
 
+#[cfg(test)]
+mod ledger_tests;
 #[cfg(test)]
 mod tests;
 
@@ -48,8 +55,7 @@ pub struct MemoryStats {
 
 /// Outcome of [`MemoryService::deprecate_by_type`]: how many ACTIVE items of a
 /// given type matched and how many were deprecated, plus per-id failures. Used
-/// by the `deprecate` sidecar subcommand and the `memory_items_deprecate_by_type`
-/// Tauri command to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5 /
+/// by the `deprecate` sidecar subcommand to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5 /
 /// Qdrant out of sync — each item still goes through the proven `set_status` path.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BulkDeprecateResult {
@@ -59,7 +65,7 @@ pub struct BulkDeprecateResult {
     pub dry_run: bool,
     pub project: Option<String>,
     /// (id, error) for each item whose deprecation failed; a single failure does
-    /// NOT abort the batch (same tolerance as `memory_inbox_approve_all`).
+    /// NOT abort the batch (same tolerance as `inbox approve-all` in the CLI).
     pub failed: Vec<(String, String)>,
 }
 
@@ -133,6 +139,10 @@ pub struct GcResult {
     /// (id, error) por item que no se pudo marcar; no aborta el lote.
     pub failed: Vec<(String, String)>,
     pub deprecation_deadlines: ApplyDeprecationDeadlinesResult,
+    /// Barrido de credenciales con el detector actual (`scrub-secrets` sin
+    /// compactar). `None` si falló; el motivo va en `secrets_scrub_error`.
+    pub secrets_scrub: Option<ScrubSecretsResult>,
+    pub secrets_scrub_error: Option<String>,
 }
 
 /// Result of [`MemoryService::sweep_low_confidence`] (audit 2026-08-09): the
@@ -193,6 +203,37 @@ fn redact_tags(tags: &mut [String]) -> bool {
             hit = true;
         }
     }
+    hit
+}
+
+/// Redacción del write-path sobre todos los campos de texto de un item:
+/// credenciales y PII (email, teléfono, ruta con usuario). Si encontró algo,
+/// sube el item a Secret (monótono) y devuelve `true`. Lo usan los caminos que
+/// promueven a ACTIVE (approve, supersede) como defensa en profundidad, aunque
+/// el candidato ya se redactara al entrar, y el backfill de PII de items
+/// anteriores al guard.
+fn redact_item_in_place(item: &mut MemoryItem) -> bool {
+    let mut hit = false;
+    for field in [
+        &mut item.title,
+        &mut item.summary,
+        &mut item.content,
+        &mut item.content_json,
+        &mut item.file_path,
+        &mut item.signature,
+        &mut item.symbol,
+    ] {
+        hit |= redaction::redact_in_place(field);
+        hit |= redaction::redact_pii_in_place(field);
+    }
+    hit |= redact_tags(&mut item.tags);
+    for tag in item.tags.iter_mut() {
+        if redaction::contains_pii(tag) {
+            *tag = redaction::redact_pii(tag);
+            hit = true;
+        }
+    }
+    item.sensitivity = raised_sensitivity(item.sensitivity, hit);
     hit
 }
 

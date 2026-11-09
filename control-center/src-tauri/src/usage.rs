@@ -8,9 +8,9 @@
 // /usage in Claude Code fetches that interactively from the server.
 // We surface the *consumption* numbers ULTRON can compute from disk.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 // Raw stats-cache.json shape
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct StatsCache {
     #[serde(default, rename = "lastComputedDate")]
     last_computed_date: Option<String>,
@@ -74,6 +74,9 @@ struct ModelUsage {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct UsageReport {
+    /// De dónde salen las cifras: `stats-cache` (el rollup de Claude Code,
+    /// solo si es de hoy) o `transcripts` (recalculado desde los .jsonl).
+    pub source: &'static str,
     pub last_computed_date: Option<String>,
     pub cache_age_days: Option<i64>,
     pub first_session_date: Option<String>,
@@ -218,188 +221,304 @@ fn projects_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude/projects"))
 }
 
-/// Recompute the stats fields from `~/.claude/projects/<slug>/<id>.jsonl`.
-/// One pass per session file, parsing each `type: assistant` row's
-/// `message.usage` block. Returns the same shape the cache file uses so the
-/// downstream rollup code stays identical.
-///
-/// Bounded: walks only top-level .jsonl files (skips `subagents/`) since
-/// subagent transcripts already carry their tokens against the parent
-/// session. Reads with `BufReader` so a 50 MB transcript doesn't allocate
-/// the whole thing.
-fn compute_live_usage() -> Option<StatsCache> {
-    use std::io::{BufRead, BufReader};
-    let dir = projects_dir()?;
-    if !dir.exists() {
-        return None;
-    }
-    let mut sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut messages: u64 = 0;
-    let mut daily_msgs: BTreeMap<String, u64> = BTreeMap::new();
-    let mut daily_sessions_seen: BTreeMap<String, std::collections::HashSet<String>> =
-        BTreeMap::new();
-    let mut daily_tools: BTreeMap<String, u64> = BTreeMap::new();
-    let mut daily_model_tokens: BTreeMap<(String, String), u64> = BTreeMap::new();
-    let mut model_totals: BTreeMap<String, ModelUsage> = BTreeMap::new();
-    let mut hour_counts: BTreeMap<String, u64> = BTreeMap::new();
-    let mut earliest: Option<String> = None;
+/// Una llamada al modelo dentro de un transcript. Claude Code escribe una línea
+/// por bloque de contenido, así que el mismo `message.id` aparece varias veces:
+/// se guarda una sola, la de más `output_tokens` (la última del streaming).
+#[derive(Debug, Clone)]
+struct AssistantCall {
+    date: String,
+    model: String,
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_create: u64,
+}
 
-    for project in fs::read_dir(&dir).ok()?.flatten() {
-        let project_path = project.path();
-        if !project_path.is_dir() {
-            continue;
+/// Agregado de un `.jsonl`: llamadas deduplicadas por id, prompts reales del
+/// usuario (sin las filas `tool_result`) y bloques `tool_use` por id.
+#[derive(Debug, Default)]
+struct TranscriptAgg {
+    calls: HashMap<String, AssistantCall>,
+    tool_uses: HashMap<String, String>,
+    prompt_timestamps: Vec<String>,
+    dates: BTreeSet<String>,
+}
+
+fn u64_at(usage: Option<&serde_json::Value>, key: &str) -> u64 {
+    usage
+        .and_then(|u| u.get(key))
+        .and_then(|n| n.as_u64())
+        .unwrap_or(0)
+}
+
+/// Una fila `user` es un prompt de verdad si no es meta y no trae un
+/// `tool_result` (Claude Code devuelve cada resultado de herramienta como fila
+/// `user`; contarlas multiplicaba los mensajes). Tampoco lo es el resumen que
+/// Claude Code inserta como fila `user` al compactar (`isCompactSummary`).
+fn is_human_prompt(row: &serde_json::Value) -> bool {
+    let flag = |key: &str| row.get(key).and_then(|x| x.as_bool()) == Some(true);
+    if flag("isMeta") || flag("isCompactSummary") {
+        return false;
+    }
+    match row.get("message").and_then(|m| m.get("content")) {
+        Some(serde_json::Value::String(s)) => !s.trim().is_empty(),
+        Some(serde_json::Value::Array(blocks)) => {
+            !blocks.is_empty()
+                && !blocks
+                    .iter()
+                    .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
         }
-        let reader = match fs::read_dir(&project_path) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        for f in reader.flatten() {
-            let p = f.path();
-            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        _ => false,
+    }
+}
+
+fn absorb_assistant(agg: &mut TranscriptAgg, row: &serde_json::Value, date: &str, line_no: usize) {
+    let Some(msg) = row.get("message") else {
+        return;
+    };
+    if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
+        for (i, b) in blocks.iter().enumerate() {
+            if b.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
                 continue;
             }
-            let stem = match p.file_stem().and_then(|s| s.to_str()) {
-                Some(s) => s.to_string(),
-                None => continue,
-            };
-            let file = match fs::File::open(&p) {
-                Ok(f) => f,
-                Err(_) => continue,
-            };
-            let buf = BufReader::new(file);
-            for line in buf.lines().map_while(Result::ok) {
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
-                    continue;
-                };
-                let typ = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
-                let ts = v
-                    .get("timestamp")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let date = if ts.len() >= 10 {
-                    ts[..10].to_string()
-                } else {
-                    String::new()
-                };
-                if !date.is_empty() {
-                    if earliest.as_ref().map(|e| &date < e).unwrap_or(true) {
-                        earliest = Some(date.clone());
-                    }
-                    daily_sessions_seen
-                        .entry(date.clone())
-                        .or_default()
-                        .insert(stem.clone());
+            let id = b
+                .get("id")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("#{line_no}:{i}"));
+            agg.tool_uses.entry(id).or_insert_with(|| date.to_string());
+        }
+    }
+    let model = msg.get("model").and_then(|x| x.as_str()).unwrap_or("");
+    let usage = msg.get("usage");
+    if usage.is_none() || model.is_empty() || model == "<synthetic>" || date.is_empty() {
+        return;
+    }
+    let id = msg
+        .get("id")
+        .and_then(|x| x.as_str())
+        .or_else(|| row.get("uuid").and_then(|x| x.as_str()))
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("#{line_no}"));
+    let call = AssistantCall {
+        date: date.to_string(),
+        model: model.to_string(),
+        input: u64_at(usage, "input_tokens"),
+        output: u64_at(usage, "output_tokens"),
+        cache_read: u64_at(usage, "cache_read_input_tokens"),
+        cache_create: u64_at(usage, "cache_creation_input_tokens"),
+    };
+    let keep_new = agg
+        .calls
+        .get(&id)
+        .map(|prev| call.output >= prev.output)
+        .unwrap_or(true);
+    if keep_new {
+        agg.calls.insert(id, call);
+    }
+}
+
+/// Agrega las líneas de un transcript con la misma regla que
+/// `scripts/lib/usage-transcripts.mjs` (dedupe por `message.id`, si falta por
+/// `uuid`; fuera `<synthetic>`), para que Usage y `project-usage.mjs` cuadren.
+fn aggregate_transcript<I: IntoIterator<Item = String>>(lines: I) -> TranscriptAgg {
+    let mut agg = TranscriptAgg::default();
+    for (line_no, line) in lines.into_iter().enumerate() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        let ts = v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("");
+        let date = ts.get(..10).unwrap_or("").to_string();
+        if !date.is_empty() {
+            agg.dates.insert(date.clone());
+        }
+        match v.get("type").and_then(|x| x.as_str()).unwrap_or("") {
+            "user" if is_human_prompt(&v) => agg.prompt_timestamps.push(ts.to_string()),
+            "assistant" => absorb_assistant(&mut agg, &v, &date, line_no),
+            _ => {}
+        }
+    }
+    agg
+}
+
+/// Acumulador de todos los transcripts, con la forma de `stats-cache.json`.
+#[derive(Default)]
+struct LiveAcc {
+    sessions: HashSet<String>,
+    messages: u64,
+    daily_msgs: BTreeMap<String, u64>,
+    daily_sessions: BTreeMap<String, HashSet<String>>,
+    daily_tools: BTreeMap<String, u64>,
+    daily_model_tokens: BTreeMap<(String, String), u64>,
+    model_totals: BTreeMap<String, ModelUsage>,
+    hour_counts: BTreeMap<String, u64>,
+    earliest: Option<String>,
+}
+
+impl LiveAcc {
+    /// `session` es `Some` solo para el transcript principal de una sesión: los
+    /// de `subagents/` suman tokens y tool calls, pero no sesiones ni prompts
+    /// (su primer mensaje `user` lo escribe el agente padre, no una persona).
+    fn absorb(&mut self, agg: TranscriptAgg, session: Option<&str>) {
+        for date in &agg.dates {
+            if self.earliest.as_ref().map(|e| date < e).unwrap_or(true) {
+                self.earliest = Some(date.clone());
+            }
+        }
+        if let Some(id) = session {
+            self.sessions.insert(id.to_string());
+            for date in &agg.dates {
+                self.daily_sessions
+                    .entry(date.clone())
+                    .or_default()
+                    .insert(id.to_string());
+            }
+            for ts in &agg.prompt_timestamps {
+                self.messages += 1;
+                if let Some(date) = ts.get(..10) {
+                    *self.daily_msgs.entry(date.to_string()).or_insert(0) += 1;
                 }
-                match typ {
-                    "user" => {
-                        messages += 1;
-                        if !date.is_empty() {
-                            *daily_msgs.entry(date.clone()).or_insert(0) += 1;
-                        }
-                        if ts.len() >= 13 {
-                            let h = &ts[11..13];
-                            *hour_counts.entry(h.to_string()).or_insert(0) += 1;
-                        }
-                    }
-                    "tool_use" if !date.is_empty() => {
-                        *daily_tools.entry(date.clone()).or_insert(0) += 1;
-                    }
-                    "assistant" => {
-                        let msg = v.get("message").cloned().unwrap_or(serde_json::Value::Null);
-                        let model = msg
-                            .get("model")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        let usage = msg.get("usage");
-                        let inp = usage
-                            .and_then(|u| u.get("input_tokens"))
-                            .and_then(|n| n.as_u64())
-                            .unwrap_or(0);
-                        let out = usage
-                            .and_then(|u| u.get("output_tokens"))
-                            .and_then(|n| n.as_u64())
-                            .unwrap_or(0);
-                        let cache_read = usage
-                            .and_then(|u| u.get("cache_read_input_tokens"))
-                            .and_then(|n| n.as_u64())
-                            .unwrap_or(0);
-                        let cache_create = usage
-                            .and_then(|u| u.get("cache_creation_input_tokens"))
-                            .and_then(|n| n.as_u64())
-                            .unwrap_or(0);
-                        let entry = model_totals.entry(model.clone()).or_insert(ModelUsage {
-                            input_tokens: 0,
-                            output_tokens: 0,
-                            cache_read_input_tokens: 0,
-                            cache_creation_input_tokens: 0,
-                        });
-                        entry.input_tokens += inp;
-                        entry.output_tokens += out;
-                        entry.cache_read_input_tokens += cache_read;
-                        entry.cache_creation_input_tokens += cache_create;
-                        if !date.is_empty() {
-                            *daily_model_tokens
-                                .entry((date.clone(), model.clone()))
-                                .or_insert(0) += inp + out + cache_read + cache_create;
-                        }
-                    }
-                    _ => {}
+                if let Some(h) = ts.get(11..13) {
+                    *self.hour_counts.entry(h.to_string()).or_insert(0) += 1;
                 }
             }
-            sessions.insert(stem);
+        }
+        for date in agg.tool_uses.into_values().filter(|d| !d.is_empty()) {
+            *self.daily_tools.entry(date).or_insert(0) += 1;
+        }
+        for call in agg.calls.into_values() {
+            let entry = self
+                .model_totals
+                .entry(call.model.clone())
+                .or_insert(ModelUsage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_read_input_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                });
+            entry.input_tokens += call.input;
+            entry.output_tokens += call.output;
+            entry.cache_read_input_tokens += call.cache_read;
+            entry.cache_creation_input_tokens += call.cache_create;
+            *self
+                .daily_model_tokens
+                .entry((call.date, call.model))
+                .or_insert(0) += call.input + call.output + call.cache_read + call.cache_create;
         }
     }
 
-    let daily_activity: Vec<DailyActivity> = {
-        let mut keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        keys.extend(daily_msgs.keys().cloned());
-        keys.extend(daily_sessions_seen.keys().cloned());
-        keys.extend(daily_tools.keys().cloned());
-        keys.iter()
+    fn into_stats(self) -> StatsCache {
+        let mut keys: BTreeSet<String> = BTreeSet::new();
+        keys.extend(self.daily_msgs.keys().cloned());
+        keys.extend(self.daily_sessions.keys().cloned());
+        keys.extend(self.daily_tools.keys().cloned());
+        let daily_activity = keys
+            .iter()
             .map(|date| DailyActivity {
                 date: date.clone(),
-                message_count: *daily_msgs.get(date).unwrap_or(&0),
-                session_count: daily_sessions_seen
+                message_count: *self.daily_msgs.get(date).unwrap_or(&0),
+                session_count: self
+                    .daily_sessions
                     .get(date)
                     .map(|s| s.len() as u64)
                     .unwrap_or(0),
-                tool_call_count: *daily_tools.get(date).unwrap_or(&0),
+                tool_call_count: *self.daily_tools.get(date).unwrap_or(&0),
             })
-            .collect()
-    };
-    let daily_model_tokens_vec: Vec<DailyModelTokens> = {
+            .collect();
         let mut by_date: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
-        for ((date, model), n) in daily_model_tokens.into_iter() {
+        for ((date, model), n) in self.daily_model_tokens {
             by_date.entry(date).or_default().insert(model, n);
         }
-        by_date
+        let daily_model_tokens = by_date
             .into_iter()
             .map(|(date, tokens_by_model)| DailyModelTokens {
                 date,
                 tokens_by_model,
             })
-            .collect()
-    };
+            .collect();
+        StatsCache {
+            last_computed_date: Some(today_utc_iso()),
+            daily_activity,
+            daily_model_tokens,
+            model_usage: self.model_totals,
+            total_sessions: self.sessions.len() as u64,
+            total_messages: self.messages,
+            first_session_date: self.earliest,
+            hour_counts: self.hour_counts,
+        }
+    }
+}
 
-    Some(StatsCache {
-        last_computed_date: Some(today_utc_iso()),
-        daily_activity,
-        daily_model_tokens: daily_model_tokens_vec,
-        model_usage: model_totals,
-        total_sessions: sessions.len() as u64,
-        total_messages: messages,
-        first_session_date: earliest,
-        hour_counts,
-    })
+/// Todos los `.jsonl` bajo `dir`, recursivo (incluye `<sesión>/subagents/`).
+fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(reader) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in reader.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            collect_jsonl(&p, out);
+        } else if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            out.push(p);
+        }
+    }
+}
+
+/// Recalcula los campos de `stats-cache.json` a partir de
+/// `<projects>/<slug>/**/*.jsonl`.
+///
+/// Recorre también `subagents/`: el transcript padre solo guarda el
+/// `tool_result` del agente, no sus tokens, así que saltarlos dejaba invisible
+/// el gasto de los subagentes. Lee con `BufReader` para no cargar entero un
+/// transcript de 50 MB.
+fn compute_live_usage_in(dir: &Path) -> Option<StatsCache> {
+    use std::io::{BufRead, BufReader};
+    if !dir.is_dir() {
+        return None;
+    }
+    let mut acc = LiveAcc::default();
+    for project in fs::read_dir(dir).ok()?.flatten() {
+        let project_path = project.path();
+        if !project_path.is_dir() {
+            continue;
+        }
+        let mut files = Vec::new();
+        collect_jsonl(&project_path, &mut files);
+        for p in files {
+            let is_main = p.parent() == Some(project_path.as_path());
+            let stem = p.file_stem().and_then(|s| s.to_str()).map(str::to_string);
+            let Ok(file) = fs::File::open(&p) else {
+                continue;
+            };
+            let agg = aggregate_transcript(BufReader::new(file).lines().map_while(Result::ok));
+            let session = if is_main { stem.as_deref() } else { None };
+            acc.absorb(agg, session);
+        }
+    }
+    Some(acc.into_stats())
+}
+
+fn compute_live_usage() -> Option<StatsCache> {
+    compute_live_usage_in(&projects_dir()?)
+}
+
+const SOURCE_STATS_CACHE: &str = "stats-cache";
+const SOURCE_TRANSCRIPTS: &str = "transcripts";
+
+/// `stats-cache.json` es opcional: Claude Code dejó de mantenerlo y una instalación
+/// nueva no lo tiene. Ausente equivale a una caché vacía y sin fecha, lo que fuerza
+/// el recálculo desde los transcripts. Un fichero corrupto sí es un error.
+fn read_stats_cache(path: &std::path::Path) -> Result<StatsCache, String> {
+    match fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(|e| format!("parse stats-cache.json: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(StatsCache::default()),
+        Err(e) => Err(format!("read stats-cache.json: {e}")),
+    }
 }
 
 pub fn claude_usage_inner() -> Result<UsageReport, String> {
     let path = cache_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = fs::read_to_string(&path).map_err(|e| format!("read stats-cache.json: {}", e))?;
-    let mut cache: StatsCache =
-        serde_json::from_str(&raw).map_err(|e| format!("parse stats-cache.json: {}", e))?;
+    let mut cache = read_stats_cache(&path)?;
 
     let today = today_utc_iso();
     let cache_age_days = cache
@@ -411,8 +530,10 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
     // maintaining it in recent versions), scan ~/.claude/projects/*.jsonl
     // and recompute the rollups from scratch. The shape mirrors stats-cache
     // so the downstream code stays unchanged.
+    let mut source = SOURCE_STATS_CACHE;
     if cache_age_days.map(|d| d > 0).unwrap_or(true) {
         if let Some(live) = compute_live_usage() {
+            source = SOURCE_TRANSCRIPTS;
             cache.daily_activity = live.daily_activity;
             cache.daily_model_tokens = live.daily_model_tokens;
             cache.model_usage = live.model_usage;
@@ -428,6 +549,7 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
         .and_then(|d| iso_diff_days(&today, d));
 
     let mut report = UsageReport {
+        source,
         last_computed_date: cache.last_computed_date.clone(),
         cache_age_days,
         first_session_date: cache.first_session_date.clone(),
@@ -561,3 +683,7 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
 
     Ok(report)
 }
+
+#[cfg(test)]
+#[path = "usage_tests.rs"]
+mod tests;

@@ -1,23 +1,21 @@
-// backup_status/root.rs — backup-root resolution and write-lock.
+// backup_status/root.rs — backup-root resolution, same-volume guard and the
+// write-lock of backup-config.json.
 //
-// Extracted from backup_status.rs (refactor only, no logic changes).
 // All items are pub(super) so backup_status.rs can use them directly.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::sync::{Mutex, OnceLock};
 
 // ---------------------------------------------------------------------------
 // Process-wide write lock for backup-config.json
 // ---------------------------------------------------------------------------
 //
-// `set_backup_sources_inner` and `set_backup_schedule_inner` both do a
-// read-modify-write of the same file (backup-config.json). Without a lock,
-// two concurrent callers (e.g. the UI saving sources while another request
-// saves the schedule) can interleave, causing one writer to clobber the
-// other's changes silently. The lock is held across the full read → mutate →
-// atomic-write cycle. Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`
-// / `kg::kg_write_lock` / `workdays::workday_lock`. Pure reads are excluded.
+// `set_backup_sources_inner` does a read-modify-write of backup-config.json.
+// Without a lock, two concurrent callers can interleave and one writer
+// clobbers the other's changes silently. The lock is held across the full
+// read → mutate → atomic-write cycle. Same pattern as
+// `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`. Pure reads are excluded.
 static BACKUP_CONFIG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 pub(super) fn backup_config_lock() -> &'static Mutex<()> {
@@ -39,25 +37,91 @@ pub(super) fn read_configured_backup_root() -> Option<String> {
     }
 }
 
-pub(super) fn backup_root() -> PathBuf {
-    // 1. user-configured override (Settings UI writes ~/.ultron/.tmp/backup-root.txt)
+/// Configured backup destination, or `None` when nothing is configured.
+///
+/// Resolution order MUST match `scripts/backup/weekly-backup.{ps1,sh}`:
+///   1. ~/.ultron/.tmp/backup-root.txt (Settings → Backups writes it)
+///   2. $ULTRON_BACKUP_ROOT
+///   3. nothing: the script aborts with exit 2 and status `failed`.
+///
+/// 2026-10-23 (audit N1): the "D:\BACKUP if mounted" and "%USERPROFILE%\BACKUP"
+/// fallbacks were removed. With D: unplugged the script mirrored the sources
+/// onto the same disk with exit 0, and this function reported that folder.
+pub(super) fn backup_root() -> Option<PathBuf> {
     if let Some(s) = read_configured_backup_root() {
-        return PathBuf::from(s);
+        return Some(PathBuf::from(s));
     }
-    // 2. env-var (matches weekly-backup.ps1's own resolution path)
-    if let Ok(v) = std::env::var("ULTRON_BACKUP_ROOT") {
-        if !v.is_empty() {
-            return PathBuf::from(v);
+    std::env::var("ULTRON_BACKUP_ROOT")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Volume identity by path prefix: `c:` for `C:\...`, `\\server\share` for
+/// UNC. Same rule as `Get-VolumeKey` in weekly-backup.ps1 (a subst drive or
+/// a mount point inside C: is not detected). `None` when the path has no
+/// prefix (relative path, or any path on a non-Windows host).
+pub(super) fn volume_key(path: &Path) -> Option<String> {
+    let Some(Component::Prefix(prefix)) = path.components().next() else {
+        return None;
+    };
+    let key = match prefix.kind() {
+        Prefix::Disk(d) | Prefix::VerbatimDisk(d) => {
+            format!("{}:", (d as char).to_ascii_lowercase())
         }
+        Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => format!(
+            r"\\{}\{}",
+            server.to_string_lossy().to_lowercase(),
+            share.to_string_lossy().to_lowercase()
+        ),
+        _ => return None,
+    };
+    Some(key)
+}
+
+/// Names of the sources (`(name, absolute path)`) that live on the same
+/// volume as `dest`. Empty when the volume of `dest` is unknown.
+pub(super) fn same_volume_sources(dest: &Path, sources: &[(String, PathBuf)]) -> Vec<String> {
+    let Some(dest_key) = volume_key(dest) else {
+        return Vec::new();
+    };
+    sources
+        .iter()
+        .filter(|(_, abs)| volume_key(abs).as_deref() == Some(dest_key.as_str()))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    fn src(name: &str, abs: &str) -> (String, PathBuf) {
+        (name.to_string(), PathBuf::from(abs))
     }
-    // 3. D:\BACKUP if available (common secondary-drive convention, v15.1.6)
-    let d_drive = PathBuf::from(r"D:\BACKUP");
-    if d_drive.exists() {
-        return d_drive;
+
+    #[test]
+    fn volume_key_ignores_case_and_handles_unc() {
+        assert_eq!(volume_key(Path::new(r"D:\BACKUP")).as_deref(), Some("d:"));
+        assert_eq!(volume_key(Path::new(r"d:\otro")).as_deref(), Some("d:"));
+        assert_eq!(
+            volume_key(Path::new(r"\\NAS\Copias\ultron")).as_deref(),
+            Some(r"\\nas\copias")
+        );
+        assert_eq!(volume_key(Path::new("relativa")), None);
     }
-    // 4. %USERPROFILE%\BACKUP fallback
-    if let Some(home) = dirs::home_dir() {
-        return home.join("BACKUP");
+
+    #[test]
+    fn a_destination_on_the_sources_disk_is_reported() {
+        let sources = vec![src(".ultron", r"C:\Users\u\.ultron"), src("TFG", r"E:\TFG")];
+        let clash = same_volume_sources(Path::new(r"c:\Users\u\BACKUP"), &sources);
+        assert_eq!(clash, vec![".ultron".to_string()]);
     }
-    PathBuf::from(r"C:\BACKUP")
+
+    #[test]
+    fn a_destination_on_another_disk_is_fine() {
+        let sources = vec![src(".ultron", r"C:\Users\u\.ultron")];
+        assert!(same_volume_sources(Path::new(r"D:\BACKUP"), &sources).is_empty());
+    }
 }

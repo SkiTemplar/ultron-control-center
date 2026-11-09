@@ -51,7 +51,7 @@ export function AppsPanel() {
   const autoCategorize = useCallback(async (apps: InstalledApp[]) => {
     if (apps.length === 0) return;
     setCategorizing(true);
-    setActionMsg("Auto-categorize: calling AI Router…");
+    setActionMsg("Categorización automática: consultando el Router de IA…");
 
     // Build the items list for the backend.
     const items = apps.map((a) => ({ name: a.name, publisher: a.publisher ?? null }));
@@ -84,18 +84,18 @@ export function AppsPanel() {
       return out;
     });
 
-    const src = Object.keys(aiMap).length > 0 ? "AI Router" : "heuristic fallback";
+    const src = Object.keys(aiMap).length > 0 ? "Router de IA" : "heurística de respaldo";
     setActionMsg(
       changed === 0
-        ? `Auto-categorize (${src}): no changes — categories already correct.`
-        : `Auto-categorize (${src}): updated ${changed} app${changed === 1 ? "" : "s"}.`,
+        ? `Categorización automática (${src}): sin cambios, las categorías ya eran correctas.`
+        : `Categorización automática (${src}): ${changed} aplicaci${changed === 1 ? "ón actualizada" : "ones actualizadas"}.`,
     );
     setCategorizing(false);
   }, []);
 
   function clearOverrides() {
     setOverrides({});
-    setActionMsg("Cleared all manual category overrides.");
+    setActionMsg("Se han quitado todas las categorías asignadas a mano.");
   }
 
   // Hide Windows / OEM noise by default — same heuristic as v2.7 but kept
@@ -215,9 +215,9 @@ export function AppsPanel() {
     setActionMsg(null);
     try {
       await invoke("open_app_folder", { installLocation: app.install_location });
-      setActionMsg(`Opened ${app.install_location}`);
+      setActionMsg(`Carpeta abierta: ${app.install_location}`);
     } catch (e) {
-      setActionMsg(`Failed to open folder: ${e}`);
+      setActionMsg(`No se pudo abrir la carpeta: ${e}`);
     }
   }
 
@@ -226,7 +226,7 @@ export function AppsPanel() {
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="text"
-          placeholder="Search by name, publisher, id…"
+          placeholder="Buscar por nombre, editor o id…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="min-w-[260px] flex-1 rounded px-3 py-2 text-[13px]"
@@ -245,9 +245,9 @@ export function AppsPanel() {
             border: "1px solid var(--color-border-strong)",
             color: hideSystem ? "var(--color-text)" : "var(--color-text-tertiary)",
           }}
-          title="Hide Microsoft Store + driver / runtime packages"
+          title="Ocultar los paquetes de Microsoft Store, drivers y runtimes"
         >
-          {hideSystem ? "Hiding system" : "Show system"}
+          {hideSystem ? "Ocultando las del sistema" : "Mostrar las del sistema"}
         </button>
         <button
           type="button"
@@ -259,9 +259,9 @@ export function AppsPanel() {
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title="Re-classify the currently visible apps using AI (falls back to heuristic if AI Router is unavailable)."
+          title="Reclasifica con IA las aplicaciones visibles (recurre a la heurística si el Router de IA no está disponible)."
         >
-          {categorizing ? "Categorizing…" : "Auto-categorize"}
+          {categorizing ? "Categorizando…" : "Categorizar automáticamente"}
         </button>
         <button
           type="button"
@@ -275,11 +275,11 @@ export function AppsPanel() {
           }}
           title={
             overrideCount === 0
-              ? "No overrides to clear"
-              : `Clear ${overrideCount} manual override${overrideCount === 1 ? "" : "s"}`
+              ? "No hay categorías manuales que quitar"
+              : `Quitar ${overrideCount} categoría${overrideCount === 1 ? "" : "s"} manual${overrideCount === 1 ? "" : "es"}`
           }
         >
-          Reset categories{overrideCount > 0 ? ` (${overrideCount})` : ""}
+          Restablecer categorías{overrideCount > 0 ? ` (${overrideCount})` : ""}
         </button>
         <button
           type="button"
@@ -291,13 +291,13 @@ export function AppsPanel() {
             color: "var(--color-accent-text)",
           }}
         >
-          {loading ? "Scanning…" : "Refresh"}
+          {loading ? "Escaneando…" : "Actualizar"}
         </button>
       </div>
 
       {report?.cached && (
         <div className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Cached snapshot from {report.generated_at} — hit Refresh to re-scan.
+          Instantánea en caché del {report.generated_at}; pulsa Actualizar para volver a escanear.
         </div>
       )}
 
@@ -337,8 +337,8 @@ export function AppsPanel() {
           }}
         >
           {report?.apps.length
-            ? "No apps match the current filter."
-            : "No installed apps detected."}
+            ? "Ninguna aplicación coincide con el filtro."
+            : "No se han detectado aplicaciones instaladas."}
         </div>
       )}
 
@@ -367,9 +367,9 @@ export function AppsPanel() {
           onDone={(r) => {
             setActionMsg(
               r.success
-                ? `Uninstalled ${pendingUninstall.name}.`
-                : `Uninstall failed (exit ${r.exit_code ?? "?"}): ${
-                    r.stderr || r.stdout || "unknown error"
+                ? `${pendingUninstall.name} desinstalada.`
+                : `La desinstalación ha fallado (código ${r.exit_code ?? "?"}): ${
+                    r.stderr || r.stdout || "error desconocido"
                   }`,
             );
             load(true);

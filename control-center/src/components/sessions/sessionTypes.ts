@@ -1,8 +1,6 @@
 // Tipos para el monitor de sesiones activas (list_active_sessions).
 // Separados de types.ts (launcher) para evitar colisiones.
 
-import type { DelegationLogEntry } from "../agents/types";
-
 export type SessionStatus = "working" | "waiting" | "idle" | "dead";
 
 export interface SessionInfo {
@@ -82,22 +80,6 @@ export interface SessionOrchestration {
   warnings: string[];
 }
 
-/** Decisión del dispatcher de routing (timeline del panel global). */
-export interface RoutingLogEntry {
-  ts: string | null;
-  level: string | null;
-  msg: string | null;
-  top: string | null;
-  score: number | null;
-  confidence: number | null;
-}
-
-/**
- * Delegación de agente registrada (delegations.jsonl). Espejo único en
- * agents/types.ts — aquí solo se re-exporta para los consumidores del monitor.
- */
-export type { DelegationLogEntry };
-
 /**
  * Subagente COMPLETADO, cosechado por el hook SubagentStop
  * (subagent-harvest.jsonl). El hook escribe al TERMINAR, así que son subagentes
@@ -123,15 +105,21 @@ export interface RunningSubagent {
   started_at: string | null;
 }
 
+export type OrchestrateMode = "light" | "full";
+
 /**
  * Feed completo de live_session_feed. Un único fetch sirve a la vez:
  *   - orchestrations → correlación por session_id (tarjetas) + último turno global
- *   - routing/delegations/subagents/running_subagents → panel global de orquestación
+ *   - subagents/running_subagents → panel global de orquestación
+ * `routing` (log del dispatcher desconectado) se retiró el 2026-10-23.
  */
 export interface LiveSessionFeed {
+  /** Solo hay turnos nuevos con `orchestrate_mode === "full"`. */
   orchestrations: SessionOrchestration[];
-  routing: RoutingLogEntry[];
-  delegations: DelegationLogEntry[];
+  /** Modo del hook memory-orchestrate: "light" (solo tono, por defecto) o "full". */
+  orchestrate_mode: OrchestrateMode;
+  /** `ULTRON_DENSE` del proceso de la app. */
+  dense_enabled: boolean;
   subagents: SubagentActivity[];
   running_subagents: RunningSubagent[];
   generated_at: string;

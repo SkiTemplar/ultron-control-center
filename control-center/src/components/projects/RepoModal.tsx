@@ -6,7 +6,8 @@
 // se escribe el mensaje y se commitea, y se consulta el historial.
 //
 // Backend: git_repo_snapshot / git_diff_file / git_stage / git_unstage /
-// git_commit / git_log_full / git_pull / git_push / git_fetch (git_ops.rs).
+// git_commit / git_log_full / git_pull / git_push / git_fetch / git_publish
+// (git_ops/). Publicar solo se ofrece si la rama no tiene upstream.
 // Read-write, pero solo sobre el repo del proyecto (path acotado).
 //
 // Rendimiento (2026-09-21): el panel hacía 4 llamadas a git por cada casilla
@@ -17,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { PublishBranch } from "./PublishBranch";
 
 type GitFileChange = {
   path: string;
@@ -172,15 +174,20 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
     [path],
   );
 
-  // Operación "pesada" (commit/pull/push/fetch/stage masivo): bloquea la barra,
-  // refresca estado y avisa al padre. `okMsg` se muestra al terminar bien.
+  // Operación "pesada" (commit/pull/push/fetch/publicar/stage masivo): bloquea
+  // la barra, refresca estado y avisa al padre. `okMsg` (fijo o derivado del
+  // resultado) se muestra al terminar bien. Devuelve si la operación salió bien.
   const runOp = useCallback(
-    async (fn: () => Promise<unknown>, okMsg?: string, alsoLog = false) => {
+    async (
+      fn: () => Promise<unknown>,
+      okMsg?: string | ((result: unknown) => string),
+      alsoLog = false,
+    ): Promise<boolean> => {
       setBusy(true);
       setError(null);
       setInfo(null);
       try {
-        await fn();
+        const result = await fn();
         await refresh();
         // El historial solo se recarga si cambió (commit/pull) y está visible.
         if (alsoLog) {
@@ -188,9 +195,12 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
           else setLog(null);
         }
         onChanged?.();
-        if (okMsg && alive.current) setInfo(okMsg);
+        const msg = typeof okMsg === "function" ? okMsg(result) : okMsg;
+        if (msg && alive.current) setInfo(msg);
+        return true;
       } catch (e) {
         if (alive.current) setError(String(e));
+        return false;
       } finally {
         if (alive.current) setBusy(false);
       }
@@ -227,6 +237,14 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
 
   const stagedCount = changes.filter((c) => c.staged).length;
   const hasRemote = !!state?.remote;
+  // `remote` es la rama de seguimiento: sin ella, la rama está por publicar.
+  const canPublish = !!state?.is_repo && !!state.branch && !hasRemote;
+
+  const doPublish = (remoteUrl: string | null) =>
+    runOp(
+      () => invoke<string>("git_publish", { path, remoteUrl }),
+      (out) => String(out).split("\n")[0] || "Rama publicada",
+    );
 
   // Un <div> por línea: memoizado para no rehacer el diff entero en cada
   // render del modal (marcar una casilla re-renderiza el componente).
@@ -313,6 +331,9 @@ export function RepoModal({ path, onClose, onChanged }: RepoModalProps) {
               >
                 Push {state && state.ahead > 0 ? `(${state.ahead})` : ""}
               </button>
+            )}
+            {canPublish && state?.branch && (
+              <PublishBranch branch={state.branch} busy={busy} onPublish={doPublish} />
             )}
             <button
               type="button"

@@ -81,7 +81,6 @@ $UltronPaths = [pscustomobject]@{
     skills_registry_json   = Join-Path $ultron 'skills-registry.json'
     agent_manifest_json    = Join-Path $ultron 'agent_manifest.json'
     index_md               = Join-Path $ultron 'INDEX.md'
-    background_tasks_json  = Join-Path $ultron 'background_tasks.json'
     projects_json          = Join-Path $cockpit 'projects.json'
     pending_actions_json   = Join-Path $cockpit 'pending_actions.json'
     audits_index_json      = Join-Path (Join-Path $cockpit 'audits') 'INDEX.json'

@@ -1,0 +1,6 @@
+{"type":"launched"}
+{"type":"started","key":"v2:k1","agentId":"aaa111","label":"diag:uno","phase":"Diagnose"}
+{"type":"started","key":"v2:k2","agentId":"bbb222","label":"diag:dos","phase":"Diagnose"}
+{"type":"result","key":"v2:k1","agentId":"aaa111","result":"Hallazgo uno"}
+{"type":"result","key":"v2:k2","agentId":"bbb222","result":{"ok":true,"files":["a.rs"]}}
+{"type":"started","key":"v2:k3","agentId":"ccc333","label":"impl:tres","phase":"Implement"}

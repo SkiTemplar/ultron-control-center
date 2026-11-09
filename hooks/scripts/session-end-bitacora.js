@@ -11,7 +11,7 @@
  * medido: ultron 20/119 sesiones con bitacora, auto-album-maker 0/38,
  * legacy-fc 0/13 — en un proyecto que se abre una vez por semana la bitacora
  * no existia. Este hook lanza session-summarize-previous.js desacoplado
- * (`claude -p` Sonnet, 20-40 s) apuntando a ESTA sesion (--target-session) y
+ * (LLM secundaria Groq -> Gemini, 10-60 s) apuntando a ESTA sesion (--target-session) y
  * con su transcript_path (--transcript). El resumidor conserva sus gates:
  * >= 2 prompts reales, lock por sesion, backoff por fallos y redaccion.
  * El SessionStart sigue como red: regenera si el transcript siguio creciendo.

@@ -8,7 +8,9 @@ use super::super::super::model::{
 };
 use super::super::super::sqlite_store as store;
 use super::super::super::MemoryError;
-use super::super::{raised_sensitivity, sync_index, MemoryService, SECRET_RISK_MARKER};
+use super::super::{
+    raised_sensitivity, redact_item_in_place, sync_index, MemoryService, SECRET_RISK_MARKER,
+};
 use super::{find_near_dup_active, in_immediate_tx};
 
 impl MemoryService {
@@ -78,6 +80,11 @@ impl MemoryService {
         }
 
         let mut item = preview;
+        // Defensa en profundidad (2026-10-23): el candidato se redactó al
+        // entrar, pero cualquier camino que lo reescriba antes del approve
+        // (edición, re-verificación) dejaría pasar texto sin redactar. Aquí se
+        // redactan credenciales y PII otra vez y, si aparece algo, Secret.
+        redact_item_in_place(&mut item);
         // H2: carry the write-path secret marker to the item so the recall
         // Secret-gate (recall_unified) excludes it. Monotonic — never downgrades.
         item.sensitivity =
@@ -102,7 +109,7 @@ impl MemoryService {
             let ev = MemoryEvent::new(EventType::Approved, Some(item.id.clone()), actor)
                 .with_reason(format!("candidate {id} approved"))
                 .with_after(serde_json::to_string(&item).unwrap_or_default());
-            let _ = store::insert_event(conn, &ev);
+            store::insert_event(conn, &ev)?;
             Ok(())
         })?;
         Ok(item)
@@ -119,18 +126,22 @@ impl MemoryService {
         actor: Actor,
         gate: &str,
     ) -> Result<MemoryItem, MemoryError> {
-        let _ = store::set_candidate_status_if(
-            conn,
-            id,
-            CandidateStatus::Pending,
-            CandidateStatus::Rejected,
-        )?;
         let mut ev = MemoryEvent::new(EventType::Rejected, Some(existing_id.to_string()), actor)
             .with_reason(format!(
                 "candidate {id} rejected: {gate} de {existing_id} (anti-dup gate en approve)"
             ));
         ev.after_json = Some(format!("{{\"candidate_id\":\"{id}\"}}"));
-        let _ = store::insert_event(conn, &ev);
+        // Si otro escritor ya lo decidió, `set_candidate_status_if` no cambia
+        // nada; el evento del gate se registra igual (el duplicado existe).
+        in_immediate_tx(conn, || {
+            store::set_candidate_status_if(
+                conn,
+                id,
+                CandidateStatus::Pending,
+                CandidateStatus::Rejected,
+            )?;
+            store::insert_event(conn, &ev)
+        })?;
         Err(MemoryError::Duplicate(existing_id.to_string()))
     }
 
@@ -152,22 +163,23 @@ impl MemoryService {
         actor: Actor,
         reason: Option<String>,
     ) -> Result<(), MemoryError> {
-        let claimed = store::set_candidate_status_if(
-            conn,
-            id,
-            CandidateStatus::Pending,
-            CandidateStatus::Rejected,
-        )?;
-        if !claimed {
-            return Err(match store::get_candidate(conn, id)? {
-                None => MemoryError::NotFound(id.to_string()),
-                Some(c) => MemoryError::AlreadyDecided(format!("{id} ({})", c.status.as_str())),
-            });
-        }
         let mut ev = MemoryEvent::new(EventType::Rejected, None, actor)
             .with_reason(reason.unwrap_or_else(|| format!("candidate {id} rejected")));
         ev.after_json = Some(format!("{{\"candidate_id\":\"{id}\"}}"));
-        let _ = store::insert_event(conn, &ev);
-        Ok(())
+        in_immediate_tx(conn, || {
+            let claimed = store::set_candidate_status_if(
+                conn,
+                id,
+                CandidateStatus::Pending,
+                CandidateStatus::Rejected,
+            )?;
+            if !claimed {
+                return Err(match store::get_candidate(conn, id)? {
+                    None => MemoryError::NotFound(id.to_string()),
+                    Some(c) => MemoryError::AlreadyDecided(format!("{id} ({})", c.status.as_str())),
+                });
+            }
+            store::insert_event(conn, &ev)
+        })
     }
 }

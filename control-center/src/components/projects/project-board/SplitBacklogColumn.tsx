@@ -4,6 +4,7 @@ import { useDroppableColumn } from "../../../hooks/useKanbanDnd";
 import { columnAccent } from "./utils";
 import type { SplitBacklogProps } from "./types";
 import { BoardCard } from "./BoardCard";
+import { ScrollableCardList } from "./ScrollableCardList";
 
 export function SplitBacklogColumn({
   backlogColumnId,
@@ -38,6 +39,10 @@ export function SplitBacklogColumn({
   }, [backlogName, editingName]);
 
   const totalCards = backlogCards.length + investigarCards.length;
+  // Sin tarjetas de investigación la columna solo tiene la sección por
+  // defecto: su subtítulo repetiría la cabecera («BACKLOG 4» dos veces), así
+  // que no se pinta y el botón «Añadir» sube a la cabecera de la columna.
+  const showBacklogSubtitle = investigarCards.length > 0;
 
   return (
     <div
@@ -88,7 +93,7 @@ export function SplitBacklogColumn({
           ) : (
             <span
               onDoubleClick={() => setEditingName(true)}
-              title="Double-click to rename — Investigar sub-section is fused into this column"
+              title="Doble clic para renombrar; la subsección Investigar va fusionada en esta columna"
               className="cursor-text"
             >
               {backlogName}
@@ -98,42 +103,57 @@ export function SplitBacklogColumn({
             {totalCards}
           </span>
         </span>
+        {!showBacklogSubtitle && (
+          <button
+            onClick={() => onAddCard(false)}
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11.5px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
+            aria-label={`Añadir tarjeta a ${backlogName}`}
+            title={`Añadir tarjeta a ${backlogName}`}
+          >
+            <Plus size={12} />
+            Añadir
+          </button>
+        )}
       </div>
-      {/* Two sub-sections sharing the column body. Each scrolls independently
-          via flex-1 + overflow-y-auto. */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Two sub-sections sharing the column body. Backlog takes the free
+          height; Investigar shrinks to its header + a compact placeholder when
+          empty and is capped at 40 % when it has cards. Each list scrolls on
+          its own and announces the cards left below the fold. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Backlog sub-section */}
         <div
           {...backlogDrop.columnDropProps}
           className={[
-            "flex flex-1 flex-col overflow-hidden transition-colors",
+            "flex min-h-0 flex-1 flex-col overflow-hidden transition-colors",
             backlogDrop.hover ? "bg-[var(--color-surface-2)]" : "",
           ].join(" ")}
         >
-          <div className="flex items-center justify-between border-b border-dashed border-[var(--color-border)] px-2 py-1 text-[10px] uppercase tracking-[0.06em] text-[var(--color-text-tertiary)]">
-            <span className="flex items-center gap-1.5">
-              <span aria-hidden>Backlog</span>
-              <span className="rounded bg-[var(--color-surface-2)] px-1 py-px tabular-nums normal-case tracking-normal">
-                {backlogCards.length}
+          {showBacklogSubtitle && (
+            <div className="flex items-center justify-between border-b border-dashed border-[var(--color-border)] px-2 py-1 text-[10px] uppercase tracking-[0.06em] text-[var(--color-text-tertiary)]">
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden>{backlogName}</span>
+                <span className="rounded bg-[var(--color-surface-2)] px-1 py-px tabular-nums normal-case tracking-normal">
+                  {backlogCards.length}
+                </span>
               </span>
-            </span>
-            <button
-              onClick={() => onAddCard(false)}
-              className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
-              title="Add card to Backlog sub-section"
-            >
-              <Plus size={10} />
-              Add
-            </button>
-          </div>
-          <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
+              <button
+                onClick={() => onAddCard(false)}
+                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
+                title={`Añadir tarjeta a ${backlogName}`}
+              >
+                <Plus size={10} />
+                Añadir
+              </button>
+            </div>
+          )}
+          <ScrollableCardList itemCount={backlogCards.length}>
             {backlogCards.length === 0 ? (
               <button
                 onClick={() => onAddCard(false)}
                 className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-3 text-center text-[11px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
               >
                 <Plus size={11} className="mr-1 inline-block align-text-bottom" />
-                Add a backlog card
+                Añadir tarjeta
               </button>
             ) : (
               backlogCards.map((card) => (
@@ -146,13 +166,14 @@ export function SplitBacklogColumn({
                 />
               ))
             )}
-          </div>
+          </ScrollableCardList>
         </div>
         {/* Investigar sub-section */}
         <div
           {...investigarDrop.columnDropProps}
           className={[
-            "flex flex-1 flex-col overflow-hidden border-t border-[var(--color-border-strong)] transition-colors",
+            "flex flex-col overflow-hidden border-t border-[var(--color-border-strong)] transition-colors",
+            investigarCards.length === 0 ? "flex-none" : "max-h-[40%] min-h-0 shrink-0",
             investigarDrop.hover ? "bg-[var(--color-surface-2)]" : "",
           ].join(" ")}
         >
@@ -163,8 +184,8 @@ export function SplitBacklogColumn({
                 className="rounded bg-[var(--color-surface-2)] px-1 py-px tabular-nums normal-case tracking-normal"
                 title={
                   investigarColumnExists
-                    ? "Cards in the Investigar column — fused into Backlog visually"
-                    : "Cards in Backlog tagged `investigar` / `research`"
+                    ? "Tarjetas de la columna Investigar, fusionada visualmente con Backlog"
+                    : "Tarjetas de Backlog con la etiqueta `investigar` o `research`"
                 }
               >
                 {investigarCards.length}
@@ -175,25 +196,27 @@ export function SplitBacklogColumn({
               className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
               title={
                 investigarColumnExists
-                  ? "Add card to the Investigar column"
-                  : "Add card with `investigar` tag"
+                  ? "Añadir tarjeta a la columna Investigar"
+                  : "Añadir tarjeta con la etiqueta `investigar`"
               }
             >
               <Plus size={10} />
-              Add
+              Añadir
             </button>
           </div>
-          <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
-            {investigarCards.length === 0 ? (
+          {investigarCards.length === 0 ? (
+            <div className="p-1.5">
               <button
                 onClick={() => onAddCard(true)}
-                className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-3 text-center text-[11px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+                className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-1.5 text-center text-[11px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
               >
                 <Plus size={11} className="mr-1 inline-block align-text-bottom" />
-                Add a research card
+                Añadir tarjeta de investigación
               </button>
-            ) : (
-              investigarCards.map((card) => (
+            </div>
+          ) : (
+            <ScrollableCardList itemCount={investigarCards.length}>
+              {investigarCards.map((card) => (
                 <BoardCard
                   key={card.id}
                   card={card}
@@ -201,9 +224,9 @@ export function SplitBacklogColumn({
                   onEdit={() => onEditCard(card)}
                   onDelete={() => onDeleteCard(card.id)}
                 />
-              ))
-            )}
-          </div>
+              ))}
+            </ScrollableCardList>
+          )}
         </div>
       </div>
     </div>

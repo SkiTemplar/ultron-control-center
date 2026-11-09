@@ -6,7 +6,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,6 +24,9 @@ use super::watchdog::{spawn_idle_watchdog, spawn_model_release_sweep};
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
 /// Cap a request line so a bogus client can't OOM the daemon.
 const MAX_REQUEST_BYTES: u64 = 256 * 1024;
+/// Conexiones atendidas a la vez como máximo. Cada una es un hilo; los
+/// llamantes reales (hooks, GUI, CLI) rara vez pasan de unas pocas.
+const MAX_CONNECTIONS: usize = 32;
 
 /// Run the orchestrator daemon. Blocks forever serving requests, OR returns
 /// `Ok({already_running:true,...})` immediately if a live daemon is already up
@@ -119,16 +122,28 @@ pub fn run_daemon() -> Result<Value, String> {
     let last_activity = Arc::new(AtomicI64::new(now_ms()));
     spawn_idle_watchdog(Arc::clone(&last_activity), token.clone());
 
+    let slots = ConnSlots::new(MAX_CONNECTIONS);
     for incoming in listener.incoming() {
         let stream = match incoming {
             Ok(s) => s,
             Err(_) => continue,
         };
+        // Tope de conexiones simultáneas (auditoría 2026-10-26, L7): antes se
+        // abría un hilo por `accept` sin límite y cualquier proceso local podía
+        // agotar los hilos del daemon. La sobrante recibe un error explícito.
+        let Some(slot) = slots.try_acquire() else {
+            reject_over_capacity(stream);
+            continue;
+        };
         let token = token.clone();
         let last = Arc::clone(&last_activity);
-        std::thread::spawn(move || {
+        let spawned = std::thread::Builder::new().spawn(move || {
+            let _slot = slot; // libera la plaza al terminar el hilo
             handle_conn(stream, &token, &last, started);
         });
+        if let Err(e) = spawned {
+            eprintln!("ultron-memory serve: no se pudo lanzar el hilo de la conexión: {e}");
+        }
     }
     // `incoming()` only ends on a listener error; treat as clean shutdown.
     remove_lockfile_if_owned(&token);
@@ -158,7 +173,12 @@ fn handle_conn(stream: TcpStream, token: &str, last_activity: &AtomicI64, starte
             return;
         }
     };
-    last_activity.store(now_ms(), Ordering::Relaxed);
+    // Solo una petición autenticada cuenta como actividad (auditoría
+    // 2026-10-26, L7): una sin token no puede mantener vivo el daemon frente
+    // al watchdog de inactividad.
+    if req.token.as_deref() == Some(token) {
+        last_activity.store(now_ms(), Ordering::Relaxed);
+    }
     // Traza por petición (2026-09-07): hasta hoy el daemon no dejaba rastro de
     // lo que servía, así que un prompt degradado ("orchestrate sin respuesta a
     // los 15 s") no se podía atribuir a nada — modelos fríos, semáforo lleno o
@@ -184,5 +204,65 @@ fn handle_conn(stream: TcpStream, token: &str, last_activity: &AtomicI64, starte
     if shutdown {
         remove_lockfile_if_owned(token);
         std::process::exit(0);
+    }
+}
+
+/// Responde a una conexión sobrante con un error explícito y la cierra. El
+/// cliente (`daemon_client::request`) trata cualquier `error` como «sin daemon»
+/// y sigue por su camino local, así que no se queda esperando.
+fn reject_over_capacity(mut stream: TcpStream) {
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+    let _ = writeln!(stream, "{}", json!({ "error": "too_many_connections" }));
+}
+
+/// Contador de plazas de conexión con liberación RAII.
+struct ConnSlots {
+    active: AtomicUsize,
+    max: usize,
+}
+
+impl ConnSlots {
+    fn new(max: usize) -> Arc<Self> {
+        Arc::new(Self {
+            active: AtomicUsize::new(0),
+            max,
+        })
+    }
+
+    /// Una plaza si queda alguna; `None` con todas ocupadas.
+    fn try_acquire(self: &Arc<Self>) -> Option<SlotGuard> {
+        let prev = self.active.fetch_add(1, Ordering::AcqRel);
+        if prev >= self.max {
+            self.active.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(SlotGuard(Arc::clone(self)))
+    }
+}
+
+/// Plaza ocupada; se libera al soltarse.
+struct SlotGuard(Arc<ConnSlots>);
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        self.0.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn las_plazas_se_agotan_y_se_liberan() {
+        let slots = ConnSlots::new(2);
+        let a = slots.try_acquire().expect("plaza 1");
+        let _b = slots.try_acquire().expect("plaza 2");
+        assert!(slots.try_acquire().is_none(), "la tercera no cabe");
+        drop(a);
+        assert!(
+            slots.try_acquire().is_some(),
+            "liberada al soltar la guarda"
+        );
     }
 }

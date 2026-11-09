@@ -1,37 +1,71 @@
 // mcps/discovery.rs — MCP source discovery and list aggregation.
 
 use std::fs;
+use std::path::PathBuf;
 
 use super::types_io::{
     build_mcp_info, normalize_mcp_name, parse_fallbacks, parse_inline_plugin_manifest_mcp,
     parse_mcp_file, parse_plugin_mcp_file, parse_settings, read_enabled_plugins, read_health,
-    read_installed_plugins, select_enabled_plugin_paths, McpInfo, McpServerCfg,
+    read_installed_plugins, select_enabled_plugin_paths, McpInfo, McpServerCfg, SettingsRoot,
 };
 
-/// Read `~/.claude.json` and extract every MCP server declared there:
-///   - top-level `mcpServers`            -> origin "user-claudejson"
-///   - `projects.<path>.mcpServers`      -> origin "project:<basename(path)>"
-pub(super) fn collect_claude_json_mcps() -> Vec<(String, String, McpServerCfg)> {
-    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
-    let Some(home) = dirs::home_dir() else {
-        return out;
-    };
-    let path = home.join(".claude.json");
-    let Ok(raw) = fs::read_to_string(&path) else {
-        return out;
-    };
-    let Ok(value): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
-        return out;
-    };
+/// Una entrada de servidor MCP con su procedencia. La comparten el listado
+/// de la pestaña, el botón «Test» y el chequeo de salud, para que los tres
+/// vean exactamente los mismos servidores (H15).
+#[derive(Debug, Clone)]
+pub(super) struct McpSource {
+    pub(super) origin: String,
+    /// Etiqueta del proyecto o slug del plugin (`McpInfo.plugin`).
+    pub(super) plugin: Option<String>,
+    pub(super) name: String,
+    pub(super) cfg: McpServerCfg,
+    /// Carpeta del proyecto en los de ámbito proyecto: Claude Code los
+    /// arranca con ese directorio de trabajo.
+    pub(super) cwd: Option<PathBuf>,
+    /// Viene de un `.mcp.json` de proyecto (lo controla el repositorio, no el
+    /// usuario): no se lanza sin aprobación (`mcps::confianza`).
+    pub(super) requiere_aprobacion: bool,
+}
 
+/// Origen del `mcpServers` legado de `~/.claude/settings.json`, que Claude
+/// Code no lee para MCP (H14).
+pub(super) const ORIGIN_SETTINGS: &str = "settings";
+
+/// Prioridad al colapsar duplicados y al resolver un nombre: el ámbito de
+/// usuario real primero y el legado de settings.json el último.
+pub(super) fn editability_rank(origin: &str) -> u8 {
+    if origin == "user" {
+        0
+    } else if origin.starts_with("project:") {
+        1
+    } else if origin.starts_with("plugin:") {
+        2
+    } else if origin == ORIGIN_SETTINGS {
+        3
+    } else {
+        4
+    }
+}
+
+/// Servidores de un `~/.claude.json` ya parseado:
+///   - `mcpServers` de primer nivel  -> origin "user" (ámbito de usuario)
+///   - `projects.<path>.mcpServers` -> origin "project:<basename(path)>"
+pub(super) fn claude_json_sources_from_value(value: &serde_json::Value) -> Vec<McpSource> {
+    let mut out: Vec<McpSource> = Vec::new();
     if let Some(obj) = value.get("mcpServers").and_then(|v| v.as_object()) {
         for (name, cfg_val) in obj.iter() {
             if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
-                out.push(("user-claudejson".to_string(), name.clone(), cfg));
+                out.push(McpSource {
+                    origin: "user".to_string(),
+                    plugin: None,
+                    name: name.clone(),
+                    cfg,
+                    cwd: None,
+                    requiere_aprobacion: false,
+                });
             }
         }
     }
-
     if let Some(projects) = value.get("projects").and_then(|v| v.as_object()) {
         for (proj_path, proj_val) in projects.iter() {
             let Some(servers) = proj_val.get("mcpServers").and_then(|v| v.as_object()) else {
@@ -40,17 +74,38 @@ pub(super) fn collect_claude_json_mcps() -> Vec<(String, String, McpServerCfg)> 
             let basename = std::path::Path::new(proj_path)
                 .file_name()
                 .and_then(|s| s.to_str())
-                .unwrap_or(proj_path.as_str());
-            let origin = format!("project:{}", basename);
+                .unwrap_or(proj_path.as_str())
+                .to_string();
             for (name, cfg_val) in servers.iter() {
                 if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
-                    out.push((origin.clone(), name.clone(), cfg));
+                    out.push(McpSource {
+                        origin: format!("project:{}", basename),
+                        plugin: Some(basename.clone()),
+                        name: name.clone(),
+                        cfg,
+                        cwd: Some(PathBuf::from(proj_path)),
+                        requiere_aprobacion: false,
+                    });
                 }
             }
         }
     }
-
     out
+}
+
+/// Read `~/.claude.json` and extract every MCP server declared there (see
+/// [`claude_json_sources_from_value`]). Missing or malformed file -> empty.
+pub(super) fn collect_claude_json_mcps() -> Vec<McpSource> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let Ok(raw) = fs::read_to_string(home.join(".claude.json")) else {
+        return Vec::new();
+    };
+    let Ok(value): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
+        return Vec::new();
+    };
+    claude_json_sources_from_value(&value)
 }
 
 /// Discover MCP servers contributed by installed, **enabled** plugins.
@@ -94,8 +149,8 @@ pub(super) fn collect_plugin_mcps_from(
 }
 
 /// Discover MCP servers declared in project-level `.mcp.json` files.
-pub(super) fn collect_project_mcps() -> Vec<(String, String, McpServerCfg)> {
-    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
+pub(super) fn collect_project_mcps() -> Vec<McpSource> {
+    let mut out: Vec<McpSource> = Vec::new();
     let Some(home) = dirs::home_dir() else {
         return out;
     };
@@ -132,10 +187,66 @@ pub(super) fn collect_project_mcps() -> Vec<(String, String, McpServerCfg)> {
                     .to_string()
             });
         for (name, cfg) in parse_mcp_file(&candidate).into_iter() {
-            out.push((proj_label.clone(), name, cfg));
+            out.push(McpSource {
+                origin: format!("project:{}", proj_label),
+                plugin: Some(proj_label.clone()),
+                name,
+                cfg,
+                cwd: Some(PathBuf::from(path_str)),
+                requiere_aprobacion: true,
+            });
         }
     }
     out
+}
+
+/// Todas las fuentes de MCP, en orden de prioridad: `~/.claude.json`
+/// (usuario y proyectos), plugins, `.mcp.json` de proyectos y, al final, el
+/// `mcpServers` legado de settings.json.
+pub(super) fn collect_all_sources(settings: &SettingsRoot) -> Vec<McpSource> {
+    let mut out: Vec<McpSource> = collect_claude_json_mcps();
+    for (plugin, name, cfg) in collect_plugin_mcps().into_iter() {
+        out.push(McpSource {
+            origin: format!("plugin:{}", plugin),
+            plugin: Some(plugin),
+            name,
+            cfg,
+            cwd: None,
+            requiere_aprobacion: false,
+        });
+    }
+    out.extend(collect_project_mcps());
+    for (name, cfg) in settings.mcp_servers.iter() {
+        out.push(McpSource {
+            origin: ORIGIN_SETTINGS.to_string(),
+            plugin: None,
+            name: name.clone(),
+            cfg: cfg.clone(),
+            cwd: None,
+            requiere_aprobacion: false,
+        });
+    }
+    out
+}
+
+/// La entrada que representa a `name`: coincidencia exacta de nombre y, si
+/// hay varias, la de mayor prioridad (la misma que la pestaña muestra al
+/// colapsar duplicados). `disabledMcpjsonServers` cuenta como deshabilitado,
+/// igual que en el listado.
+pub(super) fn resolve_server(
+    sources: &[McpSource],
+    disabled_list: &[String],
+    name: &str,
+) -> Option<McpSource> {
+    let mut found = sources
+        .iter()
+        .filter(|s| s.name == name)
+        .min_by_key(|s| editability_rank(&s.origin))
+        .cloned()?;
+    if disabled_list.iter().any(|d| d == name) {
+        found.cfg.disabled = true;
+    }
+    Some(found)
 }
 
 pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
@@ -146,60 +257,11 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
     let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     let mut out: Vec<McpInfo> = Vec::new();
 
-    // Source 1: user settings.json
-    for (name, cfg) in settings.mcp_servers.iter() {
-        let key = (name.clone(), "user".to_string());
+    for src in collect_all_sources(&settings).into_iter() {
+        let key = (src.name.clone(), src.origin.clone());
         if seen.insert(key) {
             out.push(build_mcp_info(
-                name,
-                cfg,
-                "user".to_string(),
-                None,
-                &health,
-                &fallbacks,
-            ));
-        }
-    }
-
-    // Source 2: plugin .mcp.json files
-    for (plugin, name, cfg) in collect_plugin_mcps().into_iter() {
-        let origin = format!("plugin:{}", plugin);
-        let key = (name.clone(), origin.clone());
-        if seen.insert(key) {
-            out.push(build_mcp_info(
-                &name,
-                &cfg,
-                origin,
-                Some(plugin),
-                &health,
-                &fallbacks,
-            ));
-        }
-    }
-
-    // Source 3: project-level .mcp.json files
-    for (project, name, cfg) in collect_project_mcps().into_iter() {
-        let origin = format!("project:{}", project);
-        let key = (name.clone(), origin.clone());
-        if seen.insert(key) {
-            out.push(build_mcp_info(
-                &name,
-                &cfg,
-                origin,
-                Some(project),
-                &health,
-                &fallbacks,
-            ));
-        }
-    }
-
-    // Source 4: ~/.claude.json
-    for (origin, name, cfg) in collect_claude_json_mcps().into_iter() {
-        let plugin = origin.strip_prefix("project:").map(|p| p.to_string());
-        let key = (name.clone(), origin.clone());
-        if seen.insert(key) {
-            out.push(build_mcp_info(
-                &name, &cfg, origin, plugin, &health, &fallbacks,
+                &src.name, &src.cfg, src.origin, src.plugin, &health, &fallbacks,
             ));
         }
     }
@@ -218,17 +280,6 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
         }
     }
 
-    fn editability_rank(origin: &str) -> u8 {
-        if origin == "user" || origin == "user-claudejson" {
-            0
-        } else if origin.starts_with("project:") {
-            1
-        } else if origin.starts_with("plugin:") {
-            2
-        } else {
-            3
-        }
-    }
     let mut deduped: Vec<McpInfo> = Vec::with_capacity(out.len());
     let mut idx_by_norm: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
@@ -261,19 +312,8 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
     let mut out = deduped;
 
     out.sort_by(|a, b| {
-        let bucket = |o: &str| -> u8 {
-            if o == "user" || o == "user-claudejson" {
-                0
-            } else if o.starts_with("project:") {
-                1
-            } else if o.starts_with("plugin:") {
-                2
-            } else {
-                3
-            }
-        };
-        bucket(&a.origin)
-            .cmp(&bucket(&b.origin))
+        editability_rank(&a.origin)
+            .cmp(&editability_rank(&b.origin))
             .then_with(|| a.name.cmp(&b.name))
     });
     Ok(out)

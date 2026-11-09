@@ -1,42 +1,45 @@
-// File I/O — read on demand; write atomically (tmp + rename) on save.
+// File I/O — read on demand; write atomically (unique tmp + rename) on save;
+// metrics updates under a cross-process file lock.
 // Also: provider/zone/metrics load helpers and the key-status utilities.
 
 use std::collections::HashSet;
-use std::fs;
-use std::path::PathBuf;
+#[cfg(not(target_os = "windows"))]
 use std::process::Stdio;
 
 use once_cell::sync::Lazy;
-use serde::Serialize;
 use std::sync::Mutex;
 
-use super::seed::{seed_providers, seed_zones};
+use super::key_source::resolve_key;
+use super::seed::seed_zones;
 use super::types::{
-    metrics_path, providers_path, zones_path, ApiKeyStatus, Provider, ProviderKind, RouterMetrics,
-    Zone,
+    metrics_path, zones_path, ApiKeyStatus, Provider, ProviderKind, RouterMetrics, Zone,
 };
 
 // ---------------------------------------------------------------------------
-// Generic JSON helpers
+// Generic JSON helpers (store/json_io.rs) and zone migrations
+// (store/zone_migrations.rs)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T, String> {
-    let bytes = fs::read(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
-    serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {}", path.display(), e))
-}
+mod json_io;
+mod provider_migrations;
+mod provider_overlay;
+mod zone_migrations;
 
-pub(crate) fn write_json<T: Serialize>(path: &PathBuf, value: &T) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("create dir {}: {}", parent.display(), e))?;
-    }
-    let body = serde_json::to_vec_pretty(value)
-        .map_err(|e| format!("serialize {}: {}", path.display(), e))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, &body).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-    fs::rename(&tmp, path).map_err(|e| format!("rename to {}: {}", path.display(), e))?;
-    Ok(())
-}
+pub(crate) use json_io::{read_json, update_json_locked, write_json};
+// En producción las migraciones del catálogo entran por `load_providers`.
+#[cfg(test)]
+pub(crate) use provider_migrations::{
+    merge_missing_seed_providers, migrate_ollama_loopback, migrate_stale_provider_models,
+};
+pub(crate) use provider_overlay::{load_providers, update_providers};
+pub(crate) use zone_migrations::normalize_zones;
+// Las migraciones sueltas solo las llaman los tests; en producción entran por
+// `normalize_zones`.
+#[cfg(test)]
+pub(crate) use zone_migrations::{
+    migrate_gemini_flash_model, repair_zones_against_catalog, restore_missing_seed_fallbacks,
+    retire_gemini_cli, retire_seed_ollama_fallback, retire_unused_zones, RETIRED_ZONE_IDS,
+};
 
 // ---------------------------------------------------------------------------
 // CLI presence cache
@@ -60,14 +63,7 @@ pub fn detect_cli(command: &str) -> bool {
     }
 
     #[cfg(target_os = "windows")]
-    let found = std::process::Command::new("where")
-        .arg(command)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let found = crate::ai_router::exec::where_finds(command);
 
     #[cfg(not(target_os = "windows"))]
     let found = std::process::Command::new("which")
@@ -89,10 +85,12 @@ pub fn detect_cli(command: &str) -> bool {
 // Key-status helpers
 // ---------------------------------------------------------------------------
 
+/// Estado de la key de un proveedor. Un proveedor local sin variable de key
+/// (Ollama, un servidor en localhost sin auth) está siempre configurado; uno
+/// local que SÍ declara variable (un proxy personalizado en loopback con
+/// auth) se mira en el entorno como uno cloud, para que `route()` lo salte
+/// si falta la key en vez de fallar en cada llamada.
 pub fn compute_key_status(p: &Provider) -> ApiKeyStatus {
-    if p.kind == ProviderKind::Local {
-        return ApiKeyStatus::Configured;
-    }
     if p.kind == ProviderKind::Cli {
         let cmd = p.cli_command.as_deref().unwrap_or("");
         return if !cmd.is_empty() && detect_cli(cmd) {
@@ -104,10 +102,10 @@ pub fn compute_key_status(p: &Provider) -> ApiKeyStatus {
     if p.key_env_var.is_empty() {
         return ApiKeyStatus::Configured;
     }
-    match std::env::var(&p.key_env_var) {
-        Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => ApiKeyStatus::Configured,
-        Ok(_) => ApiKeyStatus::Placeholder,
-        Err(_) => ApiKeyStatus::Missing,
+    match resolve_key(&p.key_env_var) {
+        Some(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => ApiKeyStatus::Configured,
+        Some(_) => ApiKeyStatus::Placeholder,
+        None => ApiKeyStatus::Missing,
     }
 }
 
@@ -138,580 +136,121 @@ pub(crate) fn disabled_providers_set() -> HashSet<String> {
 // Load/save helpers
 // ---------------------------------------------------------------------------
 
-/// Returns the providers list, seeding the file on first run. Then patches
-/// every entry's `api_key_status` against the current process env.
-///
-/// Unlike `load_zones()`, this used to read an existing `providers.json`
-/// VERBATIM and never resync it against `seed_providers()` — a `providers.json`
-/// written before a seed model bump (e.g. `gemini-3.8-flash`, `codex`/`codex-cli`
-/// on `gpt-5`/`gpt-5.5`) stayed stale forever. `migrate_stale_provider_models`
-/// closes that gap (2026-09-11).
-pub fn load_providers() -> Result<Vec<Provider>, String> {
-    let path = providers_path()?;
-    let mut providers: Vec<Provider> = if path.exists() {
-        let mut loaded: Vec<Provider> = read_json(&path)?;
-        let bumped = migrate_stale_provider_models(&mut loaded);
-        let merged = merge_missing_seed_providers(&mut loaded);
-        let loopback = migrate_ollama_loopback(&mut loaded);
-        if bumped || merged || loopback {
-            let _ = write_json(&path, &loaded);
-        }
-        loaded
-    } else {
-        let seeded = seed_providers();
-        write_json(&path, &seeded)?;
-        seeded
-    };
-    for p in providers.iter_mut() {
-        p.api_key_status = compute_key_status(p);
-    }
-    Ok(providers)
-}
-
-/// Añade al catálogo persistido los proveedores del seed que le faltan,
-/// emparejando por id. Devuelve `true` cuando añadió algo, para que quien
-/// llama persista el fichero.
-///
-/// `migrate_stale_provider_models` repara los MODELOS de un proveedor que ya
-/// está en el fichero, pero no puede hacer nada con un proveedor AUSENTE, y un
-/// `providers.json` escrito antes de que el seed ganara una entrada no la
-/// recibía jamás. Medido en esta máquina el 2026-09-21: el fichero tenía 8
-/// proveedores y el seed 9 — faltaba `claude`, que era el primary de
-/// `code-edit` y `code-review` desde la decisión del 2026-06-24. Las dos zonas
-/// llamaban a un proveedor inexistente, fallaban y caían al fallback en cada
-/// petición, y el salto se contabilizaba como `real_fallback_rate`.
-///
-/// Solo AÑADE: una entrada que el operador ya editó conserva su coste, sus
-/// modelos y su `base_url` intactos (de esa deriva se encarga
-/// `migrate_stale_provider_models`, acotada a valores conocidos como
-/// obsoletos). Respeta el orden y añade al final, así que el catálogo nunca se
-/// reordena bajo la UI.
-///
-/// Pura (sin E/S) para poder probarla.
-/// Adaptada de la rama `maria-core` del espejo público (2026-09-21).
-pub(crate) fn merge_missing_seed_providers(providers: &mut Vec<Provider>) -> bool {
-    let have: HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
-    let mut mutated = false;
-    for sp in seed_providers() {
-        if !have.contains(&sp.id) {
-            providers.push(sp);
-            mutated = true;
-        }
-    }
-    mutated
-}
-
-/// Repara las zonas cuyo `primary` o cuyos `fallbacks` apunten a un proveedor
-/// que no está en el catálogo.
-///
-/// Sin esto, una zona con un `primary` inexistente no falla al cargar: falla
-/// en tiempo de ejecución, una llamada más tarde, con un "proveedor
-/// desconocido" que no dice de dónde viene. Los fallbacks muertos se caen; un
-/// primary muerto se sustituye por el primer fallback vigente y, si no queda
-/// ninguno, por el modelo local, que siempre está y no gasta cuota.
-///
-/// También quita fallbacks repetidos: al fundir dos proveedores en uno, una
-/// zona acababa con el mismo fallback tres veces y la cadena lo intentaba tres
-/// veces seguidas.
-///
-/// La deduplicación es por la pareja (proveedor, modelo), NO por proveedor.
-/// `maria-core` deduplica solo por `provider_id`, y aquí eso destruiría la
-/// cadena de `chat`, que repite `groq` a propósito con dos modelos distintos:
-/// la cuota de Groq es POR MODELO, así que el 120b en cooldown por 429 deja
-/// al 20b con su propio bucket intacto. Colapsar esa pareja devolvería el
-/// sistema al fallo medido el 2026-09-07, cuando la captura se quedaba sin
-/// proveedor tras 266 llamadas en un día.
-///
-/// Pura. Adaptada de `repair_zones_after_drop` de la rama `maria-core`.
-pub(crate) fn repair_zones_against_catalog(zones: &mut [Zone], catalogo: &[String]) -> bool {
-    let vigente = |id: &str| catalogo.iter().any(|v| v == id);
-    let mut mutated = false;
-    for z in zones.iter_mut() {
-        let antes = z.fallbacks.len();
-        z.fallbacks.retain(|f| vigente(&f.provider_id));
-        let mut vistos: HashSet<(String, String)> = HashSet::new();
-        z.fallbacks
-            .retain(|f| vistos.insert((f.provider_id.clone(), f.model.clone())));
-        if z.fallbacks.len() != antes {
-            mutated = true;
-        }
-        if !vigente(&z.primary.provider_id) {
-            match z.fallbacks.first().cloned() {
-                Some(nuevo) => {
-                    z.primary = nuevo;
-                    z.fallbacks.remove(0);
-                }
-                None => {
-                    z.primary.provider_id = "ollama".to_string();
-                    z.primary.model = crate::ollama::toggle::model_name();
-                }
-            }
-            mutated = true;
-        }
-    }
-    mutated
-}
-
-/// Bump provider catalog entries (`default_model` + `models`) that predate a
-/// seed change, for a `providers.json` written before the update ran. Matches
-/// by provider id + a known-stale `default_model`, then copies the CURRENT
-/// seed's `default_model`/`models` for that id. An operator-chosen
-/// `default_model` outside the stale list is left untouched (this migration
-/// only repairs drift, it never overrides an intentional choice).
-///
-/// Idempotent: a provider already on its seed model triggers no mutation.
-///
-/// SCOPED TO `codex-cli` (not the cloud `codex` provider): `codex-cli`
-/// authenticates via the ChatGPT subscription (terra/sol/astra are valid
-/// there), while cloud `codex` hits the real OpenAI HTTP API with
-/// `OPENAI_API_KEY` — those subscription aliases are not valid ids there, so
-/// it must keep its own API model id untouched by this migration (fixed
-/// same day after review; an earlier version bumped both).
-///
-/// Pure (no I/O) so the migration is unit-testable.
-pub(crate) fn migrate_stale_provider_models(providers: &mut [Provider]) -> bool {
-    // (provider id, stale default_model values that trigger the bump).
-    // gemini-3.8-flash (2026-09-16): medido en vivo, 200 OK pero 55.497 ms de
-    // latencia — vuelve a la lista de valores obsoletos que esta migracion
-    // repara, apuntando de nuevo al gemini-2.5-flash de seed_providers (624 ms
-    // medidos el mismo dia). Ver migrate_gemini_flash_model para el mismo
-    // bump aplicado a zones.json.
-    const TARGETS: &[(&str, &[&str])] = &[
-        ("gemini", &["gemini-3.8-flash"]),
-        ("codex-cli", &["gpt-5", "gpt-5.5"]),
-    ];
-    let seed = seed_providers();
-    let mut mutated = false;
-    for p in providers.iter_mut() {
-        let Some(&(_, stale)) = TARGETS.iter().find(|(id, _)| *id == p.id) else {
-            continue;
-        };
-        if !stale.contains(&p.default_model.as_str()) {
-            continue;
-        }
-        let Some(seed_p) = seed.iter().find(|sp| sp.id == p.id) else {
-            continue;
-        };
-        if p.default_model != seed_p.default_model {
-            p.default_model = seed_p.default_model.clone();
-            mutated = true;
-        }
-        if p.models != seed_p.models {
-            p.models = seed_p.models.clone();
-            mutated = true;
-        }
-    }
-    mutated
-}
-
+/// Carga las zonas, fusiona las del seed que falten y aplica
+/// `normalize_zones`; si algo cambió, reescribe `zones.json`.
 pub fn load_zones() -> Result<Vec<Zone>, String> {
     let path = zones_path()?;
-    if path.exists() {
-        // Auto-cure: a hand-edit of zones.json on 2026-06-04 dropped the
-        // 'utility' and 'light' zones — the two MOST invoked from code —
-        // so route('utility')/route('light') returned Err('zone not found').
-        // We now merge back any seed zone missing by id.
-        let mut zones: Vec<Zone> = read_json(&path)?;
-        let have: std::collections::HashSet<String> = zones.iter().map(|z| z.id.clone()).collect();
-        for z in seed_zones() {
-            if !have.contains(&z.id) {
-                zones.push(z);
-            }
-        }
-        // CLI-primary migration (2026-06-05): upgrade an existing zones.json
-        // 'code-edit' entry that still points to the old cloud-only primary.
-        let mut mutated = false;
-        for z in &mut zones {
-            if z.id == "code-edit" && z.primary.provider_id == "codex" {
-                z.primary.provider_id = "codex-cli".into();
-                if !z.fallbacks.iter().any(|f| f.provider_id == "codex") {
-                    z.fallbacks.insert(
-                        0,
-                        super::types::ZoneAssignment {
-                            provider_id: "codex".into(),
-                            model: "gpt-5".into(),
-                            max_tokens: z.primary.max_tokens,
-                        },
-                    );
-                }
-                mutated = true;
-            }
-        }
-        // gemini-cli retirement migration (2026-06-19): the gemini-cli binary no
-        // longer authenticates (Google dropped free-tier OAuth for individuals —
-        // runtime IneligibleTierError "migrate to the Antigravity suite"). The
-        // migration swaps it for the cloud 'gemini' provider in every chain and
-        // de-dups. NOTE: this SUPERSEDES the 2026-06-05 rule that PROMOTED
-        // research-web to gemini-cli — that rule was removed, the CLI is dead.
-        if retire_gemini_cli(&mut zones) {
-            mutated = true;
-        }
-        // gemini-3.8-flash -> gemini-2.5-flash migration (2026-09-16): 3.8-flash
-        // medido en vivo en 55.497 ms (200 OK pero inservible como fallback
-        // rapido); 2.5-flash medido el mismo dia en 624 ms. Supersede la
-        // migracion inversa del 2026-09-11. Idempotente: un zones.json ya en
-        // 2.5-flash no dispara escritura.
-        if migrate_gemini_flash_model(&mut zones) {
-            mutated = true;
-        }
-        // Poda de zonas sin consumidor (2026-09-21). Ver `retire_unused_zones`.
-        if retire_unused_zones(&mut zones) {
-            mutated = true;
-        }
-        // codex gpt-5/gpt-5.5 -> modelo de la semilla por zona (2026-09-11):
-        // terra/sol/astra verificados vivos vía `codex exec -m <modelo>`.
-        // Generalizada para leer el objetivo de seed_zones() en vez de un par
-        // OLD/NEW fijo (ver doc de la función). Idempotente.
-        if migrate_codex_gpt5_model(&mut zones) {
-            mutated = true;
-        }
-        // CLI-first en las zonas de codigo (2026-09-21): un zones.json escrito
-        // bajo la decision del 2026-06-24 apunta su primary a 'claude', que
-        // nunca llego a providers.json. Ver `migrate_code_zones_to_cli`.
-        if migrate_code_zones_to_cli(&mut zones) {
-            mutated = true;
-        }
-        // Reparacion de cadenas mutiladas (2026-09-21). DESPUES de las
-        // migraciones puntuales: primero cada una deja su zona como quiere, y
-        // luego se comprueba que no falte ningun eslabon del seed. Ver
-        // `restore_missing_seed_fallbacks`.
-        if restore_missing_seed_fallbacks(&mut zones) {
-            mutated = true;
-        }
-        // Red de seguridad, la ULTIMA: por muchas migraciones puntuales que se
-        // acumulen arriba, ninguna zona puede quedar apuntando a un proveedor
-        // que no esta en el catalogo. Lo de 'claude' vivio tres meses
-        // precisamente porque nadie comprobaba esta invariante al cargar.
-        let catalogo: Vec<String> = load_providers()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
-        if !catalogo.is_empty() && repair_zones_against_catalog(&mut zones, &catalogo) {
-            mutated = true;
-        }
-        if mutated {
-            let _ = write_json(&path, &zones);
-        }
-        Ok(zones)
-    } else {
+    if !path.exists() {
         let seeded = seed_zones();
         write_json(&path, &seeded)?;
-        Ok(seeded)
+        return Ok(seeded);
     }
-}
-
-/// Cambia el `localhost` del proveedor `ollama` por `127.0.0.1` en un
-/// `providers.json` ya escrito.
-///
-/// Ollama escucha solo en IPv4 (`TCP 127.0.0.1:11434 LISTENING`), pero
-/// `localhost` resuelve antes a `::1`: cada petición paga el rechazo de IPv6
-/// hasta que happy-eyeballs reintenta por IPv4. Medido el 2026-09-21: 207 ms
-/// frente a 2,5 ms, y el coste se paga DOS VECES por invocación porque
-/// `call_ollama` sondea `/api/tags` antes de `/api/generate`. Funcionar,
-/// funciona — por eso nadie lo vio.
-///
-/// Acotada a `ollama` y a un `base_url`/`health_endpoint` que sigan diciendo
-/// `localhost`: una URL que el operador haya apuntado a otra máquina no se
-/// toca. `migrate_stale_provider_models` no sirve aquí porque solo repara
-/// modelos, nunca URLs.
-///
-/// Pura (sin E/S) para poder probarla.
-pub(crate) fn migrate_ollama_loopback(providers: &mut [Provider]) -> bool {
-    let mut mutated = false;
-    for p in providers.iter_mut().filter(|p| p.id == "ollama") {
-        if p.base_url.contains("//localhost:") {
-            p.base_url = p.base_url.replace("//localhost:", "//127.0.0.1:");
-            mutated = true;
-        }
-        if let Some(h) = p.health_endpoint.as_mut() {
-            if h.contains("//localhost:") {
-                *h = h.replace("//localhost:", "//127.0.0.1:");
-                mutated = true;
-            }
-        }
-    }
-    mutated
-}
-
-/// Devuelve a la cadena los fallbacks del seed que se perdieron por el camino.
-///
-/// `load_zones` fusiona zonas AUSENTES, pero nunca repara una cadena mutilada.
-/// Hasta el 2026-09-16 `retire_gemini_cli` deduplicaba por `provider_id`
-/// ignorando el modelo, así que en cada carga borraba el `groq:gpt-oss-20b` de
-/// la zona `chat` — su primary ya era groq. Cuando la dedup se corrigió a
-/// `provider::model` el bug dejó de morder, pero los `zones.json` ya dañados
-/// se quedaron sin ese eslabón: verificado en esta máquina el 2026-09-21, la
-/// cadena de `chat` era `groq:120b | gemini` y el seed dice
-/// `groq:120b | groq:20b | gemini`.
-///
-/// Eso importa porque la cuota de Groq es POR MODELO: con el 120b en cooldown
-/// por 429, el 20b conserva su propio bucket. Sin él, la cadena salta directa
-/// a las 20 peticiones diarias de Gemini y la captura se queda sin proveedor
-/// (medido el 2026-09-07 con 266 llamadas a `chat` en un día).
-///
-/// Cada fallback que falta se reinserta en el índice que ocupa en el seed, de
-/// modo que el orden de la estrategia se respeta. Lo que el operador haya
-/// añadido por su cuenta no se toca ni se reordena.
-///
-/// Límite declarado: si el operador quitó a propósito un fallback que el seed
-/// define, esta migración se lo devuelve. Se asume porque la pérdida conocida
-/// viene de un bug, no de una elección, y el seed es la fuente de verdad.
-///
-/// Pura (sin E/S) para poder probarla.
-pub(crate) fn restore_missing_seed_fallbacks(zones: &mut [Zone]) -> bool {
-    let seed = seed_zones();
-    let mut mutated = false;
-    for z in zones.iter_mut() {
-        let Some(sz) = seed.iter().find(|s| s.id == z.id) else {
-            continue;
-        };
-        for (idx, sf) in sz.fallbacks.iter().enumerate() {
-            let ya_esta = z.primary.provider_id == sf.provider_id && z.primary.model == sf.model
-                || z.fallbacks
-                    .iter()
-                    .any(|f| f.provider_id == sf.provider_id && f.model == sf.model);
-            if ya_esta {
-                continue;
-            }
-            let pos = idx.min(z.fallbacks.len());
-            z.fallbacks.insert(pos, sf.clone());
-            mutated = true;
-        }
-    }
-    mutated
-}
-
-/// Lleva las zonas de código al primary CLI que marca el seed, para un
-/// `zones.json` escrito bajo la decisión del 2026-06-24 (`claude` de primary).
-///
-/// Acotada a las zonas de categoría `code` cuyo primary sea exactamente
-/// `claude`: una elección distinta del operador no se toca. El objetivo sale
-/// de `seed_zones()`, no de una constante, para que no vuelva a haber dos
-/// sitios con la política escrita.
-///
-/// Si `claude` desapareciera del primary del seed y la zona ya estuviera
-/// migrada, la función no muta nada: es idempotente.
-///
-/// Pura (sin E/S) para poder probarla.
-pub(crate) fn migrate_code_zones_to_cli(zones: &mut [Zone]) -> bool {
-    let seed = seed_zones();
-    let mut mutated = false;
-    for z in zones.iter_mut() {
-        if z.primary.provider_id != "claude" {
-            continue;
-        }
-        let Some(sz) = seed.iter().find(|s| s.id == z.id) else {
-            continue;
-        };
-        if sz.category != "code" || sz.primary.provider_id == "claude" {
-            continue;
-        }
-        // El primary saliente baja a fallback solo si aporta algo que la
-        // cadena no tenga ya: si no, se descarta y la cadena no engorda.
-        let entrante = sz.primary.clone();
-        z.fallbacks
-            .retain(|f| f.provider_id != entrante.provider_id);
-        z.primary = entrante;
-        mutated = true;
-    }
-    mutated
-}
-
-/// Retire the dead `gemini-cli` provider from every zone chain: replace it with
-/// the cloud `gemini` provider (so research-web keeps gemini-2.5-flash via API,
-/// and every fallback keeps a working target), then drop any fallback whose
-/// provider already appears earlier in the chain (including as the primary).
-///
-/// Pure (no I/O) so the migration is unit-testable. Returns `true` if any zone
-/// was mutated.
-pub(crate) fn retire_gemini_cli(zones: &mut [Zone]) -> bool {
-    let mut mutated = false;
-    for z in zones.iter_mut() {
-        if z.primary.provider_id == "gemini-cli" {
-            z.primary.provider_id = "gemini".into();
-            mutated = true;
-        }
-        for f in &mut z.fallbacks {
-            if f.provider_id == "gemini-cli" {
-                f.provider_id = "gemini".into();
-                mutated = true;
-            }
-        }
-        // De-dup por (proveedor, modelo), NO por proveedor (2026-09-07): la
-        // cuota de Groq es por modelo, así que una cadena legítima lleva
-        // varios modelos del mismo proveedor. Con la clave antigua esta
-        // migración borraba en cada carga los fallbacks groq de la zona
-        // `chat` (verificado: zones.json revertido a los 40 s de editarlo).
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        seen.insert(format!("{}::{}", z.primary.provider_id, z.primary.model));
-        let before = z.fallbacks.len();
-        z.fallbacks
-            .retain(|f| seen.insert(format!("{}::{}", f.provider_id, f.model)));
-        if z.fallbacks.len() != before {
-            mutated = true;
-        }
-    }
-    mutated
-}
-
-/// Zonas retiradas el 2026-09-21 por no tener ningún llamante en el código:
-/// ninguna aparecía en un `ai_router::route("<id>", …)`, ni en un comando Tauri,
-/// ni en la UI (la pestaña AI Router lista y edita zonas, pero no lanza
-/// peticiones por zona). Una zona configurada que nadie invoca es configuración
-/// que miente sobre lo que el sistema hace: se mantenía en la UI, en los
-/// providers a validar y en la tabla de la documentación.
-///
-/// `code-fast-local` era además la única ruta a Ollama (0 rutas en
-/// metrics.json); el wrapper local sigue vivo como fallback de `light`.
-const RETIRED_ZONE_IDS: [&str; 3] = ["research-web", "routing-decision", "code-fast-local"];
-
-/// Borrar del `zones.json` ya escrito las zonas de `RETIRED_ZONE_IDS`.
-///
-/// Sin esto la poda de `seed_zones` no llegaría a ninguna instalación existente:
-/// la semilla solo corre cuando el fichero todavía no existe. Idempotente — un
-/// `zones.json` que ya no las tiene no dispara escritura.
-///
-/// Pura (sin I/O) para que la migración sea testeable.
-pub(crate) fn retire_unused_zones(zones: &mut Vec<Zone>) -> bool {
+    // Auto-cure: a hand-edit of zones.json on 2026-06-04 dropped the
+    // 'utility' and 'light' zones — the two MOST invoked from code —
+    // so route('utility')/route('light') returned Err('zone not found').
+    // We merge back any seed zone missing by id.
+    let mut zones: Vec<Zone> = read_json(&path)?;
+    let have: HashSet<String> = zones.iter().map(|z| z.id.clone()).collect();
     let before = zones.len();
-    zones.retain(|z| !RETIRED_ZONE_IDS.contains(&z.id.as_str()));
-    zones.len() != before
+    zones.extend(seed_zones().into_iter().filter(|z| !have.contains(&z.id)));
+    let merged = zones.len() != before;
+
+    // Red de seguridad incluida (la ÚLTIMA): ninguna zona puede quedar
+    // apuntando a un proveedor que no está en el catálogo. Lo de 'claude'
+    // vivió tres meses precisamente porque nadie comprobaba esta invariante.
+    let catalogo = catalog_ids();
+    let applied = normalize_zones(&mut zones, &catalogo);
+    if merged || !applied.is_empty() {
+        if let Err(e) = write_json(&path, &zones) {
+            // Las zonas normalizadas se usan igual en esta llamada; el fallo
+            // de escritura se registra para que no pase inadvertido.
+            tracing::warn!(error = %e, "no se ha podido reescribir zones.json normalizado");
+        }
+    }
+    Ok(zones)
 }
 
-/// Bump the cloud `gemini` provider's model from the retired `gemini-3.8-flash`
-/// back to `gemini-2.5-flash` (2026-09-16: 3.8-flash medido en vivo — 200 OK
-/// pero 55.497 ms de latencia, muy por encima de lo aceptable para un
-/// fallback rapido; 2.5-flash medido el mismo dia en 624 ms). Supersedes the
-/// 2026-09-11 migration that went the other way. Idempotent: a `zones.json`
-/// already on `gemini-2.5-flash` triggers no mutation. After the bump,
-/// de-dups by (provider, model) so a chain that happened to carry both the
-/// old and new gemini model doesn't end up with a duplicate fallback.
-///
-/// Pure (no I/O) so the migration is unit-testable.
-pub(crate) fn migrate_gemini_flash_model(zones: &mut [Zone]) -> bool {
-    const OLD_MODEL: &str = "gemini-3.8-flash";
-    const NEW_MODEL: &str = "gemini-2.5-flash";
-    let mut mutated = false;
-    for z in zones.iter_mut() {
-        if z.primary.provider_id == "gemini" && z.primary.model == OLD_MODEL {
-            z.primary.model = NEW_MODEL.into();
-            mutated = true;
-        }
-        for f in &mut z.fallbacks {
-            if f.provider_id == "gemini" && f.model == OLD_MODEL {
-                f.model = NEW_MODEL.into();
-                mutated = true;
-            }
-        }
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        seen.insert(format!("{}::{}", z.primary.provider_id, z.primary.model));
-        let before = z.fallbacks.len();
-        z.fallbacks
-            .retain(|f| seen.insert(format!("{}::{}", f.provider_id, f.model)));
-        if z.fallbacks.len() != before {
-            mutated = true;
+/// Ids del catálogo de proveedores, o vacío si no se puede leer (con un
+/// catálogo vacío `normalize_zones` no repara contra él).
+fn catalog_ids() -> Vec<String> {
+    match load_providers() {
+        Ok(ps) => ps.into_iter().map(|p| p.id).collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "catálogo de proveedores ilegible: zonas sin reparar");
+            Vec::new()
         }
     }
-    mutated
 }
 
-/// Bump `codex-cli` `ZoneAssignment.model` still on a stale value (`gpt-5` or
-/// `gpt-5.5`) to whatever `seed_zones()` assigns that exact (zone id,
-/// provider id) pair TODAY, instead of a single hardcoded OLD/NEW pair.
-/// Generalized 2026-09-11 (subscription ChatGPT models terra/sol/astra
-/// verified live via `codex exec -m <modelo>`; code-edit -> terra,
-/// code-review -> sol, see `seed_zones`) so the next codex-cli model bump
-/// only touches the seed — this migration keeps reading from it. A zone id
-/// or (zone, provider) pair absent from the seed is left untouched (we never
-/// guess a target).
+/// Comprueba que `zone` sobreviviría tal cual a la carga siguiente: le aplica
+/// `normalize_zones` a una copia y, si la copia cambia, devuelve un error con
+/// los motivos y la cadena en la que la carga la dejaría.
 ///
-/// SCOPED TO `codex-cli` ONLY (fixed same day after review): the cloud
-/// `codex` provider (`OPENAI_API_KEY`, real OpenAI HTTP API) must keep its
-/// own API model id (`gpt-5`) — terra/sol/astra are ChatGPT-subscription
-/// aliases, not valid ids on the public OpenAI API, and an earlier version of
-/// this migration wrongly bumped it too.
-///
-/// Idempotent: an assignment already matching its seed target triggers no
-/// mutation. After the bump, de-dups by (provider, model) so a chain that
-/// happened to carry both the old and new codex-cli model doesn't end up
-/// with a duplicate.
-///
-/// Pure (no I/O) so the migration is unit-testable.
-pub(crate) fn migrate_codex_gpt5_model(zones: &mut [Zone]) -> bool {
-    const STALE_MODELS: [&str; 2] = ["gpt-5", "gpt-5.5"];
-
-    fn is_codex_cli(provider_id: &str) -> bool {
-        provider_id == "codex-cli"
+/// Pura salvo por el catálogo, que recibe hecho, para poder probarla.
+pub(crate) fn validate_zone_edit(zone: &Zone, catalog: &[String]) -> Result<(), String> {
+    let mut copia = vec![zone.clone()];
+    let motivos = normalize_zones(&mut copia, catalog);
+    if copia.first() == Some(zone) {
+        return Ok(());
     }
-
-    fn seed_target(seed: &[Zone], zone_id: &str, provider_id: &str) -> Option<String> {
-        let sz = seed.iter().find(|z| z.id == zone_id)?;
-        if sz.primary.provider_id == provider_id {
-            return Some(sz.primary.model.clone());
-        }
-        sz.fallbacks
-            .iter()
-            .find(|f| f.provider_id == provider_id)
-            .map(|f| f.model.clone())
-    }
-
-    let seed = seed_zones();
-    let mut mutated = false;
-    for z in zones.iter_mut() {
-        if is_codex_cli(&z.primary.provider_id) && STALE_MODELS.contains(&z.primary.model.as_str())
-        {
-            if let Some(target) = seed_target(&seed, &z.id, &z.primary.provider_id) {
-                if target != z.primary.model {
-                    z.primary.model = target;
-                    mutated = true;
-                }
-            }
-        }
-        for f in &mut z.fallbacks {
-            if is_codex_cli(&f.provider_id) && STALE_MODELS.contains(&f.model.as_str()) {
-                if let Some(target) = seed_target(&seed, &z.id, &f.provider_id) {
-                    if target != f.model {
-                        f.model = target;
-                        mutated = true;
-                    }
-                }
-            }
-        }
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        seen.insert(format!("{}::{}", z.primary.provider_id, z.primary.model));
-        let before = z.fallbacks.len();
-        z.fallbacks
-            .retain(|f| seen.insert(format!("{}::{}", f.provider_id, f.model)));
-        if z.fallbacks.len() != before {
-            mutated = true;
-        }
-    }
-    mutated
+    let resultado = match copia.first() {
+        Some(z) => format!("la carga la dejaría así: {}", describe_chain(z)),
+        None => "la carga la borraría".to_string(),
+    };
+    Err(format!(
+        "No se ha guardado la zona '{}': {}. Motivo: {}.",
+        zone.id,
+        resultado,
+        motivos.join("; ")
+    ))
 }
 
-/// Persist a single zone: replaces the entry with matching `id`, or appends if
-/// not found. Preserves all other zones and writes atomically.
-pub fn save_zone(zone: Zone) -> Result<(), String> {
+/// `proveedor:modelo → proveedor:modelo → …` de una zona.
+fn describe_chain(z: &Zone) -> String {
+    std::iter::once(&z.primary)
+        .chain(z.fallbacks.iter())
+        .map(|a| format!("{}:{}", a.provider_id, a.model))
+        .collect::<Vec<_>>()
+        .join(" → ")
+}
+
+/// Persiste una zona: sustituye la entrada con el mismo `id` o la añade.
+///
+/// Rechaza (con el motivo) una edición que `load_zones` revertiría en la carga
+/// siguiente: antes se escribía tal cual, el editor marcaba «Guardado» y la
+/// carga deshacía el cambio en silencio. Devuelve la zona tal y como queda en
+/// disco para que la UI pinte lo persistido, no su borrador.
+pub fn save_zone(zone: Zone) -> Result<Zone, String> {
+    validate_zone_edit(&zone, &catalog_ids())?;
     let path = zones_path()?;
     let mut zones = load_zones()?;
-    if let Some(existing) = zones.iter_mut().find(|z| z.id == zone.id) {
-        *existing = zone;
-    } else {
-        zones.push(zone);
+    match zones.iter_mut().find(|z| z.id == zone.id) {
+        Some(existing) => *existing = zone.clone(),
+        None => zones.push(zone.clone()),
     }
-    write_json(&path, &zones)
+    write_json(&path, &zones)?;
+    Ok(zone)
 }
 
+/// Lee `metrics.json` sin escribir nada (un lector no debe crear el fichero:
+/// competiría con los escritores). Si no existe, métricas vacías.
 pub(crate) fn load_metrics() -> Result<RouterMetrics, String> {
     let path = metrics_path()?;
-    if path.exists() {
-        read_json(&path)
-    } else {
-        let m = RouterMetrics::default();
-        write_json(&path, &m)?;
-        Ok(m)
+    if !path.exists() {
+        return Ok(RouterMetrics::default());
     }
+    let mut m: RouterMetrics = read_json(&path)?;
+    m.adopt_legacy_window();
+    Ok(m)
+}
+
+/// Lee, modifica y escribe `metrics.json` bajo el cerrojo de fichero (varios
+/// procesos escriben a la vez: GUI y sidecar `ultron-memory`).
+pub(crate) fn update_metrics(mutate: impl FnOnce(&mut RouterMetrics)) -> Result<(), String> {
+    update_json_locked(&metrics_path()?, |m: &mut RouterMetrics| {
+        m.adopt_legacy_window();
+        mutate(m);
+    })
 }
 
 pub(crate) fn mask_key(raw: &str) -> Option<String> {
@@ -731,420 +270,6 @@ pub(crate) fn mask_key(raw: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod retire_tests {
-    use super::retire_gemini_cli;
-    use crate::ai_router::types::{Zone, ZoneAssignment};
-
-    fn asg(provider: &str, model: &str) -> ZoneAssignment {
-        ZoneAssignment {
-            provider_id: provider.into(),
-            model: model.into(),
-            max_tokens: 1024,
-        }
-    }
-
-    #[test]
-    fn keeps_several_models_of_the_same_provider_in_a_chain() {
-        // Caso del 2026-09-07: la cuota de Groq es por modelo, así que una
-        // cadena con varios modelos de Groq es legítima y no debe recortarse.
-        // qwen/qwen3.6-27b se retiró del fixture (2026-09-16): devuelve 404
-        // model_not_found en Groq, ya no es un modelo real de esta cuenta.
-        let mut zones = vec![Zone {
-            id: "chat".into(),
-            label: "chat".into(),
-            category: "chat".into(),
-            primary: asg("groq", "openai/gpt-oss-120b"),
-            fallbacks: vec![
-                asg("groq", "openai/gpt-oss-20b"),
-                asg("gemini", "gemini-2.5-flash"),
-            ],
-            system_prompt: None,
-        }];
-        assert!(
-            !retire_gemini_cli(&mut zones),
-            "nada que migrar ni recortar"
-        );
-        assert_eq!(zones[0].fallbacks.len(), 2);
-    }
-
-    #[test]
-    fn drops_exact_duplicates_and_retires_gemini_cli() {
-        // Caso negativo: el mismo (proveedor, modelo) repetido sí se recorta, y
-        // gemini-cli se sustituye por gemini.
-        let mut zones = vec![Zone {
-            id: "x".into(),
-            label: "x".into(),
-            category: "chat".into(),
-            primary: asg("groq", "openai/gpt-oss-120b"),
-            fallbacks: vec![
-                asg("groq", "openai/gpt-oss-120b"),
-                asg("gemini-cli", "gemini-3.8-flash"),
-            ],
-            system_prompt: None,
-        }];
-        assert!(retire_gemini_cli(&mut zones));
-        assert_eq!(zones[0].fallbacks.len(), 1);
-        assert_eq!(zones[0].fallbacks[0].provider_id, "gemini");
-    }
-}
-
+mod save_tests;
 #[cfg(test)]
-mod retire_unused_zones_tests {
-    use super::retire_unused_zones;
-    use crate::ai_router::types::{Zone, ZoneAssignment};
-
-    fn zone(id: &str) -> Zone {
-        Zone {
-            id: id.into(),
-            label: id.into(),
-            category: "chat".into(),
-            primary: ZoneAssignment {
-                provider_id: "groq".into(),
-                model: "openai/gpt-oss-20b".into(),
-                max_tokens: 512,
-            },
-            fallbacks: vec![],
-            system_prompt: None,
-        }
-    }
-
-    #[test]
-    fn drops_the_three_zones_without_a_caller() {
-        let mut zones = vec![
-            zone("chat"),
-            zone("research-web"),
-            zone("summarize"),
-            zone("routing-decision"),
-            zone("code-fast-local"),
-            zone("light"),
-        ];
-        assert!(retire_unused_zones(&mut zones));
-        let ids: Vec<&str> = zones.iter().map(|z| z.id.as_str()).collect();
-        assert_eq!(ids, vec!["chat", "summarize", "light"]);
-    }
-
-    #[test]
-    fn keeps_every_zone_that_has_a_caller() {
-        // Caso negativo: la migracion no debe tocar las zonas vivas ni
-        // reescribir el fichero cuando no hay nada que podar.
-        let mut zones = vec![
-            zone("chat"),
-            zone("code-edit"),
-            zone("code-review"),
-            zone("summarize"),
-            zone("utility"),
-            zone("light"),
-        ];
-        assert!(
-            !retire_unused_zones(&mut zones),
-            "sin zonas retiradas no debe haber mutacion"
-        );
-        assert_eq!(zones.len(), 6);
-    }
-}
-
-#[cfg(test)]
-mod gemini_flash_migration_tests {
-    use super::migrate_gemini_flash_model;
-    use crate::ai_router::types::{Zone, ZoneAssignment};
-
-    fn asg(provider: &str, model: &str) -> ZoneAssignment {
-        ZoneAssignment {
-            provider_id: provider.into(),
-            model: model.into(),
-            max_tokens: 1024,
-        }
-    }
-
-    #[test]
-    fn bumps_gemini_3_8_flash_back_to_2_5_flash_in_primary_and_fallbacks() {
-        let mut zones = vec![Zone {
-            id: "research-web".into(),
-            label: "research-web".into(),
-            category: "research".into(),
-            primary: asg("gemini", "gemini-3.8-flash"),
-            fallbacks: vec![
-                asg("groq", "openai/gpt-oss-120b"),
-                asg("gemini", "gemini-3.8-flash"),
-            ],
-            system_prompt: None,
-        }];
-        assert!(migrate_gemini_flash_model(&mut zones));
-        assert_eq!(zones[0].primary.model, "gemini-2.5-flash");
-        // La entrada duplicada tras el bump se recorta por (proveedor, modelo).
-        assert_eq!(zones[0].fallbacks.len(), 1);
-        assert_eq!(zones[0].fallbacks[0].provider_id, "groq");
-    }
-
-    #[test]
-    fn is_idempotent_when_zones_json_already_on_2_5_flash() {
-        // Caso del zones.json vivo tras el bump del 2026-09-16. La migracion
-        // no debe reescribir nada ni duplicar la zona.
-        let mut zones = vec![Zone {
-            id: "chat".into(),
-            label: "chat".into(),
-            category: "chat".into(),
-            primary: asg("groq", "openai/gpt-oss-120b"),
-            fallbacks: vec![asg("gemini", "gemini-2.5-flash")],
-            system_prompt: None,
-        }];
-        assert!(
-            !migrate_gemini_flash_model(&mut zones),
-            "zones.json ya en 2.5-flash: nada que migrar"
-        );
-        assert_eq!(zones[0].fallbacks.len(), 1);
-        assert_eq!(zones[0].fallbacks[0].model, "gemini-2.5-flash");
-    }
-
-    #[test]
-    fn leaves_other_providers_and_models_untouched() {
-        let mut zones = vec![Zone {
-            id: "code-fast-local".into(),
-            label: "code-fast-local".into(),
-            category: "code".into(),
-            primary: asg("ollama", "qwen2.5-coder:32b"),
-            fallbacks: vec![asg("gemini", "gemini-2.5-pro")],
-            system_prompt: None,
-        }];
-        assert!(!migrate_gemini_flash_model(&mut zones));
-        assert_eq!(zones[0].primary.model, "qwen2.5-coder:32b");
-        assert_eq!(zones[0].fallbacks[0].model, "gemini-2.5-pro");
-    }
-}
-
-#[cfg(test)]
-mod codex_gpt5_migration_tests {
-    use super::migrate_codex_gpt5_model;
-    use crate::ai_router::types::{Zone, ZoneAssignment};
-
-    fn asg(provider: &str, model: &str) -> ZoneAssignment {
-        ZoneAssignment {
-            provider_id: provider.into(),
-            model: model.into(),
-            max_tokens: 1024,
-        }
-    }
-
-    // Objetivos reales de la semilla (ver seed_zones): code-edit -> terra
-    // (tareas basicas) para codex-cli; code-review -> sol (~Opus) para
-    // codex-cli. El 'codex' cloud NUNCA se toca (ver
-    // leaves_cloud_codex_provider_untouched abajo).
-
-    #[test]
-    fn bumps_gpt5_to_the_seed_model_per_zone() {
-        let mut zones = vec![
-            Zone {
-                id: "code-edit".into(),
-                label: "code-edit".into(),
-                category: "code".into(),
-                primary: asg("codex-cli", "gpt-5"),
-                fallbacks: vec![asg("codex", "gpt-5"), asg("deepseek", "deepseek-coder")],
-                system_prompt: None,
-            },
-            Zone {
-                id: "code-review".into(),
-                label: "code-review".into(),
-                category: "code".into(),
-                primary: asg("claude", "claude-sonnet-5"),
-                fallbacks: vec![asg("codex-cli", "gpt-5"), asg("gemini", "gemini-3.8-flash")],
-                system_prompt: None,
-            },
-        ];
-        assert!(migrate_codex_gpt5_model(&mut zones));
-        let edit = &zones[0];
-        assert_eq!(edit.primary.model, "gpt-5.6-terra");
-        // El fallback al 'codex' cloud NO se toca: conserva su id de API real.
-        assert_eq!(edit.fallbacks[0].provider_id, "codex");
-        assert_eq!(edit.fallbacks[0].model, "gpt-5");
-        let review = &zones[1];
-        assert_eq!(review.fallbacks[0].model, "gpt-5.6-sol");
-    }
-
-    #[test]
-    fn leaves_cloud_codex_provider_untouched() {
-        // Regresion guard: una version anterior de esta migracion tambien
-        // bumpeaba el 'codex' cloud (OPENAI_API_KEY) a los alias de
-        // suscripcion terra/sol/astra, que no son ids validos en la API
-        // publica de OpenAI. Corregido: solo codex-cli migra.
-        let mut zones = vec![Zone {
-            id: "code-edit".into(),
-            label: "code-edit".into(),
-            category: "code".into(),
-            primary: asg("claude", "claude-sonnet-5"),
-            fallbacks: vec![asg("codex", "gpt-5"), asg("codex", "gpt-5.5")],
-            system_prompt: None,
-        }];
-        assert!(!migrate_codex_gpt5_model(&mut zones));
-        assert_eq!(zones[0].fallbacks[0].model, "gpt-5");
-        assert_eq!(zones[0].fallbacks[1].model, "gpt-5.5");
-    }
-
-    #[test]
-    fn bumps_gpt5_5_to_the_seed_model_per_zone() {
-        // El bump anterior (2026-09-11, primera mitad del día) dejó zones.json
-        // en gpt-5.5; esta migración debe seguir subiendo desde ahí.
-        let mut zones = vec![Zone {
-            id: "code-review".into(),
-            label: "code-review".into(),
-            category: "code".into(),
-            primary: asg("claude", "claude-sonnet-5"),
-            fallbacks: vec![
-                asg("codex-cli", "gpt-5.5"),
-                asg("gemini", "gemini-3.8-flash"),
-            ],
-            system_prompt: None,
-        }];
-        assert!(migrate_codex_gpt5_model(&mut zones));
-        assert_eq!(zones[0].fallbacks[0].model, "gpt-5.6-sol");
-    }
-
-    #[test]
-    fn is_idempotent_when_zones_json_already_on_the_seed_model() {
-        let mut zones = vec![Zone {
-            id: "code-edit".into(),
-            label: "code-edit".into(),
-            category: "code".into(),
-            primary: asg("claude", "claude-sonnet-5"),
-            fallbacks: vec![asg("codex-cli", "gpt-5.6-terra"), asg("codex", "gpt-5")],
-            system_prompt: None,
-        }];
-        assert!(
-            !migrate_codex_gpt5_model(&mut zones),
-            "zones.json ya en el modelo de la semilla: nada que migrar"
-        );
-        assert_eq!(zones[0].fallbacks.len(), 2);
-    }
-
-    #[test]
-    fn leaves_other_providers_and_models_untouched() {
-        let mut zones = vec![Zone {
-            id: "chat".into(),
-            label: "chat".into(),
-            category: "chat".into(),
-            primary: asg("groq", "openai/gpt-oss-120b"),
-            fallbacks: vec![asg("gemini", "gemini-3.8-flash")],
-            system_prompt: None,
-        }];
-        assert!(!migrate_codex_gpt5_model(&mut zones));
-        assert_eq!(zones[0].primary.model, "openai/gpt-oss-120b");
-        assert_eq!(zones[0].fallbacks[0].model, "gemini-3.8-flash");
-    }
-
-    #[test]
-    fn drops_duplicate_when_bump_collides_with_existing_seed_model_entry() {
-        // Si la cadena ya llevaba gpt-5 Y el modelo de la semilla del mismo
-        // proveedor, tras el bump el de-dup por (proveedor, modelo) recorta
-        // el duplicado.
-        let mut zones = vec![Zone {
-            id: "code-edit".into(),
-            label: "code-edit".into(),
-            category: "code".into(),
-            primary: asg("claude", "claude-sonnet-5"),
-            fallbacks: vec![asg("codex-cli", "gpt-5"), asg("codex-cli", "gpt-5.6-terra")],
-            system_prompt: None,
-        }];
-        assert!(migrate_codex_gpt5_model(&mut zones));
-        assert_eq!(zones[0].fallbacks.len(), 1);
-        assert_eq!(zones[0].fallbacks[0].model, "gpt-5.6-terra");
-    }
-
-    #[test]
-    fn leaves_unknown_zone_id_untouched_when_not_in_seed() {
-        // Zona custom del usuario sin equivalente en seed_zones(): no debe
-        // adivinar un objetivo.
-        let mut zones = vec![Zone {
-            id: "my-custom-zone".into(),
-            label: "custom".into(),
-            category: "code".into(),
-            primary: asg("codex-cli", "gpt-5"),
-            fallbacks: vec![],
-            system_prompt: None,
-        }];
-        assert!(!migrate_codex_gpt5_model(&mut zones));
-        assert_eq!(zones[0].primary.model, "gpt-5");
-    }
-}
-
-#[cfg(test)]
-mod provider_model_migration_tests {
-    use super::migrate_stale_provider_models;
-    use crate::ai_router::types::{ApiKeyStatus, Provider, ProviderClass, ProviderKind};
-
-    fn provider(id: &str, default_model: &str, models: &[&str]) -> Provider {
-        Provider {
-            id: id.into(),
-            name: id.into(),
-            cost_per_mtok: 0.0,
-            supports: vec![ProviderClass::Light],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: None,
-            kind: ProviderKind::Cloud,
-            key_env_var: String::new(),
-            base_url: String::new(),
-            default_model: default_model.into(),
-            models: models.iter().map(|m| m.to_string()).collect(),
-            cli_command: None,
-        }
-    }
-
-    #[test]
-    fn bumps_gemini_default_model_and_catalog() {
-        let mut providers = vec![provider(
-            "gemini",
-            "gemini-3.8-flash",
-            &["gemini-3.8-flash", "gemini-2.5-pro"],
-        )];
-        assert!(migrate_stale_provider_models(&mut providers));
-        assert_eq!(providers[0].default_model, "gemini-2.5-flash");
-        assert!(providers[0]
-            .models
-            .contains(&"gemini-2.5-flash".to_string()));
-    }
-
-    #[test]
-    fn bumps_codex_cli_from_gpt5_and_from_gpt5_5() {
-        let mut providers = vec![provider("codex-cli", "gpt-5", &["gpt-5"])];
-        assert!(migrate_stale_provider_models(&mut providers));
-        assert_eq!(providers[0].default_model, "gpt-5.6-terra");
-        assert!(providers[0].models.contains(&"gpt-5.6-sol".to_string()));
-
-        let mut providers2 = vec![provider("codex-cli", "gpt-5.5", &["gpt-5.5"])];
-        assert!(migrate_stale_provider_models(&mut providers2));
-        assert_eq!(providers2[0].default_model, "gpt-5.6-terra");
-    }
-
-    #[test]
-    fn leaves_cloud_codex_provider_untouched() {
-        // Regresion guard: una version anterior de esta migracion tambien
-        // bumpeaba el 'codex' cloud (OPENAI_API_KEY, API real de OpenAI) a
-        // terra/sol/astra, alias de suscripcion invalidos en esa API.
-        // Corregido: solo 'codex-cli' esta en TARGETS.
-        let mut providers = vec![provider("codex", "gpt-5.5", &["gpt-5.5", "gpt-4o"])];
-        assert!(!migrate_stale_provider_models(&mut providers));
-        assert_eq!(providers[0].default_model, "gpt-5.5");
-        assert_eq!(providers[0].models, vec!["gpt-5.5", "gpt-4o"]);
-    }
-
-    #[test]
-    fn is_idempotent_when_already_on_seed_model() {
-        let mut providers = vec![provider(
-            "gemini",
-            "gemini-2.5-flash",
-            &["gemini-2.5-flash", "gemini-2.5-pro"],
-        )];
-        assert!(!migrate_stale_provider_models(&mut providers));
-    }
-
-    #[test]
-    fn leaves_unknown_provider_and_non_stale_default_model_untouched() {
-        let mut providers = vec![
-            provider("groq", "openai/gpt-oss-20b", &["openai/gpt-oss-20b"]),
-            // default_model elegido por el operador, fuera de la lista de
-            // valores obsoletos: no se toca (no es una regresión a migrar).
-            provider("gemini", "gemini-2.5-pro", &["gemini-2.5-pro"]),
-        ];
-        assert!(!migrate_stale_provider_models(&mut providers));
-        assert_eq!(providers[0].default_model, "openai/gpt-oss-20b");
-        assert_eq!(providers[1].default_model, "gemini-2.5-pro");
-    }
-}
+mod tests;

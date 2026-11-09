@@ -1,121 +1,30 @@
-# ULTRON Hooks
+# scripts/hooks
 
-Hooks are wired into `~/.claude/settings.json` automatically by the installer.
-The single source of truth is
-[`../../templates/settings-hooks.json`](../../templates/settings-hooks.json);
-`install.ps1` / `install.sh` merge that template into the user settings
-non-destructively (with backup). The token `{USERPROFILE}` expands to the
-user's home (forward-slash form) at install time.
+This folder is **not** where the Claude Code hooks live. It only holds
+`auto-changelog.py`, which the git `post-commit` hook (`git-hooks/post-commit`,
+installed by `scripts/setup-git-hooks.ps1`) runs after every commit. It is not
+registered in `~/.claude/settings.json`.
 
-> The runtime is **Node-first**: most hooks are JavaScript under
-> `hooks/scripts/*.js` and run with `node`. Two Python hooks survive and run
-> with `uv run python`. `tests/test_hooks_template.py` asserts that every
-> script the template references actually exists in the repo, so the template
-> can never again wire a missing script (which would block every prompt/tool).
+## Claude Code hooks
 
-To override or disable a hook for your account, edit `~/.claude/settings.json`
-directly — the merge step preserves user-added entries.
+They live in `hooks/scripts/*.js` and run in place from `~/.ultron/hooks/scripts/`.
+See [`../../hooks/README.md`](../../hooks/README.md) for the live inventory.
 
----
-
-## Active hooks (by event)
-
-All paths are relative to `~/.ultron/` unless noted.
-
-### SessionStart
-
-| Script | Purpose |
-|---|---|
-| `hooks/scripts/ensure-qdrant.js` | Cold-start safety net: probes `localhost:6333/healthz` and launches the native Qdrant binary if it is down (fire-and-forget). |
-| `hooks/scripts/memory-warmup.js` | Starts the memory daemon so the E5 model stays resident across the session. |
-| `hooks/scripts/load-cross-project-memory.js` | Loads cross-project memory relevant to the current working directory. |
-| `hooks/scripts/session-start-override.js` | Injects the session resume / initial context block. |
-| `hooks/scripts/memory-session-resume.js` | Hermes-style recall: open tasks, recent decisions, warnings. Also: session feedback question, concision meter and the CodeGraph summary block. |
-
-### UserPromptSubmit
-
-| Script | Purpose |
-|---|---|
-| `cockpit/skill-lazy/routing-dispatcher.v2.js` | Lazy skill/agent routing: injects the matching skill on-demand from the prompt. |
-| `hooks/scripts/socratic-gate.js` | Socratic decision protocol on every prompt; per-project mode `socratic: strict|light|off` in `cockpit/projects.json` (default strict). |
-| `hooks/scripts/save-user-prompt.js` | Persists the user prompt for the capture pipeline. |
-| `hooks/scripts/memory-orchestrate.js` | Prefetch / orchestrate: relevant memories, step plans, delegation hints. |
-| `hooks/scripts/session-feedback-capture.js` | Captures `fb: si|no|estorbo [note]` into `logs/session-feedback.jsonl` (external metric), clears the project pending marker, proposes the note as a memory candidate. |
-| `hooks/scripts/run-project-tests-report.js` | Reports failed tests (names), timeouts, or a missing test command from the last automatic run; announces green only after a reported failure. |
-
-### PreToolUse
-
-| Script | Matcher | Purpose |
-|---|---|---|
-| `hooks/scripts/deny-secrets.js` | `Read\|Edit\|Write\|NotebookEdit\|Bash` | Blocks reads/writes that would touch secrets (`.env`, credentials) via `permissionDecision: deny`. Node since 2026-08-11. |
-| `hooks/scripts/codegraph-reminder.js` | `Read\|Grep` | Reminds to consult the CodeGraph index before reading code files. |
-
-### PostToolUse / SubagentStop / PreCompact
-
-| Script | Event | Purpose |
-|---|---|---|
-| `hooks/scripts/posttoolfail-capture.js` | PostToolUse | Captures tool failures as memory candidates. |
-| `hooks/scripts/run-project-tests.js` | PostToolUse (Edit|Write|MultiEdit|NotebookEdit, async) | Runs the project test suite in a detached runner after a code edit (120 s cap, 60 s debounce); command from `test: <cmd>` in the project CLAUDE.md or the manifest. |
-| `hooks/scripts/subagent-harvest.js` | SubagentStop | Harvests subagent results into memory. |
-| `hooks/scripts/precompact-preserve-l0.js` | PreCompact | Preserves L0 (pinned) memory before context compaction. |
-
-### Stop / SessionEnd / Notification
-
-| Script | Event | Purpose |
-|---|---|---|
-| `hooks/scripts/stop-compress-session.js` | Stop | Compresses the session into memory candidates. |
-| `hooks/scripts/response-meter.js` | Stop | Measures the finished response (lines, words, apologies, preambles) into `logs/response-meter.jsonl`; the SessionStart resume shows the trend. |
-| `hooks/scripts/kanban-update-reminder.js` | Stop | Closes kanban cards matched by a recent commit; names In Progress cards only after real work in the turn (Edit/Write/commit). |
-| `hooks/scripts/batch-capture.js` | Stop | Batch-captures pending memory candidates. |
-| `hooks/scripts/qdrant-mirror-sync.js` | Stop | Syncs the SQLite → Qdrant mirror. |
-| `scripts/cockpit/route_quality_aggregator.py` | Stop | Aggregates the day's routing-quality telemetry. |
-| `hooks/scripts/session-end-summary.js` | SessionEnd | Writes a short end-of-session summary. |
-| `hooks/scripts/session-feedback-mark.js` | SessionEnd | Writes `feedback-pending.json` (minutes, human turns, commits) so the next SessionStart in that project asks whether ULTRON helped. Projects other than ultron, >=3 human turns. |
-| `hooks/scripts/notify-relay.js` | Notification | Relays Claude Code notifications to the desktop. |
-
-The one surviving Python hook (`route_quality_aggregator.py`) runs via
-`uv run python`; everything else runs via `node` (deny-secrets was ported to
-Node on 2026-08-11 to drop the ~200ms `uv` startup from the per-tool-call
-hot path).
-
----
+Single source of truth: `~/.claude/settings.json`. `node hooks/regen-manifest.js`
+mirrors it into `hooks/manifest.json` (checksums, writer path, description) and
+into `templates/settings-hooks.json`, the template that `install.ps1` /
+`install.sh` merge into a fresh install (the token `{USERPROFILE}` expands to the
+user's home, forward-slash form). `node hooks/regen-manifest.js --check` fails
+on drift and runs in pre-commit; `tests/test_hooks_template.py` (CI job
+`python-tests`) checks that the template only references scripts in the repo.
 
 ## Qdrant boot helpers (not Claude Code hooks)
 
-`ensure-qdrant.js` is a real SessionStart hook (above). The native-binary
-launcher scripts and the logon scheduled task live under `scripts/qdrant/`:
-`ensure-qdrant.ps1` / `ensure-qdrant.sh`, `qdrant-notify.ps1`,
-`qdrant-bootcheck-hidden.vbs`, `install-qdrant-bootcheck.ps1`. These back the
-`ULTRON-QdrantBoot` Windows scheduled task that runs at user logon; they are
-not `settings.json` hooks.
-
----
-
-## Add or override a hook
-
-The hook spec lives in `~/.ultron/templates/settings-hooks.json`. After editing
-it, re-run `install.ps1` (idempotent) or merge it manually into
-`~/.claude/settings.json`. A new Node hook follows the pattern:
-
-```json
-{
-  "hooks": {
-    "<EventName>": [
-      {
-        "matcher": "*",
-        "hooks": [
-          { "type": "command", "command": "node {USERPROFILE}/.ultron/hooks/scripts/<your-hook>.js", "timeout": 10 }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Hook scripts read JSON from stdin and exit 0 unless they intentionally block
-(exit 2 = hard refusal, surfaced to the model as stderr). If you add a script,
-make sure `tests/test_hooks_template.py` still passes (it checks the template
-only references scripts that exist).
+The native Qdrant launcher scripts live under `scripts/qdrant/`:
+`ensure-qdrant.ps1` / `ensure-qdrant.sh`, `qdrant-notify.ps1`, the hidden
+launchers (`*.vbs`), `install-qdrant-bootcheck.ps1` (scheduled task
+`ULTRON-QdrantBoot`) and `install-qdrant-watchdog.ps1` / `qdrant-watchdog.ps1`.
+Dense recall is optional: with `ULTRON_DENSE=0` the app does not launch Qdrant.
 
 ## Test a hook locally
 
@@ -124,9 +33,6 @@ echo '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_pat
   | node ~/.ultron/hooks/scripts/deny-secrets.js
 ```
 
----
-
 ## References
 
 - [Hooks reference (Claude Code)](https://code.claude.com/docs/en/hooks)
-- `~/.ultron/templates/settings-hooks.json` — the authoritative hook spec

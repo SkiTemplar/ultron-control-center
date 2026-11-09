@@ -54,7 +54,7 @@ function Write-Event {
 if (Test-Healthz) { exit 0 }
 
 # Caido: relanzar via el launcher canonico (el de la raiz: NO mata procesos,
-# respeta la cadena D:\Ultron\qdrant -> qdrant-native y valida healthz al final).
+# respeta la cadena de la carpeta de datos -> qdrant-native y valida healthz al final).
 Write-Event -EventName 'down' -Detail 'healthz sin respuesta; disparando launcher'
 if (-not (Test-Path $launcher)) {
     Write-Event -EventName 'launcher_missing' -Detail $launcher

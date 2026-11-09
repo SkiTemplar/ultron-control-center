@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CommonError, CommonErrorCheckResult, Fix, FixHistoryEntry } from "./types";
-import { FIX_CATALOG } from "./catalogs";
-import { severityIcon } from "./helpers";
+import { COMMON_ERROR_CATEGORY_LABELS, FIX_CATALOG } from "./catalogs";
+import { CHECK_STATUS_LABELS, SEVERITY_LABELS, severityIcon } from "./helpers";
 
 export function CommonErrorRow({
   error,
@@ -46,7 +46,7 @@ export function CommonErrorRow({
         {/* Severity icon */}
         <span
           className="mt-0.5 shrink-0 text-[14px]"
-          title={error.severity}
+          title={SEVERITY_LABELS[error.severity]}
           style={{ color: icon.color, lineHeight: 1 }}
         >
           {icon.symbol}
@@ -66,7 +66,7 @@ export function CommonErrorRow({
                 border: "1px solid var(--color-border-strong)",
               }}
             >
-              {error.category}
+              {COMMON_ERROR_CATEGORY_LABELS[error.category]}
             </span>
           </div>
 
@@ -100,7 +100,7 @@ export function CommonErrorRow({
                     : "var(--color-warn, #d29922)",
               }}
             >
-              <span className="font-semibold capitalize">{result.status}</span>
+              <span className="font-semibold">{CHECK_STATUS_LABELS[result.status] ?? result.status}</span>
               {" — "}
               {result.details}
               {result.suggested_fix && (
@@ -125,7 +125,7 @@ export function CommonErrorRow({
                 color: "var(--color-text)",
               }}
             >
-              {isRunning ? "Checking..." : result ? "Re-check" : "Diagnose"}
+              {isRunning ? "Comprobando…" : result ? "Volver a comprobar" : "Diagnosticar"}
             </button>
 
             {/* Primary Fix */}
@@ -155,7 +155,7 @@ export function CommonErrorRow({
                       : "var(--color-text)",
                 }}
               >
-                {fixBusy === primaryFix.kind ? "Running..." : `Fix: ${error.primaryFixLabel}`}
+                {fixBusy === primaryFix.kind ? "Ejecutando…" : `Arreglar: ${error.primaryFixLabel}`}
               </button>
             ) : (
               /* Non-automated fix — informational button */
@@ -166,9 +166,9 @@ export function CommonErrorRow({
                   background: "transparent",
                   color: "var(--color-text-tertiary)",
                 }}
-                title="Este fix requiere acción manual — ver la descripción del síntoma"
+                title="Este arreglo requiere una acción manual: mira la descripción del síntoma"
               >
-                Fix: {error.primaryFixLabel}
+                Arreglar: {error.primaryFixLabel}
               </span>
             )}
 
@@ -186,7 +186,7 @@ export function CommonErrorRow({
                     color: "var(--color-text-tertiary)",
                   }}
                 >
-                  More {extraOpen ? "▲" : "▼"}
+                  Más {extraOpen ? "▲" : "▼"}
                 </button>
                 {extraOpen && (
                   <div

@@ -77,6 +77,9 @@ export default function TabsBar() {
       {tabs.map((tab) => {
         const active = tab.id === currentId;
         const dragging = dragId === tab.id;
+        // La pestaña fija de la lista se rotula aquí: su título en el
+        // contexto puede venir persistido de versiones anteriores.
+        const tabLabel = tab.kind === "home" ? "Proyectos" : tab.title;
         return (
           <div
             key={tab.id}
@@ -94,14 +97,14 @@ export default function TabsBar() {
               dragging ? "opacity-50" : "",
             ].join(" ")}
             data-tab-id={tab.id}
-            title={tab.title}
+            title={tabLabel}
           >
             {tab.kind === "home" ? (
               <Home size={12} className="shrink-0" />
             ) : (
               <Folder size={12} className="shrink-0" />
             )}
-            <span className="max-w-[160px] truncate">{tab.title}</span>
+            <span className="max-w-[160px] truncate">{tabLabel}</span>
             {tab.id !== "home" && (
               <button
                 type="button"
@@ -110,7 +113,7 @@ export default function TabsBar() {
                   requestClose(tab);
                 }}
                 className="ml-1 rounded p-0.5 opacity-60 hover:bg-[var(--color-surface-2)] hover:opacity-100"
-                aria-label="Close tab"
+                aria-label="Cerrar pestaña"
               >
                 <X size={11} />
               </button>

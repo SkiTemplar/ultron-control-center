@@ -54,19 +54,9 @@ export function WorkspaceCard({
               />
               claude
             </span>
-            {ws.project_id ? (
-              <span
-                className="rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                  border: "1px solid var(--color-border)",
-                }}
-                title={ws.project_name ?? ws.project_id}
-              >
-                {ws.project_name ?? "project"}
-              </span>
-            ) : (
+            {/* Con proyecto registrado el título ya es su nombre: no se repite
+                en una insignia. Sin proyecto, la esquina ofrece crearlo. */}
+            {!ws.project_id && (
               // Esquina: crear proyecto desde esta sesión (solo si no existe ya).
               <button
                 type="button"
@@ -107,7 +97,7 @@ export function WorkspaceCard({
           <span>{formatRel(ws.last_activity)}</span>
           <span>·</span>
           <span>
-            {ws.session_count} session{ws.session_count === 1 ? "" : "s"}
+            {ws.session_count} sesi{ws.session_count === 1 ? "ón" : "ones"}
           </span>
         </div>
       </div>
@@ -124,10 +114,10 @@ export function WorkspaceCard({
             background: "var(--color-accent)",
             color: "var(--color-accent-text)",
           }}
-          title={`New Claude session in ${ws.cwd}`}
+          title={`Nueva sesión de Claude en ${ws.cwd}`}
         >
           <Plus size={12} />
-          New
+          Nueva
         </button>
 
         {/* Custom */}
@@ -141,10 +131,10 @@ export function WorkspaceCard({
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title="Custom launch — choose provider and model"
+          title="Lanzamiento personalizado: elige proveedor y modelo"
         >
           <Sliders size={11} />
-          Custom
+          Personalizar
         </button>
 
         {/* Send Context */}
@@ -160,12 +150,12 @@ export function WorkspaceCard({
           }}
           title={
             canSendContext
-              ? "Start a new session seeded with context from the latest session"
-              : "No prior session to send context from"
+              ? "Abre una sesión nueva con el contexto de la última sesión"
+              : "No hay una sesión anterior de la que tomar contexto"
           }
         >
           <Share2 size={11} />
-          Send ctx
+          Con contexto
         </button>
       </div>
     </div>

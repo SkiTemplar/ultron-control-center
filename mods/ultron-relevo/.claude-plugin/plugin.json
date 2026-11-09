@@ -1,0 +1,5 @@
+{
+  "name": "ultron-relevo",
+  "version": "0.1.0",
+  "description": "Comando /relevo: escribe el estado de la sesión en .claude/relevos/ y deja en la caja el prompt para retomarlo con contexto limpio"
+}

@@ -101,10 +101,17 @@ function writeOrchCache(project, ctx) {
 // para la sesion activa. Append-only JSONL; fail-safe (nunca bloquea el prompt).
 const ORCH_LOG = path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
 const FAST_LANE_LOG = path.join(os.homedir(), '.ultron', 'logs', 'fast-lane.jsonl');
+// Tono por sesion para la statusline (2026-10-03). El modo ligero sale antes de
+// logOrchestration y orchestrate.jsonl solo lleva orquestaciones completas, asi
+// que sin este log la statusline no veia el tono. ULTRON_SESSION_TONE_LOG solo
+// para los selftests.
+const SESSION_TONE_LOG =
+  process.env.ULTRON_SESSION_TONE_LOG || path.join(os.homedir(), '.claude', 'logs', 'session-tone.jsonl');
 const { decide: decideLane, markPrompt, readState: readLaneState } = require('./lib/fast-lane');
 
 // Presupuesto TOTAL del hook: el `timeout` de UserPromptSubmit en
-// settings.json (y en su plantilla, hooks/install-hooks.ps1). Si el hook lo
+// settings.json (y en su plantilla, templates/settings-hooks.json, que genera
+// hooks/regen-manifest.js). Si el hook lo
 // vence, Claude Code descarta TODA su salida en silencio, asi que cada espera se
 // resta de aqui. MISMO numero en los tres sitios.
 // (2026-09-27) 26 s -> 90 s: con la contencion convertida en cola, el peor caso
@@ -225,6 +232,19 @@ function defaultTone() {
   }
 }
 
+/**
+ * Modo ligero (recorte 2026-09-29): el tono por defecto ya vive en el CLAUDE.md
+ * global, asi que repetirlo en CADA prompt solo gasta tokens. Solo se inyecta
+ * un tono distinto del default (elegido o detectado), con su directiva
+ * completa. El modo completo (ULTRON_ORCHESTRATE=full) no cambia.
+ */
+function lightModeToneLines(t) {
+  if (!t || !t.id || t.is_default) return [];
+  const def = defaultTone();
+  if (def && t.id === def.id) return [];
+  return toneLines(t);
+}
+
 /** Tono detectado en el prompt; si no hay, el default del sistema. */
 function toneForPrompt(prompt) {
   return detectForPrompt(prompt) || defaultTone();
@@ -287,6 +307,18 @@ const JUNK_MEMORY_RE = /^Sesi[oó]n cerrada \(|## Context Usage/;
 const MAX_MEMORIES_PER_TURN = 6;
 const MAX_SKILLS_PER_TURN = 3;
 
+/** Unicos modelos permitidos en una delegacion (decidido 2026-09-28/29). */
+const DELEGATE_MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
+const DEFAULT_DELEGATE_MODEL = DELEGATE_MODELS.opus;
+
+/** Alias o ID sugerido -> uno de los dos IDs permitidos. */
+function delegateModel(hint) {
+  const h = String(hint || '').trim().toLowerCase();
+  if (Object.values(DELEGATE_MODELS).includes(h)) return h;
+  if (/sonnet/.test(h)) return DELEGATE_MODELS.sonnet;
+  return DEFAULT_DELEGATE_MODEL;
+}
+
 function usefulMemories(memories) {
   if (!Array.isArray(memories)) return [];
   return memories
@@ -318,8 +350,9 @@ function render(ctx) {
     // advisory: es una ORDEN, no una sugerencia. El agente la ejecuta con Agent().
     const d = ctx.delegation_directive;
     // calidad>tokens (feedback 2026-06-24): el especialista delegado nunca cae a
-    // haiku; si el sidecar no sugiere modelo, default de calidad = sonnet.
-    const model = d.model_hint || 'sonnet';
+    // haiku. Solo se admiten los dos IDs vigentes (2026-09-29); el alias del
+    // sidecar se traduce y, sin sugerencia valida, Opus 5.5 (subagentes de codigo).
+    const model = delegateModel(d.model_hint);
     out.push('<orchestration-directive trust="system">');
     out.push('DELEGA AHORA — no hagas este trabajo en el contexto principal.');
     out.push(`agent: ${d.agent}`);
@@ -428,6 +461,20 @@ function buildLogEntry(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
   };
 }
 
+/** Apunta el tono del prompt para la statusline; nunca bloquea el prompt. */
+function logSessionTone(sessionId, tone) {
+  if (!sessionId) return;
+  try {
+    appendJsonl(SESSION_TONE_LOG, {
+      ts: new Date().toISOString(),
+      session_id: sessionId,
+      tone: tone && tone.id ? { id: tone.id, is_default: Boolean(tone.is_default) } : null,
+    });
+  } catch (_) {
+    /* never block the prompt */
+  }
+}
+
 function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon) {
   // 2026-09-06 (F1.6): sin session_id no es un turno de la persona, es el harness
   // (kirkardo-eval manda {prompt, hook_event_name} a pelo). 42 líneas sintéticas
@@ -442,8 +489,8 @@ function logOrchestration(ctx, prompt, project, sessionId, elapsedMs, usedDaemon
   }
 }
 
-async function main() {
-  const t0 = Date.now();
+/** stdin del hook -> { prompt, cwd, sessionId } (fail-safe ante stdin vacio o JSON roto). */
+function readHookInput() {
   let prompt = '';
   let cwd = process.cwd();
   let sessionId = null;
@@ -456,35 +503,59 @@ async function main() {
   } catch {
     /* no stdin / bad json */
   }
-  const project = projectIdFromCwd(cwd);
-  // F-resume: si SessionStart dejo un resumen pendiente (session-summary-
-  // delivery) para ESTA sesion, se resuelve aqui, antes de cualquier salida
-  // temprana. emit() lo antepone siempre (ver arriba); coste tras resolverse:
-  // un solo fs.existsSync por prompt.
-  if (sessionId) {
-    try {
-      // sinceMs = inicio de la espera: un summary.md mas viejo que eso ya
-      // existia antes del pending y no es el que genero ESTE resumidor.
-      const delivered = sessionSummaryDelivery.resolveDelivery(sessionId, (sinceMs) =>
-        lastSession.latestSummary(project, sessionId, { sinceMs })
-      );
-      // renderLastSessionLines() ya envuelve el contenido en su propia
-      // etiqueta trust="session-summary" (lo escribio un modelo, no el
-      // sistema) -- ningun wrapper adicional aqui.
-      if (delivered) pendingDeliveryBlock = lastSession.renderLastSessionLines(delivered).join('\n');
-    } catch {
-      /* fail-safe: el prompt sigue igual sin la entrega diferida */
-    }
+  return { prompt, cwd, sessionId };
+}
+
+// F-resume: si SessionStart dejo un resumen pendiente (session-summary-
+// delivery) para ESTA sesion, se resuelve aqui, antes de cualquier salida
+// temprana. emit() lo antepone siempre (ver arriba); coste tras resolverse:
+// un solo fs.existsSync por prompt.
+function deliverPendingSummary(project, sessionId) {
+  if (!sessionId) return;
+  try {
+    // sinceMs = inicio de la espera: un summary.md mas viejo que eso ya
+    // existia antes del pending y no es el que genero ESTE resumidor.
+    const delivered = sessionSummaryDelivery.resolveDelivery(sessionId, (sinceMs) =>
+      lastSession.latestSummary(project, sessionId, { sinceMs })
+    );
+    // renderLastSessionLines() ya envuelve el contenido en su propia
+    // etiqueta trust="session-summary" (lo escribio un modelo, no el
+    // sistema) -- ningun wrapper adicional aqui.
+    if (delivered) pendingDeliveryBlock = lastSession.renderLastSessionLines(delivered).join('\n');
+  } catch {
+    /* fail-safe: el prompt sigue igual sin la entrega diferida */
   }
+}
+
+/**
+ * Salidas tempranas, en este orden: prompt vacio, turno de sistema, modo ligero
+ * y carril rapido. Devuelve true si ya emitio (main termina ahi).
+ */
+function earlyExit({ prompt, project, sessionId, t0 }) {
   if (!prompt.trim()) {
     emit('');
-    return;
+    return true;
   }
   // Turno de SISTEMA (notificacion de tarea background): no orquestar — rutear
   // su XML como si fuera un prompt humano inyecta skills/memorias sin sentido.
   if (isSystemTurnPrompt(prompt)) {
     emit('');
-    return;
+    return true;
+  }
+
+  // Modo ligero (default desde 2026-09-28): por prompt solo se entrega el tono
+  // (se detecta en local) y solo si NO es el default (ver lightModeToneLines). Sin llamada al daemon ni recall, delegaciones,
+  // step_plans o memorias: medido en sesiones reales, ese bloque costaba
+  // ~400-800 tokens por mensaje sin aportar (memorias hub repetidas, directivas
+  // de delegar mal disparadas). La memoria de proyecto llega en el SessionStart
+  // (resume + resumen de la sesion anterior) y por la bitacora
+  // (cockpit/projects/<id>/estado.json); memory_recall se retiro del MCP el 2026-10-03.
+  // `ULTRON_ORCHESTRATE=full` restaura el comportamiento anterior.
+  if (process.env.ULTRON_ORCHESTRATE !== 'full') {
+    const tone = toneForPrompt(prompt);
+    logSessionTone(sessionId, tone);
+    emit(lightModeToneLines(tone).join('\n'));
+    return true;
   }
 
   // Doble velocidad (2026-09-07, decidido por el usuario): un ack o una
@@ -499,20 +570,18 @@ async function main() {
     markPrompt(sessionId, { full: false });
     logFastLane({ sessionId, project, prompt, lane, elapsedMs: Date.now() - t0 });
     emit('');
-    return;
+    return true;
   }
-  const laneState = readLaneState(sessionId);
-  const firstPrompt = !laneState || laneState.prompts === 0;
-  markPrompt(sessionId, { full: true });
+  return false;
+}
 
-  // Red de ultimo recurso (HOOKS-04): solo se usa si ni el daemon ni el sparse
-  // devuelven nada. No acorta la espera al daemon.
-  const cached = readOrchCache(project);
-  const orchPayload = { cmd: 'orchestrate', prompt, project: project || undefined };
-
-  // UNA peticion al daemon y una espera larga (ver POLITICA DE ESPERA arriba).
-  // El daemon atiende todas las conexiones a la vez y encola el computo de los
-  // modelos: si tarda es porque hay cola, y reenviar solo la alargaria.
+/**
+ * UNA peticion al daemon y una espera larga (ver POLITICA DE ESPERA arriba).
+ * El daemon atiende todas las conexiones a la vez y encola el computo de los
+ * modelos: si tarda es porque hay cola, y reenviar solo la alargaria.
+ * Devuelve { ctx, daemonFailure, reason }.
+ */
+async function askDaemon(orchPayload, t0) {
   let first = await daemonRequestDetailed(orchPayload, DAEMON_WAIT_MS);
   // HOOKS-06: "busy" de un daemon anterior -> reintentar contra el MISMO.
   while (
@@ -522,109 +591,141 @@ async function main() {
     await sleep(BUSY_RETRY_POLL_MS);
     first = await daemonRequestDetailed(orchPayload, DAEMON_WAIT_MS - (Date.now() - t0));
   }
-  let ctx = first.resp && !first.resp.error ? first.resp : null;
+  const ctx = first.resp && !first.resp.error ? first.resp : null;
   // Por que no hubo pack del daemon (se anota en el warning del sparse).
-  let daemonFailure = ctx
+  const daemonFailure = ctx
     ? null
     : first.resp && first.resp.error
       ? `el daemon respondio error: ${String(first.resp.error).slice(0, 80)}`
       : first.reason === 'timeout'
         ? `el daemon no respondio en ${DAEMON_WAIT_MS} ms (colgado)`
         : `daemon no disponible (${first.reason})`;
+  return { ctx, daemonFailure, reason: first.reason };
+}
 
-  // HOOKS-07: daemon MUERTO -> relanzarlo y ESPERARLE. Un daemon vivo que
-  // tarda, o que responde con error, no entra aqui: relanzar no lo arregla y
-  // reenviar duplica trabajo.
-  if (!ctx && daemonIsDown(first.reason)) {
-    const relaunchT0 = Date.now();
-    spawnDetached(['serve']); // idempotente: sale al momento si ya hay uno vivo
-    const deadline = Math.min(relaunchT0 + DAEMON_RELAUNCH_WAIT_MS, t0 + DAEMON_RELAUNCH_DEADLINE_MS);
-    while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS <= deadline) {
-      await sleep(DAEMON_BOOT_POLL_MS);
-      // Sin lockfile el daemon nuevo todavia no escucha: no se gasta un connect.
-      if (!readDaemonLock()) continue;
-      // Ya escucha: una sola peticion, con todo lo que quede del presupuesto
-      // (no solo de la ventana de arranque): a partir de aqui es un daemon vivo.
-      const r = await daemonRequestDetailed(
-        orchPayload,
-        t0 + DAEMON_RELAUNCH_DEADLINE_MS - Date.now()
-      );
-      if (daemonIsDown(r.reason) || isDaemonBusy(r.resp)) continue;
-      if (r.resp && !r.resp.error) ctx = r.resp;
-      else daemonFailure = r.resp ? `el daemon relanzado respondio error` : `el daemon relanzado no respondio (${r.reason})`;
-      break;
-    }
-    if (ctx) {
-      if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
-      ctx.warnings.push(
-        `daemon relanzado en ${Date.now() - relaunchT0} ms — este turno lo sirve el daemon nuevo`
-      );
-    } else if (!daemonFailure || /no disponible/.test(daemonFailure)) {
-      daemonFailure = `daemon caido y sin recuperar en ${Date.now() - relaunchT0} ms`;
-    }
-  }
-
-  const usedDaemon = ctx !== null;
-
-  let staleFromCache = false;
-  if (!ctx) {
-    // HOOKS-06: si el daemon sigue diciendo "busy", está VIVO — solo saturado.
-    // Ni spawn (ya hay uno) ni one-shot: este último cargaría otra copia de E5
-    // compitiendo con quien ya la está cargando, que es exactamente la
-    // estampida que degradó 5/5 prompts el 2026-08-22. Se cae directo a la red
-    // de seguridad de abajo (pack cacheado, o degradación marcada).
-    // Daemon caido o mudo: ya se ha relanzado y esperado arriba (HOOKS-07), asi
-    // que aqui no se vuelve a spawnear nada — con "busy" el daemon esta VIVO y
-    // con silencio el relanzamiento ya salio. ESTE turno se resuelve en local
-    // SIN E5 (`--sparse`): el sparse no carga modelo, asi que no hay estampida
-    // que evitar. El pack cacheado sigue de red por debajo (HOOKS-04).
-    const args = ['orchestrate', prompt, '--sparse'];
-    if (project) args.push('--project', project);
-    const daemonWaitedMs = Date.now() - t0;
-    // Cap DINAMICO: lo que queda del presupuesto del hook menos el colchon,
-    // acotado a [SPARSE_MIN_CAP_MS, SPARSE_MAX_CAP_MS].
-    const sparseCapMs = Math.min(
-      SPARSE_MAX_CAP_MS,
-      Math.max(SPARSE_MIN_CAP_MS, HOOK_BUDGET_MS - daemonWaitedMs - SAFETY_MARGIN_MS)
+/**
+ * HOOKS-07: daemon MUERTO -> relanzarlo y ESPERARLE. Un daemon vivo que
+ * tarda, o que responde con error, no entra aqui: relanzar no lo arregla y
+ * reenviar duplica trabajo. Devuelve { ctx, daemonFailure }.
+ */
+async function relaunchAndAsk(orchPayload, t0, daemonFailureIn) {
+  let ctx = null;
+  let daemonFailure = daemonFailureIn;
+  const relaunchT0 = Date.now();
+  spawnDetached(['serve']); // idempotente: sale al momento si ya hay uno vivo
+  const deadline = Math.min(relaunchT0 + DAEMON_RELAUNCH_WAIT_MS, t0 + DAEMON_RELAUNCH_DEADLINE_MS);
+  while (!ctx && Date.now() + DAEMON_BOOT_POLL_MS + DAEMON_RELAUNCH_MIN_PROBE_MS <= deadline) {
+    await sleep(DAEMON_BOOT_POLL_MS);
+    // Sin lockfile el daemon nuevo todavia no escucha: no se gasta un connect.
+    if (!readDaemonLock()) continue;
+    // Ya escucha: una sola peticion, con todo lo que quede del presupuesto
+    // (no solo de la ventana de arranque): a partir de aqui es un daemon vivo.
+    const r = await daemonRequestDetailed(
+      orchPayload,
+      t0 + DAEMON_RELAUNCH_DEADLINE_MS - Date.now()
     );
-    ctx = runCli(args, { timeoutMs: sparseCapMs });
-    if (ctx && typeof ctx === 'object') {
-      if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
-      ctx.warnings.push(
-        `respaldo sparse (FTS5, sin E5, cap ${sparseCapMs} ms): ${daemonFailure} tras ` +
-          `${daemonWaitedMs} ms` +
-          (firstPrompt ? ' (primer prompt de la sesion)' : '')
-      );
-    }
-    if (ctx === null && cached) {
-      // Pack del prompt ANTERIOR del mismo proyecto (<30 min): mejor un pack
-      // stale marcado que 4-5s de bloqueo o que nada. El route/step_plans
-      // pueden no encajar con ESTE prompt — el warning lo deja claro.
-      ctx = cached;
-      staleFromCache = true;
-      if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
-      ctx.warnings.push('context pack CACHEADO de un prompt anterior (daemon frio) — route/steps pueden no aplicar a este prompt');
-      // (2026-08-17, medido en el harness 22.2/22.5) La DIRECTIVA de delegacion
-      // es especifica del prompt que la genero: servirla stale ordenaba delegar
-      // "consolida la memoria" a rust-engineer y ponia sonnet a un analisis de
-      // arquitectura — el motor decide bien, el cache re-emitia la decision de
-      // OTRO prompt. Las memorias stale ayudan; una orden de delegar stale
-      // desinforma. Se anula junto a los step_plans (misma naturaleza).
-      ctx.delegation_directive = null;
-      ctx.directive = null;
-      ctx.step_plans = null;
-    }
-    // cat9 (mandamiento 11: prohibido el no-op silencioso). Si ni el daemon ni el
-    // spawn one-shot devolvieron orquestacion, es FALLO real del sidecar (no hay
-    // "vacio legitimo" aqui: un prompt no vacio sano siempre produce un objeto de
-    // ruta). Deja rastro accionable ADEMAS del fail-safe emit('') de abajo.
-    if (ctx === null) {
-      const reason = findBinary()
-        ? 'sidecar orchestrate FALLO (binario presente pero status!=0 / timeout / JSON no parseable)'
-        : 'sidecar orchestrate FALLO (binario ultron-memory ausente: no instalado / ULTRON_MEMORY_BIN invalido)';
-      logHookError('memory-orchestrate', reason);
-    }
+    if (daemonIsDown(r.reason) || isDaemonBusy(r.resp)) continue;
+    if (r.resp && !r.resp.error) ctx = r.resp;
+    else daemonFailure = r.resp ? `el daemon relanzado respondio error` : `el daemon relanzado no respondio (${r.reason})`;
+    break;
   }
+  if (ctx) {
+    if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
+    ctx.warnings.push(
+      `daemon relanzado en ${Date.now() - relaunchT0} ms — este turno lo sirve el daemon nuevo`
+    );
+  } else if (!daemonFailure || /no disponible/.test(daemonFailure)) {
+    daemonFailure = `daemon caido y sin recuperar en ${Date.now() - relaunchT0} ms`;
+  }
+  return { ctx, daemonFailure };
+}
+
+/**
+ * Sin pack del daemon: sparse local y, debajo, el pack cacheado. Devuelve
+ * { ctx, staleFromCache } (ctx null = fallo real, ya registrado).
+ */
+function localFallback({ prompt, project, t0, firstPrompt, daemonFailure, cached }) {
+  // HOOKS-06: si el daemon sigue diciendo "busy", está VIVO — solo saturado.
+  // Ni spawn (ya hay uno) ni one-shot: este último cargaría otra copia de E5
+  // compitiendo con quien ya la está cargando, que es exactamente la
+  // estampida que degradó 5/5 prompts el 2026-08-22. Se cae directo a la red
+  // de seguridad de abajo (pack cacheado, o degradación marcada).
+  // Daemon caido o mudo: ya se ha relanzado y esperado arriba (HOOKS-07), asi
+  // que aqui no se vuelve a spawnear nada — con "busy" el daemon esta VIVO y
+  // con silencio el relanzamiento ya salio. ESTE turno se resuelve en local
+  // SIN E5 (`--sparse`): el sparse no carga modelo, asi que no hay estampida
+  // que evitar. El pack cacheado sigue de red por debajo (HOOKS-04).
+  const args = ['orchestrate', prompt, '--sparse'];
+  if (project) args.push('--project', project);
+  const daemonWaitedMs = Date.now() - t0;
+  // Cap DINAMICO: lo que queda del presupuesto del hook menos el colchon,
+  // acotado a [SPARSE_MIN_CAP_MS, SPARSE_MAX_CAP_MS].
+  const sparseCapMs = Math.min(
+    SPARSE_MAX_CAP_MS,
+    Math.max(SPARSE_MIN_CAP_MS, HOOK_BUDGET_MS - daemonWaitedMs - SAFETY_MARGIN_MS)
+  );
+  let ctx = runCli(args, { timeoutMs: sparseCapMs });
+  let staleFromCache = false;
+  if (ctx && typeof ctx === 'object') {
+    if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
+    ctx.warnings.push(
+      `respaldo sparse (FTS5, sin E5, cap ${sparseCapMs} ms): ${daemonFailure} tras ` +
+        `${daemonWaitedMs} ms` +
+        (firstPrompt ? ' (primer prompt de la sesion)' : '')
+    );
+  }
+  if (ctx === null && cached) {
+    // Pack del prompt ANTERIOR del mismo proyecto (<30 min): mejor un pack
+    // stale marcado que 4-5s de bloqueo o que nada. El route/step_plans
+    // pueden no encajar con ESTE prompt — el warning lo deja claro.
+    ctx = cached;
+    staleFromCache = true;
+    if (!Array.isArray(ctx.warnings)) ctx.warnings = [];
+    ctx.warnings.push('context pack CACHEADO de un prompt anterior (daemon frio) — route/steps pueden no aplicar a este prompt');
+    // (2026-08-17, medido en el harness 22.2/22.5) La DIRECTIVA de delegacion
+    // es especifica del prompt que la genero: servirla stale ordenaba delegar
+    // "consolida la memoria" a rust-engineer y ponia sonnet a un analisis de
+    // arquitectura — el motor decide bien, el cache re-emitia la decision de
+    // OTRO prompt. Las memorias stale ayudan; una orden de delegar stale
+    // desinforma. Se anula junto a los step_plans (misma naturaleza).
+    ctx.delegation_directive = null;
+    ctx.directive = null;
+    ctx.step_plans = null;
+  }
+  // cat9 (mandamiento 11: prohibido el no-op silencioso). Si ni el daemon ni el
+  // spawn one-shot devolvieron orquestacion, es FALLO real del sidecar (no hay
+  // "vacio legitimo" aqui: un prompt no vacio sano siempre produce un objeto de
+  // ruta). Deja rastro accionable ADEMAS del fail-safe emit('') de abajo.
+  if (ctx === null) {
+    const reason = findBinary()
+      ? 'sidecar orchestrate FALLO (binario presente pero status!=0 / timeout / JSON no parseable)'
+      : 'sidecar orchestrate FALLO (binario ultron-memory ausente: no instalado / ULTRON_MEMORY_BIN invalido)';
+    logHookError('memory-orchestrate', reason);
+  }
+  return { ctx, staleFromCache };
+}
+
+/**
+ * Daemon (con reintento HOOKS-06 y relanzamiento HOOKS-07), sparse local y
+ * pack cacheado, en ese orden. Devuelve { ctx, usedDaemon, staleFromCache }.
+ */
+async function resolveOrchestrateContext({ prompt, project, t0, firstPrompt }) {
+  // Red de ultimo recurso (HOOKS-04): solo se usa si ni el daemon ni el sparse
+  // devuelven nada. No acorta la espera al daemon.
+  const cached = readOrchCache(project);
+  const orchPayload = { cmd: 'orchestrate', prompt, project: project || undefined };
+  let { ctx, daemonFailure, reason } = await askDaemon(orchPayload, t0);
+  if (!ctx && daemonIsDown(reason)) {
+    ({ ctx, daemonFailure } = await relaunchAndAsk(orchPayload, t0, daemonFailure));
+  }
+  const usedDaemon = ctx !== null;
+  if (ctx) return { ctx, usedDaemon, staleFromCache: false };
+  const local = localFallback({ prompt, project, t0, firstPrompt, daemonFailure, cached });
+  return { ctx: local.ctx, usedDaemon, staleFromCache: local.staleFromCache };
+}
+
+/** Tono local, emit del pack (o aviso de memoria degradada) y log de la orquestacion. */
+function renderAndLog({ ctx, prompt, project, sessionId, t0, usedDaemon, staleFromCache }) {
   // El tono se detecta SIEMPRE en local sobre ESTE prompt y pisa lo que traiga el
   // pack: si el pack venia cacheado, su `tone` es el del prompt anterior (o null)
   // y aplicarlo era la causa medida de "el tono apenas se aplica" (2026-08-14).
@@ -655,6 +756,23 @@ async function main() {
   emit(render(ctx));
 }
 
+async function main() {
+  const t0 = Date.now();
+  const { prompt, cwd, sessionId } = readHookInput();
+  const project = projectIdFromCwd(cwd);
+  // Antes de cualquier salida temprana: el resumen de la sesion anterior se
+  // entrega aunque el prompt acabe en modo ligero o en el carril rapido.
+  deliverPendingSummary(project, sessionId);
+  if (earlyExit({ prompt, project, sessionId, t0 })) return;
+
+  const laneState = readLaneState(sessionId);
+  const firstPrompt = !laneState || laneState.prompts === 0;
+  markPrompt(sessionId, { full: true });
+
+  const { ctx, usedDaemon, staleFromCache } = await resolveOrchestrateContext({ prompt, project, t0, firstPrompt });
+  renderAndLog({ ctx, prompt, project, sessionId, t0, usedDaemon, staleFromCache });
+}
+
 if (require.main === module) {
   main()
     .catch((e) => {
@@ -672,5 +790,8 @@ if (require.main === module) {
     });
 } else {
   // Exportadas para test (patrón require.main, como en stop-compress-session.js).
-  module.exports = { render, logOrchestration, buildLogEntry };
+  module.exports = {
+    render, logOrchestration, buildLogEntry, lightModeToneLines, defaultTone, delegateModel,
+    readHookInput, deliverPendingSummary, earlyExit, resolveOrchestrateContext, renderAndLog,
+  };
 }

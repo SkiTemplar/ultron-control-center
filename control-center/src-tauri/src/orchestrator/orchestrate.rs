@@ -11,20 +11,122 @@ use super::types_model::{
     TOKEN_BUDGET,
 };
 
-/// `dense_enabled` controls whether the semantic (E5) paths run. Since the
-/// quality-first policy (2026-06-19) EVERY caller of the hot path passes `true`
-/// — both the CLI one-shot (`main.rs`) and the resident daemon (`serve.rs`) —
-/// so the UserPromptSubmit hook runs the FULL hybrid recall (dense E5 + sparse
-/// FTS5). Honest cost (kirkardo cat9, medido 2026-07-03): p50 ~130-180 ms e2e
-/// vía daemon con E5 residente (incluye el spawn de node); el one-shot del CLI
-/// paga la carga E5 in-proc (~1.4-3.3 s) y el primer hit con daemon frío
-/// ~2.7-11 s. NO es el diseño histórico "<300 ms sparse-only": `false` queda
-/// como modo degradación (E5/Qdrant caídos) o para trade-offs explícitos.
+/// Modo denso efectivo: lo que pide el llamante Y el interruptor global
+/// `ULTRON_DENSE`. Con el denso apagado (decisión 2026-09-28, `ULTRON_DENSE=0`)
+/// `embed_e5` devuelve el vector cero, así que pedir `true` solo producía
+/// avisos falsos («catalog vacío», «E5/Qdrant unavailable») y un reindex de
+/// fondo condenado a fallar.
+pub(super) fn effective_dense(requested: bool, global_dense: bool) -> bool {
+    requested && global_dense
+}
+
+/// Re-rank del turno: solo en modo denso efectivo. El cross-encoder es parte
+/// de la pila densa; antes `rerank_hot_for_intent` miraba solo el entorno, y
+/// un `orchestrate(.., false)` (el `--sparse` del CLI, que promete FTS5 y
+/// reglas sin modelos) lanzaba igualmente el calentamiento del modelo en un
+/// `bug_fix` (CI 2026-11-02: tests de más de 60 s con el turno de inferencia
+/// tomado).
+pub(super) fn rerank_for_turn(dense_effective: bool, rerank_for_intent: bool) -> bool {
+    dense_effective && rerank_for_intent
+}
+
+/// Por qué un turno no delega (con la lista de agentes vacía y fuera de la
+/// clase meta/introspectiva).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum EmptyDelegation {
+    /// El llamante pidió denso pero `ULTRON_DENSE=0`: solo reglas por intent.
+    DenseOff,
+    /// El llamante pidió el camino sparse: no se consultó el catálogo.
+    Sparse,
+    /// Denso activo y el catálogo no devolvió nada: hay que repoblarlo.
+    CatalogEmpty,
+    /// Hubo candidatos pero ninguno superó el floor.
+    Abstained,
+}
+
+pub(super) fn classify_empty_delegation(
+    requested: bool,
+    effective: bool,
+    raw_hits_empty: bool,
+) -> EmptyDelegation {
+    match (requested, effective, raw_hits_empty) {
+        (true, false, _) => EmptyDelegation::DenseOff,
+        (false, _, _) => EmptyDelegation::Sparse,
+        (true, true, true) => EmptyDelegation::CatalogEmpty,
+        (true, true, false) => EmptyDelegation::Abstained,
+    }
+}
+
+/// Aviso visible para un turno sin delegación. `CatalogEmpty` dispara el
+/// reindex de fondo (efecto lateral deliberado, ver la nota de 2026-08-23).
+fn empty_delegation_warning(kind: EmptyDelegation) -> String {
+    match kind {
+        EmptyDelegation::DenseOff => {
+            "denso apagado (ULTRON_DENSE=0): sin búsqueda semántica de agentes ni de skills; solo reglas por intent"
+                .to_string()
+        }
+        EmptyDelegation::Sparse => {
+            "sparse: sin búsqueda semántica de agentes (solo reglas por intent)".to_string()
+        }
+        // Auto-reparación (2026-08-23, decidido por el usuario): el catálogo
+        // solo vive en Qdrant y nadie lo repuebla salvo a mano. Si Qdrant
+        // pierde la colección, la delegación se apaga en silencio; se dispara
+        // el reindex en segundo plano y el siguiente turno la recupera.
+        EmptyDelegation::CatalogEmpty => {
+            if catalog::spawn_reindex_si_vacio() {
+                "agent catalog vacío — reindexando en segundo plano; la delegación vuelve en el próximo turno"
+                    .to_string()
+            } else {
+                "agent catalog vacío o no disponible — ejecuta `ultron-memory.exe catalog`".to_string()
+            }
+        }
+        // Abstención (2026-08-12): señal semántica débil; mejor sin
+        // sugerencia que un especialista al azar a 0.78.
+        EmptyDelegation::Abstained => {
+            "delegacion abstenida: senal semantica debil (ningun agente supera el floor)".to_string()
+        }
+    }
+}
+
+/// Prefijo del aviso de `build_trace` cuando no hay hits densos. Con el denso
+/// apagado a propósito no es una avería: se sustituye por un aviso que lo dice.
+const DENSE_EMPTY_WARNING_PREFIX: &str = "dense recall empty";
+
+pub(super) fn honest_recall_warnings(
+    warnings: Vec<String>,
+    requested: bool,
+    effective: bool,
+) -> Vec<String> {
+    if effective {
+        return warnings;
+    }
+    let mut out: Vec<String> = warnings
+        .into_iter()
+        .filter(|w| !w.starts_with(DENSE_EMPTY_WARNING_PREFIX))
+        .collect();
+    out.push(if requested {
+        "recall solo FTS5: denso apagado (ULTRON_DENSE=0)".to_string()
+    } else {
+        "recall solo FTS5 (camino sparse pedido por el llamante)".to_string()
+    });
+    out
+}
+
+/// `dense_enabled` is what the CALLER asks for; the effective mode also needs
+/// the global switch (`effective_dense`). Callers: the manual Preview
+/// (`orchestrate_prompt`, `true`), the daemon `orchestrate` request
+/// (`hotpath_dense_enabled()`, `true` by default) and the CLI one-shot
+/// (`main.rs`). With `ULTRON_DENSE=0` — the setting on this machine since
+/// 2026-09-28 — all of them run sparse-only (FTS5 recall, rule-based
+/// delegation). In session the hook runs in light mode and does not call this
+/// function at all unless `ULTRON_ORCHESTRATE=full`.
 pub fn orchestrate(
     prompt: &str,
     project_id: Option<&str>,
     dense_enabled: bool,
 ) -> OrchestrationContext {
+    let requested_dense = dense_enabled;
+    let dense_enabled = effective_dense(requested_dense, crate::qdrant::dense_enabled());
     let (rule_intent, wf_id) = classify_intent(prompt);
     let known = catalog::known_agent_names();
     let mut warnings: Vec<String> = Vec::new();
@@ -113,38 +215,14 @@ pub fn orchestrate(
         rebalance_delegates(pooled, intent, 5)
     };
     if delegate_agents.is_empty() && !meta_introspective {
-        if !dense_enabled {
-            // Camino sparse (respaldo `--sparse` del hook, 2026-09-07): no se
-            // ha consultado el catálogo, así que "sin hits" no dice nada de
-            // Qdrant. Sin este guard cada respaldo lanzaba un reindex de
-            // fondo por un diagnóstico falso.
-            warnings.push(
-                "sparse: sin búsqueda semántica de agentes (solo reglas por intent)".to_string(),
-            );
-        } else if raw_hits_empty {
-            // Auto-reparación (2026-08-23, decidido por el usuario): el catálogo
-            // solo vive en Qdrant — a diferencia de las memorias, no tiene fuente
-            // de verdad que reconstruirlo — y NADIE lo repuebla salvo a mano. Si
-            // Qdrant pierde la colección, la delegación se apaga en silencio y
-            // para siempre: así estuvo el 2026-08-22, con 0 candidatos en todas
-            // las sesiones. Se dispara el reindex en segundo plano; este turno ya
-            // sale sin delegación, pero el siguiente la recupera solo.
-            let lanzado = catalog::spawn_reindex_si_vacio();
-            warnings.push(if lanzado {
-                "agent catalog vacío — reindexando en segundo plano; la delegación vuelve en el próximo turno"
-                    .to_string()
-            } else {
-                "agent catalog empty/unavailable — run `catalog_reindex`".to_string()
-            });
-        } else {
-            // Abstencion (2026-08-12): habia hits pero ninguno supero el floor
-            // — senal semantica debil (prompt conversacional / sin dominio).
-            // Mejor sin sugerencia que un especialista al azar a 0.78.
-            warnings.push(
-                "delegacion abstenida: senal semantica debil (ningun agente supera el floor)"
-                    .to_string(),
-            );
-        }
+        // Sin el guard sparse/dense-off, cada turno sin consulta al catálogo
+        // lanzaba un reindex de fondo por un diagnóstico falso (2026-09-07 y
+        // prompting-7 de la auditoría del 2026-10-23).
+        warnings.push(empty_delegation_warning(classify_empty_delegation(
+            requested_dense,
+            dense_enabled,
+            raw_hits_empty,
+        )));
     }
 
     // SKILLS now compete in routing (previously the agent-only filter left the
@@ -168,12 +246,11 @@ pub fn orchestrate(
         );
     }
 
-    // Relevant memories. On the hot path (dense_enabled=false) recall is SPARSE-
-    // first: an E5-large query embed (~1.1s on CPU even with the daemon warm)
-    // blows the latency budget, so FTS5 sparse + the confidence/recency re-ranker
-    // carry it. Quality callers (dense_enabled=true) and the manual Memory Browser
-    // (recall_unified command) keep full hybrid recall.
-    // limit=8: alineado con DEFAULT_LIMIT y el golden eval (k=8). 12 forzaba a
+    // Relevant memories. With the effective dense mode (`dense_enabled` here is
+    // already `effective_dense`) recall is hybrid (E5 + FTS5); without it,
+    // sparse FTS5 + the confidence/recency re-ranker. With ULTRON_DENSE=0 every
+    // caller lands on the sparse branch.
+    // limit=8: alineado con el golden eval (k=8). 12 forzaba a
     // rellenar el pack con cola BM25 irrelevante (context_waste ~0.59); el
     // relevance-floor de assemble_pack + este techo dejan el pack few-and-good.
     // RERANK SELECTIVO (2026-08-13, decidido por el usuario tras medir): el
@@ -212,7 +289,7 @@ pub fn orchestrate(
     // coste baje del presupuesto.
     // 2026-09-06 (decisión sobre el golden v2): re-rank por ruta — todo
     // intent salvo `general`; `ULTRON_RERANK_HOT=1/0` fuerza siempre/nunca.
-    let rerank = crate::qdrant::rerank_hot_for_intent(intent);
+    let rerank = rerank_for_turn(dense_enabled, crate::qdrant::rerank_hot_for_intent(intent));
     if rerank && !crate::qdrant::reranker_is_warm() {
         // Opt-in explicito con el modelo frio: cargarlo DENTRO del turno cuesta
         // mas que el presupuesto entero del hook, asi que este turno va sin el
@@ -267,8 +344,8 @@ pub fn orchestrate(
         ]
     };
 
-    // cat13.2: optimize_prompt is the canonical optimizer (alias of
-    // build_prompt_plan) — the routing optimizes the prompt before building the plan.
+    // cat13: paso de mejora de prompt (encuadre por intent, modo sugerido,
+    // preguntas si el prompt es vago). Una charla corta no lo paga.
     let prompt_plan = if conversational {
         super::types_model::PromptPlan {
             improved_prompt: prompt.to_string(),
@@ -277,12 +354,13 @@ pub fn orchestrate(
             success_criteria: Vec::new(),
         }
     } else {
-        super::ranking::optimize_prompt(prompt, intent)
+        super::ranking::build_prompt_plan(prompt, intent)
     };
 
     // cat13.4: when the routing proposes a multi-step GROUP (workflow), optimize
     // each step's prompt by the role sub-intent of the agent that runs it. Empty
-    // for a single-step / no-workflow turn (optimize_prompt already covers that).
+    // for a single-step / no-workflow turn (build_prompt_plan already covers it).
+    // Consumers: the hook in full mode and the Preview panel of the app.
     let step_plans = workflow
         .as_ref()
         .map(|w| super::ranking::build_step_plans(&w.steps))
@@ -330,6 +408,8 @@ pub fn orchestrate(
         directive_agent,
         intent_rescatado,
     );
+
+    let warnings = honest_recall_warnings(warnings, requested_dense, dense_enabled);
 
     OrchestrationContext {
         prompt: prompt.to_string(),

@@ -20,6 +20,43 @@ pub(super) fn vec_to_json(v: &[String]) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string())
 }
 
+/// Recoge las filas mapeadas sin perder en silencio las que fallan. Antes se
+/// hacía `rows.flatten().collect()`: una fila con un tipo de columna inesperado
+/// desaparecía de listados y del recall sin dejar rastro (auditoría
+/// 2026-10-26, L4). Las válidas se devuelven igual; las que fallan se cuentan y
+/// se registran con el primer error, con `ctx` para saber qué consulta era.
+pub(crate) fn collect_rows<T>(
+    rows: impl IntoIterator<Item = rusqlite::Result<T>>,
+    ctx: &str,
+) -> Vec<T> {
+    let (ok, failed) = split_rows(rows);
+    if let Some((count, first)) = failed {
+        tracing::warn!(
+            "[sqlite_store] {ctx}: {count} fila(s) descartadas al mapear; primer error: {first}"
+        );
+    }
+    ok
+}
+
+/// Parte pura de [`collect_rows`]: las filas válidas y, si alguna falló,
+/// `(cuántas, primer error)`.
+pub(crate) fn split_rows<T>(
+    rows: impl IntoIterator<Item = rusqlite::Result<T>>,
+) -> (Vec<T>, Option<(usize, rusqlite::Error)>) {
+    let mut ok = Vec::new();
+    let mut failed: Option<(usize, rusqlite::Error)> = None;
+    for row in rows {
+        match row {
+            Ok(v) => ok.push(v),
+            Err(e) => match failed.as_mut() {
+                Some((n, _)) => *n += 1,
+                None => failed = Some((1, e)),
+            },
+        }
+    }
+    (ok, failed)
+}
+
 // ---------------------------------------------------------------------------
 // Column list — shared by all SELECT queries on memory_items
 // ---------------------------------------------------------------------------
@@ -45,18 +82,64 @@ symbol,file_path,line,signature,capture_source";
 /// the budget on repeats.
 pub(super) const MAX_SPARSE_TERMS: usize = 24;
 
+/// Palabras vacias (espanol e ingles, sin tildes: se comparan tras quitarlas).
+/// Unidas con OR casaban con casi todo el corpus y dominaban el BM25: "mods de
+/// Claude Code" devolvia memorias de otros proyectos por el "de" (2026-10-03).
+const STOP_WORDS: &[&str] = &[
+    "a", "al", "algo", "ante", "aqui", "asi", "como", "con", "cual", "cuando", "de", "del",
+    "desde", "donde", "el", "ella", "en", "entre", "era", "es", "esa", "ese", "eso", "esta",
+    "estan", "este", "esto", "fue", "ha", "han", "hay", "he", "la", "las", "le", "les", "lo",
+    "los", "mas", "me", "mi", "muy", "no", "nos", "o", "para", "pero", "por", "porque", "que",
+    "se", "sea", "ser", "si", "sin", "sobre", "son", "su", "sus", "te", "tiene", "todo", "tu",
+    "un", "una", "uno", "y", "ya", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "how", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "this", "to", "was",
+    "what", "when", "where", "which", "why", "with",
+];
+
+/// Quita las tildes del espanol para comparar con [`STOP_WORDS`].
+fn fold_accents(term: &str) -> String {
+    term.chars()
+        .map(|c| match c {
+            'á' | 'à' | 'ä' => 'a',
+            'é' | 'è' | 'ë' => 'e',
+            'í' | 'ì' | 'ï' => 'i',
+            'ó' | 'ò' | 'ö' => 'o',
+            'ú' | 'ù' | 'ü' => 'u',
+            other => other,
+        })
+        .collect()
+}
+
 /// Tokenise a free-text query into the bounded, de-duplicated set of terms used
-/// by BOTH sparse branches (FTS5 `MATCH` and the `LIKE` fallback). Drops <2-char
-/// noise, dedups case-insensitively (preserving first-seen order + original
-/// case), and caps at `MAX_SPARSE_TERMS`. Pure; unit-tested below.
+/// by BOTH sparse branches (FTS5 `MATCH` and the `LIKE` fallback). Splits on
+/// whitespace and punctuation (keeps `_`, `-` and `.` inside identifiers), drops
+/// <2-char noise and stop words, dedups case-insensitively (preserving
+/// first-seen order + original case), and caps at `MAX_SPARSE_TERMS`. Pure;
+/// unit-tested below.
 pub(super) fn sparse_terms(query: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     query
-        .split_whitespace()
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-' || c == '.'))
+        .map(|t| t.trim_matches(|c: char| c == '-' || c == '.'))
         .filter(|t| t.chars().count() >= 2)
+        .filter(|t| !STOP_WORDS.contains(&fold_accents(&t.to_lowercase()).as_str()))
         .filter(|t| seen.insert(t.to_lowercase()))
         .take(MAX_SPARSE_TERMS)
         .map(String::from)
+        .collect()
+}
+
+/// Vocabulario de contenido de un texto para comparar dos textos entre sí: la
+/// misma tokenización y las mismas palabras vacías que [`sparse_terms`], pero en
+/// minúsculas, sin tildes y SIN el tope de términos (un `content` largo no debe
+/// perder vocabulario por el orden en que aparece). Lo usa el juez de
+/// contradicción para decidir si un vecino de FTS5 habla del mismo tema.
+pub(crate) fn content_terms(text: &str) -> std::collections::HashSet<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-' || c == '.'))
+        .map(|t| t.trim_matches(|c: char| c == '-' || c == '.'))
+        .filter(|t| t.chars().count() >= 2)
+        .map(|t| fold_accents(&t.to_lowercase()))
+        .filter(|t| !STOP_WORDS.contains(&t.as_str()))
         .collect()
 }
 
@@ -64,16 +147,32 @@ pub(super) fn sparse_terms(query: &str) -> Vec<String> {
 // Row deserializers
 // ---------------------------------------------------------------------------
 
+/// Sensibilidad leída de la base. Un valor fuera del vocabulario (edición a
+/// mano, `"SECRET"`, una importación) se trata como la más restrictiva,
+/// `Secret`, y se registra: los gates de recall y resume comparan por igualdad
+/// con `Secret`, así que leerlo como `Internal` dejaba pasar el item
+/// (fail-open, auditoría 2026-10-26 M2).
+pub(super) fn sensitivity_fail_closed(raw: &str, id: &str) -> Sensitivity {
+    Sensitivity::parse(raw).unwrap_or_else(|| {
+        tracing::warn!(
+            "[sqlite_store] item {id}: sensitivity desconocida {raw:?}; se trata como secret"
+        );
+        Sensitivity::Secret
+    })
+}
+
 pub(super) fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
     let kind_s: String = row.get("type")?;
     let scope_s: String = row.get("scope")?;
     let status_s: String = row.get("status")?;
     let stability_s: String = row.get("stability")?;
     let sensitivity_s: String = row.get("sensitivity")?;
+    let id: String = row.get("id")?;
+    let sensitivity = sensitivity_fail_closed(&sensitivity_s, &id);
     let source_s: String = row.get("source")?;
     let validated: i64 = row.get("validated_by_user")?;
     Ok(MemoryItem {
-        id: row.get("id")?,
+        id,
         kind: MemoryType::parse(&kind_s).unwrap_or(MemoryType::Fact),
         scope: Scope::parse(&scope_s).unwrap_or(Scope::Global),
         project_id: row.get("project_id")?,
@@ -91,7 +190,7 @@ pub(super) fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
         confidence: row.get::<_, f64>("confidence")? as f32,
         importance: row.get::<_, f64>("importance")? as f32,
         stability: Stability::parse(&stability_s).unwrap_or(Stability::Durable),
-        sensitivity: Sensitivity::parse(&sensitivity_s).unwrap_or(Sensitivity::Internal),
+        sensitivity,
         source: Source::parse(&source_s).unwrap_or(Source::AssistantInferred),
         source_session_id: row.get("source_session_id")?,
         created_at: row.get("created_at")?,

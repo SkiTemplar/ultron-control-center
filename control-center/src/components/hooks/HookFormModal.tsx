@@ -3,6 +3,21 @@ import { invoke } from "@tauri-apps/api/core";
 import { EVENT_OPTIONS } from "./constants";
 import type { HookRecord, HookMutationResult } from "./types";
 
+/** Timeout guardado del hook (segundos) como texto del campo; vacío si no tiene. */
+export function initialTimeout(initial?: HookRecord): string {
+  const t = initial?.extra?.timeout;
+  return typeof t === "number" && t > 0 ? String(t) : "";
+}
+
+/** Texto del campo -> segundos (0 = sin tope propio); undefined si no es válido. */
+export function parseTimeout(text: string): number | undefined {
+  const t = text.trim();
+  if (!t) return 0;
+  if (!/^\d+$/.test(t)) return undefined;
+  const n = Number(t);
+  return n <= 600 ? n : undefined;
+}
+
 export function HookFormModal({
   mode,
   initial,
@@ -17,12 +32,19 @@ export function HookFormModal({
   const [event, setEvent] = useState<string>(initial?.event ?? "PreToolUse");
   const [matcher, setMatcher] = useState<string>(initial?.matcher ?? "");
   const [command, setCommand] = useState<string>(initial?.command ?? "");
+  const [timeout, setTimeoutS] = useState<string>(initialTimeout(initial));
+  const [runAsync, setRunAsync] = useState<boolean>(initial?.extra?.async === true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
     if (!command.trim()) {
-      setErr("Command cannot be empty.");
+      setErr("El comando no puede estar vacío.");
+      return;
+    }
+    const parsed = parseTimeout(timeout);
+    if (parsed === undefined) {
+      setErr("El timeout es un número entero de segundos (vacío = sin tope propio).");
       return;
     }
     setSaving(true);
@@ -33,16 +55,21 @@ export function HookFormModal({
           event,
           matcher: matcher.trim() || null,
           command,
+          timeout: parsed || null,
+          runAsync: runAsync || null,
         })) as HookMutationResult;
-        onSaved(`Added hook. Backup: ${res.backup_path ?? "n/a"}`);
+        onSaved(`Hook añadido. Backup: ${res.backup_path ?? "n/d"}. ${res.manifest_sync ?? ""}`);
       } else if (initial) {
         const res = (await invoke("update_hook", {
           id: initial.id,
           command,
           enabled: null,
           matcher: matcher.trim() || null,
+          // 0 y false quitan la clave en el backend.
+          timeout: parsed,
+          runAsync,
         })) as HookMutationResult;
-        onSaved(`Updated hook. Backup: ${res.backup_path ?? "n/a"}`);
+        onSaved(`Hook actualizado. Backup: ${res.backup_path ?? "n/d"}. ${res.manifest_sync ?? ""}`);
       }
     } catch (e) {
       setErr(String(e));
@@ -63,12 +90,12 @@ export function HookFormModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 text-[15px] font-semibold">
-          {mode === "add" ? "Add hook" : "Edit hook"}
+          {mode === "add" ? "Añadir hook" : "Editar hook"}
         </div>
 
         <label className="mb-3 block text-[12px]">
           <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
-            Event
+            Evento
           </div>
           <select
             value={event}
@@ -89,14 +116,14 @@ export function HookFormModal({
           </select>
           {mode === "edit" && (
             <div className="mt-1 text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
-              Event is immutable. Delete and re-add to change it.
+              El evento no se puede cambiar: bórralo y vuelve a añadirlo.
             </div>
           )}
         </label>
 
         <label className="mb-3 block text-[12px]">
           <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
-            Matcher (optional regex — e.g. "Bash", "Read|Glob|Grep", "mcp__.*")
+            Matcher (regex opcional; p. ej. "Bash", "Read|Glob|Grep", "mcp__.*")
           </div>
           <input
             type="text"
@@ -113,7 +140,7 @@ export function HookFormModal({
 
         <label className="mb-3 block text-[12px]">
           <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
-            Command
+            Comando
           </div>
           <textarea
             value={command}
@@ -127,6 +154,36 @@ export function HookFormModal({
             }}
           />
         </label>
+
+        <div className="mb-3 flex items-end gap-4 text-[12px]">
+          <label className="block">
+            <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
+              Timeout (s, vacío = el de Claude Code)
+            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              aria-label="Timeout en segundos"
+              value={timeout}
+              onChange={(e) => setTimeoutS(e.target.value)}
+              className="w-28 rounded px-2 py-1"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+              }}
+            />
+          </label>
+          <label className="flex items-center gap-2" title="Un hook async no puede hablarle al modelo: su salida se descarta">
+            <input
+              type="checkbox"
+              aria-label="Async"
+              checked={runAsync}
+              onChange={(e) => setRunAsync(e.target.checked)}
+            />
+            <span>Async (no bloquea; su salida se descarta)</span>
+          </label>
+        </div>
 
         {err && (
           <div
@@ -144,7 +201,7 @@ export function HookFormModal({
             className="rounded px-3 py-1.5 text-[12px]"
             style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)" }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -153,7 +210,7 @@ export function HookFormModal({
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
-            {saving ? "Saving..." : mode === "add" ? "Add hook" : "Save"}
+            {saving ? "Guardando…" : mode === "add" ? "Añadir hook" : "Guardar"}
           </button>
         </div>
       </div>

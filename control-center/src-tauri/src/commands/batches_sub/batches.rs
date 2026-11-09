@@ -1,6 +1,6 @@
 // ULTRON Control Center - Batches commands
-use crate::batches::{self, BatchCleanupReport, BatchEntry, BatchRunResult};
-use crate::batches_queue::{self, BatchQueueEntry};
+use crate::batches::{self, BatchCleanupReport, BatchEntry, BatchRunResult, BatchScriptPreview};
+use crate::batches_queue::{self, BatchQueueEntry, BatchQueueListing};
 
 #[tauri::command]
 pub async fn list_batches() -> Result<Vec<BatchEntry>, String> {
@@ -9,13 +9,21 @@ pub async fn list_batches() -> Result<Vec<BatchEntry>, String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Execute a batch script by name.
+/// Script de un batch tal como debe verlo quien confirma su ejecución.
+#[tauri::command]
+pub async fn batch_read_script(name: String) -> Result<BatchScriptPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || batches::read_batch_script_inner(&name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Execute a batch script by name. `reviewed` es el texto que la persona ha
+/// visto al confirmar: si no coincide con el fichero, no se ejecuta nada.
 ///
-/// The execution is bounded by a **5-minute timeout**. If the script has not
-/// exited within that window (e.g. an infinite PowerShell loop, a blocking
-/// `Read-Host`, or a hung child process) the future is cancelled, an error is
-/// returned to the UI, and the failure is recorded in the batch queue so it is
-/// never silently dropped.
+/// The execution is bounded by a **5-minute timeout** inside
+/// `batches::execute_batch_inner`: si el script no termina (un bucle de
+/// PowerShell, un hijo colgado), se termina su árbol de procesos, se devuelve el
+/// error y el fallo queda en la cola para que nunca se pierda en silencio.
 ///
 /// Cada ejecución queda registrada en `workflow-runs.db` como
 /// `batch:<nombre>` (2026-09-21). El escritor de esa base era la delegación
@@ -34,68 +42,30 @@ pub async fn list_batches() -> Result<Vec<BatchEntry>, String> {
 /// El registro es best-effort: un fallo escribiendo en la base NUNCA cambia el
 /// resultado del batch, que es lo que el usuario está esperando.
 #[tauri::command]
-pub async fn execute_batch(name: String) -> Result<BatchRunResult, String> {
-    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-
+pub async fn execute_batch(name: String, reviewed: String) -> Result<BatchRunResult, String> {
     // `project_id` va a None a propósito: un batch vive en ~/.ultron/batches y
     // no pertenece a ningún proyecto. El panel lo muestra sin etiqueta.
     let run_id =
         crate::workflow_runs::record_run_inner(format!("batch:{name}"), None, None, 1).ok();
 
-    let task = tauri::async_runtime::spawn_blocking({
-        let name = name.clone();
-        move || batches::execute_batch_inner(name)
-    });
-
-    match tokio::time::timeout(TIMEOUT, task).await {
-        Ok(join_result) => {
-            let outcome = join_result.map_err(|e| e.to_string())?;
-            if let Some(id) = run_id {
-                close_batch_run(id, &outcome);
-            }
-            outcome
-        }
-        Err(_elapsed) => {
-            // The blocking thread is detached (spawn_blocking cannot be
-            // cancelled), but from the UI perspective the command timed out.
-            // Record the failure in the queue so it is never silently lost.
-            let msg = "batch execution timed out after 5 minutes".to_string();
-            let path_hint = {
-                let dir = batches::batches_dir().unwrap_or_default();
-                dir.join(&name).to_string_lossy().to_string()
-            };
-            if let Err(qe) = crate::batches_queue::record_inner(
-                &name,
-                &path_hint,
-                crate::batches_queue::BatchQueueReason::Failed,
-                Some(msg.clone()),
-            ) {
-                eprintln!("[batches] CRITICAL: could not enqueue timed-out batch '{name}': {qe}");
-            }
-            if let Some(id) = run_id {
-                let _ = crate::workflow_runs::update_run_inner(
-                    id,
-                    crate::workflow_runs::RunUpdate {
-                        status: Some(crate::workflow_runs::RunStatus::Failed),
-                        steps_completed: Some(0),
-                        steps_total: None,
-                        output_summary: None,
-                        error: Some(msg.clone()),
-                        ended_at: Some(chrono::Utc::now()),
-                    },
-                );
-            }
-            Err(msg)
-        }
+    let outcome =
+        tauri::async_runtime::spawn_blocking(move || batches::execute_batch_inner(name, reviewed))
+            .await
+            .map_err(|e| e.to_string())?;
+    if let Some(id) = run_id {
+        close_batch_run(id, &outcome);
     }
+    outcome
 }
 
 /// Cierra el run de un batch que ya terminó. Best-effort: el resultado del
 /// batch manda, y un fallo de la base no puede alterarlo ni hacer ruido en la
-/// UI. Por eso ignora el error de escritura en vez de propagarlo.
+/// UI. Por eso no propaga el error de escritura: lo deja en el log.
 fn close_batch_run(id: i64, outcome: &Result<BatchRunResult, String>) {
     let update = batch_run_update(outcome, chrono::Utc::now());
-    let _ = crate::workflow_runs::update_run_inner(id, update);
+    if let Err(e) = crate::workflow_runs::update_run_inner(id, update) {
+        tracing::warn!(run_id = id, error = %e, "[batches] no se pudo cerrar el run del batch");
+    }
 }
 
 /// El resumen viaja al panel y a un `title` del DOM: se recorta por
@@ -183,9 +153,10 @@ pub async fn clear_all_batches() -> Result<BatchCleanupReport, String> {
 
 /// List every queued batch (rejected by a sandbox/permission prompt, unrunnable
 /// by the AI, or failed at runtime). Drains the Stop-hook pending file first so
-/// the UI always reflects the latest captures. Newest first.
+/// the UI always reflects the latest captures. Newest first; a drain failure
+/// comes back in `drain_error` instead of being dropped.
 #[tauri::command]
-pub async fn batches_list_queue() -> Result<Vec<BatchQueueEntry>, String> {
+pub async fn batches_list_queue() -> Result<BatchQueueListing, String> {
     tauri::async_runtime::spawn_blocking(batches_queue::list_inner)
         .await
         .map_err(|e| e.to_string())?

@@ -1,0 +1,19 @@
+/* Búsqueda en el hilo (Ctrl+F): barra compacta encima de la lista del chat, el
+   mensaje de la coincidencia activa marcado y el término resaltado con la CSS
+   Custom Highlight API (::highlight), que no toca el DOM del Markdown. */
+
+.chat[data-search] { grid-template-rows: auto 1fr auto; --ts-h: 34px; }
+.chat[data-search] .bm { top: calc(var(--ts-h) + 6px); }
+
+.thread-search { display: flex; align-items: center; gap: 6px; min-height: var(--ts-h); padding: 4px 18px; border-bottom: 1px solid var(--line-soft); background: var(--panel); font: 12px var(--f-mono); color: var(--muted); }
+.ts-input { flex: 0 1 280px; min-width: 120px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; }
+.ts-input:focus { outline: none; border-color: var(--accent); }
+.ts-count { min-width: 7ch; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ts-nav { font: 13px/1 var(--f-mono); }
+.ts-nav:disabled { opacity: .4; cursor: default; }
+.ts-more { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-close { margin-left: auto; }
+.ts-more + .ts-close { margin-left: 0; }
+
+.msg[data-search-hit], .vrow[data-search-hit] { box-shadow: inset 2px 0 0 var(--accent); border-radius: 6px; }
+::highlight(thread-search) { background-color: var(--accent-soft); color: var(--fg); text-decoration: underline; text-decoration-color: var(--accent); }

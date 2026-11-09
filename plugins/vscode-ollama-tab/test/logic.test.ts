@@ -9,6 +9,7 @@ import {
   vramWarning,
   firstLoadedModelName,
   isModelLoaded,
+  keepAliveFor,
   loadedModelNames,
   formatLogTime,
   formatStatusBarLabel,
@@ -71,6 +72,7 @@ describe("buildGenerateRequest", () => {
       suffix: "b".repeat(20),
       maxPrefixChars: 5,
       maxSuffixChars: 5,
+      keepAlive: "5m",
     });
     expect(req.model).toBe("qwen2.5-coder:1.5b-base");
     expect(req.raw).toBe(true);
@@ -90,6 +92,7 @@ describe("buildGenerateRequest", () => {
       suffix: "",
       maxPrefixChars: 100,
       maxSuffixChars: 100,
+      keepAlive: "5m",
     });
     expect(req.options.num_predict).toBe(48);
   });
@@ -231,16 +234,35 @@ describe("keep_alive y calentamiento", () => {
     maxSuffixChars: 1000,
   };
 
-  it("la peticion de sugerencia lleva keep_alive para que el modelo no se descargue entre pulsaciones", () => {
-    expect(buildGenerateRequest(params).keep_alive).toBe("30m");
+  it("keepAliveFor da 5m a low y mid y 10m a high", () => {
+    expect(keepAliveFor("low")).toBe("5m");
+    expect(keepAliveFor("mid")).toBe("5m");
+    expect(keepAliveFor("high")).toBe("10m");
+    expect(keepAliveFor("copilot")).toBe("5m");
+    expect(keepAliveFor("off")).toBe("5m");
+  });
+
+  it("un keepAlive explicito manda sobre el del motor", () => {
+    expect(keepAliveFor("low", "1h")).toBe("1h");
+    expect(keepAliveFor("high", " 45m ")).toBe("45m");
+  });
+
+  it("un keepAlive vacio o en blanco no tapa el plazo del motor", () => {
+    expect(keepAliveFor("high", "")).toBe("10m");
+    expect(keepAliveFor("mid", "   ")).toBe("5m");
+  });
+
+  it("la peticion de sugerencia lleva el keep_alive que se le pasa", () => {
     expect(buildGenerateRequest({ ...params, keepAlive: "5m" }).keep_alive).toBe("5m");
+    expect(buildGenerateRequest({ ...params, keepAlive: keepAliveFor("high") }).keep_alive).toBe("10m");
   });
 
   it("la peticion de calentamiento carga el modelo sin generar tokens", () => {
-    const req = buildWarmupRequest("qwen2.5-coder:1.5b-base");
+    const req = buildWarmupRequest("qwen2.5-coder:1.5b-base", keepAliveFor("low"));
     expect(req.prompt).toBe("");
     expect(req.options.num_predict).toBe(0);
-    expect(req.keep_alive).toBe("30m");
+    expect(req.keep_alive).toBe("5m");
+    expect(req.keep_alive).not.toBe("30m");
   });
 
   it("detecta el modelo cargado en /api/ps, con o sin etiqueta", () => {

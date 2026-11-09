@@ -7,11 +7,10 @@
  *
  * Funciones puras, sin fs mas alla de la lectura del propio transcript — sin
  * red, sin sidecar, sin logging. Compartido por session-summarize-previous.js
- * (resumen con `claude -p`) y sus tests.
+ * (resumen con la LLM secundaria) y sus tests.
  *
- * Filtros de "prompt real" (mismo criterio que lib/session-feedback.js y
- * response-meter.js, que ya resolvieron este problema para otros consumidores
- * del transcript):
+ * Filtros de "prompt real" (mismo criterio que lib/session-feedback.js, que
+ * ya resolvio este problema para otros consumidores del transcript):
  *   - excluye `isMeta: true` (inyecciones de skills/contexto, no algo que
  *     el usuario escribio)
  *   - excluye bloques `tool_result` (no es un prompt, es la salida de una
@@ -45,7 +44,7 @@ function hasToolResult(content) {
   return Array.isArray(content) && content.some((b) => b && b.type === 'tool_result');
 }
 
-/** Mismo criterio que session-feedback.js / response-meter.js. */
+/** Mismo criterio que session-feedback.js. */
 function looksSynthetic(text) {
   if (isSystemTurnPrompt(text)) return true;
   return (

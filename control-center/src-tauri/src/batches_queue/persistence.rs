@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::types::{BatchKind, BatchQueueEntry, BatchQueueReason};
+use super::types::{BatchKind, BatchQueueEntry, BatchQueueListing, BatchQueueReason};
 
 // ---------------------------------------------------------------------------
 // Process-wide write lock
@@ -52,8 +52,11 @@ pub(crate) fn new_queue_id() -> String {
 /// Truncate an error blob so a runaway stderr can't bloat the queue file.
 pub(crate) const MAX_ERROR_LEN: usize = 2000;
 
+/// Redacta los secretos del error completo y después lo recorta: recortar
+/// primero podría partir un token y dejar su prefijo fuera del patrón.
 pub(crate) fn clip_error(s: &str) -> Option<String> {
-    let trimmed = s.trim();
+    let redacted = crate::memory::redaction::redact(s);
+    let trimmed = redacted.trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -87,7 +90,7 @@ pub(crate) fn read_all() -> Result<Vec<BatchQueueEntry>, String> {
         }
         match serde_json::from_str::<BatchQueueEntry>(trimmed) {
             Ok(r) => out.push(r),
-            Err(e) => eprintln!("[batches_queue] skip malformed line {i}: {e}"),
+            Err(e) => tracing::warn!("[batches_queue] skip malformed line {i}: {e}"),
         }
     }
     Ok(out)
@@ -146,8 +149,8 @@ pub(crate) fn upsert(
     )
 }
 
-/// Full upsert with explicit `kind` and `description` — used by
-/// `enqueue_command_inner` and `enqueue_manual_inner`.
+/// Full upsert with explicit `kind` and `description`; `upsert` is the
+/// `BatchKind::Auto` shorthand.
 pub(crate) fn upsert_full(
     entries: &mut Vec<BatchQueueEntry>,
     name: &str,
@@ -217,14 +220,29 @@ pub fn record_inner(
 }
 
 /// List all queued entries, newest first.
-pub fn list_inner() -> Result<Vec<BatchQueueEntry>, String> {
+pub fn list_inner() -> Result<BatchQueueListing, String> {
     // Drain any pending lines the Stop hook appended before listing, so the UI
-    // always reflects the latest captures. Drain failure is non-fatal — we
-    // still return whatever is already in queue.jsonl.
-    let _ = super::drain::drain_pending_inner();
-    let mut entries = read_all()?;
+    // always reflects the latest captures. A drain failure does not hide what
+    // is already in queue.jsonl, but it is no longer swallowed (hooks-6): it
+    // goes to the log and back to the UI in `drain_error`.
+    let drained = super::drain::drain_pending_inner();
+    listing_from(drained, read_all()?)
+}
+
+/// Pure half of `list_inner`: sort newest first and surface the drain error.
+pub(super) fn listing_from(
+    drained: Result<Vec<BatchQueueEntry>, String>,
+    mut entries: Vec<BatchQueueEntry>,
+) -> Result<BatchQueueListing, String> {
+    let drain_error = drained.err();
+    if let Some(e) = &drain_error {
+        tracing::warn!(error = %e, "no se pudo drenar queue-pending.jsonl");
+    }
     entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    Ok(entries)
+    Ok(BatchQueueListing {
+        entries,
+        drain_error,
+    })
 }
 
 /// Remove a queued entry by id (e.g. after a successful manual run, or a user

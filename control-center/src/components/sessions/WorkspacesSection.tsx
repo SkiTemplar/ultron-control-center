@@ -46,15 +46,15 @@ export function WorkspacesSection({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-baseline gap-2">
           <h2 className="text-[14px] font-semibold leading-tight">
-            Recent workspaces
+            Espacios de trabajo recientes
           </h2>
           <span
             className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {workspacesLoading
-              ? "Loading…"
-              : `${filteredWorkspaces.length} of ${workspaces.length}`}
+              ? "Cargando…"
+              : `${filteredWorkspaces.length} de ${workspaces.length}`}
           </span>
         </div>
         {/* El botón de crear proyecto ya no vive aquí: cada session card sin
@@ -70,8 +70,8 @@ export function WorkspacesSection({
             color: "var(--color-text-tertiary)",
           }}
         >
-          No Claude workspaces yet. Open a Claude session in any folder and
-          it will appear here automatically.
+          Todavía no hay espacios de trabajo de Claude. Abre una sesión de
+          Claude en cualquier carpeta y aparecerá aquí sola.
         </div>
       )}
 
@@ -86,7 +86,7 @@ export function WorkspacesSection({
               color: "var(--color-text-tertiary)",
             }}
           >
-            No workspace matches "{search}".
+            Ningún espacio de trabajo coincide con «{search}».
           </div>
         )}
 
@@ -117,7 +117,7 @@ export function WorkspacesSection({
               type="button"
               onClick={() => onToggleGroup(g.key)}
               aria-expanded={isOpen}
-              aria-label={`${isOpen ? "Collapse" : "Expand"} ${g.label} workspaces group`}
+              aria-label={`${isOpen ? "Plegar" : "Desplegar"} el grupo ${g.label}`}
               className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
               style={{
                 background: "var(--color-surface-2)",
@@ -135,13 +135,13 @@ export function WorkspacesSection({
                 className="text-[11.5px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                {g.items.length} workspaces
+                {g.items.length} espacio{g.items.length === 1 ? "" : "s"}
               </span>
               <span
                 className="ml-auto text-[11.5px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                {isOpen ? "hide" : "show"}
+                {isOpen ? "ocultar" : "mostrar"}
               </span>
             </button>
             {isOpen && (

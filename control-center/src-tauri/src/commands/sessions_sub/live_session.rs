@@ -2,10 +2,21 @@
 //
 // Lee, READ-ONLY, los logs que los hooks ya escriben para que la UI muestre EN
 // VIVO la actividad de la sesion activa de Claude Code:
-//   ~/.claude/logs/orchestrate.jsonl        — memory-orchestrate.js: route / workflow /
-//                                              agentes a delegar / skills / memorias por turno
-//   ~/.claude/logs/routing-dispatcher.jsonl  — routing-dispatcher: skill injection + confidence
-//   ~/.ultron/cockpit/delegations.jsonl      — agentes delegados (reusa list_delegations_inner)
+//   ~/.claude/logs/orchestrate.jsonl — memory-orchestrate.js: route / workflow /
+//                                      agentes a delegar / skills / memorias por turno.
+//                                      Solo se escribe en modo full
+//                                      (ULTRON_ORCHESTRATE=full); en el modo
+//                                      ligero, el de por defecto, el hook sale
+//                                      antes de registrar. Por eso el feed lleva
+//                                      `orchestrate_mode`: la UI no puede
+//                                      presentar el último turno full como actual.
+//
+// `delegations` (cockpit/delegations.jsonl) se retiró del feed el 2026-10-17:
+// el fichero no tiene escritor desde que se retiró el despacho del kanban.
+// `routing` (~/.claude/logs/routing-dispatcher.jsonl) se retiró el 2026-10-23:
+// el dispatcher está desconectado desde el 2026-09-29 y ese log solo lo
+// escriben los arneses y selftests, así que pintaba como «skills inyectadas»
+// ejecuciones de pruebas.
 //
 // Tolerante a lineas malformadas o de esquema antiguo (se ignoran). Devuelve la
 // actividad reciente combinada (la decision "todo combinado" del usuario).
@@ -14,12 +25,10 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use crate::agent_orchestration::{list_delegations_inner, DelegationLogEntry};
-
 const DEFAULT_LIMIT: usize = 20;
 const MAX_LIMIT: usize = 200;
 /// Bytes medios por linea JSONL — acota la lectura de cola para no releer el
-/// fichero entero en cada poll (routing-dispatcher.jsonl crece por cada prompt).
+/// fichero entero en cada poll (los logs de hooks crecen sin cota).
 const AVG_LINE_BYTES: u64 = 300;
 
 fn claude_logs_dir() -> Option<PathBuf> {
@@ -127,20 +136,6 @@ pub struct OrchestrateLogEntry {
     pub warnings: Vec<String>,
 }
 
-/// One routing decision as logged by routing-dispatcher.js / v2 / v3.
-/// `skills` is left as a free-form value because the log shape varies by msg.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoutingLogEntry {
-    pub ts: Option<String>,
-    pub level: Option<String>,
-    pub msg: Option<String>,
-    pub top: Option<String>,
-    pub score: Option<f64>,
-    pub confidence: Option<f64>,
-    #[serde(default)]
-    pub skills: Option<serde_json::Value>,
-}
-
 /// Fila cruda de `~/.ultron/.tmp/subagent-harvest.jsonl` (la escribe el hook
 /// SubagentStop `hooks/scripts/subagent-harvest.js`). Tolerante a drift de shape.
 #[derive(Debug, Clone, Deserialize)]
@@ -200,16 +195,53 @@ pub struct RunningSubagent {
 #[derive(Debug, Clone, Serialize)]
 pub struct LiveSessionFeed {
     /// Orchestrations newest-first (route / workflow / agents / skills / memories).
+    /// Solo hay entradas nuevas en modo full: ver `orchestrate_mode`.
     pub orchestrations: Vec<OrchestrateLogEntry>,
-    /// Raw routing decisions newest-first (skill injection + confidence).
-    pub routing: Vec<RoutingLogEntry>,
-    /// Delegated agents newest-first (status: launched/done/timeout/failed).
-    pub delegations: Vec<DelegationLogEntry>,
+    /// Modo del hook memory-orchestrate: "light" (por defecto: solo inyecta el
+    /// tono y no escribe orchestrate.jsonl) o "full".
+    pub orchestrate_mode: String,
+    /// `ULTRON_DENSE` del proceso de la app (false con ULTRON_DENSE=0).
+    pub dense_enabled: bool,
     /// Finished subagents newest-first (SubagentStop harvest), ruido filtrado.
     pub subagents: Vec<SubagentActivity>,
     /// Subagentes EN VUELO ahora (SubagentStart sin SubagentStop posterior).
     pub running_subagents: Vec<RunningSubagent>,
     pub generated_at: String,
+}
+
+/// Modo del hook memory-orchestrate (`ULTRON_ORCHESTRATE`). Claude Code pasa
+/// a los hooks el bloque `env` de ~/.claude/settings.json por encima del
+/// entorno heredado, así que ese valor manda; si no está, el del proceso de la
+/// app (variables de usuario). Solo "full" activa el modo completo, como en el
+/// hook (`process.env.ULTRON_ORCHESTRATE !== 'full'` → ligero).
+/// LÍMITE (mand. 13): la variable del proceso es la que había al abrir la app;
+/// un cambio posterior en las variables de usuario no se ve hasta reiniciarla.
+pub(crate) fn resolve_orchestrate_mode(
+    settings_env: Option<&str>,
+    process_env: Option<&str>,
+) -> &'static str {
+    match settings_env.or(process_env) {
+        Some("full") => "full",
+        _ => "light",
+    }
+}
+
+/// `env.ULTRON_ORCHESTRATE` de un settings.json ya leído.
+fn orchestrate_from_settings(raw: &str) -> Option<String> {
+    let doc: serde_json::Value = serde_json::from_str(raw).ok()?;
+    doc.get("env")?
+        .get("ULTRON_ORCHESTRATE")?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn orchestrate_mode() -> &'static str {
+    let settings = dirs::home_dir()
+        .map(|h| h.join(".claude").join("settings.json"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|raw| orchestrate_from_settings(&raw));
+    let process = std::env::var("ULTRON_ORCHESTRATE").ok();
+    resolve_orchestrate_mode(settings.as_deref(), process.as_deref())
 }
 
 fn now_iso() -> String {
@@ -320,21 +352,18 @@ fn running_subagents(limit: usize) -> Vec<RunningSubagent> {
 /// Live Session Monitor: combined recent activity of the active Claude Code
 /// session. Read-only — never writes. `limit` clamps to [1, 200] (default 20).
 #[tauri::command]
-pub fn live_session_feed(limit: Option<usize>) -> Result<LiveSessionFeed, String> {
+pub async fn live_session_feed(limit: Option<usize>) -> Result<LiveSessionFeed, String> {
     let n = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let logs = claude_logs_dir().ok_or("no home dir")?;
 
     let orchestrations = read_jsonl_tail::<OrchestrateLogEntry>(&logs.join("orchestrate.jsonl"), n);
-    let routing = read_jsonl_tail::<RoutingLogEntry>(&logs.join("routing-dispatcher.jsonl"), n);
-    // Feed global: sin filtro de cwd (None) — comportamiento previo intacto.
-    let delegations = list_delegations_inner(n, None).unwrap_or_default();
     let subagents = recent_subagents(n);
     let running_subagents = running_subagents(n);
 
     Ok(LiveSessionFeed {
         orchestrations,
-        routing,
-        delegations,
+        orchestrate_mode: orchestrate_mode().to_string(),
+        dense_enabled: crate::qdrant::dense_enabled(),
         subagents,
         running_subagents,
         generated_at: now_iso(),
@@ -362,20 +391,40 @@ mod tests {
             "{\"ts\":\"a\",\"msg\":\"one\"}\nNOT JSON\n{\"ts\":\"b\",\"msg\":\"two\"}\n",
         )
         .unwrap();
-        let out: Vec<RoutingLogEntry> = read_jsonl_tail(&p, 10);
+        let out: Vec<serde_json::Value> = read_jsonl_tail(&p, 10);
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0].msg.as_deref(), Some("two")); // newest first
+        assert_eq!(out[0]["msg"].as_str(), Some("two")); // newest first
         let _ = std::fs::remove_file(&p);
     }
 
     #[test]
     fn feed_clamps_limit() {
         // Smoke: should never panic and respects clamp; files may be absent.
-        let feed = live_session_feed(Some(99_999)).unwrap();
-        assert!(feed.routing.len() <= MAX_LIMIT);
+        let feed = tauri::async_runtime::block_on(live_session_feed(Some(99_999))).unwrap();
+        assert!(feed.orchestrate_mode == "light" || feed.orchestrate_mode == "full");
         assert!(feed.orchestrations.len() <= MAX_LIMIT);
         assert!(feed.subagents.len() <= MAX_LIMIT);
         assert!(feed.running_subagents.len() <= MAX_LIMIT);
+    }
+
+    /// Caso negativo de prompting-1: sin `ULTRON_ORCHESTRATE=full` el modo es
+    /// ligero, y settings.json manda sobre el entorno del proceso.
+    #[test]
+    fn orchestrate_mode_is_light_unless_full_is_set() {
+        assert_eq!(resolve_orchestrate_mode(None, None), "light");
+        assert_eq!(resolve_orchestrate_mode(None, Some("full")), "full");
+        assert_eq!(
+            resolve_orchestrate_mode(Some("light"), Some("full")),
+            "light"
+        );
+        assert_eq!(resolve_orchestrate_mode(Some("full"), None), "full");
+        assert_eq!(resolve_orchestrate_mode(Some("FULL"), None), "light");
+        assert_eq!(
+            orchestrate_from_settings(r#"{"env":{"ULTRON_ORCHESTRATE":"full"}}"#).as_deref(),
+            Some("full")
+        );
+        assert_eq!(orchestrate_from_settings(r#"{"env":{}}"#), None);
+        assert_eq!(orchestrate_from_settings("no json"), None);
     }
 
     #[test]

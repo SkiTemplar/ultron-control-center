@@ -1,6 +1,7 @@
 // Usage → Activity — timeline de actividad del sistema completo (no solo
-// tokens Claude): hyper-plans, doctor, prompt-feedback, token-usage,
-// auto-updater, mcp-audit, alerts y workdays/kanban. Consume
+// tokens Claude): alertas, decisiones del AI Router (routing) y tarjetas del
+// kanban de cada proyecto. Las seis fuentes de telemetría sin escritor se
+// retiraron el 2026-10-17. Consume
 // compute_activity_timeline (heatmap día×fuente + eventos recientes).
 // Wiring 2026-08-11 (audit 08-09 #43).
 
@@ -41,7 +42,8 @@ function heatOpacity(count: number, max: number): number {
   return 0.25 + 0.65 * Math.min(1, count / Math.max(1, max));
 }
 
-export function ActivityTab() {
+/// `refreshKey` comes from the Usage header Refresh button; a new value reloads.
+export function ActivityTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const [days, setDays] = useState<(typeof WINDOWS)[number]>(30);
   const [data, setData] = useState<TimelineSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +71,7 @@ export function ActivityTab() {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [days, refreshKey]);
 
   const dayAxis = lastDaysUtc(days);
   const sources = data
@@ -94,8 +96,8 @@ export function ActivityTab() {
     <div>
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Actividad de TODO el sistema (plans, doctor, routing, alerts,
-          kanban…), no solo tokens Claude.
+          Actividad de TODO el sistema (alertas, routing del Router de IA y
+          tarjetas del kanban), no solo los tokens de Claude.
         </p>
         <div className="flex gap-1">
           {WINDOWS.map((w) => (
@@ -112,7 +114,7 @@ export function ActivityTab() {
                 }`,
               }}
             >
-              {w}d
+              {w} d
             </button>
           ))}
         </div>
@@ -133,7 +135,7 @@ export function ActivityTab() {
 
       {loading && !data && (
         <p className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Loading…
+          Cargando…
         </p>
       )}
 
@@ -149,7 +151,7 @@ export function ActivityTab() {
           >
             {sources.length === 0 ? (
               <p className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-                Sin eventos en los últimos {days} días.
+                No hay eventos en los últimos {days} días.
               </p>
             ) : (
               <table className="border-separate" style={{ borderSpacing: 2 }}>
@@ -210,10 +212,10 @@ export function ActivityTab() {
 
           {/* Eventos recientes */}
           <div className="mb-2 flex items-baseline justify-between">
-            <h3 className="text-[12.5px] font-medium">Recent events</h3>
+            <h3 className="text-[12.5px] font-medium">Eventos recientes</h3>
             <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-faint)" }}>
               {data.events.length > MAX_EVENTS_SHOWN
-                ? `${MAX_EVENTS_SHOWN} of ${data.events.length}`
+                ? `${MAX_EVENTS_SHOWN} de ${data.events.length}`
                 : data.events.length}
             </span>
           </div>

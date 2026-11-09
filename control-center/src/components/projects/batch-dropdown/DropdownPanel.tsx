@@ -1,7 +1,8 @@
 // The open dropdown panel for BatchDropdown: header row (Clear all / Refresh)
 // + body (queue entries + batch file list).
 
-import type { BatchEntry, BatchQueueEntry } from "./types";
+import { RunReview } from "./RunReview";
+import type { BatchEntry, BatchQueueEntry, BatchRunReview } from "./types";
 import { REASON_COLOR, REASON_LABEL, clip, formatAge, formatBytes } from "./utils";
 
 type DropdownPanelProps = {
@@ -17,9 +18,11 @@ type DropdownPanelProps = {
   queueBusyId: string | null;
   onRefresh: () => void;
   onClearAll: () => void;
-  onRun: (name: string) => void;
+  review: BatchRunReview | null;
+  onRequestRun: (name: string, queueEntry?: BatchQueueEntry | null) => void;
+  onConfirmRun: () => void;
+  onCancelRun: () => void;
   onDeleteSingle: (name: string) => void;
-  onRunFromQueue: (entry: BatchQueueEntry) => void;
   onRequeue: (entry: BatchQueueEntry) => void;
   onDismissQueue: (entry: BatchQueueEntry) => void;
 };
@@ -37,16 +40,18 @@ export function DropdownPanel({
   queueBusyId,
   onRefresh,
   onClearAll,
-  onRun,
+  review,
+  onRequestRun,
+  onConfirmRun,
+  onCancelRun,
   onDeleteSingle,
-  onRunFromQueue,
   onRequeue,
   onDismissQueue,
 }: DropdownPanelProps) {
   return (
     <div
       role="menu"
-      aria-label="Available batch scripts"
+      aria-label="Scripts .bat disponibles"
       className="absolute right-0 z-40 mt-1.5 w-[380px] rounded-lg shadow-xl"
       style={{
         background: "var(--color-surface-2)",
@@ -74,7 +79,7 @@ export function DropdownPanel({
                 className="text-[10.5px] font-medium"
                 style={{ color: "var(--color-danger)" }}
               >
-                Seguro?
+                ¿Seguro?
               </span>
               <button
                 type="button"
@@ -87,7 +92,7 @@ export function DropdownPanel({
                   border: "1px solid rgba(248,81,73,0.40)",
                 }}
               >
-                Si, borrar todo
+                Sí, borrar todo
               </button>
               <button
                 type="button"
@@ -113,9 +118,9 @@ export function DropdownPanel({
                 color: "var(--color-danger)",
                 border: "1px solid var(--color-border)",
               }}
-              title="Eliminar TODOS los batches (con confirmacion)"
+              title="Eliminar TODOS los batches (con confirmación)"
             >
-              Clear all
+              Borrar todo
             </button>
           )}
 
@@ -130,12 +135,17 @@ export function DropdownPanel({
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border)",
             }}
-            title="Re-scan the batches folder"
+            title="Vuelve a leer la carpeta de batches"
           >
-            {loading ? "..." : "Refresh"}
+            {loading ? "…" : "Actualizar"}
           </button>
         </div>
       </div>
+
+      {/* La revisión queda fuera de la zona con scroll: siempre a la vista. */}
+      {review && (
+        <RunReview review={review} onConfirm={onConfirmRun} onCancel={onCancelRun} />
+      )}
 
       {/* ----------------------------------------------------------------
           Body — queue + batch file list unified as a single list
@@ -146,7 +156,7 @@ export function DropdownPanel({
             className="px-3 py-3 text-center text-[12px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Cargando batches...
+            Cargando batches…
           </div>
         )}
 
@@ -260,16 +270,16 @@ export function DropdownPanel({
                       <button
                         type="button"
                         disabled={busy || runningName !== null}
-                        onClick={() => onRunFromQueue(q)}
+                        onClick={() => onRequestRun(q.name, q)}
                         className="rounded px-2 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-40"
                         style={{
                           background: "rgba(88,166,255,0.12)",
                           color: "var(--color-accent, #58a6ff)",
                           border: "1px solid rgba(88,166,255,0.40)",
                         }}
-                        title="Ejecutar ahora"
+                        title="Enseña el script y pide confirmación antes de lanzarlo"
                       >
-                        {busy ? "Ejecutando..." : "Ejecutar"}
+                        {busy ? "Ejecutando…" : "Revisar y ejecutar"}
                       </button>
                     )}
                     {!isManual && (
@@ -285,7 +295,7 @@ export function DropdownPanel({
                         }}
                         title="Reencolar (marcar pendiente de reintento)"
                       >
-                        Requeue
+                        Reencolar
                       </button>
                     )}
                     <button
@@ -328,7 +338,7 @@ export function DropdownPanel({
               className="mt-1.5 text-[10.5px]"
               style={{ color: "var(--color-text-faint)" }}
             >
-              Los scripts que Claude no pueda ejecutar apareceran aqui.
+              Los scripts que Claude no pueda ejecutar aparecerán aquí.
             </div>
           </div>
         )}
@@ -355,7 +365,7 @@ export function DropdownPanel({
                           color: "var(--color-danger)",
                         }}
                       >
-                        Eliminar {b.name}?
+                        ¿Eliminar {b.name}?
                       </span>
                       <button
                         type="button"
@@ -388,7 +398,7 @@ export function DropdownPanel({
                         type="button"
                         role="menuitem"
                         disabled={busy || runningName !== null}
-                        onClick={() => onRun(b.name)}
+                        onClick={() => onRequestRun(b.name)}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 text-left transition-colors disabled:opacity-50"
                         style={{
                           background: "transparent",
@@ -447,7 +457,7 @@ export function DropdownPanel({
                               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                             </svg>
                           )}
-                          {busy ? "running" : "run"}
+                          {busy ? "ejecutando" : "revisar"}
                         </span>
                       </button>
 

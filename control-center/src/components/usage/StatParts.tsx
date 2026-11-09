@@ -3,7 +3,7 @@
 // Extraídos de Usage.tsx (2026-08-16, límite 800 líneas): son presentación sin
 // estado propio; Usage.tsx conserva el estado y la orquestación.
 import type { DailyPoint, ModelStat, WindowStats } from "../../types";
-import { formatNum, shortModel } from "./format";
+import { formatInt, formatNum, shortModel } from "./format";
 
 export function WindowCard({
   title,
@@ -47,9 +47,9 @@ export function WindowCard({
         </span>
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-[11.5px]">
-        <Stat label="Messages" value={w.messages} />
-        <Stat label="Sessions" value={w.sessions} />
-        <Stat label="Tool calls" value={w.tool_calls} />
+        <Stat label="Prompts" value={w.messages} />
+        <Stat label="Sesiones" value={w.sessions} />
+        <Stat label="Herramientas" value={w.tool_calls} />
       </div>
       {Object.keys(w.tokens_by_model).length > 0 && (
         <div className="mt-3 space-y-1">
@@ -88,7 +88,7 @@ export function Stat({ label, value }: { label: string; value: number }) {
         className="tabular-nums"
         style={{ color: "var(--color-text)", fontWeight: 500 }}
       >
-        {value.toLocaleString()}
+        {formatInt(value)}
       </div>
     </div>
   );
@@ -110,7 +110,7 @@ export function DailyBars({ data }: { data: DailyPoint[] }) {
             key={d.date}
             className="group relative flex-1"
             style={{ minWidth: 12 }}
-            title={`${d.date} · ${formatNum(d.tokens)} tokens · ${d.messages} msgs`}
+            title={`${d.date} · ${formatNum(d.tokens)} tokens · ${formatInt(d.messages)} prompts`}
           >
             <div
               className="rounded-t"
@@ -166,10 +166,10 @@ export function ModelTable({ models }: { models: ModelStat[] }) {
             </span>
           </div>
           <div className="mt-2 grid grid-cols-4 gap-3 text-[10.5px]">
-            <ModelStatCell label="Input" value={m.input_tokens} />
-            <ModelStatCell label="Output" value={m.output_tokens} />
-            <ModelStatCell label="Cache read" value={m.cache_read} />
-            <ModelStatCell label="Cache create" value={m.cache_create} />
+            <ModelStatCell label="Entrada" value={m.input_tokens} />
+            <ModelStatCell label="Salida" value={m.output_tokens} />
+            <ModelStatCell label="Lectura de caché" value={m.cache_read} />
+            <ModelStatCell label="Escritura de caché" value={m.cache_create} />
           </div>
         </div>
       ))}
@@ -205,7 +205,7 @@ export function HourHisto({ counts }: { counts: number[] }) {
           <div
             key={h}
             className="flex-1"
-            title={`${String(h).padStart(2, "0")}:00 · ${c} sessions`}
+            title={`${String(h).padStart(2, "0")}:00 · ${c} sesiones`}
             style={{
               height: `${Math.max(2, height)}px`,
               background: c > 0 ? "var(--color-accent)" : "var(--color-surface-3)",

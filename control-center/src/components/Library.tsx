@@ -11,11 +11,10 @@ import { Agents } from "./Agents";
 import { Rules } from "./Rules";
 import { Catalog } from "./library/Catalog";
 import { Commands } from "./library/Commands";
-import { RoutingCatalog } from "./library/RoutingCatalog";
 import { Tones } from "./library/Tones";
 import { PluginsSection } from "./Settings/PluginsSection";
 import { Hooks } from "./Hooks";
-import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder, Search } from "./library/icons";
+import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder } from "./library/icons";
 
 export type LibrarySubTab =
   | "skills"
@@ -25,7 +24,6 @@ export type LibrarySubTab =
   | "hooks"
   | "catalog"
   | "commands"
-  | "routing"
   | "tones";
 
 type SubTabSpec = {
@@ -35,73 +33,63 @@ type SubTabSpec = {
   hint: string;
 };
 
-// v2.6.1: ordered so the "installed" inventory comes first
-// (skills/agents/rules/plugins/hooks), then the live introspection
-// tab (commands), and finally the outward-facing discovery tab (catalog).
-// Catalog moved to the very end per the user's request — it's the entry
-// point for "find me something new", not the daily-driver view.
+// v2.6.1: primero el inventario instalado (skills, agentes, reglas,
+// plugins, hooks), luego la introspección en vivo (comandos) y al final el
+// descubrimiento (catálogo), que es para buscar algo nuevo y no el uso diario.
 const SUB_TABS: SubTabSpec[] = [
   {
     id: "skills",
     label: "Skills",
     Icon: Sparkle,
-    hint: "Installed skills from global, project and plugin scopes.",
+    hint: "Skills instaladas en los ámbitos global, de proyecto y de plugin.",
   },
   {
     id: "agents",
-    label: "Agents",
+    label: "Agentes",
     Icon: Bot,
-    hint: "Subagents Claude Code can dispatch to.",
+    hint: "Subagentes a los que Claude Code puede delegar.",
   },
   {
     id: "rules",
-    label: "Rules",
+    label: "Reglas",
     Icon: BookOpen,
-    hint: "Coding standards and patterns from ~/.claude/rules/.",
+    hint: "Normas y patrones de código de ~/.claude/rules/.",
   },
   {
-    // v2.6 (card-v26-fb-021): Plugins moved from Settings to Library so the
-    // user manages the whole "what Claude Code can do" inventory in one tab.
+    // v2.6 (card-v26-fb-021): los plugins pasaron de Ajustes a Biblioteca para
+    // gestionar en una sola pestaña todo lo que puede hacer Claude Code.
     id: "plugins",
     label: "Plugins",
     Icon: Folder,
-    hint: "Installed plugin bundles (skills + agents + hooks + MCPs).",
+    hint: "Paquetes de plugins instalados (skills, agentes, hooks y MCP).",
   },
   {
-    // v2.6: Hooks moved from System tab → Library — it's a Claude-side
-    // concept, not an OS-level one.
+    // v2.6: los hooks pasaron de Sistema a Biblioteca: son un concepto de
+    // Claude Code, no del sistema operativo.
     id: "hooks",
     label: "Hooks",
     Icon: Bot,
-    hint: "PreToolUse / PostToolUse / Stop hook scripts from your settings + plugins.",
+    hint: "Scripts de hooks (PreToolUse, PostToolUse, Stop…) de tus ajustes y plugins.",
   },
   {
     id: "commands",
-    label: "Commands",
+    label: "Comandos",
     Icon: Terminal,
-    hint: "Every /slash command exposed by your installed plugins.",
-  },
-  {
-    // Wiring 2026-08-11 (audit 08-09 #40): inspector del catálogo de routing
-    // semántico — prueba de "¿a quién rutearía este prompt?" + reindex manual.
-    id: "routing",
-    label: "Routing",
-    Icon: Search,
-    hint: "Test which agent/skill a prompt routes to + reindex the semantic catalog.",
+    hint: "Todos los /slash commands que exponen tus plugins instalados.",
   },
   {
     // Personalities v1 (2026-08-13): tonos del chat visibles/editables +
     // playground de detección (misma detección que corre en el orchestrate).
     id: "tones",
-    label: "Tones",
+    label: "Tonos",
     Icon: Sparkle,
-    hint: "Chat tones (personalities): edit detection signals + test which tone a prompt activates.",
+    hint: "Tonos del chat (personalidades): edita sus señales de detección y prueba qué tono activa un prompt.",
   },
   {
     id: "catalog",
-    label: "Catalog",
+    label: "Catálogo",
     Icon: Compass,
-    hint: "Discover curated picks + search GitHub for new skills, agents and MCP servers.",
+    hint: "Descubre selecciones y busca en GitHub skills, agentes y servidores MCP nuevos.",
   },
 ];
 
@@ -141,7 +129,7 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
       >
         <div className="flex items-center justify-between gap-4 px-6 pt-4">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-[15px] font-semibold">Library</h2>
+            <h2 className="text-[15px] font-semibold">Biblioteca</h2>
             <span
               className="text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
@@ -153,7 +141,7 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         <nav
           className="flex gap-1 px-6 pb-3 pt-3"
           role="tablist"
-          aria-label="Library sub-sections"
+          aria-label="Secciones de la biblioteca"
         >
           {SUB_TABS.map(({ id, label, Icon }) => {
             const isActive = sub === id;
@@ -191,7 +179,6 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         {sub === "rules" && <Rules />}
         {sub === "catalog" && <Catalog />}
         {sub === "commands" && <Commands />}
-        {sub === "routing" && <RoutingCatalog />}
         {sub === "tones" && <Tones />}
         {sub === "plugins" && (
           <div className="h-full overflow-auto px-6 py-4">

@@ -22,7 +22,8 @@ pub async fn auth_status() -> Result<auth::AuthStatusReport, String> {
 // resolves on success.
 #[tauri::command]
 pub async fn close_control_center(app: tauri::AppHandle) -> Result<(), String> {
-    crate::pty::kill_all_inner();
+    // Los PTY mueren en RunEvent::Exit (lib.rs), tras el aviso de
+    // sesiones/proteccion.rs si alguna sesión tiene trabajo en curso.
     app.exit(0);
     Ok(())
 }

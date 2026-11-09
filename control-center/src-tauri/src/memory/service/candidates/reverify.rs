@@ -107,7 +107,7 @@ impl MemoryService {
             let ev = MemoryEvent::new(EventType::Edited, None, Actor::System)
                 .with_reason(format!("candidate {} reverified (drain --auto)", cand.id))
                 .with_after(serde_json::to_string(&to_write).unwrap_or_default());
-            let _ = store::insert_event(conn, &ev);
+            store::insert_event(conn, &ev)?;
             Ok(true)
         })
     }

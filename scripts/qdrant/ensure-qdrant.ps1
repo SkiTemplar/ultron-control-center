@@ -1,4 +1,4 @@
-﻿param(
+param(
     [int]$MaxWaitSec = 60,
     [int]$PollSec = 3
 )
@@ -12,7 +12,7 @@
 #   1. Probe http://localhost:6333/healthz. Si responde, done.
 #   2. Si no, lanzar el binario nativo ~/.ultron/qdrant-native/qdrant.exe
 #      hidden y esperar healthz (60s).
-#   3. Si el binario no existe o no arranca → status native-failed/missing.
+#   3. Si el binario no existe o no arranca -> status native-failed/missing.
 #
 # Exit codes:
 #   0 up             - healthz 200 from someone
@@ -64,11 +64,11 @@ if (Test-Healthz) {
 # Phase 2: try native qdrant.exe (primary path post-v15.0.2).
 # ========================================================================
 # Canonical location is overridable via ULTRON_QDRANT_DIR / ULTRON_QDRANT_EXE
-# (same contract as lib.rs spawn_qdrant_exe). Portable default stays at
-# ~/.ultron/qdrant-native so a fresh install works with zero config.
+# (same contract as lib.rs spawn_qdrant_exe). Portable default: qdrant-native
+# in the repo root (relative to this script), so a fresh install works with
+# zero config and no machine-specific path lives in the code.
 if ($env:ULTRON_QDRANT_DIR) { $nativeDir = $env:ULTRON_QDRANT_DIR }
-elseif (Test-Path 'D:\Ultron\qdrant\qdrant.exe') { $nativeDir = 'D:\Ultron\qdrant' }
-else { $nativeDir = "$env:USERPROFILE\.ultron\qdrant-native" }
+else { $nativeDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\qdrant-native')) }
 if ($env:ULTRON_QDRANT_EXE) { $nativeExe = $env:ULTRON_QDRANT_EXE } else { $nativeExe = Join-Path $nativeDir 'qdrant.exe' }
 # Prefer an existing config.yaml in the canonical dir; fall back to the
 # portable layout (config\production.yaml) used by the installer.

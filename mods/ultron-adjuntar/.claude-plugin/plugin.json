@@ -1,0 +1,6 @@
+{
+  "name": "ultron-adjuntar",
+  "version": "0.1.0",
+  "description": "Adjuntar ficheros sin escribir rutas: buscador /adjuntar (proyecto, sesión, capturas, descargas, escritorio), /captura y /citar",
+  "types": "./types/index.d.ts"
+}

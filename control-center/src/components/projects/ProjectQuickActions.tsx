@@ -8,26 +8,35 @@
 // botones de densidad full Refactor IA / README IA.
 //
 // masterplan 3.6 (2026-07-02): Batch salió de esta barra por decisión del
-// usuario (ganar espacio para el kanban en ProjectWorkspace). El backend de
-// colas (execute_batch/list_batches/batches_enqueue_manual/...) sigue intacto
-// y Batch sigue visible en el header de la lista de proyectos (Projects.tsx →
-// <BatchDropdown headerStyle />). `showBatch` queda como escape hatch opt-in
-// para una superficie futura que sí lo necesite ahí; por defecto NO se monta.
+// usuario (ganar espacio para el kanban en ProjectWorkspace). La cola de .bat
+// sigue viva (list_batches/execute_batch/batches_list_queue/..., ver
+// BatchDropdown) y visible en el header de la lista de proyectos (Projects.tsx
+// → <BatchDropdown headerStyle />). No es el despacho de tarjetas por PTY del
+// kanban, que se retiró el 2026-10-17. `showBatch` queda como escape hatch
+// opt-in para una superficie futura que sí lo necesite ahí; por defecto NO se
+// monta.
 //
-// El botón AI lanza una sesión EXTERNA del CLI vía `spawn_session` (wt.exe),
-// NO un terminal embebido (pty_spawn).
+// Botón AI (contrato v2 de ULTRON Sessions, E11): con Claude abre la sesión
+// del proyecto en ULTRON Sessions (`sesiones_launch`). Con Codex sigue
+// lanzando la CLI externa. Nunca un terminal embebido (pty_spawn).
+//
+// Botón «Jugar» (2026-10-28): solo en proyectos con `game_engine` (Unreal o
+// Unity, detectado por list_projects). Abre el juego sin editor vía
+// `project_play_game` y enseña en la tarjeta qué modo usó (build empaquetado,
+// UnrealEditor -game o player de Unity); sin build de Unity, el error del backend.
 //
 // Se monta en: ProjectCard, ProjectRow header, ProjectWorkspace header.
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import type { ProjectInfo, SessionProvider } from "../../types";
+import type { GameLaunchResult, ProjectInfo, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
 import BatchDropdown, { type BatchToast } from "./BatchDropdown";
 import {
   CardIconFolder,
   CardIconIde,
+  CardIconPlay,
   CardIconSpark,
   CardIconTerminal,
 } from "./LauncherIcons";
@@ -43,6 +52,9 @@ export interface ProjectQuickActionsProps {
   /** Opt-in: monta el BatchDropdown en esta barra. Default: false (masterplan
    *  3.6 — Batch salió de la barra de acciones de proyecto). */
   showBatch?: boolean;
+  /** Pinta «Lanzar todo». ProjectRow lo apaga porque tiene el suyo propio, que
+   *  respeta el estado de lanzamiento de la lista. Default: true. */
+  showLaunchAll?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +62,7 @@ export interface ProjectQuickActionsProps {
 // ---------------------------------------------------------------------------
 
 interface ActionBtnProps {
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   title: string;
   label: string;
   Icon?: () => React.ReactElement;
@@ -74,14 +86,14 @@ function ActionBtn({
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
-        if (!disabled) onClick();
+        if (!disabled) onClick(e);
       }}
       title={title}
       className="flex items-center justify-center gap-1.5 rounded font-medium transition-colors disabled:opacity-40"
       style={{
-        height: compact ? 28 : 34,
-        padding: compact ? "0 8px" : "0 10px",
-        fontSize: compact ? 11 : 12,
+        height: compact ? 32 : 36,
+        padding: compact ? "0 9px" : "0 12px",
+        fontSize: compact ? 12 : 13,
         background: "var(--color-surface-1)",
         color: accent ?? "var(--color-text)",
         border: "1px solid var(--color-border-strong)",
@@ -109,9 +121,11 @@ export function ProjectQuickActions({
   density = "compact",
   onBatchResult,
   showBatch = false,
+  showLaunchAll = true,
 }: ProjectQuickActionsProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [appError, setAppError] = useState<string | null>(null);
+  const [appInfo, setAppInfo] = useState<string | null>(null);
 
   const provider: SessionProvider =
     (p.default_provider as SessionProvider | null | undefined) ?? "claude";
@@ -121,6 +135,7 @@ export function ProjectQuickActions({
   async function handleFolder() {
     if (!p.path) return;
     setAppError(null);
+    setAppInfo(null);
     try {
       await openPath(p.path);
     } catch (e) {
@@ -137,6 +152,7 @@ export function ProjectQuickActions({
   async function handleIde() {
     if (!p.path) return;
     setAppError(null);
+    setAppInfo(null);
     try {
       await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null });
     } catch (e) {
@@ -144,16 +160,20 @@ export function ProjectQuickActions({
     }
   }
 
-  // AI button → external CLI session via spawn_session (wt.exe wrapper).
-  async function handleAi() {
+  // Terminal clásica: sesión EXTERNA del CLI vía spawn_session (wt.exe).
+  async function handleTerminal() {
     if (busy) return;
     setBusy("ai");
+    setAppError(null);
+    setAppInfo(null);
     try {
       await invoke("spawn_session", {
         provider,
         cwd: p.path ?? null,
         prompt: null,
-        flags: { dangerouslySkipPermissions: false },
+        // Flujo interno sobre un proyecto propio: sin decisión explícita de
+        // permisos manda el defecto de sessions.rs (resolve_dangerous).
+        flags: {},
       });
     } catch (e) {
       setAppError(String(e));
@@ -162,16 +182,56 @@ export function ProjectQuickActions({
     }
   }
 
+  // Claude → ULTRON Sessions: crea la sesión del proyecto y abre o enfoca la ventana.
+  async function handleClaudeSessions() {
+    if (busy) return;
+    setBusy("ai");
+    setAppError(null);
+    setAppInfo(null);
+    try {
+      await invoke("sesiones_launch", { projectId: p.id });
+    } catch (e) {
+      setAppError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Claude abre ULTRON Sessions; Codex va por la CLI externa.
+  function handleAi() {
+    if (provider === "claude") void handleClaudeSessions();
+    else void handleTerminal();
+  }
+
   // "Abrir app" — lanza project.app_command en una terminal nueva (backend
-  // revalida id/app_command/path; el frontend solo decide el estado disabled
-  // para no invocar a ciegas un comando que no existe — mandamiento 11).
+  // revalida id/app_command/path). Sin comando de arranque no se pinta: un
+  // botón deshabilitado en todas las tarjetas era ruido (repaso 2026-10-18);
+  // el campo se rellena desde «Editar» del proyecto.
   const hasAppCommand = !!(p.app_command && p.app_command.trim());
   async function handleOpenApp() {
     if (busy || !hasAppCommand) return;
     setBusy("app");
     setAppError(null);
+    setAppInfo(null);
     try {
       await invoke("project_open_app", { id: p.id });
+    } catch (e) {
+      setAppError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // «Jugar» — el backend elige el ejecutable a partir de la ruta del registro
+  // y lanza el juego desacoplado; aquí solo se enseña el modo o el error.
+  async function handlePlayGame() {
+    if (busy || !p.game_engine) return;
+    setBusy("play");
+    setAppError(null);
+    setAppInfo(null);
+    try {
+      const r = await invoke<GameLaunchResult>("project_play_game", { id: p.id });
+      setAppInfo(r.message);
     } catch (e) {
       setAppError(String(e));
     } finally {
@@ -183,6 +243,7 @@ export function ProjectQuickActions({
     if (busy) return;
     setBusy("launch_all");
     setAppError(null);
+    setAppInfo(null);
     try {
       await invoke("launch_all_items", { projectId: p.id });
     } catch (e) {
@@ -196,6 +257,7 @@ export function ProjectQuickActions({
     if (busy) return;
     setBusy(`item_${index}`);
     setAppError(null);
+    setAppInfo(null);
     try {
       await invoke("launch_item", { projectId: p.id, index });
     } catch (e) {
@@ -215,7 +277,7 @@ export function ProjectQuickActions({
         onClick={handleFolder}
         disabled={!p.path}
         title={p.path ? `Abrir ${p.path} en Explorer` : "Sin ruta configurada"}
-        label="Folder"
+        label="Carpeta"
         Icon={CardIconFolder}
         compact={compact}
       />
@@ -227,29 +289,49 @@ export function ProjectQuickActions({
         Icon={CardIconIde}
         compact={compact}
       />
-      <ActionBtn
-        onClick={handleAi}
-        disabled={busy === "ai"}
-        title={`Iniciar sesión ${badge.label} (CLI externa)`}
-        label={busy === "ai" ? "…" : badge.label}
-        accent={badge.tint}
-        Icon={CardIconSpark}
-        compact={compact}
-      />
-      <ActionBtn
-        onClick={handleOpenApp}
-        disabled={!hasAppCommand || busy === "app"}
-        title={
-          hasAppCommand
-            ? `Lanzar: ${p.app_command}`
-            : "Configura app_command para habilitar este botón"
-        }
-        label={busy === "app" ? "Lanzando…" : "Abrir app"}
-        Icon={CardIconTerminal}
-        compact={compact}
-      />
+      <span className="inline-flex items-center">
+        <ActionBtn
+          onClick={handleAi}
+          disabled={busy === "ai"}
+          title={
+            provider === "claude"
+              ? "Abrir en ULTRON Sessions"
+              : `Iniciar sesión ${badge.label} (CLI externa)`
+          }
+          label={busy === "ai" ? "…" : badge.label}
+          accent={badge.tint}
+          Icon={CardIconSpark}
+          compact={compact}
+        />
+      </span>
+      {hasAppCommand && (
+        <ActionBtn
+          onClick={handleOpenApp}
+          disabled={busy === "app"}
+          title={`Ejecuta en una terminal nueva: ${p.app_command}`}
+          label={busy === "app" ? "Lanzando…" : "Abrir app"}
+          Icon={CardIconTerminal}
+          compact={compact}
+        />
+      )}
 
-      {/* Run Batch — fuera por defecto (masterplan 3.6); opt-in con showBatch */}
+      {p.game_engine && (
+        <ActionBtn
+          onClick={handlePlayGame}
+          disabled={busy === "play"}
+          title={
+            p.game_engine === "unreal"
+              ? "Abre el juego sin editor: build empaquetado si existe; si no, UnrealEditor -game -windowed"
+              : "Abre el build de Windows del juego (Builds/); sin build, avisa de que hay que compilar"
+          }
+          label={busy === "play" ? "Abriendo…" : "Jugar"}
+          Icon={CardIconPlay}
+          accent="var(--color-success, #3fb950)"
+          compact={compact}
+        />
+      )}
+
+      {/* Ejecutar .bat — fuera por defecto (masterplan 3.6); opt-in con showBatch */}
       {showBatch && <BatchDropdown headerStyle onResult={onBatchResult} />}
 
       {/* Exe launch — botones por cada ejecutable configurado en el proyecto */}
@@ -258,6 +340,7 @@ export function ProjectQuickActions({
           key={`exe_${i}`}
           onClick={async () => {
             setAppError(null);
+            setAppInfo(null);
             try {
               await openPath(e.path);
             } catch (err) {
@@ -265,19 +348,20 @@ export function ProjectQuickActions({
             }
           }}
           title={e.path}
-          label={e.name || "Launch .exe"}
+          label={e.name || "Lanzar .exe"}
           accent="var(--color-success, #3fb950)"
           compact={compact}
         />
       ))}
 
-      {/* Launch all — solo cuando hay items lanzables */}
-      {launchableItems.length >= 1 && (
+      {/* Launch all — solo con dos o más items lanzables: con uno solo
+          repetiría el botón del proveedor de al lado. */}
+      {showLaunchAll && launchableItems.length >= 2 && (
         <ActionBtn
           onClick={handleLaunchAll}
           disabled={busy === "launch_all"}
-          title={`Lanzar ${launchableItems.length} item(s) del proyecto`}
-          label={busy === "launch_all" ? "Lanzando…" : `Launch all (${launchableItems.length})`}
+          title={`Lanza en orden los ${launchableItems.length} items del proyecto (IDE, sesiones, ejecutables; las carpetas no cuentan). Se añaden con «+ Añadir elemento» en la vista de filas.`}
+          label={busy === "launch_all" ? "Lanzando…" : `Lanzar todo (${launchableItems.length})`}
           compact={compact}
         />
       )}
@@ -297,7 +381,7 @@ export function ProjectQuickActions({
         );
       })}
       </div>
-      {/* Error del botón "Abrir app" — en la tarjeta, nunca alert() */}
+      {/* Error de cualquier acción — en la tarjeta, nunca alert() */}
       {appError && (
         <div
           className="truncate text-[10.5px]"
@@ -305,6 +389,17 @@ export function ProjectQuickActions({
           title={appError}
         >
           {appError}
+        </div>
+      )}
+      {/* Confirmación de «Jugar»: el juego abre fuera de ULTRON, así que se dice qué se lanzó */}
+      {!appError && appInfo && (
+        <div
+          className="truncate text-[10.5px]"
+          style={{ color: "var(--color-text-secondary)" }}
+          title={appInfo}
+          role="status"
+        >
+          {appInfo}
         </div>
       )}
     </div>

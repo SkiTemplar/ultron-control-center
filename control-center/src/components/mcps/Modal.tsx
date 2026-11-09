@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Modal shell
+// Carcasa del modal
 // ---------------------------------------------------------------------------
 
 export function Modal({
@@ -45,7 +45,8 @@ export function Modal({
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border)",
             }}
-            title="Close"
+            title="Cerrar"
+            aria-label="Cerrar"
           >
             ×
           </button>

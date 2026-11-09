@@ -7,12 +7,16 @@
 //   roots                                            -> { roots }
 //   list --root <id> [--sub <relPath>]               -> { root, sub, entries }
 //   templates [--kind asignatura|personal]           -> { templates }
+//   skills [--template <id>]                         -> { template, skills }
 //   subject new --root <id> --code <C> --name <N>    -> { subjectPath, projectId }
 //   mkdir --root <id> --sub <relPath> --name <n>      -> { path }
 //   create --root <id> --sub <relPath> --name <N>
 //          --template <id> [--no-git] [--no-claude-md]
-//          [--tags a,b] [--due YYYY-MM-DD] [--dry-run] -> { projectPath, projectId,
-//                                                            template, steps, filesCreated }
+//          [--tags a,b] [--due YYYY-MM-DD] [--dry-run]
+//          [--skills a,b|none]                    -> { projectPath, projectId,
+//                                                            template, steps, filesCreated, skills }
+// Un `skill-pool link` fallido NO es un error de `create`: llega como
+// `skills[i].ok === false` (y su paso `skill:<n>`) con `ok: true`.
 // Error uniforme: { ok:false, error:{ code, message } } (mas `steps` en el
 // fallo parcial de `create`, código `STEP_FAILED`).
 
@@ -44,6 +48,29 @@ export interface CliTemplate {
   requires: string[];
   available: boolean;
   kinds: string[];
+}
+
+/** Entrada kind "skill" de la pool de terceros (scripts/skill-pool.mjs). */
+export interface CliSkill {
+  name: string;
+  license: string | null;
+  /** La revisión de seguridad cubre el SHA fijado; sin ella `link` falla. */
+  reviewed: boolean;
+  /** Su campo `templates` incluye la plantilla consultada. */
+  suggested: boolean;
+  /** Primeras palabras de las notas de revisión. */
+  conditions: string;
+}
+
+export interface SkillsData {
+  template: string | null;
+  skills: CliSkill[];
+}
+
+export interface CliSkillLink {
+  name: string;
+  ok: boolean;
+  message: string;
 }
 
 export interface CliStep {
@@ -91,6 +118,7 @@ export interface CreateData {
   template: string;
   steps: CliStep[];
   filesCreated: string[];
+  skills: CliSkillLink[];
 }
 
 /**
@@ -125,6 +153,12 @@ export function cliTemplates(kind?: RootKind): Promise<CliResult<TemplatesData>>
   return callCli<TemplatesData>(args);
 }
 
+export function cliSkills(template?: string): Promise<CliResult<SkillsData>> {
+  const args = ["skills"];
+  if (template) args.push("--template", template);
+  return callCli<SkillsData>(args);
+}
+
 export function cliSubjectNew(
   root: string,
   code: string,
@@ -153,6 +187,14 @@ export interface CreateOptions {
   claudeMd?: boolean;
   due?: string;
   dryRun?: boolean;
+  /** undefined = defecto de la plantilla en el CLI; [] = `--skills none`. */
+  skills?: string[];
+}
+
+/** Argumentos de `--skills` para `create` (vacío si se delega en el CLI). */
+export function skillsArgs(skills: string[] | undefined): string[] {
+  if (skills === undefined) return [];
+  return ["--skills", skills.length ? skills.join(",") : "none"];
 }
 
 export function cliCreate(opts: CreateOptions): Promise<CliResult<CreateData>> {
@@ -167,6 +209,7 @@ export function cliCreate(opts: CreateOptions): Promise<CliResult<CreateData>> {
   if (opts.claudeMd === false) args.push("--no-claude-md");
   if (opts.due) args.push("--due", opts.due);
   if (opts.dryRun) args.push("--dry-run");
+  args.push(...skillsArgs(opts.skills));
   return callCli<CreateData>(args);
 }
 

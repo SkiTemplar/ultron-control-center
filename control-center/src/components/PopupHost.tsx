@@ -2,18 +2,20 @@
  * PopupHost — in-app popup system for ULTRON Control Center.
  *
  * Renders a vertical stack of toasts and confirm prompts in the bottom-left
- * corner. Replaces:
+ * corner of the content column (App.tsx mounts it inside that column, so the
+ * stack never covers the sidebar). Replaces:
  *   - Windows-native notifications (toast_emit.rs sent OS toasts).
  *   - Central modal confirmDialog (Tauri plugin:dialog|confirm).
  *
  * All popups are non-invasive: they slide in over content without blocking
- * input, auto-dismiss (toasts) or wait for inline button click (confirms).
+ * input, auto-dismiss (toasts; paused while hovered, × closes them) or wait
+ * for inline button click (confirms).
  *
  * Subscribes to Tauri event `ultron-toast` and to in-process popup queue.
  * Mounted ONCE at the App root.
  */
 import { useEffect, useState } from "react";
-import { subscribeQueue, type Popup } from "../lib/popups";
+import { dismissToast, pauseToast, resumeToast, subscribeQueue, type Popup } from "../lib/popups";
 
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -26,6 +28,10 @@ export function PopupHost() {
     }, []);
 
     useEffect(() => {
+        // listen() resolves asynchronously: if the effect is cleaned up first
+        // (StrictMode mounts twice), the late listener is dropped on arrival.
+        // Without this every ultron-toast rendered two cards.
+        let cancelled = false;
         let unlisten: (() => void) | undefined;
         if (IN_TAURI) {
             import("@tauri-apps/api/event")
@@ -44,10 +50,16 @@ export function PopupHost() {
                         }
                     )
                 )
-                .then((u) => { unlisten = u; })
+                .then((u) => {
+                    if (cancelled) u();
+                    else unlisten = u;
+                })
                 .catch(() => { /* listen unavailable — best effort */ });
         }
-        return () => { if (unlisten) unlisten(); };
+        return () => {
+            cancelled = true;
+            if (unlisten) unlisten();
+        };
     }, []);
 
     if (items.length === 0) return null;
@@ -55,14 +67,14 @@ export function PopupHost() {
     return (
         <div
             style={{
-                position: "fixed",
+                position: "absolute",
                 bottom: "1rem",
                 left: "1rem",
                 display: "flex",
                 flexDirection: "column-reverse",
                 gap: "0.5rem",
                 zIndex: 10_000,
-                maxWidth: "min(420px, calc(100vw - 2rem))",
+                maxWidth: "min(420px, calc(100% - 2rem))",
                 pointerEvents: "none",
             }}
         >
@@ -75,18 +87,22 @@ export function PopupHost() {
 
 function PopupCard({ popup }: { popup: Popup }) {
     const accent = severityAccent(popup.severity ?? "info");
+    const isToast = popup.kind === "toast";
     return (
         <div
             role={popup.kind === "confirm" ? "alertdialog" : "status"}
-            aria-live={popup.kind === "toast" ? "polite" : "assertive"}
+            aria-live={isToast ? "polite" : "assertive"}
+            onMouseEnter={isToast ? () => pauseToast(popup.id) : undefined}
+            onMouseLeave={isToast ? () => resumeToast(popup.id) : undefined}
             style={{
-                background: "#131313",
+                position: "relative",
+                background: "var(--color-surface-2)",
                 border: `1px solid ${accent}`,
                 borderLeft: `3px solid ${accent}`,
                 borderRadius: 6,
-                padding: "0.65rem 0.85rem",
-                color: "#e8e8e8",
-                fontFamily: "Inter, Segoe UI, sans-serif",
+                padding: isToast ? "0.65rem 2rem 0.65rem 0.85rem" : "0.65rem 0.85rem",
+                color: "var(--color-text)",
+                fontFamily: "var(--font-sans)",
                 fontSize: "0.85rem",
                 lineHeight: 1.4,
                 pointerEvents: "auto",
@@ -100,21 +116,48 @@ function PopupCard({ popup }: { popup: Popup }) {
                 </div>
             )}
             <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{popup.message}</div>
+            {isToast && (
+                <button
+                    type="button"
+                    onClick={() => dismissToast(popup.id)}
+                    aria-label="Cerrar"
+                    title="Cerrar"
+                    style={{
+                        position: "absolute",
+                        top: "0.35rem",
+                        right: "0.35rem",
+                        width: "1.4rem",
+                        height: "1.4rem",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "transparent",
+                        color: "var(--color-text-tertiary)",
+                        border: "none",
+                        borderRadius: 4,
+                        fontSize: "1rem",
+                        lineHeight: 1,
+                        cursor: "pointer",
+                    }}
+                >
+                    ×
+                </button>
+            )}
             {popup.kind === "confirm" && (
                 <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.6rem", justifyContent: "flex-end" }}>
                     <button
                         type="button"
                         onClick={() => popup.resolve!(false)}
-                        style={btnStyle("#2a2a2a", "#bbb")}
+                        style={btnStyle("var(--color-surface-3)", "var(--color-text-secondary)")}
                     >
-                        {popup.cancelLabel ?? "Cancel"}
+                        {popup.cancelLabel ?? "Cancelar"}
                     </button>
                     <button
                         type="button"
                         onClick={() => popup.resolve!(true)}
-                        style={btnStyle(accent, "#0a0a0a")}
+                        style={btnStyle(accent, "var(--color-bg)")}
                     >
-                        {popup.okLabel ?? "Confirm"}
+                        {popup.okLabel ?? "Confirmar"}
                     </button>
                 </div>
             )}
@@ -138,10 +181,9 @@ function btnStyle(bg: string, color: string): React.CSSProperties {
 
 function severityAccent(s: string): string {
     switch (s) {
-        case "blocking": return "#ff5050";
-        case "critical": return "#ff8c42";
-        case "warn":     return "#f0c020";
-        case "info":     return "#3a9dff";
-        default:         return "#3a9dff";
+        case "blocking":
+        case "critical": return "var(--color-danger)";
+        case "warn":     return "var(--color-warn)";
+        default:         return "var(--color-text-secondary)";
     }
 }

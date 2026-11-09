@@ -102,8 +102,10 @@ function daemonRequestDetailed(payload, timeoutMs) {
 
 function findBinary() {
   const exe = process.platform === 'win32' ? 'ultron-memory.exe' : 'ultron-memory';
-  if (process.env.ULTRON_MEMORY_BIN && fs.existsSync(process.env.ULTRON_MEMORY_BIN)) {
-    return process.env.ULTRON_MEMORY_BIN;
+  // Una ruta explicita manda aunque no exista: caer al binario real haria que un
+  // selftest con un binario ausente escribiese en la brain.db de verdad.
+  if (process.env.ULTRON_MEMORY_BIN) {
+    return fs.existsSync(process.env.ULTRON_MEMORY_BIN) ? process.env.ULTRON_MEMORY_BIN : null;
   }
   const home = os.homedir();
   const candidates = [

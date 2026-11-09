@@ -6,7 +6,8 @@
  * Hermetico: SESSION_FEEDBACK_PROJECTS_DIR / SESSION_FEEDBACK_LOG /
  * SESSION_FEEDBACK_PROJECT apuntan a un fixture temporal bajo
  * logs/_selftest-session-feedback/; ULTRON_MEMORY_BIN apunta a un binario
- * ausente para que nunca se proponga un candidato real.
+ * ausente para que nunca se proponga un candidato real; SESSION_FEEDBACK_TRACE
+ * lleva el trace del hook al fixture (no se ensucia el ~/.claude/logs real).
  *
  * Uso: node hooks/scripts/session-feedback.selftest.mjs   (exit 0 = verde)
  */
@@ -26,6 +27,7 @@ const PROJECTS = join(FIXTURE, "projects");
 const LOG = join(FIXTURE, "session-feedback.jsonl");
 const PROJECT = "proyecto-selftest";
 const PENDING = join(PROJECTS, PROJECT, "feedback-pending.json");
+const TRACE = join(FIXTURE, "trace.jsonl");
 
 let fail = 0;
 const ok = (n) => console.log(`  [PASS] ${n}`);
@@ -37,6 +39,7 @@ const ENV = {
   SESSION_FEEDBACK_PROJECTS_DIR: PROJECTS,
   SESSION_FEEDBACK_LOG: LOG,
   ULTRON_MEMORY_BIN: join(FIXTURE, "no-existe", "ultron-memory.exe"),
+  SESSION_FEEDBACK_TRACE: TRACE,
 };
 
 function reset() {
@@ -178,7 +181,38 @@ A(lines9b.length === 2 && /feedback_pendiente/.test(lines9b[0]) && /2026-09-04/.
   "caso9: con pending el resume ordena preguntar con fecha, minutos, turnos y commits", JSON.stringify(lines9b));
 A(lib.renderResumeLines("ultron").length === 1, "caso9 (NEGATIVO): para 'ultron' nunca hay pregunta, solo la cifra", JSON.stringify(lib.renderResumeLines("ultron")));
 
+// Caso 10 (NEGATIVO): si el sidecar no arranca (ULTRON_MEMORY_BIN es un
+// directorio: existsSync da true y spawn emite 'error' de forma asincrona), el
+// trace dice candidate:false con el codigo, no candidate:true.
+function lastCaptured() {
+  if (!existsSync(TRACE)) return null;
+  const rows = readFileSync(TRACE, "utf8").split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+  return rows.filter((r) => r.msg === "captured").slice(-1)[0] || null;
+}
+fire(CAPTURE, { prompt: "fb: no se atasco en el build", cwd: repo1, session_id: "sesion-G" }, { ULTRON_MEMORY_BIN: FIXTURE });
+const t10 = lastCaptured();
+A(t10 && t10.session_id === "sesion-G" && t10.candidate === false && !!t10.candidate_error,
+  "caso10: sidecar que no arranca -> candidate=false con candidate_error", JSON.stringify(t10));
+
+// Caso 10b (control positivo): con node como "sidecar" el hijo arranca (y sale
+// con 1 porque no hay script 'candidate'): candidate=true sin candidate_error.
+// Documenta el alcance: se comprueba el arranque, no el codigo de salida.
+fire(CAPTURE, { prompt: "fb: si muy bien", cwd: repo1, session_id: "sesion-H" }, { ULTRON_MEMORY_BIN: process.execPath });
+const t10b = lastCaptured();
+A(t10b && t10b.session_id === "sesion-H" && t10b.candidate === true && !("candidate_error" in t10b),
+  "caso10b: sidecar que arranca -> candidate=true", JSON.stringify(t10b));
+
 // ---------------------------------------------------------------------------
+// Hermeticidad: un binario explicito ausente no cae al real, o este selftest
+// escribiria sus datos de prueba en la brain.db de verdad.
+const memoryBinAntes = process.env.ULTRON_MEMORY_BIN;
+process.env.ULTRON_MEMORY_BIN = ENV.ULTRON_MEMORY_BIN;
+const binarioResuelto = require("./lib/ultron-memory-cli.js").findBinary();
+if (memoryBinAntes === undefined) delete process.env.ULTRON_MEMORY_BIN;
+else process.env.ULTRON_MEMORY_BIN = memoryBinAntes;
+A(binarioResuelto === null,
+  "findBinary: ULTRON_MEMORY_BIN ausente -> null, sin caer al binario real", String(binarioResuelto));
+
 rmSync(FIXTURE, { recursive: true, force: true });
 console.log(fail === 0 ? "\nSELFTEST session-feedback: VERDE" : `\nSELFTEST session-feedback: ROJO (${fail} fallo/s)`);
 process.exit(fail === 0 ? 0 : 1);

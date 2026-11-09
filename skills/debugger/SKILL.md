@@ -16,8 +16,3 @@ stack traces.)
 1. (First step — reproduce the failure deterministically.)
 2. (Second step — bisect or trace to the offending change / line.)
 3. (Final output expectation — explanation of root cause + verified fix.)
-
-## Customize
-This file lives at `~/.claude/skills/debugger/SKILL.md`. Modify it to fit
-your workflow. The installer's manifest entry points here via
-`repo://skills/debugger`.

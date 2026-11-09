@@ -38,7 +38,7 @@ export function AgentsFilters({
 }: AgentsFiltersProps) {
   return (
     <>
-      {/* Active / Disabled / All tabs — same pill style as Skills.tsx */}
+      {/* Pestañas Activados / Desactivados / Todos, con el mismo estilo que Skills.tsx */}
       <div
         className="inline-flex items-center gap-1 self-start rounded-lg p-1"
         style={{
@@ -48,9 +48,9 @@ export function AgentsFilters({
       >
         {(
           [
-            { id: "active" as const, label: "Active", count: enableCounts.active },
-            { id: "disabled" as const, label: "Disabled", count: enableCounts.disabled },
-            { id: "all" as const, label: "All", count: enableCounts.active + enableCounts.disabled },
+            { id: "active" as const, label: "Activados", count: enableCounts.active },
+            { id: "disabled" as const, label: "Desactivados", count: enableCounts.disabled },
+            { id: "all" as const, label: "Todos", count: enableCounts.active + enableCounts.disabled },
           ] as const
         ).map((tab) => {
           const isActive = enableFilter === tab.id;
@@ -83,7 +83,7 @@ export function AgentsFilters({
         })}
       </div>
 
-      {/* Scope chips + Category pills — same structure as Skills.tsx */}
+      {/* Ámbitos y categorías, con la misma estructura que Skills.tsx */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           {SCOPES.map((s) => {
@@ -111,7 +111,7 @@ export function AgentsFilters({
               className="text-[10.5px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Category
+              Categoría
             </span>
             <button
               onClick={() => onCategoryChange("all")}
@@ -122,7 +122,7 @@ export function AgentsFilters({
                 color: category === "all" ? "var(--color-text)" : "var(--color-text-secondary)",
               }}
             >
-              All
+              Todas
             </button>
             {categories.map((c) => {
               const active = c === category;
@@ -149,7 +149,7 @@ export function AgentsFilters({
       <input
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Search agents — fuzzy + synonyms, ranked by relevance…"
+        placeholder="Buscar agentes (aproximada y con sinónimos, ordenada por relevancia)…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",

@@ -8,7 +8,8 @@
 // extract the preview cheaply.
 
 use std::fs;
-use std::path::PathBuf;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use serde::Serialize;
@@ -135,86 +136,105 @@ fn unslug(slug: &str) -> String {
 /// v2.5: Read the cwd from the first JSONL line that carries one. Claude
 /// Code transcripts log the working directory in event metadata; reading
 /// it back is far more reliable than reverse-engineering the slug.
-/// Scans up to 50 lines per file. Returns None if no cwd field is found.
+/// Scans up to 50 lines per file, line by line (a single tool_result line
+/// can weigh MB). Returns None if no cwd field is found. A found cwd is
+/// cached per project folder: the slug is derived from the cwd, so it
+/// never changes.
 pub(crate) fn cwd_from_jsonl(project_dir: &PathBuf) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cwd) = cache.lock().ok().and_then(|c| c.get(project_dir).cloned()) {
+        return Some(cwd);
+    }
+    let cwd = scan_cwd(project_dir)?;
+    if let Ok(mut c) = cache.lock() {
+        c.insert(project_dir.clone(), cwd.clone());
+    }
+    Some(cwd)
+}
+
+fn scan_cwd(project_dir: &Path) -> Option<String> {
     let entries = fs::read_dir(project_dir).ok()?;
-    for entry in entries.flatten() {
+    entries.flatten().find_map(|entry| {
         let p = entry.path();
         if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
+            return None;
         }
-        let text = match fs::read_to_string(&p) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        for line in text.lines().take(50) {
-            if line.is_empty() {
-                continue;
-            }
-            let parsed: serde_json::Value = match serde_json::from_str(line) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            // Try several shapes: top-level cwd, message.cwd, metadata.cwd.
-            if let Some(cwd) = parsed.get("cwd").and_then(|v| v.as_str()) {
-                return Some(cwd.to_string());
-            }
-            if let Some(cwd) = parsed
-                .get("message")
-                .and_then(|m| m.get("cwd"))
-                .and_then(|v| v.as_str())
-            {
-                return Some(cwd.to_string());
-            }
-            if let Some(cwd) = parsed
-                .get("metadata")
-                .and_then(|m| m.get("cwd"))
-                .and_then(|v| v.as_str())
-            {
-                return Some(cwd.to_string());
-            }
-        }
+        let f = fs::File::open(&p).ok()?;
+        cwd_in(std::io::BufReader::new(f))
+    })
+}
+
+/// First cwd in the first 50 lines of a transcript.
+fn cwd_in(reader: impl BufRead) -> Option<String> {
+    reader
+        .lines()
+        .take(50)
+        .map_while(Result::ok)
+        .find_map(|line| cwd_of_line(&line))
+}
+
+fn cwd_of_line(line: &str) -> Option<String> {
+    if line.is_empty() {
+        return None;
     }
-    None
+    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    // Try several shapes: top-level cwd, message.cwd, metadata.cwd.
+    ["", "message", "metadata"].iter().find_map(|k| {
+        let holder = if k.is_empty() {
+            Some(&parsed)
+        } else {
+            parsed.get(*k)
+        };
+        holder
+            .and_then(|h| h.get("cwd"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    })
 }
 
 /// Extract the first user message text from a transcript. We deliberately
 /// keep the scan bounded — Claude transcripts can grow to many MB and we
 /// only need a snippet.
 fn extract_first_user_message(path: &PathBuf) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
-    // Bounded scan — first 200 lines is plenty to find an initial user
-    // message even in a transcript that begins with system metadata.
-    for line in content.lines().take(200) {
-        if line.is_empty() {
-            continue;
-        }
-        let parsed: serde_json::Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        // Claude transcripts look like:
-        //   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}
-        // We tolerate a couple of shapes (string content, single-block, multi-block).
-        let typ = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if typ != "user" {
-            continue;
-        }
-        let msg = parsed.get("message").unwrap_or(&parsed);
-        if let Some(s) = msg.get("content").and_then(|v| v.as_str()) {
-            return Some(trim_preview(s));
-        }
-        if let Some(arr) = msg.get("content").and_then(|v| v.as_array()) {
-            for block in arr {
-                if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                    if let Some(txt) = block.get("text").and_then(|v| v.as_str()) {
-                        return Some(trim_preview(txt));
-                    }
-                }
-            }
-        }
+    let f = fs::File::open(path).ok()?;
+    first_user_in(std::io::BufReader::new(f))
+}
+
+/// First user message in the first 200 lines, read lazily: the scan stops
+/// at the first `user` line instead of loading 200 lines (tool_result
+/// lines weigh MB; the 200 first lines of 917 transcripts were 262 MB).
+fn first_user_in(reader: impl BufRead) -> Option<String> {
+    reader
+        .lines()
+        .take(200)
+        .map_while(Result::ok)
+        .find_map(|line| user_text_of_line(&line))
+}
+
+fn user_text_of_line(line: &str) -> Option<String> {
+    if line.is_empty() {
+        return None;
     }
-    None
+    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    // Claude transcripts look like:
+    //   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}
+    // We tolerate a couple of shapes (string content, single-block, multi-block).
+    if parsed.get("type").and_then(|v| v.as_str()) != Some("user") {
+        return None;
+    }
+    let content = parsed.get("message").unwrap_or(&parsed).get("content")?;
+    if let Some(s) = content.as_str() {
+        return Some(trim_preview(s));
+    }
+    content.as_array()?.iter().find_map(|block| {
+        if block.get("type").and_then(|v| v.as_str()) != Some("text") {
+            return None;
+        }
+        block.get("text").and_then(|v| v.as_str()).map(trim_preview)
+    })
 }
 
 fn trim_preview(s: &str) -> String {
@@ -228,22 +248,143 @@ fn trim_preview(s: &str) -> String {
 }
 
 /// Count newline-terminated records in the file without loading it.
-fn count_lines(path: &PathBuf) -> u64 {
-    let raw = match fs::read(path) {
-        Ok(v) => v,
-        Err(_) => return 0,
+/// Streams the file and caches the count by (size, mtime): a listing used to
+/// read every transcript in full (2+ GB) on each call.
+fn count_lines(path: &PathBuf, meta: &fs::Metadata) -> u64 {
+    use std::collections::HashMap;
+    use std::io::Read;
+    use std::sync::{Mutex, OnceLock};
+    type Key = (u64, Option<SystemTime>);
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, (Key, u64)>>> = OnceLock::new();
+    let key: Key = (meta.len(), meta.modified().ok());
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some((k, n)) = cache.lock().ok().and_then(|c| c.get(path).copied()) {
+        if k == key {
+            return n;
+        }
+    }
+    let Ok(mut f) = fs::File::open(path) else {
+        return 0;
     };
-    raw.iter().filter(|b| **b == b'\n').count() as u64
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut n = 0u64;
+    loop {
+        match f.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => n += buf[..read].iter().filter(|b| **b == b'\n').count() as u64,
+        }
+    }
+    if let Ok(mut c) = cache.lock() {
+        c.insert(path.clone(), (key, n));
+    }
+    n
+}
+
+/// First `max` lines of a file, reading only what is needed.
+#[cfg(test)]
+fn first_lines(path: &PathBuf, max: usize) -> Option<Vec<String>> {
+    use std::io::{BufRead, BufReader};
+    let f = fs::File::open(path).ok()?;
+    Some(
+        BufReader::new(f)
+            .lines()
+            .take(max)
+            .map_while(Result::ok)
+            .collect(),
+    )
 }
 
 pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSession>, String> {
+    list_sessions(limit, true, |_, _| true)
+}
+
+/// Same listing without `line_count` (always 0), the only field that needs
+/// to read each transcript in full. For callers that do not show it.
+pub fn list_claude_sessions_light(limit: Option<usize>) -> Result<Vec<ClaudeSession>, String> {
+    list_sessions(limit, false, |_, _| true)
+}
+
+/// Light listing filtered by `keep(id, cwd)` BEFORE sorting and cutting to
+/// `limit`: only the sessions that survive the cut get their preview read.
+/// For callers that drop sessions (live ones, other folders) and want the
+/// newest N of the rest without opening every transcript.
+pub fn list_claude_sessions_light_where(
+    limit: Option<usize>,
+    keep: impl Fn(&str, &str) -> bool,
+) -> Result<Vec<ClaudeSession>, String> {
+    list_sessions(limit, false, keep)
+}
+
+/// A session file found on disk, before reading anything inside it.
+struct Candidate {
+    id: String,
+    slug: String,
+    label: String,
+    path: PathBuf,
+    meta: fs::Metadata,
+}
+
+fn list_sessions(
+    limit: Option<usize>,
+    with_lines: bool,
+    keep: impl Fn(&str, &str) -> bool,
+) -> Result<Vec<ClaudeSession>, String> {
     let dir = projects_dir().ok_or_else(|| "no HOME".to_string())?;
     if !dir.exists() {
         return Ok(Vec::new());
     }
-    let mut out: Vec<ClaudeSession> = Vec::new();
+    list_in(&dir, limit, with_lines, keep, extract_first_user_message)
+}
 
-    for project_entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+/// Candidates under `dir` that pass `keep`, then sorted, cut and previewed.
+fn list_in(
+    dir: &Path,
+    limit: Option<usize>,
+    with_lines: bool,
+    keep: impl Fn(&str, &str) -> bool,
+    preview: impl Fn(&PathBuf) -> Option<String>,
+) -> Result<Vec<ClaudeSession>, String> {
+    let found: Vec<Candidate> = candidates(dir)?
+        .into_iter()
+        .filter(|c| keep(&c.id, &c.label))
+        .collect();
+    Ok(build_sessions(found, limit, with_lines, preview))
+}
+
+/// Sorts by mtime (newest first), cuts to `limit` and only then reads the
+/// preview: listing 6 sessions used to read the head of all 917 transcripts.
+fn build_sessions(
+    mut found: Vec<Candidate>,
+    limit: Option<usize>,
+    with_lines: bool,
+    preview: impl Fn(&PathBuf) -> Option<String>,
+) -> Vec<ClaudeSession> {
+    found.sort_by_key(|c| std::cmp::Reverse(c.meta.modified().ok()));
+    if let Some(n) = limit {
+        found.truncate(n);
+    }
+    found
+        .into_iter()
+        .map(|c| ClaudeSession {
+            preview: preview(&c.path),
+            size_bytes: c.meta.len(),
+            last_activity: mtime_iso(&c.meta),
+            line_count: if with_lines {
+                count_lines(&c.path, &c.meta)
+            } else {
+                0
+            },
+            id: c.id,
+            project_slug: c.slug,
+            project_label: c.label,
+        })
+        .collect()
+}
+
+/// Every session file under the projects folder (metadata only).
+fn candidates(dir: &Path) -> Result<Vec<Candidate>, String> {
+    let mut out = Vec::new();
+    for project_entry in fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
         let project_path = project_entry.path();
         if !project_path.is_dir() {
             continue;
@@ -252,77 +393,48 @@ pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSess
         // v2.5: prefer the cwd recorded inside the JSONL events (authoritative).
         // Fall back to the slug heuristic only when no JSONL carries a cwd.
         let label = cwd_from_jsonl(&project_path).unwrap_or_else(|| unslug(&slug));
-
-        // Top-level .jsonl files inside each project folder. We skip
-        // `subagents/*.jsonl` because those are not resumable sessions —
-        // they're internal records of subagent turns.
-        let mut files = match fs::read_dir(&project_path) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        while let Some(Ok(f)) = files.next() {
-            let p = f.path();
-            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // v2.6 (card-v26-fb-004): previous filter required '-' anywhere
-            // in the filename AND size >= 100 bytes. Both were too strict
-            // — valid sessions disappeared. Now: skip strictly empty files
-            // and require the filename to start with a hex char so we
-            // don't pick up non-session jsonl logs.
-            let id = fname.trim_end_matches(".jsonl").to_string();
-            if id.is_empty() {
-                continue;
-            }
-            if !id
-                .chars()
-                .next()
-                .map(|c| c.is_ascii_hexdigit())
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            let meta = match f.metadata() {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            if meta.len() == 0 {
-                continue;
-            }
-            out.push(ClaudeSession {
-                id: id.clone(),
-                project_slug: slug.clone(),
-                project_label: label.clone(),
-                preview: extract_first_user_message(&p),
-                size_bytes: meta.len(),
-                last_activity: mtime_iso(&meta),
-                line_count: count_lines(&p),
-            });
-        }
-    }
-
-    // Newest activity first.
-    out.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
-    // v2.5.2 (fb-046): diagnostic so we can see at a glance how many
-    // sessions and unique workspaces the backend returned. Debug-only.
-    #[cfg(debug_assertions)]
-    {
-        let mut slugs: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        for s in &out {
-            slugs.insert(s.project_slug.as_str());
-        }
-        eprintln!(
-            "[claude_sessions::list_claude_sessions_inner] sessions={} workspaces={} limit={:?}",
-            out.len(),
-            slugs.len(),
-            limit
-        );
-    }
-    if let Some(n) = limit {
-        out.truncate(n);
+        out.extend(project_candidates(&project_path, &slug, &label));
     }
     Ok(out)
+}
+
+/// Top-level .jsonl files inside a project folder. We skip
+/// `subagents/*.jsonl` because those are not resumable sessions — they're
+/// internal records of subagent turns.
+fn project_candidates(project_path: &Path, slug: &str, label: &str) -> Vec<Candidate> {
+    let Ok(files) = fs::read_dir(project_path) else {
+        return Vec::new();
+    };
+    files
+        .map_while(Result::ok)
+        .filter_map(|f| {
+            let path = f.path();
+            let id = session_id_of(&path)?;
+            let meta = f.metadata().ok().filter(|m| m.len() > 0)?;
+            Some(Candidate {
+                id,
+                slug: slug.to_string(),
+                label: label.to_string(),
+                path,
+                meta,
+            })
+        })
+        .collect()
+}
+
+/// v2.6 (card-v26-fb-004): previous filter required '-' anywhere in the
+/// filename AND size >= 100 bytes. Both were too strict — valid sessions
+/// disappeared. Now: skip strictly empty files (in the caller) and require
+/// the filename to start with a hex char so we don't pick up non-session
+/// jsonl logs.
+fn session_id_of(path: &Path) -> Option<String> {
+    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        return None;
+    }
+    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let id = fname.trim_end_matches(".jsonl");
+    let starts_hex = id.chars().next().is_some_and(|c| c.is_ascii_hexdigit());
+    starts_hex.then(|| id.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +520,7 @@ fn find_git_root_above(cwd: &str) -> Option<String> {
 }
 
 pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
-    let sessions = list_claude_sessions_inner(None)?;
+    let sessions = list_claude_sessions_light(None)?;
     if sessions.is_empty() {
         return Ok(Vec::new());
     }
@@ -479,3 +591,140 @@ pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
 // keeps its own inline `slug_for` copy, so there was no remaining consumer.
 // If a per-project session list is needed again, build it on top of
 // `list_claude_sessions_inner` (which is live and already filters by slug).
+
+#[cfg(test)]
+mod lectura_acotada_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn primeras_lineas_y_recuento_cacheado_por_tamano() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let p = dir.path().join("a.jsonl");
+        std::fs::write(&p, "uno\ndos\ntres\n").expect("escribir");
+        assert_eq!(first_lines(&p, 2), Some(vec!["uno".into(), "dos".into()]));
+        let m = std::fs::metadata(&p).expect("meta");
+        assert_eq!(count_lines(&p, &m), 3);
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&p)
+            .expect("abrir");
+        writeln!(f, "cuatro").expect("añadir");
+        let m2 = std::fs::metadata(&p).expect("meta");
+        assert_eq!(count_lines(&p, &m2), 4, "otro tamaño invalida la caché");
+        assert_eq!(first_lines(&dir.path().join("no"), 2), None);
+    }
+}
+
+#[cfg(test)]
+mod listado_perezoso_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::io::{Cursor, Read};
+    use std::time::Duration;
+
+    fn user(texto: &str) -> String {
+        format!(r#"{{"type":"user","message":{{"role":"user","content":"{texto}"}}}}"#)
+    }
+
+    /// 50 transcripts; `s00` es el más antiguo y `s49` el más reciente.
+    fn proyecto(dir: &Path) -> PathBuf {
+        let proj = dir.join("C--p");
+        fs::create_dir_all(&proj).expect("proyecto");
+        let base = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        for i in 0..50u64 {
+            let p = proj.join(format!("a{i:02}.jsonl"));
+            fs::write(&p, user(&format!("hola {i}")) + "\n").expect("escribir");
+            let f = fs::OpenOptions::new().write(true).open(&p).expect("abrir");
+            f.set_modified(base + Duration::from_secs(i))
+                .expect("mtime");
+        }
+        proj
+    }
+
+    #[test]
+    fn con_limite_solo_lee_la_vista_previa_de_las_mas_recientes() {
+        let dir = tempfile::tempdir().expect("tmp");
+        proyecto(dir.path());
+        let leidos = RefCell::new(Vec::new());
+        let found = candidates(dir.path()).expect("candidatas");
+        assert_eq!(found.len(), 50);
+        let out = build_sessions(found, Some(3), false, |p| {
+            leidos.borrow_mut().push(p.clone());
+            extract_first_user_message(p)
+        });
+        let ids: Vec<&str> = out.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["a49", "a48", "a47"]);
+        assert_eq!(
+            leidos.borrow().len(),
+            3,
+            "abrió transcripts fuera del límite"
+        );
+        assert_eq!(out[0].preview.as_deref(), Some("hola 49"));
+    }
+
+    #[test]
+    fn el_filtro_va_antes_del_corte_y_de_la_vista_previa() {
+        let dir = tempfile::tempdir().expect("tmp");
+        proyecto(dir.path());
+        let leidos = RefCell::new(0usize);
+        let vivas = ["a49", "a48"];
+        let out = list_in(
+            dir.path(),
+            Some(3),
+            false,
+            |id, _| !vivas.contains(&id),
+            |p| {
+                *leidos.borrow_mut() += 1;
+                extract_first_user_message(p)
+            },
+        )
+        .expect("listado");
+        let ids: Vec<&str> = out.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["a47", "a46", "a45"],
+            "las filtradas gastaron el límite"
+        );
+        assert_eq!(
+            *leidos.borrow(),
+            3,
+            "leyó vistas previas de sesiones descartadas"
+        );
+    }
+
+    #[test]
+    fn sin_limite_las_lee_todas_en_orden_de_actividad() {
+        let dir = tempfile::tempdir().expect("tmp");
+        proyecto(dir.path());
+        let found = candidates(dir.path()).expect("candidatas");
+        let out = build_sessions(found, None, false, extract_first_user_message);
+        assert_eq!(out.len(), 50);
+        assert_eq!(out.last().map(|s| s.id.as_str()), Some("a00"));
+    }
+
+    /// Lector que revienta si se le pide algo: prueba que la búsqueda no
+    /// sigue leyendo tras encontrar la primera línea `user`.
+    struct Explota;
+
+    impl Read for Explota {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("se leyó más allá del primer mensaje de usuario");
+        }
+    }
+
+    #[test]
+    fn la_vista_previa_para_en_el_primer_user() {
+        let cabeza = format!("{{\"type\":\"summary\"}}\n{}\n", user("primero"));
+        let lector = Cursor::new(cabeza.into_bytes()).chain(std::io::BufReader::new(Explota));
+        assert_eq!(first_user_in(lector).as_deref(), Some("primero"));
+    }
+
+    #[test]
+    fn el_cwd_para_en_la_primera_linea_que_lo_trae() {
+        let cabeza = "{\"type\":\"summary\"}\n{\"cwd\":\"C:\\\\p\"}\n";
+        let lector =
+            Cursor::new(cabeza.as_bytes().to_vec()).chain(std::io::BufReader::new(Explota));
+        assert_eq!(cwd_in(lector).as_deref(), Some("C:\\p"));
+    }
+}

@@ -27,6 +27,8 @@ export type DailyPoint = {
 };
 
 export type UsageReport = {
+  /** Origen de las cifras: el rollup de Claude Code o el recálculo desde los transcripts. */
+  source?: "stats-cache" | "transcripts";
   last_computed_date: string | null;
   cache_age_days: number | null;
   first_session_date: string | null;

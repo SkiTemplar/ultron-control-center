@@ -5,7 +5,7 @@ use rusqlite::{named_params, params, Connection};
 use crate::memory::model::{CandidateStatus, MemoryCandidate};
 use crate::memory::MemoryError;
 
-use super::row_mapping::{candidate_from_row, vec_to_json};
+use super::row_mapping::{candidate_from_row, collect_rows, vec_to_json};
 
 pub fn insert_candidate(conn: &Connection, c: &MemoryCandidate) -> Result<(), MemoryError> {
     conn.execute(
@@ -68,7 +68,7 @@ pub fn list_candidates(
     let rows = stmt
         .query_map(params![status.as_str(), limit as i64], candidate_from_row)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_candidates query: {e}")))?;
-    Ok(rows.flatten().collect())
+    Ok(collect_rows(rows, "list_candidates"))
 }
 
 pub fn set_candidate_status(
@@ -124,18 +124,5 @@ pub fn find_candidate_ids_by_prefix(
     conn: &Connection,
     prefix: &str,
 ) -> Result<Vec<String>, MemoryError> {
-    let pattern = format!("{prefix}%");
-    let mut stmt = conn
-        .prepare("SELECT id FROM memory_candidates WHERE id LIKE ?1")
-        .map_err(|e| {
-            MemoryError::RemoteUnavailable(format!("find_candidate_ids_by_prefix prepare: {e}"))
-        })?;
-    let ids: Vec<String> = stmt
-        .query_map(params![pattern], |r| r.get(0))
-        .map_err(|e| {
-            MemoryError::RemoteUnavailable(format!("find_candidate_ids_by_prefix query: {e}"))
-        })?
-        .flatten()
-        .collect();
-    Ok(ids)
+    super::id_prefix::ids_starting_with(conn, super::id_prefix::IdTable::Candidates, prefix)
 }

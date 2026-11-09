@@ -37,7 +37,7 @@ function Highlight({ entry }: { entry: ChangelogEntry }) {
           className="text-[10px] font-medium uppercase tracking-[0.06em]"
           style={{ color: "var(--color-success)" }}
         >
-          added
+          nuevo
         </span>
         <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
           {entry.scope}
@@ -70,7 +70,7 @@ function Highlight({ entry }: { entry: ChangelogEntry }) {
             onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-secondary)")}
             onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-tertiary)")}
           >
-            {open ? "Hide details" : "Show details"}
+            {open ? "Ocultar detalles" : "Ver detalles"}
           </button>
         </>
       )}
@@ -129,13 +129,32 @@ function InternalRow({ entry }: { entry: ChangelogEntry }) {
 
 function VersionSection({ g }: { g: VersionGroup }) {
   const [showInternal, setShowInternal] = useState(false);
+  // A version with only internal changes collapses to a single row: big
+  // headings are reserved for releases that actually ship something.
+  const compact = g.highlights.length === 0;
+  const n = g.internal.length;
+
+  const internalToggle = n > 0 && (
+    <button
+      type="button"
+      onClick={() => setShowInternal(!showInternal)}
+      aria-expanded={showInternal}
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors hover:bg-[var(--color-surface-2)]"
+      style={{ color: "var(--color-text-tertiary)" }}
+      onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-secondary)")}
+      onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-tertiary)")}
+    >
+      <span aria-hidden>{showInternal ? "▾" : "▸"}</span>
+      {n} cambio{n === 1 ? "" : "s"} interno{n === 1 ? "" : "s"}
+    </button>
+  );
 
   return (
-    <section>
-      <header className="mb-4 flex items-baseline gap-3">
+    <section className={compact ? "py-1.5" : "py-5"}>
+      <header className={`${compact ? "" : "mb-4 "}flex items-baseline gap-3`}>
         <h2
-          className="text-[24px] font-semibold tabular-nums leading-none"
-          style={{ letterSpacing: "-0.01em" }}
+          className={`${compact ? "text-[14px]" : "text-[24px]"} font-semibold tabular-nums leading-none`}
+          style={{ letterSpacing: "-0.01em", color: compact ? "var(--color-text-secondary)" : undefined }}
         >
           v{g.version}
         </h2>
@@ -149,6 +168,7 @@ function VersionSection({ g }: { g: VersionGroup }) {
         >
           {formatDateRange(g.firstTs, g.lastTs)}
         </span>
+        {compact && internalToggle}
       </header>
 
       {/* Highlights */}
@@ -161,20 +181,9 @@ function VersionSection({ g }: { g: VersionGroup }) {
       )}
 
       {/* Internal changes (collapsed) */}
-      {g.internal.length > 0 && (
-        <div className="mt-4">
-          <button
-            type="button"
-            onClick={() => setShowInternal(!showInternal)}
-            className="text-[11.5px] transition-colors"
-            style={{ color: "var(--color-text-tertiary)" }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-secondary)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-tertiary)")}
-          >
-            {showInternal
-              ? `Hide ${g.internal.length} internal change${g.internal.length === 1 ? "" : "s"}`
-              : `${g.internal.length} internal change${g.internal.length === 1 ? "" : "s"}`}
-          </button>
+      {n > 0 && (
+        <div className={compact ? "" : "mt-4"}>
+          {!compact && internalToggle}
           {showInternal && (
             <ul className="mt-2 space-y-0">
               {g.internal.map((e) => (
@@ -190,7 +199,7 @@ function VersionSection({ g }: { g: VersionGroup }) {
           className="text-[12.5px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          No entries.
+          Sin entradas.
         </div>
       )}
     </section>
@@ -208,9 +217,9 @@ export function Changelog({ entries }: Props) {
   return (
     <div className="px-10 py-8">
       <header className="mb-10">
-        <h1 className="text-[20px] font-semibold leading-tight">Release notes</h1>
+        <h1 className="text-[20px] font-semibold leading-tight">Notas de versión</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-          {versioned.length} versions · {entries.length} total entries
+          {versioned.length} versiones · {entries.length} entradas en total
         </p>
       </header>
 
@@ -223,11 +232,11 @@ export function Changelog({ entries }: Props) {
             color: "var(--color-text-secondary)",
           }}
         >
-          No versioned releases found in changelog.ndjson.
+          No hay versiones en changelog.ndjson.
         </div>
       )}
 
-      <div className="space-y-14">
+      <div>
         {versioned.map((g) => (
           <VersionSection key={g.version} g={g} />
         ))}
@@ -243,8 +252,8 @@ export function Changelog({ entries }: Props) {
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {showLegacy
-              ? `Hide ${unversioned.length} legacy entries (pre-v15 series)`
-              : `Show ${unversioned.length} legacy entries (pre-v15 series)`}
+              ? `Ocultar ${unversioned.length} entradas antiguas (anteriores a la serie v15)`
+              : `Ver ${unversioned.length} entradas antiguas (anteriores a la serie v15)`}
           </button>
           {showLegacy && (
             <ul className="mt-4 space-y-0">

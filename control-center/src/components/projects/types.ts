@@ -20,6 +20,8 @@ export type FolderNode = {
   fullPath: string;
   children: FolderNode[];
   projects: ProjectInfo[];
+  /** Grupo sintético de proyectos sin ruta: se pinta como «Sin carpeta» y va al final. */
+  isNoPath?: boolean;
 };
 
 export type ProjectsProps = {

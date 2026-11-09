@@ -2,12 +2,73 @@
 // These are Windows-only PowerShell scripts spawned in a new terminal
 // window (fire-and-forget). Non-Windows returns an error stub.
 
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
-/// Spawn wt.exe in a new window running either the uninstaller or
-/// `npm run build:local` (Finance-aware build). The Control Center keeps running; the spawned
-/// terminal shows progress / asks for confirmation. Fire-and-forget —
-/// we do not wait for completion.
+/// Script de la terminal de Rebuild. No cierra ULTRON ni espera a que salga:
+/// `npm run build:local` llama a `scripts/release-locked-exe.mjs`, que aparta
+/// el control-center.exe en uso a `*.old-<ts>.exe` (Windows deja renombrar un
+/// binario en ejecución), así que la app abierta sigue con el binario anterior
+/// y el nuevo entra al reiniciarla. Si el renombrado falla, ese script cae al
+/// cierre forzoso y lo dice. Al terminar, la terminal relanza ULTRON solo si
+/// ya no está abierto; si sigue abierto, dice que hay que reiniciarlo.
+///
+/// `$LASTEXITCODE` tras cada paso decide si seguir; ante un fallo la ventana
+/// queda abierta (`Read-Host`) para leer el error.
+const UPDATE_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Continue'
+$exe = Join-Path (Get-Location) 'src-tauri\target\release\control-center.exe'
+$names = @('control-center', 'ULTRON Control Center')
+
+# Si el build tuvo que cerrar ULTRON (fallback de release-locked-exe) y luego
+# falla, se reabre el binario anterior si sigue en su sitio.
+function Stop-Rebuild([string]$msg, [int]$code) {
+    Write-Host ''
+    Write-Host ('[ULTRON] ' + $msg) -ForegroundColor Red
+    Read-Host 'Press Enter to close this terminal'
+    if ((Test-Path -LiteralPath $exe) -and -not (Get-Process -Name $names -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath $exe
+    }
+    exit $code
+}
+
+Write-Host '[ULTRON] git pull --ff-only...' -ForegroundColor Cyan
+git pull --ff-only
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ('[ULTRON] git pull failed (exit ' + $LASTEXITCODE + '): offline, no upstream or the branch diverged.') -ForegroundColor Yellow
+    $answer = Read-Host 'Build the local sources anyway? (y/N)'
+    if ($answer -notmatch '^(y|yes|s|si)$') { Stop-Rebuild 'Rebuild cancelled. Nothing was built.' 1 }
+}
+
+Write-Host '[ULTRON] npm install...' -ForegroundColor Cyan
+npm install
+if ($LASTEXITCODE -ne 0) { Stop-Rebuild ('npm install failed (exit ' + $LASTEXITCODE + '). Nothing was built.') $LASTEXITCODE }
+
+# build:local (no `tauri build`): incluye Finance si existen sus fuentes locales
+# y aparta el .exe en uso sin cerrar ULTRON.
+Write-Host '[ULTRON] npm run build:local (ULTRON stays open; the running binary is set aside)...' -ForegroundColor Cyan
+npm run build:local
+$buildExit = $LASTEXITCODE
+if ($buildExit -ne 0) { Stop-Rebuild ('Build FAILED (exit ' + $buildExit + '). Read the error above.') $buildExit }
+if (-not (Test-Path -LiteralPath $exe)) { Stop-Rebuild ('Build succeeded but the binary is missing at ' + $exe) 1 }
+
+Write-Host ''
+if (Get-Process -Name $names -ErrorAction SilentlyContinue) {
+    Write-Host '[ULTRON] Build OK. ULTRON is still running the previous binary: restart the app to use the new one.' -ForegroundColor Green
+    Read-Host 'Press Enter to close this terminal'
+    exit 0
+}
+Write-Host '[ULTRON] Build OK. ULTRON is not running: launching the new binary...' -ForegroundColor Green
+Start-Process -FilePath $exe
+Write-Host '[ULTRON] Launched. This terminal closes in 3 s.' -ForegroundColor Green
+Start-Sleep -Seconds 3
+"#;
+
+/// Spawn a new PowerShell window running either the uninstaller or the
+/// Rebuild script above (`npm run build:local`, Finance-aware). The Control
+/// Center keeps running; the frontend asks the user to confirm first
+/// (`rebuildFlow.startRebuild`). Fire-and-forget — we do not wait for
+/// completion.
 #[cfg(target_os = "windows")]
 pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
@@ -29,99 +90,11 @@ pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
             (ultron.clone(), cmd)
         }
         "update" => {
-            // v15.4.3: auto-relaunch after a successful build. We kill the
-            // running control-center.exe, wait for the file lock to drop,
-            // then Start-Process the fresh binary. The terminal closes
-            // itself 3 s after launch so the user isn't left with a stale
-            // PowerShell window. On build failure we leave the window open
-            // (Read-Host) so the user can read the cargo / npm error
-            // instead of seeing the terminal vanish.
-            //
-            // Run the cmd as a here-string so PS sees the multi-line
-            // logic. `$LASTEXITCODE` after `npm run tauri build` tells us
-            // whether to relaunch or pause for the user.
-            let cmd = r#"
-$ErrorActionPreference = 'Continue'
-
-# v15.4.20 fix: kill the running Control Center BEFORE the build, not after.
-# `tauri build` overwrites src-tauri\target\release\control-center.exe at
-# the end of the compile, which fails with "Acceso denegado" (os error 5)
-# when the running app holds the binary's file handle. Same flow used
-# below at relaunch time, but here we need it pre-build too.
-$exePath = Join-Path (Get-Location) 'src-tauri\target\release\control-center.exe'
-if (Test-Path -LiteralPath $exePath) {
-    Write-Host '[ULTRON] Closing running Control Center before build...' -ForegroundColor Cyan
-    taskkill.exe /IM 'control-center.exe' /F 2>$null | Out-Null
-    taskkill.exe /IM 'ULTRON Control Center.exe' /F 2>$null | Out-Null
-    # Wait up to 8 s for Windows to release the file handle. Without this
-    # the link step can still race the kill and lock the exe.
-    $deadline = (Get-Date).AddSeconds(8)
-    while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 200
-        try {
-            $fs = [System.IO.File]::Open($exePath, 'Open', 'ReadWrite', 'None')
-            $fs.Close()
-            break
-        } catch { }
-    }
-}
-
-Write-Host '[ULTRON] git pull...' -ForegroundColor Cyan
-git pull --ff-only
-Write-Host '[ULTRON] npm install...' -ForegroundColor Cyan
-npm install
-# v2.7.2 fix: usar build:local (no `tauri build`). build:local autodetecta las
-# fuentes locales de Finance (src-tauri/src/finance.rs + src/components/Finance.tsx)
-# y, si existen, compila CON Finance (VITE_FINANCE=1 + --features finance). El
-# `tauri build` pelado producia el binario PUBLICO sin Finance — el usuario perdia
-# la pestana Finance en cada rebuild desde Ajustes. En un clon publico sin esas
-# fuentes, build:local cae a un build sin Finance (equivalente a build:app).
-Write-Host '[ULTRON] build:local (incluye Finance si las fuentes locales existen)...' -ForegroundColor Cyan
-npm run build:local
-$buildExit = $LASTEXITCODE
-if ($buildExit -ne 0) {
-    Write-Host ''
-    Write-Host '[ULTRON] Build FAILED (exit ' $buildExit '). The window stays open so you can read the error above.' -ForegroundColor Red
-    Read-Host 'Press Enter to close this terminal'
-    exit $buildExit
-}
-
-$exe = Join-Path (Get-Location) 'src-tauri\target\release\control-center.exe'
-if (-not (Test-Path -LiteralPath $exe)) {
-    Write-Host ('[ULTRON] Build succeeded but binary missing at ' + $exe) -ForegroundColor Yellow
-    Read-Host 'Press Enter to close this terminal'
-    exit 1
-}
-
-Write-Host ''
-Write-Host '[ULTRON] Build OK. Closing old instance + relaunching...' -ForegroundColor Green
-# v15.4.7 — Stop-Process -Name solo matchea procesos cuyo nombre del .exe
-# es exactamente 'control-center'. Cuando el binario corre desde el NSIS
-# installer (Program Files / AppData), el process name puede diferir o
-# el spawned PS no tiene permisos suficientes para matarlo. taskkill
-# /IM control-center.exe /F mata por imagen sin /T — el /T (tree)
-# tomaba también este script PowerShell porque es child de
-# control-center, lo que dejaba la app muerta sin relauch (gemini
-# review v15.4.16, confirmado).
-taskkill.exe /IM 'control-center.exe' /F 2>$null | Out-Null
-# Fallback por si el binario fuera renombrado por el installer NSIS al
-# productName del tauri.conf (ULTRON Control Center.exe).
-taskkill.exe /IM 'ULTRON Control Center.exe' /F 2>$null | Out-Null
-$deadline = (Get-Date).AddSeconds(8)
-while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 200
-    if (-not (Get-Process -Name 'control-center' -ErrorAction SilentlyContinue)) { break }
-}
-Start-Process -FilePath $exe
-Write-Host '[ULTRON] Relaunched. This terminal closes in 3 s.' -ForegroundColor Green
-Start-Sleep -Seconds 3
-"#
-            .to_string();
             let cc = ultron.join("control-center");
             if !cc.is_dir() {
                 return Err(format!("control-center/ missing: {}", cc.display()));
             }
-            (cc, cmd)
+            (cc, UPDATE_SCRIPT.to_string())
         }
         other => return Err(format!("unknown lifecycle kind: {}", other)),
     };
@@ -132,10 +105,10 @@ Start-Sleep -Seconds 3
     // powershell.exe directly. The window is still visible to the user
     // (CREATE_NEW_CONSOLE on Windows), just without the wt.exe wrapper.
     //
-    // v15.4.3: `-NoExit` only applies to `uninstall`. The new `update`
-    // script handles its own lifetime (auto-close after relaunch, pause
-    // on failure), so layering `-NoExit` on top would leave a dead
-    // PowerShell window behind after the user's relaunch.
+    // v15.4.3: `-NoExit` only applies to `uninstall`. The `update` script
+    // handles its own lifetime (auto-close after relaunch, pause on
+    // failure), so layering `-NoExit` on top would leave a dead PowerShell
+    // window behind after the relaunch.
     let mut command = std::process::Command::new("powershell.exe");
     command
         .current_dir(&cwd)
@@ -161,10 +134,71 @@ Start-Sleep -Seconds 3
 }
 
 /// Linux/macOS stub — the lifecycle scripts (`uninstall.ps1`, the
-/// in-place `tauri build` + relaunch flow) are PowerShell + Windows-only
-/// taskkill calls. There's no equivalent shipped today; the Linux build
-/// uses the OS package manager for install/uninstall instead.
+/// in-place `tauri build` + relaunch flow) are PowerShell + Windows-only.
+/// There's no equivalent shipped today; the Linux build uses the OS
+/// package manager for install/uninstall instead.
 #[cfg(not(target_os = "windows"))]
 pub fn run_app_lifecycle_inner(_kind: String) -> Result<(), String> {
+    let _ = UPDATE_SCRIPT;
     Err("app lifecycle commands are Windows-only".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UPDATE_SCRIPT;
+
+    #[test]
+    fn update_script_never_kills_the_app() {
+        // Caso negativo del hallazgo: el script anterior hacía taskkill /F.
+        let lower = UPDATE_SCRIPT.to_lowercase();
+        assert!(
+            !lower.contains("taskkill"),
+            "el Rebuild no debe matar ULTRON"
+        );
+        assert!(
+            !lower.contains("stop-process"),
+            "el Rebuild no debe matar ULTRON"
+        );
+    }
+
+    #[test]
+    fn update_script_checks_every_step_before_building() {
+        let pull = UPDATE_SCRIPT
+            .find("git pull --ff-only\n")
+            .expect("git pull");
+        let install = UPDATE_SCRIPT.find("npm install\n").expect("npm install");
+        let build = UPDATE_SCRIPT.find("npm run build:local\n").expect("build");
+        assert!(pull < install && install < build);
+        // Cada paso externo va seguido de su comprobación de salida.
+        for (step, at) in [
+            ("git pull", pull),
+            ("npm install", install),
+            ("build", build),
+        ] {
+            let tail = &UPDATE_SCRIPT[at..];
+            let next_line = tail.lines().nth(1).unwrap_or_default();
+            assert!(
+                next_line.contains("$LASTEXITCODE"),
+                "{step} sin comprobar $LASTEXITCODE: {next_line}"
+            );
+        }
+    }
+
+    /// Caso negativo de frontend-e2e-4: la terminal decía que se había pedido
+    /// la salida de ULTRON y esperaba 10 minutos a que se cerrara. Con el .exe
+    /// apartado por release-locked-exe no hay que esperar, y lo que dice al
+    /// terminar es que el binario nuevo entra al reiniciar.
+    #[test]
+    fn update_script_does_not_wait_for_the_app_and_says_when_the_binary_applies() {
+        assert!(!UPDATE_SCRIPT.contains("asked to exit"));
+        assert!(!UPDATE_SCRIPT.contains("Waiting for ULTRON to close"));
+        assert!(!UPDATE_SCRIPT.contains("while (Get-Process"));
+        assert!(UPDATE_SCRIPT.contains("restart the app to use the new one"));
+    }
+
+    #[test]
+    fn update_script_is_ascii() {
+        // PowerShell 5.1 y la consola OEM rompen con caracteres no ASCII.
+        assert!(UPDATE_SCRIPT.is_ascii());
+    }
 }

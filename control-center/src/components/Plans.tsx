@@ -44,6 +44,7 @@ export function Plans() {
     archivedItems,
     grouped,
     resolvedCount,
+    flowTargetCount,
     totalActive,
     priorityKeys,
     load,
@@ -99,18 +100,19 @@ export function Plans() {
     onArchiveSelected: () => setPendingClean(true),
     archiveDisabled: resolvedCount === 0,
     archiveCount: resolvedCount,
+    flowTargetCount,
   };
 
   return (
     <div className="flex h-full flex-col overflow-hidden px-8 py-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
         <div>
-          <h1 className="text-[20px] font-semibold leading-tight">Plans</h1>
+          <h1 className="text-[20px] font-semibold leading-tight">Planes</h1>
           <p
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            ~/.ultron/plans/PLANS.json - {totalActive} items - updated {report?.updated_at?.slice(0, 19) ?? "-"}
+            ~/.ultron/plans/PLANS.json · {totalActive} elementos · actualizado {report?.updated_at?.slice(0, 19) ?? "-"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -123,9 +125,9 @@ export function Plans() {
               color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title={`Show archived plans (resolved > ${archivedDays} days). Auto-archive runs every 5 min.`}
+            title={`Mostrar los planes archivados (resueltos hace más de ${archivedDays} días). El archivado automático corre cada 5 min.`}
           >
-            Show archived
+            Ver archivados
           </button>
           <button
             type="button"
@@ -138,23 +140,21 @@ export function Plans() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? "Cargando…" : "Actualizar"}
           </button>
         </div>
       </header>
 
-      {/* v2.x slim: the rolled-up stats strip (total + priority counts +
-          archived) has been removed at the user's request. The Plans tab is
-          now intentionally focused on the kanban board itself. The archived
-          drawer is still reachable via the "Show archived" button in the
-          header. Per-column counts live in the column headers below. */}
+      {/* v2.x: se quitó la tira de estadísticas a petición del usuario; la
+          pestaña se centra en el kanban. Los archivados siguen accesibles con
+          «Ver archivados» y el recuento por columna va en cada cabecera. */}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by id, title, tag or description..."
+          placeholder="Buscar por id, título, tag o descripción…"
           className="rounded px-3 py-1.5 text-[12.5px]"
           style={{
             background: "var(--color-surface-2)",

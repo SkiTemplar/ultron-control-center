@@ -102,3 +102,39 @@ export function copyTemplateFiles(srcDir, destDir, vars, filesCreated) {
     }
   }
 }
+
+/** Nombre de proyecto -> identificador C++/C# valido en PascalCase ("Mi Juego" -> "MiJuego"). */
+export function toIdentifier(name) {
+  const parts = String(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+  let id = parts.map((p) => p[0].toUpperCase() + p.slice(1)).join('');
+  if (!id) id = 'Project';
+  if (/^[0-9]/.test(id)) id = `P${id}`;
+  return id;
+}
+
+const UNITY_FALLBACK_VERSION = '6000.0.60f1';
+
+/** Version de editor de Unity mas reciente instalada en Unity Hub; si no hay ninguna, una LTS conocida. */
+export function detectUnityVersion() {
+  const dir = process.env.ULTRON_UNITY_EDITORS_DIR || 'C:/Program Files/Unity/Hub/Editor';
+  try {
+    const key = (v) => v.split(/[.f]/).map(Number);
+    const versions = readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name.split('-')[0])
+      .filter((v) => /^\d+\.\d+\.\d+f\d+$/.test(v))
+      .sort((a, b) => {
+        const ka = key(a);
+        const kb = key(b);
+        for (let i = 0; i < ka.length; i += 1) if (ka[i] !== kb[i]) return ka[i] - kb[i];
+        return 0;
+      });
+    return versions.length ? versions[versions.length - 1] : UNITY_FALLBACK_VERSION;
+  } catch {
+    return UNITY_FALLBACK_VERSION;
+  }
+}

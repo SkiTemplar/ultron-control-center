@@ -96,7 +96,7 @@ function summarize(project, sessionId) {
   const r = spawnSync(
     process.execPath,
     [SUMMARIZER, '--cwd', project.path, '--project', project.id, '--session', '__backfill__', '--target-session', sessionId],
-    { encoding: 'utf8', stdio: 'pipe', windowsHide: true, timeout: 5 * 60 * 1000 },
+    { encoding: 'utf8', stdio: 'pipe', windowsHide: true, timeout: 6 * 60 * 1000 }, // Codex 120 s + Groq -> Gemini 180 s + margen
   );
   const written = lastSession.summaryMtimeMs(project.id, sessionId);
   return { ok: r.status === 0 && written !== null && Date.now() - written < 10 * 60 * 1000, status: r.status };

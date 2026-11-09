@@ -133,8 +133,8 @@ pub(super) const RULES: &[IntentRule] = &[
         ],
     },
     IntentRule {
-        // Documentation — quick flow; delegate boost targets documentation
-        // specialists over the meta ultron-docs.
+        // Documentation — quick flow; no documentation agent exists on disk,
+        // so the delegate falls back to the semantic ranking.
         intent: "docs",
         workflow_id: "quick",
         patterns: &[
@@ -153,7 +153,7 @@ pub(super) const RULES: &[IntentRule] = &[
     },
     IntentRule {
         // Refactor — behaviour-preserving cleanup; quick flow, delegate boost
-        // targets refactoring-specialist over the meta ultron-refactor.
+        // targets refactoring-specialist over generic reviewers.
         intent: "refactor",
         workflow_id: "quick",
         patterns: &[
@@ -603,7 +603,7 @@ pub(super) const RULES: &[IntentRule] = &[
 /// Domain-specific (language/framework/infra) intents. These WIN over generic
 /// action intents (bug_fix/performance/devops/feature) because a prompt like
 /// "optimize indexes in PostgreSQL" or "build an ETL pipeline with Spark" should
-/// route to the tech specialist (postgres-pro/data-engineer), not the action
+/// route to the tech specialist (sql-pro/data-engineer), not the action
 /// agent (performance-engineer/devops-engineer). classify_intent checks these
 /// FIRST so "pipeline"/"optimize"/"error" no longer hijack a domain prompt.
 pub(super) const DOMAIN_INTENTS: &[&str] = &[

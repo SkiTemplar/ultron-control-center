@@ -10,7 +10,7 @@
 #   ./ultron-bootstrap.sh
 #
 # What it does (no git clone required):
-#   1. Fetches the latest GitHub release for SkiTemplar/ultron-control-center.
+#   1. Fetches the latest GitHub release of the public repo (SkiTemplar/ultron-control-center).
 #   2. Downloads `ultron-system-<ver>.zip` + .sha256, verifies, extracts to ~/.ultron.
 #   3. Runs install.sh (which wires skills / agents / hooks / Qdrant).
 #   4. Downloads the Linux Tauri artifact (.AppImage preferred, .deb fallback)
@@ -36,6 +36,8 @@ DRY_RUN=0
 # opts in. Default OFF preserves supply-chain integrity in the (rare) case
 # where the release maintainer forgot to publish the .sha256 sidecar.
 ALLOW_UNSIGNED_ZIP=0
+# Same opt-in for the desktop artifact: without its .sha256 it is not installed.
+ALLOW_UNVERIFIED_INSTALLER=0
 
 usage() {
     cat <<EOF
@@ -46,6 +48,7 @@ Usage: bootstrap.sh [options]
   --skip-installer          Don't download/install the Control Center desktop app
   --dry-run                 Print planned actions, don't touch the disk
   --allow-unsigned-zip      Proceed even when the release has no .sha256 sidecar
+  --allow-unverified-installer  Keep the desktop artifact when it has no .sha256 sidecar
                             (NOT recommended; the integrity check is your only
                             guard against a tampered/partial download)
   -h, --help                This message
@@ -59,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --skip-installer)     SKIP_INSTALLER=1; shift ;;
         --dry-run)            DRY_RUN=1; shift ;;
         --allow-unsigned-zip) ALLOW_UNSIGNED_ZIP=1; shift ;;
+        --allow-unverified-installer) ALLOW_UNVERIFIED_INSTALLER=1; shift ;;
         -h|--help)            usage; exit 0 ;;
         *) echo "Unknown flag: $1" >&2; usage; exit 64 ;;
     esac
@@ -299,6 +303,33 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     fi
 fi
 
+# Checks a downloaded desktop artifact against the .sha256 of the release. Never
+# leaves an artifact in place that did not match.
+verify_installer_asset() {
+    local name="$1" file="$2" sha_url expected actual
+    sha_url="$(asset_url "${name}.sha256" || true)"
+    if [[ -z "$sha_url" ]]; then
+        if [[ "$ALLOW_UNVERIFIED_INSTALLER" -eq 1 ]]; then
+            warn "Release $TAG does not include ${name}.sha256 — keeping it WITHOUT integrity check (--allow-unverified-installer)."
+            return 0
+        fi
+        rm -f "$file"
+        err "Release $TAG does not include ${name}.sha256 and --allow-unverified-installer was NOT passed."
+        err "The system layer is installed; re-run with --skip-installer, or with the flag to bypass (NOT recommended)."
+        exit 5
+    fi
+    expected="$(curl -fsSL "$sha_url" | awk '{print tolower($1)}' | head -n1)"
+    actual="$(sha256sum "$file" | awk '{print tolower($1)}')"
+    if [[ -z "$expected" || "$expected" != "$actual" ]]; then
+        rm -f "$file"
+        err "SHA256 mismatch — ${name} corrupt or tampered. Removed."
+        err "  expected: $expected"
+        err "  actual:   $actual"
+        exit 5
+    fi
+    step "SHA256 verified: $actual"
+}
+
 # ─── 6. download + install Tauri Linux artifact ─────────────────────────────
 INSTALLED_APP_PATH=""
 INSTALL_NOTE=""
@@ -314,6 +345,7 @@ elif [[ -n "${APPIMAGE_URL:-}" ]]; then
     step "Downloading Control Center AppImage -> $APPIMAGE_TMP"
     if [[ "$DRY_RUN" -eq 0 ]]; then
         curl -fsSL -o "$APPIMAGE_TMP" "$APPIMAGE_URL"
+        verify_installer_asset "$APPIMAGE_NAME" "$APPIMAGE_TMP"
         mkdir -p "$BIN_DIR"
         # Preserve any previous AppImage as .bak so a broken upgrade is recoverable.
         if [[ -f "$APPIMAGE_DEST" ]]; then
@@ -359,6 +391,7 @@ elif [[ -n "${DEB_URL:-}" ]]; then
     if [[ "$DRY_RUN" -eq 0 ]]; then
         mkdir -p "$(dirname "$DEB_DEST")"
         curl -fsSL -o "$DEB_DEST" "$DEB_URL"
+        verify_installer_asset "$DEB_NAME" "$DEB_DEST"
     fi
     INSTALLED_APP_PATH="$DEB_DEST"
     INSTALL_NOTE="The .deb was downloaded but NOT installed. Run: sudo dpkg -i \"${DEB_DEST}\" (then 'sudo apt-get -f install' to fix any missing deps)."

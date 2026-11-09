@@ -4,6 +4,7 @@ import { useDroppableColumn } from "../../../hooks/useKanbanDnd";
 import { isBacklogColumn, columnAccent } from "./utils";
 import type { ColumnProps, DeleteState } from "./types";
 import { BoardCard } from "./BoardCard";
+import { ScrollableCardList } from "./ScrollableCardList";
 
 export function BoardColumn({
   columnId,
@@ -145,11 +146,11 @@ export function BoardColumn({
             <button
               onClick={onAddCard}
               className="flex items-center gap-1 rounded px-2 py-1 text-[11.5px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
-              aria-label="Agregar card"
-              title="Agregar card"
+              aria-label="Añadir tarjeta"
+              title="Añadir tarjeta"
             >
               <Plus size={12} />
-              Add
+              Añadir
             </button>
           )}
         </div>
@@ -212,7 +213,7 @@ export function BoardColumn({
             {deleteState.phase === "confirm" && (
               <div className="px-3 py-2">
                 <p className="mb-2 text-[11px] text-[var(--color-text-secondary)]">
-                  La columna esta vacia. Confirmar borrado?
+                  La columna está vacía. ¿Confirmar el borrado?
                 </p>
                 <div className="flex gap-1.5">
                   <button
@@ -245,7 +246,7 @@ export function BoardColumn({
             {deleteState.phase === "reassign" && (
               <div className="px-3 py-2">
                 <p className="mb-1.5 text-[11px] text-[var(--color-text-secondary)]">
-                  {cards.length} card{cards.length === 1 ? "" : "s"} se moveran a:
+                  {cards.length} tarjeta{cards.length === 1 ? "" : "s"} se moverá{cards.length === 1 ? "" : "n"} a:
                 </p>
                 <select
                   value={deleteState.targetId}
@@ -304,14 +305,14 @@ export function BoardColumn({
       </div>
 
       {/* Cards list */}
-      <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
+      <ScrollableCardList itemCount={cards.length}>
         {cards.length === 0 && (
           <button
             onClick={onAddCard}
             className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-[11.5px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
           >
             <Plus size={11} className="mr-1 inline-block align-text-bottom" />
-            Add a card to {name.toLowerCase()}
+            Añadir tarjeta
           </button>
         )}
         {cards.map((card) => (
@@ -323,7 +324,7 @@ export function BoardColumn({
             onDelete={() => onDeleteCard(card.id)}
           />
         ))}
-      </div>
+      </ScrollableCardList>
     </div>
   );
 }

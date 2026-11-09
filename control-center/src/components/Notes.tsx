@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../lib/dialog";
 import { Markdown } from "../lib/markdown";
+import { clearDraft, firstDraftSlug, loadDraft, saveDraft } from "./notes/draftStore";
 import {
   addTodo,
   clearDone,
@@ -51,10 +52,10 @@ function relativeTime(iso: string | null): string {
   const secs = parseInt(m[1], 10);
   if (!Number.isFinite(secs)) return iso;
   const diff = Date.now() / 1000 - secs;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60) return "ahora mismo";
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`;
+  return `hace ${Math.floor(diff / 86400)} d`;
 }
 
 export function Notes() {
@@ -69,6 +70,8 @@ export function Notes() {
   const [query, setQuery] = useState("");
   const [creatingNew, setCreatingNew] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const newTitleRef = useRef<HTMLInputElement>(null);
   // -- To-Do panel (fullize 2026-06-01) — shared store with Dashboard TodoCard --
   const [todos, setTodos] = useState<TodoItem[]>(() => loadTodos());
@@ -100,8 +103,31 @@ export function Notes() {
     }
   }, []);
 
+  // Guarda el borrador en cada cambio, de forma síncrona: un desmontaje por
+  // cambio de pestaña no deja margen para escribir después.
   useEffect(() => {
-    void loadList();
+    if (!editing || !selectedSlug) return;
+    try {
+      if (body !== originalBody) saveDraft(selectedSlug, body);
+      else clearDraft(selectedSlug);
+      setDraftError(null);
+    } catch (e) {
+      setDraftError(`No se pudo guardar el borrador: ${String(e)}`);
+    }
+  }, [editing, selectedSlug, body, originalBody]);
+
+  // Al volver a la pestaña, abre la nota que dejó un borrador pendiente.
+  useEffect(() => {
+    let cancelled = false;
+    void loadList().then((notes) => {
+      const slug = firstDraftSlug(notes.map((n) => n.slug));
+      if (slug && !cancelled) void openNote(slug);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // openNote solo usa setters y la store de borradores.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadList]);
 
   const filtered = useMemo(() => {
@@ -117,25 +143,37 @@ export function Notes() {
     [list, selectedSlug],
   );
 
-  async function selectNote(slug: string) {
-    if (editing && body !== originalBody) {
-      const ok = await confirmDialog("Discard unsaved changes?", {
-        title: "Notes",
-        kind: "warning",
-        okLabel: "Discard",
-      });
-      if (!ok) return;
-    }
+  async function openNote(slug: string) {
     setSelectedSlug(slug);
     setEditing(false);
+    setDraftRestored(false);
     setError(null);
     try {
       const text = (await invoke("notes_load_global", { slug })) as string;
-      setBody(text);
+      const draft = loadDraft(slug);
+      const hasDraft = draft !== null && draft !== text;
+      setBody(hasDraft ? draft : text);
       setOriginalBody(text);
+      // Sin borrador no se toca `editing`: pudo pulsar «Editar» durante la lectura.
+      if (hasDraft) setEditing(true);
+      setDraftRestored(hasDraft);
+      if (draft !== null && !hasDraft) clearDraft(slug);
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  async function selectNote(slug: string) {
+    if (editing && body !== originalBody) {
+      const ok = await confirmDialog("¿Descartar los cambios sin guardar?", {
+        title: "Notas",
+        kind: "warning",
+        okLabel: "Descartar",
+      });
+      if (!ok) return;
+      if (selectedSlug) clearDraft(selectedSlug);
+    }
+    await openNote(slug);
   }
 
   function startCreatingNew() {
@@ -188,8 +226,10 @@ export function Notes() {
     setError(null);
     try {
       await invoke("notes_save_global", { slug: selectedSlug, body });
+      clearDraft(selectedSlug);
       setOriginalBody(body);
       setEditing(false);
+      setDraftRestored(false);
       await loadList();
     } catch (e) {
       setError(String(e));
@@ -232,6 +272,7 @@ export function Notes() {
     setError(null);
     try {
       await invoke("notes_delete_global", { slug: selectedSlug });
+      clearDraft(selectedSlug);
       setSelectedSlug(null);
       setBody("");
       setOriginalBody("");
@@ -256,7 +297,7 @@ export function Notes() {
           className="flex items-center justify-between gap-2 border-b px-3 py-2"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <span className="text-[13px] font-semibold">Notes</span>
+          <span className="text-[13px] font-semibold">Notas</span>
           <button
             type="button"
             onClick={startCreatingNew}
@@ -266,16 +307,16 @@ export function Notes() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Create a new global note"
+            title="Crear una nota global"
           >
-            + New
+            + Nueva
           </button>
         </div>
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search notes…"
+          placeholder="Buscar notas…"
           className="m-2 rounded px-2 py-1 text-[12px] outline-none"
           style={{
             background: "var(--color-surface-2)",
@@ -300,7 +341,7 @@ export function Notes() {
                 if (e.key === "Enter") void confirmCreateNew();
                 if (e.key === "Escape") cancelCreateNew();
               }}
-              placeholder="Note title — press Enter to create"
+              placeholder="Título de la nota; Enter para crearla"
               className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
               style={{ color: "var(--color-text)" }}
             />
@@ -312,7 +353,7 @@ export function Notes() {
                 background: "transparent",
                 color: "var(--color-text-tertiary)",
               }}
-              title="Cancel (Esc)"
+              title="Cancelar (Esc)"
             >
               ✕
             </button>
@@ -321,11 +362,11 @@ export function Notes() {
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <p className="px-3 py-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              Loading…
+              Cargando…
             </p>
           ) : filtered.length === 0 ? (
             <p className="px-3 py-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              {list.length === 0 ? "No notes yet. Click + New to create one." : "No matches."}
+              {list.length === 0 ? "Aún no hay notas. Pulsa + Nueva para crear una." : "Sin coincidencias."}
             </p>
           ) : (
             <ul className="space-y-px">
@@ -336,7 +377,7 @@ export function Notes() {
                     <button
                       type="button"
                       onClick={() => void selectNote(n.slug)}
-                      className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-[13px] transition-colors"
+                      className="flex w-full min-w-0 flex-col items-start gap-0.5 px-3 py-2 text-left text-[13px] transition-colors"
                       style={{
                         background: active ? "var(--color-surface-3)" : "transparent",
                         color: active ? "var(--color-text)" : "var(--color-text-secondary)",
@@ -345,7 +386,9 @@ export function Notes() {
                           : "2px solid transparent",
                       }}
                     >
-                      <span className="truncate font-medium">{n.title}</span>
+                      <span className="w-full truncate font-medium" title={n.title}>
+                        {n.title}
+                      </span>
                       {n.preview && (
                         <span
                           className="line-clamp-1 text-[11.5px]"
@@ -378,7 +421,7 @@ export function Notes() {
           <div
             className="flex items-center justify-between gap-2 px-3 py-2"
           >
-            <span className="text-[13px] font-semibold">To-Do</span>
+            <span className="text-[13px] font-semibold">Tareas</span>
             {doneTodos > 0 && (
               <button
                 type="button"
@@ -516,7 +559,7 @@ export function Notes() {
             className="flex h-full items-center justify-center text-[12.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            {list.length === 0 ? "Create your first note." : "Select a note to view or edit it."}
+            {list.length === 0 ? "Crea tu primera nota." : "Selecciona una nota para verla o editarla."}
           </div>
         ) : (
           <>
@@ -552,7 +595,7 @@ export function Notes() {
                       color: "var(--color-text)",
                     }}
                   >
-                    Edit
+                    Editar
                   </button>
                 ) : (
                   <>
@@ -566,25 +609,28 @@ export function Notes() {
                         color: "var(--color-accent-text)",
                       }}
                     >
-                      {saving ? "Saving…" : "Save"}
+                      {saving ? "Guardando…" : "Guardar"}
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         if (dirty) {
-                          void confirmDialog("Discard unsaved changes?", {
-                            title: "Notes",
+                          void confirmDialog("¿Descartar los cambios sin guardar?", {
+                            title: "Notas",
                             kind: "warning",
-                            okLabel: "Discard",
+                            okLabel: "Descartar",
                           }).then((ok) => {
                             if (!ok) return;
+                            if (selectedSlug) clearDraft(selectedSlug);
                             setBody(originalBody);
                             setEditing(false);
+                            setDraftRestored(false);
                           });
                           return;
                         }
                         setBody(originalBody);
                         setEditing(false);
+                        setDraftRestored(false);
                       }}
                       disabled={saving}
                       className="rounded-md border px-2.5 py-1 text-[11.5px]"
@@ -594,7 +640,7 @@ export function Notes() {
                         color: "var(--color-text-tertiary)",
                       }}
                     >
-                      Cancel
+                      Cancelar
                     </button>
                   </>
                 )}
@@ -612,7 +658,7 @@ export function Notes() {
                       color: "var(--color-danger)",
                     }}
                   >
-                    Delete
+                    Borrar
                   </button>
                   {deleteConfirmOpen && (
                     <div
@@ -626,7 +672,7 @@ export function Notes() {
                         className="mb-2 text-[11.5px] leading-snug"
                         style={{ color: "var(--color-text)" }}
                       >
-                        Delete <span className="font-semibold">{selected.title}</span>?
+                        ¿Borrar <span className="font-semibold">{selected.title}</span>?
                       </p>
                       <div className="flex items-center justify-end gap-1.5">
                         <button
@@ -639,7 +685,7 @@ export function Notes() {
                             color: "var(--color-text-tertiary)",
                           }}
                         >
-                          Cancel
+                          Cancelar
                         </button>
                         <button
                           type="button"
@@ -650,7 +696,7 @@ export function Notes() {
                             color: "#fff",
                           }}
                         >
-                          Delete
+                          Borrar
                         </button>
                       </div>
                     </div>
@@ -672,6 +718,34 @@ export function Notes() {
               </div>
             )}
 
+            {draftError && (
+              <div
+                role="alert"
+                className="mx-4 mt-2 rounded p-2 text-[11.5px]"
+                style={{
+                  background: "rgba(248, 81, 73, 0.06)",
+                  border: "1px solid rgba(248, 81, 73, 0.22)",
+                  color: "var(--color-danger)",
+                }}
+              >
+                {draftError}
+              </div>
+            )}
+
+            {draftRestored && dirty && (
+              <div
+                role="status"
+                className="mx-4 mt-2 rounded p-2 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border-strong)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                Borrador sin guardar recuperado. «Guardar» lo escribe en la nota; «Cancelar» lo descarta.
+              </div>
+            )}
+
             {/* v2.5.2 fb-notes-layout: drop the chunky outer padding so the
                 editor/preview fills the right pane edge-to-edge (no wasted
                 margin around it). The textarea/markdown already provide their
@@ -679,6 +753,7 @@ export function Notes() {
             <div className="flex-1 overflow-auto px-4 py-3">
               {editing ? (
                 <textarea
+                  aria-label="Texto de la nota"
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                   spellCheck={false}
@@ -692,7 +767,7 @@ export function Notes() {
                 />
               ) : (
                 <div className="text-[14px] leading-relaxed">
-                  <Markdown source={body || "*(empty note)*"} />
+                  <Markdown source={body || "*(nota vacía)*"} />
                 </div>
               )}
             </div>

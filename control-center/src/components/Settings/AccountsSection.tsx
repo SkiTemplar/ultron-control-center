@@ -68,7 +68,7 @@ function AccessBadge({ access }: { access: AccessKind }) {
 function ModelChips({ ids }: { ids: string[] }) {
   if (ids.length === 0) {
     return (
-      <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+      <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
         (ninguno detectado)
       </span>
     );
@@ -133,7 +133,7 @@ export function AccountsSection() {
     report?.models.find((m) => m.provider === provider);
 
   return (
-    <div className="max-w-[720px]">
+    <div>
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-[15px] font-semibold">Cuentas y modelos</h2>
@@ -151,10 +151,11 @@ export function AccountsSection() {
           type="button"
           onClick={() => void handleRefreshModels()}
           disabled={refreshing || loading}
-          className="shrink-0 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+          className="shrink-0 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
           style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
           }}
         >
           {refreshing ? "Actualizando…" : "Actualizar modelos"}
@@ -233,7 +234,7 @@ export function AccountsSection() {
                       style={{ fontFamily: "var(--font-mono)", color: "var(--color-text)" }}
                     >
                       {a.account || (
-                        <span style={{ color: "var(--color-text-faint)" }}>
+                        <span style={{ color: "var(--color-text-tertiary)" }}>
                           cuenta no expuesta por la CLI
                         </span>
                       )}
@@ -241,7 +242,7 @@ export function AccountsSection() {
                     {a.key_tail && (
                       <span
                         className="text-[11px]"
-                        style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
+                        style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}
                       >
                         clave …{a.key_tail.replace(/^…/, "")}
                       </span>

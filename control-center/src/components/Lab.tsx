@@ -159,9 +159,13 @@ function markStyle(hitCount: number, isActive: boolean): React.CSSProperties {
   };
 }
 
+const LAB_TEXT_KEY = "ultron.lab.text";
+
 export function Lab() {
   const [view, setView] = useState<SubView>("detector");
-  const [text, setText] = useState("");
+  // App.tsx solo monta la pestaña activa: sin esto, cambiar de pestaña perdía el
+  // texto pegado. Vive lo que la ventana: no se escribe en disco.
+  const [text, setText] = useState(() => window.sessionStorage.getItem(LAB_TEXT_KEY) ?? "");
   const [report, setReport] = useState<TfgReport | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +178,14 @@ export function Lab() {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [onlyPattern, setOnlyPattern] = useState<string | null>(null);
   const markRefs = useRef<Record<number, HTMLElement | null>>({});
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(LAB_TEXT_KEY, text);
+    } catch (e) {
+      setError(`No se pudo conservar el texto al cambiar de pestaña: ${String(e)}`);
+    }
+  }, [text]);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,7 +310,7 @@ export function Lab() {
               {onlyPattern === pattern ? "solo este" : "aislar"}
             </button>
             <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
-              {ms.length} {muted ? "aviso" : "hallazgo"}{ms.length !== 1 ? "s" : ""}
+              {ms.length} {muted ? "aviso" : "señal"}{ms.length !== 1 ? (muted ? "s" : "es") : ""}
             </span>
           </div>
         </div>
@@ -359,13 +371,13 @@ export function Lab() {
       <header className="border-b" style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center justify-between gap-4 px-6 pt-4">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-[15px] font-semibold">Lab</h2>
+            <h2 className="text-[15px] font-semibold">Laboratorio</h2>
             <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
               Detección determinista de patrones de texto IA · fuente: docs/research/patrones-texto-ia.json
             </span>
           </div>
         </div>
-        <nav className="flex gap-1 px-6 pb-3 pt-3" role="tablist" aria-label="Lab sections">
+        <nav className="flex gap-1 px-6 pb-3 pt-3" role="tablist" aria-label="Secciones del laboratorio">
           {(
             [
               ["detector", "Detector"],
@@ -515,7 +527,7 @@ export function Lab() {
                       <span className="text-[11.5px] font-medium">
                         Texto marcado
                         <span className="ml-2 font-normal" style={{ color: "var(--color-text-tertiary)" }}>
-                          cada tramo subrayado es un aviso; el color se intensifica donde se apilan varios
+                          cada tramo subrayado es una marca (señal o aviso); el color se intensifica donde se apilan varias
                         </span>
                       </span>
                       <div className="flex items-center gap-2">
@@ -535,13 +547,13 @@ export function Lab() {
                         )}
                         <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
                           {activeIdx === null || navIdx.indexOf(activeIdx) < 0
-                            ? `${navIdx.length} aviso${navIdx.length !== 1 ? "s" : ""}`
+                            ? `${navIdx.length} marca${navIdx.length !== 1 ? "s" : ""}`
                             : `${navIdx.indexOf(activeIdx) + 1} / ${navIdx.length}`}
                         </span>
                         <button
                           type="button"
                           onClick={() => step(-1)}
-                          aria-label="Aviso anterior"
+                          aria-label="Marca anterior"
                           className="rounded px-2 py-1 text-[12px]"
                           style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)" }}
                         >
@@ -550,7 +562,7 @@ export function Lab() {
                         <button
                           type="button"
                           onClick={() => step(1)}
-                          aria-label="Aviso siguiente"
+                          aria-label="Marca siguiente"
                           className="rounded px-2 py-1 text-[12px]"
                           style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-border-strong)" }}
                         >
@@ -580,7 +592,7 @@ export function Lab() {
                                 if (located[h].start === seg.start) markRefs.current[h] = el;
                               }
                             }}
-                            title={`${etiquetas} — ${shown.length} aviso(s)`}
+                            title={`${etiquetas} — ${shown.length} marca(s)`}
                             onClick={() => goTo(first)}
                             style={markStyle(shown.length, isActive)}
                           >

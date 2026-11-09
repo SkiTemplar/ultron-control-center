@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · logos de ULTRON Sessions</title>
+<style>
+  body { margin: 0; padding: 40px; background: radial-gradient(circle at 30% 20%, #2a3550, #07080b 70%);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; color: #F2F3F5; min-height: 100vh; }
+  h1 { font-weight: 600; margin: 0 0 6px; }
+  p { color: #9AA0AE; margin: 0 0 30px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 180px); gap: 28px; }
+  .card { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .card svg { width: 128px; height: 128px; }
+  .small { display: flex; gap: 10px; align-items: center; }
+  .small svg { width: 32px; height: 32px; }
+  .label { font-size: 13px; color: #9AA0AE; } .label b { color: #F2F3F5; }
+  .ref { display: flex; gap: 14px; align-items: center; margin-bottom: 26px; color: #9AA0AE; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Logo de ULTRON Sessions</h1>
+<p>Misma familia que el Control Center (U con serifa sobre negro). Dime el número.</p>
+<div class="ref"><svg width="64" height="64" viewBox="0 0 128 128" id="ref"></svg> Control Center actual</div>
+<div class="grid" id="grid"></div>
+<script>
+  const B = '#8AB4FF', W = '#F2F3F5';
+  const U = (fill = W, y = 86, size = 78) =>
+    `<text x="64" y="${y}" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="${size}" fill="${fill}">U</text>`;
+  const base = (inner, r = 0, bg = '#000') => `<rect width="128" height="128" rx="${r}" fill="${bg}"/>${inner}`;
+  document.getElementById('ref').innerHTML = base(U() + `<rect x="28" y="100" width="72" height="2" fill="${W}"/>`);
+  const L = [
+    ['Línea azul', base(U() + `<rect x="28" y="100" width="72" height="3" fill="${B}"/>`)],
+    ['U azul', base(U(B) + `<rect x="28" y="100" width="72" height="2" fill="${W}"/>`)],
+    ['Cursor', base(U() + `<rect x="28" y="100" width="40" height="2" fill="${W}"/><rect x="74" y="96" width="26" height="8" rx="1" fill="${B}"/>`)],
+    ['Doble línea', base(U() + `<rect x="28" y="98" width="72" height="2" fill="${W}"/><rect x="40" y="104" width="48" height="2" fill="${B}"/>`)],
+    ['Redondeado', base(U() + `<rect x="28" y="100" width="72" height="3" rx="1.5" fill="${B}"/>`, 26)],
+    ['Marco fino', base(U() + `<rect x="28" y="100" width="72" height="2" fill="${W}"/><rect x="6" y="6" width="116" height="116" rx="20" fill="none" stroke="${B}" stroke-width="3"/>`, 26)],
+    ['Bocadillo', base(U(W, 80, 70) + `<rect x="28" y="94" width="72" height="2" fill="${W}"/><path d="M28 104 h72 v4 h-58 l-10 10 v-10 h-4 z" fill="${B}"/>`)],
+    ['Punto activo', base(U() + `<rect x="28" y="100" width="72" height="2" fill="${W}"/><circle cx="104" cy="26" r="9" fill="${B}"/>`)],
+    ['Azul profundo', base(U() + `<rect x="28" y="100" width="72" height="2" fill="${B}"/>`, 0, '#0B1630')],
+    ['Invertido', base(U('#000') + `<rect x="28" y="100" width="72" height="2" fill="#000"/>`, 0, B)],
+  ];
+  const grid = document.getElementById('grid');
+  L.forEach(([name, svg], i) => {
+    const s = `<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+    grid.insertAdjacentHTML('beforeend', `<div class="card">${s}<div class="small">${s}<span class="label"><b>${i + 1}</b> · ${name}</span></div></div>`);
+  });
+</script>
+</body>
+</html>

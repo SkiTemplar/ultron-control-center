@@ -157,7 +157,7 @@ export function Commands() {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch (e) {
-      setError(`copy ${slug}: ${e}`);
+      setError(`No se pudo copiar ${slug}: ${e}`);
     }
   };
 
@@ -165,7 +165,7 @@ export function Commands() {
     try {
       await openPath(path);
     } catch (e) {
-      setError(`open ${path}: ${e}`);
+      setError(`No se pudo abrir ${path}: ${e}`);
     }
   };
 
@@ -180,16 +180,16 @@ export function Commands() {
     <div className="flex h-full flex-col gap-3 p-6">
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-lg font-semibold">Commands</h2>
+          <h2 className="text-lg font-semibold">Comandos</h2>
           <span
             className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {isSearching
-              ? `${filteredAll.length} matches across ${matchingCategoryCount} ${
-                  matchingCategoryCount === 1 ? "category" : "categories"
+              ? `${filteredAll.length} coincidencias en ${matchingCategoryCount} ${
+                  matchingCategoryCount === 1 ? "categoría" : "categorías"
                 }`
-              : `${cmds.length} slash commands · ${categories.length} categories`}
+              : `${cmds.length} slash commands · ${categories.length} categorías`}
           </span>
         </div>
         <button
@@ -201,7 +201,7 @@ export function Commands() {
             color: "var(--color-text)",
           }}
         >
-          Refresh
+          Actualizar
         </button>
       </header>
 
@@ -249,7 +249,7 @@ export function Commands() {
               className="p-3 text-xs"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Loading…
+              Cargando…
             </p>
           )}
           {!loading && categories.length === 0 && (
@@ -435,7 +435,7 @@ export function Commands() {
                     }}
                   >
                     <Clipboard size={12} />
-                    {copied ? "Copied!" : "Copy"}
+                    {copied ? "¡Copiado!" : "Copiar"}
                   </button>
                   <button
                     onClick={() => handleOpen(selected.path)}
@@ -447,7 +447,7 @@ export function Commands() {
                     }}
                   >
                     <ExternalLink size={12} />
-                    Open
+                    Abrir
                   </button>
                 </div>
               </div>
@@ -469,7 +469,7 @@ export function Commands() {
                     className="mr-2 uppercase tracking-wide"
                     style={{ color: "var(--color-text-tertiary)" }}
                   >
-                    Arguments
+                    Argumentos
                   </span>
                   <code
                     className="rounded px-1.5 py-0.5"
@@ -490,7 +490,7 @@ export function Commands() {
                     className="mr-2 uppercase tracking-wide"
                     style={{ color: "var(--color-text-tertiary)" }}
                   >
-                    Model
+                    Modelo
                   </span>
                   <code
                     className="rounded px-1.5 py-0.5"
@@ -513,7 +513,7 @@ export function Commands() {
                   className="mb-1 text-[10.5px] uppercase tracking-wide"
                   style={{ color: "var(--color-text-faint)" }}
                 >
-                  Source
+                  Origen
                 </div>
                 <code
                   className="block overflow-x-auto rounded p-2"

@@ -70,6 +70,32 @@ export function buildFimPrompt(prefix: string, suffix: string): string {
   return FIM_PREFIX + prefix + FIM_SUFFIX + suffix + FIM_MIDDLE;
 }
 
+/** Linea o bloque: el bloque se pide cuando el cursor esta en una linea vacia
+ *  justo debajo de un comentario (`# programa que suma dos numeros`). */
+export type CompletionMode = "line" | "block";
+
+/** Tokens maximos de un bloque y lineas maximas que se muestran. */
+export const BLOCK_NUM_PREDICT = 256;
+export const BLOCK_MAX_LINES = 30;
+
+const COMMENT_PREFIXES = ["#", "//", "--", ";", "/*", "*", "%", "'''", '"""', "<!--"];
+
+/**
+ * `block` si la linea del cursor esta vacia (solo sangria) y la ultima linea
+ * con contenido antes de ella es un comentario; `line` en cualquier otro caso.
+ */
+export function completionMode(prefix: string): CompletionMode {
+  const lines = prefix.split("\n");
+  const cursorLine = lines[lines.length - 1];
+  if (cursorLine.trim().length > 0) return "line";
+  for (let i = lines.length - 2; i >= 0; i--) {
+    const text = lines[i].trim();
+    if (text.length === 0) continue;
+    return COMMENT_PREFIXES.some((p) => text.startsWith(p)) ? "block" : "line";
+  }
+  return "line";
+}
+
 export interface BuildRequestParams {
   model: string;
   prefix: string;
@@ -77,30 +103,58 @@ export interface BuildRequestParams {
   maxPrefixChars: number;
   maxSuffixChars: number;
   numPredict?: number;
-  keepAlive?: string;
+  /** Plazo de residencia del modelo; ver `keepAliveFor`. */
+  keepAlive: string;
+  mode?: CompletionMode;
 }
 
-/** Valor por defecto de `keep_alive`: el modelo sigue residente media hora
- *  desde la ultima peticion, asi que una sesion de edicion normal siempre lo
- *  encuentra caliente (~50 ms) en vez de pagar la carga en frio (~10 s). */
-export const DEFAULT_KEEP_ALIVE = "30m";
+/**
+ * `keep_alive` segun el motor: cuanto sigue el modelo en VRAM tras la ultima
+ * peticion. Corto a proposito — los modelos locales no conviven con Unreal ni
+ * Blender, asi que deben soltar la VRAM poco despues de dejar de usarse;
+ * `high` aguanta algo mas porque su carga en frio es la mas cara. Un valor
+ * explicito no vacio (`ollamaTab.keepAlive`) manda. Espejo de
+ * `editor::keep_alive_for` en ULTRON Control Center.
+ */
+export function keepAliveFor(engine: Engine, explicit?: string): string {
+  const manual = explicit?.trim();
+  if (manual) return manual;
+  return engine === "high" ? "10m" : "5m";
+}
 
 /** Construye el cuerpo de `/api/generate` a partir del contexto ya recortado. */
 export function buildGenerateRequest(params: BuildRequestParams): OllamaGenerateRequest {
   const trimmedPrefix = trimPrefixContext(params.prefix, params.maxPrefixChars);
   const trimmedSuffix = trimSuffixContext(params.suffix, params.maxSuffixChars);
+  const isBlock = params.mode === "block";
   return {
     model: params.model,
     prompt: buildFimPrompt(trimmedPrefix, trimmedSuffix),
     raw: true,
     stream: false,
-    keep_alive: params.keepAlive ?? DEFAULT_KEEP_ALIVE,
+    keep_alive: params.keepAlive,
     options: {
-      num_predict: params.numPredict ?? 48,
+      num_predict: params.numPredict ?? (isBlock ? BLOCK_NUM_PREDICT : 48),
       temperature: 0,
-      stop: ["\n"],
+      // El bloque acaba en la primera linea en blanco doble: un programa corto
+      // entero, sin seguir inventando el resto del fichero.
+      stop: isBlock ? ["\n\n\n"] : ["\n"],
     },
   };
+}
+
+/**
+ * Sanea un bloque de varias lineas: quita `\r` y el espacio final, lo corta en
+ * `BLOCK_MAX_LINES` y descarta la respuesta vacia o la que repite el texto que
+ * ya sigue al cursor.
+ */
+export function sanitizeBlock(raw: string | null | undefined, textAfterCursor: string): string | null {
+  if (!raw) return null;
+  const lines = raw.replace(/\r/g, "").split("\n").slice(0, BLOCK_MAX_LINES);
+  const block = lines.join("\n").replace(/\s+$/, "");
+  if (block.trim().length === 0) return null;
+  if (textAfterCursor.trimStart().startsWith(block.trim())) return null;
+  return block;
 }
 
 /**
@@ -109,13 +163,13 @@ export function buildGenerateRequest(params: BuildRequestParams): OllamaGenerate
  * en frio de un modelo de 1 GB ronda los 10 s en este equipo, muy por encima
  * del timeout con el que se pide una sugerencia.
  */
-export function buildWarmupRequest(model: string, keepAlive?: string): OllamaGenerateRequest {
+export function buildWarmupRequest(model: string, keepAlive: string): OllamaGenerateRequest {
   return {
     model,
     prompt: "",
     raw: true,
     stream: false,
-    keep_alive: keepAlive ?? DEFAULT_KEEP_ALIVE,
+    keep_alive: keepAlive,
     options: { num_predict: 0, temperature: 0, stop: [] },
   };
 }

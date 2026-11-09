@@ -77,8 +77,9 @@ function main() {
 
   if (!text.trim()) usage('Texto vacio.');
 
-  // Mismo criterio de ambito que el hook: en destino .md la negrita y el guion
-  // largo son sintaxis del formato, no artefactos de haber pegado un chatbot.
+  // Mismo criterio de ambito que el hook: en destino .md la negrita es sintaxis
+  // del formato, no un artefacto de haber pegado un chatbot. El guion largo ya
+  // no se omite (ver MARKDOWN_NATIVE_PATTERNS en ai-text-detector.js).
   const report = scan(text, null, {
     skipPatterns: ext === '.md' ? MARKDOWN_NATIVE_PATTERNS : [],
   });
@@ -100,7 +101,7 @@ function main() {
   if (report.veredicto === 'sin_indicios') {
     process.stdout.write(
       `SIN INDICIOS — densidad ${report.density_per_100w.toFixed(2)}/100 palabras sobre ${report.words} palabras ` +
-        `(${report.total_patterns_scanned} patrones aplicados${ext === '.md' ? ', markup/guion largo omitidos por ser .md' : ''})` +
+        `(${report.total_patterns_scanned} patrones aplicados${ext === '.md' ? ', artefactos de markup omitidos por ser .md' : ''})` +
         `${avisoLine}.\n`,
     );
     process.exit(0);

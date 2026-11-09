@@ -10,20 +10,17 @@
 // memory_graph (unified search + tree snapshot): borrado entero (2026-07-04) —
 //   quedó sin callers al des-registrarse sus comandos y erradicarse el codegraph interno.
 // migrate (memory_migrate, ETL one-shot): borrado entero (2026-09-23) — nunca
-//   tuvo llamador en la UI; el ETL en si (crate::memory::migrations::run_full_etl)
-//   sigue vivo, lo ejercita un test de recall_unified.
+//   tuvo llamador en la UI. El ETL en sí (memory/migrations.rs, run_full_etl) se
+//   borró el 2026-10-26: su único llamante era un test e2e #[ignore].
+// inbox, portrait y catalog: borrados (2026-10-18) al retirarse la pestaña Memory
+//   y la subpestaña Library -> Routing, sus únicos consumidores. La gobernanza
+//   de candidatas y el reindexado siguen en el sidecar `ultron-memory.exe`.
 
-pub mod catalog;
-pub mod inbox;
 pub mod kanban_signal;
-pub mod portrait;
-pub mod recall_hybrid;
+pub mod memory_health;
 pub mod recall_unified;
 pub mod session_resume;
 
-pub use catalog::*;
-pub use inbox::*;
-pub use portrait::*;
-pub use recall_hybrid::*;
+pub use memory_health::*;
 pub use recall_unified::*;
 pub use session_resume::*;

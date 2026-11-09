@@ -5,27 +5,25 @@ None of these scripts are invoked by:
 
 - The Claude Code hooks under `~/.claude/settings.json`
 - The Control Center desktop app (Tauri + React)
-- `doctor.py`, `health.py`, `auto_updater.py`, `background_tasks.py`
-- The Windows `ULTRON-QdrantBoot` scheduled task
-- The `ultron` PowerShell command (`scripts/cockpit/ultron.ps1`)
+- `doctor.py` or `health.py`
 - Any user-facing wizard / installer prompt
 
-They exist solely so the project maintainer (`@SkiTemplar`) can:
+They exist so the project maintainer (`@SkiTemplar`) can:
 
 1. **Validate a release** before tagging (drift guards, leak scanners).
 2. **Cut a release** (tag automation, orphan release cleanup).
-3. **Audit the source tree** ad-hoc (silent-exec, personal-data, persona
-   coverage, routing rules).
+3. **Audit or evaluate** ad hoc (memory evals, detector benches).
 
-Each file is marked with a `# === maintainer-only (not user-facing) ===`
-comment block above its docstring so a `grep` on that string returns the
-canonical set.
+Most of them carry a `# === maintainer-only (not user-facing) ===` comment
+block above the docstring, so a `grep` on that string returns the canonical
+set.
 
-Eval-8 will use this document as the source of truth when deciding whether
-to migrate this tooling to a dedicated `scripts/dev/` or `tools/` tree. The
-migration is **not done yet** in v15.5.14 — too many test / CI / RELEASE-
-PROCESS references would need coordinated updates. The marker comment is
-the cheap, reversible step that makes the future move safe.
+Pruned on 2026-10-08: the tables only list files that exist. Removed since
+the previous revision: `audit_silent_exec.py`, `persona-benchmark-runner.py`,
+`routing-test-runner.py`, `new-project.ps1` (root), `init-memory.ps1`,
+`background_tasks.py`, the Stop-hook scripts `session-log.py`,
+`session-cleanup.{ps1,sh}` and `stop-memory-sync.{ps1,sh}`, and the
+self-improve stats panel (`self_improve.rs`).
 
 ---
 
@@ -33,127 +31,58 @@ the cheap, reversible step that makes the future move safe.
 
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/cockpit/version_propagate.py` | Version drift guard. The SSOT version lives in `pyproject.toml` `[project].version` (the 15.x monorepo line) and is compared against the two installers (`install.ps1`, `install.sh`), the install wizard, and version pins in the docs/badges. **The Control Center is DECOUPLED**: since the 2026-05 re-versioning the three CC manifests (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`) carry their OWN 2.x line and are checked only for INTERNAL consistency WITH EACH OTHER via `CC_TARGETS` — **never against the SSOT**. Wired into `.github/workflows/ci.yml § version-drift`. See `docs/INTEGRATION.md`. | `uv run python scripts/cockpit/version_propagate.py --check` |
-| `scripts/cockpit/audit_personal_data.py` | Pre-publish leak scanner. Walks every `git ls-files` entry for the author's name, home path, email, persona / agent slugs. Exit 1 on any HIGH finding (CI-gateable). | `uv run python scripts/cockpit/audit_personal_data.py [--strict]` |
-| `scripts/cockpit/audit_silent_exec.py` | Read-only AST + regex audit that flags `subprocess.run/Popen` calls and PowerShell `Start-Process` invocations missing the silent-exec wrapper. CONTRIBUTING.md flags this as the starting point for the hooks-observability work. | `uv run python scripts/cockpit/audit_silent_exec.py [--exit-on-hits]` |
+| `scripts/cockpit/version_propagate.py` | Version drift guard. The SSOT version lives in `pyproject.toml` `[project].version` (the 15.x monorepo line) and is compared against the two installers (`install.ps1`, `install.sh`), the install wizard, and version pins in the docs/badges. **The Control Center is decoupled**: the three CC manifests (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`) carry their own line and are checked only for internal consistency with each other via `CC_TARGETS`, never against the SSOT. Wired into `.github/workflows/ci.yml § version-drift`. | `uv run python scripts/cockpit/version_propagate.py --check` |
+| `scripts/cockpit/audit_personal_data.py` | Pre-publish leak scanner. Walks every `git ls-files` entry for the author's name, home path, email, persona / agent slugs. Exit 1 on any HIGH finding (CI and pre-commit gate). `--history` scans every blob reachable from any ref. | `uv run python scripts/cockpit/audit_personal_data.py [--strict] [--history]` |
+| `hooks/regen-manifest.js` | Mirrors `~/.claude/settings.json` into `hooks/manifest.json` and `templates/settings-hooks.json`; `--check` fails on drift (pre-commit gate). | `node hooks/regen-manifest.js [--check]` |
+| `scripts/run-selftests.mjs` | Runs the selftests classified in `scripts/selftests.manifest.json`; `--check` fails on an unclassified selftest (pre-commit), `--ci` runs the hermetic ones (CI). | `node scripts/run-selftests.mjs [--check\|--ci]` |
 
 ## Release automation
 
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/cut-release.ps1` | Local-only release driver: verifies clean main, bumps coherent versions, creates an annotated (optionally signed) tag, pushes the tag. The actual GitHub Actions workflow takes over from the tag push. Documented in `docs/RELEASE-PROCESS.md`. | `.\scripts\cut-release.ps1 -NewVersion v15.5.15 [-DryRun] [-NoSign]` |
-| `scripts/delete-orphan-releases.ps1` | One-shot GitHub Releases admin tool — deletes Release entries whose tag has already been removed (GitHub does NOT auto-cascade). Needs a PAT with `repo` scope. Used after a botched tag cleanup. | `$env:GITHUB_TOKEN = 'ghp_…'; .\scripts\delete-orphan-releases.ps1 [-Tags @('v15.4.17')]` |
-
-## Ad-hoc audits
-
-| Tool | Purpose | Invocation |
-|---|---|---|
-| `scripts/persona-benchmark-runner.py` | Parses `references/persona-benchmarks.md`, reports coverage + structural validation. Run before any persona-set release. Stage 2 (LLM-as-judge) is future work. | `uv run python scripts/persona-benchmark-runner.py [--persona <slug>] [--validate-only]` |
-| `scripts/routing-test-runner.py` | Regression harness for FAST PATH Layer 1 + tiebreaks (T-01..T-16, T-34, T-35). Run after every `config/intent-rules.yaml` edit. | `uv run python scripts/routing-test-runner.py [--verbose]` |
+| `scripts/cut-release.ps1` | Local-only release driver: verifies clean main, bumps coherent versions, creates an annotated (optionally signed) tag, pushes the tag. The GitHub Actions workflow takes over from the tag push. Documented in `docs/RELEASE-PROCESS.md`. | `.\scripts\cut-release.ps1 -NewVersion v15.5.15 [-DryRun] [-NoSign]` |
+| `scripts/delete-orphan-releases.ps1` | One-shot GitHub Releases admin tool: deletes Release entries whose tag has already been removed (GitHub does not auto-cascade). Needs a PAT with `repo` scope. | `$env:GITHUB_TOKEN = '<token>'; .\scripts\delete-orphan-releases.ps1 [-Tags @('v15.4.17')]` |
+| `scripts/sync-public.mjs` | Syncs the private monorepo into the public mirror (`ultron-control-center`). | `node scripts/sync-public.mjs` |
 
 ## Memory eval & webponize tooling
 
-These four scripts do not carry the `# === maintainer-only ===` marker (they
-postdate that sweep) but have no Control Center / hook / CI caller either —
-manual invocation only. Verified working as of 2026-09-11 (read end-to-end,
-their runtime dependencies confirmed on disk).
+No Control Center / hook / CI caller: manual invocation only.
 
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/golden-v2-ab.mjs` | A/B del reranker cross-encoder de memoria (F1.5): corre `ultron-memory.exe eval --golden <path>` dos veces (`ULTRON_RERANK=0` y `=1`) y compara recall@8/precision/MRR/nDCG/context_waste lado a lado. Avisa en vez de declarar empate si ambas pasadas dan métricas idénticas (señal de que el daemon leyó el flag al arrancar y no en la petición). | `node scripts/golden-v2-ab.mjs [ruta-golden] [--only 0\|1]` |
-| `scripts/golden-v2-pool.mjs` | Genera el pool de candidatos para el golden set v2 de recall, a partir de prompts REALES de `~/.claude/logs/orchestrate.jsonl` (no queries escritas a mano). Muestrea N prompts elegibles, pide recall sin reranker (in-project + cross-project) al daemon, y escribe `pool.json` (máquina) + `labeling.md` (para etiquetado manual). Paso previo a `golden-v2-compile.mjs` (existe, no auditado en esta pasada). | `node scripts/golden-v2-pool.mjs [--n 30] [--k 10] [--kx 4] [--days 30]` |
-| `scripts/new-web.mjs` | Scaffold de un proyecto-web del pipeline `webponize`: crea `cockpit/projects/web-<slug>/` (kanban.json + `site/`, `variants/b/`, `variants/c/` con placeholders), registra el proyecto en `cockpit/projects.json` y crea la card en el pipeline vía `scripts/kanban.mjs`. Siguiente paso manual: `scripts/deploy-variants.mjs`. | `node scripts/new-web.mjs <slug> "<Negocio>" [--tipo <sector>] [--maps <url>] [--tier front\|front+backend]` |
-| `scripts/tricolon-bench.js` | Banco de regresión para el patrón "regla de tres" (tricolon) del catálogo de detección de texto-IA (`docs/research/patrones-texto-ia.json`): mide el regex del catálogo (o uno pasado por argumento) contra casos positivos/negativos etiquetados a mano, usando el mismo compilador que producción (`hooks/scripts/lib/ai-text-detector.js`) para no medir una regex que no es la que corre. Avisa si la regex usa lookaround (la crate `regex` de Rust no lo soporta — divergencia muda entre el hook JS y el Lab Rust). | `node scripts/tricolon-bench.js ['<regex-candidata>']` |
+| `scripts/golden-v2-ab.mjs` | A/B of the memory cross-encoder reranker: runs `ultron-memory.exe eval --golden <path>` twice (`ULTRON_RERANK=0` and `=1`) and compares recall@8/precision/MRR/nDCG/context_waste. Warns instead of declaring a tie when both passes are identical (sign that the daemon read the flag at startup). | `node scripts/golden-v2-ab.mjs [golden-path] [--only 0\|1]` |
+| `scripts/golden-v2-pool.mjs` | Builds the candidate pool for the v2 recall golden set from real prompts in `~/.claude/logs/orchestrate.jsonl`; writes `pool.json` and `labeling.md`. Followed by `golden-v2-compile.mjs`. | `node scripts/golden-v2-pool.mjs [--n 30] [--k 10] [--kx 4] [--days 30]` |
+| `scripts/new-web.mjs` | Scaffold for a `webponize` web project: creates `cockpit/projects/web-<slug>/`, registers it in `cockpit/projects.json` and adds the pipeline card through `scripts/kanban.mjs`. Next manual step: `scripts/deploy-variants.mjs`. | `node scripts/new-web.mjs <slug> "<Business>" [--tipo <sector>] [--maps <url>] [--tier front\|front+backend]` |
+| `scripts/tricolon-bench.js` | Regression bench for the "rule of three" pattern of the AI-text catalogue (`docs/research/patrones-texto-ia.json`), using the production compiler (`hooks/scripts/lib/ai-text-detector.js`). Warns on lookaround (Rust `regex` does not support it, so the JS detector and the Rust Lab would diverge). | `node scripts/tricolon-bench.js ['<candidate-regex>']` |
 
-## Standalone bootstrap / scaffolders
-
-These scripts have **no runtime caller** — they exist for manual one-off invocations during fresh-machine bootstrap, vault setup, or skill-catalog rebuilds. All four carry the `# === maintainer-only ===` marker.
+## Standalone tools without a runtime caller
 
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/skill-discovery.py` | One-off scan over `~/.claude/skills/` to detect skills not mapped in FAST PATH Layer 1/2. Run when rebuilding the routing catalog. | `uv run python scripts/skill-discovery.py [--verbose]` |
-| `scripts/new-project.ps1` | Scaffolds a new project under `~/.ultron/projects/<name>/`. Not wired to Control Center — manual PowerShell invocation. | `powershell -File scripts/new-project.ps1 -Name "myproj" -Type "PERSONAL"` |
-| `scripts/init-memory.ps1` | Bootstraps the vault layout on a fresh machine. `install.ps1` + `brain_index.py` do this automatically for end users; this is the manual maintainer/debug path. | `powershell -File scripts/init-memory.ps1` |
-| `scripts/ultron-paths.ps1` | Dot-sourced path resolver SSOT (PowerShell sibling of `ultron_paths.py`). Not invoked directly — dot-sourced by hooks/scripts. | `. scripts/ultron-paths.ps1; $UltronPaths.brain_index_db` |
+| `scripts/skill-discovery.py` | Scans `~/.claude/skills/` for skills not mapped in the FAST PATH tables. | `uv run python scripts/skill-discovery.py [--verbose]` |
+| `scripts/memory-audit.py` | Manual audit of the Claude Code auto-memory files (`~/.claude/projects/*/memory/*.md`): missing frontmatter, invalid type, duplicates, stale entries, orphans in `MEMORY.md` (see `docs/protocols.md`). | `uv run python scripts/memory-audit.py [--fix-index]` |
+| `scripts/consistency_check.py` | Internal-consistency checks of the system. No hook calls it any more. | `uv run python scripts/consistency_check.py [--quiet]` |
+| `scripts/ultron-paths.ps1` | PowerShell sibling of `ultron_paths.py`. Nothing dot-sources it today. | `. scripts/ultron-paths.ps1; $UltronPaths.brain_index_db` |
+| `scripts/cockpit/ultron.ps1` | Manual CLI over the cockpit scripts (see `docs/COMMANDS.md` §4). | `scripts\cockpit\ultron.ps1 help` |
 
 ## Manual multi-CLI consensus tooling
 
-`shared-duet.ps1` has **no runtime caller** — it is the manual launcher for the
-dual/triple peer-consensus pattern (the `/maxdual` and council workflows). It
-writes per-peer `cmd.exe` launchers and runs CLI peers in parallel, then resumes
-them across rounds via `-SessionIds`. Carries the `# === maintainer-only ===` marker.
-
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/shared-duet.ps1` | Unified replacement for the retired `codex-duet.ps1` + `gemini-duet.ps1`. Launches CLI peers for dual/triple consensus rounds. NOTE: the `gemini` peer is dead (Google retired the free-tier OAuth tier — see `cat3`); use `-Peers codex` until a live second peer is wired. | `.\scripts\shared-duet.ps1 -Peers codex -Mode Dual -Round 1 -Prompt "..."` |
+| `scripts/shared-duet.ps1` | Manual launcher for the dual/triple peer-consensus pattern: writes per-peer `cmd.exe` launchers, runs CLI peers in parallel and resumes them across rounds via `-SessionIds`. The `gemini` peer is dead (Google retired the free-tier OAuth); use `-Peers codex`. | `.\scripts\shared-duet.ps1 -Peers codex -Mode Dual -Round 1 -Prompt "..."` |
 
-## Deprecated Stop-hook scripts (v15.5.16 consolidation sweep)
+## Gray-area scripts (user-facing, not maintainer-only)
 
-These scripts used to be wired directly into the Stop hook chain. As of v15.5.16
-their bodies are inlined inside `scripts/hooks/stop-memory-sync.{ps1,sh}` so the
-chain spends 2 fewer process launches per session (5 → 3). The files stay on
-disk so maintainers can still invoke them manually or for parity audits.
+These have at least one production caller:
 
-| Tool | Inlined location | Manual invocation |
-|---|---|---|
-| `scripts/hooks/session-log.py` | `stop-memory-sync.{ps1,sh}` top block (after stdin parse, before debounce) | `uv run python scripts/hooks/session-log.py < /dev/null` |
-| `scripts/hooks/session-cleanup.ps1` | `stop-memory-sync.ps1` tail block (before final `exit 0`) | `pwsh -File scripts/hooks/session-cleanup.ps1` |
-| `scripts/hooks/session-cleanup.sh`  | `stop-memory-sync.sh` tail block (before final `exit 0`) | `bash scripts/hooks/session-cleanup.sh` |
-
-## Gray-area scripts (NOT marked as maintainer-only)
-
-The following were initially candidates but have at least one production
-runtime caller and therefore **stay user-facing**:
-
-| Script | Reason it's user-facing |
+| Script | Callers |
 |---|---|
-| `deadwood_scanner.py` | `doctor.py` (D17), `control-center/src-tauri/src/maintenance.rs`, `cockpit/ultron.ps1` command alias |
-| `skill_sync_security.py` | `doctor.py`, control-center SecurityPanel, runtime quarantine guard |
-| `skill_provenance.py` | `doctor.py` D-check + drift auto-repair |
-| `registry_sync.py` | `ultron` command, multiple tests, build-time SSOT |
-| `vault_migrator.py` | `ultron` command, migration tests |
-| `frontmatter_backfill.py` | Skill toolchain — fixes drift surfaced by `skill_finder` |
-| `dispatcher_audit.py` | Referenced in `health.py` allowlist |
-| `audit_index.py` | Called by `auto_updater.py` (dashboard refresh) |
-| `skill_summarizer.py` | `background_tasks.py` daily run |
-| `cache_telemetry.py` / `memory_dedupe.py` / `token_baseline.py` / `prompt_eval.py` | All wired into `doctor.py` D-checks |
-| `verify_claims.py` | Called by `ultron` command |
-| `consistency_check.py` (scripts root) | Phase A of `stop-memory-sync.{ps1,sh}` |
-| `memory-audit.py` (scripts root) | Auto-cleanup protocol (docs/protocols.md) |
-| `setup-git-hooks.ps1` | Called from `install.ps1` to wire `.git/hooks/` |
-
----
-
-## Future migration plan (deferred — eval-8 input)
-
-When the team is ready to move the maintainer-only set to a dedicated
-location:
-
-1. Create `scripts/dev/` (or `tools/`).
-2. `git mv` each `# === maintainer-only` script under that tree, preserving
-   relative paths where downstream callers care:
-   - `scripts/cockpit/version_propagate.py` → `scripts/dev/cockpit/version_propagate.py`
-   - `scripts/cockpit/audit_personal_data.py` → `scripts/dev/cockpit/audit_personal_data.py`
-   - `scripts/cockpit/audit_silent_exec.py` → `scripts/dev/cockpit/audit_silent_exec.py`
-   - `scripts/cut-release.ps1` → `scripts/dev/cut-release.ps1`
-   - `scripts/delete-orphan-releases.ps1` → `scripts/dev/delete-orphan-releases.ps1`
-   - `scripts/persona-benchmark-runner.py` → `scripts/dev/persona-benchmark-runner.py`
-   - `scripts/routing-test-runner.py` → `scripts/dev/routing-test-runner.py`
-3. Update the following references in the **same commit** (otherwise CI breaks):
-   - `.github/workflows/ci.yml` — `python scripts/cockpit/version_propagate.py --check`
-   - `docs/RELEASE-PROCESS.md` — `./scripts/cut-release.ps1`
-   - `tests/test_silent_exec.py` — `importlib.import_module("audit_silent_exec")`
-   - `CONTRIBUTING.md` — link to `scripts/cockpit/audit_silent_exec.py`
-   - This file (`docs/MAINTAINERS.md`) — update the table paths.
-4. Remove the `# === maintainer-only (not user-facing) ===` markers (the
-   directory itself now communicates the same fact).
-5. Decide whether `_legacy/` (already empty-ish — it now houses the retired
-   inner installers from v15.5.14) should fold into `scripts/dev/_legacy/`
-   to keep all maintainer-only files under one root.
-
-The marker comment is **non-destructive** — every script still runs from its
-current path, every caller still resolves, no .gitignore change is needed.
-The migration is a clean, atomic future step.
+| `scripts/cockpit/deadwood_scanner.py` | Maintenance `deadwood-scan`, `doctor` checks, `ultron deadwood` |
+| `scripts/cockpit/skill_sync_security.py` | Maintenance `skill-security-audit`, `doctor` checks, `ultron security` |
+| `scripts/cockpit/skill_provenance.py` | `doctor` drift check and auto-repair, `ultron security provenance` |
+| `scripts/cockpit/registry_sync.py` | Maintenance `registry-sync`, `ultron skills registry` / `sync` |
+| `scripts/cockpit/cache_telemetry.py`, `token_baseline.py` | `doctor` checks |
+| `scripts/setup-git-hooks.ps1` | `install.ps1` (wires `.git/hooks/` from `git-hooks/`) |
 
 ---
 
@@ -162,8 +91,8 @@ The migration is a clean, atomic future step.
 ### Quarantine directories
 
 Wave-based refactors leave behind `_cleanup_quarantine_<YYYY-MM-DD>`
-directories directly under `~/.ultron/`.  Use
-`scripts/cleanup-quarantine.ps1` to inspect and manage them.
+directories directly under `~/.ultron/`. Use `scripts/cleanup-quarantine.ps1`
+to inspect and manage them.
 
 | Task | Command |
 |---|---|
@@ -177,45 +106,12 @@ directories directly under `~/.ultron/`.  Use
 - `-PurgeExpired` always runs in WhatIf mode unless `-Force` is also passed.
 - No deletion happens without a `.zip` archive being confirmed on disk first
   (for `-Apply` and `-AutoCompress`).
-- Never pass `~/.ultron/.fastembed_cache` to this script; that cache is
-  managed by the embedding pipeline and must be cleared via
-  `uv run python scripts/cockpit/embed_skills.py --clear-cache`.
-
-Recommended cadence: run `-AutoCompress` after each major wave refactor;
-run `-PurgeExpired` monthly.
+- Never pass `~/.ultron/.fastembed_cache` to this script (see below).
 
 ### .fastembed_cache policy
 
-The directory `~/.ultron/.fastembed_cache` (or wherever `FASTEMBED_CACHE_DIR`
-points) is owned by the `fastembed` library used by the embedding pipeline.
-**Do NOT manually delete it without first stopping any running embedding job.**
-To clear it safely:
-
-```powershell
-# Stop any background embedding job first, then:
-uv run python scripts/cockpit/embed_skills.py --clear-cache
-```
-
-The cache is typically 300-600 MB (BAAI/bge-small-en-v1.5 model weights).
-Deleting it forces a full model re-download on the next embed run.
-
----
-
-## Stats panel signals (Hook Signals → 6 sources, 3 dead by design)
-
-`control-center/src-tauri/src/self_improve.rs::read_hook_signals` aggregates
-six telemetry streams. Three fire rarely *by design* — do **not** treat them
-as broken when the panel shows them stale:
-
-| Source | Fires when | Typical interval |
-|---|---|---|
-| `prompt-feedback` | every Skill/Agent invocation | continuous |
-| `token-usage` | every Claude turn | continuous |
-| `hiper-plans` | a `hiper-plans` skill runs | rare |
-| `doctor` | weekly only (`scripts/cockpit/doctor.py` cron, opt-in) | 7+ days |
-| `auto_updater` | on-demand from the update banner | 7-30+ days |
-| `mcp-audit` | weekly only (`scripts/cockpit/mcp-resilience.py` cron) | 7+ days |
-
-The Settings → Notifications panel surfaces freshness only for the first
-three. The last three are scheduled jobs, not realtime signals — their age
-reflects schedule cadence, not health.
+`~/.ultron/.fastembed_cache` (override: `ULTRON_FASTEMBED_CACHE`) holds the
+ONNX model weights that `fastembed` downloads for dense recall (E5 and the
+cross-encoder, see `control-center/src-tauri/src/qdrant.rs`). Delete it only
+with the `ultron-memory` sidecar stopped; the next dense use re-downloads the
+models. With `ULTRON_DENSE=0` nothing reads it.

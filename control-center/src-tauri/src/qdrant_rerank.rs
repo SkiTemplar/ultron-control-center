@@ -341,7 +341,7 @@ pub fn spawn_reranker_warmup() -> bool {
     }
     std::thread::spawn(|| {
         if let Err(e) = warmup_reranker() {
-            eprintln!("[rerank] carga en background fallida: {e}");
+            tracing::warn!("[rerank] carga en background fallida: {e}");
         }
         RERANK_LOADING.store(false, Ordering::SeqCst);
     });
@@ -372,6 +372,9 @@ pub fn reranker_model_id() -> &'static str {
 /// error but must not block the session.
 #[cfg(feature = "qdrant")]
 pub fn warmup_reranker() -> Result<(), String> {
+    if !crate::qdrant::reranker_enabled() {
+        return Err("warmup_reranker: reranker disabled (ULTRON_DENSE/ULTRON_RERANK)".to_string());
+    }
     rerank_pairs(
         "warmup",
         &[("__warmup__".to_string(), "warmup document".to_string())],

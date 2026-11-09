@@ -5,29 +5,45 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mcp": "tauri dev --features mcp-bridge --config src-tauri/tauri.mcp.conf.json",
     "build": "tsc && vite build",
-    "preview": "vite preview",
     "tauri": "tauri",
     "kill-app": "node scripts/kill-running-app.mjs",
-    "build:app": "npm run kill-app && tauri build",
+    "build:app": "node scripts/release-locked-exe.mjs && tauri build",
     "build:local": "node scripts/build-local.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource/chakra-petch": "^5.3.0",
+    "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-global-shortcut": "^2.3.1",
     "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-updater": "^2.10.1",
+    "@viz-js/viz": "^3.31.0",
+    "@xterm/xterm": "^6.0.0",
+    "dompurify": "^3.4.16",
+    "katex": "^0.19.0",
+    "mermaid": "^12.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "vega": "^6.4.0",
+    "vega-embed": "^7.3.0",
+    "vega-interpreter": "^2.3.2",
+    "vega-lite": "^6.4.3",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
@@ -42,6 +58,9 @@
     "tailwindcss": "^4.3.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
-    "vitest": "^2.1.9"
+    "vitest": "^3.2.7"
+  },
+  "overrides": {
+    "katex": "$katex"
   }
 }

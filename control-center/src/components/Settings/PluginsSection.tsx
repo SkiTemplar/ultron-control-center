@@ -126,7 +126,7 @@ function ChangelogPanel({ coordinate, installedSha }: ChangelogPanelProps) {
             borderTopColor: "var(--color-accent)",
           }}
         />
-        Loading changelog…
+        Cargando changelog…
       </div>
     );
   }
@@ -218,19 +218,19 @@ export function PluginsSection({ onNavigate }: Props) {
       setCopied(key);
       window.setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800);
     } catch (e) {
-      setErr(`Clipboard copy failed: ${String(e)}`);
+      setErr(`No se pudo copiar al portapapeles: ${String(e)}`);
     }
   }
 
   async function uninstall(p: PluginEntry) {
     const ok = await confirmDialog(
-      `Delete the cache for ${p.coordinate}?\n\n` +
-        `Removes ${p.root}.\n\n` +
-        "Claude Code will not see this plugin's skills/agents until you " +
-        "reinstall with /plugin install " +
+      `¿Borrar la caché de ${p.coordinate}?\n\n` +
+        `Elimina ${p.root}.\n\n` +
+        "Claude Code no verá las skills ni los agentes de este plugin hasta que " +
+        "lo reinstales con /plugin install " +
         p.coordinate +
-        ". The plugin's marketplace registration is untouched.",
-      { title: "Uninstall plugin", kind: "warning" },
+        ". El registro del plugin en el marketplace no se toca.",
+      { title: "Desinstalar plugin", kind: "warning" },
     );
     if (!ok) return;
     setBusy(p.coordinate);
@@ -267,8 +267,8 @@ export function PluginsSection({ onNavigate }: Props) {
       const available = rows.filter((r) => r.update_available).length;
       const errors = rows.filter((r) => r.error && !r.update_available).length;
       setCheckSummary(
-        `${available} update${available === 1 ? "" : "s"} available` +
-          (errors > 0 ? ` · ${errors} could not be checked` : ""),
+        `${available} actualización${available === 1 ? "" : "es"} disponible${available === 1 ? "" : "s"}` +
+          (errors > 0 ? ` · ${errors} sin comprobar` : ""),
       );
       window.setTimeout(() => setCheckSummary(null), 8000);
     } catch (e) {
@@ -290,7 +290,7 @@ export function PluginsSection({ onNavigate }: Props) {
       setCopiedAll(true);
       window.setTimeout(() => setCopiedAll(false), 2000);
     } catch (e) {
-      setErr(`Clipboard copy failed: ${String(e)}`);
+      setErr(`No se pudo copiar al portapapeles: ${String(e)}`);
     }
   }
 
@@ -314,7 +314,7 @@ export function PluginsSection({ onNavigate }: Props) {
           className="ml-3 underline"
           onClick={() => { setErr(null); load(); }}
         >
-          Retry
+          Reintentar
         </button>
       </div>
     );
@@ -323,7 +323,7 @@ export function PluginsSection({ onNavigate }: Props) {
   if (!plugins) {
     return (
       <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-        Loading installed plugins…
+        Cargando plugins instalados…
       </div>
     );
   }
@@ -333,7 +333,7 @@ export function PluginsSection({ onNavigate }: Props) {
       <section>
         {/* ---- Header row ---- */}
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[14px] font-semibold">Installed plugins</h2>
+          <h2 className="text-[14px] font-semibold">Plugins instalados</h2>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Update all */}
@@ -347,11 +347,11 @@ export function PluginsSection({ onNavigate }: Props) {
                   color: "#79b8ff",
                   border: "1px solid rgba(56, 139, 253, 0.40)",
                 }}
-                title={`Copy /plugin install commands for all ${updatesAvailableCount} available updates`}
+                title={`Copia los comandos /plugin install de las ${updatesAvailableCount} actualizaciones disponibles`}
               >
                 {copiedAll
-                  ? "Copied!"
-                  : `Update all (${updatesAvailableCount})`}
+                  ? "¡Copiado!"
+                  : `Actualizar todo (${updatesAvailableCount})`}
               </button>
             )}
 
@@ -366,7 +366,7 @@ export function PluginsSection({ onNavigate }: Props) {
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Compare installed SHAs against upstream commits via gh API. Results cached 1 h."
+              title="Compara los SHA instalados con los commits de upstream mediante la API de gh. Resultados en caché 1 h."
             >
               {checking && (
                 <span
@@ -378,7 +378,7 @@ export function PluginsSection({ onNavigate }: Props) {
                   }}
                 />
               )}
-              {checking ? "Checking…" : "Check updates"}
+              {checking ? "Comprobando…" : "Buscar actualizaciones"}
             </button>
 
             <button
@@ -387,7 +387,7 @@ export function PluginsSection({ onNavigate }: Props) {
               className="text-[11.5px] transition-colors"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Refresh
+              Actualizar
             </button>
           </div>
         </div>
@@ -397,16 +397,16 @@ export function PluginsSection({ onNavigate }: Props) {
           className="mb-3 text-[11.5px] leading-relaxed"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Read from{" "}
+          Se lee de{" "}
           <span style={{ fontFamily: "var(--font-mono)" }}>
             ~/.claude/plugins/cache/&lt;marketplace&gt;/&lt;plugin&gt;/&lt;version&gt;/
           </span>
-          . Update detection uses the{" "}
+          . Para detectar actualizaciones se compara el{" "}
           <span style={{ fontFamily: "var(--font-mono)" }}>gitCommitSha</span>{" "}
-          from{" "}
+          de{" "}
           <span style={{ fontFamily: "var(--font-mono)" }}>installed_plugins.json</span>
-          {" "}compared against the upstream commit at the plugin's path. Results
-          are cached 1 h.
+          {" "}con el commit de upstream en la ruta del plugin. Los resultados se
+          guardan en caché 1 h.
         </p>
 
         {/* Banners */}
@@ -432,7 +432,7 @@ export function PluginsSection({ onNavigate }: Props) {
               color: "var(--color-danger)",
             }}
           >
-            Update check failed: {checkErr}
+            Falló la comprobación de actualizaciones: {checkErr}
           </div>
         )}
 
@@ -445,7 +445,7 @@ export function PluginsSection({ onNavigate }: Props) {
               color: "var(--color-success)",
             }}
           >
-            Removed cache for {removed}.
+            Caché borrada de {removed}.
           </div>
         )}
 
@@ -459,16 +459,16 @@ export function PluginsSection({ onNavigate }: Props) {
               color: "var(--color-text-tertiary)",
             }}
           >
-            No plugins found in the cache. Install one via{" "}
+            No hay plugins en la caché. Instala uno con{" "}
             <span style={{ fontFamily: "var(--font-mono)" }}>/plugin install</span>{" "}
-            inside Claude Code.
+            dentro de Claude Code.
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-3">
             {plugins.map((p) => {
               const counts: { label: string; n: number; tab: string }[] = [
                 { label: "skills", n: p.skills_count, tab: "library" },
-                { label: "agents", n: p.agents_count, tab: "library" },
+                { label: "agentes", n: p.agents_count, tab: "library" },
                 { label: "hooks", n: p.hooks_count, tab: "system" },
                 { label: "mcp", n: p.mcp_servers_count, tab: "mcps" },
               ];
@@ -488,17 +488,19 @@ export function PluginsSection({ onNavigate }: Props) {
                       : "1px solid var(--color-border)",
                   }}
                 >
-                  {/* ---- Card header ---- */}
-                  <div className="flex flex-wrap items-baseline gap-1.5">
+                  {/* ---- Card header: dos filas fijas para que todas las
+                      tarjetas partan en el mismo sitio ---- */}
+                  <div className="flex min-w-0 items-baseline gap-1.5">
                     <span
-                      className="text-[13px] font-semibold"
+                      className="min-w-0 truncate text-[13px] font-semibold"
                       style={{ color: "var(--color-text)" }}
+                      title={p.name}
                     >
                       {p.name}
                     </span>
 
                     <span
-                      className="rounded px-1.5 py-px text-[10px]"
+                      className="shrink-0 rounded px-1.5 py-px text-[10px]"
                       style={{
                         background: "var(--color-surface-3)",
                         color: "var(--color-text-secondary)",
@@ -507,10 +509,13 @@ export function PluginsSection({ onNavigate }: Props) {
                     >
                       v{p.version}
                     </span>
+                  </div>
 
+                  <div className="-mt-1 flex min-w-0 items-center gap-1.5 whitespace-nowrap">
                     <span
-                      className="text-[10.5px]"
+                      className="min-w-0 truncate text-[10.5px]"
                       style={{ color: "var(--color-text-tertiary)" }}
+                      title={`@${p.marketplace}`}
                     >
                       @{p.marketplace}
                     </span>
@@ -525,7 +530,7 @@ export function PluginsSection({ onNavigate }: Props) {
                           border: "1px solid rgba(63, 185, 80, 0.22)",
                         }}
                       >
-                        active
+                        activo
                       </span>
                     ) : (
                       <span
@@ -536,7 +541,7 @@ export function PluginsSection({ onNavigate }: Props) {
                           border: "1px solid var(--color-border)",
                         }}
                       >
-                        cached
+                        en caché
                       </span>
                     )}
 
@@ -551,11 +556,11 @@ export function PluginsSection({ onNavigate }: Props) {
                         }}
                         title={
                           update.latest_sha
-                            ? `Installed: ${shortSha(update.installed_sha)} · Remote: ${shortSha(update.latest_sha)}`
-                            : "Update available"
+                            ? `Instalado: ${shortSha(update.installed_sha)} · Remoto: ${shortSha(update.latest_sha)}`
+                            : "Actualización disponible"
                         }
                       >
-                        Update available
+                        Actualización disponible
                       </span>
                     )}
 
@@ -574,9 +579,9 @@ export function PluginsSection({ onNavigate }: Props) {
                             color: "var(--color-warn)",
                             border: "1px solid rgba(210, 153, 34, 0.30)",
                           }}
-                          title={`Cached ${Math.round(ageDays)} days ago`}
+                          title={`En caché desde hace ${Math.round(ageDays)} d`}
                         >
-                          {ageDays > 90 ? "stale" : "old"}
+                          {ageDays > 90 ? "caducado" : "antiguo"}
                         </span>
                       );
                     })()}
@@ -584,7 +589,7 @@ export function PluginsSection({ onNavigate }: Props) {
                     {/* Date */}
                     {p.last_update_iso && (
                       <span
-                        className="text-[10px]"
+                        className="ml-auto shrink-0 text-[10px] tabular-nums"
                         style={{ color: "var(--color-text-faint)" }}
                       >
                         {p.last_update_iso.slice(0, 10)}
@@ -602,7 +607,7 @@ export function PluginsSection({ onNavigate }: Props) {
                       }}
                     >
                       {update.installed_sha && (
-                        <span title="Installed commit SHA">
+                        <span title="SHA del commit instalado">
                           local {shortSha(update.installed_sha)}
                         </span>
                       )}
@@ -613,14 +618,14 @@ export function PluginsSection({ onNavigate }: Props) {
                         <span
                           title={
                             update.latest_commit_msg
-                              ? `Latest: ${update.latest_commit_msg}`
-                              : "Latest remote commit SHA"
+                              ? `Último: ${update.latest_commit_msg}`
+                              : "SHA del último commit remoto"
                           }
                           style={{
                             color: hasUpdate ? "#79b8ff" : "var(--color-text-faint)",
                           }}
                         >
-                          remote {shortSha(update.latest_sha)}
+                          remoto {shortSha(update.latest_sha)}
                         </span>
                       )}
                       {update.latest_commit_msg && (
@@ -666,7 +671,7 @@ export function PluginsSection({ onNavigate }: Props) {
                           cursor: onNavigate ? "pointer" : "default",
                           fontFamily: "var(--font-mono)",
                         }}
-                        title={onNavigate ? `Jump to ${c.label}` : c.label}
+                        title={onNavigate ? `Ir a ${c.label}` : c.label}
                       >
                         {c.n} {c.label}
                       </button>
@@ -699,15 +704,15 @@ export function PluginsSection({ onNavigate }: Props) {
                       }}
                       title={
                         hasUpdate
-                          ? `Copy /plugin install ${p.coordinate} — update available`
-                          : `Copy /plugin install ${p.coordinate}`
+                          ? `Copiar /plugin install ${p.coordinate} (hay actualización)`
+                          : `Copiar /plugin install ${p.coordinate}`
                       }
                     >
                       {copied === `update:${p.coordinate}`
-                        ? "Copied!"
+                        ? "¡Copiado!"
                         : hasUpdate
-                          ? "Update"
-                          : "Reinstall"}
+                          ? "Actualizar"
+                          : "Reinstalar"}
                     </button>
 
                     {/* Changelog toggle */}
@@ -726,9 +731,9 @@ export function PluginsSection({ onNavigate }: Props) {
                         color: "var(--color-text-secondary)",
                         border: "1px solid var(--color-border)",
                       }}
-                      title="Show AI-generated changelog summary for recent upstream commits"
+                      title="Muestra un resumen con IA del changelog de los últimos commits de upstream"
                     >
-                      {isExpanded ? "Hide changelog" : "Changelog"}
+                      {isExpanded ? "Ocultar changelog" : "Changelog"}
                     </button>
 
                     {/* Uninstall */}
@@ -742,9 +747,9 @@ export function PluginsSection({ onNavigate }: Props) {
                         color: "var(--color-danger)",
                         border: "1px solid rgba(248, 81, 73, 0.32)",
                       }}
-                      title="Delete the plugin's cache directory"
+                      title="Borra la carpeta de caché del plugin"
                     >
-                      {busy === p.coordinate ? "Removing…" : "Uninstall"}
+                      {busy === p.coordinate ? "Desinstalando…" : "Desinstalar"}
                     </button>
 
                     {/* Update check error indicator */}
@@ -754,7 +759,7 @@ export function PluginsSection({ onNavigate }: Props) {
                         style={{ color: "var(--color-text-faint)" }}
                         title={update.error}
                       >
-                        Check failed
+                        Falló la comprobación
                       </span>
                     )}
                   </div>

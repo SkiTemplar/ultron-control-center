@@ -23,7 +23,15 @@
 # Exit codes:
 #   0 success / nothing to do
 #   1 partial (some sources failed)
-#   2 fatal (backup drive missing, etc.)
+#   2 fatal: no destination configured, destination parent missing (drive
+#     not mounted), or destination on the same device as a source. A fatal
+#     abort still writes backup-last-run.json with status "failed",
+#     aborted=true, error_code (no_destination | drive_missing |
+#     same_volume) and error, like the .ps1 sibling.
+#
+# --keep-logs N (default 8) keeps the newest N dated backup logs.
+# ULTRON_BACKUP_ALLOW_SAME_VOLUME=1 disables the same-device guard (selftest
+# only; do not set it for real runs).
 #
 # Sources are anchored at $HOME. Paths configured below.
 #
@@ -38,6 +46,7 @@ set -uo pipefail
 DRY_RUN=0
 SOURCE_FILTER=""
 KEEP_WEEKS=4
+KEEP_LOGS=8
 STATUS_ONLY=0
 
 while [ "$#" -gt 0 ]; do
@@ -46,6 +55,7 @@ while [ "$#" -gt 0 ]; do
         --source)       SOURCE_FILTER="${2:-}"; shift 2 ;;
         --source=*)     SOURCE_FILTER="${1#*=}"; shift ;;
         --keep-weeks)   KEEP_WEEKS="${2:-4}"; shift 2 ;;
+        --keep-logs)    KEEP_LOGS="${2:-8}"; shift 2 ;;
         --status)       STATUS_ONLY=1; shift ;;
         -h|--help)
             sed -n '1,30p' "$0"
@@ -101,10 +111,21 @@ if [[ ${#SOURCES[@]} -eq 0 ]]; then
     fi
 fi
 
-# Backup destination root. Override with $ULTRON_BACKUP_ROOT (e.g.
-# /mnt/backup). Falls back to "$HOME/BACKUP" so the script still works
-# on a fresh box without env-var setup.
-BACKUP_ROOT="${ULTRON_BACKUP_ROOT:-${HOME}/BACKUP}"
+# Backup destination root. Resolution order MUST match
+# control-center/src-tauri/src/backup_status/root.rs::backup_root():
+#   1. ~/.ultron/.tmp/backup-root.txt  (set via Settings -> Backups UI)
+#   2. $ULTRON_BACKUP_ROOT             (e.g. /mnt/backup)
+#   3. nothing: the run aborts (exit 2, status "failed").
+# 2026-10-23 (audit N1): the "$HOME/BACKUP" fallback was removed; a mirror
+# on the same disk as the sources is not a backup.
+BACKUP_ROOT_FILE="${HOME}/.ultron/.tmp/backup-root.txt"
+BACKUP_ROOT=""
+if [ -r "${BACKUP_ROOT_FILE}" ]; then
+    BACKUP_ROOT="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' "${BACKUP_ROOT_FILE}" | head -n 1)"
+fi
+if [ -z "${BACKUP_ROOT}" ] && [ -n "${ULTRON_BACKUP_ROOT:-}" ]; then
+    BACKUP_ROOT="${ULTRON_BACKUP_ROOT}"
+fi
 EXCLUSIONS_FILE="${HOME}/.ultron/config/backup-exclusions.txt"
 LOG_DIR="${HOME}/.ultron/logs"
 STATUS_FILE="${HOME}/.ultron/.tmp/backup-last-run.json"
@@ -119,6 +140,78 @@ if [ "${STATUS_ONLY}" -eq 1 ]; then
     fi
     exit 0
 fi
+
+# ── Pre-flight: destination (before rsync, so it also aborts without it) ─
+
+if [ -n "${SOURCE_FILTER}" ]; then
+    sources_to_run=("${SOURCE_FILTER}")
+else
+    sources_to_run=("${SOURCES[@]}")
+fi
+
+# Build JSON strings without depending on jq.
+escape_json() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+source_abs() {
+    case "$1" in
+        /*) printf '%s' "$1" ;;
+        *)  printf '%s' "${HOME}/$1" ;;
+    esac
+}
+
+abort_run() {
+    # abort_run <error_code> <message>: record the failure where the Control
+    # Center reads the last run, then exit 2. Nothing has been copied.
+    local code="$1" msg="$2" root_json="null" dry="false" srcs="" s
+    [ -n "${BACKUP_ROOT}" ] && root_json="\"$(escape_json "${BACKUP_ROOT}")\""
+    [ "${DRY_RUN}" -eq 1 ] && dry="true"
+    for s in "${sources_to_run[@]}"; do
+        srcs="${srcs:+${srcs},}\"$(escape_json "${s}")\""
+    done
+    mkdir -p "$(dirname "${STATUS_FILE}")"
+    printf '{"last_run":"%s","date":"%s","dry_run":%s,"status":"failed","aborted":true,"error_code":"%s","error":"%s","sources":[%s],"results":{},"backup_root":%s,"any_failed":true}\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$(date '+%Y-%m-%d')" "${dry}" "${code}" \
+        "$(escape_json "${msg}")" "${srcs}" "${root_json}" > "${STATUS_FILE}"
+    echo "weekly-backup.sh: ABORT (${code}): ${msg}" >&2
+    exit 2
+}
+
+device_of() {
+    # Device id of a path, or of its nearest existing ancestor.
+    local p="$1"
+    while [ ! -e "${p}" ] && [ "${p}" != "/" ] && [ "${p}" != "." ]; do
+        p="$(dirname "${p}")"
+    done
+    stat -c %d "${p}" 2>/dev/null || stat -f %d "${p}" 2>/dev/null
+}
+
+assert_destination() {
+    if [ -z "${BACKUP_ROOT}" ]; then
+        abort_run no_destination "No backup destination configured: pick one on another drive in Settings -> Backups (writes ~/.ultron/.tmp/backup-root.txt) or set ULTRON_BACKUP_ROOT. There is no fallback folder on the system disk."
+    fi
+    local parent
+    parent="$(dirname "${BACKUP_ROOT}")"
+    if [ -n "${parent}" ] && [ ! -d "${parent}" ]; then
+        abort_run drive_missing "Backup parent dir missing (drive not mounted?): ${parent} (destination ${BACKUP_ROOT})."
+    fi
+    [ "${ULTRON_BACKUP_ALLOW_SAME_VOLUME:-}" = "1" ] && return 0
+    local root_dev clash="" s s_abs
+    root_dev="$(device_of "${BACKUP_ROOT}")"
+    for s in "${sources_to_run[@]}"; do
+        s_abs="$(source_abs "${s}")"
+        [ -e "${s_abs}" ] || continue
+        if [ "$(device_of "${s_abs}")" = "${root_dev}" ]; then
+            clash="${clash:+${clash}, }${s}"
+        fi
+    done
+    if [ -n "${clash}" ]; then
+        abort_run same_volume "Destination ${BACKUP_ROOT} is on the same volume (device ${root_dev}) as the sources: ${clash}. A mirror on the same disk is not a backup; pick a folder on another drive."
+    fi
+}
+
+assert_destination
 
 # ── Required binaries (checked AFTER --status so a status query works on
 #    boxes without rsync, mirroring the .ps1's early-exit ordering) ──────
@@ -261,18 +354,7 @@ remove_legacy_dated_backups() {
 
 # ── Pre-flight ───────────────────────────────────────────────────────────
 
-# Verify the parent dir of $BACKUP_ROOT exists (e.g. /mnt if BACKUP_ROOT
-# is /mnt/backup). Skip when BACKUP_ROOT lives under $HOME.
-case "${BACKUP_ROOT}" in
-    "${HOME}"/*) : ;;
-    *)
-        parent="$(dirname "${BACKUP_ROOT}")"
-        if [ -n "${parent}" ] && [ ! -d "${parent}" ]; then
-            echo "weekly-backup.sh: backup parent dir missing: ${parent}. Aborting." >&2
-            exit 2
-        fi
-        ;;
-esac
+# The destination checks ran in assert_destination (before rsync).
 
 mkdir -p "${BACKUP_ROOT}"
 
@@ -282,12 +364,6 @@ log INFO "destination root: ${BACKUP_ROOT} (one folder per source, mirrored)"
 
 # ── Per-source backup ────────────────────────────────────────────────────
 
-if [ -n "${SOURCE_FILTER}" ]; then
-    sources_to_run=("${SOURCE_FILTER}")
-else
-    sources_to_run=("${SOURCES[@]}")
-fi
-
 any_failed=0
 declare -a RESULT_NAMES=()
 declare -a RESULT_CODES=()
@@ -295,9 +371,15 @@ declare -a RESULT_SKIPPED=()
 
 for src in "${sources_to_run[@]}"; do
     src_abs="${HOME}/${src}"
-    # Match .ps1: hidden sources (.something) get a "dot-something"
+    # Match .ps1: absolute sources are used as-is and mirrored to
+    # abs-<sanitised path>; hidden sources (.something) get a "dot-something"
     # destination dir for explorer friendliness.
     case "${src}" in
+        /*)
+            src_abs="${src}"
+            slug="$(printf '%s' "${src}" | sed -E 's#[/:]+#-#g; s#^-##; s#-$##')"
+            dst_abs="${BACKUP_ROOT}/abs-${slug}"
+            ;;
         .*)
             dst_abs="${BACKUP_ROOT}/dot-${src#.}"
             ;;
@@ -305,7 +387,9 @@ for src in "${sources_to_run[@]}"; do
             dst_abs="${BACKUP_ROOT}/${src}"
             ;;
     esac
-    mkdir -p "${dst_abs}"
+    # Only create the destination when the source exists, so a missing
+    # source does not leave an empty mirror with a fresh mtime.
+    if [ -d "${src_abs}" ]; then mkdir -p "${dst_abs}"; fi
 
     invoke_rsync "${src_abs}" "${dst_abs}"
 
@@ -313,7 +397,11 @@ for src in "${sources_to_run[@]}"; do
     RESULT_CODES+=("${RSYNC_LAST_CODE}")
     RESULT_SKIPPED+=("${RSYNC_LAST_SKIPPED}")
 
-    if [ "${RSYNC_LAST_SKIPPED}" -eq 0 ] && ! rsync_ok "${RSYNC_LAST_CODE}"; then
+    if [ "${RSYNC_LAST_SKIPPED}" -eq 1 ]; then
+        # A configured source that does not exist is a failure, not a skip.
+        any_failed=1
+        log ERROR "FAIL: ${src} source missing (${src_abs})"
+    elif ! rsync_ok "${RSYNC_LAST_CODE}"; then
         any_failed=1
         log ERROR "FAIL: ${src} rsync exit code ${RSYNC_LAST_CODE}"
     else
@@ -337,10 +425,8 @@ fi
 
 mkdir -p "$(dirname "${STATUS_FILE}")"
 
-# Build JSON arrays / object without depending on jq.
-escape_json() {
-    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
+# Build JSON arrays / object without depending on jq (escape_json is
+# defined in the destination pre-flight).
 
 sources_json=""
 for s in "${sources_to_run[@]}"; do
@@ -361,7 +447,9 @@ while [ "${i}" -lt "${#RESULT_NAMES[@]}" ]; do
     [ "${skipped}" -eq 1 ] && skipped_bool="true"
     ok_bool="false"
     if rsync_ok "${code}"; then ok_bool="true"; fi
-    entry="\"$(escape_json "${name}")\":{\"code\":${code},\"skipped\":${skipped_bool},\"ok\":${ok_bool}}"
+    failed_bool="false"
+    if [ "${skipped_bool}" = "true" ] || [ "${ok_bool}" = "false" ]; then failed_bool="true"; fi
+    entry="\"$(escape_json "${name}")\":{\"code\":${code},\"skipped\":${skipped_bool},\"ok\":${ok_bool},\"failed\":${failed_bool}}"
     if [ -z "${results_json}" ]; then
         results_json="${entry}"
     else
@@ -381,15 +469,39 @@ last_run="$(date '+%Y-%m-%dT%H:%M:%S%z')"
     printf '"last_run":"%s",' "${last_run}"
     printf '"date":"%s",' "${DATE_STR}"
     printf '"dry_run":%s,' "${dry_run_bool}"
+    if [ "${any_failed}" -eq 1 ]; then printf '"status":"failed",'; else printf '"status":"ok",'; fi
+    printf '"aborted":false,'
     printf '"sources":[%s],' "${sources_json}"
     printf '"results":{%s},' "${results_json}"
     printf '"log":"%s",' "$(escape_json "${LOG_FILE}")"
     printf '"backup_root":"%s",' "$(escape_json "${BACKUP_ROOT}")"
-    printf '"keep_weeks":%d' "${KEEP_WEEKS}"
+    printf '"keep_weeks":%d,' "${KEEP_WEEKS}"
+    if [ "${any_failed}" -eq 1 ]; then printf '"any_failed":true'; else printf '"any_failed":false'; fi
     printf '}\n'
 } > "${STATUS_FILE}"
 
 log INFO "v14.7 BACKUP-WATCH end · failed=${any_failed}"
+
+# Log retention (audit N5): keep the newest KEEP_LOGS dated logs of each
+# kind; the date prefix makes the name order chronological.
+prune_old_logs() {
+    local pattern f
+    for pattern in '^backup-[0-9]{4}-[0-9]{2}-[0-9]{2}\.log(\.gz)?$' \
+                   '^backup-[0-9]{4}-[0-9]{2}-[0-9]{2}\.robocopy\.log(\.gz)?$'; do
+        # shellcheck disable=SC2012
+        ls -1 "${LOG_DIR}" 2>/dev/null | grep -E "${pattern}" | sort -r | tail -n +"$((KEEP_LOGS + 1))" |
+            while IFS= read -r f; do
+                if [ "${DRY_RUN}" -eq 1 ]; then
+                    log INFO "CLEANUP (dry-run): would prune old log ${f}"
+                elif rm -f -- "${LOG_DIR}/${f}"; then
+                    log INFO "CLEANUP: pruned old log ${f}"
+                else
+                    log WARN "could not prune ${f}"
+                fi
+            done
+    done
+}
+prune_old_logs
 
 if [ "${any_failed}" -eq 1 ]; then
     exit 1

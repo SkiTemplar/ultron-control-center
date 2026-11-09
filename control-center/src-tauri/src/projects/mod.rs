@@ -13,8 +13,14 @@
 //   ide.rs        — resolve an IDE slug to an installed launcher + spawn it
 //   launch.rs     — open_project, launch_item, launch_all, open_in_ide, dispatch,
 //                   project_open_app (FRENTE D)
-//   scan.rs       — scan_projects_inner + emit-aware wrappers
+//   discover.rs   — scan_projects_inner: altas bajo las raíces del creador
+//   scan.rs       — emit-aware wrappers
+//   game.rs       — «Jugar»: detecta proyectos UE/Unity y elige el ejecutable (puro)
+//   game_launch.rs — «Jugar»: registro de Epic + spawn desacoplado del juego
 
+pub(crate) mod discover;
+pub(crate) mod game;
+pub(crate) mod game_launch;
 pub(crate) mod ide;
 pub(crate) mod launch;
 pub(crate) mod normalise;
@@ -26,6 +32,8 @@ pub(crate) mod types;
 pub(crate) mod write_ops;
 
 #[cfg(test)]
+mod game_tests;
+#[cfg(test)]
 mod tests;
 
 // ---------------------------------------------------------------------------
@@ -36,10 +44,11 @@ mod tests;
 pub use launch::{
     launch_all_items_inner, launch_item_inner, open_project_inner, project_open_app_inner,
 };
+
+pub use discover::{scan_projects_inner, ScanReport};
+pub use game_launch::{project_play_game_inner, GameLaunchResult};
 pub use read_ops::list_projects_inner;
-pub use scan::{
-    create_project_inner_with_emit, delete_project_inner_with_emit, scan_projects_inner,
-};
+pub use scan::{create_project_inner_with_emit, delete_project_inner_with_emit};
 pub use types::{
     AddLauncherItemPayload, CreateProjectPayload, CreateProjectResult, DeleteProjectResult,
     ExecutableEntry, LauncherItem, ProjectActionResult, ProjectInfo, UpdateProjectPayload,

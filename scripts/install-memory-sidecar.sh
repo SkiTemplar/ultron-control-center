@@ -9,8 +9,8 @@
 #   3. cargo build --release --bin ultron-memory --features qdrant
 #
 # Exit codes: 0 = deployed or already present, 1 = all paths failed.
-# Failure is NON-fatal for ULTRON: hooks are fail-safe and recall degrades
-# to sparse-only (FTS5) until the sidecar exists.
+# Without the sidecar there is no memory of any kind: the hooks stay fail-safe
+# but nothing writes or recalls. install.sh reports that as an install error.
 #
 # Usage (also invoked by install.sh):
 #   scripts/install-memory-sidecar.sh [--force] [--skip-download] [--skip-build]
@@ -57,7 +57,7 @@ mkdir -p "$DEST_DIR"
 # --- 2. download prebuilt release asset ----------------------------------
 if [ "$SKIP_DOWNLOAD" -eq 0 ]; then
     ASSET="ultron-memory-linux-x64"
-    BASE="https://github.com/SkiTemplar/ultron/releases/latest/download"
+    BASE="https://github.com/SkiTemplar/ultron-control-center/releases/latest/download"
     TMP_BIN="$(mktemp)"
     TMP_SHA="$(mktemp)"
     say "trying prebuilt asset $ASSET from latest release..."
@@ -84,7 +84,7 @@ fi
 
 # --- 3. cargo build fallback ---------------------------------------------
 if [ "$SKIP_BUILD" -eq 1 ]; then
-    warn "--skip-build set and download failed. Sidecar NOT installed; recall stays sparse-only."
+    warn "--skip-build set and download failed. Sidecar NOT installed: no memory until it exists."
     exit 1
 fi
 if ! command -v cargo >/dev/null 2>&1; then

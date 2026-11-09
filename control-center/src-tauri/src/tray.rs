@@ -9,9 +9,8 @@
 //   - New Claude session -> emits "tray-action" {action:"new_claude"}
 //   - New Codex session  -> emits "tray-action" {action:"new_codex"}
 //   - Open Plans         -> emits "tray-action" {action:"open_plans"}
-//   - Open Memory        -> emits "tray-action" {action:"open_memory"}
 //   - separator
-//   - Ollama (autocompletado) -> check item, ver abajo
+//   - Autocompletado: <motor> -> check item, ver abajo
 //   - separator
 //   - Quit               -> app.exit(0)
 //
@@ -22,17 +21,26 @@
 // the user sees the same UX whether they used the tray or the in-app
 // button.
 //
-// El item "Ollama (autocompletado)" es un CheckMenuItem cuyo texto y
-// marca reflejan el estado real del modelo local (consultado via
-// `GET /api/ps`, ver `ollama::toggle`). Toda la logica de red vive en ese
-// modulo; aqui solo se cablea: clic -> hilo de fondo -> refrescar el
-// item. Nunca se bloquea el hilo del menu con la llamada de red (la carga
-// en frio del modelo puede tardar decenas de segundos).
+// El item de autocompletado es un CheckMenuItem que refleja el motor del
+// editor (`ollamaTab.engine`, ver `ollama::editor`): "Autocompletado: 3b
+// local", "Autocompletado: Copilot" o "Autocompletado: apagado", marcado
+// solo si el motor es local y su modelo esta cargado (`GET /api/ps`). Clic:
+// motor local -> Copilot; Copilot o apagado -> ultimo motor local (por
+// defecto mid). La decision y el texto son funciones puras de
+// `ollama::engine` (`tray_next_engine`, `tray_view`), y el cambio usa la
+// MISMA funcion que el comando `editor_engine_set` de AI Router
+// (`engine::set_engine_blocking`, con el guard de concurrencia dentro): un
+// clic en la bandeja y una accion desde la UI nunca corren a la vez, y si
+// chocan el clic avisa con un toast en vez de perderse. Nunca se bloquea el
+// hilo del menu con la llamada de red (la carga en frio puede tardar
+// decenas de segundos).
 //
-// El guard de concurrencia (`ollama::toggle::try_acquire_busy`) es el
-// MISMO que usan los comandos Tauri de la seccion "Modelo local" en AI
-// Router (`ollama::commands`): un clic en la bandeja y una accion desde
-// la UI nunca corren a la vez.
+// La decision sale SIEMPRE del estado real (settings.json + `/api/ps`),
+// nunca de `item.is_checked()`: en Windows, `muda` invierte la marca del
+// `CheckMenuItem` en su propio manejador ANTES de despachar el clic a
+// `on_menu_event` (crate `muda` 0.19.1,
+// `src/platform_impl/windows/mod.rs`, rama `MenuItemType::Check`), así que
+// leerla aqui daria la accion contraria.
 
 use serde_json::json;
 use tauri::{
@@ -41,46 +49,51 @@ use tauri::{
     AppHandle, Emitter, Manager,
 };
 
+use crate::ollama::editor;
+use crate::ollama::engine::{self, TrayView};
 use crate::ollama::toggle::{self, OllamaState};
 
-/// Aplica `state` a la entrada de menu de Ollama: texto, marca de check y
-/// si se puede pulsar (deshabilitada mientras `Loading` para no lanzar dos
-/// acciones a la vez). `set_text`/`set_checked`/`set_enabled` son seguros
-/// desde cualquier hilo — Tauri los reenvia internamente al hilo principal.
-fn apply_ollama_state(item: &CheckMenuItem<tauri::Wry>, state: OllamaState, model: &str) {
-    let _ = item.set_text(state.menu_label(model));
-    let _ = item.set_checked(state.is_checked());
-    let _ = item.set_enabled(!matches!(state, OllamaState::Loading));
+/// Item de autocompletado de la bandeja, registrado como estado de la app
+/// para que el comando `editor_engine_set` pueda refrescarlo tras un cambio
+/// hecho desde AI Router.
+struct EngineTrayItem(CheckMenuItem<tauri::Wry>);
+
+/// `set_text`/`set_checked`/`set_enabled` son seguros desde cualquier hilo —
+/// Tauri los reenvia internamente al hilo principal.
+fn apply_view(item: &CheckMenuItem<tauri::Wry>, view: &TrayView) {
+    let _ = item.set_text(&view.label);
+    let _ = item.set_checked(view.checked);
+    let _ = item.set_enabled(view.enabled);
 }
 
-/// Maneja el clic sobre la entrada de Ollama. Corre en un hilo de fondo
-/// (ver `on_menu_event`): decide activar o desactivar segun el ESTADO
-/// REAL (`toggle::query_state` contra `/api/ps`), NUNCA segun
-/// `item.is_checked()` — en Windows, `muda` invierte la marca del
-/// `CheckMenuItem` en su propio manejador ANTES de despachar el clic a
-/// `on_menu_event` (ver el porque en el doc de
-/// `toggle::action_for_state`), así que leerla aqui daria sistematicamente
-/// la accion contraria. Muestra "cargando…" mientras dura, y al terminar
-/// (con exito o no) refresca el item contra el estado real. Si la accion
-/// falla, se avisa al usuario via toast en vez de callar el error
-/// (mandamiento 11).
-fn handle_ollama_click(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
-    let model = toggle::model_name();
-    let action = toggle::action_for_state(toggle::query_state(&model));
+/// Vista actual: motor segun settings.json y, si es local, si su modelo
+/// esta cargado. Bloqueante (consulta `/api/ps`).
+fn current_view() -> TrayView {
+    let status = editor::status();
+    let loaded = status
+        .active_model
+        .as_deref()
+        .is_some_and(|model| toggle::query_state(model) == OllamaState::Loaded);
+    engine::tray_view(&status, loaded)
+}
 
-    apply_ollama_state(item, OllamaState::Loading, &model);
+/// Re-sincroniza el item con el estado real. Bloqueante: llamar desde un
+/// hilo de fondo. No hace nada si la bandeja no se llego a crear.
+pub(crate) fn refresh_engine_item(app: &AppHandle) {
+    if let Some(item) = app.try_state::<EngineTrayItem>() {
+        apply_view(&item.0, &current_view());
+    }
+}
 
-    let result = match action {
-        toggle::ToggleAction::Deactivate => toggle::deactivate(&model),
-        toggle::ToggleAction::Activate => toggle::activate(&model),
-    };
-
-    if let Err(e) = result {
+/// Maneja el clic sobre el item. Corre en un hilo de fondo (ver
+/// `on_menu_event`). Si el cambio falla (incluido "otra accion en curso"),
+/// se avisa con un toast en vez de callar el error (mandamiento 11).
+fn handle_engine_click(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
+    apply_view(item, &TrayView::busy());
+    if let Err(e) = engine::toggle_engine_blocking() {
         crate::toast_emit::record_alert_and_maybe_toast(app, "ollama_toggle", "warn", &e);
     }
-
-    let state = toggle::query_state(&model);
-    apply_ollama_state(item, state, &model);
+    apply_view(item, &current_view());
 }
 
 /// Show + focus + unminimize the main window. Mirrors the helper in
@@ -122,11 +135,12 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // route by string match. Tauri 2 uses MenuItem::with_id; ids are
     // returned by event.id().as_ref().
     let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
+    let sessions_i =
+        MenuItem::with_id(app, "open_sesiones", "ULTRON Sessions", true, None::<&str>)?;
     let new_claude_i =
         MenuItem::with_id(app, "new_claude", "New Claude session", true, None::<&str>)?;
     let new_codex_i = MenuItem::with_id(app, "new_codex", "New Codex session", true, None::<&str>)?;
     let plans_i = MenuItem::with_id(app, "open_plans", "Open Plans", true, None::<&str>)?;
-    let memory_i = MenuItem::with_id(app, "open_memory", "Open Memory", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     // Texto/marca provisionales: se resuelven contra el estado real justo
     // debajo, tras construir la bandeja (ver refresh en segundo plano).
@@ -135,7 +149,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let ollama_i = CheckMenuItem::with_id(
         app,
         "ollama_toggle",
-        "Ollama: comprobando…",
+        "Autocompletado: comprobando…",
         false,
         false,
         None::<&str>,
@@ -146,15 +160,16 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // del closure de `on_menu_event` (los CheckMenuItem son un Arc por
     // dentro, así que clonar es barato y ambos apuntan al mismo item real).
     let ollama_i_initial = ollama_i.clone();
+    app.manage(EngineTrayItem(ollama_i.clone()));
 
     let menu = Menu::with_items(
         app,
         &[
             &open_i,
+            &sessions_i,
             &new_claude_i,
             &new_codex_i,
             &plans_i,
-            &memory_i,
             &sep,
             &ollama_i,
             &sep2,
@@ -181,37 +196,33 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             let id = event.id.as_ref();
             match id {
                 "open" => focus_main_window(app),
+                "open_sesiones" => {
+                    if let Err(e) = crate::sesiones::ventana::open(app, None) {
+                        tracing::warn!(error = %e, "bandeja: no se pudo abrir ULTRON Sessions");
+                    }
+                }
                 "quit" => {
-                    crate::pty::kill_all_inner();
+                    // Los PTY mueren en RunEvent::Exit (lib.rs): matarlos aquí
+                    // se saltaría el aviso de sesiones/proteccion.rs.
                     app.exit(0);
                 }
                 "ollama_toggle" => {
-                    // Serializa los clics contra el MISMO guard que usan los
-                    // comandos de AI Router > Modelo local: un doble clic
-                    // rápido, o un clic mientras la UI ya está activando el
-                    // modelo, no lanza una segunda acción en paralelo.
-                    let Some(guard) = toggle::try_acquire_busy() else {
-                        return;
-                    };
                     let item = ollama_i.clone();
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn_blocking(move || {
-                        let _guard = guard; // liberado al terminar el cierre (Drop)
-                        handle_ollama_click(&app_handle, &item);
+                        handle_engine_click(&app_handle, &item);
                     });
                 }
-                "new_claude" | "new_codex" | "open_plans" | "open_memory" => {
+                "new_claude" | "new_codex" | "open_plans" => {
                     // Surface the window first so the user sees the
                     // response, then emit. Frontend listens on
                     // "tray-action" and routes to the existing flow
-                    // (spawn_session for new_*, tab switch for plans
-                    // and memory).
+                    // (spawn_session for new_*, tab switch for plans).
                     focus_main_window(app);
                     let action = match id {
                         "new_claude" => "new_claude",
                         "new_codex" => "new_codex",
                         "open_plans" => "open_plans",
-                        "open_memory" => "open_memory",
                         _ => return,
                     };
                     let _ = app.emit("tray-action", json!({ "action": action }));
@@ -234,17 +245,11 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    // Sondeo inicial del estado de Ollama, en segundo plano para no
-    // retrasar el arranque de la app con una llamada de red. El item
-    // arranca deshabilitado ("comprobando…") y este hilo lo deja listo
-    // para usarse en cuanto `/api/ps` responde (o revela que Ollama no
-    // esta disponible).
+    // Sondeo inicial, en segundo plano para no retrasar el arranque con una
+    // llamada de red. El item arranca deshabilitado ("comprobando…") y este
+    // hilo lo deja listo en cuanto se conoce el estado real.
     tauri::async_runtime::spawn_blocking(move || {
-        let model = toggle::model_name();
-        let state = toggle::query_state(&model);
-        // query_state nunca devuelve `Loading`: apply_ollama_state ya deja
-        // el item habilitado.
-        apply_ollama_state(&ollama_i_initial, state, &model);
+        apply_view(&ollama_i_initial, &current_view());
     });
 
     // Close-to-tray: intercept the window close request and hide

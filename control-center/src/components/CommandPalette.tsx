@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Tab } from "./Sidebar";
+import { SECTIONS, TAB_LABELS, type Tab } from "./Sidebar";
+import { useFeatures, type Features } from "../lib/features";
 
 // Lightweight in-app command palette (Ctrl+K). Surfaces tab navigation
 // and every system-wide action ULTRON exposes. Lives outside any tab so
@@ -30,27 +31,49 @@ type Props = {
   extraActions?: PaletteAction[];
 };
 
-// Palette enumerates every tab known to the Tab union, including the
-// secondary ones the sidebar keeps under "More". "Navigate (More)" labels
-// mirror the Sidebar grouping so power users see them together.
-const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
-  { id: "dashboard", label: "Go to Dashboard", group: "Navigate" },
-  { id: "usage", label: "Go to Usage", group: "Navigate" },
-  { id: "notifications", label: "Go to Notifications", group: "Navigate" },
-  { id: "system", label: "Go to System", group: "Navigate" },
-  { id: "mcps", label: "Go to MCPs", group: "Navigate" },
-  { id: "library", label: "Go to Library", group: "Navigate" },
-  { id: "skills", label: "Library · Skills", group: "Navigate" },
-  { id: "agents", label: "Library · Agents", group: "Navigate" },
-  { id: "rules", label: "Library · Rules", group: "Navigate" },
-  { id: "sessions", label: "Go to Sessions", group: "Navigate" },
-  { id: "projects", label: "Go to Projects", group: "Navigate" },
-  { id: "finance", label: "Go to Finance", group: "Navigate" },
-  { id: "memory", label: "Go to Memory", group: "Navigate" },
-  { id: "plans", label: "Go to Plans", group: "Navigate" },
-  { id: "settings", label: "Go to Settings", group: "Navigate" },
-  { id: "changelog", label: "Go to Changelog", group: "Navigate (More)" },
-];
+type TabAction = { id: Tab; label: string; group: string };
+
+// Navigation mirrors the sidebar: same order, same labels, same
+// available/feature filters (so Finance only shows with VITE_FINANCE=1).
+// Library sub-tabs follow Library; the footer entries (Notifications,
+// Settings) close the group. Tabs with no sidebar entry (Changelog, Plans)
+// stay reachable under "Navegar (ocultas)".
+const LIBRARY_SUBTABS: Tab[] = ["skills", "agents", "rules"];
+const HIDDEN_TABS: Tab[] = ["changelog", "plans"];
+
+function buildTabActions(features: Features): TabAction[] {
+  const isOn = (key?: keyof Features) => !key || features[key] !== false;
+  const list: TabAction[] = [];
+  for (const item of SECTIONS.flatMap((s) => s.items)) {
+    if (!item.available || !isOn(item.featureKey)) continue;
+    list.push({ id: item.id, label: `Ir a ${item.label}`, group: "Navegar" });
+    if (item.id === "library") {
+      for (const sub of LIBRARY_SUBTABS) {
+        list.push({ id: sub, label: `${TAB_LABELS.library} · ${TAB_LABELS[sub]}`, group: "Navegar" });
+      }
+    }
+  }
+  if (isOn("notifications")) {
+    list.push({ id: "notifications", label: `Ir a ${TAB_LABELS.notifications}`, group: "Navegar" });
+  }
+  list.push({ id: "settings", label: `Ir a ${TAB_LABELS.settings}`, group: "Navegar" });
+  for (const id of HIDDEN_TABS) {
+    list.push({ id, label: `Ir a ${TAB_LABELS[id]}`, group: "Navegar (ocultas)" });
+  }
+  return list;
+}
+
+// Secondary fields (description, group, hint) only match on a contiguous
+// substring: a scattered subsequence over a long sentence matches almost
+// any short query ("memo" in "Re-m-ov-e … sh-i-m … o-lder").
+function substringScore(text: string, q: string): number {
+  const t = text.toLowerCase();
+  const query = q.toLowerCase();
+  const at = t.indexOf(query);
+  if (at < 0) return -1;
+  const wordStart = at === 0 || /[\s\-_/(]/.test(t[at - 1]);
+  return query.length * 3 + (wordStart ? 3 : 0);
+}
 
 // Tiny in-order fuzzy scorer. Returns a positive score when every char of
 // `q` appears in `text` in order, with bonuses for consecutive matches
@@ -83,6 +106,7 @@ function fuzzyScore(text: string, q: string): number {
 }
 
 export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }: Props) {
+  const { features } = useFeatures();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -98,16 +122,16 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
   }, [open]);
 
   const actions: PaletteAction[] = useMemo(() => {
-    const tabActions: PaletteAction[] = TAB_ACTIONS.map((t) => ({
+    const tabActions: PaletteAction[] = buildTabActions(features).map((t) => ({
       id: `tab.${t.id}`,
       label: t.label,
       group: t.group,
       run: () => onNavigate(t.id),
     }));
     return [...tabActions, ...extraActions];
-  }, [extraActions, onNavigate]);
+  }, [extraActions, onNavigate, features]);
 
-  const filtered = useMemo(() => {
+  const ranked = useMemo(() => {
     const q = query.trim();
     if (!q) return actions;
     // Score each action against label + description + group + hint, keep
@@ -115,9 +139,9 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
     const scored = actions
       .map((a) => {
         const labelScore = fuzzyScore(a.label, q);
-        const descScore = a.description ? fuzzyScore(a.description, q) * 0.5 : -1;
-        const groupScore = fuzzyScore(a.group, q) * 0.4;
-        const hintScore = a.hint ? fuzzyScore(a.hint, q) * 0.3 : -1;
+        const descScore = a.description ? substringScore(a.description, q) * 0.5 : -1;
+        const groupScore = substringScore(a.group, q) * 0.4;
+        const hintScore = a.hint ? substringScore(a.hint, q) * 0.3 : -1;
         const best = Math.max(labelScore, descScore, groupScore, hintScore);
         return { action: a, score: best };
       })
@@ -126,18 +150,26 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
     return scored.map((s) => s.action);
   }, [actions, query]);
 
-  // Group consecutive items by group label for visual separation. When
-  // the user has typed a query, the list is already sorted by score so
-  // grouping reflects relevance order rather than the original taxonomy.
+  // One block per group, in order of first appearance. With a query the
+  // input is sorted by score, so groups are ranked by their best match and
+  // a group's items stay together instead of repeating its heading.
   const grouped = useMemo(() => {
     const groups: { group: string; items: PaletteAction[] }[] = [];
-    for (const item of filtered) {
-      const last = groups[groups.length - 1];
-      if (last && last.group === item.group) last.items.push(item);
-      else groups.push({ group: item.group, items: [item] });
+    const byName = new Map<string, PaletteAction[]>();
+    for (const item of ranked) {
+      const items = byName.get(item.group);
+      if (items) items.push(item);
+      else {
+        const fresh = [item];
+        byName.set(item.group, fresh);
+        groups.push({ group: item.group, items: fresh });
+      }
     }
     return groups;
-  }, [filtered]);
+  }, [ranked]);
+
+  // Flat list in display order: the cursor indexes into this.
+  const filtered = useMemo(() => grouped.flatMap((g) => g.items), [grouped]);
 
   useEffect(() => {
     if (cursor >= filtered.length) setCursor(Math.max(0, filtered.length - 1));
@@ -212,7 +244,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
               setCursor(0);
             }}
             onKeyDown={onKey}
-            placeholder="Type a command, navigate, or search…"
+            placeholder="Escribe un comando, navega o busca…"
             className="w-full bg-transparent px-1 py-1 text-[13px] outline-none"
             style={{ color: "var(--color-text)" }}
           />
@@ -223,7 +255,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
               className="px-3 py-4 text-[12px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              No matches.
+              Sin resultados.
             </div>
           )}
           {grouped.map((g, gi) => (
@@ -280,7 +312,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
           style={{ borderColor: "var(--color-border)", color: "var(--color-text-tertiary)" }}
         >
           <span>
-            ↑↓ navigate · Enter run · Esc close · {filtered.length} command
+            ↑↓ moverse · Intro ejecutar · Esc cerrar · {filtered.length} comando
             {filtered.length === 1 ? "" : "s"}
           </span>
           <span>Ctrl+K</span>

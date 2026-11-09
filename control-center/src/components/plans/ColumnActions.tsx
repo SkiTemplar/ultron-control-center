@@ -10,6 +10,10 @@ import { useRoutingTitle } from "../../lib/button-prompts";
 // The per-status counts that the UI still needs (resolvedCount for the
 // archive button) are computed inline in <Plans />.
 
+// How many plans each AI flow would act on (see usePlans). A zero disables
+// the button: launching a session with nothing in scope is a silent no-op.
+export type FlowTargetCount = { execute: number; review: number; resolve: number };
+
 // Per-column action bar. Each kanban column owns 0..N buttons that only
 // make sense for items in that lane. Centralising the switch here keeps
 // the column-rendering JSX in <Plans /> readable.
@@ -24,6 +28,7 @@ export function ColumnActions(props: {
   onArchiveSelected: () => void;
   archiveDisabled: boolean;
   archiveCount: number;
+  flowTargetCount: FlowTargetCount;
 }) {
   const baseBtn =
     "rounded px-2 py-1 text-[10.5px] font-medium transition-colors disabled:opacity-40";
@@ -37,23 +42,23 @@ export function ColumnActions(props: {
     border: "1px solid var(--color-border)",
   };
 
-  // Routing destination per AI button — each catalog key resolves through
-  // the AI Router so the user can see provider/model before clicking.
+  // Destino de cada botón de IA: la clave del catálogo se resuelve con el
+  // Router de IA para ver proveedor y modelo antes de pulsar.
   const sprintTitle = useRoutingTitle(
     "plans.sprint_ai",
-    "Generate an actionable sprint proposal from the current open plans and rewrite/improve the ones added by hand.",
+    "Genera una propuesta de sprint accionable con los planes abiertos y reescribe o mejora los añadidos a mano.",
   );
   const executeTitle = useRoutingTitle(
     "plans.execute",
-    "Launch an AI session to execute the open plans in priority order.",
+    "Lanza una sesión de IA que ejecuta los planes abiertos por orden de prioridad.",
   );
   const reviewTitle = useRoutingTitle(
     "plans.review",
-    "Launch an AI session for an adversarial review of the plans in revision.",
+    "Lanza una sesión de IA que hace una revisión adversarial de los planes en revisión.",
   );
   const resolveBlockTitle = useRoutingTitle(
     "plans.resolve_in_progress",
-    "Launch an AI session to unblock the plan: reads description + spec, proposes an unstuck path.",
+    "Lanza una sesión de IA para desbloquear el plan: lee la descripción y la spec y propone una salida.",
   );
 
   let buttons: ReactElement[] = [];
@@ -66,9 +71,9 @@ export function ColumnActions(props: {
           onClick={props.onNew}
           className={baseBtn}
           style={subtle}
-          title="Create an empty plan manually (modal with title / priority / kind / tags / description)."
+          title="Crea un plan vacío a mano (título, prioridad, tipo, tags y descripción)."
         >
-          New Plan
+          Nuevo plan
         </button>,
         <button
           key="sprint"
@@ -79,7 +84,7 @@ export function ColumnActions(props: {
           style={accent}
           title={sprintTitle}
         >
-          {props.sprintAiBusy ? "Opening..." : "Sprint AI"}
+          {props.sprintAiBusy ? "Abriendo…" : "Sprint con IA"}
         </button>,
       ];
       break;
@@ -89,11 +94,12 @@ export function ColumnActions(props: {
           key="exec"
           type="button"
           onClick={props.onExecute}
+          disabled={props.flowTargetCount.execute === 0}
           className={baseBtn}
           style={accent}
-          title={executeTitle}
+          title={props.flowTargetCount.execute === 0 ? "No hay planes abiertos que ejecutar." : executeTitle}
         >
-          Execute
+          Ejecutar
         </button>,
       ];
       break;
@@ -103,11 +109,16 @@ export function ColumnActions(props: {
           key="review"
           type="button"
           onClick={props.onReview}
+          disabled={props.flowTargetCount.review === 0}
           className={baseBtn}
           style={accent}
-          title={reviewTitle}
+          title={
+            props.flowTargetCount.review === 0
+              ? "No hay planes en revisión (ni abiertos p0/p1) que revisar."
+              : reviewTitle
+          }
         >
-          AI Review
+          Revisar con IA
         </button>,
       ];
       break;
@@ -117,11 +128,16 @@ export function ColumnActions(props: {
           key="resolve"
           type="button"
           onClick={props.onResolveBlock}
+          disabled={props.flowTargetCount.resolve === 0}
           className={baseBtn}
           style={subtle}
-          title={resolveBlockTitle}
+          title={
+            props.flowTargetCount.resolve === 0
+              ? "No hay planes en curso (ni abiertos p0/p1) que resolver."
+              : resolveBlockTitle
+          }
         >
-          Resolve block
+          Desbloquear
         </button>,
       ];
       break;
@@ -134,9 +150,9 @@ export function ColumnActions(props: {
           disabled={props.archiveDisabled}
           className={baseBtn}
           style={subtle}
-          title="Move all resolved plans to plans/_archive/resolved-YYYY-MM.json (atomic, non-destructive)."
+          title="Mueve todos los planes resueltos a plans/_archive/resolved-YYYY-MM.json (atómico, no destructivo)."
         >
-          Archive selected ({props.archiveCount})
+          Archivar resueltos ({props.archiveCount})
         </button>,
       ];
       break;

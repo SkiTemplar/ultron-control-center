@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "chain": [
+    "claude-p",
+    "anthropic-api",
+    "codex",
+    "agy",
+    "deepseek",
+    "openrouter-free",
+    "nvidia",
+    "gemini-api",
+    "groq",
+    "cerebras",
+    "opencode-free"
+  ],
+  "tiers": {
+    "complex": {
+      "start": "claude-p"
+    },
+    "standard": {
+      "start": "claude-p"
+    },
+    "trivial": {
+      "start": "claude-p"
+    }
+  },
+  "relayOnCheckFail": true,
+  "engines": {
+    "codex": {
+      "runner": "codex",
+      "model": "gpt-6.1-terra",
+      "tierModels": {
+        "complex": "gpt-6.1-sol"
+      },
+      "enabled": true
+    },
+    "agy": {
+      "runner": "agy",
+      "model": "gemini-3.8-flash-high",
+      "enabled": true
+    },
+    "claude-p": {
+      "runner": "claude",
+      "model": "claude-sonnet-5-5",
+      "tierModels": {
+        "complex": "claude-opus-5-5",
+        "trivial": "claude-haiku-5-5"
+      },
+      "maxBudgetUsd": 6,
+      "enabled": true
+    },
+    "anthropic-api": {
+      "runner": "opencode",
+      "model": "anthropic/claude-sonnet-5-5",
+      "tierModels": {
+        "trivial": "anthropic/claude-haiku-5-5"
+      },
+      "keyEnv": "ULTRON_KEY_ANTHROPIC_CREDITS",
+      "envMap": {
+        "ANTHROPIC_API_KEY": "ULTRON_KEY_ANTHROPIC_CREDITS"
+      },
+      "enabled": true
+    },
+    "deepseek": {
+      "runner": "opencode",
+      "model": "deepseek/deepseek-flash",
+      "tierModels": {
+        "complex": "deepseek/deepseek-v4-pro"
+      },
+      "keyEnv": "DEEPSEEK_API_KEY",
+      "enabled": true
+    },
+    "openrouter-free": {
+      "runner": "opencode",
+      "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+      "keyEnv": "OPENROUTER_API_KEY",
+      "enabled": true
+    },
+    "nvidia": {
+      "runner": "opencode",
+      "model": "nvidia/minimaxai/minimax-m3.1-flash",
+      "keyEnv": "NVIDIA_NIM_API_KEY",
+      "envMap": {
+        "NVIDIA_API_KEY": "NVIDIA_NIM_API_KEY"
+      },
+      "enabled": true
+    },
+    "gemini-api": {
+      "runner": "opencode",
+      "model": "google/gemini-3.8-flash",
+      "keyEnv": "GEMINI_API_KEY",
+      "envMap": {
+        "GOOGLE_GENERATIVE_AI_API_KEY": "GEMINI_API_KEY"
+      },
+      "enabled": true
+    },
+    "groq": {
+      "runner": "opencode",
+      "model": "groq/openai/gpt-oss-120b",
+      "keyEnv": "GROQ_API_KEY",
+      "enabled": false
+    },
+    "cerebras": {
+      "runner": "opencode",
+      "model": "cerebras/gpt-oss-120b",
+      "keyEnv": "CEREBRAS_API_KEY",
+      "enabled": false
+    },
+    "opencode-free": {
+      "runner": "opencode",
+      "model": "opencode/deepseek-v4.1-flash-free",
+      "enabled": true
+    }
+  }
+}

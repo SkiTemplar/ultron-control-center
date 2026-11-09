@@ -53,7 +53,8 @@ pub(super) fn resolve_cwd(cwd: &str) -> String {
 /// silently drop the entry; the user already sees the propagated error in
 /// the UI via the returned `Result<_, String>`.
 pub(super) fn log_pty_failure(provider: &str, cwd: &str, msg: &str) {
-    use super::registry::now_iso;
+    tracing::warn!(provider, cwd, error = msg, "fallo al lanzar un PTY");
+    let now_iso = || chrono::Local::now().to_rfc3339();
     let dir = match dirs::home_dir() {
         Some(h) => h.join(".ultron").join("logs"),
         None => return,
@@ -128,13 +129,55 @@ pub(super) fn resolve_powershell_exe() -> String {
 /// token contra esa key — con saldo 0 la delegación muere en "Credit balance
 /// is too low" y además desactiva los conectores de claude.ai. La delegación
 /// del sistema es CLI-first por suscripción (coste 0 extra), así que al
-/// spawnear `claude` se limpia la variable del entorno del hijo; la key sigue
-/// disponible para quien la usa de verdad (captura del Stop hook, proxy).
+/// spawnear `claude` se limpia la variable del entorno del hijo. La key sigue
+/// disponible en el proceso de la app (proxy), pero NO en los hooks de `claude`,
+/// que heredan su entorno: el sidecar que lanzan resuelve las keys del router
+/// desde `HKCU\Environment` (`ai_router::key_source`).
 /// Solo afecta a `claude`: otros providers no leen esa variable.
-fn strip_api_key_for_claude(cmd: &mut CommandBuilder, provider: &str) {
+pub(super) fn strip_api_key_for_claude(cmd: &mut CommandBuilder, provider: &str) {
     if provider == "claude" {
         cmd.env_remove("ANTHROPIC_API_KEY");
+        for k in inherited_session_vars(std::env::vars().map(|(k, _)| k)) {
+            cmd.env_remove(k);
+        }
     }
+}
+
+/// Variables privadas que ningún hijo del PTY recibe, sea cual sea el
+/// proveedor: un `env` dentro de la sesión las escribiría en el transcript.
+/// Defensa en profundidad: el arranque ya las borra del proceso.
+pub(crate) const PRIVATE_CHILD_VARS: &[&str] = &[crate::mascot::calendar_fetch::ENV_KEY];
+
+pub(super) fn strip_private_vars(cmd: &mut CommandBuilder) {
+    for k in PRIVATE_CHILD_VARS {
+        cmd.env_remove(k);
+    }
+}
+
+/// Variables de una sesión de Claude Code que la app hereda si se lanzó
+/// desde una (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`,
+/// el socket de mensajería…). Con ellas el `claude` del PTY se comporta como
+/// sesión hija y NO escribe transcript: ULTRON Sessions pierde la respuesta
+/// definitiva (medido 2026-10-07). Se conservan las de configuración del
+/// usuario (`CLAUDE_CODE_PLUGIN_DIRS`, `CLAUDE_CODE_SUBAGENT_MODEL`,
+/// `CLAUDE_CODE_EFFORT_LEVEL`), que también llegan por settings.json.
+pub(super) fn inherited_session_vars(keys: impl Iterator<Item = String>) -> Vec<String> {
+    const KEEP: &[&str] = &[
+        "CLAUDE_CODE_PLUGIN_DIRS",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+        "CLAUDE_CODE_EFFORT_LEVEL",
+    ];
+    const EXACT: &[&str] = &[
+        "CLAUDECODE",
+        "CLAUDE_PID",
+        "CLAUDE_EFFORT",
+        "CLAUDE_PLUGIN_DATA",
+    ];
+    keys.filter(|k| {
+        EXACT.contains(&k.as_str())
+            || (k.starts_with("CLAUDE_CODE_") && !KEEP.contains(&k.as_str()))
+    })
+    .collect()
 }
 
 /// Resolve a provider slug to the CommandBuilder that actually spawns it.
@@ -155,6 +198,30 @@ fn strip_api_key_for_claude(cmd: &mut CommandBuilder, provider: &str) {
 /// to our PTY (UAC always opens a fresh console window).
 ///
 /// Note: `gemini` was removed 2026-06-19 — Google cut the free-tier OAuth.
+/// `where <name>` without a console window: `Ok(true)` if it resolves.
+#[cfg(windows)]
+fn on_path_windows(name: &str) -> Result<bool, String> {
+    use std::os::windows::process::CommandExt;
+    let mut probe = std::process::Command::new("where");
+    probe.arg(name);
+    probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let output = probe
+        .output()
+        .map_err(|e| format!("PATH probe failed: {e}"))?;
+    Ok(output.status.success())
+}
+
+/// Error for a CLI missing from PATH, with the real install command
+/// (`@claude/cli` does not exist; Claude Code is `@anthropic-ai/claude-code`).
+fn not_found_message(provider: &str) -> String {
+    let install = match provider {
+        "claude" => "Install Claude Code (native installer from claude.ai/code or `npm i -g @anthropic-ai/claude-code`)",
+        "codex" => "Install the Codex CLI (`npm i -g @openai/codex`)",
+        _ => "Install the CLI",
+    };
+    format!("'{provider}' not found on PATH. {install} and restart ULTRON.")
+}
+
 pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, String> {
     let trimmed = provider.trim();
     if trimmed.is_empty() {
@@ -169,18 +236,13 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
             // (POSIX `which` on others) and surface the result.
             #[cfg(windows)]
             {
-                use std::os::windows::process::CommandExt;
-                let mut probe = std::process::Command::new("where");
-                probe.arg(trimmed);
-                probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-                let output = probe
-                    .output()
-                    .map_err(|e| format!("PATH probe failed: {e}"))?;
-                if !output.status.success() {
-                    return Err(format!(
-                        "'{}' not found on PATH. Install the CLI first, e.g. `npm install -g @{0}/cli` (or equivalent), then retry.",
-                        trimmed
-                    ));
+                // A CLI installed after ULTRON started is not in the inherited
+                // PATH: complete it from the registry and probe once more.
+                if !on_path_windows(trimmed)? {
+                    crate::env_path::refresh_from_registry();
+                    if !on_path_windows(trimmed)? {
+                        return Err(not_found_message(trimmed));
+                    }
                 }
                 let mut cmd = CommandBuilder::new("cmd.exe");
                 cmd.arg("/C");
@@ -199,10 +261,7 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
                     .output()
                     .map_err(|e| format!("PATH probe failed: {e}"))?;
                 if !output.status.success() {
-                    return Err(format!(
-                        "'{}' not found on PATH. Install the CLI first and retry.",
-                        trimmed
-                    ));
+                    return Err(not_found_message(trimmed));
                 }
                 let mut cmd = CommandBuilder::new(trimmed);
                 if let Some(a) = agent {
@@ -283,3 +342,23 @@ pub(super) fn build_command(provider: &str, agent: Option<&str>) -> Result<Comma
 // "comandos huérfanos"). `build_command` above still does its own PATH probe
 // at spawn time. Recoverable from git history if the feature gets wired to a
 // UI later.
+
+#[cfg(test)]
+mod not_found_tests {
+    use super::not_found_message;
+
+    #[test]
+    fn el_aviso_de_claude_manda_al_paquete_real() {
+        let m = not_found_message("claude");
+        assert!(m.contains("not found on PATH"), "{m}");
+        assert!(m.contains("@anthropic-ai/claude-code"), "{m}");
+        assert!(!m.contains("@claude/cli"), "paquete inexistente: {m}");
+    }
+
+    #[test]
+    fn el_aviso_de_codex_no_inventa_un_paquete() {
+        let m = not_found_message("codex");
+        assert!(m.contains("@openai/codex"), "{m}");
+        assert!(!m.contains("@codex/cli"), "{m}");
+    }
+}

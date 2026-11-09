@@ -3,13 +3,16 @@
 //! Closes the "ANALIZADOR DE REPOS AUSENTE" gap: when a repo (or a single
 //! skill/agent file) is installed, the new payload must be integrated
 //! AUTOMATICALLY into:
-//!   (a) the routing catalog — by running `cockpit/skill-lazy/sync-registry.js`
-//!       (previously a MANUAL step), which regenerates `skills-registry.json`
-//!       from the dispatcher so newly-installed skills/agents become routable;
+//!   (a) the dispatcher registry — by running `cockpit/skill-lazy/sync-registry.js`,
+//!       which regenerates `skills-registry.json`. LÍMITE (mand. 13): ese
+//!       registro solo lo lee `routing-dispatcher.v2.js`, desconectado desde
+//!       el 2026-09-29, así que regenerarlo NO hace enrutables las skills en
+//!       las sesiones;
 //!   (b) the governed memory — by proposing a `MemoryCandidate` recording
-//!       "instale repo X con skills/agentes Y", landing it in the inbox for
-//!       human approval (never auto-promoted; redaction + dedupe run in
-//!       `MemoryService::create_candidate`).
+//!       "repo X con skills/agentes Y", landing it in the inbox for human
+//!       approval (never auto-promoted; redaction + dedupe run in
+//!       `MemoryService::create_candidate`). The candidate states facts only:
+//!       it does not claim any routing integration.
 //!
 //! Everything here is BEST-EFFORT and NON-FATAL: the install itself has already
 //! succeeded by the time this runs, so a missing `node`, a dispatcher parse
@@ -120,6 +123,32 @@ fn run_sync_registry() -> Result<SyncRegistryResult, String> {
 // (b) Memory capture — propose a governed candidate
 // ---------------------------------------------------------------------------
 
+/// Texto del candidato de memoria. Solo hechos comprobables: el repo y los
+/// assets detectados. Antes afirmaba «Integrado al routing via sync-registry»
+/// aunque el sync hubiera fallado y aunque el registro no lo consuma nada
+/// vivo (prompting-8 de la auditoría del 2026-10-23).
+struct InstallMemoryText {
+    title: String,
+    summary: String,
+    content: String,
+}
+
+fn install_memory_text(repo_label: &str, asset_names: &[String]) -> InstallMemoryText {
+    let assets_str = if asset_names.is_empty() {
+        "(sin skills/agentes detectados)".to_string()
+    } else {
+        asset_names.join(", ")
+    };
+    let summary = format!("Repo/asset '{repo_label}' con skills/agentes: {assets_str}.");
+    InstallMemoryText {
+        title: format!("Repo analizado: {repo_label}"),
+        content: format!(
+            "{summary} Detectado desde Library (analizar repo local); no se copió ningún fichero."
+        ),
+        summary,
+    }
+}
+
 /// Propose a `skill`-typed memory candidate recording the install. Goes through
 /// `MemoryService::create_candidate` so redaction + dedupe apply and it lands in
 /// the inbox (pending) — never auto-active. Returns the candidate id.
@@ -138,20 +167,11 @@ fn capture_install_memory(
     };
     let mut c = MemoryCandidate::new(MemoryType::Skill, scope);
 
-    let assets_str = if asset_names.is_empty() {
-        "(sin skills/agentes detectados)".to_string()
-    } else {
-        asset_names.join(", ")
-    };
-
+    let text = install_memory_text(repo_label, asset_names);
     c.proposed_project_id = project_id.map(str::to_string);
-    c.proposed_title = Some(format!("Instalado: {repo_label}"));
-    let summary = format!("Instalado repo/asset '{repo_label}' con skills/agentes: {assets_str}.");
-    c.proposed_summary = Some(summary.clone());
-    c.proposed_content = Some(format!(
-        "{summary} Integrado al routing via sync-registry (skills-registry.json regenerado) \
-         y registrado en memoria para futuras decisiones de routing."
-    ));
+    c.proposed_title = Some(text.title);
+    c.proposed_summary = Some(text.summary);
+    c.proposed_content = Some(text.content);
     // Tags help recall/filtering; `library-install` marks provenance.
     let mut tags = vec!["library-install".to_string()];
     for a in asset_names {
@@ -176,7 +196,8 @@ fn capture_install_memory(
 }
 
 // ---------------------------------------------------------------------------
-// Orchestrator — wired into both install paths
+// Orchestrator — único llamante: `analyze_local_repo` (la instalación desde
+// GitHub se retiró el 2026-10-17)
 // ---------------------------------------------------------------------------
 
 /// Run BOTH integration steps, collecting non-fatal failures into the report.
@@ -272,14 +293,23 @@ pub struct AnalyzeRepoResult {
 }
 
 /// Scan a LOCAL repo for skills/agents and run the SAME post-install integration
-/// (sync-registry + memory candidate) as a GitHub install. Use this for repos
+/// (sync-registry + memory candidate). Use this for repos
 /// already on disk (cloned, vendored, or symlinked into `~/.claude`).
 ///
 /// The scan is read-only — it does NOT copy any files. It assumes the assets are
 /// already discoverable by the dispatcher (which is what `sync-registry` reads);
 /// for repos NOT yet placed under `~/.claude`, install them first.
+///
+/// Recorre el repo y lanza `node sync-registry.js`: corre en el pool
+/// bloqueante, nunca en el hilo principal.
 #[tauri::command]
-pub fn analyze_local_repo(path: String) -> Result<AnalyzeRepoResult, String> {
+pub async fn analyze_local_repo(path: String) -> Result<AnalyzeRepoResult, String> {
+    tauri::async_runtime::spawn_blocking(move || analyze_local_repo_blocking(&path))
+        .await
+        .map_err(|e| format!("analyze_local_repo: la tarea de fondo falló: {e}"))?
+}
+
+fn analyze_local_repo_blocking(path: &str) -> Result<AnalyzeRepoResult, String> {
     let repo_dir = PathBuf::from(&path);
     if !repo_dir.exists() {
         return Err(format!("path not found: {path}"));
@@ -292,7 +322,7 @@ pub fn analyze_local_repo(path: String) -> Result<AnalyzeRepoResult, String> {
     let repo_label = repo_dir
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or(&path)
+        .unwrap_or(path)
         .to_string();
 
     let integration = post_install_integrate(&repo_label, &assets, None);
@@ -351,8 +381,23 @@ mod tests {
 
     #[test]
     fn analyze_local_repo_rejects_missing_path() {
-        let res = analyze_local_repo("Z:/definitely/not/here/xyzzy".to_string());
+        let res = analyze_local_repo_blocking("Z:/definitely/not/here/xyzzy");
         assert!(res.is_err());
+    }
+
+    /// Caso negativo de prompting-8: el candidato no puede afirmar una
+    /// integración en el routing que no existe.
+    #[test]
+    fn install_memory_text_does_not_claim_routing_integration() {
+        let t = install_memory_text("mi-repo", &["my-skill".to_string()]);
+        for field in [&t.title, &t.summary, &t.content] {
+            let lower = field.to_lowercase();
+            assert!(!lower.contains("routing"), "{field}");
+            assert!(!lower.contains("integrado"), "{field}");
+        }
+        assert!(t.summary.contains("mi-repo") && t.summary.contains("my-skill"));
+        let empty = install_memory_text("vacio", &[]);
+        assert!(empty.summary.contains("sin skills/agentes detectados"));
     }
 
     #[test]

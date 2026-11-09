@@ -16,11 +16,13 @@
 //
 // Idempotente: si el id ya existe, actualiza los campos que se pasen y deja
 // el resto intacto (no duplica ni borra). Escritura atomica (tmp + rename)
-// con backup previo en projects.json.bak.
+// con copia previa en projects.json.bak-<fecha> (se conservan las 10 ultimas,
+// lib/registry-backup.mjs).
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
@@ -39,6 +41,9 @@ const COLUMN_ROLES = [
 ];
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+// Mismos modos que project-socratic.mjs (el escritor de referencia del campo).
+const SOCRATIC_MODES = ['strict', 'light', 'off', 'uni'];
 
 function fail(msg) {
   console.error(`[project-new] ERROR: ${msg}`);
@@ -63,7 +68,7 @@ function parseArgs(argv) {
       case '--notes': out.notes = next(); break;
       case '--socratic': {
         const v = next();
-        if (!['strict', 'light', 'off'].includes(v)) fail('--socratic admite strict | light | off');
+        if (!SOCRATIC_MODES.includes(v)) fail(`--socratic admite ${SOCRATIC_MODES.join(' | ')}`);
         out.socratic = v;
         break;
       }
@@ -182,7 +187,7 @@ if (args.help || (!args.name && !args.id)) {
 Opciones:
   --id <slug>        id del proyecto (por defecto: slug del nombre)
   --color "#rrggbb"  color del proyecto (tinte de tarjeta + tema de Claude)
-  --socratic strict|light|off  modo del gate socratico (por defecto strict; off en proyectos personales)
+  --socratic strict|light|off|uni  modo del gate socratico (por defecto strict; off en proyectos personales; uni en asignaturas)
   --tags a,b,c       etiquetas
   --provider claude|codex
   --notes "texto"
@@ -216,6 +221,7 @@ if (existing) {
   if (args.tags.length) existing.tags = args.tags;
   if (args.provider) existing.default_provider = args.provider;
   if (args.notes !== undefined) existing.notes = args.notes;
+  if (args.socratic) existing.socratic = args.socratic;
   existing.last_active = nowIso();
 } else {
   registry.projects.push(buildEntry(args, id));
@@ -230,7 +236,7 @@ if (args.dryRun) {
 }
 
 mkdirSync(dirname(REGISTRY), { recursive: true });
-if (existsSync(REGISTRY)) copyFileSync(REGISTRY, `${REGISTRY}.bak`);
+reportPruneFailures('project-new', backupWithRetention(REGISTRY));
 writeJsonAtomic(REGISTRY, registry);
 
 console.log(`[project-new] ${existing ? 'actualizado' : 'registrado'}: ${id} -> ${resolve(args.path)}`);

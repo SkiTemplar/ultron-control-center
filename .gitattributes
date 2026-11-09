@@ -1,3 +1,28 @@
+# Finales de línea (docs-ci-11, 2026-10-23). El índice ya guarda TODO el texto
+# con LF (git ls-files --eol: 0 ficheros i/crlf); lo que variaba era el working
+# tree: core.autocrlf=true (Windows y el runner windows-latest) lo convertía a
+# CRLF y las herramientas que escriben LF dejaban ficheros w/mixed. Regla única:
+# LF en el working tree para todo el texto, CRLF solo donde Windows lo exige.
+# No cambia el contenido del índice: solo cómo se extraen los ficheros.
+* text=auto eol=lf
+
+# Intérpretes de Windows: CRLF en el working tree (cmd.exe parsea mal etiquetas
+# y bloques con LF; PowerShell 5.1 y WSH toleran LF, pero sus scripts se editan
+# y firman en Windows).
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.vbs text eol=crlf
+
+# Binarios explícitos (la detección de text=auto ya los acierta; esto la fija).
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.mp4 binary
+
 # hooks/manifest.json lo genera hooks/regen-manifest.js SIEMPRE con LF y su
 # gate --check compara texto contra lo regenerado. Fijar LF en el working tree
 # evita que autocrlf lo reescriba a CRLF en Windows (card vrwxcf; el check

@@ -61,7 +61,7 @@ EXPECTED_SCRIPTS = [
     "context_primer.py", "doctor.py", "brain_index.py",
     "token_budget.py", "token_baseline.py", "cache_telemetry.py",
     "secrets_scanner.py", "settings_integrity.py", "silent_exec.py",
-    "alerts.py", "deadwood_scanner.py", "background_tasks.py",
+    "alerts.py", "deadwood_scanner.py",
 ]
 EXPECTED_CONFIGS = ["projects.json", "apps.json", "schedule-config.json",
                     "ide-mappings.json", "mcp-catalog.json"]
@@ -292,7 +292,7 @@ def check_skill_manifest() -> Check:
     manifest_path = Path.home() / ".ultron" / "skill_manifest.json"
     if not manifest_path.exists():
         return Check("skill manifest", "warn",
-                     "not built (run: ultron skills manifest rebuild)")
+                     "not built (run: ultron manifest sync)")
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         skills = data.get("skills", {})
@@ -302,7 +302,7 @@ def check_skill_manifest() -> Check:
         total = len(skills)
         if unknown > 10:
             return Check("skill manifest", "warn",
-                         f"{total} skills, {unknown} untracked (run: ultron skills manifest sync-prompt)")
+                         f"{total} skills, {unknown} untracked (run: ultron manifest sync)")
         return Check("skill manifest", "ok",
                      f"{total} skills, {unknown} unknown, updated {updated}")
     except (json.JSONDecodeError, OSError) as e:

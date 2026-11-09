@@ -19,9 +19,11 @@
 //! The full public API is re-exported here so callers keep using
 //! `memory::redaction::<item>` unchanged.
 
+mod outbound;
 mod pii;
 mod secrets;
 
+pub use outbound::redact_outbound;
 pub use pii::{
     classify_sensitivity_with_pii, contains_pii, detect_pii, redact_pii, redact_pii_in_place,
     PiiHit, PiiKind,

@@ -2,15 +2,17 @@
 //
 // v15.4 architectural split: every `#[tauri::command]` wrapper lives under
 // `commands/<group>.rs` grouped by domain. This file owns runtime plumbing
-// only — module declarations, the `ultron_root` helper, plugin setup,
-// hotkey + tray registration, and the `generate_handler!` dispatcher.
+// only — module declarations, the `ultron_root` helper, plugin setup and
+// hotkey + tray registration. The `generate_handler!` dispatcher lives in
+// `handlers.rs`.
 //
 // Adding a new command:
 //   1. Implement the inner logic in the matching domain module
 //      (`crate::projects`, `crate::skills`, ...).
 //   2. Add a thin `#[tauri::command] pub async fn` wrapper to the matching
 //      file in `commands/`.
-//   3. Reference it in the grouped `generate_handler!` block below.
+//   3. Reference it in the grouped `generate_handler!` block of
+//      `handlers.rs`.
 //
 // Mejora futura (card kanban f2-comandos-sin-caller): tauri-specta para
 // generar bindings.ts tipados desde las firmas de comandos.
@@ -25,6 +27,7 @@ mod auth;
 mod backup_status;
 mod batches;
 mod batches_queue;
+pub mod build_stamp; // SHA + dirty embebidos por build.rs (`ultron-memory version`, doctor)
 mod button_prompts;
 mod claude_sessions;
 mod claude_theme;
@@ -33,8 +36,11 @@ pub mod daemon_client; // cliente del daemon: una sola copia de los modelos
 mod detach;
 mod diagnostics_native;
 mod env_keys;
+mod env_path; // PATH del proceso completado con el del registro (app lanzada desde el Explorador)
 mod features;
 #[cfg(feature = "finance")]
+// Módulo local opcional, ausente en los worktrees del repositorio público.
+#[rustfmt::skip]
 mod finance;
 mod handlers;
 mod hooks_admin;
@@ -43,14 +49,24 @@ mod in_app_shortcuts;
 mod installed_apps;
 mod instructions;
 mod kanban;
-mod kg;
 mod library;
+mod main_watchdog; // latido del hilo principal: apunta los bloqueos en logs/ui-stalls.jsonl
 mod maintenance;
+// Piloto MCP de la GUI (solo desarrollo, docs/MCP-TAURI-PILOTO.md). Doble
+// cerrojo: feature opcional fuera de `default` + debug_assertions. Si alguien
+// activa la feature en release, la compilacion se aborta aqui.
+#[cfg(all(feature = "mcp-bridge", debug_assertions))]
+mod mcp_bridge;
+#[cfg(all(feature = "mcp-bridge", not(debug_assertions)))]
+compile_error!(
+    "la feature mcp-bridge expone ejecucion de JS e IPC por WebSocket: solo se permite en builds de desarrollo (debug_assertions)"
+);
+mod mascot; // mascota de escritorio + puente del MCP de escritorio (tools/ultron-desktop-mcp)
 mod mcps;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod migration;
 mod notes;
-mod ollama; // modelo local (autocompletado): interruptor de bandeja + seccion AI Router
+mod ollama; // modelo local (autocompletado): motor del editor, desde la bandeja y AI Router
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod plan_limits; // cuota del plan Anthropic (ventana 5h / semanal) para la pestana Usage
 mod plans;
@@ -61,19 +77,26 @@ mod project_hotkeys;
 mod projects;
 mod proxy;
 mod tfg_heuristics;
-// pty: runtime PTY interno (RunBatch kanban, delegate, tray, lifecycle). El
-// terminal embebido y sus comandos Tauri (pty_spawn/pty_kill/pty_list) se
-// retiraron 2026-07; NO borrar este modulo — sigue teniendo consumidores Rust.
+mod tfg_heuristics_densidad;
+// pty: runtime PTY interno. Consumidores: ULTRON Sessions (sesiones/gestor.rs,
+// único llamante de pty::spawn_with) y el cierre de la app (kill_all_inner).
+// El RunBatch del kanban se retiró el 2026-10-17 y el terminal embebido
+// (pty_spawn/pty_kill/pty_list) en 2026-07; NO borrar este módulo.
 mod pty;
 pub mod qdrant;
 mod rules;
 pub mod serve; // ultron-memory serve — persistent E5-warm orchestrator daemon
+               // Ventana «ULTRON Sesiones»: PTY de claude, seguidor de transcripts, puente HTTP
+               // loopback del mod ultron-puente, adjuntos y Codex (docs/sesiones/CONTRATO.md).
+mod sesiones;
 mod sessions;
 mod sessions_tags;
 mod settings;
 mod skills;
 mod system;
 mod tabs;
+#[cfg(test)]
+mod tao_patch_tests;
 #[cfg(test)]
 mod test_support;
 mod tfg_lab; // Lab TFG — deteccion determinista de patrones de texto IA (docs/research)
@@ -149,21 +172,187 @@ pub fn init_tracing_stderr() {
 }
 
 fn init_tracing_inner(to_stderr: bool) {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true);
     if to_stderr {
-        let _ = builder.with_writer(std::io::stderr).try_init();
-    } else {
-        let _ = builder.try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(true)
+            .with_writer(std::io::stderr)
+            .try_init();
+        return;
+    }
+    // GUI: consola (desarrollo) y fichero diario en la carpeta de logs, que
+    // en release es el único rastro (`windows_subsystem`; `seguridad-robustez:F11`).
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_target(true))
+        .with(logs::capa_fichero())
+        .try_init();
+    logs::instalar_panic_hook();
+}
+
+/// Identificador de la app (`identifier` de `tauri.conf.json`): nombre de su
+/// carpeta en `%LOCALAPPDATA%`.
+const APP_IDENTIFIER: &str = "io.github.skitemplar.ultron";
+
+/// Carpeta de logs de la app: `%LOCALAPPDATA%/<identifier>/logs`.
+pub(crate) fn logs_dir() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|d| d.join(APP_IDENTIFIER).join("logs"))
+}
+
+/// Logs en fichero y panic hook de la GUI (§8.3 paso 7).
+mod logs {
+    use std::io::Write;
+    use std::sync::OnceLock;
+
+    use tracing_appender::non_blocking::WorkerGuard;
+    use tracing_appender::rolling::{RollingFileAppender, Rotation};
+    use tracing_subscriber::registry::LookupSpan;
+    use tracing_subscriber::Layer;
+
+    /// Días de logs que se conservan.
+    const DIAS: usize = 7;
+
+    /// El guardia vacía el hilo del escritor no bloqueante: vive lo que el
+    /// proceso.
+    static GUARDIA: OnceLock<WorkerGuard> = OnceLock::new();
+
+    /// Capa de `tracing` que escribe en `ultron.<fecha>.log` (rotación
+    /// diaria, 7 ficheros). `None` si no hay carpeta o no se puede crear: la
+    /// app arranca igual y lo deja en la consola.
+    pub fn capa_fichero<S>() -> Option<Box<dyn Layer<S> + Send + Sync>>
+    where
+        S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    {
+        let dir = super::logs_dir()?;
+        let appender = RollingFileAppender::builder()
+            .rotation(Rotation::DAILY)
+            .filename_prefix("ultron")
+            .filename_suffix("log")
+            .max_log_files(DIAS)
+            .build(&dir);
+        let appender = match appender {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("logs en fichero desactivados ({}): {e}", dir.display());
+                return None;
+            }
+        };
+        let (escritor, guardia) = tracing_appender::non_blocking(appender);
+        let _ = GUARDIA.set(guardia);
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_writer(escritor)
+                .with_ansi(false)
+                .with_target(true)
+                .boxed(),
+        )
+    }
+
+    /// Panic hook: deja el pánico (hilo, ubicación y mensaje) en
+    /// `panic.log` de la carpeta de logs y en `tracing`, y después llama al
+    /// hook anterior.
+    pub fn instalar_panic_hook() {
+        let previo = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let linea = describir(info);
+            tracing::error!(panico = %linea, "pánico");
+            if let Some(dir) = super::logs_dir() {
+                escribir_panico(&dir.join("panic.log"), &linea);
+            }
+            previo(info);
+        }));
+    }
+
+    pub(super) fn describir(info: &std::panic::PanicHookInfo<'_>) -> String {
+        let hilo = std::thread::current()
+            .name()
+            .unwrap_or("sin nombre")
+            .to_string();
+        let donde = info
+            .location()
+            .map_or_else(String::new, |l| format!("{}:{}", l.file(), l.line()));
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "pánico sin mensaje".to_string());
+        format!(
+            "{} hilo={hilo} en {donde}: {msg}",
+            chrono::Local::now().to_rfc3339()
+        )
+    }
+
+    pub(super) fn escribir_panico(path: &std::path::Path, linea: &str) {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let r = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut f| writeln!(f, "{linea}"));
+        // Con `windows_subsystem = "windows"` stderr no llega a ningún sitio:
+        // el fallo va a tracing, que sí queda en el fichero de log.
+        if let Err(e) = r {
+            tracing::error!(fichero = %path.display(), error = %e, "no se pudo anotar el pánico");
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn el_identificador_coincide_con_tauri_conf() {
+            let conf: serde_json::Value =
+                serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+            assert_eq!(
+                conf["identifier"].as_str(),
+                Some(super::super::APP_IDENTIFIER)
+            );
+        }
+
+        #[test]
+        fn el_panico_queda_en_el_fichero() {
+            let dir = tempfile::tempdir().expect("tmp");
+            let p = dir.path().join("logs").join("panic.log");
+            super::escribir_panico(&p, "linea uno");
+            super::escribir_panico(&p, "linea dos");
+            let t = std::fs::read_to_string(&p).expect("leer");
+            assert_eq!(
+                t.lines().collect::<Vec<_>>(),
+                vec!["linea uno", "linea dos"]
+            );
+        }
+
+        #[test]
+        fn describir_incluye_mensaje_y_ubicacion() {
+            let visto = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let v2 = visto.clone();
+            let previo = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                if let Ok(mut g) = v2.lock() {
+                    *g = super::describir(info);
+                }
+            }));
+            let r = std::panic::catch_unwind(|| panic!("fallo de prueba"));
+            std::panic::set_hook(previo);
+            assert!(r.is_err());
+            let linea = visto.lock().expect("visto").clone();
+            assert!(linea.contains("fallo de prueba"), "{linea}");
+            assert!(linea.contains("lib.rs:"), "{linea}");
+        }
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
+    build_stamp::log_app_stamp();
+    mascot::win::disable_ghosting();
+    env_path::refresh_from_registry();
 
     // Load .env files so users can store provider API keys in dotfiles
     // instead of exporting to the shell. Order: ~/.ultron/.env (preferred),
@@ -174,6 +363,8 @@ pub fn run() {
         let _ = dotenvy::from_filename(home.join(".ultron").join("control-center").join(".env"));
     }
     let _ = dotenvy::dotenv();
+    // La URL privada del calendario no se queda en el entorno: los hijos lo heredan.
+    mascot::calendar_fetch::scrub_process_env();
 
     // Headless mode: when invoked with --run-diagnostic, run all checks,
     // persist to ~/.ultron/cockpit/diagnostics/<ts>.json, emit alert if
@@ -183,33 +374,37 @@ pub fn run() {
     if args.iter().any(|a| a == "--run-diagnostic") {
         let report = diagnostics_native::run_full_diagnostic_native();
         let _ = persist_headless(&report);
+        let _ = alerts_admin::migrate_orphan_cockpit_alerts();
         if matches!(report.max_severity, diagnostics_native::Severity::Error) {
             let _ = emit_alert_headless(&report);
         }
         std::process::exit(0);
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Debe ser el primer plugin. Una segunda copia (p.ej. el autostart
         // lanzado con la app ya abierta a mano: medido 2026-09-16, dos
         // control-center.exe de ~1,6 GB cada uno) sale al instante; si la
         // abrió el usuario, se enfoca la ventana de la copia viva.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            if !argv.iter().any(|a| a == "--from-autostart") {
+            // `--sesiones` / `--sesiones-cwd <ruta>` (sesiones/abrir_carpeta.rs).
+            let pide_sesiones = sesiones::abrir_carpeta::atender(app, &argv);
+            if !pide_sesiones && !argv.iter().any(|a| a == "--from-autostart") {
                 tray::focus_main_window(app);
             }
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        // v15.3 auto-updater: the plugin reads `plugins.updater.endpoints`
-        // and `plugins.updater.pubkey` from tauri.conf.json and exposes the
-        // JS-side `check()` / `downloadAndInstall()` API used by Settings
-        // -> App lifecycle -> "Check for updates". The companion process
-        // plugin exposes `relaunch()` for the post-install restart prompt.
+        .plugin(tauri_plugin_notification::init())
+        // Auto-updater: registered but DORMANT. tauri.conf.json carries a
+        // placeholder pubkey, capabilities grant no updater:* permission and
+        // nothing calls it from JS or Rust. Update checks go through
+        // update_checker.rs (`check_for_updates`, UpdateBanner). Kept only
+        // as the reactivation path in docs/RELEASE-PROCESS.md; a post-install
+        // restart would use `AppHandle::restart()` (the process plugin was
+        // removed).
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--from-autostart"]),
@@ -218,6 +413,9 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
+                        if mascot::screens::handle_shortcut(app, shortcut) {
+                            return;
+                        }
                         if project_hotkeys::handle_shortcut(app, shortcut, event.state()) {
                             return;
                         }
@@ -225,9 +423,16 @@ pub fn run() {
                     }
                 })
                 .build(),
-        )
+        );
+    #[cfg(all(feature = "mcp-bridge", debug_assertions))]
+    let builder = mcp_bridge::attach(builder);
+    let builder = sesiones::ventana::registrar_protocolos(builder);
+    builder
         .invoke_handler(handlers::all())
         .setup(|app| {
+            #[cfg(all(feature = "mcp-bridge", debug_assertions))]
+            mcp_bridge::grant_capability(app)?;
+
             // Barrido de modelos inactivos (2026-08-15). La GUI tambien carga
             // E5 en su propio proceso cuando ejecuta un recall o el routing, y
             // se quedaba con ~1,5 GB tomados para el resto de la sesion (medido
@@ -296,7 +501,7 @@ pub fn run() {
 
             // MEMORY KERNEL Fase A: initialise the canonical memory DB
             // (~/.ultron/brain.db): memory_items + memory_events +
-            // memory_candidates + FTS5, and best-effort import of kg.jsonl.
+            // memory_candidates + FTS5.
             // This wiring was MISSING before — brain.db was born empty and the
             // "strong DB" stored nothing. Idempotent. Never panics.
             if let Err(e) = crate::memory::sqlite_store::SqliteStore::init() {
@@ -328,10 +533,29 @@ pub fn run() {
                 tracing::error!(error = %e, "custom project hotkeys init failed");
             }
 
+            // Sesiones: sink de eventos, puente HTTP (puerto dinámico y token
+            // por arranque) y seguidor de transcripts, todo en hilos propios.
+            sesiones::init(app.handle().clone());
+            main_watchdog::start(app.handle().clone());
+            // Acceso directo «ULTRON Sessions»: solo esa ventana; el Control
+            // Center queda en la bandeja.
+            // `--sesiones-cwd <ruta>` abre además una sesión en esa carpeta.
+            let launch_args: Vec<String> = std::env::args().collect();
+            if sesiones::abrir_carpeta::peticion_de(&launch_args).is_some() {
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.hide();
+                }
+                sesiones::abrir_carpeta::atender(app.handle(), &launch_args);
+            }
+
             // Tray + close-to-tray.
             if let Err(e) = tray::init_tray(app.handle()) {
                 tracing::error!(error = %e, "tray init failed");
             }
+
+            // Mascota de escritorio (ventana «mascot») + puente local del MCP
+            // de escritorio. Best-effort: un fallo se registra y no bloquea.
+            mascot::init(app.handle());
 
             // Quota watchdog — polls quota-state.json every 60 s and emits
             // quota:updated / quota:critical / quota:reset events so the
@@ -346,31 +570,11 @@ pub fn run() {
             });
 
             // Auto-warm the agent/skill catalog off the startup thread so skills
-            // compete in the semantic router without a manual reindex. Best-effort:
-            // errors are logged, never fatal (router falls back to whatever is
-            // already indexed). Runs once per launch; the internal probe skips the
-            // re-embed when the collection is already warm.
-            tauri::async_runtime::spawn_blocking(|| {
-                // Primero el daemon: este probe es lo que le cargaba E5 a la GUI
-                // en cada arranque (1.522 MB medidos el 2026-08-15 con la
-                // ventana recien abierta y sin tocar nada). Hecho en el daemon,
-                // el modelo se carga UNA vez para todo el sistema.
-                if let Some(v) = crate::daemon_client::request(
-                    "warm_catalog",
-                    serde_json::json!({}),
-                    std::time::Duration::from_secs(120),
-                ) {
-                    tracing::info!(respuesta = %v, "catalog warmed (daemon)");
-                    return;
-                }
-                match crate::memory::catalog::maybe_warm_catalog() {
-                    Ok((n, errs)) if n > 0 => {
-                        tracing::info!(entities = n, errors = errs, "catalog warmed");
-                    }
-                    Ok(_) => {} // already warm — nothing to do
-                    Err(e) => tracing::warn!(error = %e, "catalog warm skipped"),
-                }
-            });
+            // compete in the semantic router without a manual reindex. Daemon
+            // first (the E5 probe cost the GUI 1.522 MB on 2026-08-15), local
+            // fallback; skipped entirely with ULTRON_DENSE=0. Best-effort: see
+            // memory/catalog_warm.rs.
+            tauri::async_runtime::spawn_blocking(crate::memory::catalog_warm::warm_at_startup);
 
             // v15.4.2 — fire a startup update check. We spawn it on a
             // background thread + sleep 6s so the webview has time to
@@ -389,23 +593,61 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
+            // Solo la ventana principal: este manejador ve TODAS las ventanas,
+            // y cerrar la de la mascota (Settings -> Mascota) o un proyecto
+            // desacoplado no debe tumbar el proxy de la app.
             if let tauri::WindowEvent::Destroyed = event {
-                // Matar el proxy al cerrar para no dejar :8082 huerfano.
-                // Cubre el caso normal (cierre de ventana principal).
-                let _ = proxy::proxy_stop_inner();
+                if window.label() == "main" {
+                    // Matar el proxy al cerrar para no dejar :8082 huerfano.
+                    // Cubre el caso normal (cierre de ventana principal).
+                    let _ = proxy::proxy_stop_inner();
+                }
             }
         })
         .build(tauri::generate_context!())
         .expect("error building tauri application")
-        .run(|_app, event| {
+        .run(|app, event| {
+            // Salida con sesiones trabajando o con cola: la primera petición
+            // se retiene y avisa en Sessions; la segunda, en 15 s, sale
+            // (sesiones/proteccion.rs). Restart (actualizador) no se puede
+            // retener.
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if !sesiones::proteccion::permitir_salida(app) {
+                    api.prevent_exit();
+                }
+                return;
+            }
             // RunEvent::Exit cubre los casos que WindowEvent::Destroyed no
             // alcanza: Alt+F4 en ventana secundaria, kill desde el tray,
-            // panic en el hilo principal, exit() desde cualquier comando.
-            // Llamar proxy_stop_inner() es idempotente — si ya fue detenido
-            // por on_window_event no hace nada.
+            // panic en el hilo principal, exit() desde cualquier comando y el
+            // apagado de Windows (WM_ENDSESSION, sin ExitRequested previo).
+            //
+            // Pánico conocido de tao 0.35 al apagar Windows («cannot move
+            // state from Destroyed», runner.rs:371): en WM_ENDSESSION tao
+            // llama a loop_destroyed() dentro del wndproc (este Exit), pero el
+            // bucle de mensajes sigue vivo y el siguiente mensaje (un evento de
+            // usuario o PROCESS_NEW_EVENTS) intenta salir del estado
+            // Destroyed. Los cuatro pánicos registrados (10-15 a 10-22)
+            // coinciden al segundo con un evento 1074 (apagado) del registro
+            // System. Llega después de que este bloque termine, así que no se
+            // pierde el volcado ni quedan PTY vivos; no es código nuestro y
+            // tauri-runtime-wry 2.11 fija tao 0.35. Detalle y workaround en
+            // papercuts.md.
             if let tauri::RunEvent::Exit = event {
-                let _ = proxy::proxy_stop_inner();
+                // El proxy se para también en WindowEvent::Destroyed: aquí
+                // puede no quedar nada que parar, y un fallo no detiene la
+                // salida, pero queda en el log.
+                if let Err(e) = proxy::proxy_stop_inner() {
+                    tracing::warn!(error = %e, "no se pudo parar el proxy al salir");
+                }
+                // Antes de matar los PTY: abiertas.json con la cola de los
+                // últimos ~500 ms (el hilo escritor espera calma).
+                sesiones::persistencia::volcar_ya();
+                // PTY de Sessions (árbol entero por Job Object) y motores
+                // externos (Codex, Gemini) lanzados desde Sessions.
+                pty::kill_all_inner();
+                sesiones::motor::matar_todos();
             }
         });
 }
@@ -495,6 +737,10 @@ fn spawn_qdrant_exe() -> Option<std::process::Child> {
 
 /// Background task: probe Qdrant, launch if down, re-probe to confirm.
 fn qdrant_auto_launch() {
+    if !crate::qdrant::dense_enabled() {
+        tracing::info!("qdrant-autolaunch: skipped — dense stack disabled (ULTRON_DENSE=0)");
+        return;
+    }
     if qdrant_is_running() {
         tracing::debug!("qdrant-autolaunch: already running — no action needed");
         return;
@@ -531,23 +777,5 @@ fn persist_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::R
 }
 
 fn emit_alert_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
-    let path = ultron_root()
-        .map(|p| p.join("cockpit").join("alerts.jsonl"))
-        .map_err(std::io::Error::other)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    let line = serde_json::json!({
-        "kind": "diagnostic",
-        "severity": "error",
-        "timestamp": report.timestamp,
-        "summary": "Diagnostic flagged error severity",
-    });
-    writeln!(f, "{}", line)?;
-    Ok(())
+    diagnostics_native::emit_headless_error_alert(report)
 }

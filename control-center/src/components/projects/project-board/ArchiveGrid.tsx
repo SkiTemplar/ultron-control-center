@@ -11,10 +11,10 @@ export function ArchiveGrid({ archivesLoading, archives, onOpenArchive }: Archiv
     <div className="flex flex-1 flex-col overflow-y-auto p-3">
       <div className="mb-2 text-[11.5px] text-[var(--color-text-tertiary)]">
         {archivesLoading
-          ? "Loading archives…"
+          ? "Cargando archivos…"
           : archives.length === 0
-            ? "No archives yet — use 'Archive Done' to create one."
-            : `${archives.length} archive group${archives.length === 1 ? "" : "s"}`}
+            ? "Todavía no hay archivos: usa «Archivar hechas» para crear uno."
+            : `${archives.length} archivo${archives.length === 1 ? "" : "s"}`}
       </div>
       <div
         className="grid gap-3"
@@ -31,10 +31,10 @@ export function ArchiveGrid({ archivesLoading, archives, onOpenArchive }: Archiv
               border: "1px solid var(--color-border)",
               boxShadow: "inset 0 2px 0 var(--color-border)",
             }}
-            title={`${a.card_count} card${a.card_count === 1 ? "" : "s"} archived ${a.archived_at}`}
+            title={`${a.card_count} tarjeta${a.card_count === 1 ? "" : "s"} archivada${a.card_count === 1 ? "" : "s"} el ${a.archived_at}`}
           >
             <div className="text-[10px] uppercase tracking-[0.06em] text-[var(--color-text-tertiary)]">
-              Archive
+              Archivo
             </div>
             <div className="truncate text-[14px] font-semibold text-[var(--color-text)]">
               {a.name}

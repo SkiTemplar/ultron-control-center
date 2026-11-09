@@ -105,3 +105,14 @@ pub struct BatchQueueEntry {
     #[serde(default)]
     pub attempts: u32,
 }
+
+/// Respuesta de `batches_list_queue` (hooks-6, auditoría 2026-10-23): la cola
+/// y, si el drenaje del fichero pendiente del hook Stop falló, el motivo. Antes
+/// el fallo se descartaba con `let _ =` y la UI no podía saber si la cola
+/// estaba vacía o si no se había podido drenar.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchQueueListing {
+    pub entries: Vec<BatchQueueEntry>,
+    #[serde(default)]
+    pub drain_error: Option<String>,
+}

@@ -1,0 +1,3 @@
+# Bytes crudos de la TUI grabados de un ConPTY: los índices .json apuntan a
+# offsets exactos, así que git no debe convertir finales de línea.
+*.ans binary

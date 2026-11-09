@@ -16,7 +16,7 @@
 //     qdrant / recall / decisions / embeddings / orchestrator / sparse) so the
 //     harness ships with a baseline even on a fresh checkout.
 
-use crate::commands::memory::recall_unified::recall_pack;
+use crate::commands::memory::recall_unified::recall_pack_diagnostic;
 
 /// A single golden query: a search string plus the substrings that SHOULD show
 /// up in at least one recovered summary. `expect_any_of` is OR-matched and
@@ -219,27 +219,28 @@ fn score_query(
     // full per-call cap, so later queries in the same process are never starved.
     // rerank=false: este es el smoke del doctor (fontaneria, no calidad) — con
     // el cross-encoder el doctor pasa de ~10s a minutos y revienta timeouts.
-    let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id, false, false) {
-        Ok(pack) => {
-            let summaries: Vec<String> = pack
-                .entries
-                .iter()
-                .filter_map(|e| e.summary.clone())
-                .collect();
-            let matched = summaries_match(&summaries, &golden.expect_any_of);
-            let ids: Vec<String> = pack
-                .entries
-                .iter()
-                .map(|e| e.canonical_id.clone())
-                .collect();
-            (pack.entries.len(), matched, ids)
-        }
-        Err(e) => {
-            // Degrade quietly; a failing source must not abort the eval run.
-            eprintln!("[evals] recall_pack failed for '{}': {e}", golden.query);
-            (0, false, Vec::new())
-        }
-    };
+    let (hits, matched, ids) =
+        match recall_pack_diagnostic(&golden.query, k, project_id, false, false) {
+            Ok(pack) => {
+                let summaries: Vec<String> = pack
+                    .entries
+                    .iter()
+                    .filter_map(|e| e.summary.clone())
+                    .collect();
+                let matched = summaries_match(&summaries, &golden.expect_any_of);
+                let ids: Vec<String> = pack
+                    .entries
+                    .iter()
+                    .map(|e| e.canonical_id.clone())
+                    .collect();
+                (pack.entries.len(), matched, ids)
+            }
+            Err(e) => {
+                // Degrade quietly; a failing source must not abort the eval run.
+                eprintln!("[evals] recall_pack failed for '{}': {e}", golden.query);
+                (0, false, Vec::new())
+            }
+        };
     (
         EvalResult {
             query: golden.query.clone(),

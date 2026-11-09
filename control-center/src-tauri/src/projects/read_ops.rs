@@ -1,7 +1,9 @@
 // projects/read_ops.rs — Read-only operations: list projects, load items.
 
 use std::fs;
+use std::path::Path;
 
+use super::game::detect_game_project;
 use super::normalise::{normalise_color, normalise_ide, normalise_provider, normalise_shell};
 use super::registry::registry_path;
 use super::types::{LauncherItem, ProjectInfo, ProjectsRoot};
@@ -70,6 +72,13 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        let game_engine = p
+            .path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|s| detect_game_project(Path::new(s)))
+            .map(|g| g.engine());
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
@@ -88,6 +97,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             executables,
             color: normalise_color(p.color.as_deref()),
             app_command,
+            game_engine,
         });
     }
     // v2.x: synthesise a "Home" entry pointing at the user's home directory
@@ -135,6 +145,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                 executables: None,
                 color: None,
                 app_command: None,
+                game_engine: None,
             });
         }
     }

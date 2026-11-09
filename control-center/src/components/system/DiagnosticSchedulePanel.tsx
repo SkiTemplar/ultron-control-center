@@ -27,7 +27,7 @@ export function DiagnosticSchedulePanel() {
 
   async function save(next: DiagScheduleConfig) {
     if (!HHMM_RE.test(next.time_hhmm)) {
-      setErr("Time must be HH:MM");
+      setErr("La hora debe tener el formato HH:MM");
       return;
     }
     setBusy(true);
@@ -48,7 +48,7 @@ export function DiagnosticSchedulePanel() {
   return (
     <div className="rounded border border-white/10 bg-[var(--color-surface-1)] p-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <span className="font-mono text-white/60">⏱</span> Daily diagnostic
+        <span className="font-mono text-white/60">⏱</span> Diagnóstico diario
       </div>
       <div className="flex items-center gap-3">
         <label className="flex items-center gap-2 text-xs">
@@ -58,7 +58,7 @@ export function DiagnosticSchedulePanel() {
             disabled={busy}
             onChange={(e) => save({ ...cfg, enabled: e.target.checked })}
           />
-          Run daily at
+          Ejecutar cada día a las
         </label>
         <input
           type="time"
@@ -68,7 +68,7 @@ export function DiagnosticSchedulePanel() {
           onBlur={() => save(cfg)}
           className="rounded bg-black/30 px-2 py-1 text-xs border border-white/10"
         />
-        {busy && <span className="text-xs text-white/40">saving...</span>}
+        {busy && <span className="text-xs text-white/40">guardando…</span>}
       </div>
       {err && <div className="mt-2 text-xs text-red-300">{err}</div>}
     </div>

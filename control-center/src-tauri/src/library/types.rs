@@ -6,33 +6,11 @@ use serde::{Deserialize, Serialize};
 // Core domain types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteItem {
-    pub owner: String,
-    pub repo: String,
-    pub path: String,
-    pub name: String,
-    pub html_url: Option<String>,
-    pub preview: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum LibraryKind {
-    Agent,
-    Skill,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetScope {
     Global,
     Project,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PinnedAgents {
-    pub pinned: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

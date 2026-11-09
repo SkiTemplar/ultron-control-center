@@ -23,10 +23,15 @@ pub struct McpInfo {
     pub fallback_message: Option<String>,
     pub alert_severity: Option<String>,
     pub expected_offline: bool,
-    /// Provenance of the entry — Claudia-compatible. One of:
-    ///   "user"         — declared in ~/.claude/settings.json mcpServers
-    ///   "project"      — declared in <cwd>/.mcp.json (project-scope)
-    ///   "plugin:<slug>" — provided by an installed plugin's .mcp.json
+    /// Provenance of the entry. One of:
+    ///   "user"            — top-level `mcpServers` of ~/.claude.json (the
+    ///                       user scope Claude Code reads; editable here)
+    ///   "project:<label>" — a project's .mcp.json or the
+    ///                       `projects.<path>.mcpServers` of ~/.claude.json
+    ///   "plugin:<slug>"   — provided by an installed plugin's .mcp.json
+    ///   "settings"        — legacy `mcpServers` of ~/.claude/settings.json,
+    ///                       which Claude Code does NOT read (H14): shown so
+    ///                       it can be deleted, never edited
     /// The frontend uses this to render an origin chip and to gate
     /// destructive mutations (only user-scope entries are editable).
     #[serde(default)]
@@ -64,14 +69,6 @@ pub struct McpMutationResult {
     pub backup_path: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct McpGenerationResult {
-    pub success: bool,
-    pub name: String,
-    pub config: serde_json::Value,
-    pub raw_output: String,
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McpPingResult {
     pub name: String,
@@ -90,6 +87,12 @@ pub(super) struct SettingsRoot {
     pub(super) mcp_servers: BTreeMap<String, McpServerCfg>,
     #[serde(rename = "disabledMcpjsonServers", default)]
     pub(super) disabled_mcpjson_servers: Vec<String>,
+    /// Servidores de `.mcp.json` aprobados en Claude Code (`mcps::confianza`).
+    #[serde(rename = "enabledMcpjsonServers", default)]
+    pub(super) enabled_mcpjson_servers: Vec<String>,
+    /// Aprobación de todos los servidores de `.mcp.json` (`mcps::confianza`).
+    #[serde(rename = "enableAllProjectMcpServers", default)]
+    pub(super) enable_all_project_mcp_servers: bool,
     /// `"name@marketplace" -> enabled`. Missing entries default to enabled
     /// (see `select_enabled_plugin_paths`).
     #[serde(rename = "enabledPlugins", default)]
@@ -108,6 +111,14 @@ pub(super) struct McpServerCfg {
     pub(super) transport: Option<String>,
     #[serde(default)]
     pub(super) disabled: bool,
+    /// Variables de entorno del servidor stdio. `Value` y no `String`: un
+    /// valor no textual no debe tumbar el parseo de la entrada entera (y con
+    /// ello hacerla desaparecer de la pestaña).
+    #[serde(default)]
+    pub(super) env: BTreeMap<String, serde_json::Value>,
+    /// Cabeceras de un servidor HTTP/SSE (p. ej. `Authorization`).
+    #[serde(default)]
+    pub(super) headers: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -512,26 +523,45 @@ fn well_known_description(name: &str) -> Option<&'static str> {
     }
 }
 
+/// True si `cmd` es el intérprete de Windows (`cmd`, `cmd.exe`, con o sin ruta).
+fn is_cmd_shell(cmd: &str) -> bool {
+    let base = cmd.rsplit(['/', '\\']).next().unwrap_or(cmd);
+    base.eq_ignore_ascii_case("cmd") || base.eq_ignore_ascii_case("cmd.exe")
+}
+
+/// Línea de comando real de un servidor stdio. El envoltorio `cmd /c` (o
+/// `/k`) que Windows necesita para lanzar `npx` no dice nada del servidor:
+/// se quita y se enseña lo que ejecuta de verdad, con sus argumentos.
+pub(super) fn real_command_line(cmd: &str, args: &[String]) -> String {
+    let wrapped = is_cmd_shell(cmd)
+        && args
+            .first()
+            .is_some_and(|a| a.eq_ignore_ascii_case("/c") || a.eq_ignore_ascii_case("/k"));
+    let parts: Vec<&str> = if wrapped {
+        args[1..].iter().map(String::as_str).collect()
+    } else {
+        std::iter::once(cmd)
+            .chain(args.iter().map(String::as_str))
+            .collect()
+    };
+    if parts.is_empty() {
+        cmd.to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 fn generic_description(name: &str, cfg: &McpServerCfg) -> String {
     if let Some(url) = &cfg.url {
-        return format!("Remote MCP server at {}.", url);
+        return format!("Servidor remoto en {}.", url);
     }
     if let Some(cmd) = &cfg.command {
-        if cfg.args.is_empty() {
-            return format!("Local stdio server started with `{}`.", cmd);
-        }
-        let first_pkg = cfg
-            .args
-            .iter()
-            .find(|a| !a.starts_with('-'))
-            .map(|s| s.as_str())
-            .unwrap_or("");
-        if first_pkg.is_empty() {
-            return format!("Local stdio server started with `{}`.", cmd);
-        }
-        return format!("Local stdio server — `{} {}`.", cmd, first_pkg);
+        return format!(
+            "Servidor local (stdio): `{}`.",
+            real_command_line(cmd, &cfg.args)
+        );
     }
-    format!("MCP server '{}'.", name)
+    format!("Servidor MCP '{}'.", name)
 }
 
 // ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ export default function ProjectBoard({ projectId }: Props) {
     load,
     moveCard,
     deleteCard,
+    pendingDelete,
+    undoDeleteCard,
     renameColumn,
     deleteColumnById,
     reorderColumn,
@@ -62,14 +64,14 @@ export default function ProjectBoard({ projectId }: Props) {
   if (error && !board) {
     return (
       <div className="p-4 text-xs text-[var(--color-error)]">
-        Failed to load board: {error}
+        No se pudo cargar el tablero: {error}
       </div>
     );
   }
   if (!board) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-[var(--color-text-muted)]">
-        Loading…
+        Cargando tablero…
       </div>
     );
   }
@@ -82,9 +84,9 @@ export default function ProjectBoard({ projectId }: Props) {
           personal items only. */}
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
-          <span>Project</span>
+          <span>Proyecto</span>
           <span className="text-[var(--color-text-faint)]">/</span>
-          <span className="text-[var(--color-text-secondary)]">Board</span>
+          <span className="text-[var(--color-text-secondary)]">Tablero</span>
         </div>
         {/* v2.6: board toolbar — search + priority filter chips. Persists
             per-project so the user's view survives reloads. */}
@@ -148,6 +150,21 @@ export default function ProjectBoard({ projectId }: Props) {
             void load();
           }}
         />
+      )}
+      {pendingDelete && (
+        <div
+          role="status"
+          className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-1.5 text-xs text-[var(--color-text)] shadow-lg"
+        >
+          <span className="max-w-[320px] truncate">Tarjeta «{pendingDelete.title}» borrada.</span>
+          <button
+            type="button"
+            onClick={undoDeleteCard}
+            className="rounded px-2 py-0.5 font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-3)]"
+          >
+            Deshacer
+          </button>
+        </div>
       )}
       {error && board && (
         <div className="absolute right-2 bottom-2 rounded-md border border-[var(--color-error)] bg-[var(--color-surface-2)] px-2 py-1 text-xs text-[var(--color-error)]">

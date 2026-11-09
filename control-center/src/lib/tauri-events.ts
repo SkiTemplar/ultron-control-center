@@ -7,8 +7,7 @@
 // StrictMode double-mounts don't leak.
 //
 // Backend contract:
-//   - "tray-action": { action: "new_claude" | "new_codex"
-//                            | "open_plans" | "open_memory" }
+//   - "tray-action": { action: "new_claude" | "new_codex" | "open_plans" }
 //
 // Per-project hotkeys are a separate path: the backend emits
 // "project-hotkey-custom" and App.tsx listens for it directly.
@@ -23,7 +22,6 @@ type TabKey =
   | "projects"
   | "mcps"
   | "plans"
-  | "memory"
   | "settings"
   | "system";
 
@@ -31,7 +29,7 @@ type TabKey =
 type SessionProvider = "claude" | "codex";
 
 export interface TrayActionPayload {
-  action: "new_claude" | "new_codex" | "open_plans" | "open_memory";
+  action: "new_claude" | "new_codex" | "open_plans";
 }
 
 export interface TrayEventOptions {
@@ -82,9 +80,6 @@ export async function setupTrayEventListeners(
           break;
         case "open_plans":
           opts.setTab("plans");
-          break;
-        case "open_memory":
-          opts.setTab("memory");
           break;
         default:
           // Unknown action — log so future tray menu changes don't

@@ -296,7 +296,7 @@ pub(super) fn refresh_codex_models(home: &Path) -> ModelAccess {
 /// folder). Resolution order: PATH first (covers machines where it IS on
 /// PATH, and any non-Windows install), then the WinGet Links fallback the
 /// task calls out explicitly.
-fn resolve_agy_binary() -> Option<PathBuf> {
+pub(crate) fn resolve_agy_binary() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let resolved = crate::ai_router::exec::resolve_windows_cli_program("agy");

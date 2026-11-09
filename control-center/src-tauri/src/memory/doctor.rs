@@ -15,6 +15,21 @@ use crate::diagnostics_native::Severity;
 
 use super::sqlite_store;
 
+// Checks de operación (inbox sin juzgar, gc semanal): fichero aparte para no
+// pasar este de las 800 líneas; submódulo para reutilizar los constructores.
+#[path = "doctor_ops.rs"]
+mod ops;
+
+// Checks del índice denso (qdrant, reconcile) y del recall (evals): ficheros
+// aparte por el mismo motivo.
+#[path = "doctor_dense.rs"]
+mod dense;
+#[path = "doctor_eval_gate.rs"]
+mod eval_gate;
+// Check `versions` (stale y binario compilado con el árbol sucio).
+#[path = "doctor_versions.rs"]
+mod versions;
+
 /// One diagnostic check outcome. `data` carries machine-readable specifics
 /// (counts, dims, paths) for the UI Health card / `--json` consumers.
 #[derive(Debug, Clone, Serialize)]
@@ -80,11 +95,17 @@ impl DoctorReport {
 #[must_use]
 pub fn run_doctor() -> DoctorReport {
     let mut checks = vec![check_sqlite(), check_fts()];
-    checks.extend(check_qdrant_collections());
-    checks.push(check_reconcile());
-    checks.push(check_evals());
+    if crate::qdrant::dense_enabled() {
+        checks.extend(dense::check_qdrant_collections());
+        checks.push(dense::check_reconcile());
+    } else {
+        checks.push(dense::dense_off_check());
+    }
+    checks.push(ops::check_inbox());
+    checks.push(ops::check_gc());
+    checks.push(eval_gate::check_evals());
     checks.push(check_sidecars());
-    checks.push(check_running_binary());
+    checks.push(versions::check_running_binary());
     checks.push(check_disk());
     checks.push(check_deprecation_deadlines());
 
@@ -128,7 +149,7 @@ fn is_sqlite_busy(err: &rusqlite::Error) -> bool {
     s.contains("database is locked") || s.contains("database is busy")
 }
 
-/// `brain.db` opens, `integrity_check=ok`, `user_version` is the expected 2 or 3,
+/// `brain.db` opens, `integrity_check=ok`, `user_version` is in the expected range,
 /// and the active/candidate counts are readable.
 fn check_sqlite() -> DoctorCheck {
     let conn = match sqlite_store::open_conn() {
@@ -177,12 +198,15 @@ fn check_sqlite() -> DoctorCheck {
     if integrity != "ok" {
         return DoctorCheck::error("sqlite", format!("integrity_check={integrity}"), data);
     }
-    // v5 = retirada del codegraph interno (2026-07-02); versiones menores son
+    // v6 = backfill de valid_from (2026-10-26), la última migración; versiones menores son
     // DBs aún no migradas (la migración corre en el próximo open_conn del writer).
-    if !(2..=5).contains(&user_version) {
+    if !(2..=sqlite_store::LATEST_USER_VERSION).contains(&user_version) {
         return DoctorCheck::warn(
             "sqlite",
-            format!("user_version inesperado: {user_version} (esperado 2..=5)"),
+            format!(
+                "user_version inesperado: {user_version} (esperado 2..={})",
+                sqlite_store::LATEST_USER_VERSION
+            ),
             data,
         );
     }
@@ -252,152 +276,6 @@ fn check_fts() -> DoctorCheck {
     DoctorCheck::ok("fts", format!("in_sync · {} filas", st.fts_rows), data)
 }
 
-/// Per-collection Qdrant probe (SPEC-CONTROL-PLANE §2, A2). One check per live
-/// canonical collection: ultron_memory/ultron_catalog (1024d E5), ultron_skills
-/// (768d mpnet) and ultron_mcp_mirror (1024d).
-fn check_qdrant_collections() -> Vec<DoctorCheck> {
-    #[cfg(feature = "qdrant")]
-    {
-        qdrant_probe::run()
-    }
-    #[cfg(not(feature = "qdrant"))]
-    {
-        vec![DoctorCheck::warn(
-            "qdrant",
-            "compilado sin feature qdrant; sondeo de colecciones omitido",
-            serde_json::json!({ "feature": false }),
-        )]
-    }
-}
-
-/// SQLite<->Qdrant drift via the canonical `reconcile_check` (the same call the
-/// `reconcile` subcommand uses). Green when `in_sync` and counts match.
-fn check_reconcile() -> DoctorCheck {
-    match super::qdrant_index::reconcile_check() {
-        Ok(r) => {
-            let data = serde_json::json!({
-                "in_sync": r.in_sync,
-                "sqlite_active": r.count_sqlite_active,
-                "qdrant_points": r.count_qdrant_points,
-                "missing": r.missing_count,
-                "orphan": r.orphan_count,
-            });
-            if r.in_sync {
-                DoctorCheck::ok(
-                    "reconcile",
-                    format!(
-                        "in_sync · {}={}",
-                        r.count_sqlite_active, r.count_qdrant_points
-                    ),
-                    data,
-                )
-            } else {
-                let drift = r.missing_count + r.orphan_count;
-                let detail = format!(
-                    "drift={drift} (missing={}, orphan={})",
-                    r.missing_count, r.orphan_count
-                );
-                // Small drift = Warn; large = Error (index reconstructable via reindex).
-                if drift <= 5 {
-                    DoctorCheck::warn("reconcile", detail, data)
-                } else {
-                    DoctorCheck::error("reconcile", detail, data)
-                }
-            }
-        }
-        Err(e) => DoctorCheck::warn(
-            "reconcile",
-            format!("no disponible: {e}"),
-            serde_json::json!({ "available": false }),
-        ),
-    }
-}
-
-/// Recall quality + security gate. (2026-08-10, decisión del usuario: "el oráculo")
-/// El VEREDICTO lo decide el ORÁCULO ETIQUETADO (golden_labels.json, 29 queries
-/// curadas a mano) medido por el HOT PATH (rerank=false ⇒ fanout corto + sin
-/// cross-encoder — lo que paga CADA prompt del hook) — el set generado (26
-/// queries, stale desde jul-26) daba ERROR permanente (0.36) mientras el
-/// oráculo real estaba en 0.81 por el path de calidad: un gate que llora
-/// siempre es un gate roto. El smoke sintético queda SOLO como gate de leaks.
-/// Bandas de REGRESIÓN calibradas al baseline hot-path medido 2026-08-10
-/// (0.498 sano; el path de calidad da 0.810): warn <0.42 (≈2 queries por
-/// debajo del baseline) · error <0.30. El 0.95 aspiracional del GOAL lo vigila
-/// Kirkardo cat1, no este check.
-fn evals_verdict(
-    golden_recall: f32,
-    golden_degraded: bool,
-    golden_note: &str,
-    smoke_recall: f32,
-    secret_leaks: usize,
-    stale_leaks: usize,
-) -> DoctorCheck {
-    let data = serde_json::json!({
-        "recall_at_8_golden": golden_recall,
-        "oracle": "labeled_no_rerank",
-        "golden_degraded": golden_degraded,
-        "golden_note": golden_note,
-        "recall_at_8_smoke": smoke_recall,
-        "secret_leak": secret_leaks,
-        "stale_leak": stale_leaks,
-    });
-    if secret_leaks > 0 || stale_leaks > 0 {
-        return DoctorCheck::error(
-            "evals",
-            format!("LEAK · secret={secret_leaks} stale={stale_leaks}"),
-            data,
-        );
-    }
-    if golden_degraded {
-        // (2026-08-10) la CAUSA viaja en el detail: "infra_down: Qdrant..." vs
-        // "set ausente" dejan de ser indistinguibles (audit 08-09 punto 3).
-        return DoctorCheck::warn(
-            "evals",
-            format!("golden no disponible · {golden_note} · smoke={smoke_recall:.3}"),
-            data,
-        );
-    }
-    let detail = format!(
-        "oráculo recall@8={golden_recall:.3} (hot path, sin rerank) · smoke={smoke_recall:.3} · leaks=0"
-    );
-    if golden_recall < 0.30 {
-        DoctorCheck::error("evals", detail, data)
-    } else if golden_recall < 0.42 {
-        DoctorCheck::warn("evals", detail, data)
-    } else {
-        DoctorCheck::ok("evals", detail, data)
-    }
-}
-
-fn check_evals() -> DoctorCheck {
-    let smoke = super::evals::run(None, 8);
-    // (2026-08-10) El veredicto lo da el ORÁCULO ETIQUETADO (29 queries, el
-    // medidor honesto), no el set generado stale. rerank=false: el doctor es
-    // fontanería (¿el pipeline recupera?), no el medidor de calidad — con
-    // cross-encoder tardaba ~62s y reventaba los timeouts del harness.
-    // Knobs EXPLÍCITOS (dense=true, rerank=false): sin depender del env.
-    let Some(labels_path) = super::evals::golden_labels_path() else {
-        return evals_verdict(
-            0.0,
-            true,
-            "no HOME dir; cannot locate golden_labels.json",
-            smoke.recall_at_k,
-            smoke.secret_leak_count,
-            smoke.stale_leak_count,
-        );
-    };
-    let golden =
-        super::evals::run_labeled_golden_with(&labels_path.to_string_lossy(), 8, true, false);
-    evals_verdict(
-        golden.aggregate.recall_at_k as f32,
-        golden.degraded,
-        &golden.note,
-        smoke.recall_at_k,
-        smoke.secret_leak_count,
-        smoke.stale_leak_count,
-    )
-}
-
 /// The `ultron-memory` sidecar must exist under `~/.ultron/bin/` and be non-empty.
 fn check_sidecars() -> DoctorCheck {
     let bin = ultron_home().map(|h| h.join("bin"));
@@ -422,46 +300,6 @@ fn check_sidecars() -> DoctorCheck {
         DoctorCheck::ok("sidecars", "ultron-memory presente", data)
     } else {
         DoctorCheck::error("sidecars", format!("ausente(s): {missing:?}"), data)
-    }
-}
-
-/// Anti stale-binary (k+6): warn when the deployed `bin/ultron-memory.exe` is
-/// NEWER than the binary actually running — a recurring "no se aplicó" footgun.
-fn check_running_binary() -> DoctorCheck {
-    let running = std::env::current_exe().ok();
-    let deployed = ultron_home().map(|h| h.join("bin").join("ultron-memory.exe"));
-    let (Some(running), Some(deployed)) = (running, deployed) else {
-        return DoctorCheck::ok(
-            "versions",
-            "no determinable (informativo)",
-            serde_json::json!({ "determinable": false }),
-        );
-    };
-    let mt = |p: &std::path::Path| {
-        std::fs::metadata(p)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-    };
-    let (rm, dm) = (mt(&running), mt(&deployed));
-    let data = serde_json::json!({
-        "running": running.to_string_lossy(),
-        "deployed": deployed.to_string_lossy(),
-        "running_mtime": rm,
-        "deployed_mtime": dm,
-    });
-    match (rm, dm) {
-        (Some(rm), Some(dm)) if dm > rm + 5 => DoctorCheck::warn(
-            "versions",
-            "el binario desplegado es mas nuevo que el que corre (posible stale)",
-            data,
-        ),
-        _ => DoctorCheck::ok(
-            "versions",
-            "binario en uso == desplegado (o no aplica)",
-            data,
-        ),
     }
 }
 
@@ -501,8 +339,65 @@ fn check_disk() -> DoctorCheck {
     }
 }
 
-/// Deprecation registry deadlines (handoff from SPEC-MAINTENANCE-CLI A12): any
-/// entry whose ISO `deadline` is in the past is a Warn (overdue cleanup).
+/// Días que un deadline puede llevar vencido sin que sea un problema: la cadencia
+/// del GC semanal (`INTERVAL_MS` de `hooks/scripts/memory-gc.js`) más 3 de margen,
+/// para no avisar si el GC cae en la primera sesión tras un fin de semana parado.
+const DEADLINE_GRACE_DAYS: i64 = 10;
+
+/// `(vencidos, vencidos antes de `late_before`)` entre las entradas abiertas.
+///
+/// La comparación es textual: los deadlines se escriben con `millis_to_iso_utc`
+/// (`YYYY-MM-DDTHH:MM:SSZ`, verificado 2026-10-23: 3.143 de 3.143 filas), el mismo
+/// formato de los dos cortes, así que el orden es el cronológico. Las entradas
+/// cerradas (`deleted`/`restored`/`archived`) no cuentan aunque su deadline haya
+/// pasado.
+fn count_overdue_deadlines(
+    conn: &rusqlite::Connection,
+    now: &str,
+    late_before: &str,
+) -> rusqlite::Result<(i64, i64)> {
+    conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN deadline < ?2 THEN 1 ELSE 0 END), 0)
+         FROM deprecation_entries
+         WHERE deadline IS NOT NULL AND deadline < ?1
+           AND state NOT IN ('deleted','restored','archived')",
+        [now, late_before],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+}
+
+/// PURA: veredicto de los deadlines. Un vencido dentro de la cadencia es el estado
+/// normal entre dos pasadas del GC (son copias sustituidas que archiva él) y da Ok:
+/// el aviso con `overdue > 0` salía casi siempre y tapaba los reales. Solo avisa lo
+/// que el GC tendría que haber archivado ya.
+fn deadlines_verdict(overdue: i64, late: i64) -> DoctorCheck {
+    let data = serde_json::json!({
+        "overdue": overdue,
+        "late": late,
+        "grace_days": DEADLINE_GRACE_DAYS,
+        "repair": "ultron-memory deprecations apply",
+    });
+    if late > 0 {
+        return DoctorCheck::warn(
+            "deprecation_deadlines",
+            format!(
+                "{late} deadline(s) vencido(s) hace más de {DEADLINE_GRACE_DAYS} días: el GC \
+                 semanal no los ha archivado, revisa el check gc"
+            ),
+            data,
+        );
+    }
+    if overdue > 0 {
+        return DoctorCheck::ok(
+            "deprecation_deadlines",
+            format!("{overdue} deadline(s) vencido(s) a la espera del GC semanal"),
+            data,
+        );
+    }
+    DoctorCheck::ok("deprecation_deadlines", "sin deadlines vencidos", data)
+}
+
+/// Deprecation registry deadlines (handoff from SPEC-MAINTENANCE-CLI A12).
 fn check_deprecation_deadlines() -> DoctorCheck {
     let conn = match sqlite_store::open_conn() {
         Ok(c) => c,
@@ -514,25 +409,20 @@ fn check_deprecation_deadlines() -> DoctorCheck {
             )
         }
     };
-    let now = chrono::Utc::now().to_rfc3339();
-    let overdue: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM deprecation_entries
-             WHERE deadline IS NOT NULL AND deadline < ?1
-               AND state NOT IN ('deleted','restored','archived')",
-            [&now],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-    let data = serde_json::json!({ "overdue": overdue });
-    if overdue > 0 {
-        DoctorCheck::warn(
+    const ISO: &str = "%Y-%m-%dT%H:%M:%SZ";
+    let now = chrono::Utc::now();
+    let late_before = now - chrono::Duration::days(DEADLINE_GRACE_DAYS);
+    match count_overdue_deadlines(
+        &conn,
+        &now.format(ISO).to_string(),
+        &late_before.format(ISO).to_string(),
+    ) {
+        Ok((overdue, late)) => deadlines_verdict(overdue, late),
+        Err(e) => DoctorCheck::warn(
             "deprecation_deadlines",
-            format!("{overdue} deadline(s) vencido(s)"),
-            data,
-        )
-    } else {
-        DoctorCheck::ok("deprecation_deadlines", "sin deadlines vencidos", data)
+            format!("no comprobado: {e}"),
+            serde_json::json!({ "checked": false }),
+        ),
     }
 }
 
@@ -540,146 +430,52 @@ fn ultron_home() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron"))
 }
 
-// ---------------------------------------------------------------------------
-// Qdrant per-collection probe (feature-gated; the sidecar builds with `qdrant`)
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "qdrant")]
-mod qdrant_probe {
-    use super::DoctorCheck;
-    use serde_json::Value;
-
-    fn base() -> String {
-        std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://127.0.0.1:6333".to_string())
-    }
-
-    /// Expected canonical collections: name -> (expected_dim, write_dead).
-    ///
-    /// ultron_sessions (384d, write-dead 72 pts) RETIRADA 2026-06-20: sus lectores
-    /// eran codigo muerto (recall_hybrid deprecado + memory_graph des-registrado) y
-    /// los datos ya viven en brain.db. ultron_skills (mpnet 768d) y ultron_mcp_mirror
-    /// (E5 1024d) ANADIDAS: el doctor no las cubria (gap real de cat1.4).
-    const EXPECTED: &[(&str, u64, bool)] = &[
-        ("ultron_memory", 1024, false),
-        ("ultron_catalog", 1024, false),
-        ("ultron_skills", 768, false),
-        ("ultron_mcp_mirror", 1024, false),
-    ];
-
-    pub fn run() -> Vec<DoctorCheck> {
-        let client = match reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            // Fail-fast: con Qdrant caído el probe no puede colgar el doctor
-            // 5s por colección (audit 08-09: doctor de 2min con Qdrant down).
-            .connect_timeout(std::time::Duration::from_secs(1))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                return vec![DoctorCheck::warn(
-                    "qdrant",
-                    format!("http client: {e}"),
-                    serde_json::json!({}),
-                )]
-            }
-        };
-        let base = base();
-        // List existing collections first (read-only GET).
-        let existing: Vec<String> = match client.get(format!("{base}/collections")).send() {
-            Ok(resp) => resp
-                .json::<Value>()
-                .ok()
-                .and_then(|v| {
-                    v.get("result")?.get("collections")?.as_array().map(|arr| {
-                        arr.iter()
-                            .filter_map(|c| c.get("name")?.as_str().map(String::from))
-                            .collect()
-                    })
-                })
-                .unwrap_or_default(),
-            Err(e) => {
-                return vec![DoctorCheck::error(
-                    "qdrant",
-                    format!("inalcanzable: {e}"),
-                    serde_json::json!({ "base": base }),
-                )]
-            }
-        };
-
-        let mut out = Vec::new();
-        for &(name, want_dim, write_dead) in EXPECTED {
-            if !existing.iter().any(|c| c == name) {
-                // Missing canonical collection: ultron_memory missing is Error;
-                // the rest (catalog/skills/mcp_mirror) are Warn.
-                let sev_error = name == "ultron_memory";
-                let detail = format!("coleccion '{name}' ausente");
-                out.push(if sev_error {
-                    DoctorCheck::error(&format!("qdrant_{name}"), detail, serde_json::json!({}))
-                } else {
-                    DoctorCheck::warn(&format!("qdrant_{name}"), detail, serde_json::json!({}))
-                });
-                continue;
-            }
-            out.push(probe_one(&client, &base, name, want_dim, write_dead));
-        }
-        out
-    }
-
-    fn probe_one(
-        client: &reqwest::blocking::Client,
-        base: &str,
-        name: &str,
-        want_dim: u64,
-        write_dead: bool,
-    ) -> DoctorCheck {
-        let v: Value = match client.get(format!("{base}/collections/{name}")).send() {
-            Ok(r) => r.json().unwrap_or(Value::Null),
-            Err(e) => {
-                return DoctorCheck::error(
-                    &format!("qdrant_{name}"),
-                    format!("GET coleccion: {e}"),
-                    serde_json::json!({}),
-                )
-            }
-        };
-        let result = v.get("result");
-        let status = result
-            .and_then(|r| r.get("status"))
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let points = result
-            .and_then(|r| r.get("points_count"))
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        // dim lives under config.params.vectors.size (single unnamed vector).
-        let dim = result
-            .and_then(|r| r.get("config"))
-            .and_then(|c| c.get("params"))
-            .and_then(|p| p.get("vectors"))
-            .and_then(|vec| vec.get("size").or_else(|| vec.get("dense")?.get("size")))
-            .and_then(serde_json::Value::as_u64);
-        let data = serde_json::json!({
-            "status": status, "points": points, "dim": dim, "want_dim": want_dim,
-            "write_dead": write_dead,
-        });
-        let cname = format!("qdrant_{name}");
-        if let Some(d) = dim {
-            if d != want_dim {
-                return DoctorCheck::error(&cname, format!("dim {d} != {want_dim} esperado"), data);
-            }
-        }
-        if status != "green" {
-            return DoctorCheck::warn(&cname, format!("status={status}"), data);
-        }
-        let suffix = if write_dead { " (write-dead)" } else { "" };
-        DoctorCheck::ok(&cname, format!("{points} pts · {want_dim}d{suffix}"), data)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Auditoría 2026-11-01: 19 copias sustituidas a la espera del GC semanal daban
+    // un warn permanente que tapaba los reales.
+    #[test]
+    fn deadlines_vencidos_a_la_espera_del_gc_no_avisan() {
+        let check = deadlines_verdict(19, 0);
+        assert_eq!(check.severity, Severity::Ok);
+        assert!(check.detail.contains("19"), "{}", check.detail);
+        let data = check.data.unwrap();
+        assert_eq!(data["overdue"], 19);
+        assert_eq!(data["repair"], "ultron-memory deprecations apply");
+
+        assert_eq!(deadlines_verdict(0, 0).severity, Severity::Ok);
+    }
+
+    // Caso negativo: lo que pasa de la cadencia sí es un GC que no está corriendo.
+    #[test]
+    fn deadlines_que_pasan_de_la_cadencia_avisan() {
+        let check = deadlines_verdict(19, 1);
+        assert_eq!(check.severity, Severity::Warn);
+        assert!(check.detail.contains("gc"), "{}", check.detail);
+    }
+
+    #[test]
+    fn el_recuento_separa_los_tardios_y_excluye_las_entradas_cerradas() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE deprecation_entries (deadline TEXT, state TEXT);
+             INSERT INTO deprecation_entries VALUES
+               ('2026-10-01T00:00:00Z', 'deprecated'),
+               ('2026-10-20T00:00:00Z', 'deprecated'),
+               ('2026-10-30T00:00:00Z', 'deprecated'),
+               ('2026-12-01T00:00:00Z', 'deprecated'),
+               (NULL, 'deprecated'),
+               ('2026-01-01T00:00:00Z', 'archived'),
+               ('2026-01-01T00:00:00Z', 'deleted'),
+               ('2026-01-01T00:00:00Z', 'restored');",
+        )
+        .unwrap();
+        let counts =
+            count_overdue_deadlines(&conn, "2026-11-01T00:00:00Z", "2026-10-22T00:00:00Z").unwrap();
+        assert_eq!(counts, (3, 2));
+    }
 
     #[test]
     fn exit_code_reflects_max_severity() {
@@ -735,73 +531,5 @@ mod tests {
         );
         // Un error no-Sqlite tampoco.
         assert!(!is_sqlite_busy(&rusqlite::Error::QueryReturnedNoRows));
-    }
-}
-
-#[cfg(test)]
-mod evals_verdict_tests {
-    use super::*;
-
-    // (unificar medidores, 2026-07-02) — el veredicto de 'evals' se decide por
-    // el GOLDEN (el honesto), no por el smoke sintetico (que dio el "1.000"
-    // que alimento el era-claim '9.73 techo honesto').
-    #[test]
-    fn verdict_bands_on_golden_not_smoke() {
-        // (2026-08-10) Bandas calibradas al oráculo etiquetado por el HOT PATH
-        // (baseline sano medido: 0.498): ok >=0.42 · warn <0.42 · error <0.30.
-        // oráculo sano -> ok, y el detail NOMBRA ambos medidores.
-        let c = evals_verdict(0.498, false, "", 1.0, 0, 0);
-        assert_eq!(c.severity, Severity::Ok, "detail={}", c.detail);
-        assert!(c.detail.contains("oráculo"), "detail={}", c.detail);
-        assert!(c.detail.contains("smoke"), "detail={}", c.detail);
-
-        // regresion real -> warn/error aunque el smoke de 1.0.
-        let c = evals_verdict(0.40, false, "", 1.0, 0, 0);
-        assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
-        let c = evals_verdict(0.25, false, "", 1.0, 0, 0);
-        assert_eq!(c.severity, Severity::Error, "detail={}", c.detail);
-
-        // borde exacto: 0.42 ya es ok (bandas son "<", no "<=").
-        let c = evals_verdict(0.42, false, "", 1.0, 0, 0);
-        assert_eq!(c.severity, Severity::Ok, "detail={}", c.detail);
-
-        // leaks mandan SIEMPRE (gate de seguridad del smoke).
-        let c = evals_verdict(0.498, false, "", 1.0, 1, 0);
-        assert_eq!(c.severity, Severity::Error);
-        assert!(c.detail.contains("LEAK"));
-
-        // oráculo no disponible (Qdrant caido / set ausente) -> warn declarado,
-        // NO un 0.0 tratado como colapso ni un ok fingido.
-        let c = evals_verdict(0.0, true, "set ausente", 1.0, 0, 0);
-        assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
-        assert!(
-            c.detail.contains("golden no disponible"),
-            "detail={}",
-            c.detail
-        );
-    }
-
-    #[test]
-    fn verdict_degraded_carries_infra_cause_in_detail() {
-        // (2026-08-10, audit 08-09 punto 3) infra caida NO puede ser
-        // indistinguible de "set ausente": la causa viaja en el detail.
-        let c = evals_verdict(
-            0.0,
-            true,
-            "infra_down: Qdrant no responde /healthz — golden omitido (no es regresión de calidad)",
-            1.0,
-            0,
-            0,
-        );
-        assert_eq!(c.severity, Severity::Warn, "infra caida = Warn, no Error");
-        assert!(c.detail.contains("infra_down"), "detail={}", c.detail);
-        // Y el data JSON expone la nota para consumidores maquina (UI Health).
-        let note = c
-            .data
-            .as_ref()
-            .and_then(|d| d.get("golden_note"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        assert!(note.contains("infra_down"), "data.golden_note={note}");
     }
 }

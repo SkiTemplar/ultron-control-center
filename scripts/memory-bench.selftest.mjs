@@ -57,7 +57,7 @@ A(r.pass === true, "exclude_top3: patron stale en 4a posicion -> pass", JSON.str
 
 // --- multihop_top8: cada patron presente y en >=2 entries distintas ----------
 const hop1 = entry("recall denso usa E5-large 1024d");
-const hop2 = entry("qdrant nativo vive en D:/Ultron/qdrant");
+const hop2 = entry("qdrant nativo vive en su carpeta de datos");
 r = evaluateQuery({ expect: { multihop_top8: ["E5-large", "qdrant"] } }, { entries: [hop1, hop2], raw: "" });
 A(r.pass === true, "multihop: 2 patrones en 2 entries -> pass", JSON.stringify(r));
 r = evaluateQuery(

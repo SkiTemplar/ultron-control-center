@@ -1,19 +1,25 @@
 import type { SevKey, DateFilter } from "./types";
+import { parseDismissed, serializeDismissed, type Dismissed } from "./dismissed";
 
-const DISMISSED_KEY = "ultron.cc.dismissed_fingerprints.v1";
+// v2: {huella: hiddenAt}. La v1 era una lista de huellas sin fecha que mezclaba
+// lo ocultado con el ojo y lo ya borrado del disco (Delete / Clear all), sin
+// forma de distinguirlos: se descarta para que ninguna alerta que haya vuelto
+// a dispararse siga escondida. Lo peor que pasa es tener que ocultar otra vez.
+const DISMISSED_KEY = "ultron.cc.dismissed_fingerprints.v2";
+const DISMISSED_KEY_V1 = "ultron.cc.dismissed_fingerprints.v1";
 
-export function loadDismissed(): Set<string> {
+export function loadDismissed(): Map<string, number> {
   try {
+    localStorage.removeItem(DISMISSED_KEY_V1);
     const raw = localStorage.getItem(DISMISSED_KEY);
-    if (!raw) return new Set();
-    return new Set(JSON.parse(raw) as string[]);
+    return raw ? parseDismissed(JSON.parse(raw)) : new Map();
   } catch {
-    return new Set();
+    return new Map();
   }
 }
-export function saveDismissed(d: Set<string>) {
+export function saveDismissed(d: Dismissed) {
   try {
-    localStorage.setItem(DISMISSED_KEY, JSON.stringify(Array.from(d)));
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(serializeDismissed(d)));
   } catch {}
 }
 

@@ -1,0 +1,5 @@
+{"type":"user","timestamp":"2026-01-01T10:00:00.000Z","message":{"role":"user","content":"tarea"}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:05.000Z","message":{"id":"msg_1","content":[{"type":"text","text":"\nVoy a mirar el código.\nSegunda línea"}],"usage":{"input_tokens":2,"cache_read_input_tokens":1000,"cache_creation_input_tokens":100,"output_tokens":8}}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:09.000Z","message":{"id":"msg_1","content":[{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"cargo test  --lib\n  workflows","description":""}}],"usage":{"input_tokens":2,"cache_read_input_tokens":1000,"cache_creation_input_tokens":100,"output_tokens":7832}}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:09.500Z","message":{"id":"msg_1","content":[{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"cargo test --lib workflows"}}],"usage":{"input_tokens":2,"cache_read_input_tokens":1000,"cache_creation_input_tokens":100,"output_tokens":7832}}}
+{"type":"user","timestamp":"2026-01-01T10:01:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"ok"}]}}

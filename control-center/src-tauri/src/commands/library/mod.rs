@@ -1,7 +1,9 @@
 // commands/library — Library domain command wrappers
 //
 // Groups:
-//   library        — GitHub search/install, curated catalog, agent/skill pin
+//   library        — GitHub search, agent/skill create, sibling files
+//                    (el catálogo curado y la instalación desde GitHub se
+//                    retiraron el 2026-10-17)
 //   plugins_info   — Plugin info, list, uninstall, update-check, changelog
 //   skills         — Skill CRUD, toggle, read/write markdown
 //

@@ -73,6 +73,15 @@ pub async fn set_env_vars_keys(
         .map_err(|e| e.to_string())?
 }
 
+/// Quita una API key del entorno de usuario, del proceso y de los `.env`. Solo
+/// acepta nombres de la whitelist. El proceso que ya la heredó no se entera.
+#[tauri::command]
+pub async fn remove_env_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || env_keys::remove_env_key_inner(&key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Devuelve el estado de las API keys conocidas (cuáles están configuradas y
 /// una vista enmascarada), para que Settings > API Keys muestre lo que el
 /// usuario ya tiene puesto sin volver a pedirlo ni exponer el valor.

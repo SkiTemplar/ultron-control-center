@@ -24,12 +24,52 @@ on:
     tags:
       - "v*.*.*"
 
-# Required so tauri-action can create the GitHub Release and upload assets.
+# Read-only by default; the jobs that publish escalate on their own.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # A tag publishes only what CI has verified: without this gate a tag on a red main
+  # shipped a release. Waits for a CI run still in flight on the tagged commit (tag
+  # pushed right after the branch); a cancelled or failed run stops the release, and
+  # `gh workflow run ci.yml` on that commit plus a re-run of this workflow unblocks it.
+  verify-ci:
+    name: CI green on the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Wait for the CI verdict of this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          runs="repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=50"
+          while :; do
+            success=$(gh api "$runs" --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
+            pending=$(gh api "$runs" --jq '[.workflow_runs[] | select(.status != "completed")] | length')
+            if [ "$success" -gt 0 ]; then
+              echo "CI green on $SHA."
+              exit 0
+            fi
+            if [ "$pending" -eq 0 ]; then
+              echo "::error::No green CI run for $SHA: the release stops here."
+              exit 1
+            fi
+            echo "CI still running on $SHA ($pending run(s)); waiting 60 s."
+            sleep 60
+          done
+
   publish-tauri:
+    needs: verify-ci
+    # Cold Rust build plus bundling on both platforms.
+    timeout-minutes: 90
+    # Required so tauri-action can create the GitHub Release and upload assets.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -48,20 +88,23 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: control-center/package-lock.json
 
-      - name: Setup Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # Same version as ci.yml: the release compiles what CI verified.
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
 
       - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: "./control-center/src-tauri -> target"
 
@@ -199,7 +242,7 @@ jobs:
 
       - name: Build and publish Tauri release
         id: tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           # GitHub token is auto-provided; tauri-action uses it to create the
           # release and upload installer assets.
@@ -231,11 +274,11 @@ jobs:
               if you try it.
 
             * **Full system** (skills, agents, hooks, cockpit scripts) — one-liner:
-              * Windows: `iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex`
-              * Linux:   `curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash`
+              * Windows: `iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.ps1 | iex`
+              * Linux:   `curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.sh | bash`
 
               Either downloads `ultron-system-*.zip` from this release, verifies
-              the SHA-256, extracts to `~/.ultron`, runs the matching `install.ps1`
+              the SHA-256 (also the installer's), extracts to `~/.ultron`, runs the matching `install.ps1`
               / `install.sh`, and launches the Control Center installer.
 
             See `docs/INSTALL.md` for full notes and `docs/RELEASE-PROCESS.md` for
@@ -261,6 +304,42 @@ jobs:
       # prebuilt sidecar (scripts/install-memory-sidecar.*) instead of
       # forcing a full Rust compile on the user's machine.
       # ─────────────────────────────────────────────────────────────────────────
+      # bootstrap.* refuses to run an installer without its .sha256. GitHub stores
+      # asset names with dots instead of spaces, so the manifest is named after that.
+      - name: Hash the installer (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exe = @(Get-ChildItem "control-center/src-tauri/target/release/bundle/nsis/*-setup.exe")
+          if ($exe.Count -ne 1) {
+            Write-Host "::error::expected exactly one NSIS setup.exe, found $($exe.Count)"
+            exit 1
+          }
+          $assetName = $exe[0].Name -replace ' ', '.'
+          $out = Join-Path $env:RUNNER_TEMP "$assetName.sha256"
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $exe[0].FullName).Hash.ToLower()
+          "$sha  $assetName" | Out-File -Encoding ascii $out
+          echo "INSTALLER_SHA=$out" >> $env:GITHUB_ENV
+
+      - name: Hash the installers (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          bundle="control-center/src-tauri/target/release/bundle"
+          manifests=""
+          for file in "$bundle"/appimage/*.AppImage "$bundle"/deb/*.deb; do
+            [ -f "$file" ] || { echo "::error::missing Linux bundle: $file"; exit 1; }
+            name="$(basename "$file")"
+            name="${name// /.}"
+            out="$RUNNER_TEMP/$name.sha256"
+            echo "$(sha256sum "$file" | cut -d' ' -f1)  $name" > "$out"
+            manifests="$manifests$out"$'\n'
+          done
+          {
+            echo "INSTALLER_SHA<<EOF_SHA"
+            printf '%s' "$manifests"
+            echo "EOF_SHA"
+          } >> "$GITHUB_ENV"
+
       - name: Stage ultron-memory sidecar asset (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
@@ -297,7 +376,7 @@ jobs:
       # race on the same asset.
       - name: Attach system ZIP + sidecar to release (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           # Keep the release in draft — finalize-release publishes it once
@@ -307,6 +386,7 @@ jobs:
           files: |
             ${{ env.ULTRON_SYSTEM_ZIP }}
             ${{ env.ULTRON_SYSTEM_SHA }}
+            ${{ env.INSTALLER_SHA }}
             ${{ env.SIDECAR_BIN }}
             ${{ env.SIDECAR_SHA }}
         env:
@@ -314,11 +394,12 @@ jobs:
 
       - name: Attach sidecar to release (Linux)
         if: matrix.platform == 'ubuntu-22.04'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           draft: true
           files: |
+            ${{ env.INSTALLER_SHA }}
             ${{ env.SIDECAR_BIN }}
             ${{ env.SIDECAR_SHA }}
         env:
@@ -334,6 +415,7 @@ jobs:
   finalize-release:
     needs: publish-tauri
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
@@ -357,9 +439,12 @@ jobs:
             fi
           }
           require 'setup\.exe$'                    'Windows NSIS setup.exe'
+          require 'setup\.exe\.sha256$'            'Windows NSIS setup.exe SHA-256'
           require '\.msi$'                         'Windows MSI installer'
           require '\.deb$'                         'Linux .deb package'
+          require '\.deb\.sha256$'                 'Linux .deb SHA-256'
           require '\.AppImage$'                    'Linux .AppImage'
+          require '\.AppImage\.sha256$'            'Linux .AppImage SHA-256'
           # NOTE: no latest.json require — the auto-updater is deliberately
           # OFF (placeholder pubkey). Re-add it here when the updater is
           # re-enabled per docs/RELEASE-PROCESS.md.
@@ -375,4 +460,4 @@ jobs:
             exit 1
           fi
           gh release edit "$tag" --repo "$repo" --draft=false
-          echo "Release $tag published — all 10 expected assets verified live."
+          echo "Release $tag published: all expected assets verified live."

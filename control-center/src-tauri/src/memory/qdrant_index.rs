@@ -81,8 +81,52 @@ pub fn reindex_all() -> Result<(usize, usize), MemoryError> {
 
 /// Retire an item from the dense index (for rejected/deprecated/quarantined).
 /// Best-effort: a missing point/collection is not an error.
+///
+/// Gate (H26, 2026-10-17): sin él, cada llamada abría un connect a Qdrant. Con
+/// Qdrant parado, un connect rechazado en Windows tarda ~2 s (medido con curl:
+/// 2,25 s), y el gc semanal archivaba 466 deadlines vencidos a ≥1 s cada uno:
+/// pasaba de los 110 s del hook y moría sin archivar nada, 134 cierres seguidos.
+///   - Denso apagado a propósito (`ULTRON_DENSE=0`): el índice denso no se
+///     mantiene (tampoco `index_item` indexa), así que no hay punto que retirar
+///     y es `Ok`. Al volver a encender el denso, `reconcile --fix` (o el
+///     borrado + `reindex`) retira los huérfanos que hayan quedado.
+///   - Denso encendido y Qdrant caído según el healthz cacheado: `Err` al
+///     instante, sin pagar el connect por item. El llamante decide igual que
+///     antes (el archivado se pospone; `sync_index` lo ignora).
 pub fn remove_item(id: &str) -> Result<(), String> {
-    crate::qdrant::delete_point(COLLECTION, id)
+    match removal_gate(
+        crate::qdrant::dense_enabled(),
+        crate::qdrant::qdrant_healthy_cached,
+    ) {
+        RemovalGate::SkipDenseOff => Ok(()),
+        RemovalGate::Unhealthy => {
+            Err("qdrant unhealthy (healthz gate) — point not removed".to_string())
+        }
+        RemovalGate::Delete => crate::qdrant::delete_point(COLLECTION, id),
+    }
+}
+
+/// Qué hacer con una retirada del índice denso (ver [`remove_item`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemovalGate {
+    /// Denso apagado: no se mantiene el índice, nada que retirar.
+    SkipDenseOff,
+    /// Denso encendido pero Qdrant no responde: error inmediato.
+    Unhealthy,
+    /// Denso encendido y Qdrant sano: borrar el punto.
+    Delete,
+}
+
+/// PURA salvo `healthy`, que solo se evalúa con el denso encendido (con el denso
+/// apagado no se sondea Qdrant: el sondeo es justo el coste que se evita).
+fn removal_gate(dense: bool, healthy: impl FnOnce() -> bool) -> RemovalGate {
+    if !dense {
+        RemovalGate::SkipDenseOff
+    } else if healthy() {
+        RemovalGate::Delete
+    } else {
+        RemovalGate::Unhealthy
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +283,10 @@ pub fn reconcile_fix(dry_run: bool) -> Result<ReconcileFixReport, MemoryError> {
 
     let mut removed_orphans = 0usize;
     for id in &report.orphan_in_qdrant {
-        match remove_item(id) {
+        // Borrado directo, sin el gate de `remove_item`: reconcile ya habló con
+        // Qdrant (el scroll) y un `Ok` por denso apagado contaría huérfanos que
+        // siguen en la colección.
+        match crate::qdrant::delete_point(COLLECTION, id) {
             Ok(()) => removed_orphans += 1,
             Err(e) => failed.push((id.clone(), e)),
         }
@@ -514,5 +561,32 @@ mod dense_filter_tests {
         let must_not = f["must_not"].as_array().cloned().unwrap_or_default();
         assert_eq!(must_not.len(), 1);
         assert_eq!(must_not[0]["match"]["value"], "agent_note");
+    }
+}
+
+#[cfg(test)]
+mod removal_gate_tests {
+    use super::{removal_gate, RemovalGate};
+
+    #[test]
+    fn dense_off_skips_without_probing_qdrant() {
+        // H26: con el denso apagado no se sondea Qdrant (si el sondeo corriera,
+        // el closure haría fallar el test).
+        let gate = removal_gate(false, || {
+            panic!("no debe sondear Qdrant con el denso apagado")
+        });
+        assert_eq!(gate, RemovalGate::SkipDenseOff);
+    }
+
+    #[test]
+    fn dense_on_and_unhealthy_fails_fast_instead_of_pretending_ok() {
+        // Caso negativo: con el denso encendido, Qdrant caído NO es un Ok (el
+        // archivado debe posponerse, no dejar el punto vivo en silencio).
+        assert_eq!(removal_gate(true, || false), RemovalGate::Unhealthy);
+    }
+
+    #[test]
+    fn dense_on_and_healthy_deletes() {
+        assert_eq!(removal_gate(true, || true), RemovalGate::Delete);
     }
 }

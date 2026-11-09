@@ -1,10 +1,10 @@
 import type { DateFilter } from "./types";
 
 export const DATE_LABEL: Record<DateFilter, string> = {
-  "1h": "Last hour",
-  "24h": "Last 24h",
-  "7d": "Last 7 days",
-  "all": "All",
+  "1h": "Última hora",
+  "24h": "Últimas 24 h",
+  "7d": "Últimos 7 días",
+  "all": "Todo",
 };
 
 export function passesDateFilter(ts: string, filter: DateFilter): boolean {

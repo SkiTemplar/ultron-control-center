@@ -203,7 +203,7 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
                   border: "1px solid rgba(210,153,34,0.28)",
                 }}
               >
-                custom
+                personalizado
               </span>
             )}
             {state.dirty && (
@@ -215,7 +215,7 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
                   border: "1px solid rgba(88,166,255,0.28)",
                 }}
               >
-                unsaved
+                sin guardar
               </span>
             )}
           </div>
@@ -229,7 +229,7 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
             <span
               className="text-[10.5px]"
               style={{
-                color: "var(--color-text-faint)",
+                color: "var(--color-text-tertiary)",
                 fontFamily: "var(--font-mono)",
               }}
             >
@@ -238,7 +238,7 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
             {entry.vars.length > 0 && (
               <span
                 className="text-[10.5px]"
-                style={{ color: "var(--color-text-faint)" }}
+                style={{ color: "var(--color-text-tertiary)" }}
               >
                 vars:{" "}
                 {entry.vars.map((v) => (
@@ -272,9 +272,9 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
                 color: "var(--color-text-tertiary)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Reset to built-in default"
+              title="Volver al prompt de serie"
             >
-              {state.resetting ? "Resetting…" : "Reset to default"}
+              {state.resetting ? "Restaurando…" : "Restaurar el de serie"}
             </button>
           )}
           <button
@@ -288,7 +288,7 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
               border: state.dirty ? "none" : "1px solid var(--color-border-strong)",
             }}
           >
-            {state.saving ? "Saving…" : "Save"}
+            {state.saving ? "Guardando…" : "Guardar"}
           </button>
         </div>
       </div>
@@ -322,7 +322,7 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
             color: "var(--color-success)",
           }}
         >
-          Saved.
+          Guardado.
         </div>
       )}
       {state.error && (
@@ -360,17 +360,17 @@ const CATEGORY_ORDER: string[] = [
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
-  dashboard: "Dashboard",
-  plans: "Plans",
-  projects: "Projects",
-  sessions: "Sessions",
-  memory: "Memory",
-  agents: "Agents",
+  dashboard: "Panel",
+  plans: "Planes",
+  projects: "Proyectos",
+  sessions: "Sesiones",
+  memory: "Memoria",
+  agents: "Agentes",
   skills: "Skills",
-  notif: "Notifications",
-  mcps: "MCPs",
-  system: "System",
-  usage: "Usage",
+  notif: "Notificaciones",
+  mcps: "MCP",
+  system: "Sistema",
+  usage: "Uso",
 };
 
 function categoryOf(key: string): string {
@@ -461,31 +461,31 @@ export function ButtonPromptsSection() {
   return (
     <div>
       {/* Section header */}
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <h2
             className="text-[15px] font-semibold"
             style={{ color: "var(--color-text)" }}
           >
-            Button prompts
+            Prompts de botones
           </h2>
           <p
             className="mt-1 text-[12px] leading-relaxed"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            AI button prompts for the Control Center. Only overrides are
-            persisted to{" "}
+            Prompts de los botones de IA del Control Center. Solo se guardan los
+            cambios, en{" "}
             <code style={{ fontFamily: "var(--font-mono)" }}>
               ~/.claude/projects/control-center/button-prompts.json
             </code>
-            ; defaults apply automatically for entries you have not changed.
+            ; los que no hayas tocado usan el prompt de serie.
           </p>
           {overriddenCount > 0 && (
             <p
               className="mt-1.5 text-[11.5px]"
               style={{ color: "rgba(210,153,34,0.85)" }}
             >
-              {overriddenCount} {overriddenCount === 1 ? "entry" : "entries"} customized
+              {overriddenCount} {overriddenCount === 1 ? "prompt personalizado" : "prompts personalizados"}
             </p>
           )}
         </div>
@@ -500,7 +500,7 @@ export function ButtonPromptsSection() {
             border: "1px solid var(--color-border-strong)",
           }}
         >
-          {loading ? "Loading…" : "Refresh"}
+          {loading ? "Cargando…" : "Recargar"}
         </button>
       </div>
 
@@ -510,7 +510,7 @@ export function ButtonPromptsSection() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by label, location or key…"
+          placeholder="Buscar por nombre, ubicación o clave…"
           className="flex-1 rounded px-3 py-1.5 text-[12.5px]"
           style={{
             background: "var(--color-surface-1)",
@@ -538,7 +538,7 @@ export function ButtonPromptsSection() {
                 color: filter === f ? "var(--color-text)" : "var(--color-text-tertiary)",
               }}
             >
-              {f === "all" ? `All (${buttons.length})` : `Custom (${overriddenCount})`}
+              {f === "all" ? `Todos (${buttons.length})` : `Personalizados (${overriddenCount})`}
             </button>
           ))}
         </div>
@@ -585,8 +585,8 @@ export function ButtonPromptsSection() {
           }}
         >
           {q || filter === "overridden"
-            ? "No prompts match the current filter."
-            : "No button prompts found."}
+            ? "Ningún prompt coincide con el filtro."
+            : "No hay prompts de botones."}
         </div>
       )}
 

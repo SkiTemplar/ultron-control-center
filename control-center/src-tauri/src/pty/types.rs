@@ -1,8 +1,16 @@
-// pty/types.rs — Core PTY data types and session struct.
+// pty/types.rs — Tipos del runtime de PTY y estado compartido de una sesión.
+//
+// Desde el contrato de estabilidad (§3.2, §3.4) cada PTY vive en un
+// `Arc<PtySession>` con su estado interior en mutex propios: el registro
+// global solo se bloquea para buscar o quitar la entrada, nunca durante E/S.
 
-use portable_pty::MasterPty;
+use std::sync::{Mutex, MutexGuard};
+
+use portable_pty::{ChildKiller, MasterPty};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+
+use super::arbol::Arbol;
+use super::escritor::Escritor;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(tag = "kind", content = "value")]
@@ -15,50 +23,49 @@ pub enum PtyStatus {
     Killed,
 }
 
-pub struct PtySession {
-    /// Session identity. Retenido aunque `.summary()` (su único lector) se
-    /// retiró junto a `pty::list_inner` (cat cleanup 2026-09-11, sin
-    /// consumidor tras borrar `project_invoke_agent_from_session`) — sigue
-    /// siendo la clave conceptual de la sesión en el registro.
-    #[allow(dead_code)]
-    pub id: String,
-    #[allow(dead_code)]
-    pub project_id: String,
-    #[allow(dead_code)]
-    pub card_id: Option<String>,
-    #[allow(dead_code)]
-    pub provider: String,
-    #[allow(dead_code)]
-    pub started_at: String,
-    pub status: PtyStatus,
-    /// Master handle. Nunca se lee tras el spawn (el resize del terminal
-    /// embebido se retiró), pero es RAII load-bearing: si se dropea, el PTY
-    /// se cierra y el proceso hijo pierde su terminal. NO quitar.
-    #[allow(dead_code)]
-    pub master: Box<dyn MasterPty + Send>,
-    /// Write half of the PTY. `capture_output_inner`'s only reader
-    /// (`write_inner`) was retired 2026-09-14 alongside
-    /// `agent_orchestration::delegate` (kanban "comandos huérfanos"); kept
-    /// like `master` above — dropping it would close the child's stdin.
-    #[allow(dead_code)]
-    pub writer: Box<dyn Write + Send>,
-    pub child: Box<dyn portable_pty::Child + Send + Sync>,
-    /// Ring buffer of raw output bytes captured by the reader thread.
-    /// Capped at 256 KiB to bound memory; older bytes are dropped from the
-    /// front when full.
-    pub output_buffer: Vec<u8>,
-    /// Live-emission flag. While false the reader thread captures bytes
-    /// into `output_buffer` but does NOT emit `pty:data:<id>` events.
-    /// The embedded terminal (whose `pty_replay` command flipped this to
-    /// true) was retired 2026-07, so today this stays false and consumers
-    /// poll the buffer instead.
+/// Búfer circular de la salida y bandera de emisión en vivo.
+#[derive(Debug, Default)]
+pub struct Salida {
+    /// Bytes crudos capturados por el lector, con tope `PTY_REPLAY_BUFFER_MAX`.
+    pub buffer: Vec<u8>,
+    /// Con true el lector emite cada bloque en vivo (terminal enganchada).
     pub subscribed: bool,
+}
+
+pub struct PtySession {
+    pub id: String,
+    pub provider: String,
+    pub estado: Mutex<PtyStatus>,
+    pub salida: Mutex<Salida>,
+    /// Evento de emisión en vivo. `None`: formato histórico `pty:data:<id>`
+    /// con `{ data }`; `Some(nombre)`: el base64 como payload plano
+    /// (`sesiones://pty/<id>`).
+    pub live_event: Option<String>,
+    /// Único punto de escritura del PTY (`escritor.rs`).
+    pub escritor: Escritor,
+    /// Lado maestro. Soltarlo cierra la pseudoconsola (`ClosePseudoConsole`),
+    /// así que se toma y se suelta fuera de cualquier lock (`salida.rs`).
+    pub master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    pub killer: Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>,
+    /// Job Object con el árbol de procesos (`arbol.rs`).
+    pub arbol: Mutex<Option<Arbol>>,
+}
+
+/// Bloquea `m` aunque esté envenenado: los datos de estos mutex (estado,
+/// búfer, handles) siguen siendo coherentes tras un pánico ajeno.
+pub fn bloquear<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl PtySession {
+    pub fn status(&self) -> PtyStatus {
+        bloquear(&self.estado).clone()
+    }
+
+    pub fn running(&self) -> bool {
+        self.status() == PtyStatus::Running
+    }
 }
 
 /// Maximum size of the per-session output ring buffer (256 KiB).
 pub const PTY_REPLAY_BUFFER_MAX: usize = 256 * 1024;
-
-// `CaptureResult` (return type of the retired `capture_output_inner`) was
-// removed 2026-09-14 alongside `agent_orchestration::delegate` (kanban
-// "comandos huérfanos"). Recoverable from git history if the feature gets
-// wired to a UI later.

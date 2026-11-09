@@ -7,7 +7,7 @@
   canonical copies in git-hooks/ at the repo root and a small installer
   script (this file) that copies them into place.
 
-  Idempotent — re-running overwrites existing hooks with the canonical
+  Idempotent - re-running overwrites existing hooks with the canonical
   versions. Add to install.ps1 so every fresh setup wires the hooks
   automatically.
 
@@ -32,11 +32,11 @@ $srcDir = Join-Path $repoRoot "git-hooks"
 $dstDir = Join-Path $repoRoot ".git\hooks"
 
 if (-not (Test-Path -LiteralPath $srcDir)) {
-    Write-Host "[setup-git-hooks] no git-hooks/ directory in repo — nothing to install" -ForegroundColor DarkGray
+    Write-Host "[setup-git-hooks] no git-hooks/ directory in repo - nothing to install" -ForegroundColor DarkGray
     exit 0
 }
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot ".git"))) {
-    Write-Host "[setup-git-hooks] not a git repo (.git/ missing) — skipping" -ForegroundColor DarkGray
+    Write-Host "[setup-git-hooks] not a git repo (.git/ missing) - skipping" -ForegroundColor DarkGray
     exit 0
 }
 if (-not (Test-Path -LiteralPath $dstDir)) {

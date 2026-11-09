@@ -37,22 +37,22 @@ export function isBuiltinItem(item: LauncherItem): boolean {
 export function builtinTooltip(item: LauncherItem): string {
   switch (item.kind) {
     case "folder":
-      return `Open folder: ${item.path ?? ""}`;
+      return `Abrir carpeta: ${item.path ?? ""}`;
     case "claude":
-      return `Start Claude session in ${item.cwd ?? "cwd"}`;
+      return `Abrir sesión de Claude en ${item.cwd ?? "cwd"}`;
     case "codex":
-      return `Start Codex session in ${item.cwd ?? "cwd"}`;
+      return `Abrir sesión de Codex en ${item.cwd ?? "cwd"}`;
     case "session": {
       const p = (item.provider ?? "claude").toString();
       const pName = p === "codex" ? "Codex" : "Claude";
-      return `Start ${pName} session in ${item.cwd ?? "cwd"}`;
+      return `Abrir sesión de ${pName} en ${item.cwd ?? "cwd"}`;
     }
     case "ide":
-      return `Open in preferred IDE: ${item.path ?? "(project path)"}`;
+      return `Abrir en el IDE preferido: ${item.path ?? "(carpeta del proyecto)"}`;
     case "exe": {
       const args =
         item.args && item.args.length > 0 ? " " + item.args.join(" ") : "";
-      return `Launch: ${item.path ?? ""}${args}`;
+      return `Lanzar: ${item.path ?? ""}${args}`;
     }
     default:
       return item.kind;
@@ -80,13 +80,13 @@ export function providerToKind(p: SessionProvider): string {
 export function statusBadge(s: string | null): { color: string; bg: string; label: string } {
   switch (s) {
     case "active":
-      return { color: "var(--color-success)", bg: "rgba(63, 185, 80, 0.08)", label: "active" };
+      return { color: "var(--color-success)", bg: "rgba(63, 185, 80, 0.08)", label: "activo" };
     case "auto-detected":
       return { color: "var(--color-text-secondary)", bg: "var(--color-surface-3)", label: "auto" };
     case "manual":
       return { color: "var(--color-warn)", bg: "rgba(210, 153, 34, 0.08)", label: "manual" };
     case "archived":
-      return { color: "var(--color-text-tertiary)", bg: "var(--color-surface-2)", label: "archived" };
+      return { color: "var(--color-text-tertiary)", bg: "var(--color-surface-2)", label: "archivado" };
     default:
       return { color: "var(--color-text-tertiary)", bg: "var(--color-surface-2)", label: s ?? "—" };
   }
@@ -109,10 +109,10 @@ export function providerBadge(p: SessionProvider): { label: string; tint: string
 
 /** Launcher item kinds for the add-item modal. */
 export const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
-  { value: "folder", label: "Folder", hint: "Open the folder in Windows Explorer" },
-  { value: "ide", label: "IDE", hint: "Open the project in the preferred IDE (VS Code / Cursor / Rider / CLion / etc.)" },
-  { value: "session", label: "AI session", hint: "Start a new Claude / Codex session (selector below)" },
-  { value: "exe", label: "Executable (advanced)", hint: "Spawn an .exe / .lnk / .bat with optional arguments" },
+  { value: "folder", label: "Carpeta", hint: "Abre la carpeta en el Explorador de Windows" },
+  { value: "ide", label: "IDE", hint: "Abre el proyecto en el IDE preferido (VS Code, Cursor, Rider, CLion…)" },
+  { value: "session", label: "Sesión de IA", hint: "Abre una sesión nueva de Claude o Codex (selector de abajo)" },
+  { value: "exe", label: "Ejecutable (avanzado)", hint: "Lanza un .exe, .lnk o .bat con argumentos opcionales" },
 ];
 
 /** Parse the `last_active` string into a sortable number. Higher = more recent. */
@@ -136,14 +136,17 @@ export function splitPath(p: string): string[] {
     .filter(Boolean);
 }
 
+/** Etiqueta del grupo de proyectos sin ruta registrada. */
+export const NO_PATH_SEGMENT = "Sin carpeta";
+
 /** Build a folder tree from a list of projects, grouping by common ancestor path. */
 export function buildFolderTree(items: ProjectInfo[]): FolderNode {
   const root: FolderNode = { segment: "", fullPath: "", children: [], projects: [] };
   for (const p of items) {
     if (!p.path) {
-      let bucket = root.children.find((c) => c.segment === "(no path)");
+      let bucket = root.children.find((c) => c.isNoPath);
       if (!bucket) {
-        bucket = { segment: "(no path)", fullPath: "(no path)", children: [], projects: [] };
+        bucket = { segment: NO_PATH_SEGMENT, fullPath: NO_PATH_SEGMENT, children: [], projects: [], isNoPath: true };
         root.children.push(bucket);
       }
       bucket.projects.push(p);
@@ -183,7 +186,8 @@ export function collapseLinearChains(node: FolderNode) {
 }
 
 export function sortTree(node: FolderNode) {
-  node.children.sort((a, b) => a.segment.localeCompare(b.segment));
+  // El grupo «Sin carpeta» va siempre al final.
+  node.children.sort((a, b) => Number(!!a.isNoPath) - Number(!!b.isNoPath) || a.segment.localeCompare(b.segment));
   node.projects.sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
   for (const c of node.children) sortTree(c);
 }

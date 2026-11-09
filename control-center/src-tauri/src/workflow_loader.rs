@@ -83,16 +83,6 @@ pub enum LoaderError {
     NoHome,
     #[error("workflow directory I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[allow(dead_code)] // planned for strict-mode loader; currently only Io is returned
-    #[error("YAML parse error in {file}: {source}")]
-    Yaml {
-        file: String,
-        #[source]
-        source: serde_yaml::Error,
-    },
-    #[allow(dead_code)] // planned for strict-mode loader; currently only Io is returned
-    #[error("workflow validation error in {file}: {message}")]
-    Validation { file: String, message: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +142,7 @@ pub fn load_user_workflows() -> Result<Vec<UserWorkflow>, String> {
         let raw = match std::fs::read_to_string(&path) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[workflow_loader] cannot read {file_name}: {e}");
+                tracing::warn!("[workflow_loader] cannot read {file_name}: {e}");
                 continue;
             }
         };
@@ -160,7 +150,7 @@ pub fn load_user_workflows() -> Result<Vec<UserWorkflow>, String> {
         let wf: UserWorkflow = match serde_yaml::from_str(&raw) {
             Ok(w) => w,
             Err(e) => {
-                eprintln!("[workflow_loader] YAML parse error in {file_name}: {e}");
+                tracing::warn!("[workflow_loader] YAML parse error in {file_name}: {e}");
                 continue;
             }
         };
@@ -168,7 +158,7 @@ pub fn load_user_workflows() -> Result<Vec<UserWorkflow>, String> {
         match validate_user_workflow(&wf, &file_name) {
             Ok(()) => out.push(wf),
             Err(msg) => {
-                eprintln!("[workflow_loader] validation error in {file_name}: {msg}");
+                tracing::warn!("[workflow_loader] validation error in {file_name}: {msg}");
             }
         }
     }
@@ -308,7 +298,7 @@ pub fn migrate_legacy_json_if_present() {
     let raw = match std::fs::read_to_string(&src) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[workflow_loader] migrate: cannot read workflows-old.json: {e}");
+            tracing::warn!("[workflow_loader] migrate: cannot read workflows-old.json: {e}");
             return;
         }
     };
@@ -316,7 +306,7 @@ pub fn migrate_legacy_json_if_present() {
     let entries: Vec<serde_json::Value> = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("[workflow_loader] migrate: parse workflows-old.json: {e}");
+            tracing::warn!("[workflow_loader] migrate: parse workflows-old.json: {e}");
             return;
         }
     };
@@ -324,7 +314,7 @@ pub fn migrate_legacy_json_if_present() {
     let dir = match workflows_dir() {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("[workflow_loader] migrate: cannot create workflows dir: {e}");
+            tracing::warn!("[workflow_loader] migrate: cannot create workflows dir: {e}");
             return;
         }
     };
@@ -365,16 +355,18 @@ pub fn migrate_legacy_json_if_present() {
         );
         match std::fs::write(&dest, yaml_body) {
             Ok(()) => migrated += 1,
-            Err(e) => eprintln!("[workflow_loader] migrate: write {id}.yaml: {e}"),
+            Err(e) => tracing::warn!("[workflow_loader] migrate: write {id}.yaml: {e}"),
         }
     }
 
     // Rename source so we don't repeat the migration on next startup.
     let bak = src.with_extension("json.bak");
     if let Err(e) = std::fs::rename(&src, &bak) {
-        eprintln!("[workflow_loader] migrate: rename to .bak: {e}");
+        tracing::warn!("[workflow_loader] migrate: rename to .bak: {e}");
     } else {
-        eprintln!("[workflow_loader] migrate: {migrated} workflows migrated, backup at {bak:?}");
+        tracing::info!(
+            "[workflow_loader] migrate: {migrated} workflows migrated, backup at {bak:?}"
+        );
     }
 }
 

@@ -10,7 +10,7 @@ const HOME = process.env.USERPROFILE || os.homedir();
 const MANIFEST_PATH = path.join(__dirname, 'manifest.json');
 const LOG_PATH = path.join(__dirname, 'reorg-log.jsonl');
 const INDEX_PATH = path.join(__dirname, 'index.html');
-const PORT = 4750;
+const PORT = Number(process.env.HOME_REORG_PORT) || 4750;
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.expo', 'coverage', 'Library', 'obj', 'bin', 'Logs', 'target', '.venv', '.codegraph', '.playwright-mcp', '.vercel']);
 const TEXT_EXT = new Set(['.json', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.md', '.env', '.yml', '.yaml', '.toml', '.cfg', '.ini', '.ps1', '.sh', '.txt', '.cs', '.uproject', '.uplugin', '.config', '.xml', '.html', '.css']);
@@ -263,8 +263,52 @@ function resolveTarget(bucket, decision, targetName, customPath, category) {
   throw new Error('decision inválida: ' + decision);
 }
 
+// Guarda de origen local, equivalente a la del puente de la mascota
+// (src-tauri/src/mascot/bridge/http.rs). Este servidor borra y mueve ficheros del
+// home y su único cliente es index.html servido por él mismo; sin guarda, cualquier
+// web abierta mientras está encendido llega a `decision: delete` con un POST
+// text/plain (sin preflight) y, con DNS rebinding, lee el manifiesto.
+//   * Host: solo loopback con el puerto propio (corta el DNS rebinding).
+//   * Origin: ausente o propio. `null` no vale: lo mandan iframes aislados y file://.
+//   * Sec-Fetch-Site: ausente, same-origin o none. same-site también se rechaza:
+//     otro puerto de localhost es same-site. No se rechaza cualquier Sec-Fetch-*
+//     como en el puente porque aquí el cliente legítimo sí es un navegador.
+//   * POST: application/json, que desde otro origen obliga a un preflight que este
+//     servidor no concede.
+const OWN_AUTHORITIES = new Set(['127.0.0.1', 'localhost', '[::1]'].map((host) => `${host}:${PORT}`));
+const OWN_ORIGINS = new Set([...OWN_AUTHORITIES].map((authority) => `http://${authority}`));
+const ALLOWED_FETCH_SITES = new Set(['same-origin', 'none']);
+
+function isJsonContentType(value) {
+  return (value || '').split(';', 1)[0].trim().toLowerCase() === 'application/json';
+}
+
+/** Devuelve el rechazo `{ code, error }` o null si la petición puede seguir. */
+function originGuardRejection(req) {
+  const { host, origin, 'sec-fetch-site': fetchSite, 'content-type': contentType } = req.headers;
+  if (!OWN_AUTHORITIES.has((host || '').toLowerCase())) {
+    return { code: 403, error: 'Host no permitido' };
+  }
+  if (origin !== undefined && !OWN_ORIGINS.has(origin.toLowerCase())) {
+    return { code: 403, error: 'Origin no permitido' };
+  }
+  if (fetchSite !== undefined && !ALLOWED_FETCH_SITES.has(fetchSite.toLowerCase())) {
+    return { code: 403, error: 'Sec-Fetch-Site no permitido' };
+  }
+  if (req.method === 'POST' && !isJsonContentType(contentType)) {
+    return { code: 415, error: 'Content-Type debe ser application/json' };
+  }
+  return null;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
+    const rejection = originGuardRejection(req);
+    if (rejection) {
+      sendJson(res, rejection.code, { error: rejection.error });
+      return;
+    }
+
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && url.pathname === '/') {
       const html = fs.readFileSync(INDEX_PATH, 'utf8');

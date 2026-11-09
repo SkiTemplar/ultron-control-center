@@ -15,12 +15,16 @@ pub(crate) fn has_flag(args: &[String], flag: &str) -> bool {
 /// Rechaza cualquier `--flag` en `args` que no este en `allowed`. Sin esto, un
 /// typo (`--gold` por `--golden`) se ignora en silencio y el subcomando finge
 /// medir con el eval sintetico (recall=1.0) — un no-op silencioso (cat6.5,
-/// mandamiento 11). `--flag=valor` se normaliza a `--flag` para el chequeo.
+/// mandamiento 11). `--flag=valor` se normaliza a `--flag` para el chequeo. Un
+/// argumento con espacios es texto libre (prompt, motivo), no un flag.
 pub(crate) fn reject_unknown_flags(args: &[String], allowed: &[&str]) -> Result<(), String> {
     for a in args.iter().skip(2) {
         let Some(body) = a.strip_prefix("--") else {
             continue;
         };
+        if body.is_empty() || body.contains(char::is_whitespace) {
+            continue;
+        }
         let name = body.split('=').next().unwrap_or(body);
         let full = format!("--{name}");
         if !allowed.contains(&full.as_str()) {
@@ -42,6 +46,7 @@ pub(crate) fn positional(args: &[String]) -> Result<String, String> {
         "--golden",
         "--agents",
         "--skills",
+        "--diagnostic",
     ];
     let mut out: Vec<String> = Vec::new();
     let mut i = 2;

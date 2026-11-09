@@ -17,9 +17,10 @@
 //
 // Escritura atomica (tmp + rename) con backup previo, igual que project-new.
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
@@ -82,7 +83,7 @@ if (args.dryRun) {
   process.exit(0);
 }
 
-copyFileSync(REGISTRY, `${REGISTRY}.bak`);
+reportPruneFailures('project-remove', backupWithRetention(REGISTRY));
 registro.projects = registro.projects.filter((p) => p.id !== args.id);
 writeJsonAtomic(REGISTRY, registro);
 console.log(`[project-remove] baja: ${entrada.name} (${entrada.path})`);

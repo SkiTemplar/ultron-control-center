@@ -128,7 +128,7 @@ pub async fn open_project_inner(
                     return Err(format!("{}: {}", id, e));
                 }
                 Err(e) => {
-                    eprintln!(
+                    tracing::warn!(
                         "[projects] open_in_ide({}, {}) failed: {} — falling back to launch_project.py",
                         id, slug, e
                     );
@@ -326,16 +326,17 @@ pub async fn launch_all_items_inner(
         match dispatch_item(&app, item).await {
             Ok(_) => launched += 1,
             Err(e) => {
-                eprintln!("[projects] launch_all_items[{}] {}: {}", project_id, i, e);
+                tracing::warn!("[projects] launch_all_items[{}] {}: {}", project_id, i, e);
             }
         }
     }
 
     if let Some((path, preferred_ide)) = project_path_and_ide(&project_id) {
         if let Err(e) = open_in_ide(&path, Some(preferred_ide.as_str())).await {
-            eprintln!(
+            tracing::warn!(
                 "[projects] launch_all_items[{}] ide launch failed: {}",
-                project_id, e
+                project_id,
+                e
             );
         }
     }

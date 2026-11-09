@@ -174,7 +174,8 @@ function Write-Banner {
     Write-Host " Auto-install enabled: missing dependencies (git, Node,"
     Write-Host " Claude Code, Rust, uv) will be installed via winget"
     Write-Host " unless you decline at the prompt."
-    Write-Host " No admin / UAC elevation needed for winget user-scope."
+    Write-Host " No admin / UAC elevation needed for winget user-scope,"
+    Write-Host " except the MSVC Build Tools (Windows asks for elevation)."
     Write-Host ""
     if ($NonInteractive) { Write-Host "(non-interactive: auto-accepting all installs)" }
     if ($Script:VerboseOn) { Write-Host "(verbose mode)" }
@@ -354,7 +355,8 @@ function Install-WingetPackage {
         [string]$FriendlyName,
         [string]$ProbeCmd = "",
         [bool]$RequireConfirm = $true,
-        [bool]$DefaultYes = $true
+        [bool]$DefaultYes = $true,
+        [string]$Override = ""
     )
     if (-not (Test-WingetAvailable)) { return $false }
 
@@ -373,10 +375,11 @@ function Install-WingetPackage {
     }
 
     Write-Info ("installing $FriendlyName ($PackageId) - this can take a few minutes...")
+    $wingetArgs = @("install", "--id", $PackageId, "--exact", "--silent",
+        "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity")
+    if ($Override) { $wingetArgs += @("--override", $Override) }
     try {
-        & winget install --id $PackageId --exact --silent `
-            --accept-source-agreements --accept-package-agreements `
-            --disable-interactivity 2>&1 | ForEach-Object { Write-V $_ }
+        & winget @wingetArgs 2>&1 | ForEach-Object { Write-V $_ }
         $code = $LASTEXITCODE
         # winget exit codes: 0 = ok, 0x8A150011 / -1978335215 = no upgrade available (already installed)
         if ($code -ne 0 -and $code -ne -1978335215) {
@@ -512,16 +515,20 @@ function Test-Preflight {
     } catch { Write-V "RAM probe skipped" }
 
     # Disk (hard block at <5 GB free on system drive)
+    $drive = $null
+    $freeGb = $null
     try {
         $drive = (Get-Item -LiteralPath $env:USERPROFILE).PSDrive
         $freeGb = [math]::Round($drive.Free / 1GB, 1)
+    } catch {
+        Write-Warn2 ("disk probe failed: " + $_.Exception.Message)
+    }
+    if ($null -ne $freeGb) {
         if ($freeGb -lt 5) {
             Write-Fail ("Only $freeGb GB free on $($drive.Name): - need >= 5 GB.")
             throw "Disk space"
         }
         Write-OK ("disk " + $freeGb + " GB free on " + $drive.Name + ":")
-    } catch {
-        Write-Warn2 ("disk probe failed: " + $_.Exception.Message)
     }
 
     # Internet
@@ -582,15 +589,21 @@ function Test-ClaudeCode {
     }
 
     Write-Info "running: npm install -g @anthropic-ai/claude-code (may take 1-3 min)"
+    # npm prints warnings to stderr; with EAP=Stop the first one would abort here
+    # (same trap as Build-ControlCenter). Only the exit code decides.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         & npm install -g "@anthropic-ai/claude-code" 2>&1 | ForEach-Object { Write-V $_ }
         $code = $LASTEXITCODE
-        if ($code -ne 0) {
-            Write-Fail "npm install -g @anthropic-ai/claude-code exited $code"
-            exit 2
-        }
     } catch {
         Write-Fail ("npm install failed: " + $_.Exception.Message)
+        exit 2
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+    if ($code -ne 0) {
+        Write-Fail "npm install -g @anthropic-ai/claude-code exited $code"
         exit 2
     }
 
@@ -673,19 +686,66 @@ function Test-OrInstall-Rust {
         $env:Path = $env:Path + ";" + $cargoBin
     }
     if (Get-Command "rustup" -ErrorAction SilentlyContinue) {
+        # rustup reports progress on stderr: only the exit code decides.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         try {
             & rustup default stable 2>&1 | ForEach-Object { Write-V $_ }
+            if ($LASTEXITCODE -ne 0) { Write-Warn2 ("rustup default stable exited " + $LASTEXITCODE) }
         } catch {
             Write-Warn2 ("rustup default stable failed: " + $_.Exception.Message)
+        } finally {
+            $ErrorActionPreference = $prevEAP
         }
     }
     if (Get-Command "rustc" -ErrorAction SilentlyContinue) {
         Write-OK ("rustc " + (& rustc --version 2>$null) + " (just installed)")
-        Write-Info "NOTE: Rust install may require a reboot to fully integrate the MSVC linker on first install."
         return $true
     }
     Write-Warn2 "Rust installed but rustc not on PATH yet. A fresh shell (or reboot) may be required."
     return $false
+}
+
+# ----------------------------------------------------------------------
+# Step 3c: MSVC linker. rustup does not install it and cargo cannot link
+# without it, so neither the sidecar nor the app would build.
+# Sets $Script:HasMsvcLinker; the steps that compile turn its absence into an
+# install error, so a prebuilt sidecar can still make the install succeed.
+# ----------------------------------------------------------------------
+$Script:HasMsvcLinker = $false
+
+function Test-MsvcLinker {
+    $script = Join-Path $Script:RepoRoot "scripts\install-memory-sidecar.ps1"
+    if (-not (Test-Path -LiteralPath $script)) { return $false }
+    & $script -CheckLinker | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-OrInstall-MsvcLinker {
+    Write-Step "3c. MSVC linker (link.exe)"
+    if (Test-MsvcLinker) {
+        $Script:HasMsvcLinker = $true
+        Write-OK "MSVC linker found"
+        return
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $Script:RepoRoot "control-center"))) {
+        # Release ZIP: no sources here, so nothing is compiled except a last-resort sidecar.
+        Write-Skip "MSVC linker missing; this tree has no sources to compile"
+        return
+    }
+    if ($NoApp) {
+        Write-Skip "MSVC linker missing; -NoApp does not install it (the sidecar then needs a prebuilt release asset)"
+        return
+    }
+    Write-Warn2 "MSVC linker (link.exe) not found. Compiling the sidecar and the app needs it."
+    $override = "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+    Install-WingetPackage -PackageId "Microsoft.VisualStudio.2022.BuildTools" -FriendlyName "MSVC Build Tools (several GB, asks for elevation)" -Override $override | Out-Null
+    if (Test-MsvcLinker) {
+        $Script:HasMsvcLinker = $true
+        Write-OK "MSVC linker found (just installed)"
+        return
+    }
+    Write-Warn2 "MSVC linker still missing. Add 'Desktop development with C++' in the Visual Studio Installer, or run: winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override `"$override`""
 }
 
 # ----------------------------------------------------------------------
@@ -1104,14 +1164,13 @@ function Install-Skills {
 # their own taxonomy (`~/.claude/agents/<name>.md` flat layout) and the
 # Agents tab + AI Router slot want them present at boot. The public repo
 # ships NO `agents/` dir (community agents carry their own licenses), so
-# a fresh clone copies nothing here and installs agents from the catalog
-# (`cockpit/agent-catalog.json`) via the Agents tab instead. This step
+# a fresh clone copies nothing here; there is no agent catalog. This step
 # still copies any agent files a user drops into a local `agents/` dir.
 function Install-Agents {
     Write-Step "8a'. agents (copy repo/agents -> ~/.claude/agents)"
     $src = Join-Path $Script:RepoRoot "agents"
     if (-not (Test-Path -LiteralPath $src)) {
-        Write-Info "no bundled agents/ in repo - install agents from the Agents tab (Install from catalog) after first launch"
+        Write-Info "no bundled agents/ in repo - drop agent .md files into ~/.claude/agents and manage them from the Agents tab"
         return
     }
     $dest = Join-Path $env:USERPROFILE ".claude\agents"
@@ -1270,25 +1329,48 @@ function Install-CommunitySkills {
 # The hooks and the Control Center look for ~/.ultron/bin/ultron-memory.exe.
 # The prebuilt binary is gitignored, so a fresh clone does NOT ship it.
 # Delegated to scripts/install-memory-sidecar.ps1 (download prebuilt release
-# asset with SHA-256 check, else cargo build). Non-fatal on failure: hooks
-# are fail-safe and recall degrades to sparse-only (FTS5) until it exists.
+# asset with SHA-256 check, else cargo build). Without it there is no memory
+# of any kind, so a missing or broken binary is an install error.
 # ----------------------------------------------------------------------
 function Install-MemorySidecar {
     Write-Step "9b. memory sidecar (ultron-memory.exe)"
     $script = Join-Path $Script:RepoRoot "scripts\install-memory-sidecar.ps1"
-    if (-not (Test-Path -LiteralPath $script)) {
-        Write-Skip "install-memory-sidecar.ps1 not in repo (older release?)"
+    $destDir = Join-Path $InstallRoot "bin"
+    $sidecar = Join-Path $destDir "ultron-memory.exe"
+    if (Test-Path -LiteralPath $script) {
+        try {
+            & $script -RepoRoot $Script:RepoRoot -DestDir $destDir 2>&1 | ForEach-Object { Write-Info $_ }
+        } catch {
+            Write-Warn2 ("sidecar step failed: " + $_.Exception.Message)
+        }
+    } else {
+        Write-Warn2 "install-memory-sidecar.ps1 not in repo (older release?)"
+    }
+    if (Test-MemorySidecar -Path $sidecar) {
+        Write-OK ("ultron-memory sidecar ready: " + $sidecar)
         return
     }
+    Write-Fail "ultron-memory sidecar is NOT installed: ULTRON has no memory without it."
+    if (-not $Script:HasMsvcLinker) {
+        Write-Info "Building it needs the MSVC linker (see step 3c) and no prebuilt release asset was available."
+    }
+    Write-Info "Fix the cause above and run: scripts\install-memory-sidecar.ps1 -Force"
+}
+
+# The binary exists and answers. Judged by exit code: stderr is not an error here.
+function Test-MemorySidecar {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
-        & $script -RepoRoot $Script:RepoRoot 2>&1 | ForEach-Object { Write-Info $_ }
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "ultron-memory sidecar deployed (semantic recall enabled)"
-        } else {
-            Write-Warn2 "sidecar not installed - recall degrades to sparse-only. Re-run scripts\install-memory-sidecar.ps1 later."
-        }
+        & $Path version 2>&1 | Out-Null
+        return ($LASTEXITCODE -eq 0)
     } catch {
-        Write-Warn2 ("sidecar step failed: " + $_.Exception.Message)
+        Write-Warn2 ("sidecar does not start: " + $_.Exception.Message)
+        return $false
+    } finally {
+        $ErrorActionPreference = $prevEAP
     }
 }
 
@@ -1398,8 +1480,10 @@ function Remove-OptOutFeatureFiles {
     # never throw. ONLY optional feature code - never core (skills, agents,
     # hooks, brain_index, qdrant).
     $optOutManifest = @{
+        # 2026-10-08: only files that still exist. feat_sessions and
+        # feat_plans have no script left to purge (their wizard choice still
+        # feeds features.json below).
         feat_gaming = @(
-            "scripts\cockpit\game_detector.py",
             "scripts\cockpit\gaming-enum.ps1"
         )
         feat_schedules = @(
@@ -1409,23 +1493,14 @@ function Remove-OptOutFeatureFiles {
             "scripts\qdrant\qdrant-notify.ps1"
         )
         feat_usage = @(
-            "scripts\cockpit\usage_report.py",
             "scripts\cockpit\token_baseline.py",
             "scripts\cockpit\token_budget.py"
-        )
-        feat_sessions = @(
-            "scripts\cockpit\session_compactor.py",
-            "scripts\cockpit\session_highlights.py",
-            "scripts\cockpit\session_replay.py"
         )
         feat_project = @(
             "scripts\cockpit\project_editor.py",
             "scripts\cockpit\project_notes.py",
             "scripts\cockpit\launch_project.py",
             "scripts\cockpit\scan_projects.py"
-        )
-        feat_plans = @(
-            "scripts\cockpit\plans_cli.py"
         )
     }
 
@@ -1621,12 +1696,10 @@ function Build-ControlCenter {
     Write-Step "10. control-center (npm install + optional Tauri build)"
     if ($NoApp) { Write-Skip "skipped via -NoApp"; return }
     # Wizard veto: if both UI checkboxes are off, skip this step entirely.
-    # Get-Choice returns the legacy default ($false for ui_*) when the
-    # wizard did not run, so CLI mode keeps the historical "ask first"
-    # behaviour for the Tauri build prompt below.
+    # The app is built by default on every path; -NoApp or the wizard opt out.
     if ($Script:Selections.Count -gt 0) {
-        $wantNpm = Get-Choice -Id "ui_npm" -Default $false
-        $wantBld = Get-Choice -Id "ui_tauri_build" -Default $false
+        $wantNpm = Get-Choice -Id "ui_npm" -Default $true
+        $wantBld = Get-Choice -Id "ui_tauri_build" -Default $true
         if (-not ($wantNpm -or $wantBld)) {
             Write-Skip "Control Center unchecked in wizard - keeping repo as source-only"
             return
@@ -1641,42 +1714,50 @@ function Build-ControlCenter {
     # so no -SkipUvSync gymnastics needed here.
     $ccDir = Join-Path $Script:RepoRoot "control-center"
     if (-not (Test-Path -LiteralPath $ccDir)) {
-        Write-Warn2 "control-center/ not found - skipping npm install"
+        # The release ZIP ships no sources: the bootstrap installs the prebuilt app.
+        Write-Skip "control-center/ not in this tree - nothing to build"
         return
     }
     if (-not (Get-Command "npm" -ErrorAction SilentlyContinue)) {
-        Write-Warn2 "npm not on PATH - skipping Control Center install"
+        Write-Fail "npm not on PATH - the Control Center cannot be installed"
         return
     }
     # Native binaries (npm, cargo, tauri) write progress to stderr. With
     # $ErrorActionPreference = "Stop" at script scope, the first stderr line
     # converts into a terminating error before we ever read $LASTEXITCODE.
     # Relax EAP for the npm call only.
+    $npmOk = $false
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
         Push-Location $ccDir
         $npmOut = & npm install 2>&1
         if ($LASTEXITCODE -eq 0) {
+            $npmOk = $true
             Write-OK "npm install completed (control-center/)"
             if ($Script:VerboseOn -and $npmOut) {
                 $npmOut | ForEach-Object { Write-V $_ }
             }
         } else {
-            Write-Warn2 ("npm install exited " + $LASTEXITCODE + ": " + ($npmOut -join '; '))
+            Write-Fail ("npm install exited " + $LASTEXITCODE + ": " + ($npmOut -join '; '))
         }
     } catch {
-        Write-Warn2 ("npm install failed: " + $_.Exception.Message)
+        Write-Fail ("npm install failed: " + $_.Exception.Message)
     } finally {
         Pop-Location
         $ErrorActionPreference = $prevEAP
     }
+    if (-not $npmOk) { return }
 
-    # Optional Tauri build (cost-heavy - opt-in). Wizard wins.
+    # Desktop app build, on by default. Wizard wins.
     $doBuild = if ($Script:Selections.Count -gt 0) {
-        Get-Choice -Id "ui_tauri_build" -Default $false
+        Get-Choice -Id "ui_tauri_build" -Default $true
     } else {
-        Confirm-YesNo -Question "Compile Tauri binary now? (takes several minutes)" -Default $false
+        Confirm-YesNo -Question "Compile the desktop app now? (up to ~25 min on a cold build)" -Default $true
+    }
+    if ($doBuild -and -not $Script:HasMsvcLinker) {
+        Write-Fail "desktop app not built: the MSVC linker is missing (see step 3c)."
+        return
     }
     if ($doBuild) {
         $cc = Join-Path $Script:RepoRoot "control-center"
@@ -1690,16 +1771,16 @@ function Build-ControlCenter {
             Push-Location $cc
             & npm run tauri build
             if ($LASTEXITCODE -eq 0) {
-                Write-OK "tauri build done. Look in src-tauri/target/release/bundle/"
+                Write-OK "tauri build done: control-center\src-tauri\target\release\control-center.exe"
             } else {
-                Write-Warn2 "tauri build exited $LASTEXITCODE"
+                Write-Fail "tauri build exited $LASTEXITCODE"
             }
         } finally {
             Pop-Location
             $ErrorActionPreference = $prevEAP2
         }
     } else {
-        Write-Skip "tauri build (run 'npm run tauri build' later)"
+        Write-Skip "desktop app build declined (run 'npm run tauri build' in control-center later)"
     }
 }
 
@@ -1717,6 +1798,9 @@ function Invoke-Doctor {
         Write-Skip "uv missing - cannot run doctor"
         return
     }
+    # uv prints progress on stderr: only the exit code decides.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         Push-Location $Script:RepoRoot
         & uv run python scripts\cockpit\doctor.py 2>&1 | ForEach-Object {
@@ -1731,6 +1815,7 @@ function Invoke-Doctor {
         Write-Warn2 ("doctor failed: " + $_.Exception.Message)
     } finally {
         Pop-Location
+        $ErrorActionPreference = $prevEAP
     }
 }
 
@@ -1809,7 +1894,8 @@ function Show-ComponentPlan {
         Write-Info ("  - hooks merge -> " + (Join-Path $claudeDir "settings.json") + " (template templates\settings-hooks.json; timestamped backup first)")
         Write-Info ("  - feature flags -> " + (Join-Path $InstallRoot "cockpit\features.json") + " (existing answers are kept)")
         Write-Info ("  - brain_index init + memory sidecar -> " + (Join-Path $InstallRoot "bin\ultron-memory.exe"))
-        Write-Info ("  - control-center: npm install (Tauri build stays opt-in; -NoApp skips)")
+        Write-Info ("  - MSVC linker preflight (winget Build Tools if missing)")
+        Write-Info ("  - control-center: npm install + desktop app build (up to ~25 min cold; -NoApp skips)")
         Write-Info ("  - doctor.py verification")
     }
     if ($Script:WantSkills) {
@@ -1887,6 +1973,7 @@ function Invoke-ComponentInstall {
         Test-ClaudeCode
         Test-OrInstall-Uv
         Test-OrInstall-Rust   | Out-Null
+        Test-OrInstall-MsvcLinker
         Install-QdrantNative
         New-DirectoryLayout
         Set-InstallRootAcl
@@ -1923,6 +2010,7 @@ try {
     Test-ClaudeCode
     Test-OrInstall-Uv
     Test-OrInstall-Rust   | Out-Null
+    Test-OrInstall-MsvcLinker
     # Qdrant - native Windows binary, no Docker needed. Semantic recall is
     # a core ULTRON capability; the installer fetches the official release
     # zip if `~/.ultron/qdrant-native/qdrant.exe` is missing.

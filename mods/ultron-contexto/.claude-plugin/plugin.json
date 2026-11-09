@@ -1,0 +1,6 @@
+{
+  "name": "ultron-contexto",
+  "version": "0.1.0",
+  "description": "Panel /contexto: en qué se va la ventana de contexto (categorías, carga fija, herramientas y lecturas repetidas)",
+  "types": "./types/index.d.ts"
+}

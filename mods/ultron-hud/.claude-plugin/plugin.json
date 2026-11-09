@@ -1,0 +1,7 @@
+{
+  "name": "ultron-hud",
+  "version": "0.1.0",
+  "description": "Aspecto ULTRON: spinner con el verbo del tono, cierre de turno con herramientas, tokens y coste, modos en el pie y tema ULTRON Acero",
+  "types": "./types/index.d.ts",
+  "experimental": { "themes": "./themes/" }
+}

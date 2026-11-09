@@ -1,14 +1,12 @@
-// ULTRON Control Center 2.7.2 — Skills viewer with Active/Disabled/All tabs.
+// ULTRON Control Center: visor de skills con pestañas Activadas/Desactivadas/Todas.
 //
-// Changes vs 2.7.1:
-//   - Three filter tabs: Active (default) · Disabled · All — each with a count badge.
-//   - Inline toggle switch on every Global card (optimistic UI: visual flips
-//     immediately, calls skill_toggle, reverts + shows toast on error).
-//   - "Restart Claude Code to apply changes" banner appears after the first
-//     toggle in the session (changes are not live).
-//   - Cards for disabled skills render with reduced opacity + muted text so
-//     the enabled/disabled state is scannable at a glance.
-//   - Existing detail-pane toggle button is kept as a secondary action.
+//   - Tres pestañas de filtro, cada una con su contador.
+//   - Interruptor en cada tarjeta global (UI optimista: cambia al instante,
+//     llama a skill_toggle y revierte con aviso si falla).
+//   - Tras el primer cambio de la sesión sale el aviso de reiniciar Claude
+//     Code (los cambios no se aplican en caliente).
+//   - Las skills desactivadas se pintan atenuadas para distinguirlas de un vistazo.
+//   - El botón del panel de detalle se mantiene como acción secundaria.
 
 import { CreateSkillModal } from "./library/CreateSkillModal";
 import { Plus } from "./library/icons";
@@ -21,10 +19,10 @@ import { RestartBanner } from "./skills/RestartBanner";
 import { SkillCardGrid } from "./skills/SkillCardGrid";
 import { useSkillsState } from "./skills/useSkillsState";
 import { SCOPES, SKILL_ACCENT, SKILL_ACCENT_SOFT } from "./skills/constants";
-import { deriveCategory, skillWorkspace } from "./skills/helpers";
+import { deriveCategory, skillOriginLabel, skillWorkspace } from "./skills/helpers";
 import type { SkillEntry } from "../types";
 
-const NO_CATEGORY = "uncategorized";
+const NO_CATEGORY = "sin categoría";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -32,7 +30,6 @@ const NO_CATEGORY = "uncategorized";
 
 export function Skills() {
   const {
-    skills,
     scope,
     setScope,
     enableFilter,
@@ -101,7 +98,8 @@ export function Skills() {
         <div className="flex items-baseline gap-2">
           <h2 className="text-lg font-semibold">Skills</h2>
           <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            {filtered.length} of {skills.length}
+            {/* Mismo denominador que la pestaña «Todas»: el total del ámbito activo. */}
+            {filtered.length} de {activeCount + disabledCount}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -111,7 +109,7 @@ export function Skills() {
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
-            <Plus size={12} /> New skill
+            <Plus size={12} /> Nueva skill
           </button>
           <button
             onClick={() => {
@@ -124,9 +122,9 @@ export function Skills() {
               background: selectMode ? SKILL_ACCENT_SOFT : "var(--color-surface-2)",
               color: selectMode ? "#67e8f9" : "var(--color-text)",
             }}
-            title="Toggle multi-select mode to bulk enable/disable global skills"
+            title="Activa o sale de la selección múltiple para activar o desactivar skills globales en bloque"
           >
-            {selectMode ? "Done selecting" : "Select"}
+            {selectMode ? "Terminar selección" : "Seleccionar"}
           </button>
           <button
             onClick={reload}
@@ -137,7 +135,7 @@ export function Skills() {
               color: "var(--color-text)",
             }}
           >
-            Refresh
+            Actualizar
           </button>
         </div>
       </header>
@@ -156,7 +154,7 @@ export function Skills() {
           }}
         >
           <span style={{ color: "var(--color-text-secondary)" }}>
-            {checked.size} seleccionado{checked.size === 1 ? "" : "s"} (solo global)
+            {checked.size} seleccionada{checked.size === 1 ? "" : "s"} (solo globales)
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -170,7 +168,7 @@ export function Skills() {
                 color: "var(--color-success)",
               }}
             >
-              {bulkBusy ? "Aplicando…" : "Activar seleccionados"}
+              {bulkBusy ? "Aplicando…" : "Activar seleccionadas"}
             </button>
             <button
               type="button"
@@ -183,7 +181,7 @@ export function Skills() {
                 color: "var(--color-danger)",
               }}
             >
-              {bulkBusy ? "Aplicando…" : "Desactivar seleccionados"}
+              {bulkBusy ? "Aplicando…" : "Desactivar seleccionadas"}
             </button>
           </div>
         </div>
@@ -222,9 +220,9 @@ export function Skills() {
         {/* Por qué el conteo de "activas" cambia tanto entre scopes. */}
         {scope === "all" && (
           <p className="text-[11px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
-            En <b>All</b> el conteo de «activas» incluye las skills de los plugins
-            de terceros (vienen activas de fábrica). Tus skills propias de ULTRON
-            —el núcleo lazy que tú gestionas— están en el scope <b>Global</b>.
+            En <b>Todas</b> el conteo de «activadas» incluye las skills de los plugins
+            de terceros (vienen activadas de fábrica). Tus skills propias de ULTRON
+            (el núcleo lazy que tú gestionas) están en el ámbito <b>Global</b>.
           </p>
         )}
 
@@ -234,7 +232,7 @@ export function Skills() {
               className="text-[10.5px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Category
+              Categoría
             </span>
             <button
               onClick={() => setCategory("all")}
@@ -245,7 +243,7 @@ export function Skills() {
                 color: category === "all" ? "var(--color-text)" : "var(--color-text-secondary)",
               }}
             >
-              All
+              Todas
             </button>
             {categories.map((c) => {
               const active = c === category;
@@ -272,7 +270,7 @@ export function Skills() {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search skills — fuzzy + synonyms, ranked by relevance…"
+        placeholder="Buscar skills (aproximada y con sinónimos, ordenada por relevancia)…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",
@@ -317,7 +315,7 @@ export function Skills() {
         >
           {loading ? (
             <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
-              Loading…
+              Cargando…
             </p>
           ) : filtered.length === 0 ? (
             <div
@@ -326,10 +324,10 @@ export function Skills() {
             >
               <p className="text-sm font-medium" style={{ color: "var(--color-text-secondary)" }}>
                 {enableFilter === "disabled"
-                  ? "No disabled skills matching the current filters."
+                  ? "No hay skills desactivadas con los filtros actuales."
                   : enableFilter === "active"
-                    ? "No active skills matching the current filters."
-                    : "No skills found."}
+                    ? "No hay skills activadas con los filtros actuales."
+                    : "No se ha encontrado ninguna skill."}
               </p>
               {enableFilter !== "all" && (
                 <button
@@ -337,7 +335,7 @@ export function Skills() {
                   className="text-xs underline-offset-2 hover:underline"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  Show all
+                  Mostrar todas
                 </button>
               )}
             </div>
@@ -345,7 +343,7 @@ export function Skills() {
             <BlocksView<SkillEntry>
               items={blockItems}
               noun="skill"
-              emptyLabel="No skills for the current filter."
+              emptyLabel="No hay skills con el filtro actual."
               topGroupAccent={() => SKILL_ACCENT}
               renderLeaves={(items) => renderCardGrid(items.map((it) => it.data))}
             />
@@ -365,11 +363,11 @@ export function Skills() {
           <div className="overflow-hidden lg:w-[560px] lg:shrink-0" style={{ minWidth: 0 }}>
             {(() => {
               const ws = skillWorkspace(selected);
-              const subtitleParts: string[] = [selected.origin];
+              const subtitleParts: string[] = [skillOriginLabel(selected.origin)];
               const cat = deriveCategory(selected);
               if (cat !== NO_CATEGORY) subtitleParts.push(cat);
               if (selected.origin === "global") {
-                subtitleParts.push(isEnabled(selected) ? "enabled" : "disabled");
+                subtitleParts.push(isEnabled(selected) ? "activada" : "desactivada");
               }
               return (
                 <div className="flex h-full flex-col gap-2">
@@ -401,10 +399,10 @@ export function Skills() {
                       }}
                     >
                       {toggleBusy.has(selected.path)
-                        ? "Saving…"
+                        ? "Guardando…"
                         : isEnabled(selected)
-                          ? "Disable skill"
-                          : "Enable skill"}
+                          ? "Desactivar la skill"
+                          : "Activar la skill"}
                     </button>
                   )}
                 </div>

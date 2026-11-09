@@ -1,0 +1,657 @@
+{
+ "areas": {
+  "sessions": 25,
+  "memory": 20,
+  "hooks": 12,
+  "delegation": 12,
+  "ui": 10,
+  "quality": 10,
+  "pupus": 6,
+  "codegraph-skills": 5,
+  "hygiene": 0
+ },
+ "superseded": {
+  "2.8": "2.10",
+  "9.1": "9.11",
+  "12.3": "9.11",
+  "12.1": "10.8",
+  "14.11": "10.8",
+  "18.3": "23.4",
+  "10.6": "5.6",
+  "11.3": "5.6",
+  "11.4": "5.6",
+  "16.1": "5.6",
+  "16.2": "5.6",
+  "16.3": "5.6",
+  "16.4": "5.6"
+ },
+ "uncovered_surfaces": [
+  "Delegacion: aislamiento del motor falso (D5)",
+  "Juegos en Projects (J1)",
+  "Lienzo de escritorio (desktop/lienzo-desk)",
+  "Relevo: detect_usage_limit con mensajes reales (R2)",
+  "Relevo: paridad de la cadena entre mods/ultron-relevo y relevo.rs (R3)",
+  "Sessions en vivo (arranque real de la app)",
+  "Sessions: incidentes del registro (S6)",
+  "UI visual (mandamiento 8)",
+  "Write-path de cierre: session-end-bitacora con transcript fixture (B1)"
+ ],
+ "floors": {
+  "cats-02-03.mjs": [
+   "minPassed=1",
+   "minPassed=1",
+   "minPassed=1"
+  ],
+  "cats-11-14.mjs": [
+   "minPassed=6"
+  ],
+  "cats-22-delegacion.mjs": [
+   "minOk=50",
+   "minPassed=11",
+   "minPassed=16",
+   "minPassed=6",
+   "minPassed=6",
+   "minTests=45"
+  ],
+  "cats-23-sesiones.mjs": [
+   "SESSIONS_RS_FLOOR=800",
+   "SESSIONS_VITEST_FLOOR=770",
+   "minPassed=10",
+   "minPassed=16",
+   "minPassed=19",
+   "minPassed=28",
+   "minPassed=4",
+   "minPassed=6"
+  ],
+  "cats-24-pupus.mjs": [
+   "minPassed=220",
+   "minTests=460"
+  ],
+  "cats-r2-a.mjs": [
+   "minPassed=12",
+   "minPassed=2",
+   "minPassed=3",
+   "minPassed=5"
+  ],
+  "cats-r2-b.mjs": [
+   "minPass=11",
+   "minPassed=1",
+   "minPassed=1",
+   "minPassed=8",
+   "minTests=2",
+   "minTotal=1",
+   "minTotal=19"
+  ],
+  "cats-r3.mjs": [
+   "minTests=1650",
+   "minTotal=1"
+  ]
+ },
+ "checks": {
+  "1.1": {
+   "area": "memory",
+   "retiredBy": "dense-off"
+  },
+  "1.2": {
+   "area": "memory",
+   "retiredBy": "dense-off"
+  },
+  "1.3": {
+   "area": "memory"
+  },
+  "1.4": {
+   "area": "memory",
+   "retiredBy": "dense-off"
+  },
+  "1.5": {
+   "area": "memory"
+  },
+  "1.6": {
+   "area": "memory",
+   "retiredBy": "dense-off"
+  },
+  "1.7": {
+   "area": "memory",
+   "retiredBy": "orchestrate-light"
+  },
+  "1.8": {
+   "area": "memory"
+  },
+  "1.9": {
+   "area": "memory"
+  },
+  "1.10": {
+   "area": "memory"
+  },
+  "1.11": {
+   "area": "memory"
+  },
+  "1.12": {
+   "area": "memory"
+  },
+  "1.13": {
+   "area": "memory"
+  },
+  "1.14": {
+   "area": "memory"
+  },
+  "2.1": {
+   "area": "codegraph-skills"
+  },
+  "2.2": {
+   "area": "codegraph-skills"
+  },
+  "2.3": {
+   "area": "codegraph-skills"
+  },
+  "2.4": {
+   "area": "codegraph-skills"
+  },
+  "2.5": {
+   "area": "codegraph-skills"
+  },
+  "2.6": {
+   "area": "codegraph-skills"
+  },
+  "2.8": {
+   "area": "codegraph-skills",
+   "retiredBy": "medidor-r3"
+  },
+  "2.7": {
+   "area": "codegraph-skills",
+   "manualByDesign": true
+  },
+  "2.9": {
+   "area": "codegraph-skills"
+  },
+  "2.10": {
+   "area": "codegraph-skills"
+  },
+  "2.11": {
+   "area": "codegraph-skills"
+  },
+  "3.1": {
+   "area": "hygiene"
+  },
+  "3.4": {
+   "area": "delegation"
+  },
+  "3.5": {
+   "area": "delegation"
+  },
+  "3.6": {
+   "area": "delegation"
+  },
+  "3.7": {
+   "area": "delegation"
+  },
+  "4.1": {
+   "area": "codegraph-skills",
+   "retiredBy": "dispatcher-off"
+  },
+  "4.2": {
+   "area": "codegraph-skills",
+   "retiredBy": "dispatcher-off"
+  },
+  "4.3": {
+   "area": "codegraph-skills",
+   "retiredBy": "dispatcher-off"
+  },
+  "4.4": {
+   "area": "codegraph-skills",
+   "retiredBy": "dispatcher-off"
+  },
+  "4.5": {
+   "area": "codegraph-skills",
+   "retiredBy": "dispatcher-off"
+  },
+  "4.6": {
+   "area": "codegraph-skills",
+   "retiredBy": "dispatcher-off"
+  },
+  "4.7": {
+   "area": "codegraph-skills"
+  },
+  "4.8": {
+   "area": "codegraph-skills"
+  },
+  "4.9": {
+   "area": "codegraph-skills"
+  },
+  "4.10": {
+   "area": "codegraph-skills"
+  },
+  "4.11": {
+   "area": "codegraph-skills"
+  },
+  "5.1": {
+   "area": "hygiene",
+   "retiredBy": "dense-off"
+  },
+  "5.2": {
+   "area": "hygiene"
+  },
+  "5.3": {
+   "area": "hygiene"
+  },
+  "5.4": {
+   "area": "hygiene",
+   "retiredBy": "dispatcher-off"
+  },
+  "5.5": {
+   "area": "hygiene"
+  },
+  "5.6": {
+   "area": "hygiene"
+  },
+  "6.1": {
+   "area": "hooks"
+  },
+  "6.2": {
+   "area": "hooks"
+  },
+  "6.3": {
+   "area": "hygiene"
+  },
+  "6.4": {
+   "area": "hygiene"
+  },
+  "6.5": {
+   "area": "hygiene"
+  },
+  "6.6": {
+   "area": "hygiene"
+  },
+  "7.1": {
+   "area": "quality"
+  },
+  "7.2": {
+   "area": "quality"
+  },
+  "7.3": {
+   "area": "quality"
+  },
+  "7.4": {
+   "area": "quality"
+  },
+  "7.5": {
+   "area": "quality"
+  },
+  "7.6": {
+   "area": "quality"
+  },
+  "7.7": {
+   "area": "quality"
+  },
+  "7.8": {
+   "area": "quality"
+  },
+  "7.9": {
+   "area": "quality"
+  },
+  "7.10": {
+   "area": "quality"
+  },
+  "7.11": {
+   "area": "quality"
+  },
+  "8.1": {
+   "area": "ui"
+  },
+  "8.2": {
+   "area": "ui"
+  },
+  "8.3": {
+   "area": "ui"
+  },
+  "8.4": {
+   "area": "ui",
+   "manualByDesign": true
+  },
+  "8.5": {
+   "area": "ui",
+   "manualByDesign": true
+  },
+  "9.1": {
+   "area": "hooks",
+   "retiredBy": "medidor-r3"
+  },
+  "9.2": {
+   "area": "hooks"
+  },
+  "9.3": {
+   "area": "hooks"
+  },
+  "9.4": {
+   "area": "hooks"
+  },
+  "9.5": {
+   "area": "hooks"
+  },
+  "9.6": {
+   "area": "hooks"
+  },
+  "9.7": {
+   "area": "hooks"
+  },
+  "9.8": {
+   "area": "hooks"
+  },
+  "9.9": {
+   "area": "hooks"
+  },
+  "9.10": {
+   "area": "hooks"
+  },
+  "9.11": {
+   "area": "hooks"
+  },
+  "10.1": {
+   "area": "hygiene"
+  },
+  "10.2": {
+   "area": "ui"
+  },
+  "10.3": {
+   "area": "hygiene"
+  },
+  "10.4": {
+   "area": "ui"
+  },
+  "10.5": {
+   "area": "hygiene"
+  },
+  "10.6": {
+   "area": "ui",
+   "retiredBy": "medidor-r3"
+  },
+  "10.7": {
+   "area": "ui"
+  },
+  "10.8": {
+   "area": "ui"
+  },
+  "11.1": {
+   "area": "codegraph-skills"
+  },
+  "11.2": {
+   "area": "codegraph-skills"
+  },
+  "11.3": {
+   "area": "codegraph-skills",
+   "retiredBy": "medidor-r3"
+  },
+  "11.4": {
+   "area": "codegraph-skills",
+   "retiredBy": "medidor-r3"
+  },
+  "11.5": {
+   "area": "hygiene"
+  },
+  "11.6": {
+   "area": "codegraph-skills"
+  },
+  "12.1": {
+   "area": "quality",
+   "retiredBy": "medidor-r3"
+  },
+  "12.2": {
+   "area": "hygiene"
+  },
+  "12.3": {
+   "area": "quality",
+   "retiredBy": "medidor-r3"
+  },
+  "12.4": {
+   "area": "hygiene"
+  },
+  "12.5": {
+   "area": "quality"
+  },
+  "12.6": {
+   "area": "quality"
+  },
+  "12.7": {
+   "area": "quality"
+  },
+  "12.8": {
+   "area": "quality"
+  },
+  "13.1": {
+   "area": "hygiene"
+  },
+  "13.2": {
+   "area": "ui"
+  },
+  "13.3": {
+   "area": "ui"
+  },
+  "13.4": {
+   "area": "ui",
+   "manualByDesign": true
+  },
+  "14.1": {
+   "area": "hygiene"
+  },
+  "14.2": {
+   "area": "hygiene"
+  },
+  "14.3": {
+   "area": "ui"
+  },
+  "14.4": {
+   "area": "ui",
+   "manualByDesign": true
+  },
+  "14.5": {
+   "area": "hygiene"
+  },
+  "14.6": {
+   "area": "ui",
+   "manualByDesign": true
+  },
+  "14.7": {
+   "area": "ui"
+  },
+  "14.8": {
+   "area": "pupus"
+  },
+  "14.9": {
+   "area": "pupus"
+  },
+  "14.10": {
+   "area": "ui"
+  },
+  "14.11": {
+   "area": "ui",
+   "retiredBy": "medidor-r3"
+  },
+  "15.1": {
+   "area": "hygiene"
+  },
+  "15.2": {
+   "area": "hygiene"
+  },
+  "15.3": {
+   "area": "hygiene"
+  },
+  "15.4": {
+   "area": "hygiene"
+  },
+  "15.5": {
+   "area": "hygiene"
+  },
+  "16.1": {
+   "area": "hygiene",
+   "retiredBy": "medidor-r3"
+  },
+  "16.2": {
+   "area": "hygiene",
+   "retiredBy": "medidor-r3"
+  },
+  "16.3": {
+   "area": "hygiene",
+   "retiredBy": "medidor-r3"
+  },
+  "16.4": {
+   "area": "hygiene",
+   "retiredBy": "medidor-r3"
+  },
+  "16.5": {
+   "area": "hygiene"
+  },
+  "16.6": {
+   "area": "hygiene"
+  },
+  "17.1": {
+   "area": "hygiene"
+  },
+  "17.2": {
+   "area": "hygiene"
+  },
+  "17.3": {
+   "area": "hooks",
+   "retiredBy": "cowork-retired"
+  },
+  "17.5": {
+   "area": "hooks"
+  },
+  "18.1": {
+   "area": "hygiene"
+  },
+  "18.2": {
+   "area": "hygiene"
+  },
+  "18.3": {
+   "area": "quality",
+   "retiredBy": "medidor-r3"
+  },
+  "18.4": {
+   "area": "hygiene"
+  },
+  "18.5": {
+   "area": "quality"
+  },
+  "18.6": {
+   "area": "quality"
+  },
+  "19.1": {
+   "area": "memory"
+  },
+  "19.2": {
+   "area": "memory"
+  },
+  "19.3": {
+   "area": "memory"
+  },
+  "19.4": {
+   "area": "memory"
+  },
+  "19.5": {
+   "area": "memory"
+  },
+  "20.1": {
+   "area": "memory"
+  },
+  "20.2": {
+   "area": "memory"
+  },
+  "20.3": {
+   "area": "memory"
+  },
+  "20.4": {
+   "area": "memory"
+  },
+  "20.5": {
+   "area": "memory"
+  },
+  "20.6": {
+   "area": "memory"
+  },
+  "21.2": {
+   "area": "memory"
+  },
+  "21.3": {
+   "area": "memory"
+  },
+  "21.4": {
+   "area": "memory"
+  },
+  "22.1": {
+   "area": "delegation",
+   "retiredBy": "orchestrate-light"
+  },
+  "22.2": {
+   "area": "delegation",
+   "retiredBy": "orchestrate-light"
+  },
+  "22.3": {
+   "area": "delegation",
+   "retiredBy": "orchestrate-light"
+  },
+  "22.4": {
+   "area": "delegation",
+   "retiredBy": "orchestrate-light"
+  },
+  "22.5": {
+   "area": "delegation",
+   "retiredBy": "orchestrate-light"
+  },
+  "22.6": {
+   "area": "delegation",
+   "retiredBy": "orchestrate-light"
+  },
+  "22.7": {
+   "area": "hooks",
+   "onlyWhile": "orchestrate-light"
+  },
+  "22.8": {
+   "area": "delegation"
+  },
+  "22.9": {
+   "area": "delegation"
+  },
+  "22.10": {
+   "area": "delegation"
+  },
+  "22.11": {
+   "area": "delegation"
+  },
+  "22.12": {
+   "area": "delegation"
+  },
+  "22.13": {
+   "area": "delegation"
+  },
+  "23.1": {
+   "area": "sessions"
+  },
+  "23.2": {
+   "area": "sessions"
+  },
+  "23.3": {
+   "area": "sessions"
+  },
+  "23.4": {
+   "area": "sessions"
+  },
+  "23.5": {
+   "area": "sessions"
+  },
+  "23.6": {
+   "area": "sessions"
+  },
+  "23.7": {
+   "area": "sessions"
+  },
+  "24.1": {
+   "area": "pupus"
+  },
+  "24.2": {
+   "area": "pupus"
+  },
+  "24.3": {
+   "area": "pupus"
+  }
+ }
+}

@@ -1,26 +1,36 @@
 // ULTRON Control Center — disk-mirror backup status.
 //
 // Reads the mirror destinations under the configured backup root (set up by
-// scripts/backup/weekly-backup.ps1, scheduled via Task Scheduler
-// `ULTRON-Backup-Weekly`). Returns one entry per top-level subdir with
+// scripts/backup/weekly-backup.ps1, scheduled via the Task Scheduler task
+// `schedule::BACKUP_TASK_NAME`). Returns one entry per top-level subdir with
 // the timestamp of the last modification so the UI can flag stale
 // mirrors without recursively walking gigabytes of files.
 //
-// Backup root resolution order (v15.2 F7):
+// Backup root resolution order (root.rs::backup_root, same as the scripts):
 //   1. ~/.ultron/.tmp/backup-root.txt (user-configured via Settings UI)
-//   2. $ULTRON_BACKUP_ROOT (env override — matches weekly-backup.ps1)
-//   3. D:\BACKUP if the disk is mounted (common secondary-drive convention)
-//   4. %USERPROFILE%\BACKUP (default for fresh installs)
+//   2. $ULTRON_BACKUP_ROOT (env override)
+//   3. none: the backup is not configured and the script aborts.
 
 use std::fs;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+mod last_run;
+mod merge;
 mod root;
-use root::{backup_config_lock, backup_root, backup_root_config_path, read_configured_backup_root};
+mod schedule;
+pub use last_run::BackupLastRun;
+use root::{
+    backup_config_lock, backup_root, backup_root_config_path, read_configured_backup_root,
+    same_volume_sources,
+};
+pub use schedule::{
+    get_backup_schedule_inner, set_backup_schedule_inner, BackupScheduleInfo,
+    SetBackupSchedulePayload,
+};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct BackupEntry {
@@ -29,16 +39,29 @@ pub struct BackupEntry {
     pub last_modified: Option<String>,
     pub age_hours: Option<f64>,
     pub exists: bool,
-    /// `ok` (< 8 days), `stale` (8–30 days), `cold` (> 30 days).
+    /// `ok` (< 8 days), `stale` (8–30 days), `cold` (> 30 days), o `failed`
+    /// si el último run real falló en esta fuente (manda sobre el mtime).
     pub status: String,
+    /// Resultado de esta carpeta en `backup-last-run.json` (`ok`/`failed`);
+    /// `None` si el último run no la incluía.
+    pub last_result: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
 pub struct BackupStatusReport {
+    /// Destino configurado; vacío si no hay ninguno.
     pub root: String,
+    /// Hay destino configurado (fichero o variable). Sin él el script aborta.
+    pub root_configured: bool,
     pub root_exists: bool,
     pub entries: Vec<BackupEntry>,
+    /// `failed` si el último run falló (fuente o snapshot de brain.db); si
+    /// no, el peor estado por antigüedad (`cold` > `stale` > `ok`).
     pub overall_status: String,
+    /// Último run según el propio script; `None` si no ha corrido nunca.
+    pub last_run: Option<BackupLastRun>,
+    /// El fichero del último run existe pero no se pudo leer.
+    pub last_run_error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -47,12 +70,12 @@ pub struct BackupStatusReport {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct BackupRootInfo {
-    /// Currently active path (after resolving the four sources above).
-    pub current: String,
-    /// Suggested default if `current` is empty (D:\BACKUP if disk mounted,
-    /// otherwise ~/BACKUP).
-    pub suggested: String,
-    /// True when the path resolves to an existing directory.
+    /// Configured path (file, then env); `None` = not configured.
+    pub current: Option<String>,
+    /// Starting folder for the picker when nothing is configured (D:\BACKUP
+    /// if that disk is mounted). Never applied on its own.
+    pub suggested: Option<String>,
+    /// True when the configured path is an existing directory.
     pub exists: bool,
     /// True when ~/.ultron/.tmp/backup-root.txt is the source of the value
     /// (i.e. the user has explicitly configured it via the UI).
@@ -64,26 +87,51 @@ pub struct BackupRootInfo {
 pub fn get_backup_root_inner() -> Result<BackupRootInfo, String> {
     let current = backup_root();
     let user_configured = read_configured_backup_root().is_some();
-    let suggested = {
-        let d_drive = PathBuf::from(r"D:\BACKUP");
-        if d_drive.exists() {
-            d_drive.to_string_lossy().to_string()
-        } else if let Some(home) = dirs::home_dir() {
-            home.join("BACKUP").to_string_lossy().to_string()
-        } else {
-            r"C:\BACKUP".to_string()
-        }
-    };
+    let d_drive = PathBuf::from(r"D:\BACKUP");
+    let suggested = d_drive
+        .exists()
+        .then(|| d_drive.to_string_lossy().to_string());
     let config_path = backup_root_config_path()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
     Ok(BackupRootInfo {
-        current: current.to_string_lossy().to_string(),
+        exists: current.as_ref().is_some_and(|p| p.exists()),
+        current: current.map(|p| p.to_string_lossy().to_string()),
         suggested,
-        exists: current.exists(),
         user_configured,
         config_path,
     })
+}
+
+/// Fuentes activas como `(nombre, ruta absoluta)`; las relativas cuelgan de HOME.
+fn resolved_source_paths(home: &Path) -> Vec<(String, PathBuf)> {
+    resolved_sources()
+        .into_iter()
+        .map(|s| {
+            let p = PathBuf::from(&s);
+            let abs = if p.is_absolute() { p } else { home.join(&s) };
+            (s, abs)
+        })
+        .collect()
+}
+
+/// Rechaza un destino relativo o en el mismo volumen que alguna fuente (el
+/// script abortaría igual con `same_volume`).
+fn validate_backup_root(dest: &str) -> Result<(), String> {
+    let path = Path::new(dest);
+    if !path.is_absolute() {
+        return Err(format!("El destino debe ser una ruta absoluta: {}", dest));
+    }
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let clash = same_volume_sources(path, &resolved_source_paths(&home));
+    if clash.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} está en el mismo disco que {}. Un espejo en el mismo disco no es un backup: elige una carpeta en otra unidad.",
+        dest,
+        clash.join(", ")
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,8 +147,12 @@ pub fn set_backup_root_inner(payload: SetBackupRootPayload) -> Result<BackupRoot
             fs::create_dir_all(parent).map_err(|e| format!("mkdir tmp: {}", e))?;
         }
     }
+    if !trimmed.is_empty() {
+        validate_backup_root(&trimmed)?;
+    }
     if trimmed.is_empty() {
-        // Empty = clear the override and fall back to env/D:/home defaults.
+        // Empty = clear the override: only ULTRON_BACKUP_ROOT remains, and
+        // without it the backup is unconfigured (the script aborts).
         if cfg.exists() {
             fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
         }
@@ -137,20 +189,9 @@ fn backup_sources_config_path() -> Option<PathBuf> {
 struct BackupSourcesConfig {
     #[serde(default)]
     sources: Vec<String>,
-    /// v2.5.2 (backups-redesign): persisted weekly schedule. The
-    /// `set_backup_schedule` command also registers a `UltronBackup-Weekly`
-    /// Windows Task Scheduler entry; this field is the durable record the
-    /// UI reads back to pre-fill the day/time dropdowns.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    schedule: Option<BackupScheduleConfig>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BackupScheduleConfig {
-    /// Three-letter uppercase weekday (MON, TUE, WED, THU, FRI, SAT, SUN).
-    pub day: String,
-    /// 24-hour HH:MM (e.g. "03:00").
-    pub time: String,
+    // The weekly schedule is no longer stored here (2026-10-23): its only
+    // source of truth is the registered task (schedule.rs). A legacy
+    // `schedule` field is ignored on read and dropped on the next write.
 }
 
 fn read_full_config() -> Option<BackupSourcesConfig> {
@@ -172,10 +213,6 @@ fn read_configured_sources() -> Option<Vec<String>> {
     } else {
         Some(cleaned)
     }
-}
-
-fn read_configured_schedule() -> Option<BackupScheduleConfig> {
-    read_full_config()?.schedule
 }
 
 fn resolved_sources() -> Vec<String> {
@@ -351,18 +388,13 @@ pub fn set_backup_sources_inner(
         }
     }
 
-    // Acquire the write lock before the read-modify-write so a concurrent
-    // `set_backup_schedule_inner` call cannot clobber the schedule field (or
-    // vice versa) by reading stale data and re-serialising over our changes.
+    // Acquire the write lock so two concurrent saves cannot interleave their
+    // write + rename of the same file.
     let _guard = backup_config_lock()
         .lock()
         .map_err(|e| format!("backup-config lock poisoned: {}", e))?;
 
-    // v2.5.2 (backups-redesign): preserve any existing `schedule` field
-    // when rewriting the config. Without this, saving the sources list
-    // would silently drop the weekly schedule the user already set.
-    let existing_schedule = read_configured_schedule();
-    if cleaned.is_empty() && existing_schedule.is_none() {
+    if cleaned.is_empty() {
         if cfg.exists() {
             fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
         }
@@ -370,7 +402,6 @@ pub fn set_backup_sources_inner(
     } else {
         let payload_out = BackupSourcesConfig {
             sources: cleaned.clone(),
-            schedule: existing_schedule,
         };
         let json = serde_json::to_string_pretty(&payload_out)
             .map_err(|e| format!("serialize config: {}", e))?;
@@ -394,219 +425,9 @@ pub fn set_backup_sources_inner(
         fs::rename(&tmp, &cfg).map_err(|e| format!("rename backup-config.json: {}", e))?;
         // Mirror into the env var so any in-process script reads it without
         // re-reading the JSON.
-        if cleaned.is_empty() {
-            std::env::remove_var("ULTRON_BACKUP_SOURCES");
-        } else {
-            std::env::set_var("ULTRON_BACKUP_SOURCES", cleaned.join(","));
-        }
+        std::env::set_var("ULTRON_BACKUP_SOURCES", cleaned.join(","));
     }
     get_backup_sources_inner()
-}
-
-// ---------------------------------------------------------------------------
-// v2.5.2 (backups-redesign): weekly schedule read/write + Windows Task
-// Scheduler integration.
-//
-// The schedule lives in two places:
-//   - The durable record: backup-config.json (`schedule: { day, time }`).
-//   - The Windows scheduled task `UltronBackup-Weekly` (created via
-//     `schtasks /Create /SC WEEKLY ...`). Non-Windows hosts skip the
-//     schtasks call and only persist the preference — the existing weekly
-//     backup script is Windows-only anyway.
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize, Clone)]
-pub struct BackupScheduleInfo {
-    pub day: String,
-    pub time: String,
-    /// True when a `UltronBackup-Weekly` task is registered with the OS.
-    /// Non-Windows always reports false.
-    pub task_registered: bool,
-    /// True when the user has explicitly saved a schedule (vs. the
-    /// "Mon 09:00" default that the UI uses to pre-fill the form).
-    pub user_configured: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SetBackupSchedulePayload {
-    pub day: String,
-    pub time: String,
-}
-
-const VALID_DAYS: &[&str] = &["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-
-fn validate_day(day: &str) -> Result<String, String> {
-    let up = day.trim().to_uppercase();
-    if VALID_DAYS.iter().any(|d| *d == up) {
-        Ok(up)
-    } else {
-        Err(format!(
-            "invalid day '{}' (expected one of MON/TUE/WED/THU/FRI/SAT/SUN)",
-            day
-        ))
-    }
-}
-
-fn validate_time(time: &str) -> Result<String, String> {
-    let trimmed = time.trim();
-    let bytes = trimmed.as_bytes();
-    if bytes.len() != 5 || bytes[2] != b':' {
-        return Err(format!("invalid time '{}' (expected HH:MM)", time));
-    }
-    let h: u32 = trimmed[0..2]
-        .parse()
-        .map_err(|_| format!("invalid hour in '{}'", time))?;
-    let m: u32 = trimmed[3..5]
-        .parse()
-        .map_err(|_| format!("invalid minute in '{}'", time))?;
-    if h > 23 || m > 59 {
-        return Err(format!("invalid time '{}' (out of range)", time));
-    }
-    Ok(trimmed.to_string())
-}
-
-#[cfg(target_os = "windows")]
-fn task_registered() -> bool {
-    use std::process::Command;
-    let mut cmd = Command::new("schtasks.exe");
-    cmd.args(["/Query", "/TN", "UltronBackup-Weekly"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    cmd.output().map(|o| o.status.success()).unwrap_or(false)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn task_registered() -> bool {
-    false
-}
-
-pub fn get_backup_schedule_inner() -> Result<BackupScheduleInfo, String> {
-    let configured = read_configured_schedule();
-    let user_configured = configured.is_some();
-    let (day, time) = configured
-        .map(|s| (s.day, s.time))
-        .unwrap_or_else(|| ("MON".to_string(), "09:00".to_string()));
-    Ok(BackupScheduleInfo {
-        day,
-        time,
-        task_registered: task_registered(),
-        user_configured,
-    })
-}
-
-#[cfg(target_os = "windows")]
-fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
-    use std::process::Command;
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let script_path = home.join(".ultron\\scripts\\backup\\weekly-backup.ps1");
-    if !script_path.is_file() {
-        return Err(format!(
-            "weekly-backup.ps1 missing at {}",
-            script_path.display()
-        ));
-    }
-    let tr = format!(
-        "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{}\"",
-        script_path.display()
-    );
-    // schtasks /F overwrites any existing task with the same name, which
-    // is exactly the upsert semantics the UI wants.
-    let mut cmd = Command::new("schtasks.exe");
-    cmd.args([
-        "/Create",
-        "/SC",
-        "WEEKLY",
-        "/D",
-        day,
-        "/ST",
-        time,
-        "/TN",
-        "UltronBackup-Weekly",
-        "/TR",
-        &tr,
-        "/RL",
-        "LIMITED",
-        "/F",
-    ]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    let output = cmd.output().map_err(|e| format!("spawn schtasks: {}", e))?;
-    if !output.status.success() {
-        return Err(format!(
-            "schtasks /Create failed (exit {:?}): {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(())
-}
-
-pub fn set_backup_schedule_inner(
-    payload: SetBackupSchedulePayload,
-) -> Result<BackupScheduleInfo, String> {
-    let day = validate_day(&payload.day)?;
-    let time = validate_time(&payload.time)?;
-
-    // Persist preference first so the UI reflects the saved state even if
-    // the schtasks call later fails on a non-Windows host.
-    let cfg_path = backup_sources_config_path().ok_or_else(|| "no HOME".to_string())?;
-    if let Some(parent) = cfg_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
-        }
-    }
-
-    // Acquire the write lock before the read-modify-write so a concurrent
-    // `set_backup_sources_inner` call cannot clobber the sources list (or
-    // vice versa) by reading stale data and re-serialising over our changes.
-    let _guard = backup_config_lock()
-        .lock()
-        .map_err(|e| format!("backup-config lock poisoned: {}", e))?;
-
-    let mut cfg = read_full_config().unwrap_or_default();
-    cfg.schedule = Some(BackupScheduleConfig {
-        day: day.clone(),
-        time: time.clone(),
-    });
-    let json =
-        serde_json::to_string_pretty(&cfg).map_err(|e| format!("serialize config: {}", e))?;
-    // Atomic write: serialise to a sibling tmp file then rename over the
-    // target. Same pattern as `set_backup_sources_inner` and the rest of the
-    // codebase (kanban, kg, sessions-tags). Guarantees the on-disk file is
-    // never in a partial state if the process is killed mid-write.
-    let tmp = cfg_path.with_extension("json.tmp");
-    {
-        let file =
-            fs::File::create(&tmp).map_err(|e| format!("create backup-config tmp: {}", e))?;
-        let mut writer = BufWriter::new(file);
-        writer
-            .write_all(json.as_bytes())
-            .map_err(|e| format!("write backup-config tmp: {}", e))?;
-        writer
-            .flush()
-            .map_err(|e| format!("flush backup-config tmp: {}", e))?;
-    }
-    fs::rename(&tmp, &cfg_path).map_err(|e| format!("rename backup-config.json: {}", e))?;
-
-    // Register the Windows scheduled task. On Linux/macOS we just store the
-    // preference — the weekly-backup script doesn't ship a Unix entry point
-    // yet (TODO: systemd timer / launchd plist).
-    #[cfg(target_os = "windows")]
-    {
-        register_weekly_task(&day, &time)?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (&day, &time);
-    }
-
-    get_backup_schedule_inner()
 }
 
 fn iso_from_systime(t: SystemTime) -> Option<String> {
@@ -667,24 +488,53 @@ fn classify(age_hours: Option<f64>) -> &'static str {
 }
 
 /// Walks one level deep so we don't du gigabytes. Mtime of the top-level
-/// subdir is what robocopy /MIR touches on every run, so this is a faithful
-/// proxy for "when was the backup last refreshed".
+/// subdir is what robocopy /MIR touches on every run, so it gives the age;
+/// whether the run actually succeeded comes from `backup-last-run.json`.
 pub fn backup_status_inner() -> Result<BackupStatusReport, String> {
     let root = backup_root();
+    let (last_run, last_run_error) = match last_run::read_last_run() {
+        Ok(run) => (run, None),
+        Err(e) => (None, Some(e)),
+    };
+    let unavailable = |root_str: String, configured: bool, status: &str| BackupStatusReport {
+        root: root_str,
+        root_configured: configured,
+        root_exists: false,
+        entries: Vec::new(),
+        overall_status: status.into(),
+        last_run: last_run.clone(),
+        last_run_error: last_run_error.clone(),
+    };
+    let Some(root) = root else {
+        // Sin destino el script aborta: nada que escanear.
+        return Ok(unavailable(String::new(), false, "unconfigured"));
+    };
     let root_str = root.to_string_lossy().to_string();
-    let root_exists = root.exists();
-    if !root_exists {
-        return Ok(BackupStatusReport {
-            root: root_str,
-            root_exists: false,
-            entries: Vec::new(),
-            overall_status: "missing".into(),
-        });
+    if !root.exists() {
+        return Ok(unavailable(root_str, true, "missing"));
     }
 
+    let entries = scan_mirrors(&root)?;
+    let applicable = merge::applicable_run(last_run.as_ref(), &root);
+    let entries = merge::merge_last_run(entries, applicable, &root);
+    let overall_status = merge::overall_status_for(&entries, applicable);
+
+    Ok(BackupStatusReport {
+        root: root_str,
+        root_configured: true,
+        root_exists: true,
+        entries,
+        overall_status,
+        last_run,
+        last_run_error,
+    })
+}
+
+/// Una entrada por carpeta espejo de primer nivel, la más reciente primero.
+fn scan_mirrors(root: &Path) -> Result<Vec<BackupEntry>, String> {
     let mut entries: Vec<BackupEntry> = Vec::new();
     let now = SystemTime::now();
-    let dir = fs::read_dir(&root).map_err(|e| e.to_string())?;
+    let dir = fs::read_dir(root).map_err(|e| e.to_string())?;
     for ent in dir.flatten() {
         let path = ent.path();
         if !path.is_dir() {
@@ -704,6 +554,7 @@ pub fn backup_status_inner() -> Result<BackupStatusReport, String> {
             age_hours,
             exists: true,
             status,
+            last_result: None,
         });
     }
     // Most-recently-modified first.
@@ -713,24 +564,7 @@ pub fn backup_status_inner() -> Result<BackupStatusReport, String> {
             .partial_cmp(&b.age_hours.unwrap_or(f64::INFINITY))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-
-    let overall_status = if entries.is_empty() {
-        "empty"
-    } else if entries.iter().any(|e| e.status == "cold") {
-        "cold"
-    } else if entries.iter().any(|e| e.status == "stale") {
-        "stale"
-    } else {
-        "ok"
-    }
-    .into();
-
-    Ok(BackupStatusReport {
-        root: root_str,
-        root_exists,
-        entries,
-        overall_status,
-    })
+    Ok(entries)
 }
 
 // LIB_RS_WIRING (v15.2 F7):

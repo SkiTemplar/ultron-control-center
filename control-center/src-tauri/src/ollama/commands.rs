@@ -3,21 +3,25 @@
 //
 // Capa fina de red: valida, adquiere el guard de concurrencia compartido
 // con la bandeja (`toggle::try_acquire_busy`, ver `toggle.rs`), delega en
-// `toggle.rs`/`api.rs`/`benchmark.rs`/`config.rs` y traduce a los tipos
-// que consume el frontend (`api::OllamaStatus`, etc).
+// `engine.rs`/`toggle.rs`/`api.rs`/`benchmark.rs` y traduce a los tipos que
+// consume el frontend (`api::OllamaStatus`, etc).
 //
-// Todas las mutaciones (activar/desactivar/cambiar modelo/pull/delete/
-// benchmark) toman el guard y devuelven un error explicito si ya hay una
-// accion en curso, en vez de encolar o ignorar en silencio (mandamiento
-// 11). `ollama_status` es la excepcion deliberada: es una lectura corta
-// y el frontend la sondea cada pocos segundos, así que guardarla
-// bloquearia el panel entero mientras dura, por ejemplo, una carga en
-// frio de 45 s.
+// El unico mando del modelo local es el motor del editor
+// (`editor_engine_set`, logica compartida con la bandeja en
+// `engine::set_engine_blocking`): no hay comandos para cargar o descargar un
+// modelo suelto, porque convivian con el motor y dejaban dos modelos en VRAM.
 //
-// Todas menos `ollama_status` son `async fn` que delegan el trabajo
-// bloqueante a `spawn_blocking` (mismo patron que
-// `commands/system_ops/settings.rs`), para no ocupar el hilo async
-// durante una carga en frio o una descarga larga.
+// Todas las mutaciones (motor/pull/delete/benchmark) toman el guard y
+// devuelven un error explicito si ya hay una accion en curso, en vez de
+// encolar o ignorar en silencio (mandamiento 11). `ollama_status` es la
+// excepcion deliberada: es una lectura corta y el frontend la sondea cada
+// pocos segundos, así que guardarla bloquearia el panel entero mientras
+// dura, por ejemplo, una carga en frio de 45 s.
+//
+// Todas menos las lecturas son `async fn` que delegan el trabajo bloqueante
+// a `spawn_blocking` (mismo patron que `commands/system_ops/settings.rs`),
+// para no ocupar el hilo async durante una carga en frio o una descarga
+// larga.
 
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
@@ -29,10 +33,10 @@ use super::api::{self, BenchmarkResult, OllamaStatus, PullProgressEvent};
 use super::benchmark;
 use super::config;
 use super::editor::{self, EditorEngineStatus};
+use super::engine::{self, BUSY_ERROR};
 use super::toggle::{self, OllamaState};
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
-const BUSY_ERROR: &str = "hay otra accion de Ollama en curso — espera a que termine";
 
 fn version_url() -> String {
     format!("{OLLAMA_BASE_URL}/api/version")
@@ -53,14 +57,11 @@ fn generate_url() -> String {
     format!("{OLLAMA_BASE_URL}/api/generate")
 }
 
-/// Snapshot de estado — logica compartida entre el comando `ollama_status`
-/// y el final de `ollama_set_model` (que devuelve el estado ya
-/// actualizado en la misma llamada para que el frontend no tenga que
-/// encadenar un segundo `invoke`). Nunca falla por Ollama ausente/parado
-/// — eso es un estado valido, no un error de comando.
+/// Snapshot de estado. Nunca falla por Ollama ausente/parado — eso es un
+/// estado valido, no un error de comando.
 fn compute_status() -> OllamaStatus {
-    let configured_model = toggle::model_name();
-    let configured_model_source = toggle::model_name_source();
+    let (configured_engine, configured_model) =
+        engine::reference_of(&editor::status(), config::read_last_local_engine());
     let installed = toggle::is_installed();
 
     let down_status = || OllamaStatus {
@@ -68,7 +69,7 @@ fn compute_status() -> OllamaStatus {
         server_up: false,
         version: None,
         configured_model: configured_model.clone(),
-        configured_model_source,
+        configured_engine,
         loaded_models: Vec::new(),
         downloaded_models: Vec::new(),
     };
@@ -101,79 +102,25 @@ fn compute_status() -> OllamaStatus {
         server_up: true,
         version,
         configured_model,
-        configured_model_source,
+        configured_engine,
         loaded_models,
         downloaded_models,
     }
 }
 
-/// Estado completo: instalado, servidor arriba, version, modelo
-/// configurado (+ de donde sale), modelos cargados (con VRAM y
-/// expiracion) y descargados.
+/// Estado completo: instalado, servidor arriba, version, modelo del motor
+/// local de referencia, modelos cargados (con VRAM y expiracion) y
+/// descargados. Dos GET HTTP a ollama: en el pool bloqueante, no en el hilo
+/// principal.
 #[tauri::command]
-pub fn ollama_status() -> Result<OllamaStatus, String> {
-    Ok(compute_status())
-}
-
-/// Activa el autocompletado con `model` (o el configurado si se omite).
-#[tauri::command]
-pub async fn ollama_activate(model: Option<String>) -> Result<(), String> {
-    let Some(guard) = toggle::try_acquire_busy() else {
-        return Err(BUSY_ERROR.to_string());
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let _guard = guard;
-        let target = model.unwrap_or_else(toggle::model_name);
-        toggle::activate(&target)
-    })
-    .await
-    .map_err(|e| format!("fallo interno al activar Ollama: {e}"))?
-}
-
-/// Desactiva (descarga de memoria) `model` (o el configurado si se omite).
-#[tauri::command]
-pub async fn ollama_deactivate(model: Option<String>) -> Result<(), String> {
-    let Some(guard) = toggle::try_acquire_busy() else {
-        return Err(BUSY_ERROR.to_string());
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let _guard = guard;
-        let target = model.unwrap_or_else(toggle::model_name);
-        toggle::deactivate(&target)
-    })
-    .await
-    .map_err(|e| format!("fallo interno al desactivar Ollama: {e}"))?
-}
-
-/// Cambia el modelo elegido: lo persiste (`config::write_configured_model`)
-/// y, si el modelo anterior estaba cargado, lo descarga y carga el nuevo
-/// para que el cambio tenga efecto inmediato. Si no habia nada cargado,
-/// solo persiste — no fuerza una carga que el usuario no ha pedido.
-/// Devuelve el estado ya actualizado.
-#[tauri::command]
-pub async fn ollama_set_model(name: String) -> Result<OllamaStatus, String> {
-    if !api::is_valid_model_name(&name) {
-        return Err(format!("nombre de modelo invalido: '{name}'"));
-    }
-    let Some(guard) = toggle::try_acquire_busy() else {
-        return Err(BUSY_ERROR.to_string());
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let _guard = guard;
-        let previous = toggle::model_name();
-        if previous != name && toggle::query_state(&previous) == OllamaState::Loaded {
-            toggle::deactivate(&previous)?;
-            toggle::activate(&name)?;
-        }
-        config::write_configured_model(&name)?;
-        Ok::<OllamaStatus, String>(compute_status())
-    })
-    .await
-    .map_err(|e| format!("fallo interno al cambiar de modelo: {e}"))?
+pub async fn ollama_status() -> Result<OllamaStatus, String> {
+    tauri::async_runtime::spawn_blocking(compute_status)
+        .await
+        .map_err(|e| format!("ollama_status: la tarea de fondo falló: {e}"))
 }
 
 /// N peticiones FIM en caliente y mediana/maximo. Exige que `model` (o el
-/// configurado) este ya cargado — no lo carga en silencio, eso alteraria
+/// del motor local de referencia) este ya cargado — no lo carga en silencio, eso alteraria
 /// la medicion y ocultaria una latencia real de carga en frio.
 #[tauri::command]
 pub async fn ollama_benchmark(model: Option<String>) -> Result<BenchmarkResult, String> {
@@ -182,10 +129,10 @@ pub async fn ollama_benchmark(model: Option<String>) -> Result<BenchmarkResult, 
     };
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        let target = model.unwrap_or_else(toggle::model_name);
+        let target = model.unwrap_or_else(|| engine::current_reference().1);
         if toggle::query_state(&target) != OllamaState::Loaded {
             return Err(format!(
-                "el modelo '{target}' no esta cargado — actívalo antes de medir latencia"
+                "el modelo '{target}' no esta cargado — elige un motor local antes de medir latencia"
             ));
         }
         run_benchmark(&target)
@@ -297,7 +244,8 @@ fn run_pull(app: &AppHandle, name: &str) -> Result<(), String> {
 }
 
 /// Borra `name` de disco. Exige que no este cargado en memoria —
-/// descargarlo primero evita borrar bajo los pies de una sesion activa.
+/// soltarlo primero (cambiando a otro motor) evita borrar bajo los pies de
+/// una sesion activa.
 #[tauri::command]
 pub async fn ollama_delete(name: String) -> Result<(), String> {
     if !api::is_valid_model_name(&name) {
@@ -310,7 +258,7 @@ pub async fn ollama_delete(name: String) -> Result<(), String> {
         let _guard = guard;
         if toggle::query_state(&name) == OllamaState::Loaded {
             return Err(format!(
-                "'{name}' esta cargado en memoria — descargalo antes de borrarlo"
+                "'{name}' esta cargado en memoria — cambia de motor para soltarlo antes de borrarlo"
             ));
         }
         let client = crate::ai_router::health::http_client()?;
@@ -352,33 +300,26 @@ pub async fn ollama_delete(name: String) -> Result<(), String> {
 /// Motor activo segun el `settings.json` de VS Code, con los tres modelos
 /// locales configurados. `available: false` = no se encontro el fichero.
 #[tauri::command]
-pub fn editor_engine_status() -> Result<EditorEngineStatus, String> {
+pub async fn editor_engine_status() -> Result<EditorEngineStatus, String> {
     Ok(editor::status())
 }
 
-/// Cambia el motor del editor: lo escribe en `settings.json` (Copilot queda en
-/// el estado contrario), suelta de VRAM los modelos que ya no tocan y carga el
-/// del motor elegido. VS Code recoge el cambio en caliente, sin reiniciar.
+/// Cambia el motor del editor (secuencia completa en `switch.rs`): comprueba
+/// que el modelo destino esta descargado, lo escribe en `settings.json`
+/// (Copilot queda en el estado contrario), suelta todo lo cargado salvo el
+/// destino, lo carga y, si es local, lo guarda como ultimo motor local; si la
+/// carga falla, revierte al motor anterior. VS Code recoge el cambio en
+/// caliente, sin reiniciar. Refresca tambien el item de la bandeja, que
+/// comparte la logica (`engine::set_engine_blocking`).
 #[tauri::command]
-pub async fn editor_engine_set(engine: String) -> Result<EditorEngineStatus, String> {
-    let Some(guard) = toggle::try_acquire_busy() else {
-        return Err(BUSY_ERROR.to_string());
-    };
+pub async fn editor_engine_set(
+    app: AppHandle,
+    engine: String,
+) -> Result<EditorEngineStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = guard;
-        let (target, unload) = editor::write_engine(&engine)?;
-
-        // Soltar primero y cargar despues: con 8 GB de VRAM, hacerlo al reves
-        // deja los dos modelos dentro a la vez.
-        for model in unload {
-            if toggle::query_state(&model) == OllamaState::Loaded {
-                toggle::deactivate(&model)?;
-            }
-        }
-        if let Some(model) = target {
-            toggle::activate(&model)?;
-        }
-        Ok::<EditorEngineStatus, String>(editor::status())
+        let result = engine::set_engine_blocking(&engine);
+        crate::tray::refresh_engine_item(&app);
+        result
     })
     .await
     .map_err(|e| format!("fallo interno al cambiar el motor del editor: {e}"))?
@@ -402,8 +343,10 @@ mod smoke_tests {
     #[test]
     #[ignore]
     fn benchmark_contra_ollama_vivo() {
-        let model = toggle::model_name();
-        toggle::activate(&model).expect("activar el modelo antes de medir la latencia");
+        let (engine, model) = engine::current_reference();
+        let keep_alive = editor::status().keep_alive(engine);
+        toggle::activate(&model, &keep_alive)
+            .expect("activar el modelo antes de medir la latencia");
         let result = run_benchmark(&model).expect("el benchmark deberia completar sin error");
         println!("{result:#?}");
         assert_eq!(result.samples_ms.len(), benchmark::SAMPLE_COUNT);

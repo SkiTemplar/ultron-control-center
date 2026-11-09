@@ -17,6 +17,7 @@ import {
   loadDateFilter,
   saveDateFilter,
 } from "./notifications/persistence";
+import { forget, hideAll, isHidden, restore, type Dismissed } from "./notifications/dismissed";
 import { Row } from "./notifications/Row";
 import { Pill } from "./notifications/Pill";
 import { buildBulkAlertsBlock } from "./notifications/buildBulkAlertsBlock";
@@ -31,9 +32,11 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   // mask while the disk delete is in flight (and as a soft hide for
   // alerts the backend couldn't physically remove — e.g. malformed lines
   // whose fingerprint we can't reproduce). The authoritative source is
-  // always `~/.ultron/alerts.jsonl`.
-  const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
+  // always `~/.ultron/alerts.jsonl`. Each fingerprint keeps the moment it
+  // was hidden: a later repetition of the same alert shows up again.
+  const [dismissed, setDismissed] = useState<Dismissed>(() => loadDismissed());
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // Bulk "Fix all" state. Lifted to the parent because the buttons live
   // in the global toolbar, not inside a Row. Mirrors the per-card flow:
   // {busy:provider} during spawn, {toast} on success, {error} on failure.
@@ -70,7 +73,7 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   // tab claims "Info 8" over an empty list (the counters used to run over
   // the raw date-filtered alerts, before dedupe and before `dismissed`).
   const undismissedGroups = useMemo(
-    () => allGroups.filter((g) => !dismissed.has(groupKey(g))),
+    () => allGroups.filter((g) => !isHidden(dismissed, groupKey(g), g.last_ts)),
     [allGroups, dismissed],
   );
 
@@ -114,12 +117,11 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   // when severityStyle.weight === 2 (critical/blocking). We also include
   // warn here because the user explicitly asked for warn in the mega-
   // prompt — bulk mode is more aggressive than per-row mode.
+  // Same rule as the per-row "Fix with Claude" button (Row.tsx: weight 2,
+  // critical/blocking), so the bulk count matches the rows that show a Fix
+  // button. Warn rows deliberately carry no Fix action.
   const actionableGroups = useMemo(
-    () =>
-      visibleGroups.filter((g) => {
-        const w = severityStyle(g.severity).weight;
-        return w === 2 || w === 1;
-      }),
+    () => visibleGroups.filter((g) => severityStyle(g.severity).weight === 2),
     [visibleGroups],
   );
 
@@ -152,13 +154,53 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
         flags: { dangerouslySkipPermissions: false, pasteOnly: true },
       });
       setBulkFixToast(
-        `Claude session opened — paste prompt with Ctrl+V to fix ${actionableGroups.length} issue${actionableGroups.length === 1 ? "" : "s"}`,
+        `Sesión de Claude abierta: pega el prompt con Ctrl+V para arreglar ${actionableGroups.length} problema${actionableGroups.length === 1 ? "" : "s"}`,
       );
       window.setTimeout(() => setBulkFixToast(null), 6000);
     } catch (e) {
       setBulkFixError(String(e));
     } finally {
       setBulkFixBusy(null);
+    }
+  }
+
+  // Deletes the given fingerprints from alerts.jsonl. The optimistic mask
+  // hides the rows while the request is in flight; afterwards the
+  // fingerprints leave the hidden set either way: once deleted there is
+  // nothing left to hide (and a later repetition must be visible), and on
+  // failure the rows come back with their previous hidden state.
+  async function deleteGroups(fps: string[]) {
+    const before = dismissed;
+    setDismissed(hideAll(before, fps, Date.now()));
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const removed = await invoke<number>("delete_alert_entries", { fingerprints: fps });
+      // Nothing matched on disk (e.g. a fingerprint the backend computes
+      // differently): the rows come back after the reload, so say why
+      // instead of looking like a button that does nothing.
+      if (removed === 0 && fps.length > 0) {
+        setDeleteError("No se ha borrado nada: ninguna línea de alerts.jsonl coincidía con estas notificaciones.");
+      }
+    } catch (e) {
+      setDismissed((cur) => restore(cur, before, fps));
+      setDeleteError(`No se pudo borrar de alerts.jsonl: ${String(e)}`);
+      setDeleting(false);
+      return;
+    }
+    try {
+      if (onDeleted) {
+        await onDeleted();
+      } else {
+        // Fallback: parent didn't wire the callback, so we brute-force a
+        // fresh read of alerts.jsonl by reloading the webview.
+        window.location.reload();
+      }
+    } catch (e) {
+      setDeleteError(`Borrado, pero ha fallado la recarga de la lista: ${String(e)}`);
+    } finally {
+      setDismissed((cur) => forget(cur, fps));
+      setDeleting(false);
     }
   }
 
@@ -177,24 +219,24 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   return (
     <div className="px-10 py-8">
       <header className="mb-6">
-        <h1 className="text-[20px] font-semibold leading-tight">Notifications</h1>
+        <h1 className="text-[20px] font-semibold leading-tight">Notificaciones</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-          {visibleGroups.length} unique · {visibleTotal} total {DATE_LABEL[dateFilter].toLowerCase()}
+          {visibleGroups.length} grupo{visibleGroups.length === 1 ? "" : "s"} · {visibleTotal} alerta{visibleTotal === 1 ? "" : "s"} ({dateFilter === "all" ? "todo el historial" : DATE_LABEL[dateFilter].toLowerCase()})
           {hiddenCount > 0 && (
             <>
               {" · "}
               <span>
-                {hiddenCount} hidden
+                {hiddenCount} oculta{hiddenCount === 1 ? "" : "s"}
               </span>
               {" "}
               <button
                 type="button"
-                onClick={() => setDismissed(new Set())}
-                title="Restore every notification hidden with the eye button. They are hidden per browser, not deleted from alerts.jsonl."
+                onClick={() => setDismissed(new Map())}
+                title="Recupera todas las notificaciones ocultadas con el botón del ojo. Se ocultan en este navegador, no se borran de alerts.jsonl, y vuelven solas si se repiten."
                 className="underline underline-offset-2 transition-colors"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                restore
+                recuperar
               </button>
             </>
           )}
@@ -204,21 +246,21 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
       {/* Severity filters */}
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         <Pill
-          label="Critical"
+          label="Críticas"
           color="var(--color-danger)"
           active={sevFilters.has("critical")}
           count={sevCounts.critical}
           onClick={() => toggleSev("critical")}
         />
         <Pill
-          label="Warn"
+          label="Avisos"
           color="var(--color-warn)"
           active={sevFilters.has("warn")}
           count={sevCounts.warn}
           onClick={() => toggleSev("warn")}
         />
         <Pill
-          label="Info"
+          label="Información"
           color="var(--color-text-tertiary)"
           active={sevFilters.has("info")}
           count={sevCounts.info}
@@ -238,6 +280,8 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
         ))}
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Destructive group: both buttons delete from alerts.jsonl for good,
+              so both confirm and share the danger colour. */}
           {(() => {
             const infoVisible = visibleGroups.filter(
               (g) => severityStyle(g.severity).key === "info",
@@ -247,41 +291,19 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
                 type="button"
                 onClick={async () => {
                   if (infoVisible.length === 0 || deleting) return;
-                  const fps = infoVisible.map((g) => groupKey(g));
-                  // Optimistic hide so the row disappears before the
-                  // backend round-trip finishes. The dismissed set is
-                  // ignored for fingerprints that no longer exist on
-                  // disk after the reload — they just stop showing up.
-                  const masked = new Set(dismissed);
-                  for (const fp of fps) masked.add(fp);
-                  setDismissed(masked);
-                  setDeleting(true);
-                  try {
-                    await invoke("delete_alert_entries", { fingerprints: fps });
-                    if (onDeleted) {
-                      await onDeleted();
-                    } else {
-                      // Fallback: parent didn't wire the callback, so we
-                      // brute-force a fresh read of alerts.jsonl by
-                      // reloading the webview. Ugly but correct.
-                      window.location.reload();
-                    }
-                  } catch (e) {
-                    // Roll back the optimistic mask on failure so the
-                    // user can retry — the disk file is unchanged.
-                    const rollback = new Set(dismissed);
-                    setDismissed(rollback);
-                    console.error("delete_alert_entries failed:", e);
-                  } finally {
-                    setDeleting(false);
-                  }
+                  const ok = await confirmDialog(
+                    `¿Borrar para siempre ${infoVisible.length} notificaci${infoVisible.length === 1 ? "ón" : "ones"} informativa${infoVisible.length === 1 ? "" : "s"}?`,
+                    { title: "Borrar las notificaciones informativas", kind: "warning" },
+                  );
+                  if (!ok) return;
+                  await deleteGroups(infoVisible.map((g) => groupKey(g)));
                 }}
                 disabled={infoVisible.length === 0 || deleting}
-                title="Permanently delete the visible info notifications from ~/.ultron/alerts.jsonl"
+                title="Borra para siempre de ~/.ultron/alerts.jsonl las notificaciones informativas visibles. Pide confirmación antes."
                 className="text-[11.5px] transition-colors disabled:opacity-30"
-                style={{ color: "var(--color-text-tertiary)" }}
+                style={{ color: "var(--color-danger)" }}
               >
-                {deleting ? "Deleting…" : `Delete info (${infoVisible.length})`}
+                {deleting ? "Borrando…" : `Borrar informativas (${infoVisible.length})`}
               </button>
             );
           })()}
@@ -295,40 +317,23 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
               onClick={async () => {
                 if (deleting || visibleGroups.length === 0) return;
                 const ok = await confirmDialog(
-                  `Permanently delete ${visibleGroups.length} notification${visibleGroups.length === 1 ? "" : "s"} (including critical and warn)?`,
-                  { title: "Clear all notifications", kind: "warning" },
+                  `¿Borrar para siempre ${visibleGroups.length} notificaci${visibleGroups.length === 1 ? "ón" : "ones"} (críticas y avisos incluidos)?`,
+                  { title: "Borrar todas las notificaciones", kind: "warning" },
                 );
                 if (!ok) return;
-                const fps = visibleGroups.map((g) => groupKey(g));
-                const masked = new Set(dismissed);
-                for (const fp of fps) masked.add(fp);
-                setDismissed(masked);
-                setDeleting(true);
-                try {
-                  await invoke("delete_alert_entries", { fingerprints: fps });
-                  if (onDeleted) {
-                    await onDeleted();
-                  } else {
-                    window.location.reload();
-                  }
-                } catch (e) {
-                  setDismissed(new Set(dismissed));
-                  console.error("delete_alert_entries (all) failed:", e);
-                } finally {
-                  setDeleting(false);
-                }
+                await deleteGroups(visibleGroups.map((g) => groupKey(g)));
               }}
               disabled={deleting}
-              title="Delete ALL visible notifications (info + warn + critical) from the alerts.jsonl file. Asks for confirmation first."
+              title="Borra del fichero alerts.jsonl TODAS las notificaciones visibles (informativas, avisos y críticas). Pide confirmación antes."
               className="text-[11.5px] transition-colors disabled:opacity-30"
               style={{ color: "var(--color-danger)" }}
             >
-              {deleting ? "Deleting…" : `Clear all (${visibleGroups.length})`}
+              {deleting ? "Borrando…" : `Borrar todas (${visibleGroups.length})`}
             </button>
           )}
 
           {/* Bulk "Fix all" button. Visible only when there is at least
-              one actionable (critical/warn) group — otherwise we'd be
+              one actionable (critical) group — otherwise we'd be
               spawning a session with nothing to fix. The button is
               deliberately larger than the surrounding pill controls
               (px-3 py-1 vs px-2.5 py-1) because it triggers an
@@ -344,7 +349,7 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
                 type="button"
                 onClick={() => openBulkFixSession("claude")}
                 disabled={bulkFixBusy !== null}
-                title={`Spawn a Claude session pre-loaded with ALL ${actionableGroups.length} actionable notification${actionableGroups.length === 1 ? "" : "s"}. The mega-prompt lands on the clipboard — paste with Ctrl+V.${bulkRouting ? ` · ${bulkRouting}` : ""}`}
+                title={`Lanza una sesión de Claude con las ${actionableGroups.length} notificaci${actionableGroups.length === 1 ? "ón" : "ones"} accionable${actionableGroups.length === 1 ? "" : "s"} ya cargadas. El prompt queda en el portapapeles: pégalo con Ctrl+V.${bulkRouting ? ` · ${bulkRouting}` : ""}`}
                 className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
                   background: "var(--color-surface-3)",
@@ -353,8 +358,8 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
                 }}
               >
                 {bulkFixBusy === "claude"
-                  ? "Opening…"
-                  : `Fix all with Claude (${actionableGroups.length})`}
+                  ? "Abriendo…"
+                  : `Arreglar todo con Claude (${actionableGroups.length})`}
               </button>
             </>
           )}
@@ -372,8 +377,19 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
           title={bulkFixError ?? undefined}
         >
           {bulkFixError
-            ? `Failed to open bulk session: ${bulkFixError.slice(0, 160)}`
+            ? `No se pudo abrir la sesión conjunta: ${bulkFixError.slice(0, 160)}`
             : bulkFixToast}
+        </div>
+      )}
+
+      {deleteError && (
+        <div
+          role="alert"
+          className="mb-3 text-[11.5px]"
+          style={{ color: "var(--color-danger)" }}
+          title={deleteError}
+        >
+          {deleteError.slice(0, 200)}
         </div>
       )}
 
@@ -388,8 +404,8 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
           }}
         >
           {alerts.length === 0
-            ? "No notifications. System is quiet."
-            : "No notifications match the current filters."}
+            ? "No hay notificaciones. El sistema está tranquilo."
+            : "Ninguna notificación coincide con los filtros."}
         </div>
       )}
 
@@ -398,11 +414,14 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
           <Row
             key={`${g.source}-${i}`}
             g={g}
-            onDismiss={(fp) => {
-              const next = new Set(dismissed);
-              next.add(fp);
-              setDismissed(next);
-            }}
+            // Hidden as of the later of "now" and the group's last occurrence:
+            // a timestamp slightly ahead of this clock would otherwise make
+            // the eye button a no-op.
+            onDismiss={(fp) =>
+              setDismissed((cur) =>
+                hideAll(cur, [fp], Math.max(Date.now(), Date.parse(g.last_ts) || 0)),
+              )
+            }
           />
         ))}
       </div>

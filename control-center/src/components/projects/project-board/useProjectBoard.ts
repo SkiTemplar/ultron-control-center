@@ -4,6 +4,13 @@ import type { Card, ColumnRole, KanbanBoard, KanbanArchive, KanbanArchiveSummary
 import { INVESTIGAR_TAGS } from "./utils";
 
 const BOARD_REFRESH_MS = 15_000;
+/** Margen para deshacer el borrado de una tarjeta antes de escribirlo. */
+export const CARD_DELETE_UNDO_MS = 6_000;
+
+export interface PendingCardDelete {
+  cardId: string;
+  title: string;
+}
 
 export function useProjectBoard(projectId: string) {
   const [board, setBoard] = useState<KanbanBoard | null>(null);
@@ -73,17 +80,65 @@ export function useProjectBoard(projectId: string) {
     [board, projectId],
   );
 
+  // Borrado con deshacer: la tarjeta desaparece al momento, pero
+  // kanban_delete_card no se llama hasta pasados CARD_DELETE_UNDO_MS. Un
+  // segundo borrado o desmontar el tablero confirman el pendiente al instante.
+  const [pendingDelete, setPendingDelete] = useState<PendingCardDelete | null>(null);
+  const pendingRef = useRef<{ item: PendingCardDelete; timer: number } | null>(null);
+
+  const commitPendingDelete = useCallback(async () => {
+    const p = pendingRef.current;
+    if (!p) return;
+    pendingRef.current = null;
+    window.clearTimeout(p.timer);
+    setPendingDelete(null);
+    try {
+      await invoke("kanban_delete_card", { projectId, cardId: p.item.cardId });
+    } catch (e) {
+      setError(`No se pudo borrar «${p.item.title}»: ${String(e)}`);
+    }
+    await load();
+  }, [load, projectId]);
+
   const deleteCard = useCallback(
     async (cardId: string) => {
-      try {
-        await invoke("kanban_delete_card", { projectId, cardId });
-        await load();
-      } catch (e) {
-        setError(String(e));
-      }
+      if (pendingRef.current) await commitPendingDelete();
+      const title = board?.cards.find((c) => c.id === cardId)?.title ?? cardId;
+      const item = { cardId, title };
+      const timer = window.setTimeout(() => void commitPendingDelete(), CARD_DELETE_UNDO_MS);
+      pendingRef.current = { item, timer };
+      setPendingDelete(item);
     },
-    [load, projectId],
+    [board, commitPendingDelete],
   );
+
+  const undoDeleteCard = useCallback(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    window.clearTimeout(p.timer);
+    pendingRef.current = null;
+    setPendingDelete(null);
+  }, []);
+
+  // Al salir del tablero el borrado pendiente se escribe ya: no se pierde ni
+  // queda un temporizador vivo sobre un componente desmontado.
+  useEffect(() => {
+    return () => {
+      const p = pendingRef.current;
+      if (!p) return;
+      pendingRef.current = null;
+      window.clearTimeout(p.timer);
+      void invoke("kanban_delete_card", { projectId, cardId: p.item.cardId }).catch(() => {
+        /* el tablero ya no está montado: la tarjeta reaparecerá al volver */
+      });
+    };
+  }, [projectId]);
+
+  // Lo que se pinta: el tablero sin la tarjeta pendiente de borrar.
+  const visibleBoard =
+    board && pendingDelete
+      ? { ...board, cards: board.cards.filter((c) => c.id !== pendingDelete.cardId) }
+      : board;
 
   // v2.14 — rename a column via kanban_rename_column.
   const renameColumn = useCallback(
@@ -348,7 +403,9 @@ export function useProjectBoard(projectId: string) {
   );
 
   return {
-    board,
+    board: visibleBoard,
+    pendingDelete,
+    undoDeleteCard,
     error,
     editing,
     setEditing,

@@ -27,6 +27,7 @@
 //!   (edge — RETIRADO 2026-07-02: codegraph interno erradicado, mand.12)
 //!   ultron-memory deprecate --type <T> [--dry-run]  # bulk-deprecate a type (purge bloat)
 //!   ultron-memory stale [--older-than-days N] [--dry-run]  # age-out ACTIVE items -> Status::Stale
+//!   ultron-memory scrub-secrets [--dry-run]     # redacta credenciales ya persistidas (detector actual) + VACUUM
 //!   ultron-memory gc [--days 90] [--dry-run]    # mantenimiento: decaimiento de ACTIVE sin recall +
 //!                                               # poda del log (items muertos, eventos sin item y huerfanos)
 //!   ultron-memory dedupe [--dry-run] [--reason R]      # deprecar copias exactas de ACTIVE (sobrevive 1 por grupo)
@@ -34,16 +35,19 @@
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
 
+mod capture_cli;
 mod cli_args;
+mod cli_spec;
 mod drain_lock;
 mod emit;
+mod inbox_auto;
 mod inbox_cli;
+mod index_cli;
+mod maintenance_cli;
+mod recall_cli;
 
-use std::io::Read;
-
-use cli_args::{flag_value, has_flag, positional, reject_unknown_flags};
+use cli_args::flag_value;
 use control_center_lib as ul;
-use emit::{emit_candidate, emit_supersede};
 use inbox_cli::inbox_command;
 
 fn main() {
@@ -52,6 +56,10 @@ fn main() {
     // el daemon (serve) arrancado por un hook no las veía y un A/B por env var
     // medía la config vieja (gotcha 2026-08-16). El proceso lee el .env al
     // ARRANCAR: cambiar un valor exige reiniciar el daemon para que lo vea.
+    // Las keys del router que falten aquí (un hook de una sesión de ULTRON
+    // hereda un entorno sin keys) no se cargan en el entorno: las resuelve
+    // `ai_router::key_source` desde HKCU\Environment, en memoria y solo si se
+    // enruta, para que no las hereden los hijos ni pague `reg` quien no enruta.
     if let Some(home) = dirs::home_dir() {
         let _ = dotenvy::from_filename(home.join(".ultron").join(".env"));
     }
@@ -102,761 +110,87 @@ fn lower_own_priority() {
 #[cfg(not(windows))]
 fn lower_own_priority() {}
 
+/// Línea de uso cuando falta el subcomando.
+const USAGE: &str = "usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|fts-rebuild|secret-backfill [--dry-run]|pii-backfill [--dry-run]|scrub-secrets [--dry-run]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]";
+
 fn run() -> Result<serde_json::Value, String> {
     let args: Vec<String> = std::env::args().collect();
+    // `--help`/`-h` = ayuda sin ejecutar; flag desconocido = error. Antes de
+    // despachar: `sweep --help` y `stale --help` ejecutaban escrituras masivas.
+    if let Some(help) = cli_spec::preflight(&args)? {
+        return Ok(help);
+    }
     let cmd = args.get(1).map(String::as_str).unwrap_or("");
     let project = flag_value(&args, "--project");
 
     if BATCH_CMDS.contains(&cmd) {
         lower_own_priority();
     }
+    dispatch(cmd, &args, project.as_deref())
+}
 
+/// Un brazo por subcomando; el cuerpo de cada uno vive en su módulo
+/// (recall_cli, index_cli, capture_cli, maintenance_cli, inbox_cli).
+fn dispatch(
+    cmd: &str,
+    args: &[String],
+    project: Option<&str>,
+) -> Result<serde_json::Value, String> {
     match cmd {
-        "resume" => to_json(ul::commands::memory::session_resume::session_resume_inner(project)?),
-        "orchestrate" => {
-            let prompt = positional(&args)?;
-            // `--sparse` (2026-09-07): respaldo del hook cuando el daemon YA no
-            // ha contestado. Ni vuelve a esperarle (con el daemon vivo pero
-            // lento, la espera de 30 s de abajo se comia entero el cap de 6 s
-            // del hook y el "respaldo" nunca resolvia nada: asi entro sin
-            // memoria el primer prompt del 2026-09-07) ni carga E5 (1,5 GB
-            // compitiendo por CPU con el daemon que se esta recuperando):
-            // FTS5 + reglas, en menos de un segundo.
-            if has_flag(&args, "--sparse") {
-                return to_json(ul::orchestrator::orchestrate(
-                    &prompt,
-                    project.as_deref(),
-                    false,
-                ));
-            }
-            // Si el daemon vive, que responda EL: tiene E5 caliente y este
-            // proceso no llega a cargar el modelo. Medido el 2026-08-15: un
-            // one-shot que carga E5 pica en 1,7 GB, y 3,2 GB si ademas entra el
-            // cross-encoder. Sin daemon, se resuelve aqui como siempre.
-            if let Some(v) = ul::daemon_client::orchestrate(
-                &prompt,
-                project.as_deref(),
-                std::time::Duration::from_secs(30),
-            ) {
-                return Ok(v);
-            }
-            // CLI one-shot fallback for the hot path. dense=TRUE: quality-first
-            // (full hybrid recall + semantic match); see serve.rs for rationale.
-            to_json(ul::orchestrator::orchestrate(&prompt, project.as_deref(), true))
-        }
-        // Diagnostico completo del retrieval (cat1, 2026-07-02): dense/sparse/
-        // fused con ranks + injected/discarded CON RAZON (token cap, governance,
-        // rank). Es build_trace serializado — lo que ve el Retrieval Inspector,
-        // ahora disponible headless para diagnosticar el golden set.
-        "trace" => {
-            let query = positional(&args)?;
-            let cross = has_flag(&args, "--cross") || has_flag(&args, "--all-projects");
-            to_json(ul::commands::memory::recall_unified::build_trace(
-                &query,
-                8,
-                project.as_deref(),
-                cross,
-                true,
-                true, // paridad con el eval: el trace diagnostica el path de calidad
-            )?)
-        }
-        "recall" => {
-            let query = positional(&args)?;
-            // CROSS-PROJECT: --cross / --all-projects relaxes the project filter so
-            // the recall searches the WHOLE brain (items from any project), not just
-            // the current one. Security is untouched: Secret items stay excluded.
-            let cross = has_flag(&args, "--cross") || has_flag(&args, "--all-projects");
-            // Igual que orchestrate: el daemon primero. Aqui el ahorro es el
-            // mayor de todos, porque el recall manual pide cross-encoder y ese
-            // camino cargaba los DOS modelos en este proceso (3,2 GB medidos).
-            if let Some(v) = ul::daemon_client::recall(
-                &query,
-                8,
-                project.as_deref(),
-                cross,
-                true,
-                std::time::Duration::from_secs(60),
-            ) {
-                return Ok(v);
-            }
-            to_json(ul::commands::memory::recall_unified::recall_pack(
-                &query,
-                8,
-                project.as_deref(),
-                cross,
-                true, // recall manual explicito: calidad con cross-encoder
-            )?)
-        }
+        "resume" => to_json(ul::commands::memory::session_resume::session_resume_inner(
+            project.map(str::to_string),
+        )?),
+        "orchestrate" => recall_cli::orchestrate(args, project),
+        "trace" => recall_cli::trace(args, project),
+        "recall" => recall_cli::recall(args, project),
         "stats" => to_json(ul::memory::MemoryService::stats().map_err(|e| e.to_string())?),
-        // (2026-07-13) Backfill de project_id del corpus AMBIENTE (NULL):
-        // normalize (variantes -> slug canonico) + provenance (session_id del
-        // cockpit) + dense vote (vector almacenado en Qdrant, k-NN etiquetado).
-        // Dry-run por defecto; --apply escribe (SQLite + evento + payload).
-        "backfill-projects" => {
-            let opts = ul::memory::backfill::BackfillOpts {
-                apply: has_flag(&args, "--apply"),
-                min_score: flag_value(&args, "--min-score")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(ul::memory::backfill::DEFAULT_MIN_SCORE),
-                min_share: flag_value(&args, "--min-share")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(ul::memory::backfill::DEFAULT_MIN_SHARE),
-                knn: flag_value(&args, "--knn")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(ul::memory::backfill::DEFAULT_KNN),
-                llm: has_flag(&args, "--llm"),
-                llm_min_conf: flag_value(&args, "--llm-min-conf")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(ul::memory::backfill::DEFAULT_LLM_MIN_CONF),
-            };
-            ul::memory::backfill::run(&opts)
-        }
-        // Curación de UN item (bisturí): project_id y/o título, con evento y
-        // reindex denso si el texto cambia. Dry-run salvo --apply.
-        //   ultron-memory curate --id <prefix> [--project <slug>] [--title "..."] [--apply]
-        "curate" => {
-            let id = flag_value(&args, "--id")
-                .ok_or_else(|| "curate requiere --id <prefijo>".to_string())?;
-            let proj = flag_value(&args, "--project");
-            let title = flag_value(&args, "--title");
-            ul::memory::curate::curate_item(
-                &id,
-                proj.as_deref(),
-                title.as_deref(),
-                has_flag(&args, "--apply"),
-            )
-        }
-        // Curación puntual: mueve TODOS los items de un project_id a otro slug
-        // canónico (ids legado que el normalize no puede plegar). Dry-run salvo --apply.
-        "reassign-project" => {
-            let from = flag_value(&args, "--from")
-                .ok_or_else(|| "reassign-project requiere --from <project_id>".to_string())?;
-            let to = flag_value(&args, "--to")
-                .ok_or_else(|| "reassign-project requiere --to <slug-canonico>".to_string())?;
-            ul::memory::backfill::reassign_project(&from, &to, has_flag(&args, "--apply"))
-        }
-        // Hubs del recall (2026-09-23): repite prompts reales de orchestrate.jsonl
-        // por el recall en crudo y lista los items que se inyectan en una fracción
-        // alta de ellos. --apply escribe cockpit/memory-hubs.json, que el motor
-        // usa para bajarles el rrf_score (ULTRON_HUB_PENALTY).
-        //   ultron-memory hubs [--prompts 200] [--threshold 0.2] [--min-count 5] [--apply] [--with-penalty] [--with-penalty]
-        "hubs" => {
-            let num = |flag: &str, def: f64| {
-                flag_value(&args, flag)
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(def)
-            };
-            to_json(ul::commands::memory::recall_unified::hubs::compute_hubs(
-                num("--prompts", 200.0) as usize,
-                num("--threshold", 0.2) as f32,
-                num("--min-count", 5.0) as usize,
-                has_flag(&args, "--apply"),
-                has_flag(&args, "--with-penalty"),
-            )?)
-        }
-        "reindex" => {
-            let (indexed, errors) =
-                ul::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;
-            Ok(serde_json::json!({ "indexed": indexed, "errors": errors }))
-        }
-        // (Re)index the agent/skill catalog (`ultron_catalog`) used by the
-        // orchestrator's `delegate_agents` semantic routing. Idempotent.
-        //   ultron-memory catalog            # agents + enabled skills (default)
-        //   ultron-memory catalog --agents   # agents only
-        //   ultron-memory catalog --skills   # enabled skills only
-        // `.disabled` skills are never indexed (they must not be routed to).
-        "catalog" => {
-            let only_agents = has_flag(&args, "--agents");
-            let only_skills = has_flag(&args, "--skills");
-
-            let indexed_agents = if only_skills {
-                None
-            } else {
-                Some(ul::memory::catalog::index_agents()?)
-            };
-            // Skills are additive: surface a skill failure as a field instead of
-            // discarding agent counts that were already committed.
-            let (indexed_skills, skill_error) = if only_agents {
-                (None, None)
-            } else {
-                match ul::memory::catalog::index_skills() {
-                    Ok(c) => (Some(c), None),
-                    Err(e) => (None, Some(e)),
-                }
-            };
-
-            let (a_ok, a_err) = indexed_agents.unwrap_or((0, 0));
-            let (s_ok, s_err) = indexed_skills.unwrap_or((0, 0));
-            Ok(serde_json::json!({
-                "indexed_agents": a_ok,
-                "indexed_skills": s_ok,
-                "errors": a_err + s_err,
-                "skill_error": skill_error,
-                "collection": ul::memory::catalog::CATALOG_COLLECTION,
-            }))
-        }
-        "eval" => {
-            // cat6.5 (mand.11): rechaza flags desconocidos para no fingir medir con
-            // el eval sintetico (recall=1.0) ante un typo como `--gold` por `--golden`.
-            reject_unknown_flags(&args, &["--golden", "--project", "--summary"])?;
-            // `--golden <path>` (with a path argument) loads an EXTERNAL hand-labeled
-            // JSON file (schema: `{ "labeled": [...] }`, cat19 FASE A oracle) and
-            // returns a `LabeledGoldenReport` directly — the external oracle takes
-            // precedence over the embedded golden metrics when a path is given.
-            //
-            // `--golden` alone (boolean, no path) ADDITIVELY merges the internal
-            // ranking-quality metrics (precision@k/recall@k/MRR/nDCG/context-waste)
-            // under a `golden_metrics` key, same as before.
-            //
-            // Default (no flag): the substring-based recall@8 report + security gate.
-            if let Some(golden_path) = flag_value(&args, "--golden") {
-                // cat19 FASE A: external oracle path provided.
-                let mut v = to_json(ul::memory::evals::run_labeled_golden(&golden_path, 8))?;
-                // `--summary` (P2 token-eff): quita el desglose per-query (~300
-                // lineas de retrieved_ids) y deja solo el aggregate + conteos —
-                // lo que consumen el harness y una lectura humana del gate.
-                if has_flag(&args, "--summary") {
-                    if let serde_json::Value::Object(ref mut map) = v {
-                        map.remove("per_query");
-                    }
-                }
-                Ok(v)
-            } else {
-                let base = ul::memory::evals::run(project.as_deref(), 8);
-                let mut v = to_json(base)?;
-                if has_flag(&args, "--golden") {
-                    let gm = ul::memory::evals::run_golden_metrics(project.as_deref(), 8, true);
-                    if let serde_json::Value::Object(ref mut map) = v {
-                        map.insert("golden_metrics".to_string(), to_json(gm)?);
-                    }
-                }
-                Ok(v)
-            }
-        }
-        // Dedicated subcommand: ONLY the ranking-quality metrics over the real
-        // golden set (precision@k/recall@k/MRR/nDCG/context-waste + security gate).
-        // FAIL-SAFE: degrades to an all-zero `degraded` report if the golden set
-        // is missing or Qdrant/E5 is offline.
-        "eval-full" => to_json(ul::memory::evals::run_golden_metrics(project.as_deref(), 8, true)),
-        "reconcile" => {
-            // Default: read-only SQLite<->Qdrant drift check.
-            // `--fix` repairs only the drift (re-embed missing, drop orphans) so
-            // an item swallowed by `sync_index` does not stay out of the dense
-            // index until a full `reindex`. Mutating, hence opt-in and
-            // dry-runnable (08-AUDIT policy).
-            reject_unknown_flags(&args, &["--fix", "--dry-run"])?;
-            if has_flag(&args, "--fix") {
-                let dry_run = has_flag(&args, "--dry-run");
-                to_json(
-                    ul::memory::qdrant_index::reconcile_fix(dry_run).map_err(|e| e.to_string())?,
-                )
-            } else {
-                to_json(ul::memory::qdrant_index::reconcile_check().map_err(|e| e.to_string())?)
-            }
-        }
-        "candidate" => {
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(|e| format!("read stdin: {e}"))?;
-            // {candidate_id} o {skipped:"duplicate", existing_id} (ambos exit 0):
-            // el dedupe bloqueante del write-path es idempotencia, no un error.
-            emit_candidate(&buf)
-        }
-        // 1.3 (memoria viva): supersede gobernado. `--old <id>` + NUEVO item por
-        // stdin -> el viejo pasa a Deprecated (valid_to=now, recuperable), el nuevo
-        // a Active, enlazados supersedes/superseded_by. Hace VIVA supersede()
-        // (antes 0 callers = codigo muerto). El estado se actualiza en vez de acumular.
-        "supersede" => {
-            let old_id = flag_value(&args, "--old")
-                .ok_or_else(|| "supersede requiere --old <id>".to_string())?;
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(|e| format!("read stdin: {e}"))?;
-            emit_supersede(&buf, &old_id)
-        }
+        "backfill-projects" => index_cli::backfill_projects(args),
+        "curate" => index_cli::curate(args),
+        "reassign-project" => index_cli::reassign_project(args),
+        "hubs" => recall_cli::hubs(args),
+        "reindex" => index_cli::reindex(),
+        "catalog" => index_cli::catalog(args),
+        "eval" => recall_cli::eval(args, project),
+        "eval-full" => recall_cli::eval_full(project),
+        "reconcile" => index_cli::reconcile(args),
+        "candidate" => capture_cli::candidate(),
+        "supersede" => capture_cli::supersede(args),
         // (subcomando `edge` retirado 2026-07-02 — codegraph interno erradicado,
         //  mand.12: 0 lectores. El codegraph real es el indexador externo `.codegraph/`.)
-        "capture" => {
-            // Stop hook -> auto-capture: extract durable facts (via AI Router,
-            // which also populates router telemetry) and propose them as inbox
-            // candidates. Transcript on stdin; never auto-promotes to active.
-            // `--session <id>` stamps source_session_id on every candidate
-            // (provenance episódica — see the `provenance` subcommand).
-            let session = flag_value(&args, "--session");
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(|e| format!("read stdin: {e}"))?;
-            to_json(ul::memory::capture::capture_session(
-                &buf,
-                project.as_deref(),
-                session.as_deref(),
-            ))
-        }
-        // Provenance episódica (feedback 2026-07-02): cita VERIFICABLE del origen
-        // de una memoria. Devuelve la sesión de captura (source_session_id), el
-        // canal (capture_source), el content_hash del texto vivo, y resuelve el
-        // transcript real `<session_id>.jsonl` bajo ~/.claude/projects/*/ si aún
-        // existe en disco. Read-only; nada se persiste. Un item sin sesión de
-        // origen responde `episodic: false` (honesto — no se inventa procedencia).
-        //   ultron-memory provenance --id <id|prefix>
-        "provenance" => {
-            let id_prefix = flag_value(&args, "--id")
-                .ok_or_else(|| "provenance requires --id <id|prefix>".to_string())?;
-            let resolved_id = resolve_id_prefix(&id_prefix)?;
-            let item = ul::memory::MemoryService::get(&resolved_id)
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| format!("item '{resolved_id}' not found"))?;
-            let content_hash = ul::memory::texthash::content_hash(&item.searchable_text());
-            let transcript = item
-                .source_session_id
-                .as_deref()
-                .and_then(ul::commands::sessions_sub::session_summary::find_transcript);
-            Ok(serde_json::json!({
-                "id": item.id,
-                "episodic": item.source_session_id.is_some(),
-                "source_session_id": item.source_session_id,
-                "capture_source": item.capture_source,
-                "created_at": item.created_at,
-                "content_hash": content_hash,
-                "transcript": transcript.as_ref().map(|p| p.display().to_string()),
-                "transcript_exists": transcript.is_some(),
-            }))
-        }
-        "warmup" => {
-            // SessionStart warmup (cold-recall fix). Force the lazy E5 ONNX model
-            // (multilingual-e5-large, 1.3 GB) to initialise by running ONE embed,
-            // so the OS page-cache of the .onnx is hot before the first real recall.
-            // Each .exe invocation is a fresh process, so this does NOT keep E5
-            // resident in RAM for the next process — it only warms the disk cache
-            // (~80% of the cold cost). Designed to be spawned DETACHED by the hook.
-            // FAIL-SAFE: a stub/offline E5 returns a zero vector; we still report
-            // `warmed:false` instead of erroring so the hook never blocks startup.
-            let started = std::time::Instant::now();
-            let warmed = match ul::qdrant::embed_e5("warmup", true) {
-                Ok(v) => v.iter().any(|&x| x != 0.0),
-                Err(_) => false,
-            };
-            // Cross-encoder warmup: only when ULTRON_RERANK is active.
-            // Guard prevents the ~1 GB BGERerankerV2M3 download for users who
-            // have not opted in. FAIL-SAFE: errors are logged but never block
-            // the session or change the `warmed` (E5) status.
-            // (2026-08-13) Desde el RERANK SELECTIVO el hot path SI re-rankea
-            // los prompts tecnicos, asi que la condicion vieja (solo con el
-            // opt-in ULTRON_RERANK_HOT) dejaba el cross-encoder frio: medido,
-            // el primer prompt tecnico de cada sesion pagaba 4.8 s (carga del
-            // modelo ~1 GB) en vez de los ~2.4 s del rerank en caliente. Se
-            // precalienta salvo apagado global (ULTRON_RERANK=0), donde nadie
-            // re-rankea y calentar seria tirar CPU.
-            let reranker_warmed = if ul::qdrant::reranker_enabled() {
-                match ul::qdrant::warmup_reranker() {
-                    Ok(()) => true,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "reranker warmup failed (non-fatal)");
-                        false
-                    }
-                }
-            } else {
-                false
-            };
-            Ok(serde_json::json!({
-                "warmed": warmed,
-                "reranker_warmed": reranker_warmed,
-                "ms": started.elapsed().as_millis() as u64,
-            }))
-        }
-        "doctor" => {
-            // Read-only health report. Prints JSON to stdout and exits with a
-            // code mirroring max_severity (0=ok, 1=warn, 2=error) for gates.
-            let report = ul::memory::doctor::run_doctor();
-            let code = report.exit_code();
-            println!(
-                "{}",
-                serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string())
-            );
-            std::process::exit(code);
-        }
-        // Governed, selective hard-delete by item id.
-        //
-        // Event-sourced: removes the row from brain.db (SQLite SoT) + its Qdrant
-        // point (dense index), then appends a `MemoryEvent` (Updated, reason
-        // "forgotten") with a `before` snapshot — the only surviving audit record.
-        // Reuses the exact `MemoryService::forget` path wired to the Tauri
-        // `memory_forget` command (see commands/memory/inbox.rs).
-        //
-        // Accepts a full UUID or an unambiguous id PREFIX (≥ 4 hex chars). When a
-        // prefix is supplied the sidecar resolves it against brain.db (exact-start
-        // search) and rejects the call when the prefix is absent or ambiguous
-        // (matches > 1 item) — so a partial id can never delete the wrong item.
-        //
-        // Flags:
-        //   --id <id|prefix>   required — the item to forget
-        //   --dry-run          print what WOULD be forgotten without mutating
-        //   --reason <R>       optional free-text reason (logged in the audit event)
-        //
-        // Usage:
-        //   ultron-memory forget --id 7cd41c41 --dry-run
-        //   ultron-memory forget --id 7cd41c41 --reason "PII purge audit-2026-06-25"
-        //   ultron-memory forget --id 84afaee2-3b1a-4c2f-8e0d-000000000000 --reason "PII"
-        "forget" => {
-            let id_prefix = flag_value(&args, "--id")
-                .ok_or_else(|| "forget requires --id <id|prefix>".to_string())?;
-            let dry = has_flag(&args, "--dry-run");
-            let reason = flag_value(&args, "--reason");
-
-            // Resolve prefix → full id via the canonical store.
-            let resolved_id = resolve_id_prefix(&id_prefix)?;
-
-            if dry {
-                // Dry-run: fetch + display the item that would be forgotten.
-                let item = ul::memory::MemoryService::get(&resolved_id)
-                    .map_err(|e| e.to_string())?
-                    .ok_or_else(|| format!("item '{resolved_id}' not found"))?;
-                Ok(serde_json::json!({
-                    "dry_run": true,
-                    "would_forget": {
-                        "id": item.id,
-                        "type": item.kind.as_str(),
-                        "status": item.status.as_str(),
-                        "sensitivity": item.sensitivity.as_str(),
-                        "summary": item.summary,
-                    }
-                }))
-            } else {
-                ul::memory::MemoryService::forget(
-                    &resolved_id,
-                    ul::memory::Actor::System,
-                    reason,
-                )
-                .map_err(|e| e.to_string())?;
-                Ok(serde_json::json!({
-                    "forgotten": resolved_id,
-                    "ok": true,
-                }))
-            }
-        }
-
-        // Bulk-deprecate every ACTIVE item of a type (purge bloat, e.g.
-        // codebase_fact). --dry-run only counts. Reuses set_status per id so
-        // FTS5 + Qdrant stay in sync; appends a Deprecated event per item.
-        //   ultron-memory deprecate --type codebase_fact [--dry-run] [--project X] [--reason R]
-        //   ultron-memory deprecate --id <id|prefix> [--reason R]   (curacion de eras, 2026-07-02)
-        // F1.7 (Q8b): archivar a tabla aparte (memory_items_archive) los ACTIVE
-        // de --type creados hace más de --older-than-days (default 14).
-        // --dry-run solo cuenta. Fuera del retriever, FTS5, Qdrant y reconcile.
-        "archive" => {
-            reject_unknown_flags(
-                &args,
-                &["--type", "--older-than-days", "--dry-run", "--reason"],
-            )?;
-            let kind_s = flag_value(&args, "--type")
-                .ok_or_else(|| "archive requires --type <T>".to_string())?;
-            let kind = ul::memory::MemoryType::parse(&kind_s)
-                .ok_or_else(|| format!("invalid memory type '{kind_s}'"))?;
-            let days: u64 = match flag_value(&args, "--older-than-days") {
-                Some(v) => v
-                    .parse::<u64>()
-                    .map_err(|e| format!("--older-than-days: {e}"))?,
-                None => 14,
-            };
-            let dry = has_flag(&args, "--dry-run");
-            let reason = flag_value(&args, "--reason");
-            let res = ul::memory::MemoryService::archive_by_type(
-                kind,
-                days,
-                dry,
-                ul::memory::Actor::System,
-                reason,
-            )
-            .map_err(|e| e.to_string())?;
-            to_json(res)
-        }
-        "deprecate" => {
-            // Modo por-id: deprecacion RECOVERABLE de un item concreto (hechos de
-            // una era superseded: la afirmacion fue real, ya no es verdad vigente).
-            // forget es borrado duro (PII); esto conserva el item fuera de recall.
-            if let Some(id_prefix) = flag_value(&args, "--id") {
-                let resolved_id = resolve_id_prefix(&id_prefix)?;
-                // --dry-run se ignoraba en el modo por-id y el item se deprecaba
-                // de verdad (2026-09-23): ahora solo informa de lo que haria.
-                if has_flag(&args, "--dry-run") {
-                    return Ok(serde_json::json!({
-                        "would_deprecate": resolved_id,
-                        "dry_run": true,
-                        "ok": true,
-                    }));
-                }
-                let reason = flag_value(&args, "--reason");
-                let item = ul::memory::MemoryService::deprecate(
-                    &resolved_id,
-                    ul::memory::Actor::System,
-                    reason,
-                )
-                .map_err(|e| e.to_string())?;
-                return Ok(serde_json::json!({
-                    "deprecated": resolved_id,
-                    "status": item.status.as_str(),
-                    "ok": true,
-                }));
-            }
-            let kind_s = flag_value(&args, "--type")
-                .ok_or_else(|| "deprecate requires --type <T> (bulk) o --id <id> (item)".to_string())?;
-            let kind = ul::memory::MemoryType::parse(&kind_s)
-                .ok_or_else(|| format!("invalid memory type '{kind_s}'"))?;
-            let dry = has_flag(&args, "--dry-run");
-            let reason = flag_value(&args, "--reason");
-            let res = ul::memory::MemoryService::deprecate_by_type(
-                kind,
-                dry,
-                project.as_deref(),
-                reason,
-                ul::memory::Actor::System,
-            )
-            .map_err(|e| e.to_string())?;
-            to_json(res)
-        }
-        // Sweep ACTIVE items not MODIFIED in --older-than-days (default 180) and
-        // transition them to Status::Stale (no longer recall-eligible). --dry-run
-        // only counts. Reuses set_status per id so FTS5 + Qdrant + the event log
-        // stay in sync; pinned and user-validated items are protected. Reversible.
-        //   ultron-memory stale [--older-than-days N] [--dry-run] [--reason R]
-        "stale" => {
-            let days: i64 = flag_value(&args, "--older-than-days")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(180);
-            let dry = has_flag(&args, "--dry-run");
-            let reason = flag_value(&args, "--reason");
-            let res = ul::memory::MemoryService::mark_stale_aged(
-                days,
-                dry,
-                ul::memory::Actor::System,
-                reason,
-            )
-            .map_err(|e| e.to_string())?;
-            to_json(res)
-        }
-        // Mantenimiento a 90 dias de brain.db (F1.8, 2026-09-11). Tres reglas,
-        // todas con la misma ventana --days:
-        //   1. ACTIVE sin recall (last_accessed_at) ni cambios -> Stale.
-        //   2. memory_events de items deprecated/rejected -> borrados.
-        //   3. memory_events sin item: memory_id NULL (telemetria de recall) o
-        //      apuntando a un id que ya no existe (archivado/forget) -> borrados.
-        // Los eventos de items active/stale quedan intactos. Compacta con VACUUM
-        // solo si el ahorro estimado supera 10 MB. --dry-run no escribe nada.
-        // La salida trae el total y el desglose en events_deleted_by_rule.
-        //   ultron-memory gc [--days 90] [--dry-run]
-        // Reconstruye el indice FTS5 de memory_items (2026-09-22): el indice de
-        // contenido externo se habia desincronizado (10.205 filas frente a 4.390
-        // items), MATCH fallaba con "missing row" y el recall sparse devolvia
-        // basura. `doctor` lo detecta en el check `fts`; esto lo repara y
-        // devuelve el estado antes/despues.
-        //   ultron-memory fts-rebuild
-        "fts-rebuild" => {
-            reject_unknown_flags(&args, &[])?;
-            to_json(ul::memory::MemoryService::fts_rebuild().map_err(|e| e.to_string())?)
-        }
-        // Baja a `internal` los items activos Secret cuyo unico marcador de
-        // redaccion es [REDACTED_PHONE]: hasta el 2026-09-22 el detector de PII
-        // tomaba las fechas ISO por telefonos y el pack del recall excluia esas
-        // memorias para siempre (35 de 69 Secret activos). Tambien devuelve la
-        // fecha a los titulos generados por hooks ("Resumen SessionEnd <fecha>")
-        // a partir de created_at. --dry-run solo cuenta.
-        //   ultron-memory secret-backfill [--dry-run]
-        "secret-backfill" => {
-            reject_unknown_flags(&args, &["--dry-run"])?;
-            let dry = has_flag(&args, "--dry-run");
-            to_json(
-                ul::memory::MemoryService::secret_backfill(dry, ul::memory::Actor::System)
-                    .map_err(|e| e.to_string())?,
-            )
-        }
-        "gc" => {
-            reject_unknown_flags(&args, &["--days", "--dry-run"])?;
-            let days: i64 = flag_value(&args, "--days")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(ul::memory::service::DEFAULT_GC_DAYS);
-            let dry = has_flag(&args, "--dry-run");
-            to_json(
-                ul::memory::MemoryService::gc(days, dry, ul::memory::Actor::System)
-                    .map_err(|e| e.to_string())?,
-            )
-        }
-        // Sweep por confianza (audit 2026-08-09): deprecar ACTIVE con confidence
-        // < --below (default 0.55, el umbral de ruido de banda C) EXCLUYENDO
-        // golden positives (el oráculo no se canibaliza), pinned y user-validated.
-        // Reversible (deprecate, no forget). --dry-run solo cuenta.
-        //   ultron-memory sweep [--below 0.55] [--dry-run] [--reason R]
-        "sweep" => {
-            let below: f32 = flag_value(&args, "--below")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0.55);
-            let dry = has_flag(&args, "--dry-run");
-            let reason = flag_value(&args, "--reason");
-            let protected = ul::memory::evals::golden_protected_ids();
-            let res = ul::memory::MemoryService::sweep_low_confidence(
-                below,
-                &protected,
-                dry,
-                ul::memory::Actor::System,
-                reason,
-            )
-            .map_err(|e| e.to_string())?;
-            to_json(res)
+        "capture" => capture_cli::capture(args, project),
+        "provenance" => capture_cli::provenance(args),
+        "warmup" => capture_cli::warmup(),
+        "doctor" => capture_cli::doctor(),
+        // Mantenimiento (forget, archive, deprecate, stale, gc, sweep, dedupe,
+        // fts-rebuild, secret-backfill, scrub-secrets, deprecations): ver `maintenance_cli.rs`.
+        "forget" | "archive" | "deprecate" | "stale" | "fts-rebuild" | "secret-backfill"
+        | "pii-backfill" | "scrub-secrets" | "gc" | "sweep" | "dedupe" | "deprecations" => {
+            maintenance_cli::maintenance_command(cmd, args, project)
         }
         // Informe READ-ONLY de víctimas de higiene en los golden sets (patrón
         // b1ea0e5): expect_ids no-ACTIVE con su gemelo activo por content_hash.
-        // No muta nada — el remap de los JSON lo aplica quien lee el informe.
-        //   ultron-memory golden-remap
-        // Copias exactas de ACTIVE (2026-09-03: 206 sobrantes por drains --auto
-        // solapados). Reversible: Deprecated, no forget. `--dry-run` solo cuenta.
-        "dedupe" => {
-            reject_unknown_flags(&args, &["--dry-run", "--reason"])?;
-            let dry = has_flag(&args, "--dry-run");
-            let reason = flag_value(&args, "--reason");
-            to_json(
-                ul::memory::MemoryService::deprecate_exact_duplicates(
-                    dry,
-                    ul::memory::Actor::System,
-                    reason,
-                )
-                .map_err(|e| e.to_string())?,
-            )
-        }
         "golden-remap" => Ok(ul::memory::evals::golden_remap_report()),
-        // Cierra las entradas VENCIDAS y no cerradas de `deprecation_entries`
-        // (kanban: "ultron-memory doctor: 478 deprecation_deadlines vencidos";
-        // decisión 2026-09-14: archivar, no purgar). Si el item sigue
-        // `deprecated` en `memory_items` lo archiva por el mismo camino que
-        // `archive` (Qdrant + memory_items_archive + evento); si ya no existe
-        // en ningún lado la entrada pasa a `state='deleted'` sin tocar
-        // memoria. `--dry-run` solo cuenta. Se ejecuta también dentro de `gc`.
-        //   ultron-memory deprecations apply [--dry-run]
-        "deprecations" => {
-            let sub = args.get(2).map(String::as_str).unwrap_or("");
-            match sub {
-                "apply" => {
-                    reject_unknown_flags(&args, &["--dry-run"])?;
-                    let dry = has_flag(&args, "--dry-run");
-                    to_json(
-                        ul::memory::MemoryService::apply_deprecation_deadlines(
-                            dry,
-                            ul::memory::Actor::System,
-                        )
-                        .map_err(|e| e.to_string())?,
-                    )
-                }
-                other => Err(format!("unknown deprecations subcommand '{other}'")),
-            }
-        }
+        "reindex-skills-lazy" => index_cli::reindex_skills_lazy(),
+        "skill-query" => index_cli::skill_query(args),
+        "skill-judge" => index_cli::skill_judge(args),
         // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
-        // orchestration drops from ~3.5s (cold model load every spawn) to sub-second.
-        // `run_daemon` blocks forever serving requests, OR returns immediately with
-        // `already_running` when a live daemon already owns the lockfile. Spawned
-        // DETACHED by the SessionStart memory-warmup hook.
-        // (Re)index ALL skills (enabled + disabled) into `ultron_skills_lazy`.
-        // Used to measure acc@3 of E5 routing over the full lazy-dispatch corpus
-        // before wiring the hot path. Never touches `ultron_catalog`.
-        //   ultron-memory reindex-skills-lazy
-        "reindex-skills-lazy" => {
-            let (ok, err) = ul::memory::catalog::index_skills_lazy()?;
-            to_json(serde_json::json!({
-                "indexed": ok,
-                "errors": err,
-                "collection": ul::memory::catalog::SKILLS_LAZY_COLLECTION,
-            }))
-        }
-        // Semantic skill search over the full lazy corpus (enabled + disabled).
-        //   ultron-memory skill-query <prompt> [--top N]   (default N=5)
-        // Returns a JSON array of hits ordered by E5 cosine similarity desc.
-        "skill-query" => {
-            let top: u32 = flag_value(&args, "--top")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(5);
-            // Build prompt: collect positional tokens after the subcommand,
-            // skipping value flags (--top N, --project P) and bare flags (--*).
-            let mut parts: Vec<String> = Vec::new();
-            let mut i = 2usize;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--project" | "--top" => {
-                        i += 2; // skip flag + its value
-                    }
-                    s if s.starts_with("--") => {
-                        i += 1; // skip unknown boolean flag
-                    }
-                    _ => {
-                        parts.push(args[i].clone());
-                        i += 1;
-                    }
-                }
-            }
-            let prompt = parts.join(" ");
-            if prompt.trim().is_empty() {
-                return Err("skill-query requires a prompt argument".to_string());
-            }
-            let hits = ul::memory::catalog::search_skills_lazy(&prompt, top);
-            let result: Vec<serde_json::Value> = hits
-                .into_iter()
-                .map(|h| {
-                    serde_json::json!({
-                        "name": h.name,
-                        "score": h.score,
-                        "kind": h.kind,
-                        "description": h.description,
-                    })
-                })
-                .collect();
-            to_json(result)
-        }
-        // Skill routing por LLM sobre el catalogo completo (2026-08-27). El
-        // retriever denso de `skill-query` acierta 4/10 en top-1 y sus scores
-        // caben todos en 0.79-0.84, asi que no hay umbral que separe un acierto
-        // de un candidato al azar; este camino le da el catalogo entero a un
-        // modelo pequeno y valida la respuesta contra el.
-        //   ultron-memory skill-judge <prompt>
-        "skill-judge" => {
-            let prompt = args[2..].join(" ");
-            if prompt.trim().is_empty() {
-                return Err("skill-judge requires a prompt argument".to_string());
-            }
-            let catalogo = ul::orchestrator::skill_llm::catalogo_desde_disco();
-            let elegidas = ul::orchestrator::skill_llm::elegir_skills(&prompt, &catalogo);
-            // `elegir_skills` calla cualquier fallo por diseno (es hot path del
-            // hook). Este subcomando existe para MEDIR, asi que expone por que
-            // vino vacio: sin clave y "el modelo dijo ninguna" son diagnosticos
-            // opuestos y sin esto se confunden.
-            to_json(serde_json::json!({
-                "skills": elegidas,
-                "catalog_size": catalogo.len(),
-                "key_var": ul::orchestrator::skill_llm::key_var(),
-                "model": ul::orchestrator::skill_llm::modelo(),
-            }))
-        }
+        // orchestration drops from ~3.5s to sub-second. Blocks forever serving
+        // requests, OR returns `already_running` when a live daemon owns the
+        // lockfile. Spawned DETACHED by the SessionStart memory-warmup hook.
         "serve" => ul::serve::run_daemon(),
         // Report whether a live daemon is reachable (lockfile + ping). Read-only.
         "serve-ping" => Ok(ul::serve::ping_status()),
-        // Candidate inbox governance from the CLI (no running app needed).
-        //   ultron-memory inbox list                  # pending + clean counts
-        //   ultron-memory inbox approve-clean         # promote only CLEAN candidates
-        //   ultron-memory inbox approve-all           # promote ALL (incl. flagged)
-        //   ultron-memory inbox auto-approve <on|off> # persist the auto-approve flag
-        // approve-* reuse MemoryService::approve_candidate (Actor::User) per id, the
-        // same path the Tauri inbox uses; clean = no secret marker, no contradiction.
-        "inbox" => {
-            let sub = args.get(2).map(String::as_str).unwrap_or("");
-            inbox_command(sub, &args)
-        }
-        // cat7.8: SHA corto de HEAD embebido en build time (build.rs) para verificar
-        // exe<->commit sin depender del mtime (un `touch` lo falsea). option_env!
-        // degrada a "unknown" si el build no tuvo git disponible.
-        "version" => Ok(serde_json::json!({
-            "bin": "ultron-memory",
-            "pkg_version": env!("CARGO_PKG_VERSION"),
-            "git_sha": option_env!("ULTRON_GIT_SHA").unwrap_or("unknown"),
-        })),
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|fts-rebuild|secret-backfill [--dry-run]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]".to_string()),
+        // Candidate inbox governance from the CLI (no running app needed): ver
+        // `inbox_cli.rs`. approve-* reuse MemoryService::approve_candidate.
+        "inbox" => inbox_command(args.get(2).map(String::as_str).unwrap_or(""), args),
+        // cat7.8 + K1: SHA corto de HEAD y estado del árbol embebidos en build
+        // time (build.rs) para verificar exe<->commit sin depender del mtime. Con
+        // `dirty: true` el SHA no describe el código del binario.
+        "version" => Ok(ul::build_stamp::version_json(
+            "ultron-memory",
+            ul::build_stamp::current(),
+        )),
+        "" => Err(USAGE.to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -865,29 +199,17 @@ fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
 
-/// Resolve an id prefix (≥ 1 hex char) to an unambiguous full item id.
-///
-/// Returns the full id when exactly one ACTIVE or non-active item starts with
-/// the prefix. Errors when:
-/// - The prefix is empty or contains only whitespace.
-/// - No item id starts with the prefix.
-/// - More than one item id starts with the prefix (ambiguous).
-///
-/// Accepts a full UUID as well (pass-through when the item exists).
+/// Resolve a full item id or an id prefix (≥ `MIN_ID_PREFIX_CHARS`
+/// characters, compared literally) to an unambiguous full item id, ACTIVE or
+/// not. Errors on an empty, too short, absent or ambiguous prefix; the rules
+/// live in `sqlite_store::resolve_unique_id` (tested there).
 fn resolve_id_prefix(prefix: &str) -> Result<String, String> {
     let prefix = prefix.trim();
     if prefix.is_empty() {
         return Err("--id must not be empty".to_string());
     }
-    // Open a read-only connection for the prefix scan.
     let conn = ul::memory::sqlite_store::open_conn().map_err(|e| e.to_string())?;
     let matches =
         ul::memory::sqlite_store::find_ids_by_prefix(&conn, prefix).map_err(|e| e.to_string())?;
-    match matches.len() {
-        0 => Err(format!("no item found with id prefix '{prefix}'")),
-        1 => Ok(matches.into_iter().next().unwrap()),
-        n => Err(format!(
-            "prefix '{prefix}' is ambiguous — matches {n} items; use a longer prefix"
-        )),
-    }
+    ul::memory::sqlite_store::resolve_unique_id(prefix, matches, "item")
 }

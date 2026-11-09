@@ -16,9 +16,9 @@ export interface ConfirmOptions {
     title?: string;
     /** Severity tint — defaults to "warn". */
     kind?: "info" | "warning" | "error";
-    /** Custom label for the OK button (default "Confirm"). */
+    /** Custom label for the OK button (default "Confirmar"). */
     okLabel?: string;
-    /** Custom label for the Cancel button (default "Cancel"). */
+    /** Custom label for the Cancel button (default "Cancelar"). */
     cancelLabel?: string;
 }
 

@@ -24,9 +24,9 @@ export function LauncherModal({
 
   const headline = workspace.project_name ?? deriveWorkspaceName(workspace.cwd);
   const title =
-    mode === "custom" ? "Custom launch" : "Send context to a new session";
+    mode === "custom" ? "Lanzamiento personalizado" : "Enviar contexto a una sesión nueva";
   const launchLabel =
-    mode === "custom" ? "Launch" : "Launch with context";
+    mode === "custom" ? "Lanzar" : "Lanzar con contexto";
 
   return (
     <div
@@ -61,7 +61,7 @@ export function LauncherModal({
             onClick={onClose}
             className="rounded px-2 py-0.5 text-[12px]"
             style={{ color: "var(--color-text-tertiary)" }}
-            aria-label="Close"
+            aria-label="Cerrar"
           >
             ✕
           </button>
@@ -77,7 +77,7 @@ export function LauncherModal({
                 color: "var(--color-text-secondary)",
               }}
             >
-              Spawns a new session seeded with a reference to{" "}
+              Abre una sesión nueva con una referencia a{" "}
               <span
                 style={{
                   fontFamily: "var(--font-mono)",
@@ -86,14 +86,14 @@ export function LauncherModal({
               >
                 {workspace.latest_session_id?.slice(0, 8) ?? "—"}
               </span>
-              . The new session will receive a prompt asking it to load and
-              continue context from that session.
+              . La sesión nueva recibe un prompt que le pide cargar el
+              contexto de esa sesión y continuarlo.
             </div>
           )}
 
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2 text-[12px]">
-              <span style={{ color: "var(--color-text-tertiary)" }}>Provider</span>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Proveedor</span>
               <select
                 value={provider}
                 onChange={(e) => {
@@ -114,7 +114,7 @@ export function LauncherModal({
               </select>
             </div>
             <div className="flex items-center gap-2 text-[12px]">
-              <span style={{ color: "var(--color-text-tertiary)" }}>Model</span>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Modelo</span>
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
@@ -149,7 +149,7 @@ export function LauncherModal({
               border: "1px solid var(--color-border)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"

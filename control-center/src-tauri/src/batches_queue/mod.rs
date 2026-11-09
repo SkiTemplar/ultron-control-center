@@ -10,7 +10,8 @@
 // whenever a command cannot be executed, it is LEFT in Run Batch (this queue)
 // and surfaces in the UI for a one-click (human-gated) re-run.
 //
-// Persistence model is copied EXACTLY from `decisions.rs`'s drain discipline:
+// Persistence model (drain discipline, inherited from the retired
+// `decisions.rs`):
 //   - queue file: ~/.ultron/batches/queue.jsonl (one JSON object per line)
 //   - producers (the Node Stop hook) `appendFileSync` raw lines without a lock
 //   - this module reconciles by renaming the pending file to a `.draining`
@@ -19,17 +20,16 @@
 //     lands in a fresh file instead of being lost.
 //
 // A process-wide `OnceLock<Mutex<()>>` serialises every read-modify-write
-// path inside this process (same as `decisions_lock`).
+// path inside this process.
 
 pub(crate) mod drain;
 pub(crate) mod persistence;
-pub(crate) mod sanitize;
 pub(crate) mod types;
 
 // Re-export the public surface so callers using `crate::batches_queue::Foo`
 // continue to resolve without change.
 pub use persistence::{clear_queue_inner, dismiss_inner, list_inner, record_inner, requeue_inner};
-pub use types::{BatchQueueEntry, BatchQueueReason};
+pub use types::{BatchQueueEntry, BatchQueueListing, BatchQueueReason};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -139,6 +139,19 @@ mod tests {
     }
 
     #[test]
+    fn clip_error_redacta_un_token_que_el_recorte_partiria() {
+        let token = format!("ghp_{}", "A1b2C3d4E5".repeat(4));
+        let pad = "x".repeat(MAX_ERROR_LEN - 10);
+        let clipped = clip_error(&format!("{pad} {token}")).unwrap();
+        assert!(
+            !clipped.contains("ghp_"),
+            "el prefijo del token no debe quedar en claro: {clipped}"
+        );
+        // Caso negativo: sin token el texto no cambia.
+        assert_eq!(clip_error("fallo normal").as_deref(), Some("fallo normal"));
+    }
+
+    #[test]
     fn clip_error_empty_is_none() {
         assert!(clip_error("   ").is_none());
     }
@@ -174,6 +187,46 @@ mod tests {
         assert_eq!(out[0].name, "ok.ps1");
         // default reason when omitted is failed
         assert_eq!(out[0].reason, BatchQueueReason::Failed);
+    }
+
+    fn entry(id: &str, created_at: &str) -> BatchQueueEntry {
+        BatchQueueEntry {
+            id: id.into(),
+            name: format!("{id}.ps1"),
+            path: String::new(),
+            reason: BatchQueueReason::Rejected,
+            kind: BatchKind::Auto,
+            description: None,
+            created_at: created_at.into(),
+            last_error: None,
+            attempts: 1,
+        }
+    }
+
+    // hooks-6 (auditoría 2026-10-23): el fallo del drenaje se descartaba con
+    // `let _ =`. Caso negativo: un drenaje fallido tiene que llegar a la UI sin
+    // ocultar la cola que ya existe.
+    #[test]
+    fn listing_surfaces_drain_error_and_keeps_entries() {
+        let out = super::persistence::listing_from(
+            Err("rename pending: acceso denegado".into()),
+            vec![entry("a", "epoch:1"), entry("b", "epoch:2")],
+        )
+        .unwrap();
+        assert_eq!(
+            out.drain_error.as_deref(),
+            Some("rename pending: acceso denegado")
+        );
+        assert_eq!(out.entries.len(), 2);
+        assert_eq!(out.entries[0].id, "b", "más reciente primero");
+    }
+
+    #[test]
+    fn listing_without_drain_error_has_none() {
+        let out =
+            super::persistence::listing_from(Ok(Vec::new()), vec![entry("a", "epoch:1")]).unwrap();
+        assert!(out.drain_error.is_none());
+        assert_eq!(out.entries.len(), 1);
     }
 
     #[test]

@@ -1,11 +1,12 @@
 // KIRKARDO R4 gap tests + LatencyHistogram p50/p95 + apply_metric_sample tests.
 
-use std::collections::HashMap;
-
 use crate::ai_router::exec::{retry_delay_ms, xorshift64_jitter_seed};
-use crate::ai_router::providers::apply_metric_sample;
+use crate::ai_router::providers::{apply_metric_sample, apply_route_outcome};
 use crate::ai_router::types::free_tier_daily_limit;
-use crate::ai_router::types::{DailyUsage, LatencyHistogram, ModeCounters, RouterMetrics};
+use crate::ai_router::types::{
+    daily_quota_key, DailyUsage, LatencyHistogram, RouteOutcome, RouterMetrics,
+    RECENT_FALLBACK_WINDOW,
+};
 
 use super::{env_lock, metric_sample};
 
@@ -157,46 +158,126 @@ fn latency_histogram_empty_returns_zero() {
 }
 
 // -----------------------------------------------------------------------
-// KIRKARDO P2 — by_mode / by_class reset coordination
+// router-2 (2026-10-23): contador diario free-tier por (proveedor, modelo)
 // -----------------------------------------------------------------------
 
 #[test]
-fn by_mode_reset_coordinated_with_daily() {
-    let stale_date = "2000-01-01".to_string();
-    let mut mode_counters = ModeCounters {
-        date: stale_date.clone(),
-        counts: {
-            let mut m = HashMap::new();
-            m.insert("dual".to_string(), 42u64);
-            m
+fn daily_counter_is_kept_per_provider_and_model() {
+    let mut m = RouterMetrics::default();
+    // Clave antigua por proveedor, escrita por un binario anterior.
+    m.daily.insert(
+        "groq".into(),
+        DailyUsage {
+            date: "2026-10-23".into(),
+            count: 999,
         },
-    };
+    );
+    apply_metric_sample(
+        &mut m,
+        &metric_sample("groq", "openai/gpt-oss-120b"),
+        "2026-10-23",
+    );
+    apply_metric_sample(
+        &mut m,
+        &metric_sample("groq", "openai/gpt-oss-120b"),
+        "2026-10-23",
+    );
+    apply_metric_sample(
+        &mut m,
+        &metric_sample("groq", "openai/gpt-oss-20b"),
+        "2026-10-23",
+    );
 
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    assert_eq!(m.daily_used("groq", "openai/gpt-oss-120b", "2026-10-23"), 2);
+    assert_eq!(m.daily_used("groq", "openai/gpt-oss-20b", "2026-10-23"), 1);
+    assert!(
+        !m.daily.contains_key("groq"),
+        "la clave por proveedor sumaba los dos buckets y se descarta"
+    );
+    // Cambio de día: el bucket arranca de cero.
+    apply_metric_sample(
+        &mut m,
+        &metric_sample("groq", "openai/gpt-oss-20b"),
+        "2026-10-24",
+    );
+    assert_eq!(
+        m.daily[&daily_quota_key("groq", "openai/gpt-oss-20b")].count,
+        1
+    );
+}
 
-    let mut du = DailyUsage {
-        date: stale_date.clone(),
-        count: 99,
-    };
+// -----------------------------------------------------------------------
+// router-1 (2026-10-23): resultado de cada route()
+// -----------------------------------------------------------------------
 
-    if du.date != today {
-        du.date = today.clone();
-        du.count = 0;
+#[test]
+fn route_outcomes_feed_counters_and_window() {
+    let mut m = RouterMetrics::default();
+    apply_route_outcome(&mut m, RouteOutcome::Primary);
+    apply_route_outcome(&mut m, RouteOutcome::Fallback);
+    apply_route_outcome(&mut m, RouteOutcome::Failed);
+    assert_eq!(m.routes_total, 3);
+    assert_eq!(m.real_fallback_count, 1);
+    assert_eq!(m.routes_failed, 1);
+    assert_eq!(
+        m.recent_outcomes,
+        vec![
+            RouteOutcome::Primary,
+            RouteOutcome::Fallback,
+            RouteOutcome::Failed
+        ]
+    );
+}
+
+#[test]
+fn route_outcome_window_is_bounded() {
+    let mut m = RouterMetrics::default();
+    for _ in 0..RECENT_FALLBACK_WINDOW {
+        apply_route_outcome(&mut m, RouteOutcome::Failed);
     }
-    du.count = du.count.saturating_add(1);
+    apply_route_outcome(&mut m, RouteOutcome::Primary);
+    assert_eq!(m.recent_outcomes.len(), RECENT_FALLBACK_WINDOW);
+    assert_eq!(m.recent_outcomes.last(), Some(&RouteOutcome::Primary));
+}
 
-    if mode_counters.date != today {
-        mode_counters.date = today.clone();
-        mode_counters.counts.clear();
+/// Un metrics.json escrito por un binario anterior (ventana booleana) se lee
+/// sin perder la ventana y sin volver a escribir el campo antiguo.
+#[test]
+fn legacy_boolean_window_is_adopted_and_not_written_back() {
+    let legacy = r#"{"fallback_output_tokens":0,"cost_saved_usd":0.0,"by_class":{},
+        "fallback_rate":0.0,"routes_total":3,"real_fallback_count":1,
+        "recent_routes":[false,true,false]}"#;
+    let mut m: RouterMetrics = serde_json::from_str(legacy).expect("legacy");
+    m.adopt_legacy_window();
+    assert_eq!(
+        m.recent_outcomes,
+        vec![
+            RouteOutcome::Primary,
+            RouteOutcome::Fallback,
+            RouteOutcome::Primary
+        ]
+    );
+    let out = serde_json::to_value(&m).expect("json");
+    assert!(out.get("recent_routes").is_none());
+    assert_eq!(out["recent_outcomes"][1], "fallback");
+}
+
+#[test]
+fn route_rates_see_failed_routes() {
+    let mut m = RouterMetrics::default();
+    for _ in 0..3 {
+        apply_route_outcome(&mut m, RouteOutcome::Primary);
     }
-    let mc = mode_counters.counts.entry("dual".to_string()).or_insert(0);
-    *mc = mc.saturating_add(1);
-
-    assert_eq!(du.date, today);
-    assert_eq!(mode_counters.date, today);
-    assert_eq!(du.count, 1);
-    assert_eq!(mode_counters.counts.get("dual").copied().unwrap_or(0), 1);
-    assert_eq!(du.date, mode_counters.date);
+    apply_route_outcome(&mut m, RouteOutcome::Failed);
+    let r = crate::ai_router::route_rates(&m);
+    assert_eq!(r.missed_primary, 0.25);
+    assert_eq!(r.failed, 0.25);
+    assert_eq!(r.missed_primary_recent, 0.25);
+    assert_eq!(r.failed_recent, 0.25);
+    // Caso negativo: sin rutas, todo a cero (no NaN).
+    let empty = crate::ai_router::route_rates(&RouterMetrics::default());
+    assert_eq!(empty.missed_primary, 0.0);
+    assert_eq!(empty.failed_recent, 0.0);
 }
 
 #[test]
@@ -208,32 +289,178 @@ fn apply_metric_sample_health_gate_opens_and_clears_cooldown() {
     fail.success = false;
     fail.error = Some("gemini exited 1: quota exceeded");
 
+    let key = "gemini-cli::gemini-2.5-flash";
     apply_metric_sample(&mut m, &fail, day);
     apply_metric_sample(&mut m, &fail, day);
-    let cm = &m.by_class["gemini-cli"];
-    assert_eq!(cm.consecutive_failures, 2);
+    let mm = &m.by_model[key];
+    assert_eq!(mm.consecutive_failures, 2);
     assert!(
-        cm.cooldown_until.is_none(),
+        mm.cooldown_until.is_none(),
         "2 fallos no deben abrir cooldown (umbral=3)"
     );
     assert_eq!(
-        cm.last_error.as_deref(),
+        m.by_class["gemini-cli"].last_error.as_deref(),
         Some("gemini exited 1: quota exceeded")
     );
 
     apply_metric_sample(&mut m, &fail, day);
-    let cm = &m.by_class["gemini-cli"];
-    assert_eq!(cm.consecutive_failures, 3);
-    assert!(cm.cooldown_until.is_some(), "3 fallos abren cooldown");
-    assert!(cm.last_error_at.is_some());
+    let mm = &m.by_model[key];
+    assert_eq!(mm.consecutive_failures, 3);
+    assert!(mm.cooldown_until.is_some(), "3 fallos abren cooldown");
+    assert!(m.by_class["gemini-cli"].last_error_at.is_some());
+    assert!(
+        m.by_class["gemini-cli"].cooldown_until.is_none(),
+        "el cooldown vive por modelo, no por proveedor"
+    );
 
     let ok = metric_sample("gemini-cli", "gemini-2.5-flash");
     apply_metric_sample(&mut m, &ok, day);
+    let mm = &m.by_model[key];
+    assert_eq!(mm.consecutive_failures, 0);
+    assert!(mm.cooldown_until.is_none());
     let cm = &m.by_class["gemini-cli"];
-    assert_eq!(cm.consecutive_failures, 0);
-    assert!(cm.cooldown_until.is_none());
     assert!(cm.last_error.is_none());
     assert!(cm.last_success_at.is_some());
+}
+
+#[test]
+fn apply_metric_sample_redacta_el_error_antes_de_recortarlo() {
+    use crate::ai_router::providers::metrics::MAX_LAST_ERROR_CHARS;
+    let mut m = RouterMetrics::default();
+    // El token empieza 14 caracteres antes del tope: recortar primero deja
+    // `ghp_` + 10 caracteres, por debajo del mínimo del patrón, y escapa.
+    let error = format!(
+        "{} ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+        "e".repeat(MAX_LAST_ERROR_CHARS - 15)
+    );
+    let mut fail = metric_sample("groq", "m");
+    fail.success = false;
+    fail.error = Some(&error);
+    apply_metric_sample(&mut m, &fail, "2026-10-18");
+    let guardado = m.by_class["groq"].last_error.clone().unwrap_or_default();
+    assert!(
+        !guardado.contains("ghp_"),
+        "ni el prefijo del token: {guardado}"
+    );
+    assert!(guardado.contains("[REDACTED"), "{guardado}");
+    assert!(
+        guardado.chars().count() <= MAX_LAST_ERROR_CHARS + 3,
+        "sigue acotado"
+    );
+}
+
+/// Una clave de Groq (`gsk_…`) en el cuerpo de un 401 no llega a `last_error`.
+#[test]
+fn apply_metric_sample_redacta_una_clave_de_groq() {
+    let mut m = RouterMetrics::default();
+    let key = format!("gsk_{}", "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghijkl");
+    let error = format!("401 Unauthorized: invalid api key {key}");
+    let mut fail = metric_sample("groq", "m");
+    fail.success = false;
+    fail.error = Some(&error);
+    apply_metric_sample(&mut m, &fail, "2026-10-23");
+    let guardado = m.by_class["groq"].last_error.clone().unwrap_or_default();
+    assert!(
+        !guardado.contains("gsk_"),
+        "ni el prefijo de la clave: {guardado}"
+    );
+    assert!(guardado.contains("[REDACTED:groq_key]"), "{guardado}");
+}
+
+/// Minutos que faltan hasta `cooldown_until` del modelo (redondeo al minuto).
+fn cooldown_minutes_left(m: &RouterMetrics, key: &str) -> i64 {
+    let until = m.by_model[key].cooldown_until.as_deref().expect("cooldown");
+    let until = chrono::DateTime::parse_from_rfc3339(until).unwrap();
+    let secs = (until.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_seconds();
+    (secs + 30) / 60
+}
+
+#[test]
+fn health_gate_429_on_one_model_does_not_bench_its_sibling() {
+    use crate::ai_router::types::FailReason;
+    let mut m = RouterMetrics::default();
+    let day = "2026-09-28";
+    let mut fail = metric_sample("groq", "openai/gpt-oss-120b");
+    fail.success = false;
+    fail.fail_reason = Some(FailReason::RateLimit);
+    fail.error = Some("groq 429: tokens per day [retry-after=433s]");
+    apply_metric_sample(&mut m, &fail, day);
+
+    assert_eq!(
+        cooldown_minutes_left(&m, "groq::openai/gpt-oss-120b"),
+        7,
+        "un 429 con plazo largo enfría desde el primer fallo, el plazo exacto"
+    );
+    assert!(
+        !m.by_model.contains_key("groq::openai/gpt-oss-20b"),
+        "el modelo hermano no se toca"
+    );
+    assert!(m.by_class["groq"].cooldown_until.is_none());
+}
+
+#[test]
+fn health_gate_short_retry_hint_does_not_cool_down() {
+    use crate::ai_router::types::FailReason;
+    let mut m = RouterMetrics::default();
+    let mut fail = metric_sample("groq", "openai/gpt-oss-120b");
+    fail.success = false;
+    fail.fail_reason = Some(FailReason::RateLimit);
+    fail.error = Some("groq 429: rpm [retry-after=4s]");
+    apply_metric_sample(&mut m, &fail, "2026-09-28");
+    assert!(
+        m.by_model["groq::openai/gpt-oss-120b"]
+            .cooldown_until
+            .is_none(),
+        "≤10 s se espera en línea; no saca el modelo de la cadena"
+    );
+}
+
+#[test]
+fn health_gate_backoff_doubles_up_to_two_hours() {
+    let mut m = RouterMetrics::default();
+    let key = "groq::openai/gpt-oss-120b";
+    let mut fail = metric_sample("groq", "openai/gpt-oss-120b");
+    fail.success = false;
+    fail.error = Some("groq 500: upstream");
+    let mut seen = Vec::new();
+    for _ in 0..7 {
+        apply_metric_sample(&mut m, &fail, "2026-09-28");
+        seen.push(
+            m.by_model[key]
+                .cooldown_until
+                .as_ref()
+                .map(|_| cooldown_minutes_left(&m, key)),
+        );
+    }
+    assert_eq!(
+        seen,
+        vec![
+            None,
+            None,
+            Some(15),
+            Some(30),
+            Some(60),
+            Some(120),
+            Some(120)
+        ]
+    );
+}
+
+#[test]
+fn health_gate_survives_daily_counter_reset() {
+    let mut m = RouterMetrics::default();
+    let key = "groq::openai/gpt-oss-120b";
+    let mut fail = metric_sample("groq", "openai/gpt-oss-120b");
+    fail.success = false;
+    fail.error = Some("groq 500: upstream");
+    for _ in 0..3 {
+        apply_metric_sample(&mut m, &fail, "2026-09-28");
+    }
+    apply_metric_sample(&mut m, &fail, "2026-09-29");
+    let mm = &m.by_model[key];
+    assert_eq!(mm.count, 1, "los contadores diarios sí se reinician");
+    assert_eq!(mm.consecutive_failures, 4, "la racha de fallos no");
+    assert_eq!(cooldown_minutes_left(&m, key), 30);
 }
 
 #[test]

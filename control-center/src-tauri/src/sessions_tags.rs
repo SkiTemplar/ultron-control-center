@@ -2,18 +2,16 @@
 //
 // Persists a simple JSONL store at
 //   ~/.ultron/cockpit/sessions-tags.jsonl
-// Each line is one TagEntry. The Tauri commands exposed at the bottom are:
+// Each line is one TagEntry. The only Tauri command is
 //
-//   sessions_tags_load()         — read all entries (frontend fetch on mount)
-//   sessions_auto_tag(session_id, session_path, first_prompt)
-//                                — tag one session via ai_router::route("summarize")
-//   sessions_bulk_auto_tag(entries)
-//                                — tag multiple sessions in a loop (Auto-tag all)
+//   sessions_bulk_auto_tag(requests)
+//       — tags sessions in a loop («Etiquetar todo») on the blocking pool and
+//         returns one AutoTagOutcome (tagged / skipped / failed + cause) per
+//         request.
 //
-// The AI call uses the "summarize" zone which routes through Groq (free tier)
-// by default, falling back to Gemini. If NEITHER key is set the function
-// returns Ok with an empty tags vec so the UI can mark the session as
-// "untaggable" without crashing.
+// Nothing reads the store back into the UI yet: tags are written, not shown.
+// The AI call uses the "summarize" zone (Groq free tier, Gemini fallback); a
+// router failure is reported per session instead of being hidden.
 //
 // Schema (sessions-tags.jsonl):
 //   { "session_id": "<uuid>", "tags": ["rust", "tauri", "ui-redesign"],
@@ -37,8 +35,8 @@ use crate::ultron_root;
 // background auto-tag fires) both read the same baseline and the second writer
 // clobbers the first writer's addition — entries vanish silently. The lock is
 // held across the whole read-modify-write so it is atomic from the caller's
-// point of view. Same pattern as `kg::kg_write_lock` / `workdays::workday_lock`
-// / `decisions::decisions_lock`. Pure reads (`sessions_tags_load`) are excluded.
+// point of view. Pure reads
+// (`sessions_tags_load`) are excluded.
 static SESSIONS_TAGS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn sessions_tags_lock() -> &'static Mutex<()> {
@@ -139,8 +137,9 @@ fn upsert_tag_at(path: &Path, entry: TagEntry) -> Result<(), String> {
         .lock()
         .map_err(|e| format!("sessions-tags lock poisoned: {}", e))?;
 
-    // Load existing, filter out old record for this session.
-    let mut existing = load_tags_at(path).unwrap_or_default();
+    // Load existing, filter out old record for this session. A read error
+    // aborts: rewriting from an empty baseline would wipe the whole store.
+    let mut existing = load_tags_at(path)?;
     existing.retain(|e| e.session_id != entry.session_id);
     existing.push(entry);
 
@@ -263,65 +262,152 @@ fn parse_tags_from_response(response: &str) -> Vec<String> {
     Vec::new()
 }
 
-/// Generate tags for a single session. Returns the generated tags or an empty
-/// vec when the AI router has no configured provider to handle the request.
-fn generate_tags(session_id: &str, first_prompt: Option<&str>) -> Result<Vec<String>, String> {
+/// Tope del primer mensaje que sale al proveedor. Debe coincidir con
+/// `AUTO_TAG_MAX_CHARS` de `src/components/Sessions.tsx`, que lo anuncia en la
+/// confirmación.
+const MAX_TAG_PROMPT_CHARS: usize = 400;
+
+/// Primer mensaje tal como sale a Groq/Gemini (seguridad MEDIUM de la auditoría
+/// 2026-10-17): recortado a `MAX_TAG_PROMPT_CHARS`, sin secretos y sin el nombre
+/// de la cuenta en las rutas. Se redacta antes de recortar: recortar primero
+/// podría dejar medio secreto por debajo del largo mínimo que reconoce el
+/// detector y enviarlo en claro.
+fn outbound_first_message(text: &str) -> String {
+    crate::memory::redaction::redact_outbound(text)
+        .chars()
+        .take(MAX_TAG_PROMPT_CHARS)
+        .collect()
+}
+
+/// Generate tags for a single session. An empty first prompt yields
+/// `Ok(None)` (nothing to tag); a router failure comes back as `Err` with its
+/// cause so the caller reports it instead of faking "no tags".
+fn generate_tags(
+    session_id: &str,
+    first_prompt: Option<&str>,
+) -> Result<Option<Vec<String>>, String> {
     let prompt_text = first_prompt.unwrap_or("").trim();
     if prompt_text.is_empty() {
-        return Ok(Vec::new());
+        return Ok(None);
     }
 
     // Build a compact prompt for the AI — we don't send the whole transcript,
     // just the first human message which is the most descriptive signal.
     let user_prompt = format!(
         "Session ID: {}\nFirst user message: {}",
-        session_id, prompt_text
+        session_id,
+        outbound_first_message(prompt_text)
     );
 
-    // We need to inject the system prompt as part of our user call because
-    // the `route()` function does not accept a separate system prompt. We
-    // prepend it in a format the zone's system_prompt will merge with, or
-    // just include it inline — the summarize zone has no system_prompt set,
-    // so ours is the only instruction.
+    // `route()` does not take a separate system prompt and the summarize zone
+    // has none, so ours goes inline as the only instruction.
     let full_prompt = format!("{}\n\n{}", TAG_SYSTEM_PROMPT, user_prompt);
 
-    // "summarize" zone uses Groq (free) → Gemini fallback. If neither key is
-    // available, route() returns Err. We treat that as "no tags" rather than
-    // propagating the error up to the UI, because tagging is best-effort.
-    match crate::ai_router::route("summarize", &full_prompt) {
-        Ok(response) => Ok(parse_tags_from_response(&response)),
-        Err(_) => {
-            // No keys configured or all providers offline — silently return empty.
-            Ok(Vec::new())
+    // "summarize" zone uses Groq (free) → Gemini fallback.
+    crate::ai_router::route("summarize", &full_prompt)
+        .map(|response| Some(parse_tags_from_response(&response)))
+}
+
+// ---------------------------------------------------------------------------
+// Bulk tagging core (generic over its two side effects so it is testable)
+// ---------------------------------------------------------------------------
+
+/// Result of tagging one session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoTagStatus {
+    /// Tags generated and persisted.
+    Tagged,
+    /// No first prompt to tag from: nothing was sent nor written.
+    Skipped,
+    /// The router or the write to `sessions-tags.jsonl` failed; see `error`.
+    Failed,
+}
+
+/// Per-session outcome returned to the UI, in request order.
+#[derive(Debug, Clone, Serialize)]
+pub struct AutoTagOutcome {
+    pub session_id: String,
+    pub status: AutoTagStatus,
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl AutoTagOutcome {
+    fn new(
+        session_id: String,
+        status: AutoTagStatus,
+        tags: Vec<String>,
+        error: Option<String>,
+    ) -> Self {
+        Self {
+            session_id,
+            status,
+            tags,
+            error,
         }
     }
+}
+
+/// Tag one request: generate, then persist. Every failure is reported with
+/// its cause instead of being turned into an empty tag list.
+fn tag_one<G, P>(req: AutoTagRequest, generate: &G, persist: &P) -> AutoTagOutcome
+where
+    G: Fn(&str, Option<&str>) -> Result<Option<Vec<String>>, String>,
+    P: Fn(TagEntry) -> Result<(), String>,
+{
+    let id = req.session_id;
+    let tags = match generate(&id, req.first_prompt.as_deref()) {
+        Ok(Some(tags)) => tags,
+        Ok(None) => return AutoTagOutcome::new(id, AutoTagStatus::Skipped, Vec::new(), None),
+        Err(e) => {
+            let cause = Some(format!("router: {e}"));
+            return AutoTagOutcome::new(id, AutoTagStatus::Failed, Vec::new(), cause);
+        }
+    };
+    let entry = TagEntry {
+        session_id: id.clone(),
+        tags: tags.clone(),
+        generated_at: now_iso(),
+        project: None,
+    };
+    match persist(entry) {
+        Ok(()) => AutoTagOutcome::new(id, AutoTagStatus::Tagged, tags, None),
+        Err(e) => {
+            let cause = Some(format!("guardar: {e}"));
+            AutoTagOutcome::new(id, AutoTagStatus::Failed, tags, cause)
+        }
+    }
+}
+
+/// Sequential batch (no parallelism, to avoid hammering the provider). One
+/// failure never aborts the batch; it is reported in its own outcome.
+fn tag_batch<G, P>(requests: Vec<AutoTagRequest>, generate: G, persist: P) -> Vec<AutoTagOutcome>
+where
+    G: Fn(&str, Option<&str>) -> Result<Option<Vec<String>>, String>,
+    P: Fn(TagEntry) -> Result<(), String>,
+{
+    requests
+        .into_iter()
+        .map(|req| tag_one(req, &generate, &persist))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Bulk auto-tag. Iterates the request list sequentially (no parallelism —
-/// avoids hammering the provider). Returns one TagEntry per request in the
-/// same order. Individual failures produce an entry with empty tags rather
-/// than aborting the whole batch.
+/// Bulk auto-tag («Etiquetar todo»). Up to one blocking `route()` per session
+/// (HTTP with a 10 s cap per attempt), so it runs on the blocking pool and
+/// never on the main thread that pumps the window. One outcome per request.
 #[tauri::command]
-pub fn sessions_bulk_auto_tag(requests: Vec<AutoTagRequest>) -> Result<Vec<TagEntry>, String> {
-    let mut results = Vec::with_capacity(requests.len());
-    for req in requests {
-        let tags = generate_tags(&req.session_id, req.first_prompt.as_deref()).unwrap_or_default();
-        let entry = TagEntry {
-            session_id: req.session_id.clone(),
-            tags,
-            generated_at: now_iso(),
-            project: None,
-        };
-        // Best-effort upsert — if the file write fails we still return the entry
-        // so the UI can show the tags in memory even if they weren't persisted.
-        let _ = upsert_tag(entry.clone());
-        results.push(entry);
-    }
-    Ok(results)
+pub async fn sessions_bulk_auto_tag(
+    requests: Vec<AutoTagRequest>,
+) -> Result<Vec<AutoTagOutcome>, String> {
+    tauri::async_runtime::spawn_blocking(move || tag_batch(requests, generate_tags, upsert_tag))
+        .await
+        .map_err(|e| format!("sessions_bulk_auto_tag: la tarea de fondo falló: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +417,34 @@ pub fn sessions_bulk_auto_tag(requests: Vec<AutoTagRequest>) -> Result<Vec<TagEn
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn primer_mensaje_saliente_recortado_y_redactado() {
+        let token = format!("ghp_{}", "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+        let text = format!(
+            "arregla C:\\Users\\cuenta\\app con {token} {}",
+            "x".repeat(1_000)
+        );
+        let out = outbound_first_message(&text);
+        assert_eq!(out.chars().count(), MAX_TAG_PROMPT_CHARS);
+        assert!(!out.contains("cuenta"), "la cuenta no sale: {out}");
+        assert!(!out.contains(&token), "el token no sale: {out}");
+        assert!(out.starts_with("arregla ~\\app con [REDACTED:"));
+        // Caso negativo: un texto corto y limpio sale igual.
+        assert_eq!(outbound_first_message("revisa el login"), "revisa el login");
+    }
+
+    #[test]
+    fn primer_mensaje_saliente_no_deja_medio_secreto_en_el_corte() {
+        let token = format!("ghp_{}", "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+        // El token cruza el tope: redactar antes de recortar evita mandar su prefijo.
+        let text = format!("{}{token}", "a ".repeat((MAX_TAG_PROMPT_CHARS - 10) / 2));
+        let out = outbound_first_message(&text);
+        assert!(
+            !out.contains("ghp_ABCD"),
+            "no sale ningún trozo del token: {out}"
+        );
+    }
 
     #[test]
     fn parse_tags_clean_json_array() {
@@ -376,6 +490,86 @@ mod tests {
         assert_eq!(&ts[4..5], "-");
         assert_eq!(&ts[7..8], "-");
         assert_eq!(&ts[10..11], "T");
+    }
+
+    // ---- bulk outcome (calidad-rust-1 de la auditoría 2026-10-23) ---------
+
+    fn req(id: &str, prompt: Option<&str>) -> AutoTagRequest {
+        AutoTagRequest {
+            session_id: id.to_string(),
+            first_prompt: prompt.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn bulk_reporta_fallo_del_router_con_su_causa() {
+        let generate = |id: &str, _: Option<&str>| match id {
+            "ok" => Ok(Some(vec!["rust".to_string()])),
+            "vacia" => Ok(None),
+            _ => Err("groq: 429; gemini: sin clave".to_string()),
+        };
+        let reqs = vec![
+            req("ok", Some("a")),
+            req("mal", Some("b")),
+            req("vacia", None),
+        ];
+        let out = tag_batch(reqs, generate, |_| Ok(()));
+
+        let ids: Vec<&str> = out.iter().map(|o| o.session_id.as_str()).collect();
+        assert_eq!(ids, ["ok", "mal", "vacia"], "conserva el orden");
+        assert_eq!(out[0].status, AutoTagStatus::Tagged);
+        assert_eq!(out[0].tags, ["rust"]);
+        // Caso negativo: antes un Err del router salía como «sin etiquetas».
+        assert_eq!(out[1].status, AutoTagStatus::Failed);
+        assert!(out[1].error.as_deref().unwrap().contains("429"));
+        assert_eq!(out[2].status, AutoTagStatus::Skipped);
+        assert!(out[2].error.is_none());
+    }
+
+    #[test]
+    fn bulk_reporta_fallo_al_guardar() {
+        let generate = |_: &str, _: Option<&str>| Ok(Some(vec!["ui".to_string()]));
+        let out = tag_batch(vec![req("s", Some("x"))], generate, |_| {
+            Err("disco lleno".to_string())
+        });
+        assert_eq!(out[0].status, AutoTagStatus::Failed);
+        assert!(out[0].error.as_deref().unwrap().contains("disco lleno"));
+    }
+
+    #[test]
+    fn generate_tags_sin_texto_no_llama_al_router() {
+        assert_eq!(generate_tags("s", None), Ok(None));
+        assert_eq!(generate_tags("s", Some("   ")), Ok(None));
+    }
+
+    #[test]
+    fn outcome_serializa_estado_en_minusculas() {
+        let o = AutoTagOutcome::new("s".into(), AutoTagStatus::Failed, vec![], Some("x".into()));
+        let v = serde_json::to_value(&o).unwrap();
+        assert_eq!(v["status"], "failed");
+        let ok = AutoTagOutcome::new("s".into(), AutoTagStatus::Tagged, vec![], None);
+        assert!(serde_json::to_value(&ok).unwrap().get("error").is_none());
+    }
+
+    #[test]
+    fn upsert_no_vacia_el_almacen_si_no_se_puede_leer() {
+        let path = unique_temp_tags_path();
+        let good = r#"{"session_id":"a","tags":["x"],"generated_at":"2026-01-01T00:00:00Z"}"#;
+        let mut bytes = format!("{good}\n").into_bytes();
+        bytes.extend_from_slice(&[0xff, 0xfe, b'\n']); // UTF-8 inválido: read_line falla
+        fs::write(&path, &bytes).unwrap();
+
+        let entry = TagEntry {
+            session_id: "b".into(),
+            tags: vec![],
+            generated_at: now_iso(),
+            project: None,
+        };
+        // Caso negativo: antes la lectura fallida se tomaba como almacén vacío
+        // y la reescritura borraba la entrada «a».
+        assert!(upsert_tag_at(&path, entry).is_err());
+        assert_eq!(fs::read(&path).unwrap(), bytes, "el almacén queda intacto");
+        let _ = fs::remove_file(&path);
     }
 
     // ---- write-lock / concurrency (card-data-sessions-tags-write-lock) -----

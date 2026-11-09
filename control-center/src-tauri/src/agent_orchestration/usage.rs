@@ -169,7 +169,7 @@ pub fn aggregate_agent_usage(project: Option<&str>) -> Result<Vec<AgentUsage>, S
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn agent_usage_stats(project: Option<String>) -> Result<Vec<AgentUsage>, String> {
+pub async fn agent_usage_stats(project: Option<String>) -> Result<Vec<AgentUsage>, String> {
     aggregate_agent_usage(project.as_deref())
 }
 

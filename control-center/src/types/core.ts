@@ -1,12 +1,5 @@
 // Core / shared primitives used across the whole app.
 
-export type CmdResult = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exit_code: number | null;
-};
-
 export type AlertEntry = {
   id?: string;
   ts?: string;
@@ -32,16 +25,3 @@ export type ChangelogEntry = {
 export type GlobalStatus = "ok" | "warn" | "down" | "loading";
 
 export type McpStatus = "ok" | "degraded" | "missing" | "unknown" | string;
-
-export type InlineResult = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exit_code: number | null;
-};
-
-export type ReviewResult = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-};

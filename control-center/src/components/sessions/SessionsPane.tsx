@@ -14,7 +14,8 @@
 //   - Estado vacío + estado de error + skeleton de carga
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invokeWithTimeout } from "../../lib/invoke-timeout";
+import { errMsg } from "../../lib/errors";
 import type {
   SessionInfo,
   ProjectGroup,
@@ -29,6 +30,10 @@ import LiveSessionMonitor from "../orchestrator/LiveSessionMonitor";
 // ---------------------------------------------------------------------------
 
 const POLL_INTERVAL_MS = 4_000;
+/** Plazo de list_active_sessions (medido: ~0,5 s en release con 2.700 transcripts). */
+const SESSIONS_TIMEOUT_MS = 20_000;
+/** Estado recordado del panel «Orquestación en vivo» ("1" = desplegado). */
+const ORCH_OPEN_KEY = "ultron.sessions.orchOpen";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -145,7 +150,7 @@ function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps
           className="text-[10px] tabular-nums"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          {totalCount} sesion{totalCount !== 1 ? "es" : ""}
+          {totalCount} sesi{totalCount !== 1 ? "ones" : "ón"}
         </span>
         <span
           className="min-w-0 truncate text-[10px]"
@@ -239,12 +244,23 @@ function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps
 export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   // Feed completo de orquestación (live_session_feed). UN solo fetch alimenta a la
-  // vez el panel global en vivo (último turno + routing + delegaciones) y la
-  // correlación por session_id que enriquece cada tarjeta.
+  // vez el panel global de orquestación (modo del hook, último turno full y
+  // subagentes) y la correlación por session_id que enriquece cada tarjeta.
   const [feed, setFeed] = useState<LiveSessionFeed | null>(null);
   const [orchBySession, setOrchBySession] = useState<Record<string, SessionOrchestration>>({});
   // Panel global de orquestación: colapsable para no robar espacio a la lista.
-  const [orchOpen, setOrchOpen] = useState(true);
+  // Plegado por defecto: las tarjetas de sesión son el contenido principal.
+  // El estado se recuerda entre visitas.
+  const [orchOpen, setOrchOpen] = useState(
+    () => localStorage.getItem(ORCH_OPEN_KEY) === "1",
+  );
+  const toggleOrchOpen = useCallback(() => {
+    setOrchOpen((v) => {
+      const next = !v;
+      localStorage.setItem(ORCH_OPEN_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(true);
@@ -256,17 +272,26 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
 
   // Ref para poder cancelar el polling sin desmontar el componente
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Una sola consulta a la vez: el polling de 4 s no espera a la anterior y,
+  // si el backend tarda, las peticiones se apilaban sin límite.
+  const inFlightRef = useRef(false);
 
   // ── Fetch principal ──────────────────────────────────────────────────────
 
   const fetchSessions = useCallback(async (showSpinner = false) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     if (showSpinner) setRefreshing(true);
     try {
       // Sesiones + feed de orquestación en paralelo. El feed es complementario:
       // si falla, las sesiones se muestran igual (sin el bloque de orquestación).
       const [data, liveFeed] = await Promise.all([
-        invoke<SessionInfo[]>("list_active_sessions"),
-        invoke<LiveSessionFeed>("live_session_feed", { limit: 50 }).catch(() => null),
+        // Con plazo (auditoría 2026-10-18): sin respuesta, la vista se quedaba
+        // en «Cargando sesiones…» para siempre en vez de enseñar el error.
+        invokeWithTimeout<SessionInfo[]>("list_active_sessions", undefined, SESSIONS_TIMEOUT_MS),
+        invokeWithTimeout<LiveSessionFeed>("live_session_feed", { limit: 50 }, SESSIONS_TIMEOUT_MS).catch(
+          () => null,
+        ),
       ]);
       setSessions(data);
       if (liveFeed) {
@@ -282,14 +307,9 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
       setError(null);
       setLastUpdated(new Date());
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : typeof err === "string"
-          ? err
-          : "Error desconocido al llamar a list_active_sessions",
-      );
+      setError(errMsg(err));
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
       if (showSpinner) setRefreshing(false);
     }
@@ -362,7 +382,7 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
             className="text-[13px] font-semibold"
             style={{ color: "var(--color-text)" }}
           >
-            Sesiones activas
+            Sesiones
           </h1>
           {!loading && (
             <span
@@ -370,13 +390,14 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
               style={{ color: "var(--color-text-tertiary)" }}
             >
               {visibleSessions.length}
-              {!showDead && deadCount > 0 && ` (+${deadCount} muertas)`}
               {activeCount > 0 && (
                 <span style={{ color: "var(--color-success, #3fb950)" }}>
                   {" "}
-                  · {activeCount} activas
+                  · {activeCount} en curso
                 </span>
               )}
+              {!showDead && deadCount > 0 &&
+                ` · ${deadCount} muerta${deadCount === 1 ? "" : "s"} oculta${deadCount === 1 ? "" : "s"}`}
             </span>
           )}
         </div>
@@ -472,13 +493,13 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
       {/* ── Cuerpo scrollable ───────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
 
-        {/* Panel GLOBAL de orquestación en vivo (último turno + routing +
-            delegaciones + previsualizador). Comparte el feed con las tarjetas. */}
+        {/* Panel GLOBAL de orquestación (modo del hook, último turno full,
+            subagentes y previsualizador). Comparte el feed con las tarjetas. */}
         <LiveSessionMonitor
           feed={feed}
           error={error}
           collapsed={!orchOpen}
-          onToggleCollapse={() => setOrchOpen((v) => !v)}
+          onToggleCollapse={toggleOrchOpen}
         />
 
         {/* Estado de carga inicial */}
@@ -550,7 +571,7 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
             >
               {deadCount > 0
                 ? `${deadCount} sesion${deadCount !== 1 ? "es" : ""} muerta${deadCount !== 1 ? "s" : ""} oculta${deadCount !== 1 ? "s" : ""} — usa "Muertas (${deadCount})" para verlas.`
-                : "Lanza Claude Code en cualquier terminal para verla aqui."}
+                : "Lanza Claude Code en cualquier terminal para verla aquí."}
             </p>
           </div>
         )}
@@ -573,7 +594,7 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
             className="text-[10px] pt-2"
             style={{ color: "var(--color-text-faint)" }}
           >
-            Datos via list_active_sessions · polling cada {POLL_INTERVAL_MS / 1000}s ·
+            Datos vía list_active_sessions · polling cada {POLL_INTERVAL_MS / 1000} s ·
             solo lectura
           </p>
         )}

@@ -28,6 +28,8 @@ pub(crate) mod rules;
 pub mod skill_llm;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_prompt_plan;
 pub(crate) mod types_model;
 
 pub use orchestrate::orchestrate;
@@ -46,9 +48,12 @@ pub async fn orchestrate_prompt(
     prompt: String,
     project_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    // Manual on-demand invocation (UI badge): full semantic catalog (E5) + hybrid
-    // recall (dense=true). The automatic per-prompt hot path (hook -> daemon/CLI)
-    // uses dense=false to stay E5-free and under the <300ms budget.
+    // Manual on-demand invocation (Preview panel). It asks for dense (E5
+    // catalog + hybrid recall), but `orchestrate` only honours it when
+    // ULTRON_DENSE is on; with ULTRON_DENSE=0 (this machine since 2026-09-28)
+    // it runs sparse-only and says so in `warnings`. This is the FULL
+    // orchestration: in session the hook runs in light mode (tone only)
+    // unless ULTRON_ORCHESTRATE=full, and the panel labels it that way.
     tauri::async_runtime::spawn_blocking(move || {
         // Primero el daemon: tiene E5 caliente y evita que la GUI cargue su
         // propia copia del modelo (~1,5 GB residentes medidos el 2026-08-15).
@@ -73,7 +78,7 @@ pub async fn orchestrate_prompt(
 
 /// Carga `~/.ultron/personality.json` (lo siembra si no existe).
 #[tauri::command]
-pub fn personalities_load() -> Result<personality::PersonalityFile, String> {
+pub async fn personalities_load() -> Result<personality::PersonalityFile, String> {
     let (file, warning) = personality::load_or_seed();
     if let Some(w) = warning {
         return Err(w);
@@ -83,13 +88,13 @@ pub fn personalities_load() -> Result<personality::PersonalityFile, String> {
 
 /// Guarda el archivo completo tras validar invariantes (ids únicos, default real).
 #[tauri::command]
-pub fn personalities_save(file: personality::PersonalityFile) -> Result<(), String> {
+pub async fn personalities_save(file: personality::PersonalityFile) -> Result<(), String> {
     personality::save(&file)
 }
 
 /// Playground: qué tono detectaría este prompt y POR QUÉ (scores por tono).
 #[tauri::command]
-pub fn personalities_detect(prompt: String) -> Result<personality::ToneDetection, String> {
+pub async fn personalities_detect(prompt: String) -> Result<personality::ToneDetection, String> {
     let (file, _) = personality::load_or_seed();
     Ok(personality::detect(&prompt, &file))
 }
@@ -109,13 +114,13 @@ fn tone_status_path() -> Result<std::path::PathBuf, String> {
 
 /// Mapa tono -> palabra o lista de palabras (la statusline rota las listas).
 #[tauri::command]
-pub fn tone_status_load() -> Result<serde_json::Value, String> {
+pub async fn tone_status_load() -> Result<serde_json::Value, String> {
     let raw = std::fs::read_to_string(tone_status_path()?).map_err(|e| e.to_string())?;
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn tone_status_save(map: serde_json::Value) -> Result<(), String> {
+pub async fn tone_status_save(map: serde_json::Value) -> Result<(), String> {
     let obj = map.as_object().ok_or("tone-status debe ser un objeto")?;
     for (k, v) in obj {
         let valid = v.is_string()
@@ -143,7 +148,7 @@ pub struct SpinnerVerbsConfig {
 
 /// Lee spinnerVerbs de ~/.claude/settings.json (defaults si no existe).
 #[tauri::command]
-pub fn spinner_verbs_load() -> Result<SpinnerVerbsConfig, String> {
+pub async fn spinner_verbs_load() -> Result<SpinnerVerbsConfig, String> {
     let raw = std::fs::read_to_string(claude_settings_path()?).map_err(|e| e.to_string())?;
     let doc: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     match doc.get("spinnerVerbs") {
@@ -160,7 +165,7 @@ pub fn spinner_verbs_load() -> Result<SpinnerVerbsConfig, String> {
 /// {mode, verbs} — un formato inválido hace que Claude Code SALTE el settings
 /// ENTERO (visto en vivo 2026-08-13), así que se valida antes de escribir.
 #[tauri::command]
-pub fn spinner_verbs_save(cfg: SpinnerVerbsConfig) -> Result<(), String> {
+pub async fn spinner_verbs_save(cfg: SpinnerVerbsConfig) -> Result<(), String> {
     if cfg.mode != "append" && cfg.mode != "replace" {
         return Err("mode debe ser 'append' o 'replace'".into());
     }

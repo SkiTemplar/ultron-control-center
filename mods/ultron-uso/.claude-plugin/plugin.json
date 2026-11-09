@@ -1,0 +1,6 @@
+{
+  "name": "ultron-uso",
+  "version": "0.1.0",
+  "description": "Panel /uso: cuota del plan en absoluto (% usado, reset) y en relativo (ritmo según tu horario, proyección y reparto por día)",
+  "types": "./types/index.d.ts"
+}

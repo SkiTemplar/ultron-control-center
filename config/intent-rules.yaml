@@ -10,6 +10,13 @@
 #   ctx: context file path to load (optional, ~ expanded)
 #   ztmsi_query: if true, run ZTMSI query to find best ctx at runtime
 #   confidence: float 0.0-1.0 (required)
+#
+# (2026-10-03) Destinos fantasma redirigidos a su equivalente instalado:
+#   agent-skills:plan -> hiper-plans; superpowers:test-driven-development -> agent test-automator;
+#   superpowers:systematic-debugging -> agent debugger; superpowers:requesting-code-review ->
+#   agent code-reviewer; database-schema-designer -> postgres-patterns; security-review ->
+#   agent security-auditor. cockpit/skill-lazy/phantom-ids.selftest.mjs falla si un
+#   skill/agent de este fichero no existe en disco.
 version: 1
 rules:
 
@@ -17,7 +24,7 @@ rules:
 
   - id: architect
     match: "(dise[n\xf1][a\xe1]|design).*(arquitectura|architecture|sistema)"
-    skill: "agent-skills:plan"
+    skill: "hiper-plans"
     suggest_mode: "ULTRA"
     confidence: 0.95
 
@@ -33,13 +40,13 @@ rules:
 
   - id: tdd
     match: "\\bTDD\\b|(test.driven|hacer.TDD|quiero.TDD)"
-    skill: "superpowers:test-driven-development"
+    agent: "test-automator"
     confidence: 0.95
 
   - id: tests-create
     # Verbos de creación + objeto "tests" cercano (5-30 chars). Evita "haz X y luego mira los tests" con gap enorme.
     match: "\\b(?:haz|crea|escribe|implementa)(?:me)?\\s+(?:los?|unos?)?\\s*tests?\\b"
-    skill: "superpowers:test-driven-development"
+    agent: "test-automator"
     confidence: 0.90
 
   # ── Systematic debugging ────────────────────────────────────────────────────
@@ -47,7 +54,7 @@ rules:
   - id: systematic-debug
     # Bidireccional: "llevo X horas con bug" o "bug ... y llevo X horas".
     match: "(?:(?=.*\\bllevo\\b)(?=.*\\b(?:sesiones|horas|d[ií]as|semanas)\\b)(?=.*(?:bug|arregl|fix|fall[ao]|error|debug)))|no encuentro la causa|corr[ií]geme\\s+(?:este\\s+|el\\s+|un\\s+)?(?:bug|error)|\\bestoy atascado\\b"
-    skill: "superpowers:systematic-debugging"
+    agent: "debugger"
     confidence: 0.95
 
   # ── MCP builder ─────────────────────────────────────────────────────────────
@@ -63,7 +70,7 @@ rules:
   - id: db-schema
     # Acepta "crea/crear/diseña/define" + "schema" + (BD/DB/database/tabla) en cualquier orden cercano.
     match: "(?=.*\\b(?:crea|crear|dise[ñn]a|dise[ñn]ar|define|definir)\\b)(?=.*\\bschema\\b)(?=.*\\b(?:base de datos|\\bBD\\b|\\bDB\\b|database|tabla))"
-    skill: "database-schema-designer"
+    skill: "postgres-patterns"
     confidence: 0.90
 
   # ── Business / pricing (BEFORE UE5 — domain beats platform, T-34) ───────────
@@ -244,7 +251,7 @@ rules:
 
   - id: code-review-general
     match: "(rev[i\xed]s[a\xe1]|revisa|review).*\\bc[o\xf3]dig[o\xf3]\\b"
-    skill: "superpowers:requesting-code-review"
+    agent: "code-reviewer"
     confidence: 0.85
 
   # ── ULTRON operations ────────────────────────────────────────────────────────
@@ -272,7 +279,7 @@ rules:
     # "seguridad" suelto matcheaba "seguridad de tipos" (TypeScript). Exigir contexto auditoría/pen/CVE.
     # Acepta artículo "la" entre verbo y objeto. CVE/CVEs en plural.
     match: "\\b(?:vulnerabilidad(?:es)?|CVEs?\\b|pentest(?:ing)?|penetration test|escan[ea]a(?:r)? (?:los? )?CVEs?|audit(?:a|ar|or[ií]a)?\\s+(?:la\\s+)?seguridad|audita el repo|security (?:audit|review|scan)|revisar (?:la )?seguridad)\\b"
-    skill: "security-review"
+    agent: "security-auditor"
     suggest_mode: "HIGH"
     confidence: 0.90
 
@@ -332,7 +339,7 @@ rules:
   # Stack trace / build error paste -> systematic-debugging
   - id: build-error-paste
     match: "(?:FAILED|AssertionError|Process completed with exit code [1-9]|NU190[12]|warning as error|API\\s+Error)\\b"
-    skill: "superpowers:systematic-debugging"
+    agent: "debugger"
     confidence: 0.85
 
   # "Faltan cosas / no se ha completado / falta por hacer" - incompleteness reports
@@ -382,7 +389,7 @@ rules:
   # within ~30 chars OR an explicit dev term (behaviour tree, roadmap técnico).
   - id: plan-loose
     match: "\\b(?:planifica(?:r|me)?|hiper.?plan|spec(?:ifica)?)\\b.{0,40}(?:sistema|feature|arquitectura|sprint|release|refactor|implementaci[óo]n|migraci[óo]n|m[óo]dulo)|\\b(?:behaviour|behavior) tree\\b|\\broadmap (?:t[ée]cnico|del producto|de la release)\\b"
-    skill: "agent-skills:plan"
+    skill: "hiper-plans"
     suggest_mode: "MEDIUM"
     confidence: 0.80
 
@@ -404,14 +411,14 @@ rules:
   # Distinct from pr-code-review (which requires the literal "PR" / "pull request").
   - id: casual-code-review
     match: "\\b(?:mira|revisa|chec(?:a|k)|qu[e\xe9] te parece)\\b(?:\\s+(?:si|este|esto|esa|esa))?\\s+(?:est[ae]?\\s+)?(?:c[o\xf3]digo|implementaci[o\xf3]n|funci[o\xf3]n|m[o\xf3]dulo|clase)(?:\\s+est[a\xe1]\\s+(?:bien|ok|correcto|mal))?"
-    skill: "superpowers:requesting-code-review"
+    agent: "code-reviewer"
     confidence: 0.85
 
   # Lost-where-to-start debug signal ("el sistema está roto y no sé por dónde
   # empezar"). Distinct from systematic-debug (which keys on "llevo X horas").
   - id: debug-lost
     match: "\\b(?:(?:el\\s+)?sistema\\s+(?:est[a\xe1]\\s+)?(?:roto|fallando|broken)|todo\\s+(?:est[a\xe1]\\s+)?(?:roto|fallando))\\b.{0,40}\\b(?:no\\s+s[e\xe9]|no\\s+entiendo|d[o\xf3]nde\\s+empezar|por\\s+d[o\xf3]nde)\\b"
-    skill: "superpowers:systematic-debugging"
+    agent: "debugger"
     suggest_mode: "HIGH"
     confidence: 0.92
 

@@ -1,0 +1,12 @@
+/* Menú «Exportar» de la barra superior y aviso tras guardar (ExportMenu.tsx). */
+.xport { position: relative; }
+.xport .tbtn:disabled { opacity: .6; cursor: progress; }
+.xport-pop { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; min-width: 180px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); box-shadow: 0 6px 18px #0008; }
+.xport-item { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 4px; color: var(--fg); font-size: 12px; }
+.xport-item:hover, .xport-item:focus-visible { background: var(--bg); }
+.xport-done { width: min(380px, 80vw); padding: 8px 10px; font-size: 12px; }
+.xport-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.xport-x { color: var(--muted); padding: 2px; }
+.xport-x:hover { color: var(--fg); }
+.xport-path { display: block; margin: 6px 0 8px; color: var(--muted); word-break: break-all; }
+.xport-actions { display: flex; gap: 6px; }

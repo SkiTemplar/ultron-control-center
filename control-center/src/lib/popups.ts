@@ -34,8 +34,49 @@ function _notify() {
 }
 
 function _remove(id: number) {
+    const timer = _timers.get(id);
+    if (timer?.handle) clearTimeout(timer.handle);
+    _timers.delete(id);
     _queue = _queue.filter((p) => p.id !== id);
     _notify();
+}
+
+// Auto-dismiss timers, pausable while the pointer is over a toast.
+type ToastTimer = { handle: ReturnType<typeof setTimeout> | null; remaining: number; startedAt: number };
+const _timers = new Map<number, ToastTimer>();
+
+function _arm(id: number, ms: number) {
+    _timers.set(id, { handle: setTimeout(() => _remove(id), ms), remaining: ms, startedAt: Date.now() });
+}
+
+/** Default lifetime: warnings and errors stay long enough to be read; blocking is sticky. */
+function _defaultTtl(severity: Severity): number {
+    switch (severity) {
+        case "blocking": return 0;
+        case "critical":
+        case "warn":     return 12_000;
+        default:         return 6_000;
+    }
+}
+
+/** Close a toast now (the × button). Confirms resolve through their buttons. */
+export function dismissToast(id: number): void {
+    _remove(id);
+}
+
+/** Freeze a toast's countdown (pointer enter). */
+export function pauseToast(id: number): void {
+    const timer = _timers.get(id);
+    if (!timer?.handle) return;
+    clearTimeout(timer.handle);
+    _timers.set(id, { handle: null, remaining: Math.max(0, timer.remaining - (Date.now() - timer.startedAt)), startedAt: 0 });
+}
+
+/** Resume a paused countdown with whatever time it had left (pointer leave). */
+export function resumeToast(id: number): void {
+    const timer = _timers.get(id);
+    if (!timer || timer.handle) return;
+    _arm(id, Math.max(timer.remaining, 1_500));
 }
 
 export function subscribeQueue(fn: (items: Popup[]) => void): () => void {
@@ -48,7 +89,7 @@ export interface ShowToastInput {
     message: string;
     source?: string;
     severity?: Severity;
-    /** Auto-dismiss after N ms (default 6000). Pass 0 for sticky. */
+    /** Auto-dismiss after N ms (default 6000; 12000 for warn/critical; blocking is sticky). Pass 0 for sticky. */
     ttlMs?: number;
 }
 
@@ -63,10 +104,8 @@ export function showToast(input: ShowToastInput): number {
     };
     _queue.push(popup);
     _notify();
-    const ttl = input.ttlMs ?? 6000;
-    if (ttl > 0) {
-        setTimeout(() => _remove(id), ttl);
-    }
+    const ttl = input.ttlMs ?? _defaultTtl(popup.severity ?? "info");
+    if (ttl > 0) _arm(id, ttl);
     return id;
 }
 
@@ -97,8 +136,4 @@ export function showConfirm(input: ShowConfirmInput): Promise<boolean> {
         _queue.push(popup);
         _notify();
     });
-}
-
-export function dismissToast(id: number) {
-    _remove(id);
 }

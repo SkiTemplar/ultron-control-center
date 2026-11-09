@@ -95,17 +95,3 @@ export type MaintenanceResult = {
   exit_code: number | null;
   elapsed_ms: number;
 };
-
-export type DetectedGap = {
-  severity: "info" | "warn" | "critical" | string;
-  category: string;
-  title: string;
-  detail: string;
-  suggestion: string | null;
-};
-
-export type GapsReport = {
-  generated_at: string;
-  count: number;
-  gaps: DetectedGap[];
-};

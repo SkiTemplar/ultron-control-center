@@ -27,7 +27,7 @@ fn request_log_path() -> Option<PathBuf> {
 }
 
 /// Línea JSONL de una petición ya servida: comando, milisegundos, resultado
-/// (`ok`, `busy` o el `error` devuelto), estado de los modelos antes y después,
+/// (`ok` o el `error` devuelto), estado de los modelos antes y después,
 /// y para `orchestrate`/`recall` el proyecto, el tamaño del prompt y cuántas
 /// memorias salieron. Best-effort: nunca falla la petición por el log.
 pub(super) fn log_request(
@@ -60,7 +60,6 @@ pub(super) fn log_request(
         // peticiones), no calculando.
         "inference_wait_ms": inference_wait_ms,
         "ok": error.is_none(),
-        "busy": error == Some("busy"),
         "error": error,
         "project": req.project,
         // `embed` no manda `prompt` sino `text`: se registra su tamano por el

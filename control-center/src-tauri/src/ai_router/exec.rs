@@ -6,12 +6,16 @@
 //   - resolve_windows_cli_program (Windows .cmd/.bat resolution, no cmd /C)
 //   - cli_invocation_args (codex vs gemini flag divergence)
 //   - cli_timeout
-//   - run_with_timeout (stdin piping for the codex prompt)
+//   - run_with_timeout (stdin piping for the codex prompt; on timeout it
+//     kills the child's Job Object, see kill_process_tree)
 //   - call_cli
 
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use crate::sesiones::cli_info::Trabajo;
+
+use super::retry_hint;
 use super::types::{CallOutcome, FailReason, Provider, TokenUsage};
 
 // ---------------------------------------------------------------------------
@@ -87,11 +91,19 @@ where
         match f() {
             Ok(outcome) => return Ok((outcome, attempt)),
             Err((msg, reason)) => {
+                let hint = retry_hint::hint_from_message(&msg);
                 last_err = (msg, reason);
                 if !reason.is_transient() || attempt == max_retries {
                     break;
                 }
-                let delay = retry_delay_ms(attempt, reason);
+                // Plazo explícito del proveedor: si es corto se espera eso en
+                // vez de la escala fija; si es largo, reintentar es inútil — se
+                // corta aquí y el health gate enfría el modelo hasta ese plazo.
+                let delay = match hint {
+                    Some(secs) if secs > retry_hint::INLINE_RETRY_MAX_SECS => break,
+                    Some(secs) => secs * 1000 + 250,
+                    None => retry_delay_ms(attempt, reason),
+                };
                 std::thread::sleep(Duration::from_millis(delay));
             }
         }
@@ -135,19 +147,29 @@ where
 pub(crate) fn resolve_windows_cli_program(cmd: &str) -> String {
     for ext in ["cmd", "exe", "bat"] {
         let candidate = format!("{cmd}.{ext}");
-        let found = std::process::Command::new("where")
-            .arg(&candidate)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if found {
+        if where_finds(&candidate) {
             return candidate;
         }
     }
     cmd.to_string()
+}
+
+/// `where <name>` sin ventana. La app no tiene consola (subsistema
+/// `windows`) y `where.exe` sí: sin CREATE_NO_WINDOW, cada sondeo abre una
+/// consola que aparece y desaparece en un instante (medido 2026-10-16: dos
+/// ventanas de Windows Terminal por cada mensaje a Pupus).
+#[cfg(target_os = "windows")]
+pub(crate) fn where_finds(name: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("where")
+        .arg(name)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +202,14 @@ pub(crate) fn resolve_windows_cli_program(cmd: &str) -> String {
 /// any)" — stdin only ADDS to `-p`, it doesn't replace it), so it stays on
 /// argv: `-p <prompt> --model <model>`.
 /// (KIRKARDO AI-Routing fix, 2026-06-07)
+/// Override de config para el sandbox de Codex en Windows, en toda llamada
+/// a `codex exec`. El modo `elevated` falla al preparar el proceso
+/// (`helper_unknown_error: setup refresh had errors`, codex-cli 0.162.1,
+/// 2026-10-16) y Codex no podía ejecutar ni un comando de solo lectura; el
+/// modo `unelevated` aplica la misma política sin el ayudante elevado. Fuera
+/// de Windows la clave no se usa.
+pub(crate) const CODEX_WINDOWS_SANDBOX: [&str; 2] = ["-c", "windows.sandbox=\"unelevated\""];
+
 pub(crate) fn cli_invocation_args<'a>(
     is_codex: bool,
     prompt: &'a str,
@@ -194,6 +224,7 @@ pub(crate) fn cli_invocation_args<'a>(
             "read-only",
             "--skip-git-repo-check",
         ];
+        args.extend(CODEX_WINDOWS_SANDBOX);
         if !model.trim().is_empty() {
             args.push("--model");
             args.push(model);
@@ -215,6 +246,54 @@ pub(crate) fn cli_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
+/// Grace period to collect the output pipes after a timeout kill.
+const KILL_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// Kill `child` AND its descendants.
+///
+/// A CLI resolved to a `.cmd` shim (`codex.cmd`) runs as `cmd.exe` with the
+/// real `node` process as a grandchild that inherits stdout/stderr.
+/// `Child::kill` only ends `cmd.exe`: the grandchild stayed alive, kept the
+/// pipes open and the reader joins blocked until it finished on its own
+/// (router-9, 2026-10-23). The child is put in a Job Object right after the
+/// spawn (`Trabajo::solo_al_cortar`); its descendants inherit the job and
+/// `TerminateJobObject` ends exactly that tree. No `taskkill /T`: it rebuilds
+/// the tree from parent PIDs, so an orphan whose dead parent had a PID now
+/// reused by `child` would be killed too, and it costs one more process
+/// spawn in the middle of a timeout. `Child::kill` stays as the fallback when
+/// there is no job (non-Windows or assignment failure).
+fn kill_process_tree(child: &mut std::process::Child, job: Option<&Trabajo>) {
+    if let Some(job) = job {
+        if let Err(e) = job.terminar() {
+            tracing::warn!(pid = child.id(), error = %e, "no se ha podido terminar el job");
+        }
+    }
+    if let Err(e) = child.kill() {
+        // InvalidInput = the child already exited, which is the goal.
+        if e.kind() != std::io::ErrorKind::InvalidInput {
+            tracing::warn!(pid = child.id(), error = %e, "no se ha podido matar el proceso");
+        }
+    }
+}
+
+/// Drain a child pipe on a background thread; the result arrives through
+/// the returned channel so the caller can bound how long it waits.
+fn spawn_pipe_reader<R: std::io::Read + Send + 'static>(
+    pipe: Option<R>,
+) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = pipe {
+            // A read error just ends the capture: what was read is kept.
+            let _ = p.read_to_end(&mut buf);
+        }
+        // The receiver may have given up after a timeout: nothing to do.
+        let _ = tx.send(buf);
+    });
+    rx
+}
+
 /// Run a prepared `Command` with piped stdio and a wall-clock timeout.
 ///
 /// `stdin_input`, when `Some`, is written to the child's stdin on a
@@ -224,15 +303,25 @@ pub(crate) fn cli_timeout() -> Duration {
 /// OS pipe buffer. `None` keeps stdin closed (`Stdio::null()`), as before.
 ///
 /// stdout/stderr are drained on background threads (so a chatty child can
-/// never deadlock on a full pipe), and on timeout the child is killed and an
-/// `ErrorKind::TimedOut` error returned.
+/// never deadlock on a full pipe). On timeout the whole process tree is
+/// killed (`kill_process_tree`), the pipes get `KILL_DRAIN_GRACE` to close
+/// and an `ErrorKind::TimedOut` error is returned: the wait is bounded even
+/// if a grandchild survives.
 pub(crate) fn run_with_timeout(
     mut cmd: std::process::Command,
     timeout: Duration,
     stdin_input: Option<&str>,
 ) -> std::io::Result<std::process::Output> {
-    use std::io::{Read, Write};
+    use std::io::Write;
 
+    // Sin consola para el hijo en todos los llamantes: la app no tiene consola
+    // propia (subsistema `windows`) y un hijo de consola abriría una ventana
+    // visible. Ningún llamante usa otros `creation_flags`; este los sustituye.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
     let stdin_mode = if stdin_input.is_some() {
         Stdio::piped()
     } else {
@@ -243,6 +332,14 @@ pub(crate) fn run_with_timeout(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    crate::sesiones::cli_info::marcar_spawn();
+    // Job without kill-on-close: a normal exit leaves alone whatever the CLI
+    // left running on purpose; only the timeout terminates the tree.
+    let job = Trabajo::solo_al_cortar(&child)
+        .inspect_err(
+            |e| tracing::warn!(error = %e, "CLI sin Job Object: el plazo solo mata al hijo"),
+        )
+        .ok();
 
     if let Some(input) = stdin_input {
         if let Some(mut stdin) = child.stdin.take() {
@@ -254,32 +351,19 @@ pub(crate) fn run_with_timeout(
         }
     }
 
-    let mut stdout_pipe = child.stdout.take();
-    let mut stderr_pipe = child.stderr.take();
-    let out_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(ref mut p) = stdout_pipe {
-            let _ = p.read_to_end(&mut buf);
-        }
-        buf
-    });
-    let err_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(ref mut p) = stderr_pipe {
-            let _ = p.read_to_end(&mut buf);
-        }
-        buf
-    });
+    let out_reader = spawn_pipe_reader(child.stdout.take());
+    let err_reader = spawn_pipe_reader(child.stderr.take());
 
     let started = Instant::now();
     let status = loop {
         match child.try_wait()? {
             Some(status) => break status,
             None if started.elapsed() >= timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = out_reader.join();
-                let _ = err_reader.join();
+                kill_process_tree(&mut child, job.as_ref());
+                child.wait()?;
+                // Bounded: a surviving grandchild must not block the caller.
+                let _ = out_reader.recv_timeout(KILL_DRAIN_GRACE);
+                let _ = err_reader.recv_timeout(KILL_DRAIN_GRACE);
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     format!("CLI call exceeded {}s timeout", timeout.as_secs()),
@@ -289,8 +373,8 @@ pub(crate) fn run_with_timeout(
         }
     };
 
-    let stdout = out_reader.join().unwrap_or_default();
-    let stderr = err_reader.join().unwrap_or_default();
+    let stdout = out_reader.recv().unwrap_or_default();
+    let stderr = err_reader.recv().unwrap_or_default();
     Ok(std::process::Output {
         status,
         stdout,
@@ -371,4 +455,60 @@ pub(crate) fn call_cli(
         text: stdout,
         usage: TokenUsage::default(),
     })
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    /// Auditoría 2026-10-17 (CC-Router): `run_with_timeout` no ponía
+    /// `CREATE_NO_WINDOW` y cada llamante tenía que acordarse; los que no
+    /// (`call_cli`, sondeos de cuentas y de versiones) abrían una consola
+    /// visible desde la app, que no tiene consola propia. Con el flag, el hijo
+    /// recibe una consola propia sin ventana en vez de heredar la del padre:
+    /// `GetConsoleProcessList` solo lo cuenta a él. Sin el flag, desde el
+    /// runner de tests (que sí tiene consola) cuenta también a sus ancestros.
+    #[test]
+    fn run_with_timeout_lanza_sin_ventana_de_consola() {
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$t = Add-Type -Name W -Namespace N -PassThru -MemberDefinition \
+             '[DllImport(\"kernel32.dll\")] public static extern uint GetConsoleProcessList(uint[] l, uint n);'; \
+             [Console]::Out.Write($t::GetConsoleProcessList((New-Object 'UInt32[]' 64), 64))",
+        ]);
+        let out = run_with_timeout(cmd, Duration::from_secs(60), None).expect("powershell");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let attached = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(
+            attached, "1",
+            "el hijo comparte la consola del padre ({attached} procesos)"
+        );
+    }
+
+    /// router-9: con un `cmd.exe` que lanza un nieto (como el shim
+    /// `codex.cmd` con su `node`), el plazo tiene que cortar de verdad. Antes
+    /// `Child::kill` solo mataba `cmd.exe`, el `ping` nieto conservaba la
+    /// tubería de stdout y la llamada esperaba sus ~30 s.
+    #[test]
+    fn timeout_kills_the_grandchild_and_returns_quickly() {
+        let mut cmd = std::process::Command::new("cmd.exe");
+        cmd.args(["/C", "ping -n 30 127.0.0.1"]);
+        let err =
+            run_with_timeout(cmd, Duration::from_secs(1), None).expect_err("debe agotar el plazo");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        // Desde que el hijo existe: la cola de `spawn` de la suite en
+        // paralelo no es lo que se mide (ver `cli_info::marcar_spawn`).
+        let elapsed = crate::sesiones::cli_info::desde_el_ultimo_spawn();
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "el plazo de 1 s ha tardado {elapsed:?}: el nieto sigue reteniendo la tubería"
+        );
+    }
 }

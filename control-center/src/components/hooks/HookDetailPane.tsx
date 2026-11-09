@@ -82,12 +82,12 @@ export function HookDetailPane({
             {displayName && (
               <span style={{ color: "var(--color-text-tertiary)" }}>{hook.id}</span>
             )}
-            <span>matcher: {hook.matcher ?? "(any)"}</span>
-            <span>source: {hook.source}</span>
-            <span>{hook.enabled ? "enabled" : "disabled"}</span>
+            <span>matcher: {hook.matcher ?? "(cualquiera)"}</span>
+            <span>origen: {hook.source}</span>
+            <span>{hook.enabled ? "activado" : "desactivado"}</span>
             {lastFired?.timestamp && (
-              <span title={`in ${lastFired.project ?? "?"}`}>
-                last fired {lastFired.timestamp.slice(0, 16).replace("T", " ")}
+              <span title={`en ${lastFired.project ?? "?"}`}>
+                último disparo {lastFired.timestamp.slice(0, 16).replace("T", " ")}
               </span>
             )}
           </div>
@@ -101,8 +101,8 @@ export function HookDetailPane({
             color: "var(--color-text-tertiary)",
             border: "1px solid var(--color-border)",
           }}
-          title="Close detail panel"
-          aria-label="Close"
+          title="Cerrar el panel de detalle"
+          aria-label="Cerrar"
         >
           <X size={12} />
         </button>
@@ -118,9 +118,9 @@ export function HookDetailPane({
           onClick={onTest}
           className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-medium"
           style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
-          title="Run this hook against a mock payload in a sandboxed shell"
+          title="Ejecuta el hook de verdad con un payload de prueba por stdin (sin sandbox: sus efectos son reales)"
         >
-          Test
+          Probar
         </button>
         <button
           type="button"
@@ -131,9 +131,9 @@ export function HookDetailPane({
             borderColor: "var(--color-border-strong)",
             color: "var(--color-text)",
           }}
-          title="Edit matcher / command / extra flags"
+          title="Editar matcher, comando y flags extra"
         >
-          Edit
+          Editar
         </button>
         <button
           type="button"
@@ -144,9 +144,9 @@ export function HookDetailPane({
             borderColor: "var(--color-border-strong)",
             color: hook.enabled ? "var(--color-text-secondary)" : colors.chipFg,
           }}
-          title={hook.enabled ? "Disable this hook" : "Enable this hook"}
+          title={hook.enabled ? "Desactivar este hook" : "Activar este hook"}
         >
-          {hook.enabled ? "Disable" : "Enable"}
+          {hook.enabled ? "Desactivar" : "Activar"}
         </button>
         <button
           type="button"
@@ -157,9 +157,9 @@ export function HookDetailPane({
             borderColor: "var(--color-border-strong)",
             color: "var(--color-text-secondary)",
           }}
-          title="Assign a readable name using AI Router (or heuristic fallback)"
+          title="Pone un nombre legible con el Router de IA (o, si falla, con heurística)"
         >
-          Name
+          Nombrar
         </button>
         <button
           type="button"
@@ -170,9 +170,9 @@ export function HookDetailPane({
             borderColor: "rgba(248, 81, 73, 0.30)",
             color: "var(--color-danger, #f88)",
           }}
-          title="Delete this hook from settings.json"
+          title="Borrar este hook de settings.json"
         >
-          Delete
+          Borrar
         </button>
       </div>
 
@@ -183,7 +183,7 @@ export function HookDetailPane({
             className="mb-1 text-[10px] font-medium uppercase tracking-wide"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Command
+            Comando
           </div>
           <pre
             className="overflow-auto rounded border p-2 text-[11.5px]"
@@ -206,7 +206,7 @@ export function HookDetailPane({
               className="mb-1 text-[10px] font-medium uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Extra flags
+              Flags extra
             </div>
             <pre
               className="overflow-auto rounded border p-2 text-[11.5px]"
@@ -222,13 +222,13 @@ export function HookDetailPane({
           </div>
         )}
 
-        {/* Recent fires */}
+        {/* Disparos recientes */}
         <div>
           <div
             className="mb-1 text-[10px] font-medium uppercase tracking-wide"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Recent fires
+            Disparos recientes
           </div>
           {!firesInstrumented && (
             <div
@@ -239,12 +239,12 @@ export function HookDetailPane({
                 color: "var(--color-text-tertiary)",
               }}
             >
-              No fire history available.
+              No hay historial de disparos.
             </div>
           )}
           {firesInstrumented && fires.length === 0 && (
             <div className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              No fires logged for this hook yet.
+              Este hook aún no tiene disparos registrados.
             </div>
           )}
           {firesInstrumented && fires.length > 0 && (
@@ -259,7 +259,7 @@ export function HookDetailPane({
                   }}
                 >
                   <div style={{ color: "var(--color-text)" }}>
-                    {f.timestamp ?? "(no ts)"} · exit{" "}
+                    {f.timestamp ?? "(sin fecha)"} · exit{" "}
                     <span
                       style={{
                         color: f.exit_code === 0 ? "var(--color-success)" : "var(--color-warn)",
@@ -269,7 +269,7 @@ export function HookDetailPane({
                     </span>
                   </div>
                   <div style={{ color: "var(--color-text-tertiary)" }}>
-                    {f.event ?? "?"} / {f.matcher ?? "any"}
+                    {f.event ?? "?"} / {f.matcher ?? "cualquiera"}
                   </div>
                 </li>
               ))}

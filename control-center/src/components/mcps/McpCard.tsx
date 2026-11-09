@@ -1,17 +1,16 @@
 // ---------------------------------------------------------------------------
-// MCP card
+// Tarjeta de un MCP
 // ---------------------------------------------------------------------------
 
 import type { McpPingResult } from "../../types";
+import { ToggleSwitch } from "../skills/ToggleSwitch";
 import type { Action, McpInfoExt } from "./types";
+import { mcpHealthLine, shouldShowUnknownBadge } from "./cardStatus";
 import {
-  ageMs,
-  formatAge,
-  isStaleTimestamp,
   originBadgeColor,
+  originKindLabel,
   parseOrigin,
   statusColor,
-  statusLabel,
 } from "./utils";
 
 export function Card({
@@ -28,35 +27,50 @@ export function Card({
   hidden: boolean;
   ping?: McpPingResult;
   pingBusy?: boolean;
-  /** Whether the MCP is currently enabled (disabled flag = false in settings.json). */
+  /** Si el MCP está activado (sin `disabled: true` y fuera de disabledMcpjsonServers). */
   enabled: boolean;
   toggleBusy: boolean;
   onAction: (a: Action) => void;
   onToggleEnabled: () => void;
 }) {
-  // Determinar si el estado en cache es demasiado antiguo para mostrarlo
-  // como estado verificado. Si last_checked supera STALE_THRESHOLD_MS (o no
-  // existe), el badge se muestra en neutro con tooltip explicativo.
-  const stale = isStaleTimestamp(mcp.last_checked);
-  const staleAge = mcp.last_checked ? ageMs(mcp.last_checked) : null;
-  const staleTooltip = stale
-    ? staleAge !== null
-      ? `Estado sin verificar (cache de ${formatAge(staleAge)}). Ejecuta "Run health check" para actualizar.`
-      : `Estado sin verificar (sin timestamp de verificación). Ejecuta "Run health check" para actualizar.`
-    : undefined;
+  // Una sola verdad sobre la salud (ver mcpHealthLine): «sin comprobar» si no
+  // hay fecha, «comprobado hace 3 meses» si es vieja (color neutro, sin
+  // afirmar el estado) y el estado real más su antigüedad si es reciente.
+  const health = mcpHealthLine(mcp.status, mcp.expected_offline, mcp.last_checked);
+  const stale = health.stale;
+  const neverChecked = health.statusText === "sin comprobar";
+  const staleTooltip = neverChecked
+    ? "No consta ninguna comprobación de este servidor. Pulsa «Comprobar salud» para comprobarlo."
+    : stale
+      ? `El estado de entonces ya no se da por bueno (${mcp.last_checked}). Pulsa «Comprobar salud» para actualizarlo.`
+      : `Última comprobación: ${mcp.last_checked}`;
 
   const color = statusColor(mcp.status, mcp.expected_offline, stale);
-  const label = statusLabel(mcp.status, mcp.expected_offline, stale);
+  const label = health.statusText;
   const origin = parseOrigin(mcp.origin);
+  const showUnknown = shouldShowUnknownBadge(mcp.unknown, origin.kind);
   const originColors = originBadgeColor(origin.kind);
-  // Plugin / project-scope MCPs are read-only from the Control Center —
-  // mutating them would invalidate the plugin's signature or wander into
-  // a project's repo. Surface this clearly rather than silently failing.
+  // Solo el ámbito de usuario de ~/.claude.json es editable. Los MCP de
+  // plugin o de proyecto son de solo lectura (firma del plugin, repo del
+  // proyecto). Las entradas heredadas de settings.json solo se pueden borrar:
+  // Claude Code nunca las lee.
   const readOnly = origin.kind !== "user";
-  // The enable/disable toggle covers user scope (settings.json) AND project
-  // scope (Claude Code's disabledMcpjsonServers). Plugin / unknown origins
-  // stay non-toggleable but show an honest reason instead of a dead switch.
-  const canToggle = origin.kind === "user" || origin.kind === "project";
+  const canDelete = origin.kind === "user" || origin.kind === "settings";
+  // El interruptor corresponde a disabledMcpjsonServers de Claude Code, que
+  // solo aplica al ámbito de proyecto. El ámbito de usuario no tiene
+  // interruptor global (es por proyecto, con /mcp): etiqueta fija con motivo.
+  const canToggle = origin.kind === "project";
+  const disabledNote = mcp.disabled
+    ? " Ahora: disabled:true en la configuración; Claude Code no lo arranca."
+    : "";
+  const lockedReason =
+    (origin.kind === "plugin"
+      ? `Lo aporta el plugin '${origin.label}'. Para desactivarlo: /plugin disable ${origin.label}.`
+      : origin.kind === "user"
+        ? "Claude Code no tiene interruptor global para el ámbito de usuario: desactívalo por proyecto con /mcp o bórralo."
+        : origin.kind === "settings"
+          ? "Claude Code no lee esta entrada: no hay nada que desactivar."
+          : `Origen '${origin.label}': edita su fichero para desactivarlo.`) + disabledNote;
 
   return (
     <div
@@ -69,13 +83,20 @@ export function Card({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <span
               className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
               style={{ background: color }}
               title={staleTooltip}
             />
-            <h3 className="text-[16px] font-semibold leading-tight">{mcp.name}</h3>
+            <h3
+              className="min-w-0 truncate text-[16px] font-semibold leading-tight"
+              title={mcp.name}
+            >
+              {mcp.name}
+            </h3>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <span
               className="text-[11px] uppercase tracking-[0.06em]"
               style={{ color }}
@@ -88,36 +109,40 @@ export function Card({
               style={{ background: originColors.bg, color: originColors.fg }}
               title={
                 origin.kind === "user"
-                  ? "Configured in ~/.claude/settings.json — editable from here"
-                  : origin.kind === "plugin"
-                    ? `Provided by plugin '${origin.label}' — read-only here`
+                  ? "Configurado en ~/.claude.json (ámbito de usuario); se puede editar desde aquí"
+                  : origin.kind === "settings"
+                    ? "Declarado en ~/.claude/settings.json, que Claude Code no lee para los MCP: nunca arranca. Bórralo y vuelve a añadirlo."
+                    : origin.kind === "plugin"
+                    ? `Lo aporta el plugin '${origin.label}'; aquí es de solo lectura`
                     : origin.kind === "project"
-                      ? `Defined in project '${origin.label}' .mcp.json — read-only here`
-                      : "Unknown origin"
+                      ? `Definido en el .mcp.json del proyecto '${origin.label}'; aquí es de solo lectura`
+                      : "Origen desconocido"
               }
             >
               {origin.kind === "user"
-                ? "user"
-                : `${origin.kind}: ${origin.label}`}
+                ? originKindLabel(origin.kind)
+                : origin.kind === "settings"
+                  ? "settings.json (sin uso)"
+                  : `${originKindLabel(origin.kind)}: ${origin.label}`}
             </span>
             {mcp.expected_offline && (
               <span
                 className="text-[10px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
-                expected offline
+                desconexión prevista
               </span>
             )}
-            {mcp.unknown && (
+            {showUnknown && (
               <span
                 className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
                 style={{
                   background: "rgba(210, 153, 34, 0.15)",
                   color: "#d29922",
                 }}
-                title="Servidor no reconocido — revisa qué hace antes de confiar en él."
+                title="No está en el catálogo de MCP conocidos y llega con el .mcp.json de un proyecto, no lo has añadido tú: revisa qué ejecuta antes de aprobarlo."
               >
-                desconocido
+                no reconocido
               </span>
             )}
             {typeof mcp.duplicate_count === "number" && mcp.duplicate_count > 1 && (
@@ -127,34 +152,19 @@ export function Card({
                   background: "rgba(248, 81, 73, 0.12)",
                   color: "var(--color-danger, #f85149)",
                 }}
-                title={`Declarado ${mcp.duplicate_count} veces. Origenes: ${(
+                title={`Declarado ${mcp.duplicate_count} veces. Orígenes: ${(
                   mcp.duplicate_origins ?? []
                 ).join(", ")}`}
               >
-                x{mcp.duplicate_count}
-                {mcp.duplicate_origins && mcp.duplicate_origins.length > 0
-                  ? ` (origenes: ${mcp.duplicate_origins.join(", ")})`
-                  : ""}
-              </span>
-            )}
-            {mcp.disabled && (
-              <span
-                className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                }}
-                title="disabled:true en la config — Claude Code no lo arranca."
-              >
-                disabled
+                ×{mcp.duplicate_count}
               </span>
             )}
           </div>
 
-          {/* Description — always shown so users know what unfamiliar MCPs do */}
+          {/* Descripción: siempre visible para saber qué hace un MCP desconocido */}
           {mcp.description && (
             <p
-              className="mt-1.5 text-[12px] leading-snug"
+              className="mt-1.5 break-words text-[12px] leading-snug"
               style={{ color: "var(--color-text-secondary)" }}
             >
               {mcp.description}
@@ -166,13 +176,10 @@ export function Card({
             style={{ color: "var(--color-text-tertiary)" }}
           >
             <span>
-              <span style={{ color: "var(--color-text-faint)" }}>transport</span> {mcp.transport}
+              <span style={{ color: "var(--color-text-faint)" }}>transporte</span> {mcp.transport}
             </span>
-            {mcp.last_checked && (
-              <span>
-                <span style={{ color: "var(--color-text-faint)" }}>checked</span>{" "}
-                {mcp.last_checked.slice(0, 16).replace("T", " ")}
-              </span>
+            {health.checkedText && (
+              <span title={staleTooltip}>{health.checkedText}</span>
             )}
             {ping && (
               <span>
@@ -184,7 +191,7 @@ export function Card({
                       : "var(--color-danger)",
                   }}
                 >
-                  {ping.ok ? "running" : "stopped"}
+                  {ping.ok ? "en marcha" : "parado"}
                 </span>
                 {ping.latency_ms != null && (
                   <span
@@ -201,7 +208,7 @@ export function Card({
             )}
           </div>
 
-          {/* fallback message */}
+          {/* Mensaje de respaldo */}
           {mcp.fallback_message && mcp.status !== "ok" && (
             <p
               className="mt-3 text-[12px] leading-relaxed"
@@ -211,65 +218,27 @@ export function Card({
             </p>
           )}
 
-          {/* Per-card enable/disable toggle.
-              Only user-scope entries can be toggled here because the
-              disabled flag lives in ~/.claude/settings.json mcpServers.
-              Plugin/project MCPs are declared outside that file — to
-              disable them, remove or disable the plugin that provides them. */}
+          {/* Estado activado/desactivado con el patrón común (ToggleSwitch):
+              interruptor solo en ámbito de proyecto (disabledMcpjsonServers);
+              el resto, etiqueta fija con el motivo en el tooltip. */}
           <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onToggleEnabled}
-              disabled={toggleBusy || !canToggle}
-              className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-40"
-              style={{
-                background: enabled ? "var(--color-success)" : "var(--color-surface-3)",
-                border: "1px solid var(--color-border-strong)",
-                padding: "1px",
-              }}
-              title={
-                !canToggle
-                  ? origin.kind === "plugin"
-                    ? `Lo provee el plugin '${origin.label}'. Para desactivarlo: /plugin disable ${origin.label}.`
-                    : `Origen '${origin.label}' (user scope en ~/.claude.json). Edita ese fichero para desactivarlo.`
-                  : origin.kind === "project"
-                    ? enabled
-                      ? "Desactivar (añade a disabledMcpjsonServers en settings.json)"
-                      : "Activar (quita de disabledMcpjsonServers)"
-                    : enabled
-                      ? "Desactivar (escribe disabled:true en settings.json)"
-                      : "Activar (quita disabled de settings.json)"
-              }
-            >
-              <span
-                className="block h-3.5 w-3.5 rounded-full transition-transform"
-                style={{
-                  background: "var(--color-text)",
-                  transform: enabled ? "translateX(16px)" : "translateX(0)",
-                }}
-              />
-            </button>
-            <span
-              className="text-[11.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              {toggleBusy
-                ? "Saving…"
-                : !canToggle
-                  ? origin.kind === "plugin"
-                    ? `plugin: ${origin.label}`
-                    : `${origin.label}`
-                  : enabled
-                    ? "Enabled"
-                    : "Disabled"}
-            </span>
+            <ToggleSwitch
+              enabled={enabled}
+              busy={toggleBusy}
+              readonly={!canToggle}
+              onToggle={onToggleEnabled}
+              lockedReason={lockedReason}
+              disableTitle="Desactivar (lo añade a disabledMcpjsonServers en settings.json)"
+              enableTitle="Activar (lo quita de disabledMcpjsonServers)"
+              withLabel
+            />
           </div>
         </div>
 
-        {/* No per-card "Retry": the health probe is global (it rewrites the
-            whole mcp-health.json in one pass), so a per-card button would lie
-            about its scope. The "Run health check" button in the tab header
-            owns that action. */}
+        {/* Sin «Reintentar» por tarjeta: la comprobación de salud es global
+            (reescribe mcp-health.json entero de una pasada), así que un botón
+            por tarjeta mentiría sobre su alcance. Esa acción es del botón
+            «Comprobar salud» de la cabecera. */}
         <div className="flex shrink-0 flex-col gap-1.5">
           <button
             type="button"
@@ -281,9 +250,9 @@ export function Card({
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Spawn the MCP command and wait for an initialize response (2s budget)"
+            title="stdio: ejecuta el comando (sin ventana, con su env) y espera la respuesta a initialize. HTTP/SSE: envía initialize a la URL. Límite de 10 s."
           >
-            {pingBusy ? "Testing…" : "Test"}
+            {pingBusy ? "Probando…" : "Probar"}
           </button>
           <button
             type="button"
@@ -297,16 +266,16 @@ export function Card({
             }}
             title={
               readOnly
-                ? `Origin '${origin.kind}' is read-only from the Control Center`
-                : "Edit this MCP's settings.json entry"
+                ? `El origen «${originKindLabel(origin.kind)}» es de solo lectura desde el Control Center`
+                : "Editar la entrada de este MCP en ~/.claude.json"
             }
           >
-            Edit
+            Editar
           </button>
           <button
             type="button"
             onClick={() => onAction("delete")}
-            disabled={readOnly}
+            disabled={!canDelete}
             className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
             style={{
               background: "rgba(248, 81, 73, 0.10)",
@@ -314,12 +283,14 @@ export function Card({
               border: "1px solid rgba(248, 81, 73, 0.35)",
             }}
             title={
-              readOnly
-                ? `Origin '${origin.kind}' is read-only from the Control Center`
-                : "Remove from settings.json (backup kept)"
+              !canDelete
+                ? `El origen «${originKindLabel(origin.kind)}» es de solo lectura desde el Control Center`
+                : origin.kind === "settings"
+                  ? "Quitar la entrada sin uso de ~/.claude/settings.json (se guarda un backup)"
+                  : "Quitar de ~/.claude.json (se guarda un backup)"
             }
           >
-            Delete
+            Borrar
           </button>
         </div>
       </div>

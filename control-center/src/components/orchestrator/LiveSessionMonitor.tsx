@@ -1,32 +1,38 @@
 // ULTRON Control Center — LiveSessionMonitor (panel global de orquestación).
 //
-// Visor EN VIVO de la orquestación. No teclea nada: muestra, en tiempo real, lo
-// que el orquestador ya hace automático vía hooks:
-//   - el último turno orquestado (prompt -> intent -> workflow -> agentes -> skills -> memorias)
-//   - el routing reciente (skills aceptadas/omitidas + confianza)
-//   - los agentes delegados (delegations.jsonl + eventos workflow:* en streaming)
-//   - un previsualizador manual (orchestrate_prompt) sin ejecutar nada
+// Visor de la orquestación. No teclea nada. En el modo de producción (ligero,
+// ULTRON_ORCHESTRATE sin definir) el hook memory-orchestrate solo inyecta el
+// tono y no registra turnos, así que el panel lo dice en la cabecera en vez de
+// presentar como actual el último turno full que quedó en orchestrate.jsonl.
+// Muestra:
+//   - el modo del hook (ligero / full) y, si lo hay, el último turno full con
+//     su fecha (prompt -> intent -> workflow -> agentes -> skills -> memorias)
+//   - los subagentes activos y recientes (hooks SubagentStart/Stop, vivos en
+//     los dos modos)
+//   - un previsualizador manual (orchestrate_prompt) de la orquestación full
+//
+// «Routing reciente» se retiró el 2026-10-23: leía el log del dispatcher, que
+// está desconectado desde el 2026-09-29 y solo escriben los arneses.
 //
 // CONTROLADO: el `feed` llega por prop desde SessionsPane, que hace UN solo poll
 // de live_session_feed para alimentar a la vez este panel y las tarjetas por
 // sesión (antes cada uno polleaba el mismo comando por separado). Mantiene en
-// propio: los listeners workflow:delegating/delegated (eventos ligeros) y el
-// estado del previsualizador (orchestrate_prompt bajo demanda).
+// propio el estado del previsualizador (orchestrate_prompt bajo demanda).
+//
+// El panel de agentes delegados (delegations.jsonl + eventos
+// workflow:delegating/delegated) se retiró el 2026-10-17: no tenía productor.
 //
 // Las secciones viven en ./live-session/* (cat7.4: este archivo pasaba de 800
 // líneas); este componente solo compone el layout y el estado de colapso.
 
 import type { LiveSessionFeed } from "../sessions/sessionTypes";
-import { fmtTime, isRelevantRoutingMsg } from "../sessions/orchShared";
+import { fmtTime } from "../sessions/orchShared";
 import { Chevron } from "./live-session/Chevron";
-import { DelegatedAgentsPanel } from "./live-session/DelegatedAgentsPanel";
 import { LastTurnPanel } from "./live-session/LastTurnPanel";
 import { OrchestrationPreviewPanel } from "./live-session/OrchestrationPreviewPanel";
 import { WorkflowRunsPanel } from "./live-session/WorkflowRunsPanel";
 import { RecentSubagentsPanel } from "./live-session/RecentSubagentsPanel";
-import { RoutingRecentPanel } from "./live-session/RoutingRecentPanel";
 import { RunningSubagentsPanel } from "./live-session/RunningSubagentsPanel";
-import { useLiveDelegationEvents } from "./live-session/useLiveDelegationEvents";
 
 // ---------------------------------------------------------------------------
 // LiveSessionMonitor — panel global controlado por props
@@ -49,12 +55,10 @@ export default function LiveSessionMonitor({
   collapsed = false,
   onToggleCollapse,
 }: LiveSessionMonitorProps) {
-  // Eventos en vivo de delegacion de agentes (workflow:delegating/delegated).
-  const liveEvents = useLiveDelegationEvents();
-
   const last = feed?.orchestrations[0] ?? null;
-  // Solo mostramos decisiones de routing "interesantes", ocultando ruido de debug.
-  const relevantRouting = (feed?.routing ?? []).filter((r) => isRelevantRoutingMsg(r.msg));
+  const mode = feed?.orchestrate_mode ?? "light";
+  const isFull = mode === "full";
+  const dotColor = isFull ? "var(--color-success, #3fb950)" : "var(--color-text-faint)";
 
   return (
     <div
@@ -80,8 +84,8 @@ export default function LiveSessionMonitor({
           <span
             className="inline-block h-2 w-2 rounded-full"
             style={{
-              background: "var(--color-success, #3fb950)",
-              boxShadow: "0 0 6px var(--color-success, #3fb950)",
+              background: dotColor,
+              boxShadow: isFull ? `0 0 6px ${dotColor}` : "none",
             }}
             aria-hidden
           />
@@ -89,7 +93,7 @@ export default function LiveSessionMonitor({
             className="text-[11px] font-semibold uppercase tracking-[0.07em]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Orquestación en vivo
+            {isFull ? "Orquestación en vivo (modo full)" : "Orquestación (modo ligero)"}
           </span>
           {feed && (
             <span className="text-[9.5px]" style={{ color: "var(--color-text-faint)" }}>
@@ -114,9 +118,7 @@ export default function LiveSessionMonitor({
             </div>
           )}
 
-          <LastTurnPanel last={last} hasError={!!error} />
-
-          <DelegatedAgentsPanel liveEvents={liveEvents} delegations={feed?.delegations ?? []} />
+          <LastTurnPanel last={last} hasError={!!error} mode={mode} />
 
           <WorkflowRunsPanel />
 
@@ -124,9 +126,7 @@ export default function LiveSessionMonitor({
 
           <RecentSubagentsPanel subagents={feed?.subagents ?? []} />
 
-          <OrchestrationPreviewPanel />
-
-          <RoutingRecentPanel relevantRouting={relevantRouting} />
+          <OrchestrationPreviewPanel mode={mode} denseEnabled={feed?.dense_enabled ?? false} />
         </>
       )}
     </div>

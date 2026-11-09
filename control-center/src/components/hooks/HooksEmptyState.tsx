@@ -7,24 +7,24 @@ export function HooksEmptyState({ onAdd, onAi }: { onAdd: () => void; onAi: () =
       style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
     >
       <div className="mb-1 text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
-        No hooks configured
+        No hay hooks configurados
       </div>
       <p
         className="mb-4 text-[12px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Hooks are shell commands Claude Code runs around tool calls and session lifecycle events.
-        They live in{" "}
-        <code style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</code> under the{" "}
-        <code style={{ fontFamily: "var(--font-mono)" }}>hooks</code> key.
+        Los hooks son comandos de shell que Claude Code ejecuta alrededor de las llamadas a
+        herramientas y de los eventos del ciclo de vida de la sesión. Viven en{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</code>, bajo la clave{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>hooks</code>.
       </p>
       <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
         {(["PreToolUse", "PostToolUse", "Stop"] as const).map((ev) => {
           const colors = eventColors(ev);
           const desc: Record<string, string> = {
-            PreToolUse: "Before a tool runs. Exit 2 to block. Good for command audits and policy checks.",
-            PostToolUse: "After a tool succeeds. Good for auto-format, lint, dependency updates.",
-            Stop: "When Claude finishes responding. Good for end-of-session checks (debug statements, dirty git tree).",
+            PreToolUse: "Antes de que se ejecute una herramienta. Exit 2 la bloquea. Útil para auditar comandos y aplicar políticas.",
+            PostToolUse: "Después de que una herramienta termine bien. Útil para formatear, pasar el lint o actualizar dependencias.",
+            Stop: "Cuando Claude termina de responder. Útil para comprobaciones de fin de sesión (restos de depuración, árbol de git sucio).",
           };
           return (
             <div
@@ -59,7 +59,7 @@ export function HooksEmptyState({ onAdd, onAi }: { onAdd: () => void; onAi: () =
           className="rounded px-3 py-1.5 text-[12px] font-medium"
           style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
         >
-          Add your first hook
+          Añadir el primer hook
         </button>
         <button
           type="button"
@@ -70,9 +70,9 @@ export function HooksEmptyState({ onAdd, onAi }: { onAdd: () => void; onAi: () =
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title="Describe what you want in plain English; Claude drafts the JSON"
+          title="Describe lo que quieres con tus palabras; Claude redacta el JSON"
         >
-          Add with AI
+          Añadir con IA
         </button>
       </div>
     </div>

@@ -8,27 +8,51 @@
 // Module layout:
 //   types.rs     — All domain types, storage path helpers, free_tier_daily_limit
 //   seed.rs      — Seed data (seed_providers, seed_zones)
-//   store.rs     — File I/O, CLI cache, load/save helpers, key-status helpers
+//   store.rs     — CLI cache, load/save helpers, key-status helpers
+//     store/json_io.rs         — atomic JSON writes + locked metrics updates
+//     store/zone_migrations.rs — zones.json migrations (normalize_zones)
 //   health.rs    — Health-check cache (30s TTL) + HTTP client
-//   exec.rs      — Retry/backoff, CLI invocation (direct spawn, stdin for codex), call_cli
-//   providers.rs — Per-provider HTTP wrappers, try_assignment_call, metrics,
-//                  bump_metrics, apply_metric_sample, route, primary_model_for_zone
-//   tests.rs     — 46 unit tests (cfg(test) only)
+//   exec.rs      — Retry/backoff, CLI invocation (direct spawn, stdin for
+//                  codex), run_with_timeout (kills the process tree)
+//   providers/   — call_wrappers (per-provider HTTP wrappers,
+//                  try_assignment_call), metrics (bump_metrics,
+//                  record_route_outcome), routing (route,
+//                  primary_model_for_zone)
+//   tests/       — unit tests by area (cfg(test) only)
+//   api_format.rs         — ApiFormat (dispatch protocol), legacy deduction,
+//                           openai_api_root
+//   seed_openai_compat.rs — OpenAI-compatible seed providers (no zone)
+//   key_source.rs         — keys del router: entorno y, si faltan, HKCU\Environment
+//   discover.rs           — ai_router_discover_models
+//   custom.rs             — ai_router_upsert/remove_custom_provider
+//   delegation.rs         — ai_router_get/set_delegation (delegation.json)
+//   delegation_runtime.rs — ai_router_delegation_status / _ledger
 //
-// NOTE: #[tauri::command] functions are declared in this file (mod.rs) rather
-// than in a sub-module because Tauri's generate_handler! macro requires the
-// command symbols and their generated companions (__cmd__*, __tauri_command_name_*)
-// to be resolvable at the path used in lib.rs (`ai_router::ai_router_list_zones`).
-// A `pub use sub::fn` forward only moves the function symbol — not the
-// macro-generated companions — causing "could not find __cmd__*" errors.
+// NOTE: the original commands are declared in this file (mod.rs). The
+// 2026-10-26 ones live in their sub-modules and handlers.rs registers them by
+// their full path (`ai_router::delegation::ai_router_get_delegation`), which
+// resolves the macro-generated companions too. What does NOT work is a
+// `pub use sub::fn` forward: it only moves the function symbol, not the
+// companions (__cmd__*), causing "could not find __cmd__*" errors.
 
+pub(crate) mod api_format;
+pub(crate) mod custom;
+pub(crate) mod delegation;
+pub(crate) mod delegation_runtime;
+pub(crate) mod discover;
 pub(crate) mod exec;
 pub(crate) mod health;
+pub(crate) mod key_source;
+pub(crate) mod key_validation;
 pub(crate) mod providers;
+pub(crate) mod retry_hint;
 pub(crate) mod seed;
+pub(crate) mod seed_openai_compat;
 pub(crate) mod store;
 pub(crate) mod types;
 
+#[cfg(test)]
+mod test_http;
 #[cfg(test)]
 mod tests;
 
@@ -37,7 +61,8 @@ mod tests;
 // actually reference as `crate::ai_router::*`.
 // ---------------------------------------------------------------------------
 
-// `route` is called by other crate modules (hooks_admin, cost_watchdog, …).
+// `route` is called by other crate modules (memory, hooks_admin, sessions_tags,
+// plugins_info, commands::…).
 // `primary_model_for_zone` lost its last production caller when
 // `agent_orchestration::delegate::resolve_cheap_model` was retired
 // (2026-09-14, kanban "comandos huérfanos"); kept as ai_router's documented
@@ -56,47 +81,29 @@ use types::{
 };
 
 // ---------------------------------------------------------------------------
-// validate_agent — checks that an agent file exists on disk.
-// Kept here rather than in a sub-module so existing doc-references resolve.
-// ---------------------------------------------------------------------------
-
-/// Returns `true` if `agent_id` corresponds to a known agent file in the
-/// agents directory (`~/.claude/agents/<agent_id>.md`).
-#[allow(dead_code)] // referenced in sessions.rs doc comments; not called directly
-pub fn validate_agent(agent_id: &str) -> bool {
-    if agent_id.is_empty() {
-        return false;
-    }
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_default();
-    let agents_dir = std::path::Path::new(&home).join(".claude").join("agents");
-    let path = agents_dir.join(format!("{}.md", agent_id));
-    path.exists()
-}
-
-// ---------------------------------------------------------------------------
-// Tauri commands — declared here so generate_handler! in lib.rs resolves
+// Tauri commands — declared here so generate_handler! in handlers.rs resolves
 // `ai_router::ai_router_*` directly (macro-generated companions included).
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn ai_router_list_zones() -> Result<Vec<Zone>, String> {
+pub async fn ai_router_list_zones() -> Result<Vec<Zone>, String> {
     store::load_zones()
 }
 
+/// Persists a zone edit and returns it as stored. Rejects, with the reason,
+/// an edit that the next `load_zones` would revert (see `store::save_zone`).
 #[tauri::command]
-pub fn ai_router_save_zone(zone: Zone) -> Result<(), String> {
+pub async fn ai_router_save_zone(zone: Zone) -> Result<Zone, String> {
     store::save_zone(zone)
 }
 
 #[tauri::command]
-pub fn ai_router_list_providers() -> Result<Vec<Provider>, String> {
+pub async fn ai_router_list_providers() -> Result<Vec<Provider>, String> {
     store::load_providers()
 }
 
 #[tauri::command]
-pub fn ai_router_health(provider_id: String) -> Result<bool, String> {
+pub async fn ai_router_health(provider_id: String) -> Result<bool, String> {
     let providers = store::load_providers()?;
     let provider = providers
         .iter()
@@ -121,7 +128,7 @@ pub fn ai_router_health(provider_id: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn ai_router_metrics() -> Result<RouterMetrics, String> {
+pub async fn ai_router_metrics() -> Result<RouterMetrics, String> {
     let mut metrics = store::load_metrics()?;
     // Recompute derived latency fields from each model's histogram so the
     // dashboard always sees fresh p50/p95/avg.
@@ -134,86 +141,31 @@ pub fn ai_router_metrics() -> Result<RouterMetrics, String> {
 }
 
 #[tauri::command]
-pub fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
+pub async fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
     let providers = store::load_providers()?;
-    let validations = providers
+    Ok(providers
         .iter()
-        .map(|p| {
-            if p.kind == ProviderKind::Cli {
-                let cmd = p.cli_command.as_deref().unwrap_or("");
-                let installed = !cmd.is_empty() && store::detect_cli(cmd);
-                let install_hint = match cmd {
-                    "codex" => "npm install -g @openai/codex  then  codex auth",
-                    "gemini" => "npm install -g @google/gemini-cli  then  gemini auth",
-                    _ => "Install the CLI and run its auth command",
-                };
-                return KeyValidation {
-                    provider_id: p.id.clone(),
-                    provider_label: p.name.clone(),
-                    has_key: installed,
-                    source: if installed {
-                        "cli-installed".to_string()
-                    } else {
-                        "cli-missing".to_string()
-                    },
-                    warning: if installed {
-                        None
-                    } else {
-                        Some(format!("CLI '{}' not found on PATH. {}", cmd, install_hint))
-                    },
-                };
-            }
+        .map(key_validation::key_validation)
+        .collect())
+}
 
-            if p.kind == ProviderKind::Local || p.key_env_var.is_empty() {
-                return KeyValidation {
-                    provider_id: p.id.clone(),
-                    provider_label: p.name.clone(),
-                    has_key: true,
-                    source: "local".to_string(),
-                    warning: None,
-                };
-            }
-
-            match std::env::var(&p.key_env_var) {
-                Ok(v) if !v.trim().is_empty() && !store::looks_like_placeholder(&v) => {
-                    KeyValidation {
-                        provider_id: p.id.clone(),
-                        provider_label: p.name.clone(),
-                        has_key: true,
-                        source: "env".to_string(),
-                        warning: None,
-                    }
-                }
-                Ok(_) => KeyValidation {
-                    provider_id: p.id.clone(),
-                    provider_label: p.name.clone(),
-                    has_key: false,
-                    source: "none".to_string(),
-                    warning: Some(format!(
-                        "Provider '{}' has a placeholder value in {}. \
-                         Set a real key or configure it in Settings > AI Router.",
-                        p.id, p.key_env_var
-                    )),
-                },
-                Err(_) => KeyValidation {
-                    provider_id: p.id.clone(),
-                    provider_label: p.name.clone(),
-                    has_key: false,
-                    source: "none".to_string(),
-                    warning: Some(format!(
-                        "Provider '{}' has no API key. \
-                         Set {} or configure it in Settings > AI Router.",
-                        p.id, p.key_env_var
-                    )),
-                },
-            }
-        })
-        .collect();
-    Ok(validations)
+/// Latest still-active cooldown among a provider's models. The health gate is
+/// per model; the provider row shows the furthest one so the UI stays honest.
+fn latest_model_cooldown(metrics: &RouterMetrics, provider_id: &str) -> Option<String> {
+    let now = chrono::Utc::now();
+    metrics
+        .by_model
+        .values()
+        .filter(|mm| mm.provider_id == provider_id)
+        .filter_map(|mm| mm.cooldown_until.as_deref())
+        .filter_map(|u| chrono::DateTime::parse_from_rfc3339(u).ok())
+        .filter(|t| *t > now)
+        .max()
+        .map(|t| t.to_rfc3339())
 }
 
 #[tauri::command]
-pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
+pub async fn ai_router_usage_summary() -> Result<UsageSummary, String> {
     use std::collections::HashMap;
 
     let providers = store::load_providers()?;
@@ -229,12 +181,12 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         } else if p.key_env_var.is_empty() {
             (true, None)
         } else {
-            match std::env::var(&p.key_env_var) {
-                Ok(v) => {
+            match key_source::resolve_key(&p.key_env_var) {
+                Some(v) => {
                     let masked = store::mask_key(&v);
                     (masked.is_some(), masked)
                 }
-                Err(_) => (false, None),
+                None => (false, None),
             }
         };
 
@@ -252,12 +204,7 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         let cm = metrics.by_class.get(&p.id).cloned().unwrap_or_default();
 
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let used_today = metrics
-            .daily
-            .get(&p.id)
-            .filter(|d| d.date == today)
-            .map(|d| d.count)
-            .unwrap_or(0);
+        let used_today = provider_daily_peak(&metrics, &p.id, &today);
         let free_tier_limit = types::free_tier_daily_limit(&p.id);
         let free_tier_pct = free_tier_limit
             .filter(|lim| *lim > 0)
@@ -281,7 +228,7 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
             last_error: cm.last_error.clone(),
             last_error_at: cm.last_error_at.clone(),
             consecutive_failures: cm.consecutive_failures,
-            cooldown_until: cm.cooldown_until.clone(),
+            cooldown_until: latest_model_cooldown(&metrics, &p.id),
         });
     }
 
@@ -294,31 +241,69 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         zone_chains.insert(z.id.clone(), chain);
     }
 
-    let real_fallback_rate = if metrics.routes_total > 0 {
-        metrics.real_fallback_count as f64 / metrics.routes_total as f64
-    } else {
-        0.0
-    };
-
-    // Rolling-window health signal: only the last N routes, so failures from
-    // retired providers (gemini-cli/claude-haiku) drop out as fresh traffic
-    // arrives instead of poisoning the rate forever.
-    let recent_window = metrics.recent_routes.len();
-    let real_fallback_rate_recent = if recent_window > 0 {
-        metrics.recent_routes.iter().filter(|&&f| f).count() as f64 / recent_window as f64
-    } else {
-        0.0
-    };
-
+    let rates = route_rates(&metrics);
     Ok(UsageSummary {
         providers: rows,
-        fallback_rate: metrics.fallback_rate,
         attempt_failure_rate: metrics.fallback_rate,
-        real_fallback_rate,
+        real_fallback_rate: rates.missed_primary,
         real_fallback_count: metrics.real_fallback_count,
+        routes_failed: metrics.routes_failed,
+        route_failure_rate: rates.failed,
         routes_total: metrics.routes_total,
-        real_fallback_rate_recent,
-        recent_window: recent_window as u64,
+        real_fallback_rate_recent: rates.missed_primary_recent,
+        route_failure_rate_recent: rates.failed_recent,
+        recent_window: metrics.recent_outcomes.len() as u64,
         zone_chains,
     })
+}
+
+/// Route-level rates derived from the persisted counters.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RouteRates {
+    /// (fallback + failed) / total, cumulative.
+    pub missed_primary: f64,
+    /// failed / total, cumulative.
+    pub failed: f64,
+    /// Same over the recent window: the actionable signal.
+    pub missed_primary_recent: f64,
+    pub failed_recent: f64,
+}
+
+fn ratio(part: u64, total: u64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        part as f64 / total as f64
+    }
+}
+
+/// Pure: rates of [`UsageSummary`]. A route whose chain failed counts as a
+/// miss of the primary AND as a failure; until 2026-10-23 it counted as a
+/// primary success and the rates went down with every failure.
+pub(crate) fn route_rates(m: &RouterMetrics) -> RouteRates {
+    let missed = m.real_fallback_count.saturating_add(m.routes_failed);
+    let window = m.recent_outcomes.len() as u64;
+    let count = |pred: fn(&types::RouteOutcome) -> bool| {
+        m.recent_outcomes.iter().filter(|o| pred(o)).count() as u64
+    };
+    RouteRates {
+        missed_primary: ratio(missed, m.routes_total),
+        failed: ratio(m.routes_failed, m.routes_total),
+        missed_primary_recent: ratio(count(|o| o.missed_primary()), window),
+        failed_recent: ratio(count(|o| *o == types::RouteOutcome::Failed), window),
+    }
+}
+
+/// Requests sent today to the most used free-tier bucket of the provider.
+/// The quota is per (provider, model), so the provider row shows the bucket
+/// closest to its limit, not the sum of its models.
+fn provider_daily_peak(metrics: &RouterMetrics, provider_id: &str, today: &str) -> u64 {
+    let prefix = format!("{provider_id}::");
+    metrics
+        .daily
+        .iter()
+        .filter(|(k, d)| k.starts_with(&prefix) && d.date == today)
+        .map(|(_, d)| d.count)
+        .max()
+        .unwrap_or(0)
 }

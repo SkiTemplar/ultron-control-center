@@ -25,7 +25,7 @@ import { confirmDialog } from "../lib/dialog";
 import type { HookLastFired } from "../types";
 import { Plus } from "./library/icons";
 import { BlocksView, type BlocksItem } from "./library/BlocksView";
-import { eventColors, truncate, deriveNameFromCommand } from "./hooks/constants";
+import { eventColors, truncate, deriveNameFromCommand, tildeHome } from "./hooks/constants";
 import type { HookRecord, HooksList, HookMutationResult, HookFiresReport, HookNameResult, HookDescription } from "./hooks/types";
 import { HookDetailPane } from "./hooks/HookDetailPane";
 import { HooksEmptyState } from "./hooks/HooksEmptyState";
@@ -160,22 +160,22 @@ export function Hooks() {
     try {
       const res = (await invoke("toggle_hook", { id: hook.id })) as HookMutationResult;
       showFlash(
-        `${res.hook?.enabled ? "Enabled" : "Disabled"} hook. Backup: ${res.backup_path ?? "n/a"}`,
+        `Hook ${res.hook?.enabled ? "activado" : "desactivado"}. Backup: ${res.backup_path ?? "n/d"}. ${res.manifest_sync ?? ""}`,
       );
       await fetchList();
     } catch (e) {
-      showFlash(`Toggle failed: ${e}`);
+      showFlash(`No se pudo cambiar el estado: ${e}`);
     }
   }
 
   async function handleDelete(hook: HookRecord) {
     try {
       const res = (await invoke("delete_hook", { id: hook.id })) as HookMutationResult;
-      showFlash(`Deleted hook. Backup: ${res.backup_path ?? "n/a"}`);
+      showFlash(`Hook borrado. Backup: ${res.backup_path ?? "n/d"}. ${res.manifest_sync ?? ""}`);
       if (selectedId === hook.id) setSelectedId(null);
       await fetchList();
     } catch (e) {
-      showFlash(`Delete failed: ${e}`);
+      showFlash(`No se pudo borrar: ${e}`);
     }
   }
 
@@ -189,7 +189,7 @@ export function Hooks() {
       setAiOpen(false);
       setAiDescription("");
     } catch (e) {
-      showFlash(`AI request failed: ${e}`);
+      showFlash(`Falló la petición a la IA: ${e}`);
     } finally {
       setAiBusy(false);
     }
@@ -207,13 +207,13 @@ export function Hooks() {
         [res.id]: { name: res.name, strategy: res.strategy },
       }));
     } catch (e) {
-      showFlash(`Naming failed: ${e}`);
+      showFlash(`No se pudo poner nombre: ${e}`);
     }
   }
 
   async function handleAutoNameAll() {
     setNamingBusy(true);
-    setNamingProgress("Analyzing hooks...");
+    setNamingProgress("Analizando hooks…");
     try {
       const results = (await invoke("bulk_analyze_hook_names")) as HookNameResult[];
       const updates: Record<string, { name: string; strategy: string }> = {};
@@ -224,9 +224,9 @@ export function Hooks() {
       }
       setNamesCache((prev) => ({ ...prev, ...updates }));
       setNamingProgress(null);
-      showFlash(`Named ${newCount} hook(s). ${results.length - newCount} already cached.`);
+      showFlash(`Nombres nuevos: ${newCount}. Ya estaban en caché: ${results.length - newCount}.`);
     } catch (e) {
-      showFlash(`Auto-name failed: ${e}`);
+      showFlash(`No se pudieron poner los nombres: ${e}`);
       setNamingProgress(null);
     } finally {
       setNamingBusy(false);
@@ -267,7 +267,6 @@ export function Hooks() {
       const hay = `${displayName} ${summary} ${h.id} ${h.matcher ?? ""} ${h.command} ${h.event}`.toLowerCase();
       return hay.includes(q);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list, q, namesCache, descriptions, hideDisabledPlugins]);
 
   const selectedHook = useMemo(
@@ -291,9 +290,10 @@ export function Hooks() {
         key: h.id,
         topGroup: h.event,
         subGroup: null,
+        label: resolveDisplayName(h) ?? h.id,
         data: h,
       })),
-    [filtered],
+    [filtered, namesCache, descriptions],
   );
 
   // -------------------------------------------------------------------------
@@ -302,7 +302,7 @@ export function Hooks() {
 
   const renderCardGrid = (items: HookRecord[]) => (
     <div
-      className="grid gap-3 p-4"
+      className="grid gap-3"
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
     >
       {items.map((h) => {
@@ -335,7 +335,7 @@ export function Hooks() {
             }}
             title={`${h.id}\n${h.command}`}
           >
-            {/* Top row: "Hook" label + event badge */}
+            {/* Fila superior: etiqueta «Hook» y evento */}
             <div
               className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
               style={{ color: "var(--color-text-tertiary)" }}
@@ -353,7 +353,7 @@ export function Hooks() {
               </span>
             </div>
 
-            {/* Center: readable name + one-line summary (fallback: raw id) */}
+            {/* Centro: nombre legible y resumen de una línea (si no, el id) */}
             <div className="flex min-h-0 flex-1 flex-col justify-center gap-1 py-1">
               {title ? (
                 <div
@@ -380,7 +380,7 @@ export function Hooks() {
               )}
             </div>
 
-            {/* Bottom row: source, disabled badge, last fired */}
+            {/* Fila inferior: origen, estado desactivado y último disparo */}
             <div
               className="flex items-center gap-1.5 text-[10px]"
               style={{ color: "var(--color-text-tertiary)" }}
@@ -396,13 +396,13 @@ export function Hooks() {
                 {h.source}
               </span>
               {!h.enabled && (
-                <span style={{ color: "var(--color-text-faint)" }}>disabled</span>
+                <span style={{ color: "var(--color-text-faint)" }}>desactivado</span>
               )}
               {lastFired[h.id]?.timestamp && (
                 <span
                   className="ml-auto truncate"
                   style={{ fontFamily: "var(--font-mono)" }}
-                  title={`Last fired ${lastFired[h.id].timestamp ?? ""} in ${lastFired[h.id].project ?? "?"}`}
+                  title={`Último disparo: ${lastFired[h.id].timestamp ?? ""} en ${lastFired[h.id].project ?? "?"}`}
                 >
                   {(lastFired[h.id].timestamp ?? "").slice(0, 16).replace("T", " ")}
                 </span>
@@ -419,24 +419,25 @@ export function Hooks() {
   // -------------------------------------------------------------------------
 
   return (
-    <div className="flex h-full flex-col gap-0">
+    <div className="flex h-full flex-col gap-4 p-6">
       {/* Top toolbar */}
-      <header
-        className="flex items-center justify-between gap-2 border-b px-4 py-2"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
-      >
+      <header className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-[14px] font-semibold">Hooks</h2>
+          <h2 className="text-lg font-semibold">Hooks</h2>
           <span
             className="text-[11px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            {filtered.length} of {list?.hooks.length ?? 0}
+            {filtered.length} de {list?.hooks.length ?? 0}
             {list?.settings_path && (
               <>
                 {" "}·{" "}
-                <code className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                  {list.settings_path}
+                <code
+                  className="text-[10.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  title={list.settings_path}
+                >
+                  {tildeHome(list.settings_path)}
                 </code>
               </>
             )}
@@ -454,30 +455,14 @@ export function Hooks() {
           )}
           <button
             type="button"
-            onClick={() => void handleAutoNameAll()}
-            disabled={namingBusy || loading}
-            className="rounded-md border px-3 py-1 text-xs disabled:opacity-50"
+            onClick={() => setAddOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
             style={{
-              borderColor: "var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
             }}
-            title="Assign readable names to all hooks using AI Router (Haiku/Gemini) with heuristic fallback"
           >
-            {namingBusy ? "Naming…" : "Auto-name all"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void fetchList()}
-            className="rounded-md border px-3 py-1 text-xs"
-            style={{
-              borderColor: "var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-            }}
-            title="Re-read settings.json"
-          >
-            Refresh
+            <Plus size={12} /> Crear hook
           </button>
           <button
             type="button"
@@ -488,27 +473,43 @@ export function Hooks() {
               background: "var(--color-surface-2)",
               color: "var(--color-text)",
             }}
-            title="Open a Claude session that drafts the hook JSON for you"
+            title="Abre una sesión de Claude que redacta el JSON del hook por ti"
           >
-            Add with AI
+            Añadir con IA
           </button>
           <button
             type="button"
-            onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
+            onClick={() => void handleAutoNameAll()}
+            disabled={namingBusy || loading}
+            className="rounded-md border px-3 py-1 text-xs disabled:opacity-50"
             style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
             }}
+            title="Pone nombres legibles a todos los hooks con el Router de IA (Haiku/Gemini) y, si falla, con heurística"
           >
-            <Plus size={12} /> Create hook
+            {namingBusy ? "Poniendo nombres…" : "Nombrar todos"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void fetchList()}
+            className="rounded-md border px-3 py-1 text-xs"
+            style={{
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
+            title="Volver a leer settings.json"
+          >
+            Actualizar
           </button>
         </div>
       </header>
 
       {flash && (
         <div
-          className="border-b px-4 py-1.5 text-[12px]"
+          className="rounded-md border px-3 py-1.5 text-[12px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
@@ -521,7 +522,7 @@ export function Hooks() {
 
       {error && (
         <div
-          className="mx-4 mt-2 rounded-md p-2 text-xs"
+          className="rounded-md p-2 text-xs"
           style={{
             border: "1px solid rgba(248, 81, 73, 0.30)",
             background: "rgba(248, 81, 73, 0.08)",
@@ -535,54 +536,54 @@ export function Hooks() {
       {/* No-settings banner */}
       {list && !list.settings_exists && (
         <div
-          className="border-b px-4 py-1.5 text-[12px]"
+          className="rounded-md border px-3 py-1.5 text-[12px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
             color: "var(--color-text-secondary)",
           }}
         >
-          settings.json does not exist yet. Adding the first hook will create it.
+          settings.json todavía no existe. Se creará al añadir el primer hook.
         </div>
       )}
 
-      {/* No-instrumentation notice — shown only when the log file is absent */}
+      {/* Aviso sin instrumentación: solo si falta el log */}
       {!loading && fires && !fires.instrumented && (
         <div
-          className="border-b px-4 py-1.5 text-[11.5px]"
+          className="rounded-md border px-3 py-1.5 text-[11.5px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
             color: "var(--color-text-tertiary)",
           }}
         >
-          Fire history not available — no hook-fires log found.
+          No hay historial de disparos: no se encuentra el log de hook-fires.
         </div>
       )}
 
       {loading && (
-        <div className="px-4 py-3 text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Loading…
+        <div className="py-3 text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Cargando…
         </div>
       )}
 
       {/* Empty state */}
       {!loading && list && list.hooks.length === 0 && (
-        <div className="p-4">
+        <div>
           <HooksEmptyState onAdd={() => setAddOpen(true)} onAi={() => setAiOpen(true)} />
         </div>
       )}
 
       {/* Layout estilo Agents: search + navegador de bloques por evento (grid | detail) */}
       {!loading && list && list.hooks.length > 0 && (
-        <div className="flex h-full flex-col gap-3 p-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           {/* Search */}
           <div className="flex items-center gap-3">
             <input
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
-              placeholder="Search hooks by name, command, matcher or event…"
+              placeholder="Buscar hooks por nombre, comando, matcher o evento…"
               className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none"
               style={{
                 border: "1px solid var(--color-border-strong)",
@@ -627,6 +628,7 @@ export function Hooks() {
                 <BlocksView<HookRecord>
                   items={blockItems}
                   noun="hook"
+                  topSublabel="Evento"
                   emptyLabel="No hay hooks."
                   topGroupAccent={(g) => eventColors(g).ribbon}
                   renderLeaves={(leaves) => renderCardGrid(leaves.map((l) => l.data))}
@@ -634,7 +636,7 @@ export function Hooks() {
               )}
             </div>
 
-          {/* Right: detail pane */}
+          {/* Derecha: panel de detalle */}
           {selectedHook && (
             <div
               className="overflow-hidden"
@@ -653,8 +655,8 @@ export function Hooks() {
                 onNameThis={() => void handleAutoNameSingle(selectedHook.id)}
                 onDelete={async () => {
                   const ok = await confirmDialog(
-                    `Delete hook?\n\nEvent: ${selectedHook.event}\nMatcher: ${selectedHook.matcher ?? "(none)"}\nCommand: ${truncate(selectedHook.command, 200)}`,
-                    { title: "Delete hook", kind: "error" },
+                    `¿Borrar el hook?\n\nEvento: ${selectedHook.event}\nMatcher: ${selectedHook.matcher ?? "(ninguno)"}\nComando: ${truncate(selectedHook.command, 200)}`,
+                    { title: "Borrar hook", kind: "error" },
                   );
                   if (ok) await handleDelete(selectedHook);
                 }}

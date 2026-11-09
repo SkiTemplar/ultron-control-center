@@ -1,7 +1,6 @@
 // Shared types between Tauri Rust commands and React frontend.
-// This file is the public entry-point; it re-exports every type from
-// the domain modules in src/types/. All 76 importers that reference
-// "./types" or "../types" continue to work without any changes.
+// Single barrel: re-exports every domain module in src/types/. Importers
+// use "./types" or "../types", which resolves to this file.
 
 export * from "./types/core";
 export * from "./types/usage";

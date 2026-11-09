@@ -13,9 +13,15 @@ export function deriveCategory(s: SkillEntry): string {
   return NO_CATEGORY;
 }
 
+/** Nombre visible del origen de una skill (el valor interno no se traduce). */
+export function skillOriginLabel(origin: string, capitalized = false): string {
+  const label = origin === "project" ? "proyecto" : origin;
+  return capitalized ? label.charAt(0).toUpperCase() + label.slice(1) : label;
+}
+
 export function deriveTopGroup(s: SkillEntry): string {
   if (s.origin === "global") return "Global";
-  if (s.origin === "project") return "Project";
+  if (s.origin === "project") return "Proyecto";
   return deriveCategory(s);
 }
 

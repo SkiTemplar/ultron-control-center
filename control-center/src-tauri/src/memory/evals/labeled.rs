@@ -1,6 +1,6 @@
 // evals/labeled.rs — evaluacion labeled-golden externa (troceado de evals.rs, 2026-07-02).
 
-use crate::commands::memory::recall_unified::build_trace;
+use crate::commands::memory::recall_unified::build_trace_diagnostic;
 use crate::memory::eval_metrics::{EvalMetrics, LabeledSet};
 use std::collections::HashSet;
 
@@ -187,7 +187,9 @@ pub fn run_labeled_golden_with(
     // Pre-check infra (2026-08-10): con Qdrant caído este runner mediría el
     // modo sparse degradado y reportaría el 0.151 del audit 08-09 como si
     // fuera regresión real. Infra caída = degraded con causa, no score.
-    if !crate::qdrant::qdrant_healthy_cached() {
+    // Con el denso apagado a proposito (`ULTRON_DENSE=0`) Qdrant no tiene que
+    // estar vivo: se mide el modo sparse, que es el que esta en produccion.
+    if crate::qdrant::dense_enabled() && !crate::qdrant::qdrant_healthy_cached() {
         return LabeledGoldenReport::degraded(
             path,
             k,
@@ -242,20 +244,26 @@ pub fn run_labeled_golden_with(
         // Con el proyecto de la query (golden v2): el hook recuerda siempre en
         // el ámbito del proyecto del turno; sin él se medía otro camino.
         let project = label.project_id.as_deref();
-        let (retrieved_ids, degraded_query) =
-            match build_trace(&label.query, k, project, false, eval_dense, eval_rerank) {
-                Ok(t) => {
-                    let ids: Vec<String> = t.injected.into_iter().map(|e| e.canonical_id).collect();
-                    (ids, false)
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[evals/labeled] build_trace failed for '{}': {e}",
-                        label.query
-                    );
-                    (Vec::new(), true)
-                }
-            };
+        let (retrieved_ids, degraded_query) = match build_trace_diagnostic(
+            &label.query,
+            k,
+            project,
+            false,
+            eval_dense,
+            eval_rerank,
+        ) {
+            Ok(t) => {
+                let ids: Vec<String> = t.injected.into_iter().map(|e| e.canonical_id).collect();
+                (ids, false)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[evals/labeled] build_trace failed for '{}': {e}",
+                    label.query
+                );
+                (Vec::new(), true)
+            }
+        };
 
         let (synth, relevant) =
             crate::memory::eval_metrics::collapse_to_groups(&retrieved_ids, &groups);

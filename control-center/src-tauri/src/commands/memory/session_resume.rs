@@ -8,7 +8,7 @@
 use serde::Serialize;
 
 use crate::commands::memory::kanban_signal;
-use crate::memory::{MemoryItem, MemoryService, MemoryType};
+use crate::memory::{MemoryItem, MemoryService, MemoryType, Sensitivity};
 use crate::workflow_runs::{list_runs_inner, RunStatus, WorkflowRun};
 
 /// Compact memory shape for the resume context (summary only, lazy content).
@@ -31,6 +31,16 @@ pub struct SessionResume {
     pub pending_candidates: i64,
     pub next_action: Option<String>,
     pub warnings: Vec<String>,
+}
+
+/// Gate Secret del resume (paridad con el pack del recall, que excluye
+/// `Sensitivity::Secret`): nada marcado Secret llega al contexto de arranque,
+/// ni como tarea, ni como decisión, ni como fijado, ni como `next_action`.
+fn without_secret(items: Vec<MemoryItem>) -> Vec<MemoryItem> {
+    items
+        .into_iter()
+        .filter(|it| it.sensitivity != Sensitivity::Secret)
+        .collect()
 }
 
 fn to_resume(items: Vec<MemoryItem>) -> Vec<ResumeMemory> {
@@ -95,8 +105,8 @@ fn now_secs() -> i64 {
 ///
 /// (2026-08-10, audit 08-09) El fallback "último commit: …" se RETIRÓ: el eco
 /// del git log no es una acción (el head ya viaja en su propia línea del
-/// resume) y enmascaraba el caso honesto "sin tarea fijada" — el render JS
-/// tiene un mensaje explícito para `None`.
+/// resume) y enmascaraba el caso honesto "sin tarea fijada": con `None` el
+/// render JS no pinta la línea `next_action`.
 fn derive_next_action(
     project: Option<&str>,
     tasks: &[MemoryItem],
@@ -144,6 +154,36 @@ fn eligible_memory_tasks(raw: &[MemoryItem], proj: Option<&str>, now: i64) -> Ve
     }))
 }
 
+/// open_tasks del resume: fuente VIVA = kanban (cards In-Progress + Backlog),
+/// igual que next_action. Memoria-Task se pudre (sin estado done) y arrastraba
+/// tareas muertas ("npx tauri build", "# TODO Rebuild"). Fallback a memoria
+/// elegible (reciente + no-completada) solo si el proyecto no tiene kanban
+/// legible.
+fn resume_open_tasks(
+    root: Option<&std::path::Path>,
+    proj: Option<&str>,
+    raw_tasks: &[MemoryItem],
+) -> Vec<ResumeMemory> {
+    let kanban = match (root, proj) {
+        (Some(root), Some(p)) => kanban_signal::kanban_open_tasks(root, p, 8).map(|t| (p, t)),
+        _ => None,
+    };
+    let Some((p, titles)) = kanban else {
+        return eligible_memory_tasks(raw_tasks, proj, now_secs());
+    };
+    titles
+        .into_iter()
+        .enumerate()
+        .map(|(i, title)| ResumeMemory {
+            canonical_id: format!("kanban:{p}:{i}"),
+            kind: "task".to_string(),
+            summary: Some(title),
+            project_id: Some(p.to_string()),
+            pinned: false,
+        })
+        .collect()
+}
+
 /// Sync core of session resume — reused by the CLI sidecar (`ultron-memory
 /// resume`) and the Tauri command. Loads only MINIMAL, bounded slices.
 pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume, String> {
@@ -158,41 +198,24 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     // narrow to the requested project + global items.
     let proj = project_id.as_deref();
     // open_tasks/decisions: SOLO del proyecto (sin globales — mandamiento 13).
-    let raw_tasks =
-        MemoryService::list_active_of_type(MemoryType::Task, 96).map_err(|e| e.to_string())?;
+    let raw_tasks = without_secret(
+        MemoryService::list_active_of_type(MemoryType::Task, 96).map_err(|e| e.to_string())?,
+    );
     let decisions = to_resume(prefer_project(
-        MemoryService::list_active_of_type(MemoryType::Decision, 96).map_err(|e| e.to_string())?,
+        without_secret(
+            MemoryService::list_active_of_type(MemoryType::Decision, 96)
+                .map_err(|e| e.to_string())?,
+        ),
         proj,
         8,
         false,
         |it| it.project_id.clone(),
     ));
-    // open_tasks: fuente VIVA = kanban (cards In-Progress + Backlog), igual que
-    // next_action. Memoria-Task se pudre (sin estado done) y arrastraba tareas
-    // muertas ("npx tauri build", "# TODO Rebuild"). Fallback a memoria elegible
-    // (reciente + no-completada) solo si el proyecto no tiene kanban.
-    let now = now_secs();
     let root = crate::ultron_root().ok();
-    let open_tasks: Vec<ResumeMemory> = match (root.as_deref(), proj) {
-        (Some(root), Some(p)) => match kanban_signal::kanban_open_tasks(root, p, 8) {
-            Some(titles) => titles
-                .into_iter()
-                .enumerate()
-                .map(|(i, title)| ResumeMemory {
-                    canonical_id: format!("kanban:{p}:{i}"),
-                    kind: "task".to_string(),
-                    summary: Some(title),
-                    project_id: Some(p.to_string()),
-                    pinned: false,
-                })
-                .collect(),
-            None => eligible_memory_tasks(&raw_tasks, proj, now),
-        },
-        _ => eligible_memory_tasks(&raw_tasks, proj, now),
-    };
+    let open_tasks = resume_open_tasks(root.as_deref(), proj, &raw_tasks);
     // pinned keeps globals — user-elevated, cross-project on purpose.
     let pinned = to_resume(prefer_project(
-        MemoryService::list_pinned(48).map_err(|e| e.to_string())?,
+        without_secret(MemoryService::list_pinned(48).map_err(|e| e.to_string())?),
         proj,
         12,
         true,
@@ -202,26 +225,7 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
 
     let next_action = derive_next_action(proj, &raw_tasks, &active_workflows);
 
-    let mut warnings = Vec::new();
-    if stats.candidates_pending > 0 {
-        warnings.push(format!(
-            "{} memory candidate(s) await validation in the inbox",
-            stats.candidates_pending
-        ));
-    }
-    // (2026-09-25) Cards vivas que ya no pueden ganar `next_action` por edad
-    // (ver kanban_signal) pero siguen en el tablero: se listan aparte para que
-    // el usuario decida si cerrarlas, en vez de desaparecer del resume.
-    if let (Some(root), Some(p)) = (root.as_deref(), proj) {
-        if let Some(stale) = kanban_signal::kanban_stale_cards(root, p, 5) {
-            let items = stale
-                .iter()
-                .map(|c| format!("{} ({}d, {})", c.title, c.age_days, c.id))
-                .collect::<Vec<_>>()
-                .join(", ");
-            warnings.push(format!("estancadas en el kanban: {items}"));
-        }
-    }
+    let warnings = resume_warnings(root.as_deref(), proj, stats.candidates_pending);
 
     Ok(SessionResume {
         project_id,
@@ -235,6 +239,43 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     })
 }
 
+/// Avisos del resume: candidatas pendientes, kanban ilegible y cards
+/// estancadas.
+fn resume_warnings(
+    root: Option<&std::path::Path>,
+    proj: Option<&str>,
+    candidates_pending: i64,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if candidates_pending > 0 {
+        warnings.push(format!(
+            "{candidates_pending} memory candidate(s) await validation in the inbox"
+        ));
+    }
+    let (Some(root), Some(p)) = (root, proj) else {
+        return warnings;
+    };
+    // (2026-10-26, L11) Un kanban que existe pero no se puede leer no es «sin
+    // tareas»: las tareas del resume salen entonces de la memoria y se avisa.
+    if let kanban_signal::KanbanDoc::Unreadable(why) = kanban_signal::load_kanban(root, p) {
+        warnings.push(format!(
+            "kanban de {p} ilegible ({why}); las tareas salen de la memoria"
+        ));
+    }
+    // (2026-09-25) Cards vivas que ya no pueden ganar `next_action` por edad
+    // (ver kanban_signal) pero siguen en el tablero: se listan aparte para que
+    // el usuario decida si cerrarlas, en vez de desaparecer del resume.
+    if let Some(stale) = kanban_signal::kanban_stale_cards(root, p, 5) {
+        let items = stale
+            .iter()
+            .map(|c| format!("{} ({}d, {})", c.title, c.age_days, c.id))
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(format!("estancadas en el kanban: {items}"));
+    }
+    warnings
+}
+
 // Higiene 2026-08-11 (audit 08-09 #44): el wrapper #[tauri::command]
 // `session_resume` se borro — nunca estuvo registrado. El resume real sale
 // por el sidecar (`ultron-memory.exe resume` -> session_resume_inner) via el
@@ -242,7 +283,31 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
 
 #[cfg(test)]
 mod tests {
-    use super::prefer_project;
+    use super::{prefer_project, without_secret};
+    use crate::memory::{MemoryItem, MemoryType, Scope, Sensitivity, Source, Status};
+
+    // Auditoría 2026-10-23: el resume no aplicaba el gate Secret. Un Task
+    // Secret en un proyecto sin kanban habría entrado en open_tasks.
+    #[test]
+    fn el_resume_descarta_los_items_secret() {
+        let item = |id: &str, s: Sensitivity| {
+            let mut it = MemoryItem::new(
+                MemoryType::Task,
+                Scope::Project,
+                Source::AssistantInferred,
+                Status::Active,
+            );
+            it.id = id.to_string();
+            it.sensitivity = s;
+            it
+        };
+        let kept = without_secret(vec![
+            item("secreto", Sensitivity::Secret),
+            item("normal", Sensitivity::Internal),
+        ]);
+        let ids: Vec<&str> = kept.iter().map(|it| it.id.as_str()).collect();
+        assert_eq!(ids, vec!["normal"]);
+    }
 
     fn proj(it: &Option<String>) -> Option<String> {
         it.clone()
@@ -288,5 +353,20 @@ mod tests {
         let cross = prefer_project(items, None, 3, false, proj);
         assert_eq!(cross.len(), 3);
         assert_eq!(cross[0], Some("libro".to_string()));
+    }
+
+    #[test]
+    fn un_kanban_ilegible_se_avisa_en_el_resume() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("cockpit").join("projects").join("ultron");
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::write(p.join("kanban.json"), "{ roto").unwrap();
+
+        let w = super::resume_warnings(Some(dir.path()), Some("ultron"), 0);
+        assert!(w.iter().any(|l| l.contains("ilegible")), "{w:?}");
+
+        // Caso de control: sin kanban no hay aviso (cae a memoria en silencio).
+        let vacio = tempfile::tempdir().unwrap();
+        assert!(super::resume_warnings(Some(vacio.path()), Some("ultron"), 0).is_empty());
     }
 }

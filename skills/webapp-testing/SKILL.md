@@ -17,8 +17,3 @@ or inspecting browser logs.)
 1. (First step — launch Playwright and navigate to the local app URL.)
 2. (Second step — exercise the flow under test; capture evidence.)
 3. (Final output expectation — pass/fail report with screenshots + logs.)
-
-## Customize
-This file lives at `~/.claude/skills/webapp-testing/SKILL.md`. Modify it to
-fit your workflow. The installer's manifest entry points here via
-`repo://skills/webapp-testing`.

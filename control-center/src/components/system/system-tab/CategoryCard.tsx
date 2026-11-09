@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { InstalledApp } from "../../../types";
-import { type AppCategory, type CategoryOverrides, CATEGORY_DESCRIPTIONS } from "./types";
+import { type AppCategory, type CategoryOverrides, CATEGORY_DESCRIPTIONS, CATEGORY_LABELS } from "./types";
 import { appId } from "./types";
 import { AppCard } from "./AppCard";
 
@@ -45,7 +45,7 @@ export function CategoryCard({
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
             <span className="text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
-              {category}
+              {CATEGORY_LABELS[category]}
             </span>
             <span
               className="tabular-nums text-[12px]"
@@ -59,7 +59,7 @@ export function CategoryCard({
           </div>
         </div>
         <span className="shrink-0 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-          {open ? "Hide" : "Show"}
+          {open ? "Ocultar" : "Mostrar"}
         </span>
       </button>
       {open && (

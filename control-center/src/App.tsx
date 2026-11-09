@@ -3,26 +3,25 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirmDialog } from "./lib/dialog";
 import { notify } from "./lib/notify";
-import { Sidebar, type Tab } from "./components/Sidebar";
+import { Sidebar, TAB_LABELS, type Tab } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Library, type LibrarySubTab } from "./components/Library";
 import { Notes } from "./components/Notes";
-import { Learn } from "./components/Learn";
 import { Lab } from "./components/Lab";
 import { SessionsZone } from "./components/sessions/SessionsZone";
 import { Usage } from "./components/Usage";
 import { AIRouterPage } from "./components/AIRouter";
-import { Settings } from "./components/Settings";
+import { Settings, SETTINGS_SECTION_KEY } from "./components/Settings";
 import { Projects } from "./components/Projects";
 import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsContext";
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
 import { Plans } from "./components/Plans";
-// Finance is a local-only feature (personal KutxaBank data; Finance.tsx is
+// Finance is a local-only feature (datos bancarios locales; Finance.tsx is
 // excluded from the public repo via .gitignore). Enable at build time with
 // the env var VITE_FINANCE=1. When the flag is absent the lazy import is
 // never attempted and the Finance tab is hidden in the Sidebar.
@@ -44,9 +43,8 @@ const FinanceLazy =
         })),
       )
     : null;
-import { MemoryTab } from "./components/MemoryTab";
 import { PopupHost } from "./components/PopupHost";
-import { Onboarding } from "./components/Onboarding";
+import { Onboarding, OPEN_ONBOARDING_EVENT } from "./components/Onboarding";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -54,6 +52,11 @@ import { computeGlobalStatus } from "./lib/status";
 import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { AlertEntry, ChangelogEntry } from "./types";
+import {
+  maintenancePaletteActions,
+  rebuildPaletteAction,
+  type MaintenanceCommand,
+} from "./components/palette/systemPaletteActions";
 
 export default function App() {
   return (
@@ -134,7 +137,7 @@ function AppInner() {
       notify({ severity, source, message: trimmed });
     }
     const onError = (e: ErrorEvent) => {
-      const msg = e.message || (e.error && String(e.error)) || "unknown error";
+      const msg = e.message || (e.error && String(e.error)) || "error desconocido";
       report("critical", "ui.error", `${msg} @ ${e.filename}:${e.lineno}`);
     };
     const onRejection = (e: PromiseRejectionEvent) => {
@@ -160,7 +163,7 @@ function AppInner() {
   // Action keys recognised here (must match defaults in the Rust module
   // `in_app_shortcuts::default_bindings`):
   //   command.palette · open.settings · refresh.all
-  //   tab.<dashboard|usage|notifications|sessions|projects|plans|memory|skills|logs|settings>
+  //   tab.<dashboard|usage|notifications|sessions|projects|plans|skills|logs|settings>
   const bindingsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
@@ -218,10 +221,10 @@ function AppInner() {
       void _unlistenWindowClosed.current?.then((fn) => fn());
     };
   // open y select son callbacks estables (useCallback sin deps cambiantes).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Custom per-project hotkeys (defined in Settings → Project hotkeys).
+  // Custom per-project hotkeys (hand-edited in ~/.ultron/cockpit/project-hotkeys.json;
+  // the Settings editor was retired).
   // Backend emits "project-hotkey-custom" with { slot, project_id, combo }.
   // Behaviour: open Control Center on the Projects tab, then invoke
   // open_project so the user lands on the configured project ready to go.
@@ -246,6 +249,19 @@ function AppInner() {
     );
     return () => {
       void _unlistenHotkeyCustom.current?.then((fn) => fn());
+    };
+  }, []);
+
+  // Clic derecho en Pupus → «Ajustes»: abre Settings en su sección. La
+  // sección viaja por sessionStorage porque Settings se monta después.
+  useEffect(() => {
+    const unlisten = listen("mascot:open-settings", () => {
+      sessionStorage.setItem(SETTINGS_SECTION_KEY, "mascot");
+      window.dispatchEvent(new Event(SETTINGS_SECTION_KEY));
+      setTab("settings");
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
     };
   }, []);
 
@@ -323,9 +339,6 @@ function AppInner() {
         ["tab.sessions", "sessions"],
         ["tab.projects", "projects"],
         ["tab.plans", "plans"],
-        // tab.memory estaba definido en in_app_shortcuts.rs (Alt+7) pero
-        // faltaba aqui: el atajo existia y no hacia nada (fix 2026-09-22).
-        ["tab.memory", "memory"],
         ["tab.skills", "skills"],
         ["tab.settings", "settings"],
       ];
@@ -340,7 +353,6 @@ function AppInner() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const globalStatus = computeGlobalStatus(alerts);
@@ -349,12 +361,6 @@ function AppInner() {
   // Maintenance commands are pulled dynamically from the backend so the
   // palette stays in sync with whatever `list_maintenance_commands_inner`
   // returns (no hardcoded duplicate list). Everything else is static.
-  type MaintenanceCommand = {
-    kind: string;
-    label: string;
-    description: string;
-    group: string;
-  };
   const [maintenanceCommands, setMaintenanceCommands] = useState<
     MaintenanceCommand[]
   >([]);
@@ -390,7 +396,7 @@ function AppInner() {
       notify({
         severity: "warn",
         source: "palette",
-        message: `${label} failed: ${msg}`.slice(0, 600),
+        message: `${label} ha fallado: ${msg}`.slice(0, 600),
       });
     }
   }
@@ -401,30 +407,37 @@ function AppInner() {
     // -- Actions (refresh / settings / close) -------------------------
     list.push({
       id: "refresh",
-      label: "Refresh dashboard data",
-      description: "Re-pull alerts and changelog.",
-      group: "Actions",
+      label: "Actualizar los datos del panel",
+      description: "Vuelve a leer las alertas y las notas de versión.",
+      group: "Acciones",
       shortcut: "Ctrl+R",
       run: () => void refreshAll(),
     });
     list.push({
       id: "settings",
-      label: "Open Settings",
-      group: "Actions",
+      label: "Abrir Ajustes",
+      group: "Acciones",
       shortcut: "Ctrl+,",
       run: () => setTab("settings"),
     });
     list.push({
+      id: "show-onboarding",
+      label: "Mostrar la pantalla de bienvenida",
+      description: "Reabre el resumen inicial de las pestañas principales.",
+      group: "Acciones",
+      run: () => window.dispatchEvent(new Event(OPEN_ONBOARDING_EVENT)),
+    });
+    list.push({
       id: "close-control-center",
-      label: "Close Control Center",
-      description: "Fully exit the app (not minimize to tray). Frees file locks.",
-      group: "Actions",
+      label: "Cerrar Control Center",
+      description: "Sale del todo de la aplicación (no la minimiza a la bandeja). Libera los bloqueos de ficheros.",
+      group: "Acciones",
       run: async () => {
         const ok = await confirmDialog(
-          "Close ULTRON Control Center? Global hotkeys stop until you relaunch.",
-          { title: "Close Control Center", kind: "warning" },
+          "¿Cerrar ULTRON Control Center? Los atajos globales dejan de funcionar hasta que vuelvas a abrirlo.",
+          { title: "Cerrar Control Center", kind: "warning" },
         );
-        if (ok) void runQuiet("Close Control Center", "close_control_center");
+        if (ok) void runQuiet("Cerrar Control Center", "close_control_center");
       },
     });
 
@@ -434,30 +447,40 @@ function AppInner() {
     // navigation shortcut keeps the palette discoverable.
     list.push({
       id: "diag.native",
-      label: "Open System Diagnostics",
-      description: "Native PC diagnostic (sysinfo + wmi) with AI analysis.",
-      group: "Diagnostics",
+      label: "Abrir el diagnóstico del sistema",
+      description: "Diagnóstico nativo del PC (sysinfo + wmi) con análisis por IA.",
+      group: "Diagnóstico",
       run: () => setTab("system"),
     });
     // -- AI sessions --------------------------------------------------
     list.push({
-      id: "ai.spawn.claude",
-      label: "Spawn Claude session",
-      description: "Open a new Claude Code terminal (clipboard prompt mode).",
-      group: "AI",
+      id: "ai.sessions-window",
+      label: "Abrir la ventana de ULTRON Sessions",
+      description: "La ventana de chat aparte (no la pestaña Monitor de sesiones).",
+      group: "IA",
       run: () =>
-        void runQuiet("Spawn Claude", "spawn_session", {
+        void runQuiet("Abrir ULTRON Sessions", "sesiones_open_window", {
+          projectId: null,
+        }),
+    });
+    list.push({
+      id: "ai.spawn.claude",
+      label: "Lanzar una sesión de Claude",
+      description: "Abre una terminal nueva de Claude Code (prompt por portapapeles).",
+      group: "IA",
+      run: () =>
+        void runQuiet("Lanzar Claude", "spawn_session", {
           provider: "claude",
           prompt: null,
         }),
     });
     list.push({
       id: "ai.spawn.codex",
-      label: "Spawn Codex session",
-      description: "Launch the Codex CLI (ChatGPT subscription auth).",
-      group: "AI",
+      label: "Lanzar una sesión de Codex",
+      description: "Lanza el CLI de Codex (autenticación con la suscripción de ChatGPT).",
+      group: "IA",
       run: () =>
-        void runQuiet("Spawn Codex", "spawn_session", {
+        void runQuiet("Lanzar Codex", "spawn_session", {
           provider: "codex",
           prompt: null,
         }),
@@ -466,57 +489,101 @@ function AppInner() {
     // The backend's `list_maintenance_commands_inner` is the source of
     // truth. Whenever a new MaintenanceCommand is added there it shows
     // up here automatically — no duplicate frontend list to keep in sync.
-    for (const m of maintenanceCommands) {
-      list.push({
-        id: `maint.${m.kind}`,
-        label: m.label,
-        description: m.description,
-        group: `Maintenance (${m.group})`,
-        run: () =>
-          void runQuiet(m.label, "run_maintenance_command", { kind: m.kind }),
-      });
-    }
+    // Destructive entries ask first and every result (also success:false)
+    // is shown: see components/palette/systemPaletteActions.ts.
+    list.push(...maintenancePaletteActions(maintenanceCommands));
 
     // -- System / lifecycle ------------------------------------------
-    list.push({
-      id: "sys.rebuild",
-      label: "Rebuild Control Center",
-      description: "Spawn `npm run tauri build` in a new window.",
-      group: "System",
-      run: () =>
-        void runQuiet("Rebuild", "run_app_lifecycle", { kind: "update" }),
-    });
+    // Same canonical flow as Settings → Recompilar (rebuildFlow).
+    list.push(rebuildPaletteAction());
     list.push({
       id: "sys.uninstall",
-      label: "Uninstall ULTRON",
-      description: "Run the uninstall script in a new window (asks for confirmation).",
-      group: "System",
+      label: "Desinstalar ULTRON",
+      description: "Ejecuta el script de desinstalación en una ventana nueva (pide confirmación).",
+      group: "Sistema",
       run: async () => {
         const ok = await confirmDialog(
-          "Open the uninstaller? This walks you through removing ULTRON.",
-          { title: "Uninstall ULTRON", kind: "warning" },
+          "¿Abrir el desinstalador? Te guía para quitar ULTRON.",
+          { title: "Desinstalar ULTRON", kind: "warning" },
         );
         if (ok)
-          void runQuiet("Uninstall", "run_app_lifecycle", { kind: "uninstall" });
+          void runQuiet("Desinstalar", "run_app_lifecycle", { kind: "uninstall" });
       },
     });
     list.push({
       id: "sys.purge-autostart",
-      label: "Purge legacy autostart entries",
-      description: "Remove stale Run-key / Startup shim left by older installs.",
-      group: "System",
-      run: () => void runQuiet("Purge autostart", "purge_legacy_autostart"),
+      label: "Limpiar entradas antiguas de arranque automático",
+      description: "Quita las entradas Run y los accesos de Inicio que dejaron instalaciones anteriores.",
+      group: "Sistema",
+      run: () => void runQuiet("Limpiar el arranque automático", "purge_legacy_autostart"),
     });
     list.push({
       id: "sys.scan-projects",
-      label: "Scan projects",
-      description: "Re-scan project folders so the launcher picks up new entries.",
-      group: "System",
-      run: () => void runQuiet("Scan projects", "scan_projects"),
+      label: "Escanear proyectos",
+      description: "Vuelve a recorrer las carpetas de proyectos para que el lanzador vea las nuevas.",
+      group: "Sistema",
+      run: () => void runQuiet("Escanear proyectos", "scan_projects"),
     });
 
     return list;
   }, [maintenanceCommands]);
+
+  // Only the active tab is mounted. Its error boundary is keyed by tab, so a
+  // crash in one tab resets on navigation instead of covering every other
+  // tab, and the message names the tab that actually failed.
+  function renderTab(): React.ReactNode {
+    switch (tab) {
+      case "dashboard":
+        return <Dashboard globalStatus={globalStatus} onNavigate={setTab} />;
+      case "notifications":
+        return <Notifications alerts={alerts} onDeleted={refreshAll} />;
+      case "changelog":
+        return <Changelog entries={changelog} />;
+      case "mcps":
+        return <MCPs />;
+      case "library":
+      case "skills":
+      case "agents":
+      case "rules":
+        return (
+          <Library
+            key={tab}
+            initial={tab === "library" ? undefined : (tab as LibrarySubTab)}
+          />
+        );
+      case "notes":
+        return <Notes />;
+      case "lab":
+        return <Lab />;
+      case "sessions":
+        return (
+          <SessionsZone
+            onOpenProject={(id) => {
+              open({ id, title: id });
+              setTab("projects");
+            }}
+          />
+        );
+      case "usage":
+        return <Usage />;
+      case "ai-router":
+        return <AIRouterPage />;
+      case "settings":
+        return <Settings />;
+      case "projects":
+        return <ProjectsPane />;
+      case "finance":
+        return FINANCE_ENABLED && FinanceLazy ? (
+          <React.Suspense fallback={null}>
+            <FinanceLazy />
+          </React.Suspense>
+        ) : null;
+      case "system":
+        return <System />;
+      case "plans":
+        return <Plans />;
+    }
+  }
 
   return (
     <div className="flex h-full">
@@ -527,84 +594,18 @@ function AppInner() {
         lastProjectCtx={tab !== "projects" ? lastProjectCtx : null}
         onGoBack={goBackToProject}
       />
-      <main className="flex-1 overflow-auto">
+      {/* The update banner takes its own height and <main> the rest, so each
+          tab keeps a single scroll container. Popups anchor to this column,
+          clear of the sidebar. */}
+      <div className="relative flex min-w-0 flex-1 flex-col">
         <UpdateBanner />
-        <TabErrorBoundary tab="dashboard">
-          {tab === "dashboard" && (
-            <Dashboard
-              globalStatus={globalStatus}
-              onNavigate={setTab}
-            />
-          )}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="notifications">
-          {tab === "notifications" && (
-            <Notifications alerts={alerts} onDeleted={refreshAll} />
-          )}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="changelog">
-          {tab === "changelog" && <Changelog entries={changelog} />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="mcps">
-          {tab === "mcps" && <MCPs />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="library">
-          {(tab === "library" ||
-            tab === "skills" ||
-            tab === "agents" ||
-            tab === "rules") && (
-            <Library
-              key={tab}
-              initial={tab === "library" ? undefined : (tab as LibrarySubTab)}
-            />
-          )}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="notes">
-          {tab === "notes" && <Notes />}
-          {tab === "learn" && <Learn />}
-          {tab === "lab" && <Lab />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="sessions">
-          {tab === "sessions" && (
-            <SessionsZone
-              onOpenProject={(id) => {
-                open({ id, title: id });
-                setTab("projects");
-              }}
-            />
-          )}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="usage">
-          {tab === "usage" && <Usage />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="ai-router">
-          {tab === "ai-router" && <AIRouterPage />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="settings">
-          {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="projects">
-          {tab === "projects" && <ProjectsPane />}
-        </TabErrorBoundary>
-        {FINANCE_ENABLED && FinanceLazy && (
-          <TabErrorBoundary tab="finance">
-            {tab === "finance" && (
-              <React.Suspense fallback={null}>
-                <FinanceLazy />
-              </React.Suspense>
-            )}
+        <main className="min-h-0 flex-1 overflow-auto">
+          <TabErrorBoundary key={tab} tab={TAB_LABELS[tab]}>
+            {renderTab()}
           </TabErrorBoundary>
-        )}
-        <TabErrorBoundary tab="memory">
-          {tab === "memory" && <MemoryTab />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="system">
-          {tab === "system" && <System />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="plans">
-          {tab === "plans" && <Plans />}
-        </TabErrorBoundary>
-      </main>
+        </main>
+        <PopupHost />
+      </div>
 
       <CommandPalette
         open={paletteOpen}
@@ -612,7 +613,6 @@ function AppInner() {
         onNavigate={(t) => setTab(t)}
         extraActions={extraPaletteActions}
       />
-      <PopupHost />
       <Onboarding />
     </div>
   );

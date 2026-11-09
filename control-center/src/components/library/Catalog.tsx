@@ -11,6 +11,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { analyzeLocalRepo } from "../../lib/library-client";
 import type { AnalyzeRepoResult } from "../../types";
 import { getPrompt } from "../../lib/button-prompts";
+import { instructionsCwd, openInSessionsMessage, openPromptInSessions } from "../sessionsLaunch";
 import {
   AlertTriangle,
   Check,
@@ -46,13 +47,20 @@ type SearchTab = "trending" | "skills" | "agents" | "rules" | "mcps" | "repos";
 // Constants
 // ---------------------------------------------------------------------------
 
+/**
+ * Modo de permisos de cualquier sesión abierta sobre un repo del catálogo de
+ * GitHub. Contenido no confiable: nunca con bypass, aunque el perfil de
+ * lanzamiento de Sessions lo tenga.
+ */
+const CATALOG_PERMISSION_MODE = "default" as const;
+
 const TABS: { id: SearchTab; label: string; hint: string }[] = [
-  { id: "trending", label: "Trending", hint: "Recent claude-flavoured repos" },
+  { id: "trending", label: "Tendencias", hint: "Repos recientes del ecosistema Claude" },
   { id: "skills", label: "Skills", hint: "topic:claude-skill" },
-  { id: "agents", label: "Agents", hint: "topic:claude-agent" },
-  { id: "rules", label: "Rules", hint: "topic:claude-rules" },
+  { id: "agents", label: "Agentes", hint: "topic:claude-agent" },
+  { id: "rules", label: "Reglas", hint: "topic:claude-rules" },
   { id: "mcps", label: "MCPs", hint: "topic:mcp-server" },
-  { id: "repos", label: "Repos", hint: "Free-text repo search" },
+  { id: "repos", label: "Repos", hint: "Búsqueda libre de repos" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -130,7 +138,7 @@ function FilterBar({
     >
       {/* Min stars */}
       <label className="flex items-center gap-1.5" style={{ color: "var(--color-text-secondary)" }}>
-        <span className="shrink-0">Min ★</span>
+        <span className="shrink-0">Mín. ★</span>
         <input
           type="number"
           min={0}
@@ -148,7 +156,7 @@ function FilterBar({
       {/* Topic chips (top 10 to avoid overflow) */}
       {allTopics.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
-          <span style={{ color: "var(--color-text-tertiary)" }}>Topic:</span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>Tema:</span>
           {allTopics.slice(0, 10).map((t) => {
             const active = filters.topics.includes(t);
             return (
@@ -182,7 +190,7 @@ function FilterBar({
             border: "1px solid var(--color-border)",
           }}
         >
-          <X size={10} /> Clear filters
+          <X size={10} /> Quitar filtros
         </button>
       )}
     </div>
@@ -193,9 +201,9 @@ function FilterBar({
 // LocalRepoAnalyzer (iter-10) — wires `analyze_local_repo`
 // ---------------------------------------------------------------------------
 //
-// Scans a repo ALREADY on disk for skills/agents and runs the SAME post-install
-// integration a GitHub install does (sync-registry catalog refresh + a governed
-// memory candidate in the inbox). Read-only — copies nothing. Surfaces the
+// Scans a repo ALREADY on disk for skills/agents and runs the post-install
+// step (sync-registry refresh of the dispatcher registry, which no live hook
+// reads since 2026-09-29, + a governed memory candidate in the inbox). Read-only — copies nothing. Surfaces the
 // returned `AnalyzeRepoResult` (assets found, newly detected, candidate id,
 // non-fatal warnings) so the previously-orphan command has a consumer.
 
@@ -321,10 +329,13 @@ function LocalRepoAnalyzer() {
               )}
             </div>
             <div>
-              <span style={{ color: "var(--color-text-tertiary)" }}>Catálogo: </span>
+              <span style={{ color: "var(--color-text-tertiary)" }}>Registro del dispatcher: </span>
               {integration.registry_synced
-                ? `sincronizado (${integration.newly_detected} nuevos detectados)`
-                : "no sincronizado"}
+                ? `regenerado (${integration.newly_detected} nuevos detectados)`
+                : "no regenerado"}
+              <span style={{ color: "var(--color-text-faint)" }}>
+                {" "}· el dispatcher está desconectado: esto no cambia el routing de las sesiones
+              </span>
             </div>
             <div>
               <span style={{ color: "var(--color-text-tertiary)" }}>Candidato de memoria: </span>
@@ -437,7 +448,6 @@ export function Catalog() {
 
   useEffect(() => {
     void runSearch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, appliedQuery, refreshTick]);
 
   // ---------------------------------------------------------------------------
@@ -462,10 +472,9 @@ export function Catalog() {
   }
 
   // "Integrar con IA" — opens a Claude session pre-loaded with an analysis +
-  // install prompt for this repo. Reuses the existing `spawn_session` command
-  // (same one the rest of the Control Center uses) so we do not need new
-  // backend plumbing. The session decides whether the repo is worth installing
-  // and performs the install if so.
+  // install prompt for this repo, in Sessions (`openPromptInSessions`) rather
+  // than Windows Terminal. The session decides whether the repo is worth
+  // installing and performs the install if so.
   async function integrateWithAi(hit: RepoHit) {
     const url = repoUrl(hit);
     try {
@@ -485,12 +494,15 @@ export function Catalog() {
         meta,
       });
       setAiState((s) => ({ ...s, [hit.full_name]: "launching" }));
-      await invoke("spawn_session", {
-        provider: "claude",
+      // Repo de GitHub ajeno: su README o sus SKILL.md pueden traer
+      // inyección de prompt. Siempre con permisos normales, aunque el perfil
+      // de lanzamiento de Sessions use otro modo.
+      const r = await openPromptInSessions({
+        cwd: await instructionsCwd("skills"),
         prompt,
-        cwd: null,
-        flags: { dangerouslySkipPermissions: false },
+        permissionMode: CATALOG_PERMISSION_MODE,
       });
+      if (r.warning) setHitsError(openInSessionsMessage(`Integrar ${hit.full_name}`, r));
       setAiState((s) => ({ ...s, [hit.full_name]: "launched" }));
       setTimeout(() => {
         setAiState((s) => {
@@ -531,7 +543,7 @@ export function Catalog() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submitSearch(); }}
-                placeholder="Filter results live, or press Enter to query GitHub…"
+                placeholder="Filtra los resultados al vuelo o pulsa Enter para buscar en GitHub…"
                 className="w-full rounded-md border py-2.5 pl-9 pr-9 text-sm outline-none"
                 style={{ background: "var(--color-surface-2)", borderColor: "var(--color-border-strong)", color: "var(--color-text)" }}
               />
@@ -541,8 +553,8 @@ export function Catalog() {
                   onClick={() => setQuery("")}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-70"
                   style={{ color: "var(--color-text-tertiary)" }}
-                  title="Clear filter text"
-                  aria-label="Clear filter text"
+                  title="Borrar el texto del filtro"
+                  aria-label="Borrar el texto del filtro"
                 >
                   <X size={13} />
                 </button>
@@ -555,7 +567,7 @@ export function Catalog() {
               className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-60"
               style={{ background: "var(--color-accent)", color: "var(--color-accent-text)", border: "1px solid var(--color-border-strong)" }}
             >
-              {hitsLoading ? <><Loader size={13} className="animate-spin" /> Searching</> : <><Search size={13} /> Search</>}
+              {hitsLoading ? <><Loader size={13} className="animate-spin" /> Buscando</> : <><Search size={13} /> Buscar</>}
             </button>
             <button
               type="button"
@@ -563,9 +575,9 @@ export function Catalog() {
               disabled={hitsLoading}
               className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-60"
               style={{ borderColor: "var(--color-border-strong)", background: "var(--color-surface-2)", color: "var(--color-text)" }}
-              title="Re-fetch current tab"
+              title="Volver a cargar la pestaña actual"
             >
-              Refresh
+              Actualizar
             </button>
           </div>
 
@@ -612,7 +624,7 @@ export function Catalog() {
             style={{ background: "rgba(248, 81, 73, 0.06)", borderColor: "rgba(248, 81, 73, 0.22)", color: "var(--color-danger)" }}
           >
             <div className="mb-1 flex items-center gap-2 font-medium">
-              <AlertTriangle size={13} /> GitHub search failed
+              <AlertTriangle size={13} /> Falló la búsqueda en GitHub
             </div>
             <div className="text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>{hitsError}</div>
           </div>
@@ -621,13 +633,13 @@ export function Catalog() {
         {hitsLoading && hits.length === 0 && (
           <div className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
             <Loader size={13} className="animate-spin" />
-            Loading {TABS.find((t) => t.id === tab)?.label.toLowerCase()}…
+            Cargando {TABS.find((t) => t.id === tab)?.label.toLowerCase()}…
           </div>
         )}
 
         {!hitsLoading && hits.length === 0 && !hitsError && (
           <p className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            No results for this tab. Try a different keyword or hit Refresh.
+            Sin resultados en esta pestaña. Prueba otra palabra o pulsa Actualizar.
           </p>
         )}
 
@@ -639,7 +651,7 @@ export function Catalog() {
               return (
                 <li
                   key={hit.full_name}
-                  className="flex h-[220px] flex-col rounded-md border p-3 text-[12px]"
+                  className="flex min-h-[132px] flex-col rounded-md border p-3 text-[12px]"
                   style={{
                     background: "var(--color-surface-2)",
                     borderColor: "var(--color-border-strong)",
@@ -653,7 +665,7 @@ export function Catalog() {
                     <span className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
                       {hit.owner}
                     </span>
-                    <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: "var(--color-surface-3)", color: "var(--color-text-secondary)" }} title="Stars">
+                    <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: "var(--color-surface-3)", color: "var(--color-text-secondary)" }} title="Estrellas">
                       ★ {formatStars(hit.stars)}
                     </span>
                     {hit.language && (
@@ -701,8 +713,8 @@ export function Catalog() {
                         disabled={!!aiBusy}
                         className="inline-flex items-center gap-1 rounded px-2 py-1 font-medium disabled:opacity-60"
                         style={{
-                          color: aiBusy ? "var(--color-success)" : "var(--color-accent-text)",
-                          background: aiBusy ? "rgba(63, 185, 80, 0.12)" : "var(--color-accent)",
+                          color: aiBusy ? "var(--color-success)" : "var(--color-text)",
+                          background: aiBusy ? "rgba(63, 185, 80, 0.12)" : "var(--color-surface-3)",
                           border: aiBusy ? "1px solid rgba(63, 185, 80, 0.30)" : "1px solid var(--color-border-strong)",
                           fontSize: "10.5px",
                         }}
@@ -731,7 +743,7 @@ export function Catalog() {
                         title="Copiar la URL del repo al portapapeles"
                       >
                         {copied ? <Check size={11} /> : <Clipboard size={11} />}
-                        {copied ? "Copiado!" : "Copiar"}
+                        {copied ? "¡Copiado!" : "Copiar"}
                       </button>
                     </div>
                   </div>
@@ -745,8 +757,8 @@ export function Catalog() {
         {!hitsLoading && hits.length > 0 && filteredHits.length === 0 && (
           <p className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
             {textNeedle
-              ? `No results contain “${query.trim()}”. Clear the filter text or press Enter to query GitHub.`
-              : "No items match the active filters. Adjust min-stars or topic, or clear filters."}
+              ? `Ningún resultado contiene «${query.trim()}». Borra el texto del filtro o pulsa Enter para buscar en GitHub.`
+              : "Ningún elemento cumple los filtros activos. Ajusta las estrellas mínimas o el tema, o quita los filtros."}
           </p>
         )}
       </div>

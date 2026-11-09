@@ -4,8 +4,6 @@ use serde::Serialize;
 
 /// Standard RRF damping constant.
 pub(super) const RRF_K: f32 = 60.0;
-/// Final entries returned per call.
-pub(super) const DEFAULT_LIMIT: usize = 8;
 /// Top-K pulled from each source before fusion (hot path — hook UserPromptSubmit).
 pub(super) const FANOUT_K: usize = 30;
 /// Fanout del path de CALIDAD (rerank=true: recall CLI/browser, trace, evals).
@@ -13,6 +11,19 @@ pub(super) const FANOUT_K: usize = 30;
 /// cada fuente; 60 los mete en la fusion sin tocar la latencia del hook (el
 /// hot path pasa rerank=false y conserva FANOUT_K).
 pub(super) const FANOUT_K_QUALITY: usize = 60;
+
+/// Aviso de denso vacío. Solo es una avería si el llamante pidió el denso y el
+/// interruptor global lo tiene encendido: con `ULTRON_DENSE=0` (decisión del
+/// 2026-09-28) o con el camino sparse pedido, un denso vacío es lo esperado y
+/// el aviso «E5/Qdrant unavailable» era falso en cada recall.
+pub(super) fn dense_empty_warning(
+    requested: bool,
+    global_on: bool,
+    dense_hits: usize,
+) -> Option<String> {
+    (requested && global_on && dense_hits == 0)
+        .then(|| "dense recall empty — E5/Qdrant unavailable; sparse-only".to_string())
+}
 
 /// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A fused hit with NO
 /// dense (semantic) backing whose sparse (BM25) rank is at or beyond this cutoff
@@ -46,7 +57,7 @@ pub(super) const AMBIENT_PENALTY: f32 = 0.5;
 /// anti-bloat ceiling for a SINGLE injection. This is NOT a cumulative
 /// per-session budget: every recall receives the full cap, so the memory is
 /// never silenced mid-session (the old per-session accumulator starved every
-/// query after the first few). The item-count cap (`DEFAULT_LIMIT`) is the
+/// query after the first few). The item-count cap (the caller's `limit`, 8 in the hot path) is the
 /// primary bloat control; this token cap only bounds an oversized single item.
 pub const PER_CALL_TOKEN_CAP: i64 = 1500;
 
@@ -128,7 +139,7 @@ pub struct RecallTrace {
 /// (cat1 ranking, 2026-07-02) RRF PONDERADO: cada lista aporta
 /// `peso / (k + rank + 1)`. Con pesos 1.0 es idéntico a `rrf_fuse`. Permite
 /// pesar dense (E5, la señal de calidad) sobre sparse (BM25, ruidoso con
-/// stopwords) — knob `ULTRON_DENSE_W` en el engine, default 1.0.
+/// stopwords) — knob `ULTRON_DENSE_W` en el engine, default 0.8.
 pub fn rrf_fuse_weighted(lists: &[(Vec<String>, f32)], k: f32) -> Vec<(String, f32)> {
     use std::collections::HashMap;
     let mut scores: HashMap<String, f32> = HashMap::new();

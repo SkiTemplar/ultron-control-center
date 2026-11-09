@@ -32,13 +32,13 @@ export function BlocksProjectView({
           color: "var(--color-text-tertiary)",
         }}
       >
-        No projects to display. Add one with "+ New project" above.
+        No hay proyectos. Añade uno con «+ Nuevo proyecto».
       </div>
     );
   }
 
   const breadcrumb = !isRoot && (
-    <nav className="mb-4 flex flex-wrap items-center gap-1.5 text-[12px]" aria-label="Folder breadcrumb">
+    <nav className="mb-4 flex flex-wrap items-center gap-1.5 text-[12px]" aria-label="Ruta de carpetas">
       <button
         type="button"
         onClick={() => onPathChange([])}
@@ -49,7 +49,7 @@ export function BlocksProjectView({
           border: "1px solid var(--color-border)",
         }}
       >
-        All
+        Todo
       </button>
       {path.map((seg, i) => (
         <span key={`${seg}-${i}`} className="flex items-center gap-1.5">
@@ -94,13 +94,13 @@ export function BlocksProjectView({
           e.currentTarget.style.transform = "translateY(0)";
           e.currentTarget.style.boxShadow = "inset 0 2px 0 var(--color-border)";
         }}
-        title={`${count} project${count === 1 ? "" : "s"} under ${child.fullPath || child.segment}`}
+        title={`${count} proyecto${count === 1 ? "" : "s"} en ${child.fullPath || child.segment}`}
       >
         <div
           className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.06em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Folder
+          Carpeta
         </div>
         <div>
           <div
@@ -114,13 +114,13 @@ export function BlocksProjectView({
               className="mt-1 truncate text-[10.5px]"
               style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
             >
-              {child.children.length} sub-folder{child.children.length === 1 ? "" : "s"}
+              {child.children.length} subcarpeta{child.children.length === 1 ? "" : "s"}
             </div>
           )}
         </div>
         <div className="flex items-end justify-between gap-2">
           <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-            Click to drill in
+            Clic para entrar
           </span>
           <span
             className="rounded px-2 py-0.5 text-[11.5px] tabular-nums"
@@ -170,7 +170,7 @@ export function BlocksProjectView({
               className="mb-2 text-[10.5px] uppercase tracking-[0.06em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Sub-folders
+              Subcarpetas
             </div>
           )}
           <div
@@ -191,7 +191,7 @@ export function BlocksProjectView({
               className="mb-2 text-[10.5px] uppercase tracking-[0.06em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Projects in this folder
+              Proyectos de esta carpeta
             </div>
           )}
           {renderProjects(here.projects)}
@@ -200,7 +200,7 @@ export function BlocksProjectView({
 
       {here.children.length === 0 && here.projects.length === 0 && (
         <p className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          This folder is empty.
+          Esta carpeta está vacía.
         </p>
       )}
     </div>

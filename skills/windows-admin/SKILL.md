@@ -17,8 +17,3 @@ applications, install software via winget, or schedule maintenance jobs.)
 1. (First step — confirm intent and check for destructive operations.)
 2. (Second step — execute via PowerShell / Bash with safety checks.)
 3. (Final output expectation — change applied, with rollback notes if any.)
-
-## Customize
-This file lives at `~/.claude/skills/windows-admin/SKILL.md`. Modify it to
-fit your workflow. The installer's manifest entry points here via
-`repo://skills/windows-admin`.

@@ -65,7 +65,7 @@ suelta.
 | `ollamaTab.maxPrefixChars` | `3000` | Caracteres de contexto antes del cursor. |
 | `ollamaTab.maxSuffixChars` | `1000` | Caracteres de contexto despues del cursor. |
 | `ollamaTab.logSuggestions` | `true` | Traza en el OutputChannel una linea por sugerencia mostrada (ver abajo). |
-| `ollamaTab.keepAlive` | `30m` | Cuanto sigue el modelo residente tras cada peticion. |
+| `ollamaTab.keepAlive` | `""` (vacio) | Cuanto sigue el modelo en VRAM tras cada peticion. Vacio = segun el motor: low/mid 5 min, high 10 min (los modelos locales no conviven con Unreal/Blender). |
 | `ollamaTab.warmupTimeoutMs` | `120000` | Timeout de la peticion que carga el modelo en RAM. |
 
 ## Motor de autocompletado (excluyente)
@@ -110,7 +110,10 @@ VS Code: los comandos `editor_engine_status` / `editor_engine_set`
 (`src-tauri/src/ollama/editor.rs`) leen y escriben `ollamaTab.engine` en el
 `settings.json` de VS Code — edicion quirurgica de esa clave, respetando
 comentarios y formato, con copia previa en `settings.json.ultron-bak` — y
-mueven los modelos de VRAM. VS Code recoge el cambio en caliente.
+mueven los modelos de VRAM. VS Code recoge el cambio en caliente. El item
+«Autocompletado» de la bandeja usa la misma logica: alterna entre el ultimo
+motor local (guardado en `cockpit/ollama/config.json`, `lastLocalEngine`) y
+Copilot.
 
 ### Barra de estado y traza — distinguirla de GitHub Copilot
 

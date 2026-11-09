@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { handleExternalClick } from "../../lib/openExternal";
+import { SettingsSwitch } from "./SettingsSwitch";
 
 // Settings > MCP Accounts — alta de N cuentas por plantilla de MCP (Supabase…)
 // sin tocar comandos: alias + token y la app escribe la entrada mcpServers en
@@ -51,7 +52,6 @@ export function McpAccountsSection() {
       setError(String(e));
     }
     // templateId solo se corrige si dejó de existir; no debe relanzar el load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -111,9 +111,9 @@ export function McpAccountsSection() {
   };
 
   return (
-    <div className="max-w-[560px]">
+    <div>
       <div className="mb-5">
-        <h2 className="text-[15px] font-semibold">MCP Accounts</h2>
+        <h2 className="text-[15px] font-semibold">Cuentas MCP</h2>
         <p
           className="mt-1 text-[12.5px] leading-relaxed"
           style={{ color: "var(--color-text-secondary)" }}
@@ -200,14 +200,10 @@ export function McpAccountsSection() {
         <div className="mt-3 flex items-center gap-3">
           {template?.read_only_flag && (
             <label
-              className="flex items-center gap-1.5 text-[12px]"
+              className="flex cursor-pointer items-center gap-2 text-[12px]"
               style={{ color: "var(--color-text-secondary)" }}
             >
-              <input
-                type="checkbox"
-                checked={readOnly}
-                onChange={(e) => setReadOnly(e.target.checked)}
-              />
+              <SettingsSwitch checked={readOnly} onChange={setReadOnly} label="Solo lectura" />
               solo lectura
             </label>
           )}
@@ -294,14 +290,14 @@ export function McpAccountsSection() {
                       color: "var(--color-text-tertiary)",
                     }}
                   >
-                    read-only
+                    solo lectura
                   </span>
                 )}
                 <span
                   className="ml-auto text-[11px]"
                   style={{
                     fontFamily: "var(--font-mono)",
-                    color: "var(--color-text-faint)",
+                    color: "var(--color-text-tertiary)",
                   }}
                 >
                   {r.token_masked}

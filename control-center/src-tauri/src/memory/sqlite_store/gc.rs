@@ -34,6 +34,8 @@ use rusqlite::{named_params, Connection};
 
 use crate::memory::MemoryError;
 
+use super::row_mapping::collect_rows;
+
 /// `last_accessed_at` normalizado a epoch-millis. La columna se escribe en
 /// segundos (`strftime('%s','now')` en `touch_injected`); el umbral 1e11 separa
 /// ambas escalas sin ambiguedad practica (1e11 ms = 1973; 1e11 s = año 5138),
@@ -86,14 +88,12 @@ pub fn select_decayed_active_ids(
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("select_decayed prepare: {e}")))?;
-    let ids = stmt
+    let rows = stmt
         .query_map(named_params! { ":cutoff": cutoff_ms }, |r| {
             r.get::<_, String>(0)
         })
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("select_decayed query: {e}")))?
-        .flatten()
-        .collect();
-    Ok(ids)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("select_decayed query: {e}")))?;
+    Ok(collect_rows(rows, "select_decayed"))
 }
 
 /// Desglose de la poda del log por motivo. Los tres criterios son disjuntos por

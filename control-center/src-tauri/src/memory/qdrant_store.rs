@@ -94,11 +94,13 @@ impl MemoryStore for QdrantStore {
                 healthy: true,
                 message: format!("Qdrant OK — version {version}"),
                 latency_ms: Some(t0.elapsed().as_millis() as u64),
+                details: None,
             }),
             Err(e) => Ok(StoreHealth {
                 healthy: false,
                 message: format!("Qdrant unavailable: {e}"),
                 latency_ms: Some(t0.elapsed().as_millis() as u64),
+                details: None,
             }),
         }
     }

@@ -24,29 +24,35 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
-observe('ensure-codegraph');
 
-const ULTRON = path.join(os.homedir(), '.ultron');
-const CG_DIR = path.join(ULTRON, '.codegraph');
-const PID_FILE = path.join(CG_DIR, 'daemon.pid');
-const LOG_FILE = path.join(CG_DIR, 'daemon.log');
 // Rotacion acotada (mismo criterio que lib/jsonl-log.js: 1 MiB, generacion
-// unica .1). LOG_FILE se abre en 'a' y lo alimenta el daemon detached durante
+// unica .1). El log se abre en 'a' y lo alimenta el daemon detached durante
 // horas -> sin esto crece sin cota (F6, 2026-09-10).
 const LOG_MAX_BYTES = 1 * 1024 * 1024;
-// Shim npm global de codegraph. En Windows los wrappers sh/.cmd no son
-// spawneables directos (hardening CVE-2024-27980 de Node moderno), asi que se
-// invoca su entry real (npm-shim.js) con el node de este hook — es exactamente
-// lo que hacen `codegraph` (sh) y `codegraph.cmd`.
-const SHIM_JS = path.join(
-  os.homedir(), 'AppData', 'Roaming', 'npm',
-  'node_modules', '@colbymchenry', 'codegraph', 'npm-shim.js'
-);
+
+/**
+ * Rutas del hook. Se calculan a partir del home para que el selftest las
+ * apunte a una carpeta temporal.
+ *  - shim: shim npm global de codegraph. En Windows los wrappers sh/.cmd no
+ *    son spawneables directos (hardening CVE-2024-27980 de Node moderno), asi
+ *    que se invoca su entry real (npm-shim.js) con el node de este hook — es
+ *    exactamente lo que hacen `codegraph` (sh) y `codegraph.cmd`.
+ */
+function rutas(home = os.homedir()) {
+  const ultron = path.join(home, '.ultron');
+  const cgDir = path.join(ultron, '.codegraph');
+  return {
+    ultron,
+    pidFile: path.join(cgDir, 'daemon.pid'),
+    logFile: path.join(cgDir, 'daemon.log'),
+    shim: path.join(home, 'AppData', 'Roaming', 'npm', 'node_modules', '@colbymchenry', 'codegraph', 'npm-shim.js'),
+  };
+}
 
 /** PID del daemon segun daemon.pid (JSON {pid,...} o entero plano), o null. */
-function daemonPid() {
+function daemonPid(pidFile) {
   try {
-    const raw = fs.readFileSync(PID_FILE, 'utf8').trim();
+    const raw = fs.readFileSync(pidFile, 'utf8').trim();
     const pid = raw.startsWith('{') ? JSON.parse(raw).pid : parseInt(raw, 10);
     return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch (_) {
@@ -64,53 +70,54 @@ function isAlive(pid) {
   }
 }
 
-/** Rota LOG_FILE -> LOG_FILE.1 (pisando el anterior) si supera LOG_MAX_BYTES. */
-function rotateLogIfNeeded() {
+/** Rota `logFile` -> `logFile.1` (pisando el anterior) si supera `maxBytes`. */
+function rotateLogIfNeeded(logFile, maxBytes = LOG_MAX_BYTES) {
   try {
-    const st = fs.statSync(LOG_FILE);
-    if (st.size < LOG_MAX_BYTES) return;
-    fs.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+    const st = fs.statSync(logFile);
+    if (st.size < maxBytes) return false;
+    fs.renameSync(logFile, `${logFile}.1`);
+    return true;
   } catch (_) {
     // fichero ausente o rename en carrera -> nada que rotar.
+    return false;
   }
 }
 
-function main() {
-  const pid = daemonPid();
-  if (pid && isAlive(pid)) {
-    console.log(`ensure-codegraph: daemon vivo (pid=${pid})`);
-    return;
-  }
-
-  if (!fs.existsSync(SHIM_JS)) {
-    console.log('ensure-codegraph: shim npm de codegraph ausente -- daemon no arrancado');
-    return;
-  }
-
-  let logFd = null;
-  let stdio = 'ignore';
+/** Abre el log en append para el daemon; sin log, su salida se descarta. */
+function abrirLog(logFile) {
   try {
-    rotateLogIfNeeded();
-    logFd = fs.openSync(LOG_FILE, 'a');
-    stdio = ['ignore', logFd, logFd];
+    rotateLogIfNeeded(logFile);
+    return fs.openSync(logFile, 'a');
   } catch (_) {
     // Sin log: descartar el output del daemon antes que fallar el arranque.
+    return null;
   }
+}
+
+/**
+ * Comprueba el daemon y lo arranca si hace falta. Devuelve el mensaje que el
+ * hook imprime. `opts` inyecta rutas, `spawn` e `isAlive` en el selftest.
+ */
+function main(opts = {}) {
+  const p = opts.rutas || rutas();
+  const lanzar = opts.spawn || spawn;
+  const vivo = opts.isAlive || isAlive;
+  const pid = daemonPid(p.pidFile);
+  if (pid && vivo(pid)) return `ensure-codegraph: daemon vivo (pid=${pid})`;
+  if (!fs.existsSync(p.shim)) return 'ensure-codegraph: shim npm de codegraph ausente -- daemon no arrancado';
+
+  const logFd = abrirLog(p.logFile);
   try {
-    const child = spawn(
-      process.execPath,
-      [SHIM_JS, 'serve', '--mcp', '--path', ULTRON],
-      {
-        detached: true,
-        stdio,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          CODEGRAPH_DAEMON_INTERNAL: '1',
-          CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '0',
-        },
-      }
-    );
+    const child = lanzar(process.execPath, [p.shim, 'serve', '--mcp', '--path', p.ultron], {
+      detached: true,
+      stdio: logFd === null ? 'ignore' : ['ignore', logFd, logFd],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CODEGRAPH_DAEMON_INTERNAL: '1',
+        CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '0',
+      },
+    });
     child.unref();
   } finally {
     // El hijo ya tiene su dup del fd del log; este proceso no lo necesita.
@@ -118,16 +125,21 @@ function main() {
       try { fs.closeSync(logFd); } catch (_) { /* ignore */ }
     }
   }
-  console.log(
-    'ensure-codegraph: daemon caido/ausente -- arranque disparado en background (no se bloquea el arranque)'
-  );
+  return 'ensure-codegraph: daemon caido/ausente -- arranque disparado en background (no se bloquea el arranque)';
 }
 
-try {
-  main();
-} catch (e) {
-  // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
-  logHookError('ensure-codegraph', e);
-  // Nunca romper el SessionStart.
-  process.exit(0);
+// Solo corre el hook cuando se invoca directamente; al importarse (selftest)
+// expone las funciones sin tocar el daemon real.
+if (require.main === module) {
+  observe('ensure-codegraph');
+  try {
+    console.log(main());
+  } catch (e) {
+    // cat9.5: deja rastro del fallo top-level sin romper el fail-safe.
+    logHookError('ensure-codegraph', e);
+    // Nunca romper el SessionStart.
+    process.exit(0);
+  }
+} else {
+  module.exports = { rutas, daemonPid, isAlive, rotateLogIfNeeded, main, LOG_MAX_BYTES };
 }

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { BackupScheduleRow } from "./BackupScheduleRow";
+import {
+  forceBackupMessage,
+  lastRunView,
+  toneColor,
+  type BackupLastRun,
+  type BackupTone,
+} from "../dashboard/backupLastRun";
 
 // ---------------------------------------------------------------------------
 // Backups (rewrite 2026-05-24, backups-redesign):
@@ -15,7 +24,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 //   - get_backup_root / set_backup_root          (destination)
 //   - get_backup_sources / set_backup_sources    (folder list)
 //   - get_backup_schedule / set_backup_schedule  (day/time + schtasks)
-//   - backup_status                              (last-run timestamps)
+//   - backup_status                              (mirror ages + real last-run result)
 //   - run_backup_now                             (force-run button)
 //
 // Folder paths are stored as $HOME-relative names when the user picks a
@@ -30,18 +39,24 @@ type BackupEntry = {
   age_hours: number | null;
   exists: boolean;
   status: string;
+  last_result: string | null;
 };
 
 type BackupStatusReport = {
   root: string;
+  root_configured: boolean;
   root_exists: boolean;
   entries: BackupEntry[];
   overall_status: string;
+  last_run: BackupLastRun | null;
+  last_run_error: string | null;
 };
 
 type BackupRootInfo = {
-  current: string;
-  suggested: string;
+  /** `null` = sin destino configurado: la copia semanal aborta. */
+  current: string | null;
+  /** Carpeta inicial del selector (D:\BACKUP si esa unidad está montada). */
+  suggested: string | null;
   exists: boolean;
   user_configured: boolean;
   config_path: string;
@@ -64,42 +79,20 @@ type BackupSourcesInfo = {
   user_configured: boolean;
 };
 
-type BackupScheduleInfo = {
-  day: string;
-  time: string;
-  task_registered: boolean;
-  user_configured: boolean;
-};
-
-const WEEKDAYS: { code: string; label: string }[] = [
-  { code: "MON", label: "Monday" },
-  { code: "TUE", label: "Tuesday" },
-  { code: "WED", label: "Wednesday" },
-  { code: "THU", label: "Thursday" },
-  { code: "FRI", label: "Friday" },
-  { code: "SAT", label: "Saturday" },
-  { code: "SUN", label: "Sunday" },
-];
-
 function relativeTime(iso?: string | null): string {
-  if (!iso) return "never";
+  if (!iso) return "nunca";
   const ts = new Date(iso);
   if (Number.isNaN(ts.getTime())) return iso;
   const diff = Date.now() - ts.getTime();
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
+  if (min < 1) return "ahora mismo";
+  if (min < 60) return `hace ${min} min`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return `hace ${h} h`;
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d} day${d === 1 ? "" : "s"} ago`;
+  if (d < 30) return `hace ${d} día${d === 1 ? "" : "s"}`;
   const months = Math.floor(d / 30);
-  return `${months} month${months === 1 ? "" : "s"} ago`;
-}
-
-function nextRunLabel(day: string, time: string): string {
-  const label = WEEKDAYS.find((w) => w.code === day)?.label ?? day;
-  return `${label} at ${time}`;
+  return `hace ${months} mes${months === 1 ? "" : "es"}`;
 }
 
 function isAbsolutePath(p: string): boolean {
@@ -130,12 +123,6 @@ export function BackupsPanel() {
   const [initialFolders, setInitialFolders] = useState<string[]>([]);
   const [foldersBusy, setFoldersBusy] = useState(false);
 
-  // Schedule
-  const [schedule, setSchedule] = useState<BackupScheduleInfo | null>(null);
-  const [scheduleDay, setScheduleDay] = useState<string>("MON");
-  const [scheduleTime, setScheduleTime] = useState<string>("09:00");
-  const [scheduleBusy, setScheduleBusy] = useState(false);
-
   // Status + force-run
   const [status, setStatus] = useState<BackupStatusReport | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -144,6 +131,7 @@ export function BackupsPanel() {
   // Shared
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [runMsg, setRunMsg] = useState<{ tone: BackupTone; text: string } | null>(null);
 
   // Derived: home prefix used to convert picked absolute paths into
   // home-relative names. We infer it from the first source candidate the
@@ -178,26 +166,15 @@ export function BackupsPanel() {
     }
   }
 
-  async function loadSchedule() {
-    try {
-      const r = (await invoke("get_backup_schedule")) as BackupScheduleInfo;
-      setSchedule(r);
-      setScheduleDay(r.day);
-      setScheduleTime(r.time);
-    } catch (e) {
-      // Schedule is non-critical for the rest of the UI; show the error
-      // inline only if nothing else has surfaced yet.
-      setError((prev) => prev ?? String(e));
-    }
-  }
-
-  async function loadStatus() {
+  async function loadStatus(): Promise<BackupStatusReport | null> {
     setStatusLoading(true);
     try {
       const r = (await invoke("backup_status")) as BackupStatusReport;
       setStatus(r);
+      return r;
     } catch (e) {
       setError(String(e));
+      return null;
     } finally {
       setStatusLoading(false);
     }
@@ -206,7 +183,6 @@ export function BackupsPanel() {
   useEffect(() => {
     void loadRoot();
     void loadSources();
-    void loadSchedule();
     void loadStatus();
   }, []);
 
@@ -224,7 +200,7 @@ export function BackupsPanel() {
       const picked = await openDialog({
         directory: true,
         multiple: false,
-        title: "Select backup destination",
+        title: "Elige el destino de la copia",
         defaultPath: root?.current || root?.suggested || undefined,
       });
       if (typeof picked !== "string" || !picked.trim()) return;
@@ -233,7 +209,7 @@ export function BackupsPanel() {
         path: picked.trim(),
       })) as BackupRootInfo;
       setRoot(r);
-      flashSuccess(`Destination set to ${r.current}.`);
+      flashSuccess(`Destino: ${r.current}.`);
       void loadStatus();
     } catch (e) {
       setError(String(e));
@@ -251,7 +227,7 @@ export function BackupsPanel() {
       const picked = await openDialog({
         directory: true,
         multiple: false,
-        title: "Pick a folder to back up",
+        title: "Elige una carpeta para copiar",
         defaultPath: home || undefined,
       });
       if (typeof picked !== "string" || !picked.trim()) return;
@@ -260,13 +236,13 @@ export function BackupsPanel() {
       if (home && stored.toLowerCase().startsWith(home.toLowerCase())) {
         stored = stored.slice(home.length).replace(/^[\\/]+/, "");
         if (!stored) {
-          setError("Pick a subfolder of your home directory, not the home itself.");
+          setError("Elige una subcarpeta de tu carpeta de usuario, no la carpeta entera.");
           return;
         }
       }
       const norm = normalisePath(stored);
       if (folders.some((p) => normalisePath(p) === norm)) {
-        setError("That folder is already in the list.");
+        setError("Esa carpeta ya está en la lista.");
         return;
       }
       setFolders((prev) => [...prev, stored]);
@@ -298,8 +274,8 @@ export function BackupsPanel() {
       setInitialFolders([...r.active]);
       flashSuccess(
         r.active.length === 0
-          ? "Cleared — no folders are being backed up right now."
-          : `Saved ${r.active.length} folder${r.active.length === 1 ? "" : "s"}.`,
+          ? "Lista vacía: ahora mismo no se copia ninguna carpeta."
+          : `${r.active.length} carpeta${r.active.length === 1 ? "" : "s"} guardada${r.active.length === 1 ? "" : "s"}.`,
       );
     } catch (e) {
       setError(String(e));
@@ -309,48 +285,21 @@ export function BackupsPanel() {
   }
 
   // ---------------------------------------------------------------------
-  // Schedule
-  // ---------------------------------------------------------------------
-  const scheduleDirty = useMemo(() => {
-    if (!schedule) return true;
-    return scheduleDay !== schedule.day || scheduleTime !== schedule.time;
-  }, [schedule, scheduleDay, scheduleTime]);
-
-  async function saveSchedule() {
-    setError(null);
-    setScheduleBusy(true);
-    try {
-      const r = (await invoke("set_backup_schedule", {
-        day: scheduleDay,
-        time: scheduleTime,
-      })) as BackupScheduleInfo;
-      setSchedule(r);
-      setScheduleDay(r.day);
-      setScheduleTime(r.time);
-      flashSuccess(
-        r.task_registered
-          ? `Schedule saved — runs every ${nextRunLabel(r.day, r.time)}.`
-          : `Schedule preference saved. Task Scheduler integration pending on this platform.`,
-      );
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setScheduleBusy(false);
-    }
-  }
-
-  // ---------------------------------------------------------------------
   // Force backup now
   // ---------------------------------------------------------------------
   async function forceBackup() {
     setError(null);
+    setRunMsg(null);
     setRunning(true);
     try {
-      const result = await invoke("run_backup_now");
-      const ok =
-        typeof result === "object" && result !== null && (result as { success?: boolean }).success;
-      flashSuccess(ok ? "Backup finished." : "Backup ran with errors — see logs.");
-      void loadStatus();
+      const result = (await invoke("run_backup_now")) as {
+        success: boolean;
+        exit_code: number | null;
+        stderr?: string;
+      };
+      // El resumen por fuente sale de backup-last-run.json, recién escrito.
+      const fresh = await loadStatus();
+      setRunMsg(forceBackupMessage(result, fresh?.last_run));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -382,14 +331,15 @@ export function BackupsPanel() {
         border: "1px solid var(--color-border)",
       }}
     >
-      <h3 className="text-[13px] font-semibold">Backup</h3>
+      <h3 className="text-[13px] font-semibold">Copia espejo semanal</h3>
       <p
         className="mt-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Mirrors the folders below to the destination on the configured weekly
-        schedule. New and changed files are copied; deletions at the source
-        also remove the mirrored copy.
+        Replica las carpetas de abajo en el destino según el horario semanal.
+        Copia los ficheros nuevos y modificados. Lo que se borra en el origen
+        sale de la copia y pasa a <code>_borrados\&lt;fecha&gt;</code> dentro del
+        destino, donde se guarda 28 días; las versiones sobrescritas no se guardan.
       </p>
 
       {/* Destination */}
@@ -398,7 +348,7 @@ export function BackupsPanel() {
           className="mb-1.5 block text-[11.5px] font-semibold"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Destination
+          Destino
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <div
@@ -413,7 +363,7 @@ export function BackupsPanel() {
             }}
             title={root?.current ?? ""}
           >
-            {root?.current ?? "—"}
+            {root ? (root.current ?? "Sin destino") : "—"}
           </div>
           <button
             type="button"
@@ -424,17 +374,26 @@ export function BackupsPanel() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Open the folder picker"
+            title="Abrir el selector de carpetas"
           >
-            {rootBusy ? "Saving…" : "Browse"}
+            {rootBusy ? "Guardando…" : "Examinar"}
           </button>
         </div>
-        {root && !root.exists && (
+        {root && !root.current && (
+          <div
+            className="mt-1 text-[10.5px]"
+            style={{ color: "var(--color-danger)" }}
+          >
+            Sin destino la copia semanal aborta sin copiar nada. Elige una carpeta en otra unidad:
+            un espejo en el mismo disco que las carpetas no es un backup.
+          </div>
+        )}
+        {root?.current && !root.exists && (
           <div
             className="mt-1 text-[10.5px]"
             style={{ color: "var(--color-warn)" }}
           >
-            Destination does not exist yet — create it before the next backup runs.
+            El destino no existe: conecta la unidad o créalo antes de la próxima copia.
           </div>
         )}
       </div>
@@ -446,7 +405,7 @@ export function BackupsPanel() {
             className="text-[11.5px] font-semibold"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Folders to back up
+            Carpetas que se copian
           </label>
           <button
             type="button"
@@ -459,7 +418,7 @@ export function BackupsPanel() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            + Add folder
+            + Añadir carpeta
           </button>
         </div>
         {folders.length === 0 ? (
@@ -471,7 +430,7 @@ export function BackupsPanel() {
               color: "var(--color-text-tertiary)",
             }}
           >
-            No folders configured. Click "+ Add folder" to pick one.
+            No hay carpetas. Pulsa «+ Añadir carpeta» para elegir una.
           </div>
         ) : (
           <div
@@ -510,7 +469,7 @@ export function BackupsPanel() {
                     border: "1px solid var(--color-border-strong)",
                   }}
                 >
-                  Remove
+                  Quitar
                 </button>
               </div>
             ))}
@@ -528,7 +487,7 @@ export function BackupsPanel() {
                 color: "var(--color-accent-text)",
               }}
             >
-              {foldersBusy ? "Saving…" : "Save folders"}
+              {foldersBusy ? "Guardando…" : "Guardar carpetas"}
             </button>
             <button
               type="button"
@@ -541,90 +500,13 @@ export function BackupsPanel() {
                 border: "1px solid var(--color-border-strong)",
               }}
             >
-              Discard
+              Descartar
             </button>
           </div>
         )}
       </div>
 
-      {/* Schedule */}
-      <div className="mt-5">
-        <label
-          className="mb-1.5 block text-[11.5px] font-semibold"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          Schedule
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <label
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Day
-          </label>
-          <select
-            value={scheduleDay}
-            onChange={(e) => setScheduleDay(e.target.value)}
-            disabled={scheduleBusy}
-            className="rounded px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-          >
-            {WEEKDAYS.map((d) => (
-              <option key={d.code} value={d.code}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-          <label
-            className="ml-2 text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Time
-          </label>
-          <input
-            type="time"
-            value={scheduleTime}
-            onChange={(e) => setScheduleTime(e.target.value)}
-            disabled={scheduleBusy}
-            className="rounded px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-              fontFamily: "var(--font-mono)",
-            }}
-          />
-          <button
-            type="button"
-            onClick={saveSchedule}
-            disabled={scheduleBusy || !scheduleDirty}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: scheduleDirty ? "var(--color-accent)" : "var(--color-surface-1)",
-              color: scheduleDirty ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
-              border: scheduleDirty ? "none" : "1px solid var(--color-border-strong)",
-            }}
-          >
-            {scheduleBusy ? "Saving…" : "Save schedule"}
-          </button>
-        </div>
-        <div
-          className="mt-1.5 text-[11.5px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Next run: {nextRunLabel(scheduleDay, scheduleTime)}
-          {schedule && !schedule.task_registered && (
-            <span style={{ color: "var(--color-warn)" }}>
-              {" "}
-              (Windows Task Scheduler entry not yet registered)
-            </span>
-          )}
-        </div>
-      </div>
+      <BackupScheduleRow onError={setError} onSuccess={flashSuccess} />
 
       {/* Last backup + force-run */}
       <div className="mt-5">
@@ -632,7 +514,7 @@ export function BackupsPanel() {
           className="mb-1.5 block text-[11.5px] font-semibold"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Last backup
+          Última copia
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <span
@@ -640,12 +522,14 @@ export function BackupsPanel() {
             style={{ color: "var(--color-text)" }}
           >
             {statusLoading
-              ? "Loading…"
+              ? "Cargando…"
               : newest
                 ? relativeTime(newest.last_modified)
                 : status && status.root_exists
-                  ? "never"
-                  : "destination not found"}
+                  ? "nunca"
+                  : status && !status.root_configured
+                    ? "sin destino configurado"
+                    : "destino no encontrado"}
           </span>
           {status && newest && (
             <span
@@ -664,11 +548,29 @@ export function BackupsPanel() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Run the weekly backup script right now"
+            title="Ejecuta ahora el script de la copia semanal"
           >
-            {running ? "Running…" : "Force backup now"}
+            {running ? "Copiando…" : "Copiar ahora"}
           </button>
         </div>
+        {status && !statusLoading && (
+          <LastRunLine
+            view={lastRunView(status.last_run, status.last_run_error)}
+            onError={(msg) => setError(msg)}
+          />
+        )}
+        {runMsg && (
+          <div
+            className="mt-2 rounded p-2 text-[11.5px]"
+            role="status"
+            style={{
+              background: "color-mix(in srgb, " + toneColor(runMsg.tone) + " 8%, transparent)",
+              color: toneColor(runMsg.tone),
+            }}
+          >
+            {runMsg.text}
+          </div>
+        )}
       </div>
 
       {/* Inline error / success */}
@@ -695,6 +597,61 @@ export function BackupsPanel() {
         >
           {success}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Resultado real del último run con enlace a sus logs.
+function LastRunLine({
+  view,
+  onError,
+}: {
+  view: ReturnType<typeof lastRunView>;
+  onError: (msg: string) => void;
+}) {
+  async function open(path: string) {
+    try {
+      await openPath(path);
+    } catch (e) {
+      onError(`No se pudo abrir el log: ${String(e)}`);
+    }
+  }
+  return (
+    <div
+      className="mt-2 flex flex-wrap items-center gap-2 text-[11.5px]"
+      style={{ color: toneColor(view.tone) }}
+    >
+      <span className="min-w-0 flex-1">{view.text}</span>
+      {view.logPath && (
+        <button
+          type="button"
+          onClick={() => void open(view.logPath as string)}
+          className="rounded px-2 py-0.5 text-[11px]"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title={view.logPath}
+        >
+          Ver log
+        </button>
+      )}
+      {view.robocopyLogPath && (
+        <button
+          type="button"
+          onClick={() => void open(view.robocopyLogPath as string)}
+          className="rounded px-2 py-0.5 text-[11px]"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title={view.robocopyLogPath}
+        >
+          Log de robocopy
+        </button>
       )}
     </div>
   );

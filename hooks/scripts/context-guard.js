@@ -2,7 +2,8 @@
 /**
  * context-guard.js — UserPromptSubmit. Vigila el tamano del contexto de la
  * sesion y, cuando crece demasiado, propone /compact con un foco listo para
- * copiar (Claude Code no deja a un hook ejecutar /compact).
+ * copiar (Claude Code no deja a un hook ejecutar /compact). NUNCA bloquea el
+ * prompt: el aviso llega al agente (additionalContext) y al usuario (systemMessage).
  *
  * Por que (medicion 2026-09-26): con Opus y ventana de 1M, el 70,5 % del gasto
  * semanal eran llamadas con mas de 200k de contexto, y en 7 dias solo hubo 2
@@ -14,16 +15,17 @@
  *   2. Desde WARN_AT: aviso de una linea (systemMessage) y veredicto de una LLM
  *      SECUNDARIA (Groq -> Gemini, lib/secondary-llm.js; nunca Claude) sobre si
  *      el trabajo actual necesita todo ese contexto: {compact, reason, focus}.
- *   3. compact=true -> decision:block con el tamano, la razon y `/compact <focus>`;
- *      el prompt bloqueado se guarda en disco para recuperarlo.
- *   4. Desde FORCE_AT: compact=true siempre (el foco lo pone la LLM si responde).
+ *   3. compact=true -> additionalContext al agente: atiende el prompt y cierra su
+ *      respuesta con una linea que recomienda `/compact <focus>` (o explica por
+ *      que aun no conviene si el trabajo en curso depende del detalle reciente).
+ *   4. Desde FORCE_AT: recomendacion firme siempre (el foco lo pone la LLM si responde).
  *   5. Veredicto cacheado por sesion: solo se re-evalua si el contexto crece
  *      REEVAL_DELTA o mas desde la ultima evaluacion (o si bajo: hubo /compact).
- *   6. LLM caida o sin redaccion -> solo aviso (nunca se bloquea por un fallo
- *      propio), salvo por encima de FORCE_AT, donde el bloqueo no depende de ella.
+ *   6. LLM caida o sin redaccion -> el juicio pasa al propio agente (additionalContext
+ *      con los criterios) en vez de quedarse en un aviso sin veredicto.
  *
  * Escape: ULTRON_CONTEXT_GUARD=0 (apagado) o un prompt que empiece por `forzar:`
- * (pasa y silencia el bloqueo hasta que el contexto crezca REEVAL_DELTA mas).
+ * (silencia la recomendacion hasta que el contexto crezca REEVAL_DELTA mas).
  *
  * Umbrales (env): ULTRON_CONTEXT_GUARD_WARN (200000), _FORCE (500000),
  * _DELTA (40000), _LLM_MS (9000), _FAIL_COOLDOWN_MIN (10).
@@ -174,17 +176,11 @@ async function evaluate({ tokens, prompt, sessionId, transcriptPath }, llm) {
   };
 }
 
-function saveBlockedPrompt(sessionId, prompt) {
-  try {
-    const dir = path.join(stateDir(), 'blocked');
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${safe(sessionId)}-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`);
-    fs.writeFileSync(file, String(prompt || ''), 'utf8');
-    return file;
-  } catch {
-    return null;
-  }
-}
+const AGENT_CRITERIA =
+  'Compactar compensa si la tarea actual es nueva o distinta, o si lo anterior esta cerrado (commit hecho); ' +
+  'no compensa si el trabajo en curso depende del detalle literal reciente (depuracion a medias, refactor sin cerrar).';
+
+const agentContext = (text) => ({ hookEventName: 'UserPromptSubmit', additionalContext: text });
 
 const DEFAULT_FOCUS = 'conserva la tarea en curso, las decisiones tomadas, los ficheros modificados y los pendientes';
 
@@ -209,7 +205,7 @@ async function decide(input, deps = {}) {
   if (prompt.trimStart().toLowerCase().startsWith(FORCE_PREFIX)) {
     writeState(sessionId, { ...state, override_at: tokens });
     logEval({ ...base, action: 'force' });
-    return { systemMessage: `ULTRON context-guard: contexto de ${kTok(tokens)}; forzar:, bloqueo en pausa hasta +${kTok(REEVAL_DELTA)}.` };
+    return { systemMessage: `ULTRON context-guard: contexto de ${kTok(tokens)}; forzar:, aviso en pausa hasta +${kTok(REEVAL_DELTA)}.` };
   }
 
   const growth = tokens - (Number(state.evaluated_at) || 0);
@@ -241,18 +237,37 @@ async function decide(input, deps = {}) {
   const wantsCompact = forced || !!(verdict && verdict.compact);
 
   if (wantsCompact && !overridden) {
-    // Forzado con una LLM que opina que no: su razon contradiria el bloqueo.
+    // Forzado con una LLM que opina que no: su razon contradiria la recomendacion.
     const reason = verdict && verdict.compact && verdict.reason ? verdict.reason : `Supera ${kTok(FORCE_AT)}.`;
     const focus = (verdict && verdict.focus) || DEFAULT_FOCUS;
-    const saved = saveBlockedPrompt(sessionId, prompt);
-    logEval({ ...base, action: 'block', forced, verdict, llm: llmInfo });
+    logEval({ ...base, action: 'advise', forced, verdict, llm: llmInfo });
     return {
-      decision: 'block',
-      reason: [
-        `ULTRON context-guard: contexto de ${kTok(tokens)}. ${reason}`.trim(),
-        `/compact ${focus}`,
-        saved ? `Prompt guardado en ${saved} (para enviarlo sin compactar, empieza por forzar:).` : 'Para enviarlo sin compactar, empieza por forzar:.',
-      ].join('\n'),
+      systemMessage: `ULTRON context-guard: contexto de ${kTok(tokens)}; compactar recomendado: ${reason}`,
+      hookSpecificOutput: agentContext(
+        [
+          `[ULTRON context-guard] Contexto de ${kTok(tokens)}. Un evaluador secundario recomienda compactar: ${reason}`,
+          'Atiende el prompt con normalidad (no lo aplaces) y cierra tu respuesta con UNA linea para el usuario:',
+          `\`/compact ${focus}\``,
+          forced
+            ? `Supera ${kTok(FORCE_AT)}: recomendacion firme, no la omitas.`
+            : `Si el trabajo en curso aun depende del detalle reciente, dilo en esa linea en vez de recomendarlo. ${AGENT_CRITERIA}`,
+        ].join('\n')
+      ),
+    };
+  }
+
+  if (!verdict && !overridden) {
+    // Sin veredicto (LLM caida, sin redaccion o en pausa tras fallo): juzga el agente.
+    logEval({ ...base, action: 'agent-judge', forced, llm: llmInfo });
+    return {
+      systemMessage: `ULTRON context-guard: contexto de ${kTok(tokens)} (umbral ${kTok(WARN_AT)}); evaluador no disponible, decide el agente.`,
+      hookSpecificOutput: agentContext(
+        [
+          `[ULTRON context-guard] Contexto de ${kTok(tokens)}; el evaluador secundario no respondio. Valora tu si conviene compactar.`,
+          AGENT_CRITERIA,
+          'Atiende el prompt con normalidad; solo si compensa, cierra con UNA linea: `/compact <que conservar>`.',
+        ].join('\n')
+      ),
     };
   }
 

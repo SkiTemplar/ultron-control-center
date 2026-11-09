@@ -28,10 +28,9 @@ export const PROVIDERS: Record<SessionProvider, ProviderMeta> = {
     accent: "var(--color-success)",
     acceptsModel: true,
     models: [
-      { id: "", label: "default (account current)" },
-      { id: "claude-opus-4-7", label: "Opus 4.7 · best quality" },
-      { id: "claude-sonnet-4-6", label: "Sonnet 4.6 · balanced" },
-      { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 · fast" },
+      { id: "", label: "por defecto (el actual de la cuenta)" },
+      { id: "claude-opus-5-5", label: "Opus 5.5 · máxima calidad" },
+      { id: "claude-sonnet-5-5", label: "Sonnet 5.5 · equilibrado" },
     ],
     defaultModel: "",
   },
@@ -40,7 +39,7 @@ export const PROVIDERS: Record<SessionProvider, ProviderMeta> = {
     accent: "#a875ff",
     acceptsModel: true,
     models: [
-      { id: "", label: "default (gpt-5.5)" },
+      { id: "", label: "por defecto (gpt-5.5)" },
       { id: "gpt-5.5", label: "gpt-5.5" },
       { id: "gpt-5.5-thinking", label: "gpt-5.5 thinking" },
     ],

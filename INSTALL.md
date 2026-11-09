@@ -9,15 +9,17 @@ ULTRON has three install paths; pick one.
 
 1. **Manual installer (clone)** — clone the repo, run `install.ps1` or
    `install.sh`. **Recommended — this is the verified path.** The installer
-   compiles the Control Center from source. ~5-10 minutes depending on
-   whether Rust, Node, and Claude Code are already on PATH.
+   compiles the memory sidecar and the Control Center from source: up to
+   ~25 minutes on a cold build, plus whatever Rust, Node, Claude Code and the
+   MSVC Build Tools (several GB, asks for elevation) take if they are missing.
+   If the sidecar or the app cannot be built, the installer ends with exit 1
+   and says why.
 2. **Bootstrap one-liner** — `iwr | iex` (Windows) / `curl | bash` (Linux).
    Downloads a prebuilt binary from a GitHub Release.
    > [!NOTE]
-   > **Requires a published GitHub Release.** The pipeline
-   > (`.github/workflows/release.yml`, triggered by a `v*.*.*` tag) is
-   > active; if the Releases page is still empty on your fork/clone, use
-   > path 1. Details: [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+   > **Does not work today:** the public repo has no published release, so it
+   > stops with an explicit error. Use path 1. Details:
+   > [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 3. **Per-step manual** — see [`docs/INSTALL-ADVANCED.md`](docs/INSTALL-ADVANCED.md).
 
 ---
@@ -48,7 +50,7 @@ done are detected and skipped. Common flags:
 .\install.ps1                  # interactive WinForms wizard (default)
 .\install.ps1 -NonInteractive  # CI / unattended (accept defaults)
 .\install.ps1 -Verbose         # debug what each step does
-.\install.ps1 -NoApp           # skip the Tauri Control Center build
+.\install.ps1 -NoApp           # skip the Control Center (built by default)
 .\install.ps1 -NoDocker        # skip Qdrant (semantic recall stays off)
 .\install.ps1 -Force           # re-run every step even if it looks done
 ```
@@ -61,7 +63,7 @@ non-interactive default). Without these switches nothing changes: you get
 the historical wizard / CLI flow.
 
 ```powershell
-.\install.ps1 -Core            # app (npm install) + memory (Qdrant,
+.\install.ps1 -Core            # app (npm install + build) + memory (Qdrant,
                                # brain_index, sidecar, venv) + hooks
 .\install.ps1 -All             # core + skills + tones + agents
 .\install.ps1 -Skills -Agents  # a-la-carte: only those components
@@ -75,17 +77,18 @@ What each component installs:
 
 | Component | What it does |
 |---|---|
-| `core` | Dependency check/auto-install (git, Node 22+, Claude Code, uv, Rust), Qdrant native binary, directory layout + templates, Python venv (`uv sync`), Claude Code hooks merged into `~/.claude/settings.json` (timestamped backup first), feature flags, `brain_index` init, `ultron-memory` sidecar, `npm install` in `control-center/` (Windows; the Tauri build stays opt-in). |
+| `core` | Dependency check/auto-install (git, Node 22+, Claude Code, uv, Rust, MSVC Build Tools on Windows), Qdrant native binary, directory layout + templates, Python venv (`uv sync`), Claude Code hooks merged into `~/.claude/settings.json` (timestamped backup first), feature flags, `brain_index` init, `ultron-memory` sidecar, `npm install` and the desktop app build in `control-center/` (Windows; `-NoApp` skips them). |
 | `skills` | Core skills from the repo `skills/` dir into `~/.claude/skills/` (manifest: `templates/skills-manifest.example.yaml`). Existing skill dirs are never overwritten. |
 | `tones` | Verifies tone seeding. The publishable tone seeds ship compiled inside the app and the `ultron-memory` sidecar; `~/.ultron/personality.json` is auto-created from them on first run. An existing `personality.json` (local, gitignored user config) is NEVER read, copied or overwritten. |
 | `agents` | Copies `agents/*.md` from the repo into `~/.claude/agents/` if the repo ships an `agents/` dir. The public repo ships none (community agents carry their own licenses), so on a fresh clone this step reports that and installs nothing; use the Agents tab catalog after first launch. |
 
-Re-running any combination is idempotent: existing destinations and
-existing user config are kept, never silently replaced.
+Re-running any combination is idempotent: existing destinations are kept.
+Of the existing user config, the hooks block of `~/.claude/settings.json` is
+the exception: it is replaced, with a timestamped `.bak` written first.
 
 What the installer does, end to end: preflight (OS / PowerShell / disk /
 network) → git + Node 22 prerequisites → Claude Code CLI check (hard
-requirement) → uv → Rust toolchain → Qdrant native binary →
+requirement) → uv → Rust toolchain → MSVC linker → Qdrant native binary →
 directory layout → hooks merge into `settings.json` → skills picker →
 agents copy → brain_index init → feature toggles → Control Center build
 (`npm install` + `tauri build`, skip with `-NoApp`) → doctor health check.
@@ -102,9 +105,9 @@ finishes any missing deps).
 
 > [!WARNING]
 > **Linux build is unverified by the author.** v15.5 added the Linux path
-> (`.deb`, `.AppImage`, `bootstrap.sh`, `install.sh`) and CI compiles
-> cleanly on `ubuntu-22.04`, but nobody has end-to-end tested an actual
-> Linux install yet. If you run this and it works (or breaks), please open
+> (`.deb`, `.AppImage`, `bootstrap.sh`, `install.sh`). Only the release
+> workflow compiles on `ubuntu-22.04` (`ci.yml` is Windows-only), and nobody
+> has end-to-end tested an actual Linux install yet. If you run this and it works (or breaks), please open
 > an issue with the distro + version + log.
 
 To uninstall:
@@ -120,11 +123,15 @@ To uninstall:
 ## 2. Bootstrap one-liner
 
 > [!NOTE]
-> This path downloads prebuilt artifacts from the latest GitHub Release.
-> If the Releases page is empty (fresh fork, or no `v*.*.*` tag pushed yet),
-> the one-liner fails at "fetching latest release" — use path 1 (clone)
-> instead. Releases are cut by pushing a version tag; see
+> This path downloads prebuilt artifacts from the latest GitHub Release and
+> verifies the SHA-256 of the system ZIP and of the installer before using them.
+> Releases are cut by pushing a version tag; see
 > [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+
+> [!WARNING]
+> **As of 2026-11-01 this path stops at the first step.** The public repo
+> (`SkiTemplar/ultron-control-center`) has no published release, so the one-liner ends
+> with "has no published release (HTTP 404)". Path 1 is the only one that works.
 
 ### Windows 11 (PowerShell, no Git required)
 
@@ -133,7 +140,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/mai
 ```
 
 The script hits the GitHub Releases API, finds the latest `v*.*.*` tag,
-downloads `ultron-system-<ver>.zip` + the NSIS installer, verifies the
+downloads `ultron-system-<ver>.zip` + the NSIS installer, verifies both
 SHA-256, extracts to `~/.ultron`, runs `install.ps1` and launches the
 Control Center.
 
@@ -171,6 +178,8 @@ Re-run the same one-liner to upgrade — `~/.ultron-vault/` and
 | `uv: not recognized` after auto-install              | Open a new shell so PATH reloads, or add `~/.local/bin`      |
 | `qdrant.exe` won't start                             | Check `~/.ultron/.tmp/qdrant-native.err`. Kill stale processes: `Get-Process qdrant \| Stop-Process -Force`, then re-run `~/.ultron/scripts/qdrant/ensure-qdrant.ps1`. |
 | `rustc` not on PATH right after Rust auto-install    | Open a fresh shell; if still missing, reboot once            |
+| `link.exe` / MSVC linker missing                     | Add "Desktop development with C++" in the Visual Studio Installer, or run the `winget` command the installer prints, then re-run |
+| `ultron-memory sidecar is NOT installed`             | Fix the cause it prints, then run `scripts\install-memory-sidecar.ps1 -Force` |
 | `npm install` errors on `better-sqlite3` / `keytar`  | Install Node 22+, then `Remove-Item node_modules -Recurse; npm i` |
 | `tauri build` complains about Webview2               | Install Edge Webview2 runtime: <https://aka.ms/Edge/Webview2> |
 | `settings.json` got mangled                          | Restore from `settings.json.bak-<timestamp>` written by the hooks step |

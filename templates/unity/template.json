@@ -1,0 +1,16 @@
+{
+  "id": "unity",
+  "label": "Unity",
+  "description": "Proyecto de Unity mínimo (Assets, Packages, ProjectSettings) con la versión del editor instalada en Unity Hub, .gitignore y .gitattributes de Unity.",
+  "kinds": ["asignatura", "personal"],
+  "requires": [],
+  "files": [
+    "Assets/",
+    "Packages/manifest.json",
+    "ProjectSettings/ProjectVersion.txt",
+    "README.md",
+    "CLAUDE.md",
+    ".gitignore",
+    ".gitattributes"
+  ]
+}

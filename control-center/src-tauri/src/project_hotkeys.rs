@@ -1,10 +1,10 @@
 // ULTRON Control Center — Per-project hotkeys
 //
 // User-defined global shortcuts that map a key combo to a project. The
-// user picks an arbitrary (combo, project_id) pair per slot (slots 1..10)
-// in Settings → Project hotkeys; the set is persisted at
-// `~/.ultron/cockpit/project-hotkeys.json`. Nothing is bound unless the
-// user configures it.
+// user writes an arbitrary (combo, project_id) pair per slot (slots 1..10)
+// in `~/.ultron/cockpit/project-hotkeys.json`, by hand: the Settings editor
+// was retired in v2.5.2 (LifecyclePanel.tsx keeps only the main hotkey).
+// Nothing is bound unless the file has slots.
 //
 // History
 // -------
@@ -26,7 +26,7 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 /// Helper for the global-shortcut handler. Returns true if `shortcut`
 /// was handled as a project-slot press. The caller (handler in lib.rs)
@@ -44,7 +44,7 @@ pub fn handle_shortcut(app: &AppHandle, shortcut: &Shortcut, state: ShortcutStat
 }
 
 // ---------------------------------------------------------------------------
-// User-defined slots — Settings → Project hotkeys
+// User-defined slots (hand-edited JSON, see the header)
 //
 // The user picks an arbitrary (combo, project_id) pair per slot
 // (slots 1..10). Persisted at `~/.ultron/cockpit/project-hotkeys.json`.
@@ -84,121 +84,12 @@ fn custom_cache() -> &'static Mutex<Vec<(Shortcut, usize)>> {
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Reuses the same accelerator grammar as the toggle-window hotkey so
-/// "Ctrl+Alt+P" and similar specs parse identically across the app.
-/// Kept local to avoid a cross-module dep on lib.rs.
-fn parse_combo(spec: &str) -> Option<Shortcut> {
-    let parts: Vec<String> = spec
-        .split('+')
-        .map(|p| p.trim().to_ascii_lowercase())
-        .filter(|p| !p.is_empty())
-        .collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let mut mods = Modifiers::empty();
-    let mut key: Option<Code> = None;
-    for p in &parts {
-        match p.as_str() {
-            "ctrl" | "control" => mods |= Modifiers::CONTROL,
-            "alt" | "option" => mods |= Modifiers::ALT,
-            "shift" => mods |= Modifiers::SHIFT,
-            "super" | "meta" | "win" | "cmd" => mods |= Modifiers::SUPER,
-            other => {
-                if key.is_some() {
-                    return None;
-                }
-                key = code_from_combo_name(other);
-                key.as_ref()?;
-            }
-        }
-    }
-    let code = key?;
-    if mods.is_empty() {
-        return None;
-    }
-    Some(Shortcut::new(Some(mods), code))
-}
-
-fn code_from_combo_name(name: &str) -> Option<Code> {
-    let n = name.to_ascii_lowercase();
-    if n.len() == 1 {
-        let c = n.chars().next().unwrap();
-        if c.is_ascii_alphabetic() {
-            return Some(match c {
-                'a' => Code::KeyA,
-                'b' => Code::KeyB,
-                'c' => Code::KeyC,
-                'd' => Code::KeyD,
-                'e' => Code::KeyE,
-                'f' => Code::KeyF,
-                'g' => Code::KeyG,
-                'h' => Code::KeyH,
-                'i' => Code::KeyI,
-                'j' => Code::KeyJ,
-                'k' => Code::KeyK,
-                'l' => Code::KeyL,
-                'm' => Code::KeyM,
-                'n' => Code::KeyN,
-                'o' => Code::KeyO,
-                'p' => Code::KeyP,
-                'q' => Code::KeyQ,
-                'r' => Code::KeyR,
-                's' => Code::KeyS,
-                't' => Code::KeyT,
-                'u' => Code::KeyU,
-                'v' => Code::KeyV,
-                'w' => Code::KeyW,
-                'x' => Code::KeyX,
-                'y' => Code::KeyY,
-                'z' => Code::KeyZ,
-                _ => return None,
-            });
-        }
-        if c.is_ascii_digit() {
-            return Some(match c {
-                '0' => Code::Digit0,
-                '1' => Code::Digit1,
-                '2' => Code::Digit2,
-                '3' => Code::Digit3,
-                '4' => Code::Digit4,
-                '5' => Code::Digit5,
-                '6' => Code::Digit6,
-                '7' => Code::Digit7,
-                '8' => Code::Digit8,
-                '9' => Code::Digit9,
-                _ => return None,
-            });
-        }
-    }
-    match n.as_str() {
-        "space" => Some(Code::Space),
-        "enter" | "return" => Some(Code::Enter),
-        "tab" => Some(Code::Tab),
-        "f1" => Some(Code::F1),
-        "f2" => Some(Code::F2),
-        "f3" => Some(Code::F3),
-        "f4" => Some(Code::F4),
-        "f5" => Some(Code::F5),
-        "f6" => Some(Code::F6),
-        "f7" => Some(Code::F7),
-        "f8" => Some(Code::F8),
-        "f9" => Some(Code::F9),
-        "f10" => Some(Code::F10),
-        "f11" => Some(Code::F11),
-        "f12" => Some(Code::F12),
-        _ => None,
-    }
-}
-
 fn match_custom_combo(shortcut: &Shortcut) -> Option<usize> {
     let guard = custom_cache().lock().ok()?;
-    for (sc, slot) in guard.iter() {
-        if sc == shortcut {
-            return Some(*slot);
-        }
-    }
-    None
+    guard
+        .iter()
+        .find(|(sc, _)| sc == shortcut)
+        .map(|(_, slot)| *slot)
 }
 
 fn dispatch_custom_event(app: &AppHandle, slot: usize) {
@@ -212,43 +103,97 @@ fn dispatch_custom_event(app: &AppHandle, slot: usize) {
         "combo": entry.combo,
     });
     if let Err(e) = app.emit("project-hotkey-custom", payload) {
-        eprintln!("[ultron] emit project-hotkey-custom failed: {}", e);
+        tracing::warn!(slot, error = %e, "no se pudo emitir project-hotkey-custom");
     }
 }
 
-/// Re-register every custom slot against the global-shortcut plugin.
-/// Idempotent: unregisters previously cached combos first so updates
-/// take effect immediately. Failures on individual slots are logged
-/// and skipped — registering 4 of 5 beats failing all 5.
-pub fn register_custom_hotkeys(app: &AppHandle) -> Result<(), String> {
-    let handle = app.global_shortcut();
-    // Unregister the previous set first.
-    if let Ok(guard) = custom_cache().lock() {
-        for (sc, _) in guard.iter() {
-            let _ = handle.unregister(*sc);
-        }
-    }
-    let file = load_custom_slots();
-    let mut new_cache: Vec<(Shortcut, usize)> = Vec::new();
+/// Parse every slot with the same grammar as the toggle-window hotkey
+/// (`crate::hotkeys::parse_hotkey`), so "Ctrl+Alt+P" means the same in both
+/// places. Returns the parsed combos and one message per slot that failed.
+fn parse_slots(file: &CustomSlotsFile) -> (Vec<(Shortcut, usize, String)>, Vec<String>) {
+    let mut parsed = Vec::new();
+    let mut failures = Vec::new();
     for entry in file.slots.values() {
-        let Some(sc) = parse_combo(&entry.combo) else {
-            eprintln!(
-                "[ultron] custom slot {} bad combo '{}'",
-                entry.slot, entry.combo
-            );
-            continue;
-        };
-        if let Err(e) = handle.register(sc) {
-            eprintln!(
-                "[ultron] custom slot {} register '{}' failed: {} (skipping)",
-                entry.slot, entry.combo, e
-            );
-            continue;
+        match crate::hotkeys::parse_hotkey(&entry.combo) {
+            Ok(sc) => parsed.push((sc, entry.slot, entry.combo.clone())),
+            Err(e) => failures.push(format!("slot {} '{}': {e}", entry.slot, entry.combo)),
         }
-        new_cache.push((sc, entry.slot));
     }
+    (parsed, failures)
+}
+
+/// Re-register every custom slot against the global-shortcut plugin.
+/// Idempotent: unregisters previously cached combos first so updates take
+/// effect immediately. A slot that fails does not block the rest (4 of 5
+/// beats 0 of 5), but the call returns `Err` naming every failed slot, so
+/// the caller logs it instead of the failure staying invisible.
+pub fn register_custom_hotkeys(app: &AppHandle) -> Result<usize, String> {
+    let handle = app.global_shortcut();
+    if let Ok(guard) = custom_cache().lock() {
+        for (sc, slot) in guard.iter() {
+            if let Err(e) = handle.unregister(*sc) {
+                tracing::warn!(slot, error = %e, "no se pudo soltar el atajo de proyecto");
+            }
+        }
+    }
+    let (parsed, mut failures) = parse_slots(&load_custom_slots());
+    let mut new_cache: Vec<(Shortcut, usize)> = Vec::new();
+    for (sc, slot, combo) in parsed {
+        match handle.register(sc) {
+            Ok(()) => new_cache.push((sc, slot)),
+            Err(e) => failures.push(format!("slot {slot} '{combo}': {e}")),
+        }
+    }
+    let registered = new_cache.len();
     if let Ok(mut guard) = custom_cache().lock() {
         *guard = new_cache;
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(registered)
+    } else {
+        Err(format!(
+            "{registered} atajos de proyecto registrados; fallaron {}: {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file_with(combos: &[(usize, &str)]) -> CustomSlotsFile {
+        let slots = combos
+            .iter()
+            .map(|(slot, combo)| {
+                let entry = ProjectHotkeySlot {
+                    slot: *slot,
+                    combo: (*combo).to_string(),
+                    project_id: format!("p{slot}"),
+                };
+                (slot.to_string(), entry)
+            })
+            .collect();
+        CustomSlotsFile { slots }
+    }
+
+    #[test]
+    fn los_slots_usan_la_gramatica_del_atajo_principal() {
+        let (ok, failures) = parse_slots(&file_with(&[(1, "Ctrl+Alt+P"), (2, "Ctrl+Shift+Esc")]));
+        assert!(failures.is_empty(), "{failures:?}");
+        let p = ok.iter().find(|(_, s, _)| *s == 1).unwrap().0;
+        assert_eq!(p, crate::hotkeys::parse_hotkey("ctrl + alt + p").unwrap());
+        assert_eq!(ok.len(), 2);
+    }
+
+    #[test]
+    fn un_slot_invalido_se_informa_con_su_causa() {
+        // Caso negativo: antes un combo malo solo dejaba un eprintln! perdido.
+        let (ok, failures) = parse_slots(&file_with(&[(1, "P"), (2, "Ctrl+Alt+K")]));
+        assert_eq!(ok.len(), 1);
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("slot 1 'P'"), "{failures:?}");
+        assert!(failures[0].contains("modifier"), "{failures:?}");
+    }
 }

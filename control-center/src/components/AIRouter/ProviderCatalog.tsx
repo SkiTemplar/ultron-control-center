@@ -36,18 +36,18 @@ function ApiKeyBadge({
     Provider["api_key_status"],
     { label: string; color: string }
   > = {
-    configured: { label: "Configured", color: "var(--color-success)" },
-    missing: { label: "Missing", color: "var(--color-danger)" },
-    placeholder: { label: "Placeholder", color: "var(--color-warn)" },
+    configured: { label: "Configurada", color: "var(--color-success)" },
+    missing: { label: "No encontrada", color: "var(--color-danger)" },
+    placeholder: { label: "De ejemplo", color: "var(--color-warn)" },
   };
   const { label, color } = map[status];
   return (
     <span
       className="rounded px-2 py-0.5 text-[10px] font-semibold"
       style={{
-        background: `${color}22`,
+        background: `color-mix(in srgb, ${color} 13%, transparent)`,
         color,
-        border: `1px solid ${color}44`,
+        border: `1px solid color-mix(in srgb, ${color} 27%, transparent)`,
       }}
     >
       {label}
@@ -61,7 +61,7 @@ function HealthDot({ online }: { online: boolean | null }) {
       <span
         className="inline-block h-2 w-2 rounded-full animate-pulse"
         style={{ background: "var(--color-text-faint)" }}
-        title="Checking..."
+        title="Comprobando…"
       />
     );
   }
@@ -71,7 +71,7 @@ function HealthDot({ online }: { online: boolean | null }) {
       style={{
         background: online ? "var(--color-success)" : "var(--color-danger)",
       }}
-      title={online ? "Online" : "Offline"}
+      title={online ? "En línea" : "Sin conexión"}
     />
   );
 }
@@ -121,7 +121,7 @@ function ProviderRow({
             className="text-[11px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            {online === null ? "checking" : online ? "online" : "offline"}
+            {online === null ? "comprobando" : online ? "en línea" : "sin conexión"}
           </span>
         </div>
       </td>
@@ -138,7 +138,7 @@ function ProviderRow({
           style={{ color: "var(--color-text-secondary)" }}
         >
           {provider.cost_per_mtok === 0
-            ? "Free (local)"
+            ? "Gratis (local)"
             : `$${provider.cost_per_mtok.toFixed(2)}/Mtok`}
         </span>
       </td>
@@ -151,9 +151,9 @@ function ProviderRow({
               key={cls}
               className="rounded px-1.5 py-0.5 text-[10px] font-medium"
               style={{
-                background: `${CLASS_COLORS[cls] ?? "var(--color-text-faint)"}22`,
+                background: `color-mix(in srgb, ${CLASS_COLORS[cls] ?? "var(--color-text-faint)"} 13%, transparent)`,
                 color: CLASS_COLORS[cls] ?? "var(--color-text-faint)",
-                border: `1px solid ${CLASS_COLORS[cls] ?? "var(--color-text-faint)"}44`,
+                border: `1px solid color-mix(in srgb, ${CLASS_COLORS[cls] ?? "var(--color-text-faint)"} 27%, transparent)`,
               }}
             >
               {cls}
@@ -182,9 +182,9 @@ function ProviderRow({
             (e.currentTarget as HTMLButtonElement).style.color =
               "var(--color-text-secondary)";
           }}
-          title={`Re-check health of ${provider.name}`}
+          title={`Volver a comprobar la salud de ${provider.name}`}
         >
-          {checking ? "..." : "Check"}
+          {checking ? "…" : "Comprobar"}
         </button>
       </td>
     </tr>
@@ -214,7 +214,8 @@ export function ProviderCatalog() {
         )) as Provider[];
         if (backendProviders.length > 0) {
           setProviders(backendProviders);
-          // Reset health map to null (pending) for the real provider set.
+          // Reset health map to null (pending) for the real provider set,
+          // dropping ids from the static catalog that the backend no longer lists.
           setHealth(
             Object.fromEntries(
               backendProviders.map((p) => [p.id, null]),
@@ -276,7 +277,9 @@ export function ProviderCatalog() {
     void Promise.all(providers.map((p) => checkProvider(p.id)));
   }
 
-  const onlineCount = Object.values(health).filter((v) => v === true).length;
+  // Solo cuentan los providers visibles: el mapa puede conservar ids del
+  // catálogo estático que el backend ya no devuelve.
+  const onlineCount = providers.filter((p) => health[p.id] === true).length;
 
   return (
     <div className="p-6">
@@ -291,7 +294,7 @@ export function ProviderCatalog() {
           }}
         >
           <span className="font-semibold">
-            ai_router_list_providers no disponible — mostrando catalogo estatico:{" "}
+            ai_router_list_providers no disponible; se muestra el catálogo estático:{" "}
           </span>
           {loadError}
         </div>
@@ -304,13 +307,13 @@ export function ProviderCatalog() {
             className="text-[13px] font-medium"
             style={{ color: "var(--color-text)" }}
           >
-            {providers.length} providers
+            {providers.length} proveedores
           </span>
           <span
             className="ml-2 text-[12px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            {onlineCount} online
+            {onlineCount} en línea
           </span>
         </div>
         <button
@@ -324,7 +327,7 @@ export function ProviderCatalog() {
             border: "1px solid var(--color-border)",
           }}
         >
-          {checking.size > 0 ? "Checking..." : "Check all"}
+          {checking.size > 0 ? "Comprobando…" : "Comprobar todos"}
         </button>
       </div>
 
@@ -344,7 +347,7 @@ export function ProviderCatalog() {
                 background: "var(--color-surface-1)",
               }}
             >
-              {["Provider", "Health", "API Key", "Cost", "Classes", ""].map(
+              {["Proveedor", "Salud", "API key", "Coste", "Clases", ""].map(
                 (h) => (
                   <th
                     key={h}
@@ -376,9 +379,9 @@ export function ProviderCatalog() {
         className="mt-4 text-[11px]"
         style={{ color: "var(--color-text-faint)" }}
       >
-        Health checks call ai_router_health() — a lightweight ping to each
-        provider. API key state and cost figures come from the backend
-        (ai_router_list_providers) and reflect the real configuration in
+        La comprobación de salud llama a ai_router_health(), un ping ligero a cada
+        proveedor. El estado de las API keys y los costes salen del backend
+        (ai_router_list_providers) y reflejan la configuración real de
         ~/.ultron/cockpit/ai-router/providers.json.
       </p>
     </div>

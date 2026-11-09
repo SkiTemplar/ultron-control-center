@@ -19,3 +19,4 @@ export const PROJECT_NEW_CLI = join(SCRIPTS_DIR, 'project-new.mjs');
 export const KANBAN_CLI = join(SCRIPTS_DIR, 'kanban.mjs');
 export const RESEARCH_CLI = join(SCRIPTS_DIR, 'research.mjs');
 export const PROJECT_SOCRATIC_CLI = join(SCRIPTS_DIR, 'project-socratic.mjs');
+export const SKILL_POOL_CLI = join(SCRIPTS_DIR, 'skill-pool.mjs');

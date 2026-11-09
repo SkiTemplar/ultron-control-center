@@ -6,39 +6,26 @@ they are invoked manually or by scheduled tasks on a known cadence.
 
 ---
 
-## Auto-cleanup protocol
+## Auto-memory audit protocol
 
 **Script:** `scripts/memory-audit.py`
-**Phase:** Phase A of `scripts/hooks/stop-memory-sync.{ps1,sh}`
-**Cadence:** Every session Stop (automatically via the hook chain).
+**Cadence:** Manual. No hook or Control Center caller runs it.
 
-The auto-cleanup protocol runs `scripts/memory-audit.py` to:
-
-1. Scan `brain.db` for items older than the configured retention window
-   whose status is not `Active` (i.e., `Deprecated`, `Rejected`, or `Stale`).
-2. Identify duplicate candidates (same `content_hash`, multiple rows) and
-   collapse them — keeps the highest-sensitivity / most-recent entry.
-3. Apply the configured sensitivity gates: items marked `Secret` are never
-   surfaced in recall and are flagged for optional manual review.
-4. Write a compact audit record to `~/.ultron/.tmp/memory-audit.jsonl`
-   (gitignored) for the session log.
-
-The script is **read-only by default** (dry-run unless `--apply` is passed).
-The Stop hook always passes `--apply`, so removals are real and permanent.
-Do not pass `--apply` manually without reviewing the dry-run output first.
-
-### Manual invocation
+Audits the Claude Code auto-memory files
+(`~/.claude/projects/*/memory/*.md`, not `brain.db`) and reports entries
+without frontmatter, with an invalid `type`, oversized without structure,
+duplicated (Jaccard similarity >= 0.80), stale, or missing from the
+`MEMORY.md` index. It is read-only except for `--fix-index`, which appends
+the orphan entries to `MEMORY.md`.
 
 ```powershell
-# Dry-run (safe — shows what would be removed)
 uv run python scripts/memory-audit.py
-
-# Apply (removes stale / duplicate items from brain.db)
-uv run python scripts/memory-audit.py --apply
-
-# Restrict to a single project
-uv run python scripts/memory-audit.py --project ultron --apply
+uv run python scripts/memory-audit.py --fix-index
 ```
+
+The governed memory (`brain.db`) has its own maintenance: the SessionEnd hook
+`memory-gc.js` runs `ultron-memory gc --days 90` at most once a week, and
+`ultron-memory doctor` checks the FTS5 and Qdrant indexes.
 
 ---
 
@@ -93,17 +80,20 @@ generalizing the offending content, then re-stage and re-run.
 
 ## Routing regression protocol
 
-**Script:** `scripts/routing-test-runner.py`
-**Cadence:** After every edit to `config/intent-rules.yaml`.
+**Scripts:** `cockpit/skill-lazy/_verify_final.js`, `cockpit/skill-lazy/_accuracy_at3.js`
+**Cadence:** After every edit to the skill dispatcher or `config/intent-rules.yaml`.
 
-Runs regression cases T-01 through T-16, T-34, T-35 against the FAST
-PATH Layer 1 + tiebreak logic. Any failure indicates a routing regression
-and must be resolved before committing the rules change.
+The dispatcher (`routing-dispatcher.v2.js` + `v3.js`) is not wired as a
+Claude Code hook since 2026-09-29, but its harnesses and the CI job
+`routing-dispatcher` still guard it. Both must stay green:
 
 ```powershell
-uv run python scripts/routing-test-runner.py
-uv run python scripts/routing-test-runner.py --verbose
+node cockpit/skill-lazy/_verify_final.js
+node cockpit/skill-lazy/_accuracy_at3.js
 ```
+
+The old `scripts/routing-test-runner.py` (it ran a v1 dispatcher that no
+longer exists) was removed on 2026-10-08.
 
 ---
 
@@ -114,7 +104,8 @@ uv run python scripts/routing-test-runner.py --verbose
 
 One-off scan that detects skills not mapped in FAST PATH Layer 1/2.
 After running, update `cockpit/skill-lazy/routing-dispatcher.v2.js` (and
-v3 if active) to cover any newly discovered skills.
+v3) to cover any newly discovered skills; remember the dispatcher is not
+wired as a hook today.
 
 ```powershell
 uv run python scripts/skill-discovery.py --verbose

@@ -33,6 +33,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getPrompt } from "../../lib/button-prompts";
+import { instructionsCwd, openInSessionsMessage, openPromptInSessions } from "../sessionsLaunch";
 import { Markdown } from "../../lib/markdown";
 import {
   BookOpen,
@@ -107,7 +108,7 @@ function accentFor(kind: LibraryDetailKind): Accent {
         chipText: "#c4b5fd",
         ribbon: "rgba(167, 139, 250, 0.55)",
         Icon: Bot,
-        label: "Agent",
+        label: "Agente",
       };
     case "rule":
       return {
@@ -116,7 +117,7 @@ function accentFor(kind: LibraryDetailKind): Accent {
         chipText: "#bef264",
         ribbon: "rgba(132, 204, 22, 0.55)",
         Icon: BookOpen,
-        label: "Rule",
+        label: "Regla",
       };
   }
 }
@@ -305,7 +306,7 @@ export function LibraryDetailPane({
         filePath: activePath || filePath || "",
       });
     } catch (e) {
-      setSaveError(`open externally: ${String(e)}`);
+      setSaveError(`No se pudo abrir fuera: ${String(e)}`);
     }
   };
 
@@ -315,7 +316,7 @@ export function LibraryDetailPane({
         await navigator.clipboard.writeText(body);
       }
     } catch (e) {
-      setSaveError(`clipboard: ${String(e)}`);
+      setSaveError(`Portapapeles: ${String(e)}`);
     }
     const kindLabel =
       kind === "skill"
@@ -328,15 +329,17 @@ export function LibraryDetailPane({
       file_path: activePath,
       name,
     });
+    // Edición de un fichero local de la biblioteca: se abre en Sessions, en
+    // la carpeta del fichero (o la de instrucciones de skills si no la hay).
+    // Permisos normales explícitos, como antes con spawn_session
+    // (`dangerouslySkipPermissions: false`): el fichero puede venir de un repo
+    // ajeno instalado desde el catálogo y no debe heredar un perfil con bypass.
     try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt,
-        cwd: folderPath || null,
-        flags: { dangerouslySkipPermissions: false },
-      });
+      const cwd = folderPath || (await instructionsCwd("skills"));
+      const r = await openPromptInSessions({ cwd, prompt, permissionMode: "default" });
+      if (r.warning) setSaveError(openInSessionsMessage("Editar con IA", r));
     } catch (e) {
-      setSaveError(`spawn_session: ${String(e)}`);
+      setSaveError(`No se pudo abrir Sessions: ${String(e)}`);
     }
   };
 
@@ -418,8 +421,8 @@ export function LibraryDetailPane({
               color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border)",
             }}
-            title="Close detail panel"
-            aria-label="Close"
+            title="Cerrar el panel de detalle"
+            aria-label="Cerrar"
           >
             <X size={12} />
           </button>
@@ -447,9 +450,9 @@ export function LibraryDetailPane({
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
                 }}
-                title="Edit this file inline"
+                title="Editar este fichero aquí mismo"
               >
-                <Edit size={11} /> Edit
+                <Edit size={11} /> Editar
               </button>
             )}
             <button
@@ -462,9 +465,9 @@ export function LibraryDetailPane({
                 borderColor: "var(--color-border-strong)",
                 color: "var(--color-text)",
               }}
-              title="Spawn a Claude session with the body in your clipboard + an improvement prompt"
+              title="Abre una sesión de Claude con el contenido en el portapapeles y un prompt de mejora"
             >
-              <Wand size={11} /> Edit with AI
+              <Wand size={11} /> Editar con IA
             </button>
             <button
               type="button"
@@ -477,13 +480,13 @@ export function LibraryDetailPane({
               }}
               title={
                 folderPath
-                  ? `Open workspace folder in VS Code with ${
-                      activePath.split(/[\\/]/).pop() ?? "this file"
-                    } focused`
-                  : "Open this file in VS Code"
+                  ? `Abrir la carpeta en VS Code con ${
+                      activePath.split(/[\\/]/).pop() ?? "este fichero"
+                    } en primer plano`
+                  : "Abrir este fichero en VS Code"
               }
             >
-              <ExternalLink size={11} /> Open Externally
+              <ExternalLink size={11} /> Abrir fuera
             </button>
           </>
         ) : (
@@ -498,7 +501,7 @@ export function LibraryDetailPane({
                 color: "var(--color-accent-text)",
               }}
             >
-              <Save size={11} /> {saving ? "Saving…" : "Save"}
+              <Save size={11} /> {saving ? "Guardando…" : "Guardar"}
             </button>
             <button
               type="button"
@@ -515,13 +518,13 @@ export function LibraryDetailPane({
                 color: "var(--color-text-tertiary)",
               }}
             >
-              Cancel
+              Cancelar
             </button>
           </>
         )}
       </div>
 
-      {/* Sibling-file tabs — only when the entry has multiple textual files */}
+      {/* Pestañas de ficheros hermanos: solo si la entrada tiene varios ficheros de texto */}
       {siblingsLoaded && tabs.length > 1 && (
         <div
           className="flex flex-wrap items-center gap-1 border-b px-3 py-1.5"
@@ -532,7 +535,7 @@ export function LibraryDetailPane({
             style={{ color: "var(--color-text-tertiary)" }}
           >
             <Folder size={10} className="-mb-px mr-1 inline-block" />
-            Files
+            Ficheros
           </span>
           {tabs.map((f) => {
             const isActive = f.path === activePath;
@@ -590,7 +593,7 @@ export function LibraryDetailPane({
             className="text-xs"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Loading…
+            Cargando…
           </p>
         ) : bodyError ? (
           <p className="text-xs" style={{ color: "var(--color-danger)" }}>
@@ -610,10 +613,10 @@ export function LibraryDetailPane({
             }}
           />
         ) : isPrimary || activePath.endsWith(".md") ? (
-          <Markdown source={body || "*(empty file)*"} />
+          <Markdown source={body || "*(fichero vacío)*"} />
         ) : (
-          // Non-markdown sibling: render as a code block so the user can
-          // still skim the contents without leaving the Control Center.
+          // Fichero hermano que no es markdown: se pinta como bloque de código
+          // para poder ojearlo sin salir del Control Center.
           <pre
             className="overflow-auto rounded p-3 text-[11.5px] leading-relaxed"
             style={{

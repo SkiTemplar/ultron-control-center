@@ -10,6 +10,7 @@ import type {
   RootKind,
 } from "../../../lib/project-create-cli";
 import type { CreateResult, StepId } from "./types";
+import type { SkillPickerState } from "./useSkillPicker";
 
 export interface UseNewProjectWizardResult {
   // Paso 1: raiz
@@ -50,7 +51,7 @@ export interface UseNewProjectWizardResult {
   folderBusy: boolean;
   baseSub: string;
   crumbSegments: string[];
-  enterFolder: (entry: CliEntry) => void;
+  enterFolder: (entry: CliEntry) => void | Promise<void>;
   goToCrumb: (depth: number) => void;
   createFolder: () => Promise<void>;
 
@@ -76,6 +77,8 @@ export interface UseNewProjectWizardResult {
   setClaudeMd: (v: boolean) => void;
   openIde: string;
   setOpenIde: (v: string) => void;
+  /** Skills de la pool elegidas para `create --skills`. */
+  skillPicker: SkillPickerState;
 
   // Navegacion del stepper
   steps: StepId[];

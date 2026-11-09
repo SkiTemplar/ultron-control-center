@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+### Added
+- **Kanban al día desde la bitácora** (`hooks/scripts/lib/kanban-auto.js`,
+  2026-10-23). Al resumir una sesión, `session-summarize-previous` pasa a la
+  LLM las tarjetas abiertas con su id. La bitácora devuelve los cierres por id
+  en `## Cierres propuestos` y como mucho 3 altas en la sección nueva
+  `## Tarjetas nuevas` (`todo|doing | Título`). Se aplican sin preguntar: las
+  altas se deduplican por título, sin tildes ni mayúsculas, llevan la etiqueta
+  `auto` y el tope es acumulado por sesión. Una sesión re-resumida no repite
+  nada, ni siquiera lo que se deshizo. Cada lote queda en
+  `kanban.auto-log.json`, el SessionStart lo anuncia una vez y
+  `kanban.mjs undo <proyecto> [sesión]` lo revierte sin pisar las tarjetas
+  movidas a mano después. Quedan fuera los proyectos con `tracker:*`, los que
+  llevan la etiqueta `kanban:manual` (la tiene el macro kanban `proyectos`) y
+  la ejecución con `KANBAN_AUTO_DISABLED=1`. Sustituye al cierre por match de
+  commit de `kanban-update-reminder`, retirado el 2026-10-08 porque casi nunca
+  acertaba.
+- **Mascota de escritorio** (ventana `mascot`, `src-tauri/src/mascot/` +
+  `src/components/mascot/`): una Clawd en pixel art (proporciones sacadas del
+  logo de bloques de la CLI de Claude Code) vive sobre la barra de tareas del
+  monitor principal. Ojos que siguen al cursor; pasea, se sienta y se duerme.
+  Física con gravedad y rebote: se lanza arrastrando y soltando, se estampa
+  contra los bordes de la pantalla (y, si se activa, contra las ventanas) y se
+  queda mareada. **Ctrl al soltar** la deja colgada de una chincheta. Se sube a
+  los bordes superiores de las ventanas visibles, va montada si las mueves y
+  salta entre ellas.
+- **Tres botones al pasar el ratón**: Claude (`claude -p`), Codex (`codex exec`)
+  y Antigravity (`agy -p`). Cada uno cae a la API equivalente del AI Router
+  (Anthropic, OpenAI o Gemini) si su CLI falla. Cuadro de texto, respuesta en
+  bocadillo con historial corto por agente; el bocadillo dice qué camino
+  contestó.
+- **MCP de escritorio** `tools/ultron-desktop-mcp/server.mjs` para Claude Code
+  en terminal: captura, ratón, rueda, teclado y ventanas, a través de un puente
+  HTTP local con token (`mascot/bridge.rs`). Mientras un agente lo usa, la
+  mascota lleva el cursor. Se registra con un botón.
+- **Settings → Mascota**: mostrar/ocultar, llamar, pasear, subirse a ventanas,
+  saltar, ventanas sólidas, espachurrarse, tamaño, gravedad, rebote, minutos
+  hasta dormirse, modelos de Claude/Codex y el estado del puente.
+  Configuración guardada en `~/.ultron/cockpit/mascot.json`.
+- **Ánimo y celos de la mascota**: cinco ejes (alegría, energía, celos,
+  enfado, aburrimiento) que derivan en 8 estados con nombre (emocionada,
+  feliz, contenta, aburrida, cansada, celosa, triste, enfadada), visibles en un
+  chip al pasar el ratón y guardados entre arranques. Elegir **GPT o Gemini** le
+  da celos: se sorprende, llora, se da la vuelta con un «hmph» y se disfraza
+  del color de ese agente (verde o azul) con un estallido de chispas; al
+  cerrar la conversación vuelve a su terracota. Elegir a Claude la pone
+  contenta (saltos y corazones). Las caricias (frotar el cursor) la enamoran;
+  cuatro clics seguidos o los golpes fuertes la enfadan; cansada se duerme sola.
+- **17 animaciones nuevas con guion** (bailar, piruetas, saltitos, bostezar,
+  estirarse, suspirar, estornudar, zapatear, asomarse, menearse, sorpresa,
+  enfado, enamorada, alegría, celos, «poof», mirar alrededor) que elige según
+  su ánimo, más cejas, rubor, ojos de corazón, iconos de emoción y partículas
+  (corazones, notas, lágrimas, chispas). Más fluidez: el aplastamiento es un
+  muelle que rebota, el estiramiento en el aire sigue a la velocidad, el paseo
+  tiene 4 fases con bote suave, respira y el parpadeo tiene 3 fases.
+- Alcance: solo Windows y solo el monitor principal.
+
 ## [15.8.0] - 2026-09-10
 
 Sprint ultracode 2026-07-22: cierre del harness kirkardo (OVERALL 9.73 · CORE

@@ -106,3 +106,21 @@ export function CardIconTerminal() {
     </svg>
   );
 }
+
+export function CardIconPlay() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
+export function CardIconChat() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}

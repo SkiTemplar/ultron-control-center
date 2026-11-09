@@ -99,8 +99,8 @@ pub struct OrchestrationContext {
     pub lessons: Vec<super::lessons::LessonHit>,
 }
 
-/// Encuadre optimizado POR PASO del grupo (cat13.4). `optimize_prompt`/
-/// `build_prompt_plan` optimizan el TURNO; esto optimiza cada PASO del workflow
+/// Encuadre optimizado POR PASO del grupo (cat13.4).
+/// `build_prompt_plan` optimiza el TURNO; esto optimiza cada PASO del workflow
 /// segun el rol del agente que lo ejecuta (debugger -> bug_fix, code-reviewer ->
 /// review, rust-engineer -> feature, ...).
 #[derive(Debug, Clone, Serialize)]

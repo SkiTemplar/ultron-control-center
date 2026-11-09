@@ -22,7 +22,7 @@ export function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
   // forced by which Fix button the user clicks (Claude vs Codex).
   const fixClaudeTitle = useRoutingTitle(
     "notif.fix_one",
-    "Spawn an interactive Claude session with this error pre-loaded on the clipboard. Paste with Ctrl+V to start the fix.",
+    "Lanza una sesión interactiva de Claude con este error ya cargado en el portapapeles. Pégalo con Ctrl+V para empezar a arreglarlo.",
   );
   const [fixError, setFixError] = useState<string | null>(null);
   const [fixToast, setFixToast] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
         // opens the terminal. The user pastes with Ctrl+V and hits Enter.
         flags: { dangerouslySkipPermissions: false, pasteOnly: true },
       });
-      setFixToast(`Claude session opened — paste prompt with Ctrl+V`);
+      setFixToast(`Sesión de Claude abierta: pega el prompt con Ctrl+V`);
       // Auto-clear the toast after a few seconds so the card returns to its
       // resting state. The error path intentionally does not auto-clear.
       window.setTimeout(() => setFixToast(null), 5000);
@@ -114,14 +114,15 @@ export function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
               {g.last_ts.slice(0, 16).replace("T", " ")}
             </span>
           )}
-          {/* Per-row dismiss — always visible, hides only this notification */}
+          {/* Per-row dismiss — shown on hover or keyboard focus; hides only
+              this notification until it fires again. */}
           <button
             type="button"
             onClick={() => onDismiss(rowFp)}
-            title="Ocultar esta notificacion"
-            className="ml-1 shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100"
+            title="Ocultar esta notificación hasta que se repita"
+            className="ml-1 shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100"
             style={{ color: "var(--color-text-tertiary)", lineHeight: 1 }}
-            aria-label="Descartar"
+            aria-label="Ocultar"
           >
             <svg
               width="11"
@@ -165,7 +166,7 @@ export function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
                 border: "1px solid var(--color-border-strong)",
               }}
             >
-              {fixBusy === "claude" ? "Opening…" : "Fix with Claude"}
+              {fixBusy === "claude" ? "Abriendo…" : "Arreglar con Claude"}
             </button>
             {fixToast && (
               <span
@@ -181,7 +182,7 @@ export function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
                 style={{ color: "var(--color-danger)" }}
                 title={fixError}
               >
-                Failed to open session: {fixError.slice(0, 80)}
+                No se pudo abrir la sesión: {fixError.slice(0, 80)}
               </span>
             )}
           </div>

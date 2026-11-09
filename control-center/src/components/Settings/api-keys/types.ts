@@ -13,12 +13,46 @@ export interface KeyTutorial {
   sourceLabel: string;
 }
 
+/** Grupo del catálogo de claves (contrato 2026-10-26, §5). `subscription`
+ *  son CLI sin key (Codex, Antigravity) y `custom` los proveedores
+ *  `ULTRON_KEY_*` que añade el usuario; ninguno de los dos vive en
+ *  PROVIDER_KEYS. */
+export type KeyGroup = "subscription" | "paid" | "free" | "research" | "custom";
+
 export interface ProviderKeyDef {
   envVar: string;
   label: string;
   docsUrl: string;
   placeholder: string;
+  group: KeyGroup;
   tutorial: KeyTutorial;
+}
+
+/** Formato de API de un proveedor personalizado (subconjunto de
+ *  `Provider.api_format` que admite `ai_router_upsert_custom_provider`). */
+export type CustomApiFormat = "openai_compat" | "anthropic" | "gemini";
+
+/** Espejo de `CustomProviderInput` (Rust, contrato §4). */
+export interface CustomProviderInput {
+  id: string;
+  name: string;
+  base_url: string;
+  api_format: CustomApiFormat;
+  key_env_var: string;
+  default_model?: string;
+}
+
+/** Proveedor del router tal y como lo devuelve `ai_router_list_providers`,
+ *  con los campos internos que necesita esta sección. */
+export interface RouterProviderRecord {
+  id: string;
+  name: string;
+  key_env_var?: string;
+  base_url?: string;
+  api_format?: string;
+  custom?: boolean;
+  api_key_status?: "configured" | "missing" | "placeholder";
+  models?: string[];
 }
 
 export type ResearchKeyDef = ProviderKeyDef & { isEmail: boolean };

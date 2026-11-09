@@ -42,77 +42,6 @@ export type SecurityInfo = {
   scanned_at?: string | null;
 };
 
-export type SkillFinding = {
-  rule_id: string;
-  severity: string;
-  pattern_name: string;
-  excerpt: string;
-  line_number: number | null;
-  waived: boolean;
-};
-
-export type SkillSecurityReport = {
-  name: string;
-  decision: string;
-  sha1: string | null;
-  findings: SkillFinding[];
-  stderr: string;
-};
-
-export type AllowSkillResult = {
-  success: boolean;
-  name: string;
-  sha1: string;
-  waiver_path: string;
-};
-
-export type AgentInfo = {
-  name: string;
-  description: string | null;
-  model: string | null;
-  tools: string[];
-  path: string | null;
-  size_bytes: number;
-  last_modified: number | null;
-  /** Optional security verdict — populated when an agent registry / scan
-   *  pre-computed this. The Agents tab also fetches a fresh report on
-   *  demand via `get_agent_findings`, so this field is best-effort and
-   *  may be absent even when findings exist. */
-  security?: SecurityInfo | null;
-};
-
-export type AgentMutationResult = {
-  success: boolean;
-  name: string;
-  path: string;
-  backup_path: string | null;
-};
-
-/** Symmetric with SkillFinding — agents go through the same scanner. */
-export type AgentFinding = {
-  rule_id: string;
-  severity: string;
-  pattern_name: string;
-  excerpt: string;
-  line_number: number | null;
-  waived: boolean;
-};
-
-export type AgentSecurityReport = {
-  name: string;
-  decision: string;
-  sha1: string | null;
-  findings: AgentFinding[];
-  stderr: string;
-};
-
-export type AllowAgentResult = {
-  success: boolean;
-  name: string;
-  sha1: string;
-  waiver_path: string;
-};
-
 export type SkillInfo = {
   name: string;
   state: SkillState;
@@ -122,28 +51,6 @@ export type SkillInfo = {
   path: string | null;
   usage_count: number;
   security?: SecurityInfo | null;
-};
-
-export type SkillCreateResult = {
-  success: boolean;
-  name: string;
-  path: string;
-  layer: string;
-};
-
-export type SkillUpdateResult = {
-  success: boolean;
-  name: string;
-  path: string;
-  backup_path: string;
-};
-
-export type SkillDeleteResult = {
-  success: boolean;
-  name: string;
-  from_path: string;
-  to_path: string;
-  soft: boolean;
 };
 
 // ---------------------------------------------------------------------------

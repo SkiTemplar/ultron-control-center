@@ -7,6 +7,14 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Card, SmallButton, relativeTime } from "./Card";
+import {
+  backupRootIssue,
+  forceBackupMessage,
+  lastRunView,
+  toneColor,
+  type BackupLastRun,
+  type BackupTone,
+} from "./backupLastRun";
 
 interface MaintenanceResult {
   kind: string;
@@ -25,26 +33,47 @@ interface BackupEntry {
   age_hours: number | null;
   exists: boolean;
   status: string;
+  last_result: string | null;
 }
 
 interface BackupStatusReport {
+  /** Vacío si no hay destino configurado. */
   root: string;
+  root_configured: boolean;
   root_exists: boolean;
   entries: BackupEntry[];
   overall_status: string;
+  last_run: BackupLastRun | null;
+  last_run_error: string | null;
 }
 
 function accentFor(status: string): "ok" | "warn" | "danger" | "neutral" {
   if (status === "ok") return "ok";
   if (status === "stale") return "warn";
-  if (status === "cold") return "danger";
+  if (status === "cold" || status === "failed") return "danger";
   return "neutral";
+}
+
+/** Etiqueta visible del estado global del backup (los valores vienen del backend). */
+const BACKUP_STATUS_LABELS: Record<string, string> = {
+  ok: "al día",
+  stale: "desfasado",
+  cold: "antiguo",
+  failed: "fallido",
+  missing: "no encontrado",
+  unconfigured: "sin destino",
+  empty: "vacío",
+  unknown: "desconocido",
+};
+
+function backupStatusLabel(status: string): string {
+  return BACKUP_STATUS_LABELS[status] ?? status;
 }
 
 function statusColor(status: string): string {
   if (status === "ok") return "var(--color-success)";
   if (status === "stale") return "var(--color-warn)";
-  if (status === "cold") return "var(--color-danger)";
+  if (status === "cold" || status === "failed") return "var(--color-danger)";
   return "var(--color-text-tertiary)";
 }
 
@@ -53,16 +82,18 @@ export function BackupCard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [runMsg, setRunMsg] = useState<string | null>(null);
+  const [runMsg, setRunMsg] = useState<{ tone: BackupTone; text: string } | null>(null);
 
-  async function loadStatus() {
+  async function loadStatus(): Promise<BackupStatusReport | null> {
     setLoading(true);
     setError(null);
     try {
       const r = await invoke<BackupStatusReport>("backup_status");
       setReport(r);
+      return r;
     } catch (e) {
       setError(String(e));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -90,16 +121,14 @@ export function BackupCard() {
     setRunMsg(null);
     try {
       const result = await invoke<MaintenanceResult>("run_backup_now");
-      if (result.success) {
-        setRunMsg("Backup finalizado correctamente.");
-        window.setTimeout(() => setRunMsg(null), 4000);
-        await loadStatus();
-      } else {
-        const detail = result.stderr.trim() || result.stdout.trim() || "sin detalle";
-        setError(`Backup falló (código ${result.exit_code ?? "?"}) — ${detail}`);
-      }
+      // El script deja el resultado por fuente en backup-last-run.json: se
+      // recarga siempre para que la tarjeta enseñe qué falló, no solo «falló».
+      const fresh = await loadStatus();
+      const msg = forceBackupMessage(result, fresh?.last_run);
+      setRunMsg(msg);
+      if (msg.tone === "ok") window.setTimeout(() => setRunMsg(null), 4000);
     } catch (e) {
-      setError(`Backup failed: ${String(e)}`);
+      setError(`El backup ha fallado: ${String(e)}`);
     } finally {
       setRunning(false);
     }
@@ -114,9 +143,23 @@ export function BackupCard() {
       return at < bt ? 1 : at > bt ? -1 : 0;
     })[0];
 
-  const accent = accentFor(report?.overall_status ?? "");
+  const rootIssue = report ? backupRootIssue(report) : null;
+  // Un destino que no existe es un fallo, no un «sin configurar» en gris.
+  const accent = rootIssue?.tone === "danger" ? "danger" : accentFor(report?.overall_status ?? "");
   const folderCount = report?.entries.length ?? 0;
   const okCount = report?.entries.filter((e) => e.status === "ok").length ?? 0;
+
+  async function openLog(path: string) {
+    try {
+      await openPath(path);
+    } catch (e) {
+      setError(`No se pudo abrir el log: ${String(e)}`);
+    }
+  }
+
+  const runView = report ? lastRunView(report.last_run, report.last_run_error) : null;
+  // Una simulación (-DryRun) no copia nada: no cuenta como último backup.
+  const lastRunAt = report?.last_run && !report.last_run.dry_run ? report.last_run.last_run : null;
 
   async function openRoot() {
     if (!report?.root) return;
@@ -125,7 +168,7 @@ export function BackupCard() {
     // Avisamos en vez de no hacer nada.
     if (report.root_exists === false) {
       setError(
-        `La carpeta de backup no existe todavía: ${report.root}. Ejecuta "Force Backup" o verifica que la unidad está montada.`,
+        `La carpeta del backup aún no existe: ${report.root}. Pulsa «Forzar backup» o comprueba que la unidad está montada.`,
       );
       return;
     }
@@ -133,20 +176,20 @@ export function BackupCard() {
       await openPath(report.root);
     } catch (e) {
       // Antes se tragaba el error y "no abría nada". Ahora lo mostramos.
-      setError(`No se pudo abrir la carpeta de backup: ${String(e)}`);
+      setError(`No se pudo abrir la carpeta del backup: ${String(e)}`);
     }
   }
 
   return (
     <Card
       title="Backup"
-      subtitle="Local mirror status"
+      subtitle="Estado del espejo local"
       accent={accent}
       loading={loading}
       error={error}
       empty={
-        !loading && !error && (!report || report.entries.length === 0)
-          ? "No backup mirrors configured."
+        !loading && !error && !rootIssue && (!report || report.entries.length === 0)
+          ? "No hay espejos de backup configurados."
           : null
       }
       action={
@@ -155,9 +198,9 @@ export function BackupCard() {
             <SmallButton
               onClick={() => void openRoot()}
               size="md"
-              title="Open backup root in file explorer"
+              title="Abrir la carpeta raíz del backup en el Explorador"
             >
-              Folder
+              Carpeta
             </SmallButton>
           )}
           <SmallButton
@@ -165,9 +208,9 @@ export function BackupCard() {
             disabled={running}
             variant="accent"
             size="md"
-            title="Run weekly-backup script now"
+            title="Ejecutar ahora el script weekly-backup"
           >
-            {running ? "Running…" : "Force Backup"}
+            {running ? "Ejecutando…" : "Forzar backup"}
           </SmallButton>
         </div>
       }
@@ -175,12 +218,39 @@ export function BackupCard() {
       {runMsg && (
         <div
           className="mb-3 rounded px-2 py-1 text-[12px]"
+          role="status"
           style={{
-            background: "rgba(63, 185, 80, 0.08)",
-            color: "var(--color-success)",
+            background: "color-mix(in srgb, " + toneColor(runMsg.tone) + " 10%, transparent)",
+            color: toneColor(runMsg.tone),
           }}
         >
-          {runMsg}
+          {runMsg.text}
+        </div>
+      )}
+      {rootIssue && (
+        <div
+          className="mb-3 rounded px-2 py-1.5 text-[12px]"
+          role="alert"
+          style={{
+            background: "color-mix(in srgb, " + toneColor(rootIssue.tone) + " 10%, transparent)",
+            color: toneColor(rootIssue.tone),
+          }}
+        >
+          <div>{rootIssue.text}</div>
+          {rootIssue.expected && (
+            <div
+              className="mt-1 truncate"
+              style={{ fontFamily: "var(--font-mono, ui-monospace)" }}
+              title={rootIssue.expected}
+            >
+              Esperado: {rootIssue.expected}
+            </div>
+          )}
+          {/* Sin espejos el bloque del último run no se pinta: su motivo
+              (p. ej. el aborto del script) va aquí. */}
+          {report && report.entries.length === 0 && runView && (
+            <div className="mt-1">{runView.text}</div>
+          )}
         </div>
       )}
       {report && report.entries.length > 0 && (
@@ -191,7 +261,11 @@ export function BackupCard() {
               className="text-[22px] font-semibold leading-none"
               style={{ color: "var(--color-text)" }}
             >
-              {latest ? relativeTime(latest.last_modified) : "never"}
+              {lastRunAt
+                ? relativeTime(lastRunAt)
+                : latest
+                  ? relativeTime(latest.last_modified)
+                  : "nunca"}
             </span>
             <span
               className="rounded px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide"
@@ -200,23 +274,48 @@ export function BackupCard() {
                 color: statusColor(report.overall_status),
               }}
             >
-              {report.overall_status}
+              {backupStatusLabel(report.overall_status)}
             </span>
           </div>
+
+          {/* Resultado real del último run (backup-last-run.json) */}
+          {runView && (
+            <div
+              className="flex items-start justify-between gap-2 rounded px-2 py-1.5 text-[11.5px]"
+              style={{
+                background: "color-mix(in srgb, " + toneColor(runView.tone) + " 8%, transparent)",
+                color: toneColor(runView.tone),
+              }}
+            >
+              <span className="min-w-0">{runView.text}</span>
+              {/* El texto del run se parte en líneas; el botón no (antes
+                  «Ver log» se partía en dos con un resumen largo). */}
+              {runView.logPath && (
+                <span className="shrink-0 whitespace-nowrap">
+                  <SmallButton
+                    onClick={() => void openLog(runView.logPath as string)}
+                    title={runView.logPath}
+                  >
+                    Ver log
+                  </SmallButton>
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Stats row */}
           <div className="grid grid-cols-2 gap-3">
             <Stat
-              label="Folders"
+              label="Carpetas"
               value={`${okCount} / ${folderCount}`}
-              hint={folderCount === 1 ? "mirror" : "mirrors ok"}
+              hint={folderCount === 1 ? "espejo" : "espejos al día"}
             />
             <Stat
-              label="Newest"
+              label="Más reciente"
               value={latest ? latest.name : "—"}
               hint={
                 latest && latest.age_hours !== null
-                  ? `${Math.round(latest.age_hours)}h old`
+                  ? `hace ${Math.round(latest.age_hours)} h`
                   : undefined
               }
             />
@@ -228,7 +327,7 @@ export function BackupCard() {
               className="text-[11.5px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Destination
+              Destino
             </div>
             <div
               className="truncate text-[12.5px]"

@@ -31,7 +31,7 @@ export function PlanCard({
 }) {
   const openSessionTitle = useRoutingTitle(
     "plans.resolve_one",
-    "Open an AI session in ULTRON with this plan as the initial prompt.",
+    "Abre una sesión de IA en ULTRON con este plan como prompt inicial.",
   );
   return (
     <div
@@ -120,7 +120,7 @@ export function PlanCard({
                   color: "var(--color-text-secondary)",
                   border: "1px solid var(--color-border)",
                 }}
-                title={`Move to ${c.label}`}
+                title={`Mover a «${c.label}»`}
               >
                 {c.label.toLowerCase()}
               </button>
@@ -137,7 +137,7 @@ export function PlanCard({
               }}
               title={openSessionTitle}
             >
-              Open session
+              Abrir sesión
             </button>
             <button
               type="button"
@@ -149,7 +149,7 @@ export function PlanCard({
                 border: "1px solid var(--color-border)",
               }}
             >
-              Edit
+              Editar
             </button>
             <button
               type="button"
@@ -161,7 +161,7 @@ export function PlanCard({
                 border: "1px solid rgba(248, 81, 73, 0.32)",
               }}
             >
-              Delete
+              Borrar
             </button>
           </div>
         </div>

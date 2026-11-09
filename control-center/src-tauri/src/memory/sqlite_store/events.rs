@@ -5,6 +5,8 @@ use rusqlite::{named_params, params, Connection};
 use crate::memory::model::{Actor, EventType, MemoryEvent};
 use crate::memory::MemoryError;
 
+use super::row_mapping::collect_rows;
+
 pub fn insert_event(conn: &Connection, ev: &MemoryEvent) -> Result<(), MemoryError> {
     conn.execute(
         "INSERT INTO memory_events
@@ -55,5 +57,5 @@ pub fn list_events_for(
             })
         })
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_events query: {e}")))?;
-    Ok(rows.flatten().collect())
+    Ok(collect_rows(rows, "list_events"))
 }

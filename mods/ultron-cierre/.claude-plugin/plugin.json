@@ -1,0 +1,5 @@
+{
+  "name": "ultron-cierre",
+  "version": "0.1.0",
+  "description": "Cierre de turno: si el turno editó ficheros, avisa de tests en rojo o cambios sin commitear y sugiere el siguiente prompt"
+}

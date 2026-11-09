@@ -1,8 +1,11 @@
 // ULTRON Control Center — Settings > API Keys
 //
-// Two subsections:
-//   1. AI provider keys  — persisted via `set_env_vars_keys` (setx, User scope).
-//   2. GitHub token      — persisted via `set_github_token` (~/.ultron/.env).
+// Collapsible groups (contrato plans/2026-10-26, §5):
+//   Suscripciones (CLI) — Codex, Antigravity, claude -p: sin key, solo estado.
+//   De pago / Gratuitas — `set_env_vars_keys` (setx, User scope) + «Probar».
+//   Investigación       — buscador de papers del TFG.
+//   Personalizadas      — ULTRON_KEY_<SLUG> + ai_router_upsert_custom_provider.
+// Más el token de GitHub — persisted via `set_github_token` (~/.ultron/.env).
 //
 // SECURITY: values are masked by default. Never logged or serialised outside
 // the invoke call to the backend.
@@ -11,10 +14,26 @@
 // api-keys/validation.ts, estado + invoke en api-keys/useApiKeys.ts, y un
 // componente por pieza visual bajo api-keys/.
 
+import { useState } from "react";
+import { CustomProvidersGroup } from "./api-keys/CustomProvidersGroup";
 import { GithubTokenCard } from "./api-keys/GithubTokenCard";
+import { KeyGroupSection } from "./api-keys/KeyGroupSection";
+import { keysOfGroup, RESEARCH_KEYS, SUBSCRIPTION_CLIS } from "./api-keys/key-catalog";
 import { ProviderKeysGroup } from "./api-keys/ProviderKeysGroup";
 import { ResearchKeysGroup } from "./api-keys/ResearchKeysGroup";
+import { SubscriptionClisGroup } from "./api-keys/SubscriptionClisGroup";
+import type { EnvKeyStatus, ProviderKeyDef } from "./api-keys/types";
 import { useApiKeys } from "./api-keys/useApiKeys";
+import { useCustomProviders } from "./api-keys/useCustomProviders";
+import { useModelProbe } from "./api-keys/useModelProbe";
+
+const PAID_KEYS = keysOfGroup("paid");
+const FREE_KEYS = keysOfGroup("free");
+
+function configuredSummary(defs: ProviderKeyDef[], statuses: Record<string, EnvKeyStatus>): string {
+  const n = defs.filter((d) => statuses[d.envVar]?.configured).length;
+  return `${n}/${defs.length} configuradas`;
+}
 
 export function ApiKeysSection() {
   const {
@@ -29,20 +48,33 @@ export function ApiKeysSection() {
     errorCount,
     handleChange,
     toggleVisible,
+    handleRemove,
     handleSave,
     handleValidate,
   } = useApiKeys();
+  const { probes, probeByEnv, probeById } = useModelProbe();
+  const custom = useCustomProviders();
+  const [subscriptionsOpened, setSubscriptionsOpened] = useState(false);
+  const keyGroupProps = {
+    fields,
+    statuses,
+    probes,
+    onChange: handleChange,
+    onToggleVisible: toggleVisible,
+    onRemove: (envVar: string) => void handleRemove(envVar),
+    onProbe: (envVar: string, configured: boolean | undefined) => void probeByEnv(envVar, configured),
+  };
 
   return (
-    <div className="max-w-[560px]">
+    <div>
       {/* Section header */}
       <div className="mb-5">
-        <h2 className="text-[15px] font-semibold">API Keys</h2>
+        <h2 className="text-[15px] font-semibold">Claves API</h2>
         <p
           className="mt-1 text-[12.5px] leading-relaxed"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Las keys se guardan como variables de entorno de usuario Windows via{" "}
+          Las claves se guardan como variables de entorno de usuario de Windows vía{" "}
           <code
             className="rounded px-1 py-px text-[11px]"
             style={{
@@ -58,19 +90,58 @@ export function ApiKeysSection() {
         </p>
       </div>
 
-      <ProviderKeysGroup
-        fields={fields}
-        statuses={statuses}
-        onChange={handleChange}
-        onToggleVisible={toggleVisible}
-      />
+      <KeyGroupSection
+        title="Suscripciones (CLI)"
+        summary={`${SUBSCRIPTION_CLIS.length} motores`}
+        description="Motores que usan la sesión de su CLI y no una key. Solo informativo: el estado sale de delegate.mjs status."
+        onToggle={(open) => open && setSubscriptionsOpened(true)}
+      >
+        <SubscriptionClisGroup active={subscriptionsOpened} />
+      </KeyGroupSection>
 
-      <ResearchKeysGroup
-        fields={fields}
-        statuses={statuses}
-        onChange={handleChange}
-        onToggleVisible={toggleVisible}
-      />
+      <KeyGroupSection
+        title="De pago"
+        summary={configuredSummary(PAID_KEYS, statuses)}
+        description="Proveedores con crédito o método de pago por delante. «Probar» pide la lista de modelos con la key guardada."
+      >
+        <ProviderKeysGroup defs={PAID_KEYS} {...keyGroupProps} />
+      </KeyGroupSection>
+
+      <KeyGroupSection
+        title="Gratuitas o con capa gratuita"
+        summary={configuredSummary(FREE_KEYS, statuses)}
+        description="Proveedores con plan gratuito o capa gratuita con límites. Las nuevas solo se usan si las pones en la cadena de delegación o en una zona."
+      >
+        <ProviderKeysGroup defs={FREE_KEYS} {...keyGroupProps} />
+      </KeyGroupSection>
+
+      <KeyGroupSection
+        title="Investigación"
+        summary={configuredSummary(RESEARCH_KEYS, statuses)}
+        description={
+          <>
+            Claves y emails de contacto que usa el buscador de papers del TFG (
+            <code style={{ fontFamily: "var(--font-mono)" }}>hooks/scripts/lib/research/</code>
+            ). Los dos emails no son secretos: se guardan y se muestran completos.
+          </>
+        }
+      >
+        <ResearchKeysGroup
+          fields={fields}
+          statuses={statuses}
+          onChange={handleChange}
+          onToggleVisible={toggleVisible}
+          onRemove={(envVar) => void handleRemove(envVar)}
+        />
+      </KeyGroupSection>
+
+      <KeyGroupSection
+        title="Personalizadas"
+        summary={`${custom.customs.length} proveedores`}
+        description="Cualquier API OpenAI-compatible, Anthropic o Gemini. La key va a la variable de usuario ULTRON_KEY_<ID>; se guarda al añadir el proveedor, no con «Guardar todas»."
+      >
+        <CustomProvidersGroup custom={custom} probes={probes} onProbe={(id) => void probeById(id)} />
+      </KeyGroupSection>
 
       {/* Actions */}
       <div className="mt-5 flex items-center gap-3">
@@ -84,7 +155,7 @@ export function ApiKeysSection() {
             color: "var(--color-accent-text)",
           }}
         >
-          {saving ? "Guardando…" : "Save all"}
+          {saving ? "Guardando…" : "Guardar todas"}
         </button>
         <button
           type="button"
@@ -96,13 +167,13 @@ export function ApiKeysSection() {
             border: "1px solid var(--color-border-strong)",
             color: "var(--color-text-secondary)",
           }}
-          title="Comprueba cada provider del router: key presente / CLI instalada"
+          title="Comprueba cada proveedor del router: clave presente o CLI instalada"
         >
-          {validating ? "Validando…" : "Validar keys del router"}
+          {validating ? "Validando…" : "Validar claves del router"}
         </button>
         <span
           className="text-[11.5px]"
-          style={{ color: "var(--color-text-faint)" }}
+          style={{ color: "var(--color-text-tertiary)" }}
         >
           Solo se envían los campos con valor.
         </span>
@@ -121,7 +192,7 @@ export function ApiKeysSection() {
             className="mb-2 text-[11px] font-semibold uppercase tracking-wide"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Providers del router ({validations.filter((v) => v.has_key).length}/
+            Proveedores del router ({validations.filter((v) => v.has_key).length}/
             {validations.length} OK)
           </p>
           <ul className="flex flex-col gap-1">
@@ -131,7 +202,7 @@ export function ApiKeysSection() {
                   {v.has_key ? "●" : "○"}
                 </span>
                 <span style={{ fontFamily: "var(--font-mono)" }}>{v.provider_id}</span>
-                <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
+                <span className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
                   {v.source}
                 </span>
                 {v.warning && (
@@ -182,8 +253,8 @@ export function ApiKeysSection() {
           {savedCount > 0 && (
             <p>
               {savedCount === 1
-                ? `1 key guardada: ${result.saved[0]}`
-                : `${savedCount} keys guardadas: ${result.saved.join(", ")}`}
+                ? `1 clave guardada: ${result.saved[0]}`
+                : `${savedCount} claves guardadas: ${result.saved.join(", ")}`}
             </p>
           )}
           {errorCount > 0 && (

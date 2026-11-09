@@ -94,10 +94,10 @@ const MAX_LAZY_INJECTIONS = 3;
 // planning/orchestration skills when the prompt has explicit planning intent.
 // Only these ids may inject in [PLANNING_LAZY_FLOOR, LAZY_SCORE_THRESHOLD).
 const PLANNING_LAZY_FLOOR = 0.65;
+// (2026-10-03) superpowers:executing-plans y :dispatching-parallel-agents
+// retirados: el plugin superpowers se desinstalo y eran ids fantasma.
 const PLANNING_LAZY_SKILLS = new Set([
   'hiper-plans',
-  'superpowers:executing-plans',
-  'superpowers:dispatching-parallel-agents',
 ]);
 
 /**
@@ -216,7 +216,7 @@ const PERSONAS = [
     id: 'tio-gilito',
     persona: 'tio-gilito',
     triggers: ['tio gilito', 'tio gilito', 'gilito'],
-    strong: ['kutxabank', 'fondos de ahorro', 'limites de gasto', 'saldo actual', 'anade un gasto', 'anade un ingreso', 'reglas de ahorro'],
+    strong: ['fondos de ahorro', 'limites de gasto', 'saldo actual', 'anade un gasto', 'anade un ingreso', 'reglas de ahorro'],
     context: ['gasto', 'ahorro', 'presupuesto', 'banco', 'finanzas personales', 'saldo', 'mis ahorros'],
   },
   {
@@ -265,13 +265,11 @@ const PLUGINS = [
   { id: 'pr-review-toolkit:code-reviewer',   triggers: ['code review', 'review pr', 'revisa el pr'],         strong: ['auditoria de codigo', 'pull request review'],                               context: ['code review', 'revision de codigo'] },
   { id: 'second-opinion',                    triggers: ['second opinion', 'codex review', '/second-opinion'], strong: ['external review', 'segunda opinion'],              context: ['codex', 'gemini'] },
   // Debugging / quality
-  { id: 'superpowers:systematic-debugging',  triggers: ['systematic debugging'],                              strong: ['bug sin causa obvia', 'no encuentro el bug', 'debug sistematico'],          context: ['bug intermitente', 'debugging'] },
+  // (2026-10-03) superpowers:systematic-debugging -> agente `debugger` (ver AGENTS).
   { id: 'focused-fix',                       triggers: ['focused fix', 'haz que funcione'],                   strong: ['feature rota', 'modulo con fallos en cascada'],                            context: ['reparar feature', 'fix de modulo'] },
   // Testing
-  { id: 'superpowers:test-driven-development', triggers: ['tdd', 'test-driven development'],                  strong: ['escribe los tests primero', 'red green refactor'],                         context: ['testing', 'pruebas unitarias', 'cobertura de tests'] },
+  // (2026-10-03) superpowers:test-driven-development -> agente `test-automator` (ver AGENTS).
   { id: 'webapp-testing',                    triggers: ['playwright', 'webapp testing', 'e2e'],               strong: ['test web app local', 'browser snapshot'],                                  context: ['e2e', 'browser testing', 'ui testing'] },
-  // Security
-  { id: 'security-scan',                     triggers: ['security scan', 'security review'],                  strong: ['cve', 'sast', 'static analysis', 'owasp'],                                 context: ['vulnerabilidades', 'auditoria seguridad'] },
   // Database / migrations
   { id: 'database-migrations',               triggers: ['database migrations', 'db migration'],               strong: ['zero-downtime migration', 'alter table', 'expand-contract', 'prisma migrate', 'alembic'], context: ['schema', 'rls', 'migracion de db'] },
   // Git / versioning
@@ -281,7 +279,7 @@ const PLUGINS = [
   // Frontend / design
   { id: 'frontend-design',                   triggers: ['frontend design'],                                   strong: ['glassmorphism', 'brutalist', 'minimalist ui'],                             context: ['componentes ui', 'estilos visuales', 'frontend'] },
   // Infrastructure
-  { id: 'docker-patterns',                   triggers: ['docker', 'dockerfile', 'docker-compose'],            strong: ['multi-stage build', 'docker compose'],                                     context: ['contenedores', 'dockerfile'] },
+  // (2026-10-03) docker-patterns archivada -> señales de Docker en `devops-engineer` (ver AGENTS).
   // MCP / hooks
   { id: 'mcp-builder',                       triggers: ['mcp builder', 'crear mcp', 'crear servidor mcp'],   strong: ['mcp server', 'servidor mcp'],                                              context: ['model context protocol', 'tool registration'] },
   // (2026-09-14) ecc:hookify retirado: plugin/marketplace ecc desinstalado.
@@ -295,20 +293,14 @@ const PLUGINS = [
   { id: 'python-patterns',                   triggers: ['python patterns'],                                  strong: ['async def', 'pydantic v2', 'sqlalchemy 2.0'],                             context: ['python'] },
   // Graphics / shaders
   { id: 'shader-fundamentals',               triggers: ['shader fundamentals'],                              strong: ['fragment shader', 'vertex shader', 'glsl', 'hlsl', 'metal shading language'], context: ['shader', 'rendering pipeline'] },
-  // Agents / orchestration (catalog)
-  { id: 'agent-architecture-audit',          triggers: ['agent architecture audit', 'audita el agente'],     strong: ['wrapper regression', 'memory pollution', '12-layer agent stack'],          context: ['agent stack', 'autonomous loops'] },
-  { id: 'autonomous-loops',                  triggers: ['autonomous loops', 'loop autonomo'],                strong: ['rfc-driven multi-agent dag', 'sequential pipelines'],                      context: ['orquestacion', 'multi-agent'] },
+  // (2026-10-03) agent-architecture-audit y autonomous-loops archivadas (sin uso).
   // Media / files
   { id: 'pdf',                               triggers: ['pdf', 'archivo pdf'],                               strong: ['merge pdf', 'split pdf', 'ocr pdf', 'fill pdf form'],                     context: ['pdf', '.pdf'] },
-  { id: 'generate-image',                    triggers: ['generate image', 'genera una imagen'],              strong: ['stable diffusion', 'image generation'],                                   context: ['imagen', 'image'] },
   // Additional catalog skills
-  { id: 'superpowers:brainstorming',         triggers: ['brainstorming', 'lluvia de ideas'],                 strong: ['ideation session', 'creative exploration'],                               context: ['ideas', 'brainstorm'] },
   { id: 'senior-engineer',                   triggers: ['senior engineer', 'senior mode'],                  strong: ['engineering decision', 'senior review', 'tech lead'],                     context: ['ingenieria', 'decision tecnica'] },
   // Language/stack pattern skills
   { id: 'postgres-patterns',                 triggers: ['postgres patterns'],                                strong: ['schema design postgres', 'indexing strategy', 'row level security'],       context: ['supabase'] },
-  { id: 'redis-patterns',                    triggers: ['redis patterns', 'redis'],                          strong: ['distributed lock', 'rate limiting', 'pub/sub', 'cache invalidation'],     context: ['caching', 'cache'] },
   { id: 'vite-patterns',                     triggers: ['vite patterns', 'vite config', 'vite.config'],      strong: ['hmr', 'dependency pre-bundling', 'vite plugin'],                           context: ['vite'] },
-  { id: 'nextjs-turbopack',                  triggers: ['turbopack'],                                        strong: ['incremental bundling', 'turbopack vs webpack', 'fs caching'],              context: ['next.js dev speed', 'bundler'] },
   { id: 'error-handling',                    triggers: ['error handling patterns'],                          strong: ['circuit breaker', 'typed errors', 'error boundaries', 'retry with backoff'], context: ['manejo de errores', 'reintentos'] },
   { id: 'deployment-patterns',               triggers: ['deployment patterns'],                              strong: ['production readiness checklist', 'health check endpoint', 'rollback strategy'], context: ['ci/cd', 'containerization'] },
   { id: 'hexagonal-architecture',            triggers: ['hexagonal architecture', 'ports and adapters'],     strong: ['dependency inversion', 'use-case orchestration', 'domain boundaries'],     context: ['hexagonal', 'puertos y adaptadores'] },
@@ -321,38 +313,46 @@ const PLUGINS = [
   { id: 'docx',                              triggers: ['word document', 'word doc', '.docx', 'docx'],       strong: ['python-docx', 'tracked changes', 'tabla de contenidos word'],              context: ['carta formal', 'memo', 'plantilla word'] },
   { id: 'architecture-decision-records',     triggers: ['architecture decision record', 'adr'],              strong: ['record the decision', 'decision log', 'alternatives considered'],          context: ['registro de decisiones', 'decision de arquitectura'] },
   // Meta / workflow skills
-  { id: 'prompt-optimizer',                  triggers: ['optimize prompt', 'optimiza el prompt', 'mejora mi prompt', 'rewrite this prompt'], strong: ['prompt optimization', 'optimized prompt'],          context: ['prompt'] },
-  { id: 'token-budget-advisor',              triggers: ['token budget', 'response length', 'respuesta corta vs larga', 'ahorrar tokens'], strong: ['answer depth', 'brief answer', 'detailed answer'],        context: ['cuantos tokens', 'longitud de respuesta'] },
-  { id: 'context-budget',                    triggers: ['context budget', 'audita el contexto', 'cuanto contexto', 'contexto consumen', 'auditar contexto'], strong: ['context window consumption', 'context bloat', 'context audit', 'token bloat'], context: ['ventana de contexto', 'consumo de contexto', 'cuanto contexto consumen', 'bloat de contexto'] },
   { id: 'windows-admin',                     triggers: ['windows admin'],                                    strong: ['winget install', 'scheduled task windows', 'windows service', 'windows registry'], context: ['administrador de windows', 'windows-mcp'] },
   { id: 'business-strategist',               triggers: ['business strategist'],                              strong: ['b2b saas', 'go-to-market', 'icp definition', 'market validation', 'investor deck'], context: ['estrategia de negocio', 'saas pricing'] },
   { id: 'search-first',                      triggers: ['search first', 'search-first', 'busca antes de codear', 'busca librerias', 'busca una libreria'], strong: ['research before coding', 'existing library first', 'libreria existente', 'patrones existentes'], context: ['buscar libreria existente', 'librerias existentes', 'antes de escribir codigo'] },
-  { id: 'humanizer',                         triggers: ['humaniza', 'humanize', 'humanizer', 'sonar humano', 'suena humano', 'sound human'], strong: ['marcas de ia', 'signs of ai writing', 'texto generado por ia', 'ai-generated text', 'remove ai writing'], context: ['naturaliza el texto', 'estilo humano', 'escrito por ia'] },
-  // Sustituye a humanizer para texto en español: ejecuta el catalogo de ULTRON
+  // Skill de texto en español: ejecuta el catalogo de ULTRON
   // (docs/research/patrones-texto-ia) en vez de llevar patrones propios.
   { id: 'escritura-humana',                  triggers: ['escritura humana', 'escribelo tu', 'escríbelo tú', 'redactame este apartado'], strong: ['suena a ia', 'señales de ia', 'senales de ia', 'quita las señales', 'pasale el detector', 'pásale el detector', 'reescribe esto', 'canta a ia'], context: ['revisa la redaccion', 'redaccion del tfg', 'texto academico', 'memoria del tfg'] },
-  { id: 'council',                           triggers: ['council', 'convoca el council', 'four-voice council'], strong: ['structured disagreement', 'go/no-go call'],                              context: ['decision ambigua', 'tradeoff'] },
   { id: 'hiper-plans',                       triggers: ['hiper plan', 'hyper plan', 'hiperplan', 'plan profundo', 'deep plan', 'planifica exhaustivamente'], strong: ['spec driven plan', 'deep plan', 'escribe un plan', 'plan de implementacion', 'design doc', 'prd'],   context: ['planificacion compleja', 'plan'] },
-  // Orchestration / parallel-agent planning skills (iter-10 FASE 7) — these
-  // surface for planning prompts and are eligible for the relaxed lazy
-  // threshold in fetchLazySkillContent (PLANNING_LAZY_FLOOR).
-  { id: 'superpowers:executing-plans',       triggers: ['ejecuta el plan', 'executing plans', 'execute the plan'], strong: ['ejecuta el plan', 'execute the plan', 'implementation plan', 'plan de implementacion'], context: ['plan', 'checkpoint', 'plan execution'] },
-  { id: 'superpowers:dispatching-parallel-agents', triggers: ['dispatch parallel agents', 'agentes en paralelo', 'multi-agente'], strong: ['parallel agents', 'agentes en paralelo', 'multi-agente', 'multiagente', 'dispatch agents'], context: ['orquesta', 'paralelo', 'parallel'] },
-  // superpowers 5.1 workflow/quality skills (iter-10 FASE 8) — installed 2026-06-07
-  { id: 'superpowers:verification-before-completion', triggers: ['verification before completion', 'verifica antes de completar'], strong: ['evidence before assertions', 'verifica antes de dar por hecho', 'confirm output before claiming'], context: ['verificacion', 'antes de completar', 'pruebas de que funciona'] },
-  { id: 'superpowers:finishing-a-development-branch', triggers: ['finishing a development branch', 'cierra la rama', 'termina la rama'], strong: ['merge pr or cleanup', 'integrar el trabajo terminado', 'finishing development branch'], context: ['rama de desarrollo', 'merge', 'cierre de rama'] },
-  { id: 'superpowers:requesting-code-review', triggers: ['requesting code review', 'pide una revision de codigo'], strong: ['request code review', 'verify work meets requirements', 'solicita revision antes de merge'], context: ['solicitar revision', 'antes de merge'] },
-  { id: 'superpowers:receiving-code-review', triggers: ['receiving code review', 'recibe la revision de codigo'], strong: ['receiving code review feedback', 'feedback de revision de codigo', 'verify review suggestions'], context: ['feedback de review', 'aplicar revision'] },
-  { id: 'superpowers:subagent-driven-development', triggers: ['subagent driven development', 'desarrollo por subagentes'], strong: ['independent tasks current session', 'ejecuta el plan con subagentes', 'subagent driven development'], context: ['subagentes', 'tareas independientes'] },
-  { id: 'safety-guard',                      triggers: ['safety guard'],                                     strong: ['prevent destructive operations', 'production safety guard'],               context: ['operacion destructiva', 'autonomous safety'] },
-  { id: 'frontend-design-direction',         triggers: ['frontend design direction', 'design direction'],    strong: ['product-specific design judgment', 'design direction for ui'],             context: ['direccion de diseno'] },
-  { id: 'agentic-os',                        triggers: ['agentic os', 'agentic operating system'],           strong: ['kernel architecture agents', 'file-based memory agents', 'specialist agents os'], context: ['multi-agent os'] },
-  { id: 'autonomous-agent-harness',          triggers: ['autonomous agent harness', 'autonomous agent system'], strong: ['self-directing agent loop', 'task queuing agent', 'scheduled operations agent'], context: ['agente autonomo continuo'] },
+  // (2026-11-01) Retiradas por fantasma (no existen en ~/.claude; las señales de
+  // seguridad las cubre el agente `security-auditor`): security-scan,
+  // generate-image, nextjs-turbopack, prompt-optimizer, token-budget-advisor,
+  // powershell-5.1-expert y humanizer.
+  // (2026-10-03) Retiradas por fantasma (plugin superpowers desinstalado):
+  // executing-plans, dispatching-parallel-agents, verification-before-completion,
+  // finishing-a-development-branch, receiving-code-review,
+  // subagent-driven-development y brainstorming. requesting-code-review ->
+  // agente `code-reviewer`. Archivadas sin uso: council, safety-guard,
+  // frontend-design-direction, agentic-os, autonomous-agent-harness.
 ];
 
 // ---------------------------------------------------------------------------
-// AGENTS (Layer 3) — unchanged from v1
+// AGENTS (Layer 3)
 // ---------------------------------------------------------------------------
+// Solo agentes INVOCABLES: ~/.claude/agents/<id>.md. Un `<id>.md.disabled` no
+// lo puede lanzar el Agent tool, asi que proponerlo es un no-op silencioso.
+// phantom-ids.selftest.mjs falla si aqui entra un id sin agente en disco.
+// (2026-10-03) Retirados por fantasma: golang-pro, csharp-developer,
+// java-architect, kotlin-specialist, swift-expert, sql-pro, nextjs-developer,
+// vue-expert, mobile-developer, electron-pro, api-designer, cloud-architect,
+// docker-expert, terraform-engineer, deployment-engineer, sre-engineer,
+// websocket-engineer, postgres-pro, database-administrator, data-engineer,
+// ml-engineer, mlops-engineer, prompt-engineer, penetration-tester,
+// legacy-modernizer, dependency-manager, microservices-architect,
+// workflow-orchestrator, multi-agent-coordinator, agent-organizer,
+// cli-developer, incident-responder, documentation-engineer,
+// accessibility-tester, context-manager, dx-optimizer, knowledge-synthesizer
+// y powershell-7-expert (skill archivada, sin agente). Redirigidos a un agente
+// instalado: kubernetes-specialist y docker-patterns -> devops-engineer,
+// superpowers:systematic-debugging -> debugger,
+// superpowers:test-driven-development -> test-automator,
+// superpowers:requesting-code-review -> code-reviewer.
 
 const AGENTS = [
   // Languages
@@ -360,76 +360,35 @@ const AGENTS = [
   { id: 'typescript-pro',         triggers: ['typescript-pro'],         strong: ['typescript', 'tsconfig', 'type-level', 'discriminated union', 'generics avanzados'], context: ['node', '.ts', '.tsx', 'tipos'] },
   { id: 'python-pro',             triggers: ['python-pro'],             strong: ['pydantic', 'asyncio', 'type hints', 'mypy'], context: ['python', 'pytest', 'uv'] },
   { id: 'cpp-pro',                triggers: ['cpp-pro'],                strong: ['raii', 'move semantics', 'c++20', 'c++23', 'templates', 'cmake'], context: ['c++', 'cpp', '.cpp', '.hpp'] },
-  { id: 'golang-pro',             triggers: ['golang-pro'],             strong: ['goroutine', 'go channels', 'golang'], context: ['microservice', 'concurrency', '.go'] },
   { id: 'javascript-pro',         triggers: ['javascript-pro'],         strong: ['vanilla js', 'esmodules', 'prototype chain', 'closure', 'event loop js'], context: ['.js', 'browser api', 'dom'] },
-  { id: 'csharp-developer',       triggers: ['csharp-developer'],       strong: ['asp.net core', 'entity framework', 'linq', 'blazor', '.net 8', 'dependency injection .net'], context: ['.cs', 'c#', 'dotnet'] },
-  { id: 'java-architect',         triggers: ['java-architect'],         strong: ['spring boot', 'quarkus', 'jvm tuning', 'gradle', 'maven', 'jpa hibernate'], context: ['java', '.java', 'microservices java'] },
-  { id: 'kotlin-specialist',      triggers: ['kotlin-specialist'],      strong: ['kotlin coroutines', 'kotlin multiplatform', 'android jetpack', 'compose ui'], context: ['kotlin', '.kt', 'android'] },
-  { id: 'swift-expert',           triggers: ['swift-expert'],           strong: ['swiftui', 'swift concurrency', 'swift actors', 'xcode', 'ios', 'macos app'], context: ['swift', '.swift', 'apple'] },
-  { id: 'sql-pro',                triggers: ['sql-pro'],                strong: ['query optimization', 'window functions', 'cte', 'execution plan', 'sql tuning'], context: ['sql', 'rdbms', 'query'] },
   { id: 'graphics-programmer',    triggers: ['graphics-programmer'],    strong: ['glsl', 'hlsl', 'wgsl', 'vulkan', 'directx', 'opengl', 'render pipeline', 'pbr'], context: ['shader', 'gpu', 'rendering'] },
-  { id: 'powershell-5.1-expert',  triggers: ['powershell-5.1-expert'],  strong: ['windows infra', 'rsat', 'legacy .net', 'gpo', 'active directory ps'], context: ['powershell', 'ps1', 'windows automation'] },
-  { id: 'powershell-7-expert',    triggers: ['powershell-7-expert'],    strong: ['pwsh', 'cross-platform powershell', 'azure az module', 'pester'], context: ['powershell 7', 'ps7'] },
   // Frontend / UI
   { id: 'react-specialist',       triggers: ['react-specialist'],       strong: ['react 18', 'usememo', 'usecallback', 're-render', 'suspense', 'react server components'], context: ['react', 'componente', 'jsx'] },
-  { id: 'nextjs-developer',       triggers: ['nextjs-developer'],       strong: ['next.js', 'app router', 'server actions', 'rsc'], context: ['vercel', 'ssr', 'core web vitals'] },
-  { id: 'vue-expert',             triggers: ['vue-expert'],             strong: ['vue 3', 'composition api', 'pinia', 'nuxt', 'vue router'], context: ['vue', '.vue'] },
   { id: 'frontend-developer',     triggers: ['frontend-developer'],     strong: ['webpack', 'vite config', 'css modules', 'tailwind', 'web components'], context: ['frontend', 'html', 'css'] },
-  { id: 'mobile-developer',       triggers: ['mobile-developer'],       strong: ['react native', 'flutter', 'expo', 'native modules', 'push notifications'], context: ['mobile', 'ios app', 'android app'] },
-  { id: 'electron-pro',           triggers: ['electron-pro'],           strong: ['electron', 'ipc main', 'ipc renderer', 'electron forge', 'desktop app'], context: ['desktop', 'electron app'] },
   // Backend / infra
   { id: 'backend-developer',      triggers: ['backend-developer'],      strong: ['rest api', 'grpc', 'message queue', 'event driven', 'fastapi', 'express'], context: ['backend', 'api server', 'endpoints'] },
-  { id: 'api-designer',           triggers: ['api-designer'],           strong: ['rest api design', 'openapi spec', 'graphql schema', 'api versioning'], context: ['endpoint', 'api'] },
-  { id: 'cloud-architect',        triggers: ['cloud-architect'],        strong: ['multi-cloud', 'disaster recovery', 'cloud migration', 'well-architected'], context: ['aws', 'azure', 'gcp', 'infra'] },
-  { id: 'kubernetes-specialist',  triggers: ['kubernetes-specialist'],  strong: ['kubernetes', 'k8s', 'helm chart', 'k8s operator', 'kubectl'], context: ['cluster', 'pod', 'ingress'] },
-  { id: 'docker-expert',          triggers: ['docker-expert'],          strong: ['multi-stage build', 'docker compose', 'dockerfile optimization', 'container security'], context: ['docker', 'container', 'imagen docker'] },
-  { id: 'terraform-engineer',     triggers: ['terraform-engineer'],     strong: ['terraform', 'hcl', 'tf state', 'terraform modules', 'iac'], context: ['infra as code', 'cloud provision'] },
-  { id: 'devops-engineer',        triggers: ['devops-engineer'],        strong: ['ci cd pipeline', 'github actions', 'jenkins', 'secrets wiring', 'deployment pipeline'], context: ['devops', 'ci', 'cd', 'pipeline'] },
-  { id: 'deployment-engineer',    triggers: ['deployment-engineer'],    strong: ['release automation', 'blue green deployment', 'canary release', 'rollback strategy'], context: ['deploy', 'release', 'rollout'] },
-  { id: 'sre-engineer',           triggers: ['sre-engineer'],           strong: ['slo', 'sli', 'error budget', 'chaos engineering', 'on-call runbook'], context: ['reliability', 'availability', 'sre'] },
-  { id: 'websocket-engineer',     triggers: ['websocket-engineer'],     strong: ['websocket', 'socket.io', 'real-time bidirectional', 'sse', 'long polling'], context: ['realtime', 'live updates', 'ws'] },
-  // Database
-  { id: 'postgres-pro',           triggers: ['postgres-pro'],           strong: ['postgresql', 'postgres', 'vacuum', 'wal', 'pgbouncer', 'pg_stat'], context: ['sql tuning', 'rdbms', 'replicacion'] },
-  { id: 'database-administrator', triggers: ['database-administrator'], strong: ['explain analyze', 'index optimization', 'query plan', 'high availability db'], context: ['database', 'schema', 'migration'] },
-  { id: 'data-engineer',          triggers: ['data-engineer'],          strong: ['etl', 'elt', 'data pipeline', 'apache spark', 'dbt', 'airflow', 'kafka'], context: ['pipeline de datos', 'ingestion', 'warehouse'] },
+  { id: 'devops-engineer',        triggers: ['devops-engineer'],        strong: ['ci cd pipeline', 'github actions', 'jenkins', 'secrets wiring', 'deployment pipeline', 'kubernetes', 'k8s', 'helm chart', 'kubectl', 'dockerfile', 'docker compose', 'docker-compose', 'multi-stage build'], context: ['devops', 'ci', 'cd', 'pipeline', 'docker', 'contenedores', 'cluster'] },
   // AI / ML
   { id: 'ai-engineer',            triggers: ['ai-engineer'],            strong: ['rag pipeline', 'vector db', 'fine-tuning', 'model serving', 'embeddings pipeline'], context: ['ai system', 'ml', 'inference'] },
   { id: 'llm-architect',          triggers: ['llm-architect'],          strong: ['llm system', 'context window', 'agent architecture', 'inference serving', 'multi-model'], context: ['llm', 'rag', 'prompt'] },
-  { id: 'ml-engineer',            triggers: ['ml-engineer'],            strong: ['pytorch', 'tensorflow', 'model training', 'hyperparameter tuning', 'mlflow'], context: ['machine learning', 'entrenamiento', 'dataset'] },
-  { id: 'mlops-engineer',         triggers: ['mlops-engineer'],         strong: ['model registry', 'feature store', 'experiment tracking', 'model drift', 'kubeflow'], context: ['mlops', 'pipeline ml', 'serving'] },
-  { id: 'prompt-engineer',        triggers: ['prompt-engineer'],        strong: ['prompt design', 'chain of thought', 'few-shot', 'system prompt', 'prompt eval'], context: ['prompting', 'llm output'] },
   // Security / audit
   { id: 'security-auditor',       triggers: ['security-auditor'],       strong: ['owasp', 'auth bypass', 'sql injection', 'threat model', 'secrets leak', 'cve', 'xss', 'csrf'], context: ['security', 'auth', 'payments', 'user input', 'seguridad'] },
-  { id: 'penetration-tester',     triggers: ['penetration-tester'],     strong: ['pentest', 'exploit', 'ctf', 'offensive security', 'burp suite', 'nmap'], context: ['hacking', 'vulnerability', 'red team'] },
   // Code quality / review
-  { id: 'debugger',               triggers: ['debugger'],               strong: ['stack trace', 'root cause', 'test failure', 'segfault', 'panic'], context: ['bug', 'error', 'no funciona', 'crash'] },
+  { id: 'debugger',               triggers: ['debugger', 'systematic debugging'], strong: ['stack trace', 'root cause', 'test failure', 'segfault', 'panic', 'bug sin causa obvia', 'no encuentro el bug', 'debug sistematico'], context: ['bug', 'error', 'no funciona', 'crash', 'bug intermitente', 'debugging'] },
   { id: 'performance-engineer',   triggers: ['performance-engineer'],   strong: ['bottleneck', 'profiling', 'n+1 query', 'memory leak', 'hot path'], context: ['performance', 'slow', 'optimizar', 'latency'] },
   { id: 'refactoring-specialist', triggers: ['refactoring-specialist'], strong: ['extract method', 'behavior-preserving refactor', 'reduce complexity', 'code smell'], context: ['refactor', 'cleanup', 'deuda tecnica'] },
   { id: 'architect-reviewer',     triggers: ['architect-reviewer'],     strong: ['architecture decision', 'module boundaries', 'solid violation', 'system design review'], context: ['arquitectura', 'design review'] },
-  { id: 'code-reviewer',          triggers: ['code-reviewer'],          strong: ['code review checklist', 'pull request feedback', 'static analysis review'], context: ['revisar codigo', 'pr review', 'code quality'] },
+  { id: 'code-reviewer',          triggers: ['code-reviewer', 'requesting code review', 'pide una revision de codigo'], strong: ['code review checklist', 'pull request feedback', 'static analysis review', 'request code review', 'solicita revision antes de merge'], context: ['revisar codigo', 'pr review', 'code quality'] },
   { id: 'qa-expert',              triggers: ['qa-expert'],              strong: ['test strategy', 'test pyramid', 'quality assurance', 'acceptance criteria', 'bdd'], context: ['qa', 'testing strategy', 'calidad'] },
-  { id: 'test-automator',         triggers: ['test-automator'],         strong: ['test automation framework', 'ci test suite', 'test data management', 'flaky tests'], context: ['automation tests', 'test runner'] },
+  { id: 'test-automator',         triggers: ['test-automator', 'tdd', 'test-driven development'], strong: ['test automation framework', 'ci test suite', 'test data management', 'flaky tests', 'escribe los tests primero', 'red green refactor'], context: ['automation tests', 'test runner', 'pruebas unitarias', 'cobertura de tests'] },
   { id: 'error-detective',        triggers: ['error-detective'],        strong: ['error correlation', 'cross-service errors', 'log aggregation errors', 'distributed tracing'], context: ['error tracking', 'sentry', 'logs'] },
-  { id: 'legacy-modernizer',      triggers: ['legacy-modernizer'],      strong: ['strangler fig', 'incremental migration', 'modernize legacy', 'rewrite vs refactor'], context: ['legacy code', 'old system', 'migration'] },
-  { id: 'dependency-manager',     triggers: ['dependency-manager'],     strong: ['cve audit', 'version conflict', 'dependency graph', 'supply chain security', 'renovate'], context: ['dependencias', 'npm audit', 'pip-audit'] },
   // Architecture / orchestration
-  { id: 'microservices-architect', triggers: ['microservices-architect'], strong: ['decompose monolith', 'service mesh', 'event sourcing', 'saga pattern', 'api gateway'], context: ['microservices', 'distributed system'] },
   { id: 'fullstack-developer',    triggers: ['fullstack-developer'],    strong: ['full stack feature', 'back and front', 'end to end feature', 'monorepo fullstack'], context: ['fullstack', 'full-stack'] },
-  { id: 'workflow-orchestrator',  triggers: ['workflow-orchestrator'],  strong: ['business workflow', 'workflow recovery', 'step function', 'temporal workflow'], context: ['orchestration', 'workflow', 'saga'] },
-  { id: 'multi-agent-coordinator', triggers: ['multi-agent-coordinator'], strong: ['concurrent agents', 'agent state', 'agent team', 'multi-agent dag'], context: ['multi-agent', 'agent coordination'] },
-  { id: 'agent-organizer',        triggers: ['agent-organizer'],        strong: ['assemble agent team', 'agent selection', 'agent delegation plan'], context: ['which agent', 'que agente usar'] },
-  { id: 'cli-developer',          triggers: ['cli-developer'],          strong: ['click cli', 'argparse', 'cobra cli', 'shell completion', 'cross-platform cli'], context: ['cli', 'command line', 'terminal tool'] },
   { id: 'mcp-developer',          triggers: ['mcp-developer'],          strong: ['mcp server', 'model context protocol', 'mcp tool', 'mcp client'], context: ['mcp'] },
-  { id: 'incident-responder',     triggers: ['incident-responder'],     strong: ['active breach', 'outage response', 'post-mortem', 'incident timeline'], context: ['incidente', 'outage', 'produccion caida'] },
-  { id: 'documentation-engineer', triggers: ['documentation-engineer'], strong: ['docs system', 'api docs', 'tutorial structure', 'docusaurus', 'mkdocs'], context: ['documentacion', 'readme', 'docs'] },
   // Game / native / specialist
   { id: 'unity-engineer',         triggers: ['unity-engineer'],         strong: ['unity c#', 'unityscript', 'monobehaviour', 'unity ecs', 'unity packages'], context: ['unity', 'game object', 'unity scene'] },
   { id: 'unreal-engine-engineer', triggers: ['unreal-engine-engineer'], strong: ['ue5 c++', 'ue5 blueprints', 'gameplay ability system', 'niagara', 'unreal lumen'], context: ['unreal', 'ue5', 'epic games'] },
-  { id: 'accessibility-tester',   triggers: ['accessibility-tester'],   strong: ['wcag', 'aria labels', 'screen reader', 'color contrast ratio', 'a11y audit'], context: ['accesibilidad', 'a11y', 'wcag'] },
-  { id: 'context-manager',        triggers: ['context-manager'],        strong: ['shared state across agents', 'context synchronization', 'agent context retrieval'], context: ['shared context', 'metadata coordination'] },
-  { id: 'dx-optimizer',           triggers: ['dx-optimizer'],           strong: ['developer experience', 'build times', 'feedback loop', 'dev environment optimization'], context: ['dx', 'developer satisfaction'] },
   { id: 'git-workflow-manager',   triggers: ['git-workflow-manager'],   strong: ['branching strategy', 'merge management', 'gitflow', 'release flow', 'trunk-based development'], context: ['git workflow', 'branching model'] },
-  { id: 'knowledge-synthesizer',  triggers: ['knowledge-synthesizer'],  strong: ['extract patterns across agents', 'cross-workflow insights', 'organizational learning'], context: ['synthesize insights', 'agent telemetry patterns'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -443,6 +402,54 @@ const skillPaths = require('../../hooks/scripts/lib/skill-paths');
 function safeLog(entry) {
   // cat15.4: JSONL acotado (rota a 1 MiB) via helper compartido.
   appendJsonl(LOG_PATH, entry);
+}
+
+// ---------------------------------------------------------------------------
+// Validacion al emitir (2026-10-03): nunca proponer un id que no existe
+// ---------------------------------------------------------------------------
+// Las tablas fijas, los rosters, ~/.ultron/skills y el juez del daemon pueden
+// nombrar algo que ya no se puede invocar (plugin desinstalado, agente
+// `.md.disabled`, skill archivada). Se filtra justo antes de emitir, no en
+// rankCandidates: el gate acc@3 del CI corre rankCandidates sin ~/.claude.
+// Coste: cada id se resuelve una vez por proceso (cache en id-resolver).
+let _idResolver = null;
+function getIdResolver() {
+  if (_idResolver) return _idResolver;
+  const claudeDir = path.join(HOME, '.claude');
+  _idResolver = require('./id-resolver').createResolver({
+    claudeDir,
+    skillsDir: SKILLS_DIR,
+    agentsDir: _routeRoot('claude-agents', path.join(claudeDir, 'agents')),
+    pluginsDir: _routeRoot('claude-plugins', path.join(claudeDir, 'plugins')),
+    settingsPath: _routeRoot('claude-settings.json', path.join(claudeDir, 'settings.json')),
+  });
+  return _idResolver;
+}
+
+/**
+ * Quita los candidatos fantasma y deja constancia de cada uno en el log
+ * (`phantom_id_dropped`). Si el resolver falla, devuelve la lista intacta:
+ * un fallo de E/S no puede dejar el prompt sin routing.
+ *
+ * @param {Array<{id: string, kind?: string}>} candidates
+ * @param {string} via  quien propuso los ids (ranking, juez, denso)
+ * @returns {Array} copia filtrada
+ */
+function dropPhantoms(candidates, via) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  let resolver;
+  try {
+    resolver = getIdResolver();
+  } catch (_) {
+    return list;
+  }
+  return list.filter(function (c) {
+    const id = c && typeof c === 'object' ? c.id || c.name : c;
+    const kind = c && typeof c === 'object' ? c.kind : undefined;
+    if (resolver.isEmittable(id, kind)) return true;
+    safeLog({ level: 'warn', msg: 'phantom_id_dropped', id: String(id), kind: kind || null, via: via || null });
+    return false;
+  });
 }
 
 const _hookStart = Date.now();
@@ -1068,8 +1075,8 @@ function resolvePluginSkillMd(nsPrefix, baseName) {
  * Non-namespaced resolution ("brainstorming"):
  *   Primary:   skills/brainstorming/SKILL.md
  *
- * Each candidate is also tried with the `.disabled` suffix that apply-lazy-skills.ps1
- * uses when deactivating a skill folder (folder renamed to `<name>.disabled`).
+ * Each candidate is also tried with the legacy `.disabled` suffix (folder
+ * renamed to `<name>.disabled`), which older installs still carry.
  *
  * @param {string} skillId
  * @returns {string}
@@ -1316,7 +1323,7 @@ async function main() {
     return emitContext('');
   }
 
-  const ranked = rankCandidates(prompt);
+  const ranked = dropPhantoms(rankCandidates(prompt), 'v2:ranking');
   if (ranked.length === 0) {
     safeLog({ level: 'info', msg: 'no_match', prompt_chars: prompt.length });
     return emitContext('');
@@ -1399,10 +1406,17 @@ module.exports = {
   // aplicar el gate de intencion: una persona es un registro de conversacion,
   // no una herramienta de trabajo sobre codigo.
   PERSONAS,
+  // Tablas fijas, para que phantom-ids.selftest.mjs compruebe que cada id
+  // existe en disco sin parsear el fuente con regex.
+  PLUGINS,
+  AGENTS,
+  PLANNING_LAZY_SKILLS,
   hasToken,
   normalize,
   scoreEntry,
   rankCandidates,
+  dropPhantoms,
+  _resetIdResolver: function () { _idResolver = null; },
   isLazyLoadable,
   isCoolingDown,
   fetchLazySkillContent,

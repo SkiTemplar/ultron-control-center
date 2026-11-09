@@ -1,0 +1,6 @@
+{
+  "name": "ultron-puente",
+  "version": "2.0.0",
+  "description": "Puente entre una sesión lanzada por ULTRON Sessions y su ventana (protocolo 2): streaming por paso, herramientas, subagentes, comandos, ajustes, modo de permisos y preguntas, permisos o planes respondidos desde la ventana. Inactivo fuera de Sessions.",
+  "types": "./types/index.d.ts"
+}

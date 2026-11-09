@@ -21,24 +21,34 @@ export const CATEGORY_ORDER: AppCategory[] = [
   "Other",
 ];
 
+/** Nombre visible de cada categoría (el identificador se guarda en localStorage y no cambia). */
+export const CATEGORY_LABELS: Record<AppCategory, string> = {
+  Development: "Desarrollo",
+  Games: "Juegos",
+  Media: "Multimedia",
+  Productivity: "Productividad",
+  "System utilities": "Utilidades del sistema",
+  Other: "Otras",
+};
+
 export const CATEGORY_DESCRIPTIONS: Record<AppCategory, string> = {
-  Development: "IDEs, language runtimes, CLI tooling, git clients, containers.",
-  Games: "Game launchers, titles and game-related peripherals.",
-  Media: "Streaming, players, image and video editing.",
-  Productivity: "Office suites, note-taking, communication, document readers.",
-  "System utilities": "Drivers, runtimes, archivers, OEM helpers.",
-  Other: "Everything that didn't match a known category.",
+  Development: "IDE, runtimes de lenguajes, herramientas de línea de comandos, clientes de git y contenedores.",
+  Games: "Lanzadores de juegos, títulos y periféricos de juego.",
+  Media: "Streaming, reproductores y edición de imagen y vídeo.",
+  Productivity: "Ofimática, notas, comunicación y lectores de documentos.",
+  "System utilities": "Drivers, runtimes, compresores y utilidades del fabricante.",
+  Other: "Todo lo que no encaja en una categoría conocida.",
 };
 
 export const CONTEXT_HINTS: Record<SystemSubTab, string> = {
   apps:
-    'Abre Apps cuando una instalación quedó abandonada, un programa ralentiza el sistema, o quieres saber qué hay instalado antes de liberar espacio.',
+    "Abre Aplicaciones cuando quede una instalación olvidada, un programa ralentice el sistema o quieras ver qué hay instalado antes de liberar espacio.",
   diagnostics:
-    'Abre Diagnostics cuando Claude Code no arranca, la terminal no abre, aparecen errores de permisos, o quieres ejecutar fixes del Event Log con un clic.',
+    "Abre Diagnóstico cuando Claude Code no arranque, la terminal no se abra, salgan errores de permisos o quieras aplicar en un clic los arreglos del registro de eventos.",
   tasks:
-    'Abre Tasks para ver las tareas programadas de ULTRON (watchdog Qdrant, backups, diagnóstico diario): último resultado, próxima ejecución, ejecutar ahora, editar el trigger o eliminarlas.',
+    "Abre Tareas para ver las tareas programadas de ULTRON (backups, diagnóstico diario…): último resultado, próxima ejecución, ejecutar ahora, editar el disparador o borrarlas.",
   turn_off:
-    'Abre Turn Off para programar el apagado del PC dentro de unas horas, ver la cuenta atrás real y cancelarlo en cualquier momento.',
+    "Programa el apagado de este PC dentro de unas horas. Lo ejecuta Windows (shutdown.exe), así que el plazo se mantiene aunque cierres el Control Center; puedes cancelarlo cuando quieras.",
 };
 
 // localStorage key for the manual / AI override map.

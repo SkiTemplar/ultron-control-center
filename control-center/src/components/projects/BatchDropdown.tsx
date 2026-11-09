@@ -1,16 +1,24 @@
 // ULTRON Control Center - BatchDropdown
 //
-// Boton "Run batch" para el header del tab Projects. Lista los .bat / .cmd /
+// Botón «Ejecutar .bat» para el header del tab Projects. Lista los .bat / .cmd /
 // .ps1 que la AI (o el usuario) deja en `~/.ultron/batches/` cuando hay un
 // comando que el sandbox no puede ejecutar (instalaciones interactivas,
-// elevacion, etc.). Un click en un item invoca `execute_batch` en el backend
-// y muestra el stdout/stderr resultante como toast inline.
+// elevacion, etc.). Un click en un item enseña el script (`batch_read_script`);
+// solo al confirmar con él a la vista se invoca `execute_batch`, y el
+// stdout/stderr resultante sale como toast inline.
 //
-// Backend: src-tauri/src/commands/batches.rs
+// La cola de .bat está viva. No confundir con el despacho de tarjetas por PTY
+// del kanban, que se retiró el 2026-10-17: aquí no se lanza ningún Claude.
+//
+// Backend: src-tauri/src/commands/batches_sub/batches.rs
 //   list_batches()              -> Vec<BatchEntry>
-//   execute_batch(name)         -> BatchRunResult
+//   batch_read_script(name)     -> BatchScriptPreview
+//   execute_batch(name, reviewed) -> BatchRunResult (rechaza lo no revisado)
+//   delete_batch_single(name)   -> ()
 //   clear_all_batches()         -> BatchCleanupReport
-//   batches_enqueue_manual(...) -> BatchQueueEntry   (para la IA)
+//   batches_list_queue()        -> BatchQueueListing (cola de batch-capture.js;
+//                                  se drena y se cuenta al montar)
+//   batches_requeue(id) / batches_dismiss_queue(id)
 
 export type { BatchToast } from "./batch-dropdown/types";
 import type { BatchDropdownProps } from "./batch-dropdown/types";
@@ -36,12 +44,15 @@ export default function BatchDropdown({
     setConfirmingClearAll,
     queue,
     queueBusyId,
+    queueError,
     rootRef,
     refresh,
     requeue,
     dismissQueue,
-    run,
-    runFromQueue,
+    review,
+    requestRun,
+    confirmRun,
+    cancelRun,
     deleteSingle,
     clearAll,
   } = useBatchDropdown(onResult);
@@ -69,7 +80,7 @@ export default function BatchDropdown({
         <DropdownPanel
           batches={batches}
           loading={loading}
-          error={error}
+          error={[error, queueError].filter(Boolean).join(" · ") || null}
           runningName={runningName}
           pendingDeleteName={pendingDeleteName}
           setPendingDeleteName={setPendingDeleteName}
@@ -79,9 +90,11 @@ export default function BatchDropdown({
           queueBusyId={queueBusyId}
           onRefresh={() => void refresh()}
           onClearAll={() => void clearAll()}
-          onRun={(name) => void run(name)}
+          review={review}
+          onRequestRun={(name, entry) => void requestRun(name, entry)}
+          onConfirmRun={() => void confirmRun()}
+          onCancelRun={cancelRun}
           onDeleteSingle={(name) => void deleteSingle(name)}
-          onRunFromQueue={(entry) => void runFromQueue(entry)}
           onRequeue={(entry) => void requeue(entry)}
           onDismissQueue={(entry) => void dismissQueue(entry)}
         />

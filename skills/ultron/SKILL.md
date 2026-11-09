@@ -20,7 +20,7 @@ On every `SessionStart`, ULTRON:
 
 ## Modes
 
-- **LOW** — single-shot, no delegation, response under 50 words.
+- **LOW** — single-shot, no delegation, brief response.
 - **MEDIUM** — default. Single-domain tasks, may delegate to a specialist skill.
 - **HIGH** — multi-domain, parallel agents allowed, deep planning.
 - **ULTRA** — critical architecture work, full triple-LLM review allowed.
@@ -30,11 +30,12 @@ On every `SessionStart`, ULTRON:
 | Layer | Path | Purpose |
 |-------|------|---------|
 | L0 | `~/.ultron/.tmp/context.md` | pinned session primer |
-| L1 | `~/.ultron/brain_index/index.db` | SQLite FTS5 over chunked vault |
+| L1 | `~/.ultron/brain.db` | SQLite + FTS5, governed memory (single writer) |
 | L2 | `~/.ultron-vault/` | curated markdown corpus |
 | L3 | remote git (optional) | off-machine mirror of L2 |
 
-Plus a Qdrant collection `ultron_vault` for semantic recall.
+Optionally, a Qdrant collection (`ultron_memory`) for dense recall. The code
+default is ON; `ULTRON_DENSE=0` turns it off and recall stays sparse FTS5.
 
 ## Dispatch
 

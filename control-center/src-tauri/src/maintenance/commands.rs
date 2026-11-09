@@ -12,111 +12,141 @@ pub struct MaintenanceCommand {
     pub label: String,
     pub description: String,
     pub group: String,
+    /// La acción borra datos, reinicia algo del sistema o aplica cambios sin
+    /// preguntar: la UI pide confirmación antes de lanzarla (Rust no tiene
+    /// diálogos). La paleta Ctrl+K y Diagnostics lo respetan.
+    pub destructive: bool,
 }
 
-/// The set the UI lists in the Dashboard. Order matters — preserved.
+/// Una entrada del catálogo; `destructive` decide si la UI confirma antes.
+fn entry(
+    kind: &str,
+    label: &str,
+    description: &str,
+    group: &str,
+    destructive: bool,
+) -> MaintenanceCommand {
+    MaintenanceCommand {
+        kind: kind.into(),
+        label: label.into(),
+        description: description.into(),
+        group: group.into(),
+        destructive,
+    }
+}
+
+/// The set the UI lists in the Dashboard and the Ctrl+K palette. Order matters
+/// — preserved. Every script-backed kind must point to a script that exists
+/// and only pass flags it defines (see the tests below).
 pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
     vec![
-        MaintenanceCommand {
-            kind: "skill-security-audit".into(),
-            label: "Skill security audit".into(),
-            description: "Run the prompt-injection scanner against every installed skill (JSON report).".into(),
-            group: "skills".into(),
-        },
-        MaintenanceCommand {
-            kind: "registry-sync".into(),
-            label: "Registry sync".into(),
-            description: "Rebuild the cross-CLI skill manifest (Claude / Codex / Agents mirrors).".into(),
-            group: "skills".into(),
-        },
-        MaintenanceCommand {
-            kind: "mcp-health".into(),
-            label: "MCP health check".into(),
-            description: "Probe configured MCP servers and write the latest status snapshot.".into(),
-            group: "system".into(),
-        },
-        MaintenanceCommand {
-            kind: "weekly-backup".into(),
-            label: "Weekly backup".into(),
-            description: "Run the weekly mirror backup script. Updates the Doctor backup status.".into(),
-            group: "system".into(),
-        },
-        MaintenanceCommand {
-            kind: "deadwood-scan".into(),
-            label: "Deadwood scan".into(),
-            description: "Detect orphaned scripts, stale skills, unreferenced data files.".into(),
-            group: "system".into(),
-        },
-        MaintenanceCommand {
-            kind: "doctor-fix".into(),
-            label: "Doctor — auto-fix safe issues".into(),
-            description: "Run doctor with --fix to apply only the changes marked safe.".into(),
-            group: "system".into(),
-        },
-        MaintenanceCommand {
-            kind: "audit-skills".into(),
-            label: "Persona audit (skills + agents)".into(),
-            description: "Aggregate usage / freshness stats per persona — output to ~/.ultron/cockpit/audits/.".into(),
-            group: "skills".into(),
-        },
+        entry(
+            "skill-security-audit",
+            "Auditoría de seguridad de skills",
+            "Pasa el detector de prompt injection por cada skill instalada (informe JSON).",
+            "skills",
+            false,
+        ),
+        entry(
+            "registry-sync",
+            "Sincronizar el registro",
+            "Reconstruye el manifiesto de skills entre CLIs (espejos de Claude, Codex y Agents).",
+            "skills",
+            false,
+        ),
+        entry(
+            "mcp-health",
+            "Comprobar la salud de los MCP",
+            "Sondea los servidores MCP configurados y guarda la última foto de su estado.",
+            "system",
+            false,
+        ),
+        entry(
+            "weekly-backup",
+            "Backup semanal",
+            "Ejecuta el script del backup espejo semanal. Actualiza el estado del backup en Doctor.",
+            "system",
+            false,
+        ),
+        entry(
+            "deadwood-scan",
+            "Buscar código muerto",
+            "Detecta scripts huérfanos, skills obsoletas y ficheros de datos sin referencias.",
+            "system",
+            false,
+        ),
+        entry(
+            "doctor-fix",
+            "Doctor: aplicar los arreglos propuestos",
+            "Ejecuta doctor --fix --yes: aplica sin preguntar cada arreglo que propone (regenerar manifiestos, índices y contexto).",
+            "system",
+            true,
+        ),
         // v2.5: PC-focused actions surfaced in the Dashboard "Fix common issues"
-        // strip. Each maps to a known-good Windows command. Destructive ones
-        // (restart explorer, clear temp) MUST be confirmed by the UI before
-        // dispatch — the Rust side has no dialog facility.
-        MaintenanceCommand {
-            kind: "pc-flush-dns".into(),
-            label: "Flush DNS cache".into(),
-            description: "Run ipconfig /flushdns to clear stale DNS entries.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-reset-network".into(),
-            label: "Reset network adapter".into(),
-            description: "netsh int ip reset — restores TCP/IP stack to default. Reboot recommended.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-disk-cleanup".into(),
-            label: "Disk cleanup".into(),
-            description: "Launches Windows Disk Cleanup with the default preset.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-reliability-monitor".into(),
-            label: "Open Reliability Monitor".into(),
-            description: "Reveals perfmon /rel — the per-day system stability log.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-task-manager".into(),
-            label: "Open Task Manager".into(),
-            description: "Launches taskmgr.exe.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-restart-explorer".into(),
-            label: "Restart Explorer".into(),
-            description: "Kills explorer.exe and relaunches it — fixes taskbar / shell glitches.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-clear-temp".into(),
-            label: "Clear temp files".into(),
-            description: "Deletes %TEMP%\\* (best effort — locked files are skipped).".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-windows-update".into(),
-            label: "Open Windows Update settings".into(),
-            description: "Opens ms-settings:windowsupdate via shell URI.".into(),
-            group: "pc".into(),
-        },
-        MaintenanceCommand {
-            kind: "pc-open-hosts".into(),
-            label: "Open hosts file".into(),
-            description: "Opens %SystemRoot%\\System32\\drivers\\etc\\hosts in notepad.".into(),
-            group: "pc".into(),
-        },
+        // strip. Each maps to a known-good Windows command.
+        entry(
+            "pc-flush-dns",
+            "Vaciar la caché DNS",
+            "Ejecuta ipconfig /flushdns para borrar entradas DNS obsoletas.",
+            "pc",
+            false,
+        ),
+        entry(
+            "pc-reset-network",
+            "Restablecer el adaptador de red",
+            "netsh int ip reset: devuelve la pila TCP/IP a sus valores por defecto. Necesita permisos de administrador y conviene reiniciar.",
+            "pc",
+            true,
+        ),
+        entry(
+            "pc-disk-cleanup",
+            "Liberar espacio en disco",
+            "Lanza el Liberador de espacio en disco de Windows con la configuración por defecto.",
+            "pc",
+            false,
+        ),
+        entry(
+            "pc-reliability-monitor",
+            "Abrir el Monitor de confiabilidad",
+            "Abre perfmon /rel: el registro diario de estabilidad del sistema.",
+            "pc",
+            false,
+        ),
+        entry(
+            "pc-task-manager",
+            "Abrir el Administrador de tareas",
+            "Lanza taskmgr.exe.",
+            "pc",
+            false,
+        ),
+        entry(
+            "pc-restart-explorer",
+            "Reiniciar el Explorador",
+            "Cierra explorer.exe y lo vuelve a lanzar; arregla fallos de la barra de tareas y del shell.",
+            "pc",
+            true,
+        ),
+        entry(
+            "pc-clear-temp",
+            "Borrar ficheros temporales",
+            "Borra %TEMP%\\* (en lo posible: los ficheros bloqueados se saltan).",
+            "pc",
+            true,
+        ),
+        entry(
+            "pc-windows-update",
+            "Abrir la configuración de Windows Update",
+            "Abre ms-settings:windowsupdate con la URI del shell.",
+            "pc",
+            false,
+        ),
+        entry(
+            "pc-open-hosts",
+            "Abrir el fichero hosts",
+            "Abre %SystemRoot%\\System32\\drivers\\etc\\hosts en el Bloc de notas.",
+            "pc",
+            false,
+        ),
     ]
 }
 
@@ -140,6 +170,33 @@ pub(super) fn backup_script(home: &Path) -> PathBuf {
         .join("weekly-backup.sh")
 }
 
+/// Guardia de PowerShell para las acciones que solo funcionan elevadas: la app no
+/// corre como administrador y sin esto dirían «hecho» sin haber hecho nada.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const REQUIRE_ADMIN_PS: &str = "if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { [Console]::Error.WriteLine('Hace falta abrir Control Center como administrador.'); exit 5 }";
+
+/// Ejecutables que abren una ventana y siguen vivos hasta que se cierra.
+const WINDOW_EXECUTABLES: &[&str] = &[
+    "cleanmgr.exe",
+    "perfmon.exe",
+    "taskmgr.exe",
+    "notepad.exe",
+    "mdsched.exe",
+    "msdt.exe",
+    "rstrui.exe",
+    "resmon.exe",
+    "mmc.exe",
+    "control.exe",
+    "wsreset.exe",
+];
+
+/// La acción abre una ventana y el resultado no depende de que se cierre. Esperarla
+/// dejaba Diagnostics bloqueado y el «hecho» llegaba al cerrar el Bloc de notas.
+pub(super) fn opens_window(cmd: &str, args: &[String]) -> bool {
+    WINDOW_EXECUTABLES.contains(&cmd)
+        || (cmd == "cmd.exe" && args.get(1).is_some_and(|a| a == "start"))
+}
+
 pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>), String> {
     let cock = cockpit(home);
     Ok(match kind {
@@ -160,15 +217,6 @@ pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>)
                 "python".into(),
                 cock.join("registry_sync.py").to_string_lossy().into_owned(),
                 "update-manifest".into(),
-            ],
-        ),
-        "mcp-health" => (
-            "uv".into(),
-            vec![
-                "run".into(),
-                "python".into(),
-                cock.join("mcp_health_check.py").to_string_lossy().into_owned(),
-                "--quiet".into(),
             ],
         ),
         "weekly-backup" => {
@@ -210,15 +258,8 @@ pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>)
                 "python".into(),
                 cock.join("doctor.py").to_string_lossy().into_owned(),
                 "--fix".into(),
-                "--non-interactive".into(),
-            ],
-        ),
-        "audit-skills" => (
-            "uv".into(),
-            vec![
-                "run".into(),
-                "python".into(),
-                cock.join("persona_audit.py").to_string_lossy().into_owned(),
+                // Sin TTY, doctor rechaza --fix salvo con --yes explícito.
+                "--yes".into(),
             ],
         ),
         // v2.5: PC-focused quick actions. All command strings are hardcoded
@@ -353,7 +394,11 @@ pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>)
                 "-NonInteractive".into(),
                 "-Command".into(),
                 // SoftwareDistribution wipe is the canonical "fix WU" recipe.
-                "Stop-Service -Name wuauserv -Force; Stop-Service -Name bits -Force; Remove-Item -Path \"$env:WINDIR\\SoftwareDistribution\" -Recurse -Force -ErrorAction SilentlyContinue; Start-Service -Name bits; Start-Service -Name wuauserv".into(),
+                // Sin elevación falla al principio; un borrado fallido da código
+                // de salida distinto de cero y los servicios vuelven igualmente.
+                format!(
+                    "{REQUIRE_ADMIN_PS} $ErrorActionPreference = 'Stop'; try {{ Stop-Service -Name wuauserv -Force; Stop-Service -Name bits -Force; Remove-Item -Path \"$env:WINDIR\\SoftwareDistribution\" -Recurse -Force }} finally {{ Start-Service -Name bits -ErrorAction Continue; Start-Service -Name wuauserv -ErrorAction Continue }}"
+                ),
             ],
         ),
         #[cfg(target_os = "windows")]
@@ -408,11 +453,11 @@ pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>)
             vec!["/id".into(), "NetworkDiagnosticsNetworkAdapter".into()],
         ),
         #[cfg(target_os = "windows")]
-        "pc-services-mmc" => ("services.msc".into(), vec![]),
+        "pc-services-mmc" => ("mmc.exe".into(), vec!["services.msc".into()]),
         #[cfg(target_os = "windows")]
-        "pc-event-viewer" => ("eventvwr.msc".into(), vec![]),
+        "pc-event-viewer" => ("mmc.exe".into(), vec!["eventvwr.msc".into()]),
         #[cfg(target_os = "windows")]
-        "pc-device-manager" => ("devmgmt.msc".into(), vec![]),
+        "pc-device-manager" => ("mmc.exe".into(), vec!["devmgmt.msc".into()]),
         #[cfg(target_os = "windows")]
         "pc-reset-firewall" => (
             "netsh".into(),
@@ -505,10 +550,10 @@ pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>)
         ),
         // Open Sound settings (mmsys.cpl).
         #[cfg(target_os = "windows")]
-        "pc-sound-settings" => ("mmsys.cpl".into(), vec![]),
+        "pc-sound-settings" => ("control.exe".into(), vec!["mmsys.cpl".into()]),
         // Open Network Connections (ncpa.cpl) — the classic adapter view.
         #[cfg(target_os = "windows")]
-        "pc-network-connections" => ("ncpa.cpl".into(), vec![]),
+        "pc-network-connections" => ("control.exe".into(), vec!["ncpa.cpl".into()]),
         // Run the Audio troubleshooter.
         #[cfg(target_os = "windows")]
         "pc-audio-troubleshooter" => (
@@ -550,19 +595,191 @@ pub(super) fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>)
         "pc-perfmon" => ("perfmon.exe".into(), vec![]),
         // Open Disk Management (diskmgmt.msc).
         #[cfg(target_os = "windows")]
-        "pc-disk-management" => ("diskmgmt.msc".into(), vec![]),
+        "pc-disk-management" => ("mmc.exe".into(), vec!["diskmgmt.msc".into()]),
         // Open Computer Management.
         #[cfg(target_os = "windows")]
-        "pc-computer-management" => ("compmgmt.msc".into(), vec![]),
+        "pc-computer-management" => ("mmc.exe".into(), vec!["compmgmt.msc".into()]),
         // Open Task Scheduler.
         #[cfg(target_os = "windows")]
-        "pc-task-scheduler" => ("taskschd.msc".into(), vec![]),
+        "pc-task-scheduler" => ("mmc.exe".into(), vec!["taskschd.msc".into()]),
         // Open Programs and Features (appwiz.cpl).
         #[cfg(target_os = "windows")]
-        "pc-programs-features" => ("appwiz.cpl".into(), vec![]),
+        "pc-programs-features" => ("control.exe".into(), vec!["appwiz.cpl".into()]),
         // Open Power Options (powercfg.cpl).
         #[cfg(target_os = "windows")]
-        "pc-power-options" => ("powercfg.cpl".into(), vec![]),
+        "pc-power-options" => ("control.exe".into(), vec!["powercfg.cpl".into()]),
         other => return Err(format!("unknown maintenance kind: {}", other)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_cmd, list_maintenance_commands_inner, opens_window};
+    use std::path::{Path, PathBuf};
+
+    /// Raíz del repo (este fichero vive en control-center/src-tauri/src/maintenance).
+    fn repo_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    }
+
+    /// Texto del script y de sus módulos hermanos `<stem>_*.py` (doctor.py
+    /// define sus flags en doctor_core.py).
+    fn script_sources(script: &Path) -> String {
+        let stem = script
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        let dir = script.parent().expect("script dir");
+        let mut text = std::fs::read_to_string(script).unwrap_or_default();
+        for entry in std::fs::read_dir(dir).expect("read cockpit dir").flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(&format!("{stem}_")) && name.ends_with(".py") {
+                text.push_str(&std::fs::read_to_string(entry.path()).unwrap_or_default());
+            }
+        }
+        text
+    }
+
+    /// Caso negativo de frontend-e2e-3 / docs-ci-2: `audit-skills` lanzaba un
+    /// script borrado en mayo y `doctor-fix` un flag que doctor no define.
+    /// Toda entrada de la lista que corre un script de cockpit debe apuntar a
+    /// un fichero que existe y pasarle solo argumentos que el script declara.
+    #[test]
+    fn every_listed_script_exists_and_accepts_its_flags() {
+        let fake_home = Path::new("/fake-home");
+        let prefix = fake_home.join(".ultron");
+        for c in list_maintenance_commands_inner() {
+            let Ok((exe, args)) = build_cmd(&c.kind, fake_home) else {
+                continue; // weekly-backup comprueba el fichero en disco del usuario
+            };
+            if exe != "uv" {
+                continue;
+            }
+            let rel = Path::new(&args[2])
+                .strip_prefix(&prefix)
+                .expect("script bajo ~/.ultron")
+                .to_path_buf();
+            let script = repo_root().join(rel);
+            assert!(
+                script.is_file(),
+                "{}: no existe {}",
+                c.kind,
+                script.display()
+            );
+            let sources = script_sources(&script);
+            for arg in &args[3..] {
+                assert!(
+                    sources.contains(&format!("\"{arg}\"")),
+                    "{}: {} no define {arg}",
+                    c.kind,
+                    script.display()
+                );
+            }
+        }
+    }
+
+    /// CreateProcess no abre un .msc ni un .cpl: fallan con el error 193.
+    #[cfg(windows)]
+    #[test]
+    fn ningun_kind_lanza_directamente_un_msc_o_un_cpl() {
+        let home = Path::new("/fake-home");
+        for c in list_maintenance_commands_inner() {
+            let Ok((exe, _)) = build_cmd(&c.kind, home) else {
+                continue;
+            };
+            assert!(
+                !exe.ends_with(".msc") && !exe.ends_with(".cpl"),
+                "{}: {exe}",
+                c.kind
+            );
+        }
+        let (exe, args) = build_cmd("pc-services-mmc", home).expect("kind");
+        assert_eq!(
+            (exe.as_str(), args[0].as_str()),
+            ("mmc.exe", "services.msc")
+        );
+        let (exe, args) = build_cmd("pc-sound-settings", home).expect("kind");
+        assert_eq!(
+            (exe.as_str(), args[0].as_str()),
+            ("control.exe", "mmsys.cpl")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn las_ventanas_no_se_esperan_y_lo_demas_si() {
+        let home = Path::new("/fake-home");
+        let abre = |kind: &str| {
+            let (exe, args) = build_cmd(kind, home).expect("kind");
+            opens_window(&exe, &args)
+        };
+        for kind in [
+            "pc-open-hosts",
+            "pc-windows-update",
+            "pc-sfc",
+            "pc-services-mmc",
+            "pc-task-manager",
+        ] {
+            assert!(abre(kind), "{kind} abre una ventana");
+        }
+        for kind in [
+            "pc-flush-dns",
+            "pc-clear-temp",
+            "pc-repair-wu",
+            "pc-restart-explorer",
+        ] {
+            assert!(!abre(kind), "{kind} tiene un resultado que esperar");
+        }
+    }
+
+    /// Solo se ejecuta la guardia, nunca el comando entero: borra SoftwareDistribution.
+    #[cfg(windows)]
+    #[test]
+    fn la_guardia_de_elevacion_coincide_con_el_token_del_proceso() {
+        let run = |script: &str| {
+            std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .output()
+                .expect("powershell")
+        };
+        let es_admin = String::from_utf8_lossy(
+            &run("([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)").stdout,
+        )
+        .trim()
+        .eq_ignore_ascii_case("true");
+        let out = run(super::REQUIRE_ADMIN_PS);
+        assert_eq!(out.status.code(), Some(if es_admin { 0 } else { 5 }));
+    }
+
+    #[test]
+    fn audit_skills_is_gone_from_list_and_dispatch() {
+        assert!(list_maintenance_commands_inner()
+            .iter()
+            .all(|c| c.kind != "audit-skills"));
+        assert!(build_cmd("audit-skills", Path::new("/fake-home")).is_err());
+    }
+
+    /// Las acciones que borran, reinician o aplican cambios sin preguntar van
+    /// marcadas para que la UI confirme; abrir una ventana no.
+    #[test]
+    fn destructive_flag_marks_the_actions_that_need_confirmation() {
+        let list = list_maintenance_commands_inner();
+        let flag = |kind: &str| {
+            list.iter()
+                .find(|c| c.kind == kind)
+                .map(|c| c.destructive)
+                .unwrap_or_else(|| panic!("{kind} no está en la lista"))
+        };
+        for kind in [
+            "pc-clear-temp",
+            "pc-restart-explorer",
+            "pc-reset-network",
+            "doctor-fix",
+        ] {
+            assert!(flag(kind), "{kind} debe pedir confirmación");
+        }
+        for kind in ["pc-flush-dns", "pc-task-manager", "mcp-health"] {
+            assert!(!flag(kind), "{kind} no necesita confirmación");
+        }
+    }
 }

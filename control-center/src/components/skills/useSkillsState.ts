@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listWithProjectEntries } from "../library/projectScoped";
 import type { SkillEntry, SkillInfo, SkillOrigin } from "../../types";
 import { useLibraryViewMode } from "../library/ViewToggle";
 import { rankBySearch, type SearchableItem } from "../../lib/ranked-search";
 import { NO_CATEGORY } from "./constants";
-import { deriveCategory, deriveTopGroup, deriveSubGroup } from "./helpers";
+import { deriveCategory, deriveTopGroup, deriveSubGroup, skillOriginLabel } from "./helpers";
 import type { SkillMeta, ProjectLite, ScopeFilter, EnableFilter } from "./types";
 import type { TreeOrigin } from "../library/TreeView";
 import type { BlocksItem } from "../library/BlocksView";
+import { bulkToggleReport, type BulkToggleResult } from "./bulkToggle";
 
 export function useSkillsState() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
@@ -77,8 +79,11 @@ export function useSkillsState() {
     setLoading(true);
     setError(null);
     try {
-      const res = (await invoke("list_skills", { projectPath: null })) as SkillEntry[];
-      setSkills(res);
+      const { entries, failures } = await listWithProjectEntries<SkillEntry>("list_skills");
+      setSkills(entries);
+      if (failures.length > 0) {
+        setError(`Algunos proyectos no se pudieron leer: ${failures.join("; ")}`);
+      }
       // Clear optimistic overrides after a fresh fetch — the server is now the truth.
       setOptimisticMap({});
     } catch (e) {
@@ -124,7 +129,7 @@ export function useSkillsState() {
     } catch (e) {
       // Revert optimistic override.
       setOptimisticMap((m) => { const n = { ...m }; delete n[s.path]; return n; });
-      showToast(`Toggle failed for "${s.name}": ${e}`);
+      showToast(`No se pudo cambiar el estado de «${s.name}»: ${e}`);
     } finally {
       setToggleBusy((b) => { const n = new Set(b); n.delete(s.path); return n; });
     }
@@ -158,17 +163,22 @@ export function useSkillsState() {
       ),
     );
     if (names.length === 0) {
-      showToast("Selection has no global skills to toggle.");
+      showToast("La selección no tiene skills globales que cambiar.");
       return;
     }
     setBulkBusy(true);
     setHasToggled(true);
     try {
-      await invoke("skills_bulk_toggle", { names, disabled: !targetEnabled });
-      setChecked(new Set());
+      const result = await invoke<BulkToggleResult>("skills_bulk_toggle", {
+        names,
+        disabled: !targetEnabled,
+      });
+      const report = bulkToggleReport(result, targetEnabled, "skill");
+      setChecked(new Set(report.failedNames));
       await reload();
+      if (report.message) showToast(report.message);
     } catch (e) {
-      showToast(`Bulk toggle failed: ${e}`);
+      showToast(`No se pudo aplicar el cambio en bloque: ${e}`);
     } finally {
       setBulkBusy(false);
     }
@@ -211,7 +221,6 @@ export function useSkillsState() {
       else d++;
     }
     return { activeCount: a, disabledCount: d };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills, scope, optimisticMap]);
 
   const filtered = useMemo(() => {
@@ -244,7 +253,6 @@ export function useSkillsState() {
       return item;
     });
     return rankBySearch(decorated, q).map((d) => d.__entry);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills, scope, category, enableFilter, query, optimisticMap, metaByName]);
 
   // ---------------------------------------------------------------------------
@@ -263,7 +271,7 @@ export function useSkillsState() {
     }
     return (["global", "project", "plugin"] as SkillOrigin[]).map((id) => ({
       id,
-      label: id.charAt(0).toUpperCase() + id.slice(1),
+      label: skillOriginLabel(id, true),
       groups: Object.entries(buckets[id])
         .sort(([a], [b]) => {
           if (a === NO_CATEGORY) return 1;
@@ -287,6 +295,7 @@ export function useSkillsState() {
         key: `${s.origin}-${s.path}`,
         topGroup: deriveTopGroup(s),
         subGroup: deriveSubGroup(s),
+        label: s.name,
         data: s,
       })),
     [filtered],

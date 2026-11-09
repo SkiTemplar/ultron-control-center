@@ -36,8 +36,8 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
             onDelete();
           }}
           className="rounded p-0.5 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-surface-0)] hover:text-[var(--color-error)] group-hover:opacity-100"
-          aria-label="Delete card"
-          title="Delete"
+          aria-label="Borrar tarjeta"
+          title="Borrar"
         >
           ×
         </button>
@@ -60,7 +60,7 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
             <span
               className="rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider"
               style={{ background: c.bg, color: c.fg }}
-              title={`Priority: ${p.toUpperCase()}`}
+              title={`Prioridad: ${p.toUpperCase()}`}
             >
               {p.toUpperCase()}
             </span>
@@ -69,7 +69,7 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
         {card.agent && (
           <span
             className="flex items-center gap-1 rounded bg-[var(--color-surface-0)] px-1.5 py-0.5 font-medium"
-            title={`Agent: ${card.agent}`}
+            title={`Agente: ${card.agent}`}
           >
             <Bot size={10} />
             {card.agent}
@@ -78,7 +78,7 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
         {liveRun ? (
           <span className="flex items-center gap-1 rounded bg-[var(--color-accent)]/10 px-1.5 py-0.5 font-medium text-[var(--color-accent)]">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
-            live
+            en curso
           </span>
         ) : lastRun ? (
           <span
@@ -93,7 +93,11 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
                   ? "var(--color-error)"
                   : "var(--color-text-muted)",
             }}
-            title={`Last run: ${lastRun.status.kind}`}
+            title={
+              lastRun.error
+                ? `Última ejecución: ${lastRun.status.kind} — ${lastRun.error}`
+                : `Última ejecución: ${lastRun.status.kind}`
+            }
           >
             {lastRun.status.kind}
           </span>

@@ -18,7 +18,6 @@
 //     existing backend signature does not change.
 
 import { useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { skillCreate } from "../../lib/library-client";
 import { getPrompt } from "../../lib/button-prompts";
 import {
@@ -29,12 +28,12 @@ import type { SkillTemplate, SkillTemplateId } from "./creatorTemplates";
 import type { Props, Step } from "./create-skill/types";
 import { KEBAB_RE } from "./create-skill/types";
 import { MAX_DESCRIPTION_CHARS, MIN_BODY_CHARS } from "./creatorTemplates";
-import { Header } from "./create-skill/Header";
-import { Footer } from "./create-skill/Footer";
+import { WizardFooter, WizardHeader } from "./wizard-ui";
 import { StepTemplates } from "./create-skill/StepTemplates";
 import { StepFrontmatter } from "./create-skill/StepFrontmatter";
 import { StepBody } from "./create-skill/StepBody";
 import { StepTarget } from "./create-skill/StepTarget";
+import { instructionsCwd, openInSessionsMessage, openPromptInSessions } from "../sessionsLaunch";
 
 export function CreateSkillModal({
   defaultScope = "global",
@@ -133,27 +132,30 @@ export function CreateSkillModal({
       NAME: name || "<skill-name>",
       DESCRIPTION: description || "<one-line goal>",
     });
+    // El prompt va a una sesión de Sessions (antes, Windows Terminal en modo
+    // pegar, con el fallo del lanzamiento tragado en silencio).
+    setErr(null);
     try {
-      await navigator.clipboard.writeText(prompt);
-      setAiCopied(true);
-      setTimeout(() => setAiCopied(false), 2000);
-      // v2.4: also spawn a Claude session ready to receive the prompt.
-      // `respectClipboard` keeps the text we just copied; `pasteOnly`
-      // opens the CLI without auto-submitting so the user pastes on
-      // their own. Spawn failure is non-fatal — clipboard already won.
-      try {
-        await invoke("spawn_session", {
-          provider: "claude",
-          prompt: null,
-          flags: { pasteOnly: true, respectClipboard: true },
-        });
-      } catch {
-        // Spawn failed — user can open Claude Code manually.
+      const r = await openPromptInSessions({ cwd: await instructionsCwd("skills"), prompt });
+      // «Enviado a Sessions» solo si el prompt llegó; si no, lo explica el aviso.
+      if (r.sent) {
+        setAiCopied(true);
+        setTimeout(() => setAiCopied(false), 2000);
       }
-    } catch {
-      // Clipboard rejected (rare in Tauri webview). Fall back to a
-      // user-visible error so they can copy manually from the textarea.
-      setErr("Could not copy to clipboard — open a Claude session and paste this prompt manually.");
+      if (r.warning) setErr(openInSessionsMessage("Generar con IA", r));
+    } catch (e) {
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(prompt);
+        copied = true;
+      } catch {
+        // Sin portapapeles: el mensaje de abajo lo dice.
+      }
+      setErr(
+        copied
+          ? `No se pudo abrir Sessions (${String(e)}). El prompt está en el portapapeles: pégalo en una sesión de Claude.`
+          : `No se pudo abrir Sessions (${String(e)}) ni copiar el prompt al portapapeles.`,
+      );
     }
   }
 
@@ -197,7 +199,7 @@ export function CreateSkillModal({
           background: "var(--color-surface-1)",
         }}
       >
-        <Header step={step} onClose={onClose} />
+        <WizardHeader step={step} title="Nueva skill" onClose={onClose} />
 
         <div className="flex-1 overflow-y-auto p-5 text-sm">
           {step === 1 && (
@@ -269,8 +271,9 @@ export function CreateSkillModal({
           )}
         </div>
 
-        <Footer
+        <WizardFooter
           step={step}
+          submitLabel="Crear skill"
           canAdvance={canAdvance[step]}
           canSubmit={nameValid && descriptionValid && bodyValid && targetValid}
           busy={busy}

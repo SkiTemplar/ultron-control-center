@@ -110,6 +110,15 @@ HIGH_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("real-madrid-leak",    re.compile(r"\breal[._\s-]?madrid\b", re.IGNORECASE)),
     ("goodnight-commit",    re.compile(r"GOODNIGHT\s+mega-?commit", re.IGNORECASE)),
     ("eval-internal",       re.compile(r"\beval-\d+\s+R\d\b")),
+    # Entidad bancaria del mantenedor (dato financiero personal). Se busca entre
+    # una lista de entidades para que el patrón no señale cuál es la suya; en el
+    # repo solo se escribe «datos bancarios locales». Ninguna aparece hoy en el
+    # árbol versionado, así que cualquier coincidencia es una fuga nueva.
+    ("bank-entity",         re.compile(
+        r"\b(?:kutxa\s*bank|laboral\s*kutxa|caixa\s*bank|bbva|bankinter|unicaja"
+        r"|abanca|ibercaja|openbank|cajamar)\b",
+        re.IGNORECASE,
+    )),
 ]
 
 # Extra HIGH literals supplied at runtime via ULTRON_PII_EXTRA (comma-separated).
@@ -117,9 +126,12 @@ HIGH_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # maintainer exports the var locally (or as a CI secret) to enable those checks;
 # absent the var, only the generic name/path patterns above run. Each token is
 # matched as a case-insensitive literal.
-for _i, _tok in enumerate(
+# The summary line reports how many were loaded (EXTRA=n) so scripts/sync-public.mjs
+# can refuse to publish when they did not reach the scanner.
+EXTRA_TOKENS: list[str] = list(dict.fromkeys(
     t.strip() for t in os.environ.get("ULTRON_PII_EXTRA", "").split(",") if t.strip()
-):
+))
+for _i, _tok in enumerate(EXTRA_TOKENS):
     HIGH_PATTERNS.append((f"personal-extra-{_i}", re.compile(re.escape(_tok), re.IGNORECASE)))
 
 MEDIUM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -149,10 +161,15 @@ BINARY_EXT = {
 
 
 def tracked_files() -> list[Path]:
-    """git ls-files (HEAD) — only files actually committed to the repo."""
+    """git ls-files (index) — only files actually committed or staged.
+
+    `-z` with core.quotepath=off: without it git prints non-ASCII paths quoted
+    and with C-style octal escapes, the quoted path does not exist on disk and
+    the file was silently skipped.
+    """
     try:
         out = subprocess.check_output(
-            ["git", "-C", str(REPO_ROOT), "ls-files"],
+            ["git", "-C", str(REPO_ROOT), "-c", "core.quotepath=off", "ls-files", "-z"],
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -160,7 +177,7 @@ def tracked_files() -> list[Path]:
         )
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return []
-    return [Path(line.strip()) for line in out.splitlines() if line.strip()]
+    return [Path(entry) for entry in out.split("\0") if entry]
 
 
 def is_skippable(path: Path) -> bool:
@@ -177,9 +194,21 @@ def is_allowed(relpath: str) -> bool:
 
 def scan() -> dict[str, list[tuple[str, int, str, str]]]:
     """Returns {severity: [(file, line_no, pattern_name, snippet), ...]}."""
-    findings: dict[str, list[tuple[str, int, str, str]]] = defaultdict(list)
+    findings, _files, _unread = scan_head()
+    return findings
 
-    for relpath in tracked_files():
+
+def scan_head() -> tuple[dict[str, list[tuple[str, int, str, str]]], int, int]:
+    """HEAD scan plus coverage: (findings, files listed, files that could not be read).
+
+    A listed file that cannot be read was NOT scanned; the summary line reports it
+    (UNREAD=n) so a caller can fail closed instead of trusting HIGH=0.
+    """
+    findings: dict[str, list[tuple[str, int, str, str]]] = defaultdict(list)
+    files = tracked_files()
+    unread = 0
+
+    for relpath in files:
         abs_path = REPO_ROOT / relpath
         if is_skippable(relpath):
             continue
@@ -188,6 +217,7 @@ def scan() -> dict[str, list[tuple[str, int, str, str]]]:
         try:
             text = abs_path.read_text(encoding="utf-8", errors="replace")
         except (OSError, ValueError):
+            unread += 1
             continue
 
         for line_no, line in enumerate(text.splitlines(), start=1):
@@ -202,7 +232,7 @@ def scan() -> dict[str, list[tuple[str, int, str, str]]]:
                         (str(relpath).replace("\\", "/"), line_no, pat_name, line.strip()[:200])
                     )
 
-    return findings
+    return findings, len(files), unread
 
 
 def history_blobs() -> dict[str, list[str]]:
@@ -368,9 +398,10 @@ def main() -> int:
 
     if args.history:
         findings = scan_history()
+        files, unread = 0, 0
         report = render(findings, scope="ALL git history (`git rev-list --all`)")
     else:
-        findings = scan()
+        findings, files, unread = scan_head()
         report = render(findings)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(report, encoding="utf-8", newline="\n")
@@ -378,7 +409,12 @@ def main() -> int:
     high = len(findings.get("HIGH", []))
     medium = len(findings.get("MEDIUM", []))
     scope_tag = "history" if args.history else "head"
-    print(f"[audit-personal-data] scope={scope_tag} HIGH={high} MEDIUM={medium}")
+    # FILES/UNREAD/EXTRA: coverage the caller can verify (sync-public fails closed
+    # when the index count, the unread count or the loaded extra patterns do not match).
+    print(
+        f"[audit-personal-data] scope={scope_tag} HIGH={high} MEDIUM={medium} "
+        f"FILES={files} UNREAD={unread} EXTRA={len(EXTRA_TOKENS)}"
+    )
     print(f"[audit-personal-data] report: {args.out}")
 
     if high > 0:

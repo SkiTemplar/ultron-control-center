@@ -2,13 +2,15 @@
 //
 // Evita que un throw en render de una pestaña deje la app en pantalla en blanco.
 // Muestra un mensaje de error + botón "Reintentar" que hace reset del estado.
+// App.tsx monta uno solo, alrededor de la pestaña activa y con key={tab}: al
+// cambiar de pestaña el boundary se recrea y el error no persiste en otra.
 //
 // Patrón copiado de AIRouterErrorBoundary.tsx.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
-  /** Nombre de la pestaña para el mensaje de error. */
+  /** Nombre legible de la pestaña (TAB_LABELS), no su id. */
   tab: string;
   children: ReactNode;
 }

@@ -86,7 +86,7 @@ export function WorkflowRunsPanel() {
           className="text-[9.5px] underline-offset-2 hover:underline"
           style={{ color: "var(--color-text-faint)", background: "transparent", border: "none" }}
         >
-          refrescar
+          actualizar
         </button>
       </div>
       <p className="mb-1 text-[9px]" style={{ color: "var(--color-text-faint)" }}>

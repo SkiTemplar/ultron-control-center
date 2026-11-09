@@ -16,6 +16,38 @@
     "dialog:allow-confirm",
     "dialog:allow-ask",
     "dialog:allow-message",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$HOME" },
+        { "path": "$HOME/**" },
+        { "path": "$HOME/.ultron" },
+        { "path": "$HOME/.ultron/**" },
+        { "path": "$HOME/.ultron-vault" },
+        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME/.claude" },
+        { "path": "$HOME/.claude/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "$LOCALAPPDATA/**" }
+      ]
+    },
+    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-reveal-item-in-dir",
+      "allow": [
+        { "path": "$HOME" },
+        { "path": "$HOME/**" },
+        { "path": "$HOME/.ultron" },
+        { "path": "$HOME/.ultron/**" },
+        { "path": "$HOME/.ultron-vault" },
+        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME/.claude" },
+        { "path": "$HOME/.claude/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "$LOCALAPPDATA/**" }
+      ]
+    }
   ]
 }

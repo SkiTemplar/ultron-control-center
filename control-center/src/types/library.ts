@@ -1,23 +1,8 @@
 // ---------------------------------------------------------------------------
-// Library (P5): agent/skill discovery + install + pinning.
+// Library (P5): agent/skill creation in-app.
 // ---------------------------------------------------------------------------
 
-export type LibraryKind = "agent" | "skill";
-
 export type TargetScope = "global" | "project";
-
-export type RemoteItem = {
-  owner: string;
-  repo: string;
-  path: string;
-  name: string;
-  html_url: string | null;
-  preview: string | null;
-};
-
-export type PinnedAgents = {
-  pinned: string[];
-};
 
 export type AgentCreateInput = {
   name: string;
@@ -35,17 +20,6 @@ export type SkillCreateInput = {
   body: string;
   target_scope: TargetScope;
   target_project_id: string | null;
-};
-
-export type InstallInput = {
-  owner: string;
-  repo: string;
-  path: string;
-  kind: LibraryKind;
-  target_scope: TargetScope;
-  target_project_id: string | null;
-  target_name: string | null;
-  overwrite: boolean;
 };
 
 // Post-install integration outcome — mirrors

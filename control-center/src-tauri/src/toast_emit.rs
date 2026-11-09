@@ -180,16 +180,26 @@ fn append_alert_line(source: &str, severity: &str, message: &str) -> Result<(), 
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Sanitise a free-form message for both alerts.jsonl and the toast body.
-/// Strips CR/LF, collapses internal whitespace, caps to 600 chars (alerts
-/// already enforce 600 — we mirror that to stay consistent).
-fn sanitize(msg: &str) -> String {
-    let mut out: String = msg.replace(['\r', '\n'], " ");
-    if out.len() > 600 {
-        out.truncate(600);
-        out.push('…');
+/// First `max` characters of `s`. `String::truncate` cuts by bytes and
+/// panics when the cut falls inside a multibyte character (tildes, ñ).
+fn cap_chars(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((idx, _)) => s[..idx].to_string(),
+        None => s.to_string(),
     }
-    out.trim().to_string()
+}
+
+/// Sanitise a free-form message for both alerts.jsonl and the toast body.
+/// Strips CR/LF and caps to 600 characters (alerts already enforce 600 — we
+/// mirror that to stay consistent). The cap counts characters, not bytes.
+fn sanitize(msg: &str) -> String {
+    let flat = msg.replace(['\r', '\n'], " ");
+    if flat.chars().count() > 600 {
+        let mut out = cap_chars(&flat, 600);
+        out.push('…');
+        return out.trim().to_string();
+    }
+    flat.trim().to_string()
 }
 
 /// Emit an in-app toast event consumed by `PopupHost` in the frontend.
@@ -220,9 +230,10 @@ pub fn try_emit_toast_with_severity<R: tauri::Runtime>(
         "message": body,
     });
     if let Err(e) = app.emit("ultron-toast", payload) {
-        eprintln!(
+        tracing::warn!(
             "[toast_emit] emit ultron-toast failed for source={}: {}",
-            source, e
+            source,
+            e
         );
     }
 }
@@ -244,8 +255,7 @@ pub fn record_alert_and_maybe_toast<R: tauri::Runtime>(
         "info" | "warn" | "critical" | "blocking" => severity,
         _ => "warn",
     };
-    let mut src = source.to_string();
-    src.truncate(80);
+    let src = cap_chars(source, 80);
     let msg = sanitize(message);
     if msg.is_empty() {
         return;
@@ -256,7 +266,7 @@ pub fn record_alert_and_maybe_toast<R: tauri::Runtime>(
         return;
     }
     if let Err(e) = append_alert_line(&src, sev, &msg) {
-        eprintln!("[toast_emit] append alert failed: {}", e);
+        tracing::warn!("[toast_emit] append alert failed: {}", e);
     }
     // Toast only on user-visible severities.
     if matches!(sev, "critical" | "blocking") {
@@ -265,3 +275,33 @@ pub fn record_alert_and_maybe_toast<R: tauri::Runtime>(
 }
 
 // (toast toggle get/set commands removed 2026-06-06 — never wired into lib.rs)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_truncates_on_char_boundary_with_accents() {
+        // 599 ASCII bytes + 'á' (2 bytes) straddles byte 600: `truncate(600)`
+        // used to panic here.
+        let msg = format!("{}{}", "a".repeat(599), "á".repeat(10));
+        let out = sanitize(&msg);
+        assert!(out.ends_with('…'));
+        assert_eq!(out.chars().count(), 601);
+    }
+
+    #[test]
+    fn sanitize_keeps_short_messages_and_strips_newlines() {
+        assert_eq!(sanitize(" línea\r\notra "), "línea  otra");
+    }
+
+    #[test]
+    fn source_cap_does_not_split_multibyte_chars() {
+        let src = format!("{}{}", "s".repeat(79), "ñ");
+        let capped = cap_chars(&src, 80);
+        assert_eq!(capped.chars().count(), 80);
+        assert!(capped.ends_with('ñ'));
+        let longer = format!("{}ñ", "s".repeat(80));
+        assert_eq!(cap_chars(&longer, 80), "s".repeat(80));
+    }
+}

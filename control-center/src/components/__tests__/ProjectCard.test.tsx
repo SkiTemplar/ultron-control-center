@@ -54,7 +54,7 @@ describe("ProjectCard", () => {
 
   it("renders status badge", () => {
     renderCard();
-    expect(screen.getByText("active")).toBeTruthy();
+    expect(screen.getByText("activo")).toBeTruthy();
   });
 
   it("does not render tag chips (tags UI removed)", () => {
@@ -90,7 +90,7 @@ describe("ProjectCard", () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it("calls onEdit when Edit button is clicked", () => {
+  it("calls onEdit when Editar button is clicked", () => {
     const onEdit = vi.fn();
     render(
       <ProjectCard
@@ -104,7 +104,7 @@ describe("ProjectCard", () => {
         onDelete={noop}
       />,
     );
-    fireEvent.click(screen.getByTitle("Edit project metadata"));
+    fireEvent.click(screen.getByTitle("Editar los datos del proyecto"));
     expect(onEdit).toHaveBeenCalledOnce();
   });
 

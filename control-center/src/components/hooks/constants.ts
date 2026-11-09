@@ -1,49 +1,12 @@
 // Constants, color helpers, and name-derivation utilities for Hooks viewer.
 
-// 0.6: superficie REAL de eventos de hook de Claude Code (~30, no 9). Antes solo
-// se modelaban 9 -> no se podian ver ni crear hooks de los ~21 restantes.
-export const EVENT_OPTIONS: readonly string[] = [
-  // Sesion / ciclo de vida
-  "SessionStart",
-  "SessionEnd",
-  "Setup",
-  // Prompt
-  "UserPromptSubmit",
-  "UserPromptExpansion",
-  // Tools
-  "PreToolUse",
-  "PostToolUse",
-  "PostToolUseFailure",
-  "PostToolBatch",
-  "PermissionRequest",
-  "PermissionDenied",
-  // Subagentes / tareas
-  "SubagentStart",
-  "SubagentStop",
-  "TaskCreated",
-  "TaskCompleted",
-  "TeammateIdle",
-  // Fin de turno
-  "Stop",
-  "StopFailure",
-  // Display / notificaciones
-  "Notification",
-  "MessageDisplay",
-  // Entorno / ficheros
-  "InstructionsLoaded",
-  "ConfigChange",
-  "CwdChanged",
-  "FileChanged",
-  // Worktrees
-  "WorktreeCreate",
-  "WorktreeRemove",
-  // Compactacion
-  "PreCompact",
-  "PostCompact",
-  // MCP elicitation
-  "Elicitation",
-  "ElicitationResult",
-] as const;
+import hookEvents from "./hook-events.json";
+
+// Superficie REAL de eventos de hook de Claude Code (~30, no 9).
+// Catalogo unico (2026-09-28): la lista vive en hook-events.json y el backend
+// (src-tauri/src/hooks_admin/validation.rs) incluye ese mismo fichero, asi que
+// la interfaz nunca ofrece un evento que el backend rechace.
+export const EVENT_OPTIONS: readonly string[] = hookEvents;
 
 export const DEFAULT_PAYLOAD = `{
   "tool_name": "Bash",
@@ -169,6 +132,14 @@ export function eventColors(event: string): EventColors {
 export function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n - 1) + "...";
+}
+
+/** Abbreviates the user's home directory to `~` and normalises separators. */
+export function tildeHome(path: string): string {
+  return path
+    .replace(/^[A-Za-z]:[\\/]Users[\\/][^\\/]+/, "~")
+    .replace(/^\/(?:home|Users)\/[^/]+/, "~")
+    .replace(/\\/g, "/");
 }
 
 /**

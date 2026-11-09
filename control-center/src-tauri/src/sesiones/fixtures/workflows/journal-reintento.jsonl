@@ -1,0 +1,11 @@
+{"type":"launched"}
+{"type":"started","key":"v2:r1","agentId":"r1a","label":"impl:motores","phase":"Implement"}
+{"type":"failed","key":"v2:r1","agentId":"r1a"}
+{"type":"started","key":"v2:r1","agentId":"r1b","label":"impl:motores","phase":"Implement"}
+{"type":"result","key":"v2:desconocida","agentId":"zzz","result":"ignorar"}
+{"type":"result","key":"v2:r1","agentId":"r1a","result":"tarde: intento viejo"}
+esto no es json
+{"type":"started","key":"v2:r1","agentId":"r1c","label":"impl:motores","phase":"Implement"}
+{"type":"failed","key":"v2:r1","agentId":"r1c"}
+{"type":"started","key":"v2:r2","agentId":"r2a","label":"review","phase":""}
+{"type":"desconocido","key":"v2:r2","agentId":"r2a"}

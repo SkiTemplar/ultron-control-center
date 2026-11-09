@@ -18,6 +18,12 @@ const SEV_BADGE: Record<DiagSeverity, string> = {
   error: "bg-red-500/20 text-red-300",
 };
 
+const SEV_LABEL: Record<DiagSeverity, string> = {
+  ok: "ok",
+  warn: "aviso",
+  error: "error",
+};
+
 export function DiagnosticHistoryPanel({
   onSelect,
 }: {
@@ -46,11 +52,11 @@ export function DiagnosticHistoryPanel({
   return (
     <div className="rounded border border-white/10 bg-[var(--color-surface-1)] p-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <span className="font-mono text-white/60">▤</span> History
+        <span className="font-mono text-white/60">▤</span> Historial
       </div>
       {err && <div className="text-xs text-red-300">{err}</div>}
       {entries.length === 0 && !err && (
-        <div className="text-xs text-white/40">No past runs yet.</div>
+        <div className="text-xs text-white/40">Todavía no hay ejecuciones anteriores.</div>
       )}
       <ul className="space-y-1">
         {entries.map((e) => (
@@ -61,7 +67,7 @@ export function DiagnosticHistoryPanel({
               onClick={() => open(e)}
             >
               <span className={`rounded px-1.5 ${SEV_BADGE[e.max_severity]}`}>
-                {e.max_severity}
+                {SEV_LABEL[e.max_severity] ?? e.max_severity}
               </span>
               <span className="font-mono">{e.timestamp}</span>
             </button>

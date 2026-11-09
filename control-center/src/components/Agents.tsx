@@ -8,32 +8,29 @@
 //   - Scope chips (already present, kept).
 //   - Category pills row (same shape as Rules.tsx, now always visible in grid/tree modes).
 //   - AgentDetailPane wired for the selected agent (edit + AI + open externally).
-//   - Recent delegations strip preserved below the filter controls.
 //   - Color: violet — rgba(167, 139, 250, …) consistent with AgentDetailPane agent accent.
 //
-// Recent delegations strip: conectado a list_delegations (polling 30s + evento
-// workflow:delegated). Es una vista READ-ONLY de las delegaciones que dispara el
-// kanban (kanban_dispatch_card); NO hay botón "Asignar tarea" manual en esta vista
-// (el comando delegate_task_launch se retiró el 2026-09-14 por no tener consumidor).
+// La tira de delegaciones recientes (list_delegations + evento workflow:delegated)
+// se retiró el 2026-10-17: delegations.jsonl no tiene escritor desde que se
+// retiró el despacho del kanban, así que la tira nunca podía mostrar nada.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
-import { InstallConfirmModal } from "./library/InstallConfirmModal";
+import type { AgentEntry, SkillOrigin } from "../types";
 import { CreateAgentModal } from "./library/CreateAgentModal";
+import { listWithProjectEntries } from "./library/projectScoped";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { useLibraryViewMode } from "./library/ViewToggle";
 import { rankBySearch, type SearchableItem } from "../lib/ranked-search";
 
-import type { ProjectLite, ScopeFilter, EnableFilter, DelegationLogEntry, AgentUsage } from "./agents/types";
+import type { ProjectLite, ScopeFilter, EnableFilter, AgentUsage } from "./agents/types";
 import { NO_CATEGORY } from "./agents/types";
+import { bulkToggleReport, type BulkToggleResult } from "./skills/bulkToggle";
 import { deriveCategory, deriveTopGroup, deriveSubGroup } from "./agents/helpers";
 import { AgentsHeader } from "./agents/AgentsHeader";
 import { AgentsFilters } from "./agents/AgentsFilters";
 import { BulkActionBar } from "./agents/BulkActionBar";
-import { DelegationsStrip } from "./agents/DelegationsStrip";
 import { AgentUsageStrip } from "./agents/AgentUsageStrip";
 import { AgentCardGrid } from "./agents/AgentCardGrid";
 import { AgentDetailPane } from "./agents/AgentDetailPane";
@@ -51,7 +48,6 @@ export function Agents() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [view, setView] = useLibraryViewMode("agents");
   const [selected, setSelected] = useState<AgentEntry | null>(null);
@@ -66,9 +62,6 @@ export function Agents() {
   // Whether any toggle happened this session — controls the restart banner.
   const [hasToggled, setHasToggled] = useState(false);
 
-  // Recent delegations.
-  const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
-
   // Agent usage stats (from subagent-harvest.jsonl via agent_usage_stats).
   const [usage, setUsage] = useState<AgentUsage[]>([]);
 
@@ -76,33 +69,7 @@ export function Agents() {
   // Data loading
   // -------------------------------------------------------------------------
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadDelegations() {
-      try {
-        const list = (await invoke("list_delegations", { limit: 50 })) as DelegationLogEntry[];
-        if (!cancelled) setDelegations(list);
-      } catch {
-        if (!cancelled) setDelegations([]);
-      }
-    }
-    void loadDelegations();
-    const t = setInterval(loadDelegations, 30_000);
-    let unlisten: (() => void) | null = null;
-    void listen("workflow:delegated", () => {
-      if (!cancelled) void loadDelegations();
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  // Agent usage stats — polling 30s, gemelo del de delegaciones.
+  // Agent usage stats — polling 30s.
   useEffect(() => {
     let cancelled = false;
     async function loadUsage() {
@@ -131,8 +98,11 @@ export function Agents() {
     setLoading(true);
     setError(null);
     try {
-      const res = (await invoke("list_agents", { projectPath: null })) as AgentEntry[];
-      setAgents(res);
+      const { entries, failures } = await listWithProjectEntries<AgentEntry>("list_agents");
+      setAgents(entries);
+      if (failures.length > 0) {
+        setError(`Algunos proyectos no se pudieron leer: ${failures.join("; ")}`);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -225,7 +195,7 @@ export function Agents() {
         prev.map((x) => (x.path === a.path ? { ...x, enabled: previousEnabled } : x)),
       );
       if (selected?.path === a.path) setSelected((s) => (s ? { ...s, enabled: previousEnabled } : s));
-      setError(`toggle ${a.name}: ${e}`);
+      setError(`No se pudo cambiar el estado de ${a.name}: ${e}`);
     } finally {
       setToggleBusy((prev) => {
         const n = new Set(prev);
@@ -258,18 +228,23 @@ export function Agents() {
       ),
     );
     if (names.length === 0) {
-      setError("Selection has no global agents to toggle.");
+      setError("La selección no tiene agentes globales que cambiar.");
       return;
     }
     setBulkBusy(true);
     setHasToggled(true);
     setError(null);
     try {
-      await invoke("agents_bulk_toggle", { names, disabled: !targetEnabled });
-      setChecked(new Set());
+      const result = await invoke<BulkToggleResult>("agents_bulk_toggle", {
+        names,
+        disabled: !targetEnabled,
+      });
+      const report = bulkToggleReport(result, targetEnabled, "agent");
+      setChecked(new Set(report.failedNames));
       await reload();
+      if (report.message) setError(report.message);
     } catch (e) {
-      setError(`Bulk toggle failed: ${e}`);
+      setError(`No se pudo aplicar el cambio en bloque: ${e}`);
     } finally {
       setBulkBusy(false);
     }
@@ -315,6 +290,7 @@ export function Agents() {
         key: `${a.origin}-${a.path}`,
         topGroup: deriveTopGroup(a),
         subGroup: deriveSubGroup(a),
+        label: a.name,
         data: a,
       })),
     [filtered],
@@ -355,7 +331,7 @@ export function Agents() {
             className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ background: "var(--color-warn, #ca8a04)" }}
           />
-          Restart Claude Code to apply agent changes.
+          Reinicia Claude Code para aplicar los cambios en los agentes.
         </div>
       )}
 
@@ -409,11 +385,10 @@ export function Agents() {
               the loading/empty/grid switch so they never vanish when a filter
               empties the grid (mand. 11). */}
           <AgentUsageStrip usage={usage} />
-          <DelegationsStrip delegations={delegations} />
 
           {loading ? (
             <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
-              Loading…
+              Cargando…
             </p>
           ) : filtered.length === 0 ? (
             <div
@@ -425,10 +400,10 @@ export function Agents() {
             >
               <p className="text-sm font-medium" style={{ color: "var(--color-text-secondary)" }}>
                 {enableFilter === "disabled"
-                  ? "No disabled agents matching the current filters."
+                  ? "No hay agentes desactivados con los filtros actuales."
                   : enableFilter === "active"
-                    ? "No active agents matching the current filters."
-                    : "No agents found."}
+                    ? "No hay agentes activados con los filtros actuales."
+                    : "No se ha encontrado ningún agente."}
               </p>
               {enableFilter !== "all" && (
                 <button
@@ -436,7 +411,7 @@ export function Agents() {
                   className="text-xs underline-offset-2 hover:underline"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  Show all
+                  Mostrar todos
                 </button>
               )}
             </div>
@@ -446,8 +421,8 @@ export function Agents() {
               {view === "blocks" ? (
                 <BlocksView<AgentEntry>
                   items={blockItems}
-                  noun="agent"
-                  emptyLabel="No agents for the current filter."
+                  noun="agente"
+                  emptyLabel="No hay agentes con el filtro actual."
                   topGroupAccent={(g) => {
                     if (g === "Global") return "rgba(167, 139, 250, 0.55)";
                     if (g === "Project") return "rgba(168, 136, 168, 0.40)";
@@ -499,17 +474,6 @@ export function Agents() {
       </div>
 
       {/* Modals */}
-      {installItem && (
-        <InstallConfirmModal
-          item={installItem}
-          kind="agent"
-          onClose={() => setInstallItem(null)}
-          onInstalled={() => {
-            setInstallItem(null);
-            void reload();
-          }}
-        />
-      )}
       {createOpen && (
         <CreateAgentModal
           projects={projects}

@@ -99,6 +99,14 @@ pub async fn open_in_vscode(folder_path: String, file_path: String) -> Result<()
     Ok(())
 }
 
+fn project_claude_dirs<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<PathBuf> {
+    paths
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| PathBuf::from(p).join(".claude"))
+        .filter(|dir| dir.is_dir())
+        .collect()
+}
+
 /// Compute the list of canonical roots a Library detail pane is allowed to
 /// read from. Anything outside this set is rejected with an error so a
 /// renderer bug can't surface arbitrary files from `C:\Windows`.
@@ -109,6 +117,14 @@ fn allowed_roots() -> Vec<PathBuf> {
         roots.push(home.join(".claude"));
         // ULTRON tree: cockpit/projects/<id>/.claude/* lives here.
         roots.push(home.join(".ultron"));
+    }
+    // Agents y Skills listan `<proyecto>/.claude` de los proyectos registrados:
+    // solo esa carpeta, no el proyecto entero.
+    match crate::projects::list_projects_inner() {
+        Ok(projects) => roots.extend(project_claude_dirs(
+            projects.iter().filter_map(|p| p.path.as_deref()),
+        )),
+        Err(e) => tracing::warn!("[read_text_file] sin raíces de proyecto: {e}"),
     }
     roots
         .into_iter()
@@ -135,6 +151,15 @@ pub fn read_text_file(path: String) -> Result<String, String> {
     if !canonical.is_file() {
         return Err(format!("not a file: {path}"));
     }
+    // Las raíces permitidas incluyen `~/.ultron` y `~/.claude` enteros, donde
+    // viven `.env` y `.credentials.json`: los ficheros de secretos se niegan
+    // siempre, sobre la ruta ya canonicalizada (un enlace no los esquiva).
+    if let Some(motivo) = secret_file_reason(&canonical) {
+        return Err(format!(
+            "read denied: {} is a secrets file ({motivo})",
+            canonical.display()
+        ));
+    }
 
     let roots = allowed_roots();
     let inside = roots.iter().any(|r| canonical.starts_with(r));
@@ -159,3 +184,33 @@ pub fn read_text_file(path: String) -> Result<String, String> {
 
     std::fs::read_to_string(&canonical).map_err(|e| format!("read {}: {e}", canonical.display()))
 }
+
+/// Motivo por el que `path` cuenta como fichero de secretos, o `None`.
+/// Nombres denegados (sin distinguir mayúsculas): `.env`, `.env.*`,
+/// `.credentials.json`, `*.key`, `*.pem`, `id_rsa*` y todo lo que cuelgue de
+/// un directorio `.ssh`.
+fn secret_file_reason(path: &Path) -> Option<&'static str> {
+    let bajo_ssh = path.parent().is_some_and(|dir| {
+        dir.components()
+            .any(|c| c.as_os_str().eq_ignore_ascii_case(".ssh"))
+    });
+    if bajo_ssh {
+        return Some("under .ssh");
+    }
+    let nombre = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    if nombre == ".env" || nombre.starts_with(".env.") {
+        Some(".env")
+    } else if nombre == ".credentials.json" {
+        Some(".credentials.json")
+    } else if nombre.ends_with(".key") || nombre.ends_with(".pem") {
+        Some("key or certificate")
+    } else if nombre.starts_with("id_rsa") {
+        Some("ssh key")
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+#[path = "external_editor_tests.rs"]
+mod tests;

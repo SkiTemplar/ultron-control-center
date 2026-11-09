@@ -1,201 +1,318 @@
-// pty/ops.rs — Session lifecycle operations: spawn, write, kill, capture.
+// pty/ops.rs — Lanzamiento de un PTY y su hilo lector.
+//
+// `spawn_with` admite tamaño, argumentos y entorno, evento en vivo,
+// callback de salida, alimentación de la pantalla (`on_output`) y la vista
+// que consulta el escritor (G2/G3). El núcleo, `lanzar`, no depende de Tauri
+// para poder probarlo con un `CommandBuilder` cualquiera.
 
 use base64::Engine;
-use portable_pty::{native_pty_system, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Read;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, Runtime};
 
-use super::registry::{new_ulid, now_iso, registry};
-use super::spawn::{build_command, log_pty_failure, resolve_cwd};
-use super::types::{PtySession, PtyStatus, PTY_REPLAY_BUFFER_MAX};
+use super::arbol::Arbol;
+use super::escritor::{Escritor, FuenteVista, Trabajo, Vista};
+use super::registry::{self, new_ulid};
+use super::salida::{self, OnExit};
+use super::spawn::{
+    build_command, log_pty_failure, resolve_cwd, strip_api_key_for_claude, strip_private_vars,
+};
+use super::types::{bloquear, PtySession, PtyStatus, Salida, PTY_REPLAY_BUFFER_MAX};
 
-pub fn spawn_inner<R: Runtime>(
-    app: AppHandle<R>,
-    project_id: String,
-    card_id: Option<String>,
-    provider: String,
-    agent: Option<String>,
-    cwd: String,
-    _prompt: Option<String>,
-) -> Result<String, String> {
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
-            rows: 30,
-            cols: 120,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| format!("openpty: {e}"))?;
+/// Destino de los eventos del PTY (la app en producción, un espía en tests).
+pub type Emisor = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+/// Recibe cada bloque de salida en el hilo lector, fuera de todo lock.
+pub type FnSalida = dyn Fn(&[u8]) + Send + 'static;
+pub type OnOutput = Box<FnSalida>;
 
-    // Build the command. provider is one of:
-    //   claude / codex  — AI CLI providers
-    //   powershell      — plain Windows PowerShell 5.1 PTY
-    //   powershell-admin         — UAC-elevated PowerShell (new window)
-    // agent maps to `--agent <slug>` when supported (claude). prompt is
-    // reserved for P4 (clipboard prime flow); not embedded in the command line.
-    let mut cmd = build_command(&provider, agent.as_deref()).map_err(|e| {
-        log_pty_failure(&provider, &cwd, &format!("build_command: {e}"));
+/// Opciones completas de lanzamiento de un PTY.
+pub struct SpawnOptions {
+    pub project_id: String,
+    pub card_id: Option<String>,
+    pub provider: String,
+    pub agent: Option<String>,
+    pub cwd: String,
+    pub cols: u16,
+    pub rows: u16,
+    /// Argumentos añadidos tras el comando base (ya validados por el llamador:
+    /// en Windows pasan por `cmd.exe /C`).
+    pub extra_args: Vec<String>,
+    /// Variables de entorno añadidas tras heredar el entorno del proceso.
+    pub extra_env: Vec<(String, String)>,
+    /// Variables heredadas que el hijo no debe recibir (secretos).
+    pub env_excluir: Vec<String>,
+    /// Evento de emisión en vivo (ver `PtySession::live_event`).
+    pub live_event: Option<String>,
+    pub on_exit: Option<OnExit>,
+    pub on_output: Option<OnOutput>,
+    /// Pantalla actual para G2/G3 del escritor; sin ella, `Unknown`.
+    pub vista: Option<FuenteVista>,
+}
+
+/// true si hay que añadir la bandera de saltarse permisos: solo `claude`,
+/// sin `--permission-mode` explícito y con `claude_safe_mode` desactivado.
+/// Hoy no se da nunca: el único llamante (Sessions) pasa siempre
+/// `--permission-mode`; el llamante sin él era el RunBatch del kanban,
+/// retirado el 2026-10-17.
+pub(super) fn anadir_bandera_skip(provider: &str, args: &[String], safe_mode: bool) -> bool {
+    provider == "claude" && !safe_mode && !args.iter().any(|a| a == "--permission-mode")
+}
+
+pub(super) fn construir(opts: &SpawnOptions) -> Result<(CommandBuilder, String), String> {
+    let mut cmd = build_command(&opts.provider, opts.agent.as_deref()).map_err(|e| {
+        log_pty_failure(&opts.provider, &opts.cwd, &format!("build_command: {e}"));
         e
     })?;
-    // All Claude sessions run with --dangerously-skip-permissions by default.
-    // Opt out via claude_safe_mode=true in ~/.ultron/cockpit/features.json.
-    if provider == "claude" {
-        let safe_mode = crate::features::read_features_inner().claude_safe_mode;
-        if !safe_mode {
-            cmd.arg("--dangerously-skip-permissions");
-        }
+    let safe_mode = crate::features::read_features_inner().claude_safe_mode;
+    if anadir_bandera_skip(&opts.provider, &opts.extra_args, safe_mode) {
+        cmd.arg("--dangerously-skip-permissions");
     }
-    // Resolve cwd to an absolute path. The frontend now passes the project's
-    // absolute path (ProjectInfo.path); the resolve_cwd helper canonicalises it
-    // and provides safe fallbacks (home dir → SystemDrive root) in case the
-    // directory no longer exists. This replaced the old "." default that caused
-    // sessions to open in C:\Windows\System32 on Windows (P0 bug 2026-05-27).
-    let resolved_cwd = resolve_cwd(&cwd);
+    for a in &opts.extra_args {
+        cmd.arg(a);
+    }
+    let resolved_cwd = resolve_cwd(&opts.cwd);
     cmd.cwd(&resolved_cwd);
-
-    // Inherit env so OAuth tokens / PATH carry over.
+    // Hereda el entorno para que OAuth y PATH lleguen al hijo.
     for (k, v) in std::env::vars() {
         cmd.env(k, v);
     }
-    // Force xterm-256color so TUIs (Claude, Codex) render the
-    // box-drawing characters + ANSI sequences they rely on. The Control
-    // Center process's TERM is typically empty on Windows, which causes
-    // some CLIs to fall back to a dumb mode where the UI never paints.
-    // COLORTERM lets the TUIs opt into 24-bit colour where supported.
+    // El bucle anterior volvía a meter ANTHROPIC_API_KEY después de que
+    // `build_command` la quitara: se vuelve a quitar aquí, tras heredar.
+    strip_api_key_for_claude(&mut cmd, &opts.provider);
+    strip_private_vars(&mut cmd);
+    for k in &opts.env_excluir {
+        cmd.env_remove(k);
+    }
+    // TERM/COLORTERM para que las TUIs pinten cajas y color de 24 bits.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    for (k, v) in &opts.extra_env {
+        cmd.env(k, v);
+    }
+    Ok((cmd, resolved_cwd))
+}
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| {
-        let msg = format!("spawn {provider}: {e}");
-        log_pty_failure(&provider, &resolved_cwd, &msg);
-        msg
-    })?;
-    drop(pair.slave); // child holds it now
+pub fn spawn_with<R: Runtime>(app: AppHandle<R>, mut opts: SpawnOptions) -> Result<String, String> {
+    let (cmd, cwd) = construir(&opts)?;
+    let id = new_ulid();
+    let on_exit = notificar_salida(app.clone(), id.clone(), opts.on_exit.take());
+    let emisor: Emisor = Arc::new(move |ev, payload| {
+        crate::main_watchdog::count_emit();
+        if let Err(e) = app.emit(ev, payload) {
+            tracing::debug!(error = %e, ev, "emisión del PTY fallida");
+        }
+    });
+    let l = Lanzamiento {
+        id,
+        provider: opts.provider.clone(),
+        cols: opts.cols,
+        rows: opts.rows,
+        live_event: opts.live_event.take(),
+        on_exit,
+        on_output: opts.on_output.take(),
+        vista: opts.vista.take(),
+    };
+    tracing::info!(
+        pty = %l.id,
+        provider = %l.provider,
+        proyecto = %opts.project_id,
+        tarjeta = ?opts.card_id,
+        "lanzando PTY"
+    );
+    lanzar(cmd, l, emisor).inspect_err(|e| log_pty_failure(&opts.provider, &cwd, e))
+}
 
-    let master = pair.master;
-    let mut reader = master
+/// Envuelve `on_exit` con la alerta de sesión terminada con error
+/// (card-vis-notif-session-error).
+fn notificar_salida<R: Runtime>(app: AppHandle<R>, id: String, cb: Option<OnExit>) -> OnExit {
+    Box::new(move |code| {
+        if let Some(cb) = cb {
+            cb(code);
+        }
+        let enabled = crate::features::read_features_inner().errors_immediate_notify;
+        if should_notify_session_error(code, enabled) {
+            crate::toast_emit::record_alert_and_maybe_toast(
+                &app,
+                &format!("session:{id}"),
+                "critical",
+                &format!("La sesion termino con error (codigo {code})"),
+            );
+        }
+    })
+}
+
+/// Datos de un lanzamiento ya resuelto.
+pub(crate) struct Lanzamiento {
+    pub id: String,
+    pub provider: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub live_event: Option<String>,
+    pub on_exit: OnExit,
+    pub on_output: Option<OnOutput>,
+    pub vista: Option<FuenteVista>,
+}
+
+/// Abre la pseudoconsola, lanza `cmd`, registra la sesión y arranca el
+/// escritor, el lector y el esperador.
+pub(crate) fn lanzar(
+    cmd: CommandBuilder,
+    l: Lanzamiento,
+    emisor: Emisor,
+) -> Result<String, String> {
+    let (child, master) = abrir(cmd, &l)?;
+    let reader = master
         .try_clone_reader()
         .map_err(|e| format!("clone reader: {e}"))?;
     let writer = master
         .take_writer()
         .map_err(|e| format!("take writer: {e}"))?;
+    let fuente: FuenteVista = l
+        .vista
+        .unwrap_or_else(|| -> FuenteVista { Arc::new(Vista::default) });
+    let escritor =
+        Escritor::lanzar(&l.id, writer, fuente).map_err(|e| format!("hilo escritor: {e}"))?;
+    let s = Arc::new(PtySession {
+        id: l.id.clone(),
+        provider: l.provider,
+        estado: Mutex::new(PtyStatus::Running),
+        salida: Mutex::new(Salida {
+            buffer: Vec::with_capacity(8 * 1024),
+            subscribed: false,
+        }),
+        live_event: l.live_event,
+        escritor,
+        master: Mutex::new(Some(master)),
+        killer: Mutex::new(Some(child.clone_killer())),
+        arbol: Mutex::new(Some(Arbol::crear(child.process_id()))),
+    });
+    registry::insert(s.clone());
+    let s_lector = s.clone();
+    let on_output = l.on_output;
+    let emisor2 = emisor.clone();
+    thread::Builder::new()
+        .name(format!("pty-lector-{}", l.id))
+        .spawn(move || reader_loop(&s_lector, reader, on_output.as_deref(), &emisor2))
+        .map_err(|e| format!("hilo lector: {e}"))?;
+    salida::lanzar_esperador(s, child, con_evento_de_salida(&l.id, l.on_exit, emisor))
+        .map_err(|e| format!("hilo esperador: {e}"))?;
+    tracing::info!(pty = %l.id, "PTY lanzado");
+    Ok(l.id)
+}
 
-    let id = new_ulid();
-    let session = PtySession {
-        id: id.clone(),
-        project_id: project_id.clone(),
-        card_id: card_id.clone(),
-        provider: provider.clone(),
-        started_at: now_iso(),
-        status: PtyStatus::Running,
-        master,
-        writer,
-        child,
-        output_buffer: Vec::with_capacity(8 * 1024),
-        subscribed: false,
-    };
+type Hijo = Box<dyn portable_pty::Child + Send + Sync>;
+type Maestro = Box<dyn portable_pty::MasterPty + Send>;
 
-    {
-        let mut reg = registry().lock().map_err(|e| e.to_string())?;
-        reg.insert(id.clone(), session);
-    }
+/// Abre la pseudoconsola y lanza `cmd` en ella.
+fn abrir(cmd: CommandBuilder, l: &Lanzamiento) -> Result<(Hijo, Maestro), String> {
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: l.rows,
+            cols: l.cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("openpty: {e}"))?;
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("spawn {}: {e}", l.provider))?;
+    drop(pair.slave); // el hijo lo conserva
+    Ok((child, pair.master))
+}
 
-    // Reader thread: capture stdout/stderr chunks into the session buffer.
-    //
-    // Every chunk is appended to the session's output_buffer, which is the
-    // source `capture_output_inner` polls (delegate flow). With the embedded
-    // terminal retired nothing flips `subscribed` anymore, so the live
-    // `pty:data:<id>` emit below never fires (kept for the buffer/emit
-    // handoff structure documented in PtySession).
-    let app_for_reader = app.clone();
-    let id_for_reader = id.clone();
-    thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        let engine = base64::engine::general_purpose::STANDARD;
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let slice = &buf[..n];
-                    // Capture into the ring buffer (trim if oversized) and
-                    // check the `subscribed` flag. While false — always,
-                    // since the embedded terminal was retired — we capture
-                    // but do NOT emit; consumers poll the buffer via
-                    // capture_output_inner instead.
-                    let subscribed_now = {
-                        match registry().lock() {
-                            Ok(mut reg) => {
-                                if let Some(s) = reg.get_mut(&id_for_reader) {
-                                    s.output_buffer.extend_from_slice(slice);
-                                    if s.output_buffer.len() > PTY_REPLAY_BUFFER_MAX {
-                                        let drop_n = s.output_buffer.len() - PTY_REPLAY_BUFFER_MAX;
-                                        s.output_buffer.drain(0..drop_n);
-                                    }
-                                    s.subscribed
-                                } else {
-                                    false
-                                }
-                            }
-                            Err(_) => false,
-                        }
-                    };
-                    if subscribed_now {
-                        let chunk = engine.encode(slice);
-                        let _ = app_for_reader.emit(
-                            &format!("pty:data:{id_for_reader}"),
-                            serde_json::json!({ "data": chunk }),
-                        );
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        // Reader EOF → wait for child to exit, then emit pty:exit.
-        let exit_code = {
-            let mut reg = registry().lock().ok();
-            match reg.as_mut() {
-                Some(reg) => match reg.get_mut(&id_for_reader) {
-                    Some(s) => match s.child.wait() {
-                        Ok(status) => {
-                            let code = status.exit_code() as i32;
-                            s.status = PtyStatus::Exited(code);
-                            code
-                        }
-                        Err(_) => {
-                            s.status = PtyStatus::Killed;
-                            -1
-                        }
-                    },
-                    None => -1,
-                },
-                None => -1,
+/// `on_exit` precedido del evento histórico `pty:exit:<id>`.
+fn con_evento_de_salida(id: &str, user_exit: OnExit, emisor: Emisor) -> OnExit {
+    let id = id.to_string();
+    Box::new(move |code| {
+        emisor(
+            &format!("pty:exit:{id}"),
+            serde_json::json!({ "exit_code": code }),
+        );
+        user_exit(code);
+    })
+}
+
+/// Hilo lector: entrega cada bloque a `on_output`, lo acumula en el búfer
+/// circular y, con la terminal enganchada, lo emite en vivo. El EOF ya no es
+/// la señal de salida (la da el esperador, `salida.rs`).
+fn reader_loop(
+    s: &PtySession,
+    mut reader: Box<dyn Read + Send>,
+    on_output: Option<&FnSalida>,
+    emisor: &Emisor,
+) {
+    let mut buf = [0u8; 4096];
+    let engine = base64::engine::general_purpose::STANDARD;
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                tracing::debug!(pty = %s.id, error = %e, "lectura del PTY terminada");
+                break;
             }
         };
-        let _ = app_for_reader.emit(
-            &format!("pty:exit:{id_for_reader}"),
-            serde_json::json!({ "exit_code": exit_code }),
-        );
-
-        // card-vis-notif-session-error: surface an immediate alert + toast when
-        // a session exits with an error code. Reuses the existing toast_emit
-        // pipeline (alerts.jsonl append + native toast on critical, rate-limited
-        // + user-toggleable). Gated by the errors_immediate_notify feature flag.
-        if should_notify_session_error(
-            exit_code,
-            crate::features::read_features_inner().errors_immediate_notify,
-        ) {
-            crate::toast_emit::record_alert_and_maybe_toast(
-                &app_for_reader,
-                &format!("session:{id_for_reader}"),
-                "critical",
-                &format!("La sesion termino con error (codigo {exit_code})"),
-            );
+        let slice = &buf[..n];
+        if let Some(f) = on_output {
+            f(slice);
         }
-    });
+        if let Some(target) = capture_chunk(s, slice) {
+            let chunk = engine.encode(slice);
+            match target {
+                Some(event) => emisor(&event, serde_json::Value::String(chunk)),
+                None => emisor(
+                    &format!("pty:data:{}", s.id),
+                    serde_json::json!({ "data": chunk }),
+                ),
+            }
+        }
+    }
+    tracing::debug!(pty = %s.id, "lector del PTY terminado (EOF)");
+}
 
-    Ok(id)
+/// Consulta de posición del cursor (DSR) que ConPTY emite al arrancar.
+const CURSOR_QUERY: &[u8] = b"\x1b[6n";
+/// Respuesta neutra: el cursor en la esquina superior izquierda.
+const CURSOR_REPLY: &[u8] = b"\x1b[1;1R";
+
+/// Quita del búfer la primera consulta DSR que empiece en `from` o después
+/// (cubre una secuencia partida entre dos lecturas). Devuelve si la había.
+pub(super) fn take_cursor_query(buf: &mut Vec<u8>, from: usize) -> bool {
+    let start = from.saturating_sub(CURSOR_QUERY.len() - 1);
+    let Some(pos) = buf.get(start..).and_then(|tail| {
+        tail.windows(CURSOR_QUERY.len())
+            .position(|w| w == CURSOR_QUERY)
+    }) else {
+        return false;
+    };
+    let at = start + pos;
+    buf.drain(at..at + CURSOR_QUERY.len());
+    true
+}
+
+/// Añade `slice` al búfer circular. Devuelve `Some(evento)` si hay que emitir
+/// (`Some(None)` = formato histórico) o `None` si no hay terminal enganchado.
+///
+/// portable-pty crea la ConPTY con `PSEUDOCONSOLE_INHERIT_CURSOR`: conhost
+/// pide la posición del cursor y no lanza el proceso hasta recibirla. Con un
+/// xterm enganchado responde él; sin terminal (chat de Sesiones) se
+/// responde aquí, por el escritor como trabajo exento, y la consulta sale del
+/// búfer para que un xterm que se enganche después no la conteste otra vez.
+fn capture_chunk(s: &PtySession, slice: &[u8]) -> Option<Option<String>> {
+    let mut sal = bloquear(&s.salida);
+    let before = sal.buffer.len();
+    sal.buffer.extend_from_slice(slice);
+    if !sal.subscribed && take_cursor_query(&mut sal.buffer, before) {
+        s.escritor.encargar(Trabajo::Exento(CURSOR_REPLY.to_vec()));
+    }
+    if sal.buffer.len() > PTY_REPLAY_BUFFER_MAX {
+        let drop_n = sal.buffer.len() - PTY_REPLAY_BUFFER_MAX;
+        sal.buffer.drain(0..drop_n);
+    }
+    sal.subscribed.then(|| s.live_event.clone())
 }
 
 /// Whether a PTY exit warrants an error notification. Only genuine non-zero
@@ -205,9 +322,3 @@ pub fn spawn_inner<R: Runtime>(
 pub(super) fn should_notify_session_error(exit_code: i32, enabled: bool) -> bool {
     enabled && exit_code > 0
 }
-
-// `write_inner` / `kill_inner` / `capture_output_inner` (write/kill-by-id +
-// offset-based output capture) were retired 2026-09-14 alongside
-// `agent_orchestration::delegate`, their only caller (kanban "comandos
-// huérfanos"). Recoverable from git history if the feature gets wired to a
-// UI later.

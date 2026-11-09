@@ -1,0 +1,20 @@
+{
+  "name": "ULTRON Acero",
+  "base": "dark",
+  "overrides": {
+    "claude": "#c8875e",
+    "promptBorder": "#5f7a8a",
+    "planMode": "#7d9c8a",
+    "autoAccept": "#b07a5a",
+    "bashBorder": "#5c6670",
+    "suggestion": "#8fa3b0",
+    "permission": "#8fa3c8",
+    "success": "#7fae8f",
+    "error": "#d0605e",
+    "warning": "#d4a35a",
+    "inactive": "#6b7378",
+    "subtle": "#4a5156",
+    "diffAdded": "#1f3329",
+    "diffRemoved": "#3d2326"
+  }
+}

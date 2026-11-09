@@ -1,0 +1,10 @@
+{
+  "sessionId": "sesion-falsa",
+  "configOptions": [
+    {"id":"mode","category":"mode","type":"select","name":"Session Mode","currentValue":"build",
+      "options":[{"value":"build","name":"build","description":"Ejecuta herramientas según permisos"},
+        {"value":"plan","name":"plan","description":"No permite editar"}]},
+    {"id":"model","category":"model","type":"select","name":"Model","currentValue":"opencode/big-pickle",
+      "options":[{"value":"opencode/big-pickle","name":"OpenCode/Big Pickle"}]}
+  ]
+}

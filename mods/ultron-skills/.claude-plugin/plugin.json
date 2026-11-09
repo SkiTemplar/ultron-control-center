@@ -1,0 +1,6 @@
+{
+  "name": "ultron-skills",
+  "version": "0.1.0",
+  "description": "Panel /skills: qué skills se han activado en esta sesión, por dónde y cuánto contexto han metido",
+  "types": "./types/index.d.ts"
+}

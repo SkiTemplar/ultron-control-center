@@ -51,11 +51,6 @@ export type WorkspaceSummary = {
   git_root: string | null;
 };
 
-export type SpawnResult = {
-  launched: boolean;
-  provider: string;
-};
-
 export type SessionProvider = "claude" | "codex";
 
 /** Kind of a launcher item inside a project's `items[]`.
@@ -161,6 +156,26 @@ export type ProjectInfo = {
    *  tauri dev`), ejecutado en una ventana de terminal nueva con cwd =
    *  `path`. `null`/missing = el botón "Abrir app" se deshabilita. */
   app_command?: string | null;
+  /** «Jugar» — motor detectado en disco por `list_projects` (no se guarda en
+   *  projects.json). `null`/missing = no es un proyecto de Unreal ni de Unity
+   *  y no se pinta el botón «Jugar». */
+  game_engine?: GameEngine | null;
+};
+
+export type GameEngine = "unreal" | "unity";
+
+/** Modo con el que `project_play_game` abrió el juego:
+ *  - `packaged`: build empaquetado de Unreal;
+ *  - `editor_game`: Unreal sin empaquetar, `UnrealEditor <uproject> -game -windowed`;
+ *  - `player`: player de Windows de Unity. */
+export type GameLaunchMode = "packaged" | "editor_game" | "player";
+
+/** Respuesta de `project_play_game`. `message` explica el modo en castellano. */
+export type GameLaunchResult = {
+  engine: GameEngine;
+  mode: GameLaunchMode;
+  executable: string;
+  message: string;
 };
 
 export type ProjectActionResult = {

@@ -70,7 +70,7 @@ describe("SessionCard — resumen AI bajo demanda", () => {
       expect.anything(),
     );
     // El affordance del resumen AI está disponible
-    expect(screen.getByText("resumir AI")).toBeTruthy();
+    expect(screen.getByText("resumir con IA")).toBeTruthy();
   });
 
   // -------------------------------------------------------------------------
@@ -81,7 +81,7 @@ describe("SessionCard — resumen AI bajo demanda", () => {
     vi.mocked(invoke).mockResolvedValueOnce("Resumen AI generado por el backend");
     renderCard({ session_id: "sess-click" });
 
-    fireEvent.click(screen.getByText("resumir AI"));
+    fireEvent.click(screen.getByText("resumir con IA"));
 
     await waitFor(() => {
       expect(vi.mocked(invoke)).toHaveBeenCalledWith(
@@ -95,7 +95,7 @@ describe("SessionCard — resumen AI bajo demanda", () => {
 
     // El truncado local ya no se muestra y el botón desaparece
     expect(screen.queryByText(LOCAL_SUMMARY)).toBeNull();
-    expect(screen.queryByText("resumir AI")).toBeNull();
+    expect(screen.queryByText("resumir con IA")).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -106,10 +106,10 @@ describe("SessionCard — resumen AI bajo demanda", () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error("modelo no disponible"));
     renderCard({ session_id: "sess-err" });
 
-    fireEvent.click(screen.getByText("resumir AI"));
+    fireEvent.click(screen.getByText("resumir con IA"));
 
     await waitFor(() => {
-      expect(screen.getByText("reintentar AI")).toBeTruthy();
+      expect(screen.getByText("reintentar IA")).toBeTruthy();
     });
 
     // Sigue el truncado local, con el error accesible vía tooltip

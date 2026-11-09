@@ -50,10 +50,8 @@ pub struct Features {
     // sale con codigo > 0. Default on.
     #[serde(default = "default_true")]
     pub errors_immediate_notify: bool,
-    // card-ux-projects-dashboard-minimalista: nuevo dashboard de proyecto tipo IDE
-    // (paneles) detras de flag. Default OFF (opt-in) hasta validacion visual.
-    #[serde(default = "default_false")]
-    pub projects_dashboard_v2: bool,
+    // `projects_dashboard_v2` retirado el 2026-10-17: ningún componente lo leía.
+    // Un features.json antiguo que lo traiga sigue parseando (clave ignorada).
 }
 
 fn default_true() -> bool {
@@ -78,7 +76,6 @@ impl Default for Features {
             sessions: true,
             claude_safe_mode: false,
             errors_immediate_notify: true,
-            projects_dashboard_v2: false,
         }
     }
 }
@@ -106,4 +103,24 @@ pub fn read_features_inner() -> Features {
 #[tauri::command]
 pub fn read_features() -> Features {
     read_features_inner()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clave_retirada_projects_dashboard_v2_se_ignora() {
+        let json = r#"{"memory": false, "projects_dashboard_v2": true}"#;
+        let f: Features = serde_json::from_str(json).expect("debe parsear con la clave retirada");
+        assert!(!f.memory);
+        assert!(f.plans);
+        let out = serde_json::to_value(&f).expect("serializa");
+        assert!(out.get("projects_dashboard_v2").is_none());
+    }
+
+    #[test]
+    fn json_malformado_no_parsea() {
+        assert!(serde_json::from_str::<Features>("{\"memory\": 3}").is_err());
+    }
 }

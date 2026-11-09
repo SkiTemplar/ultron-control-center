@@ -15,7 +15,7 @@
  * efectos secundarios.
  *
  * Confianza (revision de codigo 2026-09-11): el contenido de summary.md lo
- * escribio un modelo (`claude -p`), no el sistema — renderLastSessionLines()
+ * escribio un modelo (LLM secundaria), no el sistema — renderLastSessionLines()
  * lo entrega en su PROPIO bloque `trust="session-summary"`, nunca mezclado con
  * el `trust="system"` del resume/orquestacion que lo envuelve.
  */

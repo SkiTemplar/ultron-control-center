@@ -157,6 +157,8 @@ function runHook({ home, cwd, stubLog, prompt, sessionId, sparsePack }) {
         USERPROFILE: home,
         HOME: home,
         ULTRON_MEMORY_BIN: BIN,
+        // El modo ligero (por defecto desde 2026-09-28) no sirve pack: aqui se prueba el completo.
+        ULTRON_ORCHESTRATE: 'full',
         ULTRON_STUB_LOG: stubLog,
         ULTRON_STUB_SPARSE_PACK: sparsePack ? JSON.stringify(sparsePack) : '',
       },

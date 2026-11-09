@@ -1,137 +1,146 @@
-# ULTRON — Hooks de Claude Code (fuente versionada + manifest OLA I)
+# ULTRON — Hooks de Claude Code
 
-Estos son los hooks que integran ULTRON con Claude Code. Claude Code los
-ejecuta desde `~/.claude/scripts/` (donde `install-hooks.ps1` los copia),
-pero la **fuente de verdad (SoT) unica y versionada** es esta carpeta:
+Los hooks que integran ULTRON con Claude Code viven versionados en esta
+carpeta y Claude Code los ejecuta **in situ**: `~/.claude/settings.json`
+apunta directamente a `~/.ultron/hooks/scripts/*.js`. No hay copia a
+`~/.claude/scripts/` ni script de instalación propio de los hooks.
 
-```
-~/.ultron/hooks/scripts/*.js
-```
+## Fuente de verdad y espejos
 
-Cualquier cambio se hace AQUI y se propaga con `install-hooks.ps1`. La SoT
-historica estaba fragmentada (`~/.claude/scripts` sin versionar + restos en
-`~/.ultron/hooks/hooks`); a partir de OLA I la unica SoT versionada de hooks
-de sesion es `~/.ultron/hooks/scripts`.
+| Fichero | Papel |
+|---------|-------|
+| `~/.claude/settings.json` | Config viva: decide **qué** corre. Se edita aquí. |
+| `hooks/manifest.json` | Espejo versionado y auditado (checksums, `writer_path`, descripción). Lo genera `node hooks/regen-manifest.js`; no se edita `hooks[]` a mano. |
+| `templates/settings-hooks.json` | Plantilla que fusionan `install.ps1` / `install.sh` en una instalación nueva. La genera el mismo `regen-manifest.js`. |
+
+Gate de paridad (pre-commit): `node hooks/regen-manifest.js --check` falla si
+el manifest o la plantilla no coinciden con `settings.json` o si el checksum
+de un script o de sus librerías cambió sin regenerar. Los checksums se calculan
+sobre los ficheros del repo donde vive `regen-manifest.js` (también desde un
+worktree). `--settings <ruta>` o `ULTRON_HOOKS_SETTINGS` cambian el
+`settings.json` de origen, para regenerar un cableado propuesto antes de
+aplicarlo al real.
 
 ## Regla de oro: los hooks PROPONEN, no escriben memoria
 
-- El **unico escritor** del Source of Truth de memoria (`brain.db`, 943
-  active) es **MemoryService** (el sidecar Rust `ultron-memory`).
-- Los hooks **NUNCA** escriben memoria canonica directa. Solo pueden:
+- El **único escritor** de la memoria (`brain.db`) es **MemoryService**, el
+  sidecar Rust `ultron-memory`.
+- Los hooks **nunca** escriben memoria canónica directa. Solo pueden:
   - emitir `additionalContext` (solo lectura del contexto), o
-  - dejar **candidates** en colas/inbox que el backend drena via
-    MemoryService (Stop -> candidate).
+  - proponer **candidatos** al inbox gobernado vía el sidecar
+    (`ultron-memory capture` / `candidate`).
 - `writer_path` permitido en el manifest: `"MemoryService"` o `"NONE"`.
-  PROHIBIDO: `qdrant_direct`, `mem0`.
+  Prohibido: `qdrant_direct`, `mem0`.
 
-### Flujo Stop -> candidate
-
-`stop-compress-session.js` ya **no** hace upsert directo a Qdrant
-`ultron_sessions` (retirado en `d3a16ff`: estaba fuera del SoT y usaba una
-dimension de embedding incompatible). Ahora:
+### Flujo Stop → candidato
 
 ```
 Stop hook (stop-compress-session.js)
-  -> extrae hechos de la transcripcion
+  -> extrae hechos de la transcripción
   -> `ultron-memory capture` propone candidatos   (redaction + inbox gobernado)
-  -> el usuario aprueba/rechaza en el inbox        (nunca auto-promocion)
-  -> MemoryService escribe a brain.db              (unico escritor)
+  -> `ultron-memory inbox drain --auto`            (en segundo plano, sin el usuario)
+     aprueba las bandas A/B y rechaza secreto, duplicado, conflicto y ruido
+  -> MemoryService escribe en brain.db             (único escritor)
 ```
 
-## `manifest.json`
+El inbox es autónomo desde el 2026-07-13 (decisión del usuario): la política
+de aprobación vive en el binario (`bin/ultron_memory/inbox_auto.rs` y
+`memory/auto_approve.rs`) y cada rechazo queda con su motivo. Solo quedan
+pending lo que no se pudo verificar (infraestructura caída) y las capturas que
+el usuario no afirmó: esas esperan validación humana 7 días y después se
+rechazan como caducadas. Los candidatos de `posttoolfail-capture`,
+`subagent-harvest` y `lesson-distill` también entran pending y los resuelve el
+mismo drenaje.
 
-Cada hook VIVO versionado tiene una entrada en `manifest.json` con:
+## Campos de `manifest.json`
 
 | Campo | Significado |
 |-------|-------------|
-| `id` | Identificador estable del hook |
-| `event` | `Stop` \| `SessionStart` \| `UserPromptSubmit` |
-| `command_rel` | Ruta del `.js` relativa a `~/.ultron/hooks/` |
-| `timeout_s` | Presupuesto de tiempo (s) |
-| `env_allowlist` | Variables de entorno que el hook puede leer |
-| `version` | SemVer del hook |
-| `checksum_sha256` | SHA-256 REAL del `.js` (verifica integridad) |
-| `failure_policy` | `no_op` (fail-safe) o `disable_after_N` |
-| `writes_memory` | `true`/`false` — si toca memoria |
-| `writer_path` | `"MemoryService"` \| `"NONE"` (nunca direct stores) |
-
-Verificar el checksum de un hook:
-
-```powershell
-node -e "const fs=require('fs'),c=require('crypto');console.log(c.createHash('sha256').update(fs.readFileSync('scripts/stop-compress-session.js')).digest('hex'))"
-```
+| `id` | Identificador estable (nombre del script sin extensión) |
+| `event` / `matcher` | Evento de Claude Code y matcher del grupo |
+| `command` / `script` | Comando y ruta, con el home sustituido por `~` |
+| `timeout_s` / `async` | Presupuesto y si corre desacoplado (un hook `async` no puede hablar al modelo: su stdout se descarta) |
+| `checksum_sha256` | SHA-256 del script con finales de línea normalizados a LF |
+| `deps_sha256` | SHA-256 de las librerías locales que el script carga (`require` relativo, transitivo); `null` si no carga ninguna. Un `require` con ruta calculada no se sigue |
+| `env_allowlist`, `version`, `failure_policy` | Metadatos que se conservan entre regeneraciones |
+| `writes_memory` / `writer_path` | Si toca memoria y por dónde (`MemoryService` o `NONE`) |
 
 ## Fail-safe y observabilidad
 
-No hay un runner común: `scripts/lib/hook-runner.js` (circuit-breaker +
-logging por hook) se retiró el 2026-09-11 porque ningún hook llegó a usarlo.
-Cada hook aplica su propio fail-safe: `try/catch` en el nivel superior,
-`process.exitCode = 0` para no romper nunca la sesión, y rastro de fallos con
-`logHookError` de `scripts/lib/hook-obs.js` (`hook-errors.jsonl`). La duración
-se registra con `observe()` del mismo módulo.
+No hay un runner común. Cada hook aplica su propio fail-safe: `try/catch` en el
+nivel superior, `process.exitCode = 0` para no romper nunca la sesión, y rastro
+de fallos con `logHookError` de `scripts/lib/hook-obs.js` (`hook-errors.jsonl`).
+La duración se registra con `observe()` del mismo módulo.
 
-## Inventario de hooks VIVOS (settings.json, 2026-06-04 HEAD f936a66)
+## Inventario de hooks vivos (2026-10-23, 32 entradas en `manifest.json`)
 
-### `Stop`
-| Hook | Proposito |
-|------|-----------|
-| `stop-compress-session.js` | Comprime la sesion a hechos -> `ultron-memory capture` (candidatos al inbox gobernado). Upsert a Qdrant `ultron_sessions` **RETIRADO** (`d3a16ff`); sink `decisions-pending.jsonl` **ERRADICADO** (cat20.3, sin consumidor). |
-| `response-meter.js` | F4.2/7.3: mide la respuesta del turno (lineas, palabras, cabeceras, listas, disculpas, preambulos; limite 12 lineas/220 palabras) en `logs/response-meter.jsonl`; el resume pinta media, % sobre el limite y tendencia de las ultimas 3 sesiones. |
-| `kanban-update-reminder.js` | Solo si el turno tuvo Edit/Write en el cwd o `git commit`: cierra las cards que matchean un commit reciente y, si hay tarjetas In Progress, las nombra una vez por sesion (cooldown 30 min). Sin trabajo en el turno, silencio. Una card reabierta a mano no se vuelve a cerrar por el mismo commit (memoria de cierres en `kanban.auto-close.json`, junto al tablero) y el turno se corta en el ultimo prompt, humano o de sistema (v3.1). |
-| `batch-capture.js` | Captura comandos REJECTED/FAILED a la cola Run Batch (`queue-pending.jsonl`). |
+La evaluación de los 33 tipos de evento de Claude Code 2.1.309 (cuáles se
+cablean y por qué se descartan los demás) está en
+[`docs/hooks-coverage.md`](../docs/hooks-coverage.md).
 
-### `SessionStart`
-| Hook | Proposito |
-|------|-----------|
-| `load-cross-project-memory.js` | Inyecta el indice de `MEMORY.md` de proyectos recientes. |
-| `session-start-override.js` | Fallback de resumen de sesion previa por nombre de proyecto. |
-| `workday-session-linker.js` | Auto-enlaza la sesion al Workday in_progress (offline -> `_pending-links.jsonl`). |
-| `memory-session-resume.js` | Resume canonico (workflows/tareas/decisiones/pinned) leido del SoT via `ultron-memory resume`. Desde 2026-09-04 anade `feedback_pendiente`/`session_feedback`, `response_meter` y el bloque `codegraph` (tamano del indice, zonas, hubs; cache en `.codegraph/ultron-summary.json`). |
+| Evento | Hook | Modo | Propósito |
+|--------|------|------|-----------|
+| `SessionStart` | `ensure-codegraph.js` | sync | Mantiene vivo el daemon/watcher de CodeGraph. |
+| `SessionStart` | `memory-session-resume.js` | sync | Resume del proyecto (tareas, decisiones, pinned, siguiente acción) leído vía `ultron-memory resume`. |
+| `SessionStart` | `ensure-project.js` | sync | Da de alta el proyecto en `cockpit/projects.json` y aplica las normas de alta. |
+| `UserPromptSubmit` | `socratic-gate.js` | sync | Protocolo socrático; modo por proyecto en `cockpit/projects.json` (`scripts/project-socratic.mjs <id> <modo>`). |
+| `UserPromptSubmit` | `save-user-prompt.js` | sync | Archiva cada prompt no trivial en el inbox diario. |
+| `UserPromptSubmit` | `memory-orchestrate.js` | sync | Modo ligero por defecto (solo el tono); `ULTRON_ORCHESTRATE=full` restaura recall, routing y delegación. |
+| `UserPromptSubmit` | `session-feedback-capture.js` | sync | Captura `fb: si\|no\|estorbo [nota]` en `logs/session-feedback.jsonl`. |
+| `UserPromptSubmit` | `run-project-tests-report.js` | sync | Informa al modelo de los tests rotos que lanzó `run-project-tests.js`. |
+| `UserPromptSubmit` | `context-guard.js` | sync | A partir de 200k de contexto decide con la bitácora si conviene compactar. |
+| `UserPromptSubmit` | `usage-pace-guard.js` | sync | Avisa si el uso de las ventanas de 5 h o semanal va por delante del tiempo transcurrido. |
+| `PreToolUse` | `deny-secrets.js` | sync | Gate de credenciales (deny duro de claves, keystores, `.ssh`, etc.). |
+| `PreToolUse` | `document-convert-hint.js` | sync | En un `Read` de `.docx/.pptx/.xlsx/.epub` o PDF grande sugiere `markitdown`. |
+| `PreToolUse` | `codegraph-first.js` | sync | En un proyecto con índice de CodeGraph, deniega una vez por sesión y subagente la segunda exploración (`Grep`, `Glob` o `Read` de código) sin haber usado CodeGraph. Fail-open; `ULTRON_CODEGRAPH_FIRST=0` lo apaga. |
+| `PreToolUse` | `guardrails-pre.js` | sync | Comprobaciones deterministas (agente inexistente, bandera de saltarse permisos...). |
+| `PreToolUse` | `uni-deliverable-guard.js` | sync | Bloquea la escritura en `borrador/` y `entrega/` de trabajos universitarios. |
+| `PostToolUse` | `posttoolfail-capture.js` | async | Registra fallos de herramienta (también en `PostToolUseFailure`). |
+| `PostToolUse` | `guardrails-post.js` | sync | Avisa si el texto recién escrito rompe una norma de contenido. |
+| `PostToolUse` | `run-project-tests.js` | async | Lanza la suite del proyecto tras editar código (tope 120 s, debounce 60 s). |
+| `PostToolUseFailure` | `posttoolfail-capture.js` | async | Fallos donde la herramienta no devolvió resultado. |
+| `PreCompact` | `precompact-preserve-l0.js` | sync | Preserva el estado L0 en `~/.ultron/.tmp/context.md`. |
+| `PreModelSwitch` | `model-family-guard.js` | sync | Deniega un cambio de modelo (`/model`, selector, `/config`, `set_model` del SDK) fuera de la familia 5.5. Escape `ULTRON_MODEL_GUARD=0`. |
+| `PostModelSwitch` | `model-family-guard.js` | sync | Avisa al usuario y al modelo si un cambio que no se puede bloquear (fallback automático, resume) deja la sesión fuera de la familia 5.5. |
+| `Stop` | `stop-compress-session.js` | async | Comprime la sesión a candidatos vía `ultron-memory capture` y lanza el drenaje autónomo del inbox. |
+| `Stop` | `batch-capture.js` | async | Encola los comandos rechazados o que la IA no pudo ejecutar (`ai_cannot_execute`) para el desplegable «Ejecutar .bat» de Projects; los que solo fallaron no se encolan. |
+| `SubagentStart` / `SubagentStop` | `subagent-lifecycle.js` | async | Ciclo de vida de cada subagente en `.tmp/subagent-lifecycle`. |
+| `SubagentStop` | `subagent-harvest.js` | async | Registra el resultado del subagente y propone un candidato si no es trivial. |
+| `SessionEnd` | `session-end-bitacora.js` | async | Escribe la bitácora de la sesión que cierra. |
+| `SessionEnd` | `lesson-distill.js` | async | Destila 0-3 lecciones como candidatos `lesson`. |
+| `SessionEnd` | `project-profile.js` | async | Mantiene `cockpit/projects/<id>/profile.json`. |
+| `SessionEnd` | `session-feedback-mark.js` | async | Deja `feedback-pending.json` para preguntar en la siguiente sesión. |
+| `SessionEnd` | `memory-gc.js` | async | Mantenimiento semanal de `brain.db` a 90 días (`ultron-memory gc`). |
+| `Notification` | `notify-relay.js` | async | Reenvía las notificaciones a `~/.ultron/.tmp/notifications.log`. |
 
-### `UserPromptSubmit`
-| Hook | Proposito |
-|------|-----------|
-| `routing-dispatcher.js` | Sugiere skill/persona por intencion del prompt (scoring determinista). |
-| `socratic-gate.js` | Protocolo socratico en cada prompt (escalada ante acks de bajo esfuerzo). Modo por proyecto: `socratic: strict|light|off` en `cockpit/projects.json` (ausente = strict); `scripts/project-socratic.mjs <id> <modo>`. |
-| `save-user-prompt.js` | Archiva cada prompt no trivial en el inbox diario (candidate a promover). |
-| `memory-orchestrate.js` | Enruta el prompt por el orquestador canonico (`ultron-memory orchestrate`). |
-| `session-feedback-capture.js` | Metrica externa (ULTRON 4, 12.1): captura `fb: si|no|estorbo [nota]` en `logs/session-feedback.jsonl`, retira el `feedback-pending.json` del proyecto y propone la nota como candidato de memoria. Sin `fb:`: silencio. |
-| `run-project-tests-report.js` | Reporter de F4.1: en el turno siguiente dice los tests rotos (nombres), el timeout o, una vez por sesion, que no hay comando de test; anuncia el verde solo tras un fallo reportado. |
+## Retirados
 
-### `PostToolUse` (`Edit|Write|MultiEdit|NotebookEdit`, async)
-| Hook | Proposito |
-|------|-----------|
-| `run-project-tests.js` | F4.1: tras editar codigo del proyecto lanza la suite COMPLETA en un runner desacoplado (tope 120 s, debounce 60 s). Comando: linea `test: <cmd>` en el CLAUDE.md del proyecto, o package.json / Cargo.toml / pyproject / go.mod. Resultado en `.tmp/run-tests/<project>.result.json`. |
+Fuera de `settings.json` y ya borrados del repo: `codegraph-reminder`,
+`markdown-lint-hint`, `ai-text-warn`, `load-cross-project-memory` y
+`session-start-override` (2026-09-29/30), `kanban-update-reminder`
+(2026-10-08), `mem0-sync`, `session-recall-inject`, `quota-capture` y
+`workday-*` (los dos últimos vivían en `hooks/hooks/`, que se borró el
+2026-08-09), y `response-meter` (2026-10-23: su único consumidor, la línea de
+concisión del resume, salió el 2026-09-29 y `logs/response-meter.jsonl` crecía
+sin lector).
+La cobertura de cada evento de hook de Claude Code (cableado, descartado y
+motivo) está en [`docs/hooks-coverage.md`](../docs/hooks-coverage.md). El dispatcher de skills (`cockpit/skill-lazy/routing-dispatcher.v2.js`
+y `v3.js`) sigue en el repo pero no está registrado como hook desde el
+2026-09-29.
 
-### `SessionEnd` (async: no hablan al modelo)
-| Hook | Proposito |
-|------|-----------|
-| `session-end-summary.js` | Retirado de Claude Code el 2026-09-27 (redundante con la bitacora `summary.md`); solo lo empaqueta el plugin de Cowork. |
-| `lesson-distill.js` | Destila 0-3 candidatos `lesson` (sintoma, causa, regla) via el daemon. |
-| `project-profile.js` | Mantiene `cockpit/projects/<id>/profile.json` (que es, stack, arquitectura, estado, decisiones). |
-| `session-feedback-mark.js` | Deja `feedback-pending.json` (minutos, turnos humanos, commits) para que el siguiente SessionStart del proyecto pregunte si ULTRON ayudo. Solo proyectos registrados que no son ultron y con >=3 turnos; un pending ignorado se registra como `sin_respuesta`. |
+Siguen en `hooks/scripts/` sin registrar como hook de Claude Code:
 
-## De-registrados / fuera de settings.json (correccion del inventario)
-
-El inventario anterior listaba como vivos hooks que YA **no** lo estan:
-
-| Hook | Estado | Motivo |
-|------|--------|--------|
-| `mem0-sync.js` | **FUERA** de settings.json | De-registrado (P0 config viva). Escribia a Mem0 cloud (store competidor, fuera del SoT). Sigue versionado como referencia. |
-| `quota-capture.js` | **FUERA** de settings.json | Quota QUITADO (`cbb2d5c`). Vive en `hooks/hooks/`, ya no se invoca. |
-| `session-recall-inject.js` | **FUERA** de settings.json | Reemplazado por `memory-session-resume.js` (resume canonico, dim E5 1024d). |
-| `workday-auto-update.js` | No es hook de sesion | Tarea programada de Windows (cada 15 min) en `hooks/hooks/`. |
-
-## Instalacion
-
-```powershell
-powershell -ExecutionPolicy Bypass -File hooks\install-hooks.ps1
-# opcional: registrar la tarea programada de Workdays (cada 15 min)
-powershell -ExecutionPolicy Bypass -File hooks\install-hooks.ps1 -RegisterTask
-```
+- `ensure-qdrant.js`, `memory-warmup.js` (con `memory-warm-models.js`) y
+  `qdrant-mirror-sync.js`: para volver al recall híbrido si se reactiva el
+  denso (ver §Memoria del `CLAUDE.md` del repo).
+- `session-summarize-previous.js`: lo lanza `session-end-bitacora.js`.
+- `session-end-summary.js`: solo lo empaqueta el plugin de Cowork.
+- `research-mcp.js`: servidor MCP, no hook.
+- `project-roster-context.js`: SessionStart que no está en `settings.json`;
+  solo lo ejercita su selftest.
 
 ## Nota de mantenimiento
 
-Edita SIEMPRE aqui (`~/.ultron/hooks/scripts/`), no en `~/.claude/`. Tras
-editar un `.js`, **recalcula su `checksum_sha256` en `manifest.json`** y
-re-ejecuta `install-hooks.ps1` para propagar a `~/.claude/`.
+Edita siempre aquí (`~/.ultron/hooks/scripts/`). Tras tocar un hook o
+`settings.json`, ejecuta `node hooks/regen-manifest.js` para refrescar
+checksums, manifest y plantilla.

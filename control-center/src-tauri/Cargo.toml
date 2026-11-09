@@ -19,11 +19,14 @@ path = "src/main.rs"
 
 [lib]
 name = "control_center_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop-only app: the staticlib/cdylib artefacts of the mobile template are
+# not built (the crate depends on wmi/windows-sys/PowerShell anyway).
+crate-type = ["rlib"]
 
 # Memory/orchestrator CLI sidecar invoked by the Claude Code hooks (Node) so the
 # hooks reuse the canonical Rust logic instead of duplicating it in JS.
-#   cargo build --release --bin ultron-memory --features qdrant
+#   cargo build --release --bin ultron-memory   (qdrant is a default feature)
+# Deploy: node scripts/redeploy-memory-sidecar.mjs from the repo root.
 [[bin]]
 name = "ultron-memory"
 path = "src/bin/ultron_memory/main.rs"
@@ -33,16 +36,15 @@ required-features = ["qdrant"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
-tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
@@ -60,10 +62,15 @@ thiserror = "1"
 serde_yaml = "0.9"
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "2", features = ["deflate"] }
 # Load .env files at startup so users can store provider API keys in
 # ~/.ultron/.env or ~/.ultron/control-center/.env without exporting to shell.
 dotenvy = "0.15"
+# Puente HTTP de la ventana Sesiones: servidor loopback síncrono y pequeño,
+# sin runtime async propio (src/sesiones/puente.rs).
+tiny_http = "0.12"
+# Plazos de lectura y escritura del socket de escucha del puente, que heredan
+# las conexiones que acepta tiny_http (ya estaba en el árbol por tokio/quinn).
+socket2 = "0.6"
 # Explicit tokio dependency so commands can use tokio::time::timeout directly.
 # The `time` feature is already enabled transitively (via reqwest/tauri) but
 # rustc requires a direct declaration to reference `tokio::` in crate code.
@@ -74,35 +81,90 @@ tokio = { version = "1", features = ["time"] }
 # (the GUI in lib.rs::run() and each sidecar's main).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# Qdrant semantic recall (optional — enable with --features qdrant).
-# fastembed provides ONNX-based BGE-small-EN-v1.5 (384-d) locally, no API key.
+# Log diario de la app en fichero con retención acotada (ULTRON Sessions,
+# contrato de estabilidad §8.3).
+tracing-appender = "0.2"
+# Emulador de terminal para clasificar la pantalla de la TUI de claude en
+# ULTRON Sessions (src/sesiones/pantalla.rs).
+vt100 = "0.16"
+# Dense recall stack (optional, pulled in by the default `qdrant` feature).
+# fastembed runs MultilingualE5Large (1024-d) locally over ONNX, no API key.
 fastembed = { version = "4", optional = true }
+# Piloto MCP de la GUI (solo desarrollo, ver docs/MCP-TAURI-PILOTO.md): el
+# puente WebSocket que usa @hypothesi/tauri-mcp-server para capturas, DOM,
+# logs e IPC. Version exacta fijada; solo entra con --features mcp-bridge y
+# lib.rs aborta la compilacion si esa feature llega a un perfil sin
+# debug_assertions (release).
+tauri-plugin-mcp-bridge = { version = "=0.13.0", optional = true }
+# Capturas de pantalla del MCP de escritorio (mascot/bridge.rs). Ya estaba en
+# Cargo.lock como dependencia transitiva de tauri (image-png).
+png = "0.17"
 
 [dev-dependencies]
 tempfile = "3"
-mockall = "0.13"
 
 [features]
-# Enable local Qdrant semantic recall by default so embed_e5() uses the real
-# MultilingualE5Large (1024-d, ~2.2 GB) instead of the zero-stub. fastembed
-# downloads the ONNX model on first use into the canonical cache
+# `qdrant` is a default feature: it COMPILES the dense stack so embed_e5() can
+# use the real MultilingualE5Large (1024-d, ~2.2 GB) instead of the zero-stub.
+# At runtime the dense path stays OFF while ULTRON_DENSE=0 (qdrant.rs
+# dense_enabled(); recall is then FTS5-only and `doctor` reports it). When it
+# is on, fastembed downloads the ONNX model on first use into
 # ULTRON_FASTEMBED_CACHE (default ~/.ultron/.fastembed_cache/).
-# Disable for CI lean builds: cargo check --no-default-features
+# CI builds with the default features (ci.yml: clippy/test --lib --bins
+# --profile test). --no-default-features also drops the ultron-memory bin
+# (required-features).
 default = ["qdrant"]
-hybrid_recall = []
 # Enable local Qdrant semantic recall. Pulls in fastembed (ONNX runtime +
 # MultilingualE5Large, first-use download).
 qdrant = ["dep:fastembed"]
-# Enable the Finance tab (reads the local KutxaBank finanzas.db).
+# Enable the Finance tab (reads finanzas.db: datos bancarios locales).
 # finance.rs is excluded from the public repo via .gitignore; this feature
 # flag keeps the binary buildable without that file present.
 finance = []
+# Piloto MCP de la GUI. NO va en `default` ni lo activan build:local ni
+# build:app; solo `npm run dev:mcp` (tauri dev). Expone ejecucion de JS e IPC
+# por WebSocket en 127.0.0.1: prohibido en release (compile_error! en lib.rs).
+mcp-bridge = ["dep:tauri-plugin-mcp-bridge"]
 
 [target."cfg(windows)".dependencies]
 wmi = "0.13"
 # SetPriorityClass(BELOW_NORMAL) para los subcomandos batch de ultron-memory
 # (ya presente transitivamente en Cargo.lock; no añade descarga nueva).
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading"] }
+# Job Object por PTY y recorrido de descendientes (ULTRON Sessions, pty/salida.rs).
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_JobObjects",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    # Mascota (mascot/win.rs): cursor global, ventanas, SendInput y captura GDI.
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    # Mascota (mascot/win_fg.rs): SHQueryUserNotificationState (juego D3D).
+    "Win32_UI_Shell",
+    # Mascota (mascot/calls.rs): micrófono en uso (ConsentStore del registro).
+    "Win32_System_Registry",
+] }
+# Permisos de WebView2 en la ventana de Sessions: mismas versiones que ya usa
+# wry 0.55.1, para no meter una segunda copia en el árbol.
+webview2-com = "0.38"
+# Mascota (mascot/taskbar_uia.rs y taskbar.rs): UI Automation sobre la barra
+# de tareas y AUMID de una ventana. Misma versión 0.61 ya presente.
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Accessibility",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_Ole",
+    "Win32_UI_Shell_PropertiesSystem",
+    # Mascota (mascot/media.rs): ¿suena música? (controles multimedia de Windows).
+    "Foundation",
+    "Media",
+    "Media_Control",
+] }
 
 # ---------------------------------------------------------------------------
 # CI-tuned test profile (applies to `cargo test` and `cargo clippy --profile
@@ -124,3 +186,12 @@ incremental = false
 # cargo test=400s en el run 28702759130). 256 unidades = codegen paralelo
 # maximo en el runner. Si el link regresa a dominar, volver a 16 y medir.
 codegen-units = 256
+
+# tao 0.35.2 con el arreglo del interbloqueo al reiniciarse el Explorador (TaskbarCreated:
+# set_skip_taskbar con el lock de window_state tomado; corregido arriba en tao 0.37). Se quita al
+# subir a una version de tauri que traiga tao >= 0.37. Ver vendor/tao/ULTRON-PATCH.md.
+[patch.crates-io]
+tao = { path = "vendor/tao" }
+# tiny_http 0.12.0 con la carrera de TaskPool::spawn corregida: una conexion podia quedarse en
+# cola sin hilo. Ver vendor/tiny_http/ULTRON-PATCH.md.
+tiny_http = { path = "vendor/tiny_http" }

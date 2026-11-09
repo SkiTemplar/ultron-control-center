@@ -1,14 +1,21 @@
-// mcps/mutations_gen.rs — CRUD mutations, AI generation, and ping.
+// mcps/mutations_gen.rs — CRUD mutations.
+//
+// «Generate MCP from prompt» se retiró el 2026-10-17: el modal no tenía
+// botón de entrada. El alta asistida va por el button prompt
+// `mcps.add_with_ai`.
+//
+// H14 (2026-10-17): el alta, la edición y el borrado escriben en el
+// `mcpServers` de primer nivel de `~/.claude.json` (ámbito de usuario que lee
+// Claude Code), con copia de seguridad y escritura atómica
+// (`claude_json::ClaudeJsonStore`). El `mcpServers` de settings.json, que
+// Claude Code no lee, solo se puede borrar (limpieza del legado).
 
-use std::io::{Read, Write};
-use std::process::Stdio;
-use std::time::{Duration, Instant};
-
-use super::types_io::{parse_settings, McpGenerationResult, McpMutationResult, McpPingResult};
+use super::claude_json::ClaudeJsonStore;
+use super::types_io::McpMutationResult;
 use crate::settings;
 
 // ---------------------------------------------------------------------------
-// CRUD mutations on settings.json mcpServers
+// CRUD mutations on ~/.claude.json mcpServers
 // ---------------------------------------------------------------------------
 
 /// Names that round-trip safely as JSON object keys and as mcp ids in
@@ -34,34 +41,67 @@ fn validate_mcp_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn mutate_mcp_servers<F>(name: &str, f: F) -> Result<McpMutationResult, String>
-where
-    F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
-{
-    validate_mcp_name(name)?;
+/// Nombre de una entrada que YA existe (editar, borrar, leer): basta con que
+/// sea una clave razonable. Claude Code admite mayúsculas (`claude mcp add
+/// MiServidor`), así que la regla estricta de `validate_mcp_name` solo se
+/// aplica a las altas.
+pub(super) fn validate_existing_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
+        return Err("invalid MCP name".to_string());
+    }
+    Ok(())
+}
 
+fn mutate_user_servers<F>(name: &str, f: F) -> Result<McpMutationResult, String>
+where
+    F: FnMut(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+{
+    let backup_path = ClaudeJsonStore::user()?.mutate(f)?;
+    Ok(McpMutationResult {
+        success: true,
+        name: name.to_string(),
+        backup_path,
+    })
+}
+
+/// `true` si `name` está en el `mcpServers` legado de settings.json.
+fn in_legacy_settings(name: &str) -> Result<bool, String> {
+    let snapshot = settings::settings_read_inner()?;
+    Ok(snapshot
+        .content
+        .get("mcpServers")
+        .and_then(|v| v.get(name))
+        .is_some())
+}
+
+/// Borra `name` del `mcpServers` legado de settings.json (backup + escritura
+/// atómica de `settings_save_inner`).
+fn delete_from_legacy_settings(name: &str) -> Result<McpMutationResult, String> {
     let snapshot = settings::settings_read_inner()?;
     let mut content = snapshot.content;
-
-    let root = content
-        .as_object_mut()
-        .ok_or_else(|| "settings.json root is not an object".to_string())?;
-
-    let entry = root
-        .entry("mcpServers".to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    let servers = entry
-        .as_object_mut()
-        .ok_or_else(|| "mcpServers is not an object".to_string())?;
-
-    f(servers)?;
-
+    let removed = content
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+        .and_then(|servers| servers.remove(name))
+        .is_some();
+    if !removed {
+        return Err(format!("mcpServers['{}'] does not exist", name));
+    }
     let save = settings::settings_save_inner(settings::SettingsSavePayload { content })?;
     Ok(McpMutationResult {
         success: save.success,
         name: name.to_string(),
         backup_path: save.backup_path,
     })
+}
+
+/// Configuración en bruto de un servidor de ámbito de usuario (con `env`),
+/// para rellenar el formulario de edición.
+pub fn mcp_get_config_inner(name: String) -> Result<serde_json::Value, String> {
+    validate_existing_name(&name)?;
+    ClaudeJsonStore::user()?
+        .server(&name)?
+        .ok_or_else(|| format!("'{}' no está en el mcpServers de ~/.claude.json", name))
 }
 
 pub fn set_mcpjson_disabled_inner(
@@ -138,7 +178,84 @@ const MCP_FORBIDDEN_ARG_FRAGMENTS: &[&str] = &[
     "curl -",
 ];
 
+/// Nombre del lanzador sin `.exe`/`.cmd`, en minúsculas.
+fn launcher_stem(cmd: &str) -> String {
+    let lower = cmd.trim().to_ascii_lowercase();
+    lower
+        .strip_suffix(".exe")
+        .or_else(|| lower.strip_suffix(".cmd"))
+        .unwrap_or(&lower)
+        .to_string()
+}
+
+/// Un lanzador permitido: nombre desnudo (sin ruta) y en la allowlist.
+fn check_launcher(cmd: &str) -> Result<(), String> {
+    let cmd_trimmed = cmd.trim();
+    if cmd_trimmed.is_empty() {
+        return Err("command is empty".into());
+    }
+    if cmd_trimmed.contains('\\') || cmd_trimmed.contains('/') {
+        return Err(format!(
+            "command must be a bare executable name, not a path: '{}'",
+            cmd_trimmed
+        ));
+    }
+    if !MCP_COMMAND_ALLOWLIST.contains(&launcher_stem(cmd_trimmed).as_str()) {
+        return Err(format!(
+            "command '{}' is not in the MCP allowlist (allowed: {}, or cmd /c <one of them>)",
+            cmd_trimmed,
+            MCP_COMMAND_ALLOWLIST.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Valida `command` (+ `args` para la forma `cmd /c <lanzador>`, la que
+/// Claude Code recomienda en Windows para `npx`). `trusted` es el comando
+/// que ya tenía la entrada al editar: si no cambia, no se le exige la
+/// allowlist (p. ej. `codegraph` o una ruta absoluta a `uvx.exe`), salvo
+/// `cmd`, que siempre exige un lanzador permitido detrás.
+fn check_command(
+    cmd: &str,
+    args: &[serde_json::Value],
+    trusted: Option<&str>,
+) -> Result<(), String> {
+    let stem = launcher_stem(cmd);
+    if stem == "cmd" {
+        let first = args.first().and_then(|v| v.as_str()).unwrap_or("");
+        if !first.eq_ignore_ascii_case("/c") {
+            return Err("cmd only allowed as 'cmd /c <launcher> ...'".into());
+        }
+        // `cmd /c` vuelve a unir los argumentos en una línea de órdenes: un
+        // `&`, `|` o redirección encadenaría otro programa fuera de la
+        // allowlist.
+        if let Some(bad) = args
+            .iter()
+            .filter_map(|v| v.as_str())
+            .find(|a| a.contains(['&', '|', '<', '>', '^', '%']))
+        {
+            return Err(format!(
+                "with cmd /c, args may not contain shell metacharacters (&|<>^%): '{}'",
+                bad
+            ));
+        }
+        let launcher = args.get(1).and_then(|v| v.as_str()).unwrap_or("");
+        return check_launcher(launcher);
+    }
+    if trusted.is_some_and(|t| t.trim() == cmd.trim()) {
+        return Ok(());
+    }
+    check_launcher(cmd)
+}
+
 fn validate_mcp_config(config: &serde_json::Value) -> Result<(), String> {
+    validate_mcp_config_with(config, None)
+}
+
+pub(super) fn validate_mcp_config_with(
+    config: &serde_json::Value,
+    trusted_command: Option<&str>,
+) -> Result<(), String> {
     let obj = config
         .as_object()
         .ok_or_else(|| "config must be a JSON object".to_string())?;
@@ -153,25 +270,12 @@ fn validate_mcp_config(config: &serde_json::Value) -> Result<(), String> {
     }
 
     if let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) {
-        let cmd_trimmed = cmd.trim();
-        if cmd_trimmed.is_empty() {
-            return Err("command is empty".into());
-        }
-        if cmd_trimmed.contains('\\') || cmd_trimmed.contains('/') {
-            return Err(format!(
-                "command must be a bare executable name, not a path: '{}'",
-                cmd_trimmed
-            ));
-        }
-        let lower = cmd_trimmed.to_ascii_lowercase();
-        let stripped = lower.strip_suffix(".exe").unwrap_or(&lower);
-        if !MCP_COMMAND_ALLOWLIST.contains(&stripped) {
-            return Err(format!(
-                "command '{}' is not in the MCP allowlist (allowed: {})",
-                cmd_trimmed,
-                MCP_COMMAND_ALLOWLIST.join(", ")
-            ));
-        }
+        let args: &[serde_json::Value] = obj
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]);
+        check_command(cmd, args, trusted_command)?;
     }
 
     if let Some(args) = obj.get("args") {
@@ -209,328 +313,85 @@ fn validate_mcp_config(config: &serde_json::Value) -> Result<(), String> {
 }
 
 pub fn add_mcp_inner(name: String, config: serde_json::Value) -> Result<McpMutationResult, String> {
+    validate_mcp_name(&name)?;
     validate_mcp_config(&config)?;
-    mutate_mcp_servers(&name, |servers| {
+    mutate_user_servers(&name, |servers| {
         if servers.contains_key(&name) {
-            return Err(format!("mcpServers['{}'] already exists", name));
+            return Err(format!(
+                "mcpServers['{}'] already exists in ~/.claude.json",
+                name
+            ));
         }
-        servers.insert(name.clone(), config);
+        servers.insert(name.clone(), config.clone());
         Ok(())
     })
+}
+
+/// Claves que el formulario controla. Al editar se sustituyen estas y se
+/// conservan las demás de la entrada (`headers`, `timeout`, `alwaysAllow`…),
+/// que el formulario no muestra.
+const FORM_KEYS: &[&str] = &["command", "args", "env", "url", "type"];
+
+pub(super) fn merge_edited_config(
+    existing: &serde_json::Value,
+    edited: &serde_json::Value,
+) -> serde_json::Value {
+    let mut merged = existing.as_object().cloned().unwrap_or_default();
+    for k in FORM_KEYS {
+        merged.remove(*k);
+    }
+    if let Some(obj) = edited.as_object() {
+        for (k, v) in obj {
+            merged.insert(k.clone(), v.clone());
+        }
+    }
+    serde_json::Value::Object(merged)
 }
 
 pub fn update_mcp_inner(
     name: String,
     config: serde_json::Value,
 ) -> Result<McpMutationResult, String> {
-    validate_mcp_config(&config)?;
-    mutate_mcp_servers(&name, |servers| {
-        if !servers.contains_key(&name) {
-            return Err(format!("mcpServers['{}'] does not exist", name));
+    validate_existing_name(&name)?;
+    let store = ClaudeJsonStore::user()?;
+    let Some(existing) = store.server(&name)? else {
+        if in_legacy_settings(&name)? {
+            return Err(format!(
+                "'{}' está en ~/.claude/settings.json, que Claude Code no lee para MCP: bórralo y dalo de alta de nuevo",
+                name
+            ));
         }
-        servers.insert(name.clone(), config);
-        Ok(())
-    })
-}
-
-pub fn delete_mcp_inner(name: String) -> Result<McpMutationResult, String> {
-    mutate_mcp_servers(&name, |servers| {
-        if servers.remove(&name).is_none() {
-            return Err(format!("mcpServers['{}'] does not exist", name));
-        }
-        Ok(())
-    })
-}
-
-// ---------------------------------------------------------------------------
-// AI-driven MCP scaffolding
-// ---------------------------------------------------------------------------
-
-const MCP_PROMPT_TEMPLATE: &str = r#"You are scaffolding a new MCP (Model Context Protocol) server entry for Claude Code's ~/.claude/settings.json mcpServers object.
-
-The user described what they want:
----
-{DESCRIPTION}
----
-
-Respond with ONLY a single JSON object inside a ```json fenced code block. No prose before or after. No commentary.
-
-The JSON object must have this exact shape:
-
-```json
-{
-  "name": "kebab-case-name",
-  "config": {
-    "command": "npx",
-    "args": ["-y", "<package>"],
-    "env": {}
-  }
-}
-```
-
-Rules:
-- "name" is the mcpServers key. Lowercase letters, digits, '-' or '_'. Start with a letter or digit. 2-61 chars.
-- "config" is the value that goes under mcpServers[name].
-- For stdio servers: include "command" (e.g. "npx", "uvx", "node", "python"), "args" array, "env" object (can be empty).
-- For HTTP/SSE servers: include "url" (string) and optionally "type": "sse". Omit command/args/env.
-- Prefer the canonical npm/uvx package for well-known MCPs (e.g. @modelcontextprotocol/server-filesystem, server-github, server-postgres).
-- If credentials are required, put placeholder env vars like "GITHUB_TOKEN": "${GITHUB_TOKEN}" -- DO NOT invent secrets.
-- Be conservative with args: include only what's strictly needed to start the server.
-
-Now produce the JSON for the described MCP."#;
-
-fn extract_json_blob(text: &str) -> Option<String> {
-    if let Some(start) = text.find("```json") {
-        let after = &text[start + "```json".len()..];
-        if let Some(end) = after.find("```") {
-            return Some(after[..end].trim().to_string());
-        }
-    }
-    if let Some(start) = text.find("```") {
-        let after = &text[start + 3..];
-        if let Some(end) = after.find("```") {
-            let candidate = after[..end].trim();
-            let candidate = candidate
-                .split_once('\n')
-                .map(|(_, rest)| rest.trim())
-                .unwrap_or(candidate);
-            if candidate.starts_with('{') {
-                return Some(candidate.to_string());
-            }
-        }
-    }
-    let first = text.find('{')?;
-    let last = text.rfind('}')?;
-    if last <= first {
-        return None;
-    }
-    Some(text[first..=last].to_string())
-}
-
-pub async fn generate_mcp_from_prompt_inner(
-    app: &tauri::AppHandle,
-    description: String,
-) -> Result<McpGenerationResult, String> {
-    let description = description.trim().to_string();
-    if description.is_empty() {
-        return Err("description is empty".to_string());
-    }
-    let full_prompt = MCP_PROMPT_TEMPLATE.replace("{DESCRIPTION}", &description);
-
-    let inline =
-        crate::sessions::run_inline_inner(app, "claude".to_string(), None, full_prompt).await?;
-
-    let raw_output = if inline.stdout.trim().is_empty() {
-        inline.stderr.clone()
-    } else {
-        inline.stdout.clone()
+        return Err(format!(
+            "mcpServers['{}'] does not exist in ~/.claude.json",
+            name
+        ));
     };
-
-    let blob = match extract_json_blob(&raw_output) {
-        Some(b) => b,
-        None => {
-            return Ok(McpGenerationResult {
-                success: false,
-                name: String::new(),
-                config: serde_json::Value::Null,
-                raw_output,
-            });
-        }
-    };
-
-    let parsed: serde_json::Value = match serde_json::from_str(&blob) {
-        Ok(v) => v,
-        Err(_) => {
-            return Ok(McpGenerationResult {
-                success: false,
-                name: String::new(),
-                config: serde_json::Value::Null,
-                raw_output,
-            });
-        }
-    };
-
-    let obj = match parsed.as_object() {
-        Some(o) => o,
-        None => {
-            return Ok(McpGenerationResult {
-                success: false,
-                name: String::new(),
-                config: serde_json::Value::Null,
-                raw_output,
-            });
-        }
-    };
-
-    let name = obj
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let config = obj
-        .get("config")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-
-    let ok = validate_mcp_name(&name).is_ok() && config.is_object();
-
-    Ok(McpGenerationResult {
-        success: ok,
-        name,
-        config,
-        raw_output,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// P7: ping a server
-// ---------------------------------------------------------------------------
-
-/// Qué haría un ping, decidido SOLO con la configuración. Va aparte del
-/// `spawn` para poder fijarlo en un test sin arrancar ni un proceso.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum PlanPing {
-    /// `disabled: true`: no se lanza NADA.
-    Deshabilitado,
-    /// HTTP/SSE: no hay proceso que arrancar.
-    Http,
-    /// stdio sin `command`: no hay nada que lanzar.
-    SinComando,
-    /// stdio habilitado: se lanzaría este comando con estos argumentos.
-    Lanzar(String, Vec<String>),
-}
-
-/// 2026-09-22 — defensa en profundidad. `mcp_ping_inner` hacía `spawn()` del
-/// `command` sin comprobar `cfg.disabled`: cualquier llamante que escribiera
-/// un servidor deshabilitado en `settings.json` (p. ej. al aplicar un MCP de
-/// un repositorio de terceros) y a continuación pidiera un ping ejecutaba
-/// igualmente el comando — un `{"command":"npx","args":["-y","<paquete>"]}`
-/// se descargaba y se ejecutaba. Ahora "deshabilitado" corta ANTES del
-/// `spawn` y significa lo mismo aquí que en `settings.json`, venga la
-/// llamada de donde venga.
-pub(super) fn plan_de_ping(cfg: &super::types_io::McpServerCfg) -> PlanPing {
-    if cfg.disabled {
-        return PlanPing::Deshabilitado;
-    }
-    let is_http = cfg.url.is_some()
-        || cfg
-            .transport
-            .as_deref()
-            .map(|t| t.eq_ignore_ascii_case("http") || t.eq_ignore_ascii_case("sse"))
-            .unwrap_or(false);
-    if is_http {
-        return PlanPing::Http;
-    }
-    match cfg.command.clone() {
-        Some(command) => PlanPing::Lanzar(command, cfg.args.clone()),
-        None => PlanPing::SinComando,
-    }
-}
-
-pub fn mcp_ping_inner(name: String) -> McpPingResult {
-    let settings = match parse_settings() {
-        Ok(s) => s,
-        Err(e) => {
-            return McpPingResult {
-                name,
-                ok: false,
-                latency_ms: None,
-                error: Some(format!("read settings: {e}")),
-            }
-        }
-    };
-    let Some(cfg) = settings.mcp_servers.get(&name) else {
-        return McpPingResult {
-            name,
-            ok: false,
-            latency_ms: None,
-            error: Some("server not found in settings.json".to_string()),
+    let trusted = existing.get("command").and_then(|v| v.as_str());
+    validate_mcp_config_with(&config, trusted)?;
+    mutate_user_servers(&name, |servers| {
+        let Some(current) = servers.get(&name) else {
+            return Err(format!(
+                "mcpServers['{}'] does not exist in ~/.claude.json",
+                name
+            ));
         };
-    };
+        let merged = merge_edited_config(current, &config);
+        servers.insert(name.clone(), merged);
+        Ok(())
+    })
+}
 
-    let (command, args) = match plan_de_ping(cfg) {
-        PlanPing::Deshabilitado => {
-            return McpPingResult {
-                name,
-                ok: false,
-                latency_ms: None,
-                error: Some("servidor deshabilitado: no se lanza".to_string()),
+/// Borra del ámbito de usuario (`~/.claude.json`) y, si no está ahí, del
+/// `mcpServers` legado de settings.json.
+pub fn delete_mcp_inner(name: String) -> Result<McpMutationResult, String> {
+    validate_existing_name(&name)?;
+    if ClaudeJsonStore::user()?.server(&name)?.is_some() {
+        return mutate_user_servers(&name, |servers| {
+            if servers.remove(&name).is_none() {
+                return Err(format!("mcpServers['{}'] does not exist", name));
             }
-        }
-        PlanPing::Http => {
-            return McpPingResult {
-                name: name.clone(),
-                ok: true,
-                latency_ms: None,
-                error: None,
-            }
-        }
-        PlanPing::SinComando => {
-            return McpPingResult {
-                name,
-                ok: false,
-                latency_ms: None,
-                error: Some("stdio server has no command".to_string()),
-            }
-        }
-        PlanPing::Lanzar(command, args) => (command, args),
-    };
-
-    let start = Instant::now();
-    let mut cmd = std::process::Command::new(&command);
-    cmd.args(&args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            return McpPingResult {
-                name,
-                ok: false,
-                latency_ms: None,
-                error: Some(format!("spawn: {e}")),
-            }
-        }
-    };
-    let init = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "clientInfo": {"name": "ultron-control-center", "version": "2.0.0"},
-            "capabilities": {}
-        }
-    });
-    let line = format!("{}\n", init);
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(line.as_bytes());
-    }
-
-    let stdout = child.stdout.take();
-    let (tx, rx) = std::sync::mpsc::channel::<bool>();
-    if let Some(mut out) = stdout {
-        std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            let r = out.read(&mut buf);
-            let ok = matches!(r, Ok(n) if n > 0);
-            let _ = tx.send(ok);
+            Ok(())
         });
     }
-    let ok = rx.recv_timeout(Duration::from_secs(2)).unwrap_or(false);
-    let elapsed = start.elapsed().as_millis() as u64;
-    let _ = child.kill();
-    let _ = child.wait();
-
-    McpPingResult {
-        name,
-        ok,
-        latency_ms: Some(elapsed),
-        error: if ok {
-            None
-        } else {
-            Some("no initialize response within 2s".to_string())
-        },
-    }
+    delete_from_legacy_settings(&name)
 }

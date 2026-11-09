@@ -1,23 +1,21 @@
-// ULTRON Control Center — Ollama: interruptor del modelo local.
+// ULTRON Control Center — Ollama: ciclo de vida del modelo local.
 //
-// Gestiona el ciclo de vida del modelo local usado como autocompletado de
-// codigo (Ollama): localizar/arrancar el servidor si hace falta, cargar o
-// descargar el modelo en memoria y consultar el estado real via
-// `GET /api/ps`. Modulo puro en I/O + parseo — sin dependencia de Tauri —
-// para que sea testeable sin red y para que `tray.rs` se limite a cablear
-// la entrada de menu contra estas funciones.
+// Localizar/arrancar el servidor si hace falta, cargar o descargar un modelo
+// en memoria y consultar el estado real via `GET /api/ps`. Modulo puro en
+// I/O + parseo — sin dependencia de Tauri — para que sea testeable sin red.
+// Quien decide QUE modelo cargar es el motor del editor (`engine.rs`); este
+// modulo solo ejecuta.
 //
-// Precedencia del modelo configurado (ver `model_name`/`resolve_model_name`):
+// `model_name` (modelo local que despacha el AI Router para el proveedor
+// `ollama`, ver `ai_router/providers/call_wrappers.rs`):
 //   1. Variable de entorno `ULTRON_OLLAMA_MODEL` (override manual/CI).
-//   2. Modelo persistido por la UI (`config::read_configured_model`, ver
-//      `../config.rs` — `cockpit/ollama/config.json`).
-//   3. `DEFAULT_MODEL`.
+//   2. Modelo del motor local de referencia (`engine::current_reference`:
+//      el motor activo si es local; si no, el ultimo local; si no, `mid`).
 //
-// `OLLAMA_BUSY` (mas abajo) es el guard de concurrencia COMPARTIDO entre
-// el clic de la bandeja (`tray.rs`) y los comandos Tauri de la seccion
-// "Modelo local" en AI Router (`commands.rs`): solo puede haber una
-// accion de red en curso a la vez, para no lanzar dos `ollama serve` o
-// pisar una carga con una descarga a medio camino.
+// `OLLAMA_BUSY` (mas abajo) es el guard de concurrencia COMPARTIDO por todas
+// las acciones de red (cambio de motor desde la bandeja o la UI, pull,
+// delete, benchmark): solo puede haber una en curso a la vez, para no lanzar
+// dos `ollama serve` o pisar una carga con una descarga a medio camino.
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -28,14 +26,10 @@ use serde_json::{json, Value};
 
 use crate::ai_router::health::http_client;
 
-use super::config;
-
-/// Modelo por defecto cuando no hay override de entorno ni modelo
-/// persistido.
-const DEFAULT_MODEL: &str = "qwen2.5-coder:1.5b-base";
+use super::engine;
 
 /// Host de la API REST de Ollama. Fijo a loopback: es donde escucha por
-/// defecto y este interruptor no necesita hablar con una instancia remota.
+/// defecto y este modulo no necesita hablar con una instancia remota.
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 
 /// Tiempo maximo de espera a que `ollama serve`, lanzado en segundo plano,
@@ -56,8 +50,8 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
 // Guard de concurrencia — compartido entre la bandeja y los comandos
 // ---------------------------------------------------------------------------
 
-/// `true` mientras hay una accion de Ollama (activar/desactivar/cambiar
-/// modelo/pull/delete/benchmark) en curso. No se manipula directamente
+/// `true` mientras hay una accion de Ollama (cambio de motor, pull,
+/// delete o benchmark) en curso. No se manipula directamente
 /// fuera de este modulo — usar `try_acquire_busy`.
 static OLLAMA_BUSY: AtomicBool = AtomicBool::new(false);
 
@@ -85,13 +79,11 @@ pub fn try_acquire_busy() -> Option<BusyGuard> {
 }
 
 // ---------------------------------------------------------------------------
-// Estado del interruptor
+// Estado de un modelo
 // ---------------------------------------------------------------------------
 
-/// Estado visible del interruptor. `tray.rs` lo traduce a texto + marca de
-/// check de la entrada de menu; nunca hay un estado "silencioso" que deje
-/// al usuario sin pista de lo que pasa (mandamiento 11: nada de no-op
-/// silencioso).
+/// Estado de un modelo segun `/api/ps`. La fuente de verdad es siempre esta
+/// consulta, nunca la marca visual de un item de menu (ver `tray.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OllamaState {
     /// El modelo esta cargado en memoria segun `/api/ps`.
@@ -99,8 +91,6 @@ pub enum OllamaState {
     /// La API responde pero el modelo no esta cargado (o el servidor esta
     /// parado y el binario si esta instalado: activarlo lo arrancara).
     Unloaded,
-    /// Accion "activar" en curso (arranque de servidor + carga del modelo).
-    Loading,
     /// No se encontro `ollama.exe` ni en PATH ni en la ruta por defecto de
     /// instalacion — Ollama no parece instalado.
     NotInstalled,
@@ -108,110 +98,27 @@ pub enum OllamaState {
     Error,
 }
 
-impl OllamaState {
-    /// Texto a mostrar en la entrada de menu para `model`.
-    pub fn menu_label(self, model: &str) -> String {
-        match self {
-            OllamaState::Loaded => format!("Ollama: {model} (activo)"),
-            OllamaState::Unloaded => "Ollama (autocompletado)".to_string(),
-            OllamaState::Loading => "Ollama: cargando…".to_string(),
-            OllamaState::NotInstalled => "Ollama: no instalado".to_string(),
-            OllamaState::Error => "Ollama: error".to_string(),
-        }
-    }
-
-    /// Si la entrada de menu debe mostrarse marcada (modelo activo).
-    pub fn is_checked(self) -> bool {
-        matches!(self, OllamaState::Loaded)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Decision de accion activar/desactivar — SIEMPRE a partir del estado
-// real, nunca de la marca visual de un CheckMenuItem.
-//
-// En Windows, `muda` invierte `item.checked` dentro de `menu_selected`
-// ANTES de despachar el clic a `on_menu_event` (crate `muda` 0.19.1,
-// `src/platform_impl/windows/mod.rs:1195-1199`:
-// `MenuItemType::Check => { let checked = !item.checked; item.set_checked(checked); }`,
-// fichero real en este equipo:
-// `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/muda-0.19.1/src/platform_impl/windows/mod.rs`).
-// Eso significa que `item.is_checked()`, leido DESPUES desde
-// `on_menu_event` (tray.rs), ya viene invertido respecto al estado que
-// tenia el item antes del clic — decidir activar/desactivar a partir de
-// esa lectura manda sistematicamente la accion contraria (p. ej. activar
-// un modelo que ya estaba cargado, que no hace nada visible y deja al
-// usuario pensando que el clic no desactivo nada). La fuente de verdad es
-// siempre `query_state` contra `/api/ps`.
-// ---------------------------------------------------------------------------
-
-/// Accion que toca ante un clic/comando "activar-o-desactivar", decidida
-/// a partir de `OllamaState`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToggleAction {
-    Activate,
-    Deactivate,
-}
-
-/// `Loaded` -> desactivar; cualquier otro estado (`Unloaded`,
-/// `NotInstalled`, `Error`, `Loading`) -> activar. Match exhaustivo (sin
-/// `_`) a proposito: es la decision de negocio central de este modulo.
-pub fn action_for_state(state: OllamaState) -> ToggleAction {
-    match state {
-        OllamaState::Loaded => ToggleAction::Deactivate,
-        OllamaState::Unloaded
-        | OllamaState::NotInstalled
-        | OllamaState::Error
-        | OllamaState::Loading => ToggleAction::Activate,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Configuracion
 // ---------------------------------------------------------------------------
 
-/// Precedencia pura del modelo configurado: entorno > persistido > por
-/// defecto. Separada de `model_name`/`model_name_source` para poder
-/// testearla sin tocar el sistema de archivos ni variables de entorno
-/// reales (ver tests). Ambos argumentos ya vienen recortados o `None`.
-fn resolve_model_name(
-    env_value: Option<String>,
-    persisted: Option<String>,
-) -> (String, &'static str) {
-    if let Some(v) = env_value
+/// Precedencia pura: entorno (si trae algo tras recortar) > modelo del motor
+/// de referencia. Separada de `model_name` para testearla sin tocar disco ni
+/// variables de entorno reales.
+fn resolve_model_name(env_value: Option<String>, reference_model: String) -> String {
+    env_value
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
-    {
-        return (v, "env");
-    }
-    if let Some(v) = persisted
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-    {
-        return (v, "config");
-    }
-    (DEFAULT_MODEL.to_string(), "default")
+        .unwrap_or(reference_model)
 }
 
-/// Nombre del modelo a usar. Ver la precedencia documentada al inicio del
-/// fichero.
+/// Modelo local que usa el AI Router. Ver la precedencia documentada al
+/// inicio del fichero.
 pub fn model_name() -> String {
     resolve_model_name(
         std::env::var("ULTRON_OLLAMA_MODEL").ok(),
-        config::read_configured_model(),
+        engine::current_reference().1,
     )
-    .0
-}
-
-/// De donde sale el modelo que devuelve `model_name`: `"env"`, `"config"`
-/// o `"default"`. Solo para mostrarlo en la UI (AI Router > Modelo local)
-/// — no cambia comportamiento.
-pub fn model_name_source() -> &'static str {
-    resolve_model_name(
-        std::env::var("ULTRON_OLLAMA_MODEL").ok(),
-        config::read_configured_model(),
-    )
-    .1
 }
 
 fn ps_url() -> String {
@@ -247,14 +154,14 @@ fn model_loaded_in_ps(body: &str, model: &str) -> Result<bool, String> {
     Ok(found)
 }
 
-/// Cuerpo de `POST /api/generate` para cargar `model` en memoria y
-/// fijarlo ahi (`keep_alive: -1` = no descargar nunca hasta que se pida
-/// explicitamente).
-fn load_body(model: &str) -> Value {
+/// Cuerpo de `POST /api/generate` para cargar `model` en memoria durante
+/// `keep_alive` (plazo del motor, ver `editor::keep_alive_for`): Ollama lo
+/// suelta solo si pasa ese tiempo sin peticiones.
+fn load_body(model: &str, keep_alive: &str) -> Value {
     json!({
         "model": model,
         "prompt": "",
-        "keep_alive": -1,
+        "keep_alive": super::editor::keep_alive_json(keep_alive),
     })
 }
 
@@ -306,7 +213,7 @@ fn load_client() -> Result<reqwest::blocking::Client, String> {
 // Consulta de estado (bloqueante — llamar desde un hilo de fondo)
 // ---------------------------------------------------------------------------
 
-/// Consulta `/api/ps` y determina el estado actual del interruptor para
+/// Consulta `/api/ps` y determina el estado actual de
 /// `model`. Nunca falla de forma silenciosa: si la API no responde,
 /// distingue entre "no instalado" (binario no encontrado) y "error"
 /// (instalado pero algo fue mal), para que el menu no se quede en un
@@ -337,6 +244,37 @@ pub fn query_state(model: &str) -> OllamaState {
     }
 }
 
+/// Nombres de los modelos cargados segun `/api/ps`. Servidor parado = lista
+/// vacia (no hay nada en VRAM); JSON invalido = `Err`.
+pub fn loaded_model_names() -> Result<Vec<String>, String> {
+    let client = http_client()?;
+    let Ok(resp) = client.get(ps_url()).send() else {
+        return Ok(Vec::new());
+    };
+    let body = resp
+        .text()
+        .map_err(|e| format!("respuesta invalida de /api/ps: {e}"))?;
+    Ok(super::api::parse_loaded_models(&body)?
+        .into_iter()
+        .map(|m| m.name)
+        .collect())
+}
+
+/// Nombres de los modelos descargados segun `/api/tags`. Exige el servidor
+/// arriba (llamar tras `ensure_server_running`).
+pub fn downloaded_model_names() -> Result<Vec<String>, String> {
+    let client = http_client()?;
+    let body = client
+        .get(format!("{OLLAMA_BASE_URL}/api/tags"))
+        .send()
+        .and_then(|r| r.text())
+        .map_err(|e| format!("no se pudo consultar /api/tags: {e}"))?;
+    Ok(super::api::parse_downloaded_models(&body)?
+        .into_iter()
+        .map(|m| m.name)
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // Arranque del servidor
 // ---------------------------------------------------------------------------
@@ -344,7 +282,7 @@ pub fn query_state(model: &str) -> OllamaState {
 /// Arranca `ollama serve` oculto en segundo plano si la API no responde, y
 /// espera (con timeout acotado) a que empiece a contestar. No hace nada si
 /// la API ya esta arriba.
-fn ensure_server_running() -> Result<(), String> {
+pub fn ensure_server_running() -> Result<(), String> {
     let client = http_client()?;
     if client.get(ps_url()).send().is_ok() {
         return Ok(()); // ya esta arriba
@@ -387,17 +325,17 @@ fn ensure_server_running() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 /// Activa el autocompletado: arranca el servidor si hace falta y carga
-/// `model` en memoria de forma fija (`keep_alive: -1`). Bloqueante — la
+/// `model` en memoria con el plazo `keep_alive` (p. ej. `"5m"`). Bloqueante — la
 /// carga en frio puede tardar decenas de segundos, así que el llamador
 /// debe ejecutar esto en un hilo de fondo (p. ej.
 /// `tauri::async_runtime::spawn_blocking`) para no congelar el hilo del
 /// menu.
-pub fn activate(model: &str) -> Result<(), String> {
+pub fn activate(model: &str, keep_alive: &str) -> Result<(), String> {
     ensure_server_running()?;
     let client = load_client()?;
     let resp = client
         .post(generate_url())
-        .json(&load_body(model))
+        .json(&load_body(model, keep_alive))
         .send()
         .map_err(|e| format!("fallo al cargar el modelo '{model}': {e}"))?;
     if !resp.status().is_success() {
@@ -493,11 +431,20 @@ mod tests {
     }
 
     #[test]
-    fn load_body_fija_keep_alive_indefinido() {
-        let body = load_body("qwen2.5-coder:1.5b-base");
+    fn load_body_carga_con_el_plazo_del_motor() {
+        let body = load_body("qwen2.5-coder:1.5b-base", "5m");
         assert_eq!(body["model"], "qwen2.5-coder:1.5b-base");
         assert_eq!(body["prompt"], "");
-        assert_eq!(body["keep_alive"], -1);
+        assert_eq!(body["keep_alive"], "5m");
+        assert_eq!(load_body("m:7b", "10m")["keep_alive"], "10m");
+    }
+
+    /// Caso negativo: ya no se fija nada indefinidamente salvo que el
+    /// usuario lo pida con un `-1` explicito, que viaja como numero.
+    #[test]
+    fn load_body_no_fija_indefinido_por_defecto() {
+        assert_ne!(load_body("m:3b", "5m")["keep_alive"], -1);
+        assert_eq!(load_body("m:3b", "-1")["keep_alive"], -1);
     }
 
     #[test]
@@ -510,112 +457,36 @@ mod tests {
         assert!(body.get("prompt").is_none());
     }
 
-    /// Las variantes de `ULTRON_OLLAMA_MODEL` que resuelve `model_name`
-    /// cuando esta definida (unico caso que no depende del fichero de
-    /// config persistido, así que es seguro probarlo contra el entorno
-    /// real sin tocar disco). `std::env::set_var` es estado de proceso
-    /// compartido y `cargo test` corre los tests en paralelo, así que se
-    /// agrupan en un unico test para no correr una carrera de datos sobre
-    /// la misma variable.
+    /// `ULTRON_OLLAMA_MODEL` manda sobre el motor de referencia. Unico test
+    /// que toca la variable real (estado de proceso compartido entre tests
+    /// en paralelo).
     #[test]
     fn model_name_respeta_la_variable_de_entorno_cuando_esta_definida() {
         std::env::set_var("ULTRON_OLLAMA_MODEL", "otro-modelo:latest");
         assert_eq!(model_name(), "otro-modelo:latest");
-        assert_eq!(model_name_source(), "env");
-
         std::env::remove_var("ULTRON_OLLAMA_MODEL");
     }
 
-    // -- resolve_model_name: precedencia pura, sin tocar entorno ni disco --
-
     #[test]
-    fn resolve_model_name_prioriza_el_entorno_sobre_lo_persistido() {
-        let (model, source) = resolve_model_name(
-            Some("del-entorno:latest".to_string()),
-            Some("persistido:latest".to_string()),
-        );
-        assert_eq!(model, "del-entorno:latest");
-        assert_eq!(source, "env");
-    }
-
-    #[test]
-    fn resolve_model_name_usa_lo_persistido_sin_entorno() {
-        let (model, source) = resolve_model_name(None, Some("persistido:latest".to_string()));
-        assert_eq!(model, "persistido:latest");
-        assert_eq!(source, "config");
-    }
-
-    #[test]
-    fn resolve_model_name_recorta_espacios_en_ambas_fuentes() {
-        let (model, source) = resolve_model_name(
-            Some("   ".to_string()),
-            Some("  persistido:latest  ".to_string()),
-        );
-        assert_eq!(model, "persistido:latest");
-        assert_eq!(source, "config");
-    }
-
-    #[test]
-    fn resolve_model_name_cae_al_valor_por_defecto_sin_ninguna_fuente() {
-        let (model, source) = resolve_model_name(None, None);
-        assert_eq!(model, DEFAULT_MODEL);
-        assert_eq!(source, "default");
-    }
-
-    #[test]
-    fn ollama_state_menu_label_refleja_cada_estado() {
-        let model = "qwen2.5-coder:1.5b-base";
+    fn resolve_model_name_prioriza_el_entorno() {
         assert_eq!(
-            OllamaState::Loaded.menu_label(model),
-            "Ollama: qwen2.5-coder:1.5b-base (activo)"
-        );
-        assert_eq!(
-            OllamaState::Unloaded.menu_label(model),
-            "Ollama (autocompletado)"
-        );
-        assert_eq!(OllamaState::Loading.menu_label(model), "Ollama: cargando…");
-        assert_eq!(
-            OllamaState::NotInstalled.menu_label(model),
-            "Ollama: no instalado"
-        );
-        assert_eq!(OllamaState::Error.menu_label(model), "Ollama: error");
-    }
-
-    #[test]
-    fn action_for_state_desactiva_cuando_esta_cargado() {
-        assert_eq!(
-            action_for_state(OllamaState::Loaded),
-            ToggleAction::Deactivate
+            resolve_model_name(
+                Some(" del-entorno:latest ".to_string()),
+                "motor:3b".to_string()
+            ),
+            "del-entorno:latest"
         );
     }
 
-    /// Caso negativo: NINGUN otro estado debe pedir desactivar — todos
-    /// piden activar. Si esto fallara, un clic con el modelo ya
-    /// descargado (o Ollama sin instalar) intentaria desactivar de nuevo,
-    /// un no-op que oculta el problema real al usuario.
+    /// Caso negativo: una variable vacia o en blanco no tapa el modelo del
+    /// motor.
     #[test]
-    fn action_for_state_activa_en_cualquier_otro_estado() {
-        for state in [
-            OllamaState::Unloaded,
-            OllamaState::NotInstalled,
-            OllamaState::Error,
-            OllamaState::Loading,
-        ] {
-            assert_eq!(
-                action_for_state(state),
-                ToggleAction::Activate,
-                "{state:?} deberia pedir Activate, no Deactivate"
-            );
-        }
-    }
-
-    #[test]
-    fn solo_loaded_se_muestra_marcado() {
-        assert!(OllamaState::Loaded.is_checked());
-        assert!(!OllamaState::Unloaded.is_checked());
-        assert!(!OllamaState::Loading.is_checked());
-        assert!(!OllamaState::NotInstalled.is_checked());
-        assert!(!OllamaState::Error.is_checked());
+    fn resolve_model_name_usa_el_motor_sin_entorno_util() {
+        assert_eq!(resolve_model_name(None, "motor:3b".to_string()), "motor:3b");
+        assert_eq!(
+            resolve_model_name(Some("   ".to_string()), "motor:3b".to_string()),
+            "motor:3b"
+        );
     }
 
     /// El guard de concurrencia solo deja pasar una accion a la vez, y se

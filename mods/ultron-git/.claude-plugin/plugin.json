@@ -1,0 +1,6 @@
+{
+  "name": "ultron-git",
+  "version": "0.1.0",
+  "description": "Panel /git y franja de turno: ficheros tocados en el turno con +/- líneas, árbol sin commitear y diff por fichero",
+  "types": "./types/index.d.ts"
+}

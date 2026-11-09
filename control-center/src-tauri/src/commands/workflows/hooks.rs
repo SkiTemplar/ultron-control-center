@@ -41,13 +41,34 @@ pub async fn get_hook_descriptions() -> Vec<hooks_admin::HookDescription> {
     hooks_admin::get_hook_descriptions_inner()
 }
 
+/// Ejecuta una mutación de hooks fuera del runtime y, si salió bien, regenera
+/// hooks/manifest.json (hooks-8): sin esto el gate de paridad del pre-commit
+/// fallaba tras cualquier cambio hecho desde la pestaña Hooks.
+async fn mutate_and_sync<F>(f: F) -> Result<hooks_admin::HookMutationResult, String>
+where
+    F: FnOnce() -> Result<hooks_admin::HookMutationResult, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut res = f()?;
+        res.manifest_sync = Some(hooks_admin::sync_manifest());
+        Ok(res)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn add_hook(
     event: String,
     matcher: Option<String>,
     command: String,
+    timeout: Option<u32>,
+    run_async: Option<bool>,
 ) -> Result<hooks_admin::HookMutationResult, String> {
-    hooks_admin::add_hook_inner(event, matcher, command)
+    mutate_and_sync(move || {
+        hooks_admin::add_hook_inner(event, matcher, command, timeout, run_async)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -56,18 +77,27 @@ pub async fn update_hook(
     command: Option<String>,
     enabled: Option<bool>,
     matcher: Option<String>,
+    timeout: Option<u32>,
+    run_async: Option<bool>,
 ) -> Result<hooks_admin::HookMutationResult, String> {
-    hooks_admin::update_hook_inner(id, command, enabled, matcher)
+    let upd = hooks_admin::HookUpdate {
+        command,
+        enabled,
+        matcher,
+        timeout,
+        run_async,
+    };
+    mutate_and_sync(move || hooks_admin::update_hook_inner(id, upd)).await
 }
 
 #[tauri::command]
 pub async fn toggle_hook(id: String) -> Result<hooks_admin::HookMutationResult, String> {
-    hooks_admin::toggle_hook_inner(id)
+    mutate_and_sync(move || hooks_admin::toggle_hook_inner(id)).await
 }
 
 #[tauri::command]
 pub async fn delete_hook(id: String) -> Result<hooks_admin::HookMutationResult, String> {
-    hooks_admin::delete_hook_inner(id)
+    mutate_and_sync(move || hooks_admin::delete_hook_inner(id)).await
 }
 
 #[tauri::command]

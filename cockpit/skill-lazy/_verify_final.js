@@ -34,8 +34,9 @@ const BASELINE = [
   { prompt: 'arregla typescript en react',      expectedId: 'typescript-pro',                   expectedKind: 'agent'   },
   { prompt: 'activa don claudio',               expectedId: 'don-claudio',                      expectedKind: 'persona' },
   { prompt: 'optimiza memoria rust',            expectedId: 'rust-engineer',                    expectedKind: 'agent'   },
-  { prompt: 'tdd con pytest para mi api',       expectedId: 'superpowers:test-driven-development', expectedKind: 'plugin' },
-  { prompt: 'security scan del repositorio',    expectedId: 'security-scan',                    expectedKind: 'plugin'  },
+  // 2026-10-03: superpowers:test-driven-development (plugin desinstalado) -> agente test-automator.
+  { prompt: 'tdd con pytest para mi api',       expectedId: 'test-automator',                   expectedKind: 'agent'   },
+  { prompt: 'security scan del repositorio',    expectedId: 'security-auditor',                 expectedKind: 'agent'   },
 ];
 
 for (const tc of BASELINE) {

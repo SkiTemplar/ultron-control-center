@@ -1,0 +1,20 @@
+{
+  "autocompletado-config": 10185,
+  "config-abierto": 14890,
+  "config-cerrado": 16105,
+  "model-abierto": 16309,
+  "model-cerrado": 27510,
+  "modo-1": 27763,
+  "modo-2": 27973,
+  "modo-3": 28378,
+  "modo-4": 28626,
+  "modo-5": 28907,
+  "modo-6": 29160,
+  "cost-pegado": 33934,
+  "panel-mod-uso": 34672,
+  "panel-mod-cerrado": 43122,
+  "busy-bash": 47223,
+  "busy-bash-cola": 47702,
+  "bash-tras-esc": 50131,
+  "bash-final": 57278
+}

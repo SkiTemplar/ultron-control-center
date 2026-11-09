@@ -39,15 +39,6 @@ interface ProxySetResult {
   message: string | null;
 }
 
-// Forma del /health que sirve el propio proxy Node.
-interface ProxySelfHealth {
-  ok: boolean;
-  backend: string | null;
-  backend_label: string | null;
-  model: string | null;
-  has_key: boolean;
-}
-
 const STATUS_LABEL: Record<ProxyStatus, string> = {
   running: "Activo",
   starting: "Arrancando…",
@@ -56,6 +47,9 @@ const STATUS_LABEL: Record<ProxyStatus, string> = {
   error: "Error",
 };
 
+// El panel no puede leer el `/health` del proxy: la CSP de la app solo deja
+// `connect-src` a IPC, y `proxy_health` no devuelve backend, modelo ni key. El
+// `fetch` de antes fallaba siempre y dejaba mudos el modelo y el aviso de key.
 const PROXY_SELF_HEALTH_URL = "http://127.0.0.1:8082/health";
 
 export function ProxyControl() {
@@ -67,7 +61,7 @@ export function ProxyControl() {
   });
   const [result, setResult] = useState<ProxySetResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [selfHealth, setSelfHealth] = useState<ProxySelfHealth | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const persist = useCallback(async (next: boolean): Promise<ProxySetResult> => {
@@ -82,13 +76,6 @@ export function ProxyControl() {
       setHealth(h);
     } catch {
       /* backend unavailable — keep last */
-    }
-    // Best-effort: ask the proxy itself which backend/model is live.
-    try {
-      const resp = await fetch(PROXY_SELF_HEALTH_URL, { method: "GET" });
-      if (resp.ok) setSelfHealth((await resp.json()) as ProxySelfHealth);
-    } catch {
-      setSelfHealth(null);
     }
   }, []);
 
@@ -136,12 +123,13 @@ export function ProxyControl() {
   const toggle = useCallback(async () => {
     const next = !enabled;
     setBusy(true);
+    setToggleError(null);
     try {
       await persist(next);
       setEnabled(next);
       await refreshHealth();
     } catch (e) {
-      console.error("[proxy] toggle failed:", e);
+      setToggleError(`No se pudo cambiar el proxy: ${String(e)}`);
       await refreshHealth().catch(() => undefined);
     } finally {
       setBusy(false);
@@ -156,9 +144,9 @@ export function ProxyControl() {
   const statusLabel = isLightMode
     ? enabled
       ? port8082Up
-        ? "Modo light · proxy en :8082"
-        : "Modo light · esperando :8082"
-      : "Modo light (proxy manual)"
+        ? "Modo ligero · proxy en :8082"
+        : "Modo ligero · esperando :8082"
+      : "Modo ligero (proxy manual)"
     : STATUS_LABEL[health.status];
 
   const statusDot = isLightMode
@@ -172,11 +160,6 @@ export function ProxyControl() {
         : health.status === "stopped"
           ? "var(--color-text-faint, #555)"
           : "var(--color-danger, #f87171)";
-
-  const backendLine =
-    enabled && port8082Up && selfHealth?.backend_label
-      ? `${selfHealth.backend_label}${selfHealth.model ? ` · ${selfHealth.model}` : ""}`
-      : null;
 
   return (
     <div>
@@ -193,7 +176,7 @@ export function ProxyControl() {
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center gap-2">
               <span className="text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
-                Proxy free-tier
+                Proxy de nivel gratuito
               </span>
               <span
                 style={{
@@ -209,25 +192,12 @@ export function ProxyControl() {
               <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
                 {statusLabel}
               </span>
-              {backendLine && (
-                <span
-                  className="rounded px-1.5 py-px text-[10.5px] font-medium"
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    background: "var(--color-surface-3)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border)",
-                  }}
-                >
-                  {backendLine}
-                </span>
-              )}
             </div>
             <p className="text-[12px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
               Cuando está activo, las sesiones nuevas de Claude Code usan el proxy local
               (<span style={{ fontFamily: "var(--font-mono)" }}>:8082</span>) que traduce la API
-              de Anthropic a un backend free-tier (NVIDIA NIM / OpenRouter / Groq). El toggle es
-              manual (el auto-enable por cuota se retiró en DR-11).{" "}
+              de Anthropic a un backend de nivel gratuito (NVIDIA NIM / OpenRouter / Groq). El
+              interruptor es manual (la activación automática por cuota se retiró en DR-11).{" "}
               <span style={{ color: "var(--color-warn, #facc15)", fontWeight: 600 }}>
                 Degrada la calidad: es una red de seguridad, no un reemplazo permanente.
               </span>
@@ -244,10 +214,10 @@ export function ProxyControl() {
               border: "1px solid var(--color-border)",
               opacity: busy ? 0.6 : 1,
               cursor: busy ? "not-allowed" : "pointer",
-              minWidth: 84,
+              minWidth: 112,
             }}
           >
-            {busy ? "…" : enabled ? "ON" : "OFF"}
+            {busy ? "…" : enabled ? "Activado" : "Desactivado"}
           </button>
         </div>
 
@@ -257,20 +227,18 @@ export function ProxyControl() {
           </p>
         )}
 
-        {/* No key configured warning. */}
-        {enabled && selfHealth && !selfHealth.has_key && (
-          <div
-            className="mt-3 rounded p-2.5 text-[11.5px] leading-relaxed"
-            style={{
-              background: "rgba(248,81,73,0.06)",
-              border: "1px solid rgba(248,81,73,0.25)",
-              color: "var(--color-danger)",
-            }}
-          >
-            El proxy está vivo pero no hay ninguna key de backend configurada. Añade
-            NVIDIA_NIM_API_KEY, OPENROUTER_API_KEY o GROQ_API_KEY en{" "}
-            <b>Settings &gt; API Keys</b>.
-          </div>
+        {toggleError && (
+          <p role="alert" className="mt-2.5 text-[11px]" style={{ color: "var(--color-danger)" }}>
+            {toggleError}
+          </p>
+        )}
+
+        {enabled && port8082Up && (
+          <p className="mt-2.5 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+            Este panel no puede ver qué backend y modelo usa el proxy ni si tiene key: la política
+            de seguridad de la app bloquea esa petición. Compruébalo en{" "}
+            <code className="font-mono">{PROXY_SELF_HEALTH_URL}</code>.
+          </p>
         )}
 
         {/* Light mode explainer. */}
@@ -283,7 +251,7 @@ export function ProxyControl() {
               color: "var(--color-text-secondary)",
             }}
           >
-            <span style={{ fontWeight: 600, color: "var(--color-text)" }}>Modo light.</span> El
+            <span style={{ fontWeight: 600, color: "var(--color-text)" }}>Modo ligero.</span> El
             binario gestionado no está disponible y no se pudo lanzar el script. Arranca el proxy
             manualmente: <code className="font-mono">node ~/.ultron/proxy/ultron-proxy.mjs</code>.
             Guía completa en <code className="font-mono">~/.ultron/proxy/HOWTO.md</code>.
@@ -293,7 +261,7 @@ export function ProxyControl() {
 
       <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
         Estado en <code className="font-mono">~/.ultron/cockpit/proxy-state.json</code>.
-        Sesiones nuevas aplican <code className="font-mono">ANTHROPIC_BASE_URL</code>.
+        Las sesiones nuevas aplican <code className="font-mono">ANTHROPIC_BASE_URL</code>.
         Logs en <code className="font-mono">~/.ultron/proxy/proxy.log</code>.
       </p>
     </div>

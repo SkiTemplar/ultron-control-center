@@ -42,14 +42,14 @@ export function TipoStep({ loading, roots, error, rootId, onSelect, onRetry }: T
   return (
     <div>
       <label className="text-[10px] uppercase tracking-wide" style={labelStyle}>¿Dónde va el proyecto?</label>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className="mt-2 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2">
         {roots.map((r) => (
           <button
             key={r.id}
             type="button"
             onClick={() => onSelect(r.id)}
             disabled={!r.exists}
-            className="flex flex-col items-start gap-1 rounded p-3 text-left transition-colors disabled:opacity-40"
+            className="flex min-w-0 flex-col items-start gap-1 rounded p-3 text-left transition-colors disabled:opacity-40"
             style={{
               background: rootId === r.id ? "var(--color-surface-3)" : "var(--color-surface-0)",
               border: `1px solid ${rootId === r.id ? "var(--color-accent)" : "var(--color-border-strong)"}`,
@@ -57,7 +57,7 @@ export function TipoStep({ loading, roots, error, rootId, onSelect, onRetry }: T
             title={!r.exists ? "Carpeta no encontrada en disco" : r.path}
           >
             <span className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>{r.label}</span>
-            <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}>{r.path}</span>
+            <span className="w-full min-w-0 break-all text-[10.5px] leading-snug" style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}>{r.path}</span>
             {!r.exists && <span className="text-[10px]" style={{ color: "var(--color-danger)" }}>Carpeta no encontrada</span>}
           </button>
         ))}

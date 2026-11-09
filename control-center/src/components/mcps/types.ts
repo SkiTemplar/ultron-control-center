@@ -1,11 +1,11 @@
 import type { McpInfo } from "../../types";
 
-// v2.0 origin chip — Claudia-compatible provenance tagging. The backend
-// now merges three sources: user settings.json, plugin .mcp.json files,
-// and project-level .mcp.json files. The chip lets the user see at a
-// glance where a given MCP came from (and why it can't be edited from
-// here when it's plugin-owned).
-export type McpOriginKind = "user" | "project" | "plugin" | "unknown";
+// Origin chip. The backend merges: the user scope of ~/.claude.json
+// ("user", editable here), project scopes (~/.claude.json projects and
+// .mcp.json), installed plugins, and the legacy mcpServers of
+// ~/.claude/settings.json ("settings": Claude Code does not read it, so it
+// can only be deleted from here).
+export type McpOriginKind = "user" | "project" | "plugin" | "settings" | "unknown";
 
 // Extended view of McpInfo that includes the v2.0 origin/plugin fields,
 // the v2.7 description field, and the iter-10 detection fields.
@@ -32,7 +32,3 @@ export type EditableMcp = {
 
 export type Action = "hide" | "edit" | "delete" | "test";
 
-export type EnableDisableMcp = {
-  name: string;
-  cfg: Record<string, unknown> & { disabled?: boolean };
-};

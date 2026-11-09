@@ -18,17 +18,27 @@
  *   3. Borra del clon lo que liste .publicignore.
  *   3b. Reapunta al espejo las URLs de este repo privado (bootstrap, instalador
  *      y auto-updater apuntaban a un 404 para quien clonase el espejo).
- *   4. Pasa el gate PII sobre el arbol resultante y ABORTA si hay HIGH.
+ *   4. Indexa el clon (`git add -A`) y pasa el gate PII sobre ese indice, con
+ *      los ficheros nuevos dentro, y ABORTA si hay HIGH (scripts/lib/sync-public-gate.mjs).
  *   5. Enseña altas, bajas y modificaciones.
  *   6. Con --apply, commitea y empuja. Sin --apply no escribe nada remoto.
  *
- * Fail-closed por diseño: sin .publicignore, sin gate PII o con HIGH>0 el
+ * Fail-closed por diseño: sin .publicignore, sin gate PII, con HIGH>0, sin los
+ * patrones personales de email y handle (ULTRON_PII_EXTRA o el fichero
+ * gitignorado .publicpii), si el gate no analiza todo el indice, con binarios
+ * nuevos o modificados sin revisar o sin un email publico para el commit, el
  * script para. La opcion segura ante un fallo es NO publicar.
  *
  * Uso:
  *   node scripts/sync-public.mjs                      # dry-run
  *   node scripts/sync-public.mjs --apply -m "sync: X" # publica
+ *   node scripts/sync-public.mjs --apply -m "sync: X" --binarios-revisados
+ *                                                     # publica binarios ya revisados a mano
  *   node scripts/sync-public.mjs --auto               # modo automatico
+ *
+ * El commit del espejo se firma con `git config ultron.publicEmail` (o la
+ * variable ULTRON_PUBLIC_GIT_EMAIL), normalmente el noreply de GitHub: los
+ * metadatos del commit son publicos y el gate PII no los ve.
  *
  * --auto (lo lanza git-hooks/pre-push via sync-public-auto.mjs, 2026-09-16):
  * publica sin preguntar SOLO si no hay altas. Con altas no publica nada y deja
@@ -41,18 +51,38 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { reapuntarRepo, FICHEROS_REESCRITOS } from './lib/public-rewrite.mjs';
+import {
+  CLAVE_EMAIL_PUBLICO,
+  FICHERO_PII,
+  VAR_EMAIL_PUBLICO,
+  VAR_PII,
+  binariosSinAnalizar,
+  borrarVerificado,
+  ejecutarGatePii,
+  existeRuta,
+  emailDelEspejo,
+  leerPatronesPii,
+  mensajeDelEspejo,
+  parsearNameStatusZ,
+  validarPatronesPii,
+} from './lib/sync-public-gate.mjs';
 
 const RAIZ = path.resolve(path.join(import.meta.dirname, '..'));
 const ESPEJO = 'https://github.com/SkiTemplar/ultron-control-center.git';
 const IGNORE_FILE = path.join(RAIZ, '.publicignore');
+const PII_FILE = path.join(RAIZ, FICHERO_PII);
 
 const args = process.argv.slice(2);
 const AUTO = args.includes('--auto');
 const APPLY = AUTO || args.includes('--apply');
+const BINARIOS_REVISADOS = args.includes('--binarios-revisados');
 let MSG = args.includes('-m') ? args[args.indexOf('-m') + 1] : null;
 
 const log = (...a) => console.log(...a);
+// Temporal del clon; abortar() lo purga para no dejar ~0,8 GB por cada fallo.
+let tmpActivo = null;
 function abortar(motivo) {
+  if (tmpActivo) limpiarTmp(tmpActivo);
   console.error(`\n[sync-public] ABORTADO: ${motivo}`);
   if (AUTO) alertar('warn', `Sync al repo publico abortado: ${motivo.split('\n')[0]}`);
   process.exit(1);
@@ -104,6 +134,18 @@ function git(cwd, argv, opts = {}) {
 }
 
 /**
+ * Borra una ruta del clon y ABORTA si sigue ahí (borrarVerificado: en Node 24
+ * sobre Windows, fs.rmSync de una ruta no ASCII no borra y no avisa).
+ */
+function borrarRuta(p) {
+  try {
+    borrarVerificado(p);
+  } catch (err) {
+    abortar(err.message);
+  }
+}
+
+/**
  * Patrones de lo que NO se publica, uno por linea (`#` comenta).
  * Vive FUERA del repo a proposito: si la lista viajara en el espejo, estaria
  * anunciando que existen esos ficheros y que se ocultan.
@@ -135,18 +177,75 @@ function expandir(patron, trackeados) {
   return trackeados.filter((f) => f === patron || f.startsWith(patron + '/'));
 }
 
+/**
+ * Patrones personales (email y handle) que el gate busca ademas de los
+ * genericos. No pueden ir en el codigo porque el script viaja al espejo; sin
+ * ellos el gate no detecta el email ni el usuario, asi que no se publica.
+ */
+function leerPatronesPersonales() {
+  const { tokens, origenes } = leerPatronesPii({ env: process.env, fichero: PII_FILE });
+  const problemas = validarPatronesPii(tokens);
+  if (problemas.length) {
+    abortar(
+      `patrones personales del gate PII incompletos: ${problemas.join('; ')}.\n` +
+        `  Ponlos en ${PII_FILE} (gitignorado; un email y un handle por linea, # comenta)\n` +
+        `  o en la variable ${VAR_PII} separados por comas.`
+    );
+  }
+  log(`[sync-public] ${tokens.length} patron(es) personales desde ${origenes.join(' + ')}`);
+  return tokens;
+}
+
+/** Lee una clave de git config de este repo; '' si no existe. */
+function gitConfig(clave) {
+  try {
+    return git(RAIZ, ['config', clave]).trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Identidad del commit del espejo. El nombre se hereda de este repo; el email
+ * debe ser publico (noreply) porque el gate PII no mira los metadatos.
+ */
+function resolverAutor(tokens) {
+  const nombre = gitConfig('user.name');
+  if (!nombre) abortar('no hay user.name configurado en git para firmar el commit del espejo.');
+  const r = emailDelEspejo({
+    emailPublico: process.env[VAR_EMAIL_PUBLICO] || gitConfig(CLAVE_EMAIL_PUBLICO),
+    emailRepo: gitConfig('user.email'),
+    tokens,
+  });
+  if (r.error) abortar(r.error);
+  return { nombre, email: r.email };
+}
+
 // --- 1. Preparacion ----------------------------------------------------------
 const exclusiones = leerExclusiones();
+const patronesPii = leerPatronesPersonales();
+// La identidad se resuelve antes de clonar: si falta, no se descarga el espejo.
+const autor = APPLY ? resolverAutor(patronesPii) : null;
 const sucio = git(RAIZ, ['status', '--porcelain']).trim();
 if (sucio && !AUTO) {
   abortar('el repo tiene cambios sin commitear.\n  Se publica lo que esta en HEAD, asi que un arbol sucio publicaria algo distinto de lo que crees.');
 }
 const head = git(RAIZ, ['rev-parse', '--short', 'HEAD']).trim();
+// El mensaje del commit es público y el gate no lo lee: en --auto va uno
+// genérico y un -m con datos personales aborta antes de clonar.
+if (APPLY) {
+  const mensaje = mensajeDelEspejo({ auto: AUTO, msg: MSG, head, tokens: patronesPii });
+  if (mensaje.error) abortar(mensaje.error);
+  MSG = mensaje.mensaje;
+}
 // Lista y volcado salen de HEAD, no del indice: en --auto el arbol puede estar
 // sucio y lo que se publica es siempre lo commiteado.
-const trackeados = git(RAIZ, ['ls-tree', '-r', '--name-only', 'HEAD']).trim().split('\n');
+// `-z`: sin él, git cita las rutas no ASCII con escapes octales y ningún patrón
+// de .publicignore casa con ellas, así que se publicaban.
+const trackeados = git(RAIZ, ['ls-tree', '-r', '-z', '--name-only', 'HEAD']).split('\0').filter(Boolean);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ultron-sync-'));
+tmpActivo = tmp;
 const clon = path.join(tmp, 'espejo');
 log(`[sync-public] HEAD ${head} · ${trackeados.length} ficheros trackeados`);
 log('[sync-public] clonando espejo...');
@@ -154,7 +253,7 @@ execFileSync('git', ['clone', '--depth', '1', '-q', ESPEJO, clon], { windowsHide
 
 // --- 2. Volcado del arbol trackeado -----------------------------------------
 for (const e of fs.readdirSync(clon)) {
-  if (e !== '.git') fs.rmSync(path.join(clon, e), { recursive: true, force: true });
+  if (e !== '.git') borrarRuta(path.join(clon, e));
 }
 // `git archive | tar` seria lo idiomatico, pero el tar de Git Bash lee `C:\...`
 // como host remoto ("Cannot connect to C: resolve failed"). `checkout-index`
@@ -185,8 +284,8 @@ for (const patron of exclusiones) {
   if (!casan.length) log(`   aviso: el patron "${patron}" no casa con ningun fichero trackeado`);
   for (const f of casan) {
     const p = path.join(clon, f);
-    if (fs.existsSync(p)) {
-      fs.rmSync(p, { recursive: true, force: true });
+    if (existeRuta(p)) {
+      borrarRuta(p);
       excluidos++;
     }
   }
@@ -212,27 +311,32 @@ for (const f of FICHEROS_REESCRITOS) {
 log(`[sync-public] ${reapuntados} fichero(s) reapuntados al espejo (${refsReapuntadas} referencia/s)`);
 
 // --- 4. Gate PII -------------------------------------------------------------
+// El gate indexa el clon (`git add -A`) ANTES de escanear: el escaner lista con
+// `git ls-files`, y sin indexar los ficheros nuevos no se leian (H31).
 log('[sync-public] gate PII sobre el arbol a publicar...');
-const pii = spawnSync('uv', ['run', 'python', 'scripts/cockpit/audit_personal_data.py'], {
-  cwd: clon,
-  encoding: 'utf8',
-  windowsHide: true,
-});
-const salida = `${pii.stdout || ''}${pii.stderr || ''}`;
-const marca = salida.match(/HIGH=(\d+)/);
-if (!marca) abortar(`el gate PII no devolvio un veredicto legible:\n${salida.slice(-400)}`);
-if (Number(marca[1]) > 0) abortar(`el gate PII encontro ${marca[1]} hallazgo(s) HIGH. NADA se ha publicado.`);
-log(`[sync-public] gate PII: HIGH=0`);
+let gate;
+try {
+  gate = ejecutarGatePii({ clon, tokens: patronesPii });
+} catch (err) {
+  abortar(err.message);
+}
+if (gate.high > 0) abortar(`el gate PII encontro ${gate.high} hallazgo(s) HIGH. NADA se ha publicado.`);
+log(`[sync-public] gate PII: HIGH=0 sobre ${gate.ficheros} fichero(s), ${gate.extra} patron(es) personales`);
 
 // --- 5. Diff -----------------------------------------------------------------
-git(clon, ['add', '-A']);
-const estado = git(clon, ['diff', '--cached', '--name-status']).trim();
-if (!estado) {
+// `-z`: sin él, una ruta no ASCII sale citada y su extensión no casa con la
+// lista de binarios (parsearNameStatusZ).
+let filas;
+try {
+  filas = parsearNameStatusZ(git(clon, ['diff', '--cached', '--name-status', '-z']));
+} catch (err) {
+  abortar(err.message);
+}
+if (!filas.length) {
   log('\n[sync-public] el espejo ya esta al dia. Nada que publicar.');
   limpiarTmp(tmp);
   process.exit(0);
 }
-const filas = estado.split('\n').map((l) => l.split('\t'));
 const altas = filas.filter((f) => f[0].startsWith('A'));
 const bajas = filas.filter((f) => f[0].startsWith('D'));
 const mods = filas.filter((f) => f[0].startsWith('M'));
@@ -241,6 +345,14 @@ for (const [, f] of altas) log(`   + ${f}`);
 log(`\n=== BAJAS (${bajas.length}) — desaparecen del espejo ===`);
 for (const [, f] of bajas) log(`   - ${f}`);
 log(`\n=== MODIFICADOS: ${mods.length} ===`);
+// El escaner no lee binarios ni lo que cuelga de build/, dist/...: un fichero
+// así nuevo o modificado (una captura con una ruta personal, por ejemplo) solo
+// lo puede revisar una persona.
+const binarios = binariosSinAnalizar(filas);
+if (binarios.length) {
+  log(`\n=== SIN ANALIZAR (${binarios.length}) — binarios o rutas que el gate salta, revisalos a mano ===`);
+  for (const f of binarios) log(`   ! ${f}`);
+}
 
 if (!APPLY) {
   log('\n[sync-public] DRY-RUN. Revisa las ALTAS una a una: son lo unico que no estaba publicado.');
@@ -262,25 +374,14 @@ if (AUTO && altas.length) {
   limpiarTmp(tmp);
   process.exit(0);
 }
-if (AUTO && !MSG) {
-  const asunto = git(RAIZ, ['log', '-1', '--format=%s']).trim();
-  MSG = `sync: ${head} ${asunto}`;
+if (binarios.length && !BINARIOS_REVISADOS) {
+  abortar(
+    `${binarios.length} binario(s) o fichero(s) nuevo(s) o modificado(s) que el gate PII no lee (${binarios.slice(0, 5).join(', ')}${binarios.length > 5 ? ', ...' : ''}).\n` +
+      '  Revisalos con el dry-run y publica con --binarios-revisados.'
+  );
 }
-if (!MSG) abortar('--apply exige un mensaje con -m "sync: que ha cambiado".');
-// La identidad se hereda de este repo, nunca se incrusta aqui: el script viaja
-// al espejo publico y el gate PII rechaza datos personales en el codigo.
-let autor;
-try {
-  autor = {
-    nombre: git(RAIZ, ['config', 'user.name']).trim(),
-    email: git(RAIZ, ['config', 'user.email']).trim(),
-  };
-} catch {
-  autor = null;
-}
-if (!autor?.nombre || !autor?.email) {
-  abortar('no hay identidad git configurada (user.name / user.email) para firmar el commit del espejo.');
-}
+// La identidad (resolverAutor, paso 1) se hereda de este repo y nunca se
+// incrusta aqui: el script viaja al espejo publico.
 git(clon, [
   '-c', `user.name=${autor.nombre}`,
   '-c', `user.email=${autor.email}`,

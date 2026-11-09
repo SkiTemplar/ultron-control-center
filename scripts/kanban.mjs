@@ -20,6 +20,7 @@
  *   node scripts/kanban.mjs mv     <proyecto> "<id|substr-id|substr-titulo>" <rol|nombre-columna>
  *   node scripts/kanban.mjs rm     <proyecto> "<id|substr-id|substr-titulo>"
  *   node scripts/kanban.mjs archive-done <proyecto>   (mueve las Done a archives/<fecha>.json)
+ *   node scripts/kanban.mjs undo   <proyecto> [sesion] (revierte el ultimo lote de kanban-auto)
  *
  * Proyecto por defecto: "ultron" (el kanban principal del producto).
  * Ejemplos:
@@ -31,8 +32,15 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const requireCjs = createRequire(import.meta.url);
+const kanbanAuto = requireCjs(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'kanban-auto.js'));
+// Lock de fichero entre procesos (kanban.json.lock), compartido con el hook
+// kanban-auto y con la app (board_io.rs): sin el, dos escritores a la vez
+// podian perder una actualizacion (auditoria 2026-10-26, L12).
+const { withBoardLock, renameWithRetry } = requireCjs(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'kanban-lock.js'));
 const ULTRON = join(__dirname, '..');
 // ULTRON_BOARDS_DIR_OVERRIDE (solo para selftests, mismo mecanismo que en
 // project-new.mjs): apunta a un directorio de tableros temporal en vez del
@@ -52,8 +60,20 @@ function loadBoard(proj) {
   return { path: p, board: JSON.parse(readFileSync(p, 'utf8')) };
 }
 
+/** Escritura atomica (tmp + rename): un lector nunca ve el JSON a medias. */
 function saveBoard(path, board) {
-  writeFileSync(path, JSON.stringify(board, null, 2) + '\n', 'utf8');
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(board, null, 2) + '\n', 'utf8');
+  renameWithRetry(tmp, path);
+}
+
+/**
+ * Ejecuta un leer-modificar-escribir del tablero bajo el lock de fichero. Si
+ * `fn` llama a fail() (process.exit), el lock se libera en el evento 'exit'.
+ */
+function withLockedBoard(proj, fn) {
+  if (!existsSync(boardPath(proj))) loadBoard(proj); // fail() con el mensaje de siempre
+  return withBoardLock(boardPath(proj), fn);
 }
 
 function colByRole(board, role) {
@@ -152,6 +172,10 @@ function cmdList(proj) {
 }
 
 function cmdAdd(proj, role, title, desc, tags) {
+  withLockedBoard(proj, () => cmdAddLocked(proj, role, title, desc, tags));
+}
+
+function cmdAddLocked(proj, role, title, desc, tags) {
   const { path, board } = loadBoard(proj);
   const col = resolveColumn(board, role);
   const ts = nowIso();
@@ -176,6 +200,10 @@ function cmdAdd(proj, role, title, desc, tags) {
 }
 
 function cmdMv(proj, needle, role) {
+  withLockedBoard(proj, () => cmdMvLocked(proj, needle, role));
+}
+
+function cmdMvLocked(proj, needle, role) {
   const { path, board } = loadBoard(proj);
   const card = findCard(board, needle);
   const col = resolveColumn(board, role);
@@ -187,6 +215,10 @@ function cmdMv(proj, needle, role) {
 }
 
 function cmdRm(proj, needle) {
+  withLockedBoard(proj, () => cmdRmLocked(proj, needle));
+}
+
+function cmdRmLocked(proj, needle) {
   const { path, board } = loadBoard(proj);
   const card = findCard(board, needle);
   board.cards = (board.cards || []).filter((c) => c.id !== card.id);
@@ -199,6 +231,10 @@ function cmdRm(proj, needle) {
 }
 
 function cmdArchiveDone(proj) {
+  withLockedBoard(proj, () => cmdArchiveDoneLocked(proj));
+}
+
+function cmdArchiveDoneLocked(proj) {
   const { path, board } = loadBoard(proj);
   const doneCol = colByRole(board, 'done');
   const done = (board.cards || []).filter((c) => c.column_id === doneCol.id);
@@ -218,6 +254,19 @@ function cmdArchiveDone(proj) {
   board.cards = (board.cards || []).filter((c) => c.column_id !== doneCol.id);
   saveBoard(path, board);
   console.log(`[kanban] archivadas ${done.length} cards Done -> ${archPath}`);
+}
+
+// Revierte el ultimo lote que hooks/scripts/lib/kanban-auto.js aplico desde
+// una bitacora (o el de la sesion cuyo id empieza por `session`).
+function cmdUndo(proj, session) {
+  loadBoard(proj);
+  const { reverted, entry } = kanbanAuto.undoLast({ projectsDir: PROJECTS, projectId: proj, sessionId: session || '' });
+  if (!entry) {
+    console.log('[kanban] no hay lotes automaticos que deshacer');
+    return;
+  }
+  console.log(`[kanban] deshecho el lote de la sesion ${entry.session_id.slice(0, 8)} (${entry.at}): ${reverted}/${entry.ops.length} operaciones revertidas`);
+  for (const op of entry.ops) console.log(`  ${op.op === 'mv' ? 'reabierta' : 'borrada'}: ${op.title}`);
 }
 
 // --- dispatch --------------------------------------------------------------
@@ -250,6 +299,10 @@ switch (cmd) {
   case 'archive-done':
     cmdArchiveDone(rest[0] || DEFAULT_PROJ);
     break;
+  case 'undo':
+    if (!rest[0]) fail('uso: undo <proyecto> [sesion]');
+    cmdUndo(rest[0], rest[1]);
+    break;
   default:
     console.log('kanban.mjs - CRUD del Kanban de ULTRON\n');
     console.log('  node scripts/kanban.mjs list   [proyecto]');
@@ -257,6 +310,7 @@ switch (cmd) {
     console.log('  node scripts/kanban.mjs mv     <proyecto> "<id|substr>" <rol|nombre-columna>');
     console.log('  node scripts/kanban.mjs rm     <proyecto> "<id|substr>"');
     console.log('  node scripts/kanban.mjs archive-done <proyecto>');
+    console.log('  node scripts/kanban.mjs undo   <proyecto> [sesion]');
     console.log('\n  proyecto por defecto: ultron');
     process.exit(cmd ? 1 : 0);
 }

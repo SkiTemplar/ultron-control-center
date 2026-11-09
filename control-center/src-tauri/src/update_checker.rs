@@ -193,9 +193,20 @@ pub fn check_for_updates_inner() -> UpdateInfo {
     info
 }
 
+/// HTTP to GitHub with an 8 s cap: on the blocking pool, never on the main
+/// thread that pumps the window.
 #[tauri::command]
-pub fn check_for_updates() -> UpdateInfo {
-    check_for_updates_inner()
+pub async fn check_for_updates() -> UpdateInfo {
+    tauri::async_runtime::spawn_blocking(check_for_updates_inner)
+        .await
+        .unwrap_or_else(|e| UpdateInfo {
+            has_update: false,
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            latest_version: None,
+            release_url: RELEASES_URL.to_string(),
+            published_at: None,
+            error: Some(format!("check_for_updates: la tarea de fondo falló: {e}")),
+        })
 }
 
 #[cfg(test)]

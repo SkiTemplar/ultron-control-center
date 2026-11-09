@@ -1,0 +1,36 @@
+/* Tarjeta de run de Workflow bajo su llamada en el chat (WorkflowCard.tsx). */
+.wf-card { margin: 2px 0 6px calc(var(--mk, 14px) * 2); border: 1px solid var(--line); border-left: 2px solid var(--info); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wf-card[data-status="completed"] { border-left-color: var(--ok); }
+.wf-card[data-status="failed"], .wf-card[data-status="killed"] { border-left-color: var(--err); }
+.wf-card[data-status="stopped"] { border-left-color: var(--warn); }
+.wf-head { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; min-width: 0; flex-wrap: wrap; }
+.wf-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-st { font-size: 12px; color: var(--muted); }
+.wf-nums { font-size: 12px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.wf-desc, .wf-note, .wf-missing { margin: 0; font-size: 12px; color: var(--muted); }
+.wf-note { color: var(--warn); }
+.wf-missing { margin: 2px 0 6px calc(var(--mk, 14px) * 2); font-style: italic; }
+.wf-err { margin: 0; font: 12px/1.4 var(--f-mono); color: var(--err); overflow-wrap: anywhere; }
+.wf-phases { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
+.wf-phase { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; font-size: 12px; color: var(--muted); padding: 3px 6px; border-radius: 4px; }
+.wf-phase[aria-current="step"] { background: var(--raised); color: var(--fg); }
+.wf-phase .wf-meter { grid-column: 1 / 3; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.wf-phase .wf-meter i { display: block; height: 100%; background: var(--ok); }
+.wf-phase-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-agents { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.wf-agent { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 0 8px; width: 100%; text-align: left; padding: 3px 6px; border-radius: 4px; }
+.wf-agent:hover { background: var(--raised); }
+.wf-retry { grid-column: 3; font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 0 6px; }
+.wf-agent .wf-nums { grid-column: 4; margin-left: 0; }
+.wf-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-kind, .wf-act { grid-column: 2 / 5; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-kind { color: var(--faint); }
+.wf-act { font-family: var(--f-mono); }
+.wf-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; flex: none; }
+.wf-dot.running { background: var(--info); animation: pulse 1.6s infinite; }
+.wf-dot.done, .wf-dot.completed, .wf-dot.cached { background: var(--ok); }
+.wf-dot.cached { opacity: .6; }
+.wf-dot.failed, .wf-dot.killed { background: var(--err); }
+.wf-dot.stopped { background: var(--warn); }
+.wf-result summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.wf-result pre { margin: 4px 0 0; font: 12px/1.5 var(--f-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; color: var(--muted); }

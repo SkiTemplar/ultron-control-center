@@ -12,8 +12,31 @@
  *   agente-fantasma  (Agent)  DENY  subagent_type que no existe en disco.
  *   uv               (Bash)   DENY  pip install / python suelto sin `uv run`.
  *   commit-format    (Bash)   DENY  git commit sin prefijo convencional.
- *   skip-permissions (Bash)   DENY  --dangerously-skip-permissions.
- *   force-push       (Bash)   ASK   push forzado (rescribe historia publicada).
+ *   skip-permissions (Bash)   DENY  --dangerously-skip-permissions y equivalentes
+ *                                   (--permission-mode bypassPermissions,
+ *                                   --allow-dangerously-skip-permissions).
+ *   force-push       (Bash)   ASK   push forzado (rescribe historia publicada):
+ *                                   --force*, --mirror, -f y refspec `+rama`.
+ *
+ * Normalizacion (hooks-3, 2026-10-23; auditoria 2026-11-01): las reglas se
+ * aplican a la linea y a cada comando que lanza a traves de otra shell (`bash -c`,
+ * `pwsh -Command`, `-EncodedCommand`, `cmd /c`, `echo … | bash`, `bash <<EOF`,
+ * `eval "…"`), sobre el binario real de cada comando (por ruta, tras `timeout`,
+ * `then`, `Start-Process`, `find -exec`…) y con las banderas sin comillas.
+ *
+ * LIMITES DECLARADOS (falsos negativos conocidos, fijados como tales en
+ * guardrails-pre.adversarial.selftest.mjs): no evalua la shell (`eval "$x"`,
+ * `$cmd x.py`, `$(echo python) x.py`, `iex $x`), un escape dentro del nombre del
+ * binario (`pyt\hon`), codigo dentro de otro interprete (`node -e "execSync(…)"`,
+ * `base64 -d | bash`, un script escrito antes), envoltorios fuera de PREFIJOS de
+ * lib/shell-wrappers.js (`parallel`, `fd -x`, `poetry run`, `ssh h git push -f`) y
+ * alias de git (`git ci`). Es higiene determinista, no una frontera de seguridad.
+ *
+ * Las reglas de Bash valen igual para PowerShell y Monitor. Hasta el 2026-10-17 el
+ * codigo trataba PowerShell pero el matcher vivo era `Bash|Agent|Task`, asi
+ * que en la shell principal de Windows ninguna se ejecutaba (H25 de la
+ * auditoria). TOOLS_CUBIERTAS es la lista que el selftest contrasta con el
+ * matcher de la plantilla para que no vuelvan a divergir.
  *
  * POR QUE agente-fantasma BLOQUEA Y NO AVISA: un `subagent_type` inexistente
  * no da error — Claude Code lo ignora en silencio y la delegacion se pierde
@@ -56,6 +79,8 @@ if (require.main === module) {
   } catch (_) { /* la observabilidad jamas rompe un hook */ }
 }
 
+const { variantes, palabras, binarioDe, comandosDe } = require('./lib/shell-wrappers');
+
 const HOME = os.homedir();
 
 /** Por debajo de esto se asume catalogo mal leido y la regla se desactiva. */
@@ -64,8 +89,15 @@ const MIN_CATALOGO = 20;
 /** Tipos que sirve el propio harness y que no tienen fichero en disco. */
 const AGENTES_BUILTIN = [
   'general-purpose', 'Explore', 'Plan', 'claude', 'fork',
-  'statusline-setup', 'output-style-setup',
+  'statusline-setup', 'output-style-setup', 'claude-code-guide',
 ];
+
+/** Herramientas que trata classify(); el matcher del hook debe incluirlas todas. */
+const TOOLS_CUBIERTAS = Object.freeze(['Bash', 'PowerShell', 'Monitor', 'Agent', 'Task']);
+
+// Dialecto de la linea por herramienta de shell. `Monitor.command` es "Shell command
+// or script" (tipos del motor) y su shell depende de la maquina: se miran los dos.
+const DIALECTOS_POR_TOOL = Object.freeze({ Bash: ['bash'], PowerShell: ['ps'], Monitor: ['bash', 'ps'] });
 
 const TIPOS_COMMIT = [
   'feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'ci',
@@ -140,15 +172,17 @@ function agentesDePlugin(out, dirPlugin, nombreCarpeta) {
  * es donde viven la mayoria de plugins instalados: el catalogo salia casi sin
  * agentes de plugin y la regla los marcaba a todos como inexistentes.
  *
+ * @param {string} [home] raiz donde buscar `.claude/`; los selftests la apuntan a
+ *   un fixture para cubrir layouts que no estan instalados en la maquina.
  * @returns {Set<string>}
  */
-function agentesValidos() {
+function agentesValidos(home = HOME) {
   const out = new Set(AGENTES_BUILTIN);
-  for (const f of ficherosMd(path.join(HOME, '.claude', 'agents'))) {
+  for (const f of ficherosMd(path.join(home, '.claude', 'agents'))) {
     out.add(f.replace(/\.md$/, ''));
   }
 
-  const raizPlugins = path.join(HOME, '.claude', 'plugins');
+  const raizPlugins = path.join(home, '.claude', 'plugins');
 
   // marketplaces/<mercado>/... : un mercado puede ser el plugin en si mismo
   // (agents/ en su propia raiz, p.ej. addy-agent-skills) o alojar varios en
@@ -168,7 +202,7 @@ function agentesValidos() {
   // (skills que traen agentes propios, p.ej. ultron, the-creator).
   const raicesSynced = [
     path.join(raizPlugins, 'synced'),
-    path.join(HOME, '.claude', 'skills', 'synced'),
+    path.join(home, '.claude', 'skills', 'synced'),
   ];
   for (const raizSynced of raicesSynced) {
     for (const id of subcarpetas(raizSynced)) {
@@ -223,95 +257,149 @@ function parecidos(nombre, catalogo, max) {
 // Reglas sobre Bash
 // ---------------------------------------------------------------------------
 
-/**
- * Trocea una linea de shell en comandos sueltos. Las reglas miran el COMIENZO
- * de cada trozo: `grep python foo.txt` o `echo "python x.py"` no son
- * invocaciones de Python, y castigarlas seria ruido que acaba con el hook
- * desactivado.
- *
- * @param {string} cmd
- * @returns {string[]}
- */
-function segmentos(cmd) {
-  return sinHeredocs(cmd)
-    .split(/\n|;|&&|\|\||\|/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+// El troceo de la linea en comandos (comillas, sustituciones `$(...)` y
+// backticks, comentarios, escape por dialecto y vuelta al split ingenuo ante
+// la duda) vive en lib/shell-segments.js. `dialectos` es ['bash'] para la
+// herramienta Bash, ['ps'] para PowerShell y los dos para los comandos
+// interiores de un `bash -c`/`pwsh -Command`, cuyo dialecto no se sabe.
+
+// `git` seguido de opciones globales: `-C <ruta>`, `-c k=v`, `--git-dir <d>`,
+// `--no-pager`... Hasta el 2026-10-23 el patron era `git\s+(-\S+\s+)*commit`,
+// que no admitia el argumento separado de `-C` ni de `-c`: `git -C <ruta> commit`
+// (la forma habitual en worktrees) se saltaba commit-format y force-push (hooks-3).
+const GIT_OPT_CON_ARG = '(?:-C|-c|--git-dir|--work-tree|--namespace|--config-env)';
+const GIT_OPCIONES_GLOBALES =
+  String.raw`(?:\s+${GIT_OPT_CON_ARG}\s+(?:"[^"]*"|'[^']*'|[^\s"']+)|\s+(?!${GIT_OPT_CON_ARG}\s)-[^\s]+)*`;
+const GIT_PREFIJO =
+  String.raw`(?:^|[\s;&|(])["']?(?:[^\s"';&|()]*[\\/])?git(?:\.exe)?["']?` + GIT_OPCIONES_GLOBALES;
+const RE_GIT_COMMIT = new RegExp(String.raw`${GIT_PREFIJO}\s+commit(?=\s|$)`);
+const RE_SUB_GIT = new RegExp(String.raw`^${GIT_OPCIONES_GLOBALES}\s+["']?([\w-]+)["']?(?=\s|$)`);
 
 /**
- * Quita el CUERPO de los here-docs y here-strings, dejando solo la linea que
- * los abre. Lo de dentro son datos que van por stdin, no comandos: sin esto,
- * un `uv run python - <<'PY' … PY` se bloqueaba a si mismo porque el
- * terminador `PY` parecia una invocacion del launcher `py`, y el mensaje de un
- * commit que citara `python x.py` tambien saltaba.
+ * Subcomando de git de un comando ya normalizado (ver comandosDe), o null. Mirar
+ * la palabra de comando evita los falsos positivos de `echo "git commit -m x"` y
+ * `grep "git push -f" a.md`. Limite declarado: un envoltorio fuera de PREFIJOS
+ * (`ssh h git push -f`) y los alias de git (`git ci`) no se ven.
  *
- * @param {string} cmd
- * @returns {string}
+ * @returns {{sub:string, args:string}|null}
  */
-function sinHeredocs(cmd) {
-  const lineas = String(cmd || '').split('\n');
-  const out = [];
-  let cerrar = null;
-  for (const linea of lineas) {
-    if (cerrar) {
-      if (linea.trim() === cerrar) cerrar = null;
-      continue;
-    }
-    out.push(linea);
-    const heredoc = linea.match(/<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/);
-    if (heredoc) { cerrar = heredoc[2]; continue; }
-    if (/@['"]\s*$/.test(linea)) cerrar = linea.includes('@"') ? '"@' : "'@";
-  }
-  return out.join('\n');
+function subGit({ bin, resto }) {
+  if (bin !== 'git') return null;
+  const m = resto.match(RE_SUB_GIT);
+  return m ? { sub: m[1].toLowerCase(), args: resto.slice(m[0].length) } : null;
 }
 
-/** Quita prefijos que no cambian que binario se acaba ejecutando. */
-function sinPrefijos(seg) {
-  return seg.replace(/^(?:sudo|nohup|time|env(?:\s+\w+=\S+)*)\s+/i, '').trim();
-}
+const RE_BIN_PYTHON = /^(?:python[\d.]*|pythonw|py)$/;
+const RE_BIN_PIP = /^pip[\d.]*$/;
 
 /**
  * CLAUDE.md: "UV siempre. Nunca `python -m`, `pip install`, ni
- * `python script.py`". Se comprueba por segmento y solo al principio.
+ * `python script.py`". Se comprueba el binario de cada comando, tambien por ruta
+ * (`.venv/Scripts/python.exe`) y tras un prefijo (`timeout 10 python`).
  */
-function reglaUv(cmd) {
-  for (const bruto of segmentos(cmd)) {
-    const seg = sinPrefijos(bruto);
-    if (/^uv(\s|$)/i.test(seg)) continue;            // uv run / uv pip: correcto
-    if (/^(python3?|py)(\.exe)?(\s|$)/i.test(seg)) {
-      return `\`${seg.slice(0, 60)}\` invoca Python fuera de UV — usa \`uv run python ...\``;
+function reglaUv(cmd, dialectos) {
+  for (const { real, bin, resto } of comandosDe(cmd, dialectos)) {
+    if (RE_BIN_PYTHON.test(bin)) {
+      return `\`${real.slice(0, 60)}\` invoca Python fuera de UV — usa \`uv run python ...\``;
     }
-    if (/(^|\s)pip3?(\.exe)?\s+install(\s|$)/i.test(seg)) {
-      return `\`${seg.slice(0, 60)}\` usa pip directo — usa \`uv pip install ...\``;
+    if (RE_BIN_PIP.test(bin) && palabras(resto)[0] === 'install') {
+      return `\`${real.slice(0, 60)}\` usa pip directo — usa \`uv pip install ...\``;
     }
   }
   return null;
 }
 
-/** Extrae el mensaje de un `git commit`, venga en -m o en here-string. */
+// La opcion del mensaje: `-m`, combinada (`-am`, `-qm`), pegada (`-m"x"`) o larga
+// (`--message=x`, `--message x`, `--mess x`).
+const RE_FLAG_MENSAJE = /(?:^|\s)(?:-[a-zA-Z]*m|--mes[a-z]*(?:=|(?=\s)))/;
+
+/**
+ * Extrae el mensaje de un `git commit`, venga en -m, en here-string de
+ * PowerShell (`@'…'@` o `@"…"@`), en heredoc directo o en el formato estandar
+ * de Claude Code para mensajes multilinea: `-m "$(cat <<'EOF' … EOF\n)"`.
+ *
+ * Devuelve null cuando el mensaje es una sustitucion o una variable que no se
+ * puede leer (`-m "$(cat mensaje.txt)"`, `-m "$msg"`): sin mensaje legible no
+ * se bloquea.
+ *
+ * Solo cuenta el PRIMER `-m`: git usa el primero como asunto y los demas como
+ * parrafos del cuerpo, asi que `-m "feat: x" -m "$(cat <<'EOF' …)"` es valido
+ * aunque el cuerpo no empiece por un tipo.
+ */
 function mensajeCommit(cmd) {
-  const s = String(cmd || '');
-  const heredoc = s.match(/-m\s+@'\r?\n([\s\S]*?)\r?\n'@/) || s.match(/-m\s+<<-?'?\w+'?\r?\n([\s\S]*?)\r?\n\w+/);
+  // El `-m` se busca DESPUES de `git … commit`: en `python -m pytest && git
+  // commit -m "…"` el primer `-m` es de Python, no el mensaje.
+  const s0 = String(cmd || '');
+  const commit = s0.search(RE_GIT_COMMIT);
+  const tras = commit < 0 ? s0 : s0.slice(commit);
+  const flag = tras.match(RE_FLAG_MENSAJE);
+  if (!flag) return null;
+  // Forma comun para lo que sigue: `-am "x"`, `-m"x"` y `--message=x` valen `-m x`.
+  const s = `-m ${tras.slice(flag.index + flag[0].length).trimStart()}`;
+  const hereString = s.match(/^-m\s+@(['"])\r?\n([\s\S]*?)\r?\n\1@/);
+  if (hereString) return hereString[2];
+  // `$(cat <<'EOF'` … `EOF` … `)`: el delimitador puede ir con comillas
+  // simples, dobles o sin ellas, y con `<<-`.
+  const catHeredoc = s.match(
+    /^-m\s+["']?\$\(\s*cat\s+<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\r?\n([\s\S]*?)\r?\n[ \t]*\2[ \t]*(?:\r?\n|\)|$)/,
+  );
+  if (catHeredoc) return catHeredoc[3];
+  const heredoc = s.match(/^-m\s+<<-?'?\w+'?\r?\n([\s\S]*?)\r?\n\w+/);
   if (heredoc) return heredoc[1];
-  const comillas = s.match(/-m\s+"((?:[^"\\]|\\.)*)"/) || s.match(/-m\s+'((?:[^'\\]|\\.)*)'/);
-  if (comillas) return comillas[1];
-  const suelto = s.match(/-m\s+(\S+)/);
-  return suelto ? suelto[1] : null;
+  const comillas = s.match(/^-m\s+"((?:[^"\\]|\\.)*)"/) || s.match(/^-m\s+'((?:[^'\\]|\\.)*)'/);
+  if (comillas) return /^\s*\$/.test(comillas[1]) ? null : comillas[1];
+  const suelto = s.match(/^-m\s+(\S+)/);
+  if (!suelto || /^["']?\$/.test(suelto[1])) return null;
+  return suelto[1];
 }
 
-/** rules/common/git-workflow.md: `<type>: <description>`. */
-function reglaCommitFormato(cmd) {
-  const s = String(cmd || '');
-  if (!/(^|\s)git\s+(-\S+\s+)*commit(\s|$)/.test(s)) return null;
-  if (/--amend/.test(s) && !/-m\s/.test(s)) return null;   // reusa el mensaje previo
-  if (/\s-(F|-file)\b/.test(s)) return null;               // mensaje en fichero
+const RE_TIPO_COMMIT = new RegExp(`^(${TIPOS_COMMIT.join('|')})(\\([^)]+\\))?!?: .+`);
+
+/** Motivo del deny si el mensaje del commit que empieza en `s` no es convencional. */
+function formatoDelMensaje(s) {
   const msg = mensajeCommit(s);
   if (!msg) return null;                                   // no se pudo leer: no se bloquea
-  const primera = msg.split(/\r?\n/)[0].trim();
-  const re = new RegExp(`^(${TIPOS_COMMIT.join('|')})(\\([^)]+\\))?!?: .+`);
-  if (re.test(primera)) return null;
+  // git descarta las lineas en blanco iniciales: el asunto es la primera con texto.
+  const primera = (msg.split(/\r?\n/).find((l) => l.trim()) || '').trim();
+  if (RE_TIPO_COMMIT.test(primera)) return null;
   return `commit "${primera.slice(0, 60)}" no sigue \`<type>: <description>\` (${TIPOS_COMMIT.slice(0, 8).join(', ')}…)`;
+}
+
+/**
+ * Posiciones en la linea original del comando `seg`. El segmento es una copia
+ * literal salvo las sustituciones, que el troceo deja como `$( )`, asi que se busca
+ * lo que hay antes de la primera. Hacen falta todas: dos commits con heredoc dan
+ * el mismo segmento y solo la linea original tiene sus mensajes.
+ */
+function posicionesEnLinea(linea, seg) {
+  const marca = seg.search(/\$\( \)|` `/);
+  const prefijo = marca < 0 ? seg : seg.slice(0, marca);
+  const out = [];
+  if (!prefijo) return out;
+  for (let i = linea.indexOf(prefijo); i >= 0 && out.length < 16; i = linea.indexOf(prefijo, i + 1)) {
+    out.push(i);
+  }
+  return out;
+}
+
+/**
+ * rules/common/git-workflow.md: `<type>: <description>`. Se mira cada comando
+ * `git commit` real de la linea: el texto que solo lo nombra (`echo "git commit -m
+ * x"`, el cuerpo de un here-doc) no cuenta, y en dos commits encadenados valen los dos.
+ */
+function reglaCommitFormato(cmd, dialectos) {
+  const linea = String(cmd || '');
+  for (const c of comandosDe(linea, dialectos)) {
+    const git = subGit(c);
+    if (!git || git.sub !== 'commit') continue;
+    if (/(?:^|\s)-(?:F|-file)(?:\s|=|\b)/.test(git.args)) continue;   // mensaje en fichero
+    if (!RE_FLAG_MENSAJE.test(git.args)) continue;           // editor o --amend sin mensaje
+    for (const inicio of posicionesEnLinea(linea, c.seg)) {
+      const motivo = formatoDelMensaje(linea.slice(inicio));
+      if (motivo) return motivo;
+    }
+  }
+  return null;
 }
 
 /**
@@ -323,23 +411,67 @@ function reglaCommitFormato(cmd) {
  * escribir el nombre de una bandera prohibida no es usarla, y un guardrail que
  * no distingue las dos cosas impide documentar la propia norma.
  */
-function reglaSkipPermissions(cmd) {
-  for (const bruto of segmentos(cmd)) {
-    const seg = sinPrefijos(bruto).replace(/^npx\s+/i, '');
-    if (!/^claude(\.exe)?(\s|$)/i.test(seg)) continue;
-    if (/\s--dangerously-skip-permissions(\s|$|=)/.test(seg)) {
+// Equivalentes funcionales de la bandera (hooks-3): `--permission-mode
+// bypassPermissions` activa el mismo modo y `--allow-dangerously-skip-permissions`
+// lo deja disponible en la sesion.
+// Se comparan palabras sin comillas (`claude "--bandera"`), no el texto: nombrar la
+// bandera dentro de un prompt (`claude -p "… --bandera …"`) no es usarla.
+const RE_BANDERA_BYPASS = /^--(?:allow-)?dangerously-skip-permissions(?:=|$)/i;
+const RE_MODO_BYPASS = /^--permission-mode=bypassPermissions$/i;
+const BINARIOS_CLAUDE = new Set(['claude', 'claude-code', '@anthropic-ai/claude-code']);
+const RE_LANZADORES = /^(?:npx|bunx|pnpm\s+dlx)(?:\s+-\S+)*\s+/i;
+const INTERPRETES_JS = new Set(['node', 'bun', 'deno']);
+// `node …/cli.js`: el punto de entrada de la CLI instalada por npm.
+const RE_SCRIPT_CLAUDE = /(?:^|[\\/])(?:cli\.m?js|claude(?:-code)?(?:\.m?js)?)$/i;
+
+function usaBypass(args) {
+  // `-ArgumentList "--bandera -p x"` de Start-Process: una cadena con varias
+  // palabras que el proceso recibe separadas.
+  const listaDeArgumentos = args.some((a) => /^-(?:argumentlist|args)$/i.test(a));
+  const lista = listaDeArgumentos ? args.flatMap((a) => a.split(/\s+/)) : args;
+  return lista.some((a, i) =>
+    RE_BANDERA_BYPASS.test(a) ||
+    RE_MODO_BYPASS.test(a) ||
+    (/^--permission-mode$/i.test(a) && /^bypassPermissions$/i.test(lista[i + 1] || '')));
+}
+
+/** Argumentos que recibe la CLI de claude en este comando, o null si no la invoca. */
+function argumentosDeClaude({ real }) {
+  const { bin, resto } = binarioDe(real.replace(RE_LANZADORES, ''));
+  if (BINARIOS_CLAUDE.has(bin) || /[\\/]claude-code$/.test(bin)) return palabras(resto);
+  if (!INTERPRETES_JS.has(bin)) return null;
+  const args = palabras(resto);
+  const script = args.find((a) => !a.startsWith('-'));
+  return script && RE_SCRIPT_CLAUDE.test(script) ? args : null;
+}
+
+function reglaSkipPermissions(cmd, dialectos) {
+  for (const c of comandosDe(cmd, dialectos)) {
+    const args = argumentosDeClaude(c);
+    if (args && usaBypass(args)) {
       return 'invocar claude con la bandera de saltarse permisos esta prohibido en las reglas del sistema';
     }
   }
   return null;
 }
 
-/** Reescribir historia ya publicada no se deshace: pide confirmacion. */
-function reglaForcePush(cmd) {
-  const s = String(cmd || '');
-  if (!/(^|\s)git\s+push(\s|$)/.test(s)) return null;
-  if (!/(\s--force(-with-lease)?\b|\s-f\b)/.test(s)) return null;
-  return 'push forzado: reescribe historia ya publicada';
+const RE_PUSH_FORZADO = /^(?:--for[a-z-]*(?:=.*)?|--mir[a-z]*|-[A-Za-z0-9]*f[A-Za-z0-9]*|\+\S+)$/;
+
+/**
+ * Reescribir historia ya publicada no se deshace: pide confirmacion. Por comando:
+ * con PowerShell en el matcher, el operador de formato `-f` (`"{0}" -f $x; git
+ * push`) no puede contar como la bandera del push. Formas forzadas: --force, sus
+ * variantes y abreviaturas (`--forc`), --mirror, una -f suelta o combinada (`-uf`)
+ * y el refspec con `+` (`git push origin +main`), con o sin comillas.
+ */
+function reglaForcePush(cmd, dialectos) {
+  for (const c of comandosDe(cmd, dialectos)) {
+    const git = subGit(c);
+    if (git && git.sub === 'push' && palabras(git.args).some((a) => RE_PUSH_FORZADO.test(a))) {
+      return 'push forzado: reescribe historia ya publicada';
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,18 +505,31 @@ function classify(toolName, toolInput) {
     return null;
   }
 
-  if (toolName === 'Bash' || toolName === 'PowerShell') {
-    const cmd = input.command || '';
-    const skip = reglaSkipPermissions(cmd);
-    if (skip) return { decision: 'deny', regla: 'skip-permissions', reason: skip };
-    const uv = reglaUv(cmd);
-    if (uv) return { decision: 'deny', regla: 'uv', reason: uv };
-    const commit = reglaCommitFormato(cmd);
-    if (commit) return { decision: 'deny', regla: 'commit-format', reason: commit };
-    const fpush = reglaForcePush(cmd);
-    if (fpush) return { decision: 'ask', regla: 'force-push', reason: fpush };
+  const propio = DIALECTOS_POR_TOOL[toolName];
+  if (propio) {
+    // La linea tal cual y cada comando que lanza a traves de otra shell
+    // (`bash -c`, `pwsh -Command`, `cmd /c`...): ver lib/shell-wrappers.js.
+    // La linea va en el dialecto de la herramienta; los interiores, cuyo
+    // dialecto no se sabe (puede ser cmd.exe), en todos y con el split de HEAD.
+    for (const [n, cmd] of variantes(input.command || '', propio).entries()) {
+      const v = clasificaShell(cmd, n === 0 ? propio : ['bash', 'ps', 'cmd']);
+      if (v) return v;
+    }
   }
 
+  return null;
+}
+
+/** Reglas de shell sobre un comando ya desenvuelto. */
+function clasificaShell(cmd, dialectos) {
+  const skip = reglaSkipPermissions(cmd, dialectos);
+  if (skip) return { decision: 'deny', regla: 'skip-permissions', reason: skip };
+  const uv = reglaUv(cmd, dialectos);
+  if (uv) return { decision: 'deny', regla: 'uv', reason: uv };
+  const commit = reglaCommitFormato(cmd, dialectos);
+  if (commit) return { decision: 'deny', regla: 'commit-format', reason: commit };
+  const fpush = reglaForcePush(cmd, dialectos);
+  if (fpush) return { decision: 'ask', regla: 'force-push', reason: fpush };
   return null;
 }
 
@@ -411,6 +556,10 @@ function handle(raw) {
   }
   if (!veredicto) return null;
 
+  // Solo el nombre de la regla: sin esto no se podia saber si habia disparado alguna vez.
+  try {
+    require('./lib/hook-obs.js').annotate({ decision: veredicto.decision, rule: veredicto.regla, tool: String(data.tool_name || 'unknown') });
+  } catch (_) { /* la observabilidad jamas rompe un hook */ }
   const etiqueta = veredicto.decision === 'deny' ? 'BLOQUEADO' : 'CONFIRMA';
   return JSON.stringify({
     systemMessage: `ULTRON guardrails [${veredicto.regla}]: ${veredicto.reason}`,
@@ -423,6 +572,7 @@ function handle(raw) {
 }
 
 module.exports = {
+  TOOLS_CUBIERTAS,
   classify,
   handle,
   agentesValidos,

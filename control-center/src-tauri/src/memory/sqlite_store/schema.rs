@@ -7,6 +7,12 @@ use rusqlite::Connection;
 
 use crate::memory::MemoryError;
 
+use super::schema_columns::add_column_if_missing;
+pub(crate) use super::schema_columns::add_column_if_missing_on;
+#[cfg(test)]
+pub(crate) use super::schema_columns::column_present;
+use super::schema_fts::create_fts;
+
 pub(super) static FTS5_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 /// Espera máxima de un escritor ante la base bloqueada por otro proceso. Las
@@ -14,7 +20,29 @@ pub(super) static FTS5_AVAILABLE: OnceLock<bool> = OnceLock::new();
 /// sin que un hook (timeout 20 s) note la espera.
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Variable que redirige `brain.db` a otra ruta (2026-10-23). La usa el
+/// harness Kirkardo para medir el TTL del recall (check 21.3) contra una base
+/// temporal, por el sidecar real y sin escribir en la de producción. Vacía o
+/// ausente = sin efecto. Con ella definida, los one-shot no preguntan al daemon
+/// (`daemon_client`), que sirve la base de producción.
+pub const BRAIN_DB_ENV: &str = "ULTRON_BRAIN_DB";
+
+/// Ruta de override a partir del valor crudo de [`BRAIN_DB_ENV`]. Pura.
+#[must_use]
+pub fn brain_db_override(raw: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    raw.filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// ¿Este proceso trabaja contra una `brain.db` distinta de la de producción?
+#[must_use]
+pub fn brain_db_overridden() -> bool {
+    brain_db_override(std::env::var_os(BRAIN_DB_ENV)).is_some()
+}
+
 pub(super) fn brain_db_path() -> Result<PathBuf, MemoryError> {
+    if let Some(path) = brain_db_override(std::env::var_os(BRAIN_DB_ENV)) {
+        return Ok(path);
+    }
     dirs::home_dir()
         .map(|h| h.join(".ultron").join("brain.db"))
         .ok_or_else(|| {
@@ -25,11 +53,15 @@ pub(super) fn brain_db_path() -> Result<PathBuf, MemoryError> {
         })
 }
 
+/// ¿Tiene este SQLite el módulo FTS5? La sonda crea y borra una tabla en el
+/// esquema `temp` de la conexión: no toca `brain.db`, así que no pide el
+/// cerrojo de escritura y un escritor concurrente no puede hacerla fallar (un
+/// `SQLITE_BUSY` aquí se quedaba cacheado como «sin FTS5» para todo el proceso).
 pub(super) fn fts5_available(conn: &Connection) -> bool {
     *FTS5_AVAILABLE.get_or_init(|| {
         conn.execute_batch(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_probe USING fts5(x);
-             DROP TABLE IF EXISTS _fts5_probe;",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS temp._fts5_probe USING fts5(x);
+             DROP TABLE IF EXISTS temp._fts5_probe;",
         )
         .is_ok()
     })
@@ -54,7 +86,18 @@ pub fn open_conn() -> Result<Connection, MemoryError> {
     Ok(conn)
 }
 
-/// Create all tables + FTS triggers. Idempotent (`IF NOT EXISTS`).
+/// `user_version` que deja `apply_schema` en una base al día. Cada migración
+/// versionada sube la versión solo si su transacción termina bien:
+/// 2 = columnas derivadas (`content_hash`), 3 = tablas v3, 5 = retirada del
+/// codegraph interno, 6 = backfill de `valid_from` (2026-10-26).
+pub const LATEST_USER_VERSION: i64 = crate::memory::schema_v3::USER_VERSION_TEMPORAL;
+
+/// Create all tables + FTS triggers and run the pending versioned migrations.
+///
+/// Sobre una base ya migrada no escribe nada: el DDL es `IF NOT EXISTS`, los
+/// `ALTER` solo corren si falta la columna y los backfills solo si
+/// `user_version` está por debajo de su versión. Cualquier error se propaga:
+/// una migración que no se pudo aplicar no se da por aplicada.
 pub fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     // `recursive_triggers` (2026-09-22): `insert_item` escribe con
     // `INSERT OR REPLACE`, y el DELETE implicito de REPLACE solo dispara el
@@ -64,9 +107,59 @@ pub fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     // rowid: 10.205 filas frente a 4.390 items, MATCH fallando con "missing
     // row" y el recall sparse devolviendo basura. Es por conexion: va aqui
     // porque `apply_schema` es lo que comparten open_conn y los tests.
-    conn.execute_batch("PRAGMA recursive_triggers = ON;")
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("recursive_triggers pragma: {e}")))?;
-    conn.execute_batch(
+    exec(
+        conn,
+        "PRAGMA recursive_triggers = ON;",
+        "recursive_triggers pragma",
+    )?;
+    create_core_tables(conn)?;
+    add_additive_columns(conn)?;
+    backfill_derived_columns(conn)?;
+    if fts5_available(conn) {
+        create_fts(conn)?;
+    }
+    // OLA M/K (2026-06-04): additive v3 tables (trace_events + deprecation
+    // registry) + memory_events.trace_id. Idempotent; coordinated single bump.
+    crate::memory::schema_v3::apply_schema_v3(conn)?;
+    // RETIRADA codegraph interno (2026-07-02, mand.12): drop de `edges` +
+    // `unresolved_refs`. Pure DDL, idempotente. user_version 4→5.
+    crate::memory::schema_v4::apply_schema_v5_retire_codegraph(conn)?;
+    // Backfill de `valid_from` (user_version 5→6): una sola vez, no en cada
+    // apertura (auditoría 2026-10-26, M1).
+    crate::memory::schema_v3::apply_temporal_backfill_v6(conn)?;
+    drop_legacy_tables(conn);
+    Ok(())
+}
+
+/// `execute_batch` con el error envuelto en `MemoryError` y su contexto.
+pub(crate) fn exec(conn: &Connection, sql: &str, ctx: &str) -> Result<(), MemoryError> {
+    conn.execute_batch(sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("{ctx}: {e}")))
+}
+
+/// `PRAGMA user_version` de la base.
+pub(crate) fn user_version(conn: &Connection) -> Result<i64, MemoryError> {
+    conn.query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("read user_version: {e}")))
+}
+
+/// Sube `user_version` a `target` si está por debajo (nunca la baja).
+pub(crate) fn raise_user_version(conn: &Connection, target: i64) -> Result<(), MemoryError> {
+    if user_version(conn)? >= target {
+        return Ok(());
+    }
+    exec(
+        conn,
+        &format!("PRAGMA user_version = {target};"),
+        "write user_version",
+    )
+}
+
+/// DDL base: tablas canónicas e índices que no dependen de columnas añadidas
+/// después. `IF NOT EXISTS` en todo: sobre una base existente no escribe.
+fn create_core_tables(conn: &Connection) -> Result<(), MemoryError> {
+    exec(
+        conn,
         "CREATE TABLE IF NOT EXISTS memory_items (
             id              TEXT PRIMARY KEY,
             type            TEXT NOT NULL,
@@ -145,185 +238,124 @@ pub fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
             from_name     TEXT, to_name TEXT, relation_type TEXT,
             UNIQUE(from_name, to_name, relation_type)
         );",
+        "schema core",
     )
-    .map_err(|e| MemoryError::RemoteUnavailable(format!("schema core: {e}")))?;
+}
 
-    // Idempotent ADD COLUMN migration for brain.db created before `pinned`
-    // existed (Pinning, req #17). SQLite supports ALTER TABLE ADD COLUMN.
-    let has_pinned = conn
-        .prepare("PRAGMA table_info(memory_items)")
-        .ok()
-        .map(|mut s| {
-            s.query_map([], |r| r.get::<_, String>(1))
-                .map(|it| it.flatten().any(|c| c == "pinned"))
-                .unwrap_or(true)
-        })
-        .unwrap_or(true);
-    if !has_pinned {
-        let _ = conn.execute_batch(
-            "ALTER TABLE memory_items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
-        );
-    }
-
-    // OLA B (2026-06-04): additive content_hash / normalized_text / schema_version
-    // columns + one-shot backfill of pre-existing rows. Same idempotent pattern as
-    // `pinned` above; backfill is gated by PRAGMA user_version so it runs once, not
-    // on every open. ADDITIVE + reversible (snapshot taken in backups/).
-    add_column_if_missing(conn, "content_hash", "TEXT");
-    add_column_if_missing(conn, "normalized_text", "TEXT");
-    add_column_if_missing(conn, "schema_version", "INTEGER NOT NULL DEFAULT 1");
-    // Index AFTER the ADD COLUMN: on a pre-existing DB that lacked content_hash,
-    // creating this index inside the CREATE TABLE batch above would fail with
-    // "no such column" and abort apply_schema. (Fresh DBs already have it.)
-    let _ = conn.execute_batch(
+/// Columnas aditivas para bases creadas antes de que existieran, más los
+/// índices que dependen de ellas (van DESPUÉS del `ADD COLUMN`: en una base
+/// antigua sin `content_hash`, crear el índice dentro del DDL base abortaba con
+/// "no such column").
+fn add_additive_columns(conn: &Connection) -> Result<(), MemoryError> {
+    // Pinning (req #17).
+    add_column_if_missing(conn, "pinned", "INTEGER NOT NULL DEFAULT 0")?;
+    // OLA B (2026-06-04): columnas derivadas; su backfill va versionado en
+    // `backfill_derived_columns`.
+    add_column_if_missing(conn, "content_hash", "TEXT")?;
+    add_column_if_missing(conn, "normalized_text", "TEXT")?;
+    add_column_if_missing(conn, "schema_version", "INTEGER NOT NULL DEFAULT 1")?;
+    exec(
+        conn,
         "CREATE INDEX IF NOT EXISTS idx_items_content_hash ON memory_items(content_hash);",
-    );
-    backfill_derived_columns(conn);
-
-    // Code-location capture (2026-06-05): additive symbol/file_path/line/signature/
-    // capture_source columns on BOTH tables. Same idempotent ADD-COLUMN pattern as
-    // OLA B above; all nullable, so existing rows read back as NULL (no backfill).
-    add_column_if_missing(conn, "symbol", "TEXT");
-    add_column_if_missing(conn, "file_path", "TEXT");
-    add_column_if_missing(conn, "line", "INTEGER");
-    add_column_if_missing(conn, "signature", "TEXT");
-    add_column_if_missing(conn, "capture_source", "TEXT");
-    add_column_if_missing_on(conn, "memory_candidates", "proposed_symbol", "TEXT");
-    add_column_if_missing_on(conn, "memory_candidates", "proposed_file_path", "TEXT");
-    add_column_if_missing_on(conn, "memory_candidates", "proposed_line", "INTEGER");
-    add_column_if_missing_on(conn, "memory_candidates", "proposed_signature", "TEXT");
-    add_column_if_missing_on(conn, "memory_candidates", "capture_source", "TEXT");
-    // O(1) symbol lookup for re-capture dedupe (one row per "file_path:symbol").
-    let _ =
-        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_items_symbol ON memory_items(symbol);");
-
-    if fts5_available(conn) {
-        conn.execute_batch(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_fts
-                USING fts5(title, summary, content,
-                           content='memory_items', content_rowid='rowid');
-
-             CREATE TRIGGER IF NOT EXISTS memory_items_ai AFTER INSERT ON memory_items BEGIN
-                 INSERT INTO memory_items_fts(rowid, title, summary, content)
-                     VALUES (new.rowid, new.title, new.summary, new.content);
-             END;
-             CREATE TRIGGER IF NOT EXISTS memory_items_ad AFTER DELETE ON memory_items BEGIN
-                 INSERT INTO memory_items_fts(memory_items_fts, rowid, title, summary, content)
-                     VALUES ('delete', old.rowid, old.title, old.summary, old.content);
-             END;
-             CREATE TRIGGER IF NOT EXISTS memory_items_au AFTER UPDATE ON memory_items BEGIN
-                 INSERT INTO memory_items_fts(memory_items_fts, rowid, title, summary, content)
-                     VALUES ('delete', old.rowid, old.title, old.summary, old.content);
-                 INSERT INTO memory_items_fts(rowid, title, summary, content)
-                     VALUES (new.rowid, new.title, new.summary, new.content);
-             END;",
-        )
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("schema fts5: {e}")))?;
+        "index content_hash",
+    )?;
+    // Code-location capture (2026-06-05): todas anulables, sin backfill.
+    for (col, decl) in CODE_LOCATION_COLUMNS {
+        add_column_if_missing(conn, col, decl)?;
     }
+    for (col, decl) in CANDIDATE_CODE_LOCATION_COLUMNS {
+        add_column_if_missing_on(conn, "memory_candidates", col, decl)?;
+    }
+    // O(1) symbol lookup for re-capture dedupe (one row per "file_path:symbol").
+    exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_items_symbol ON memory_items(symbol);",
+        "index symbol",
+    )
+}
 
-    // OLA M/K (2026-06-04): additive v3 tables (trace_events + deprecation
-    // registry) + memory_events.trace_id. Idempotent; coordinated single bump.
-    super::super::schema_v3::apply_schema_v3(conn)?;
+const CODE_LOCATION_COLUMNS: [(&str, &str); 5] = [
+    ("symbol", "TEXT"),
+    ("file_path", "TEXT"),
+    ("line", "INTEGER"),
+    ("signature", "TEXT"),
+    ("capture_source", "TEXT"),
+];
 
-    // RETIRADA codegraph interno (2026-07-02, mand.12): drop de `edges` +
-    // `unresolved_refs` (v4, 2026-06-06 — nunca justificado: 0 lectores, productor
-    // descableado; el codegraph real es el indexador externo `.codegraph/`).
-    // Pure DDL, idempotente. user_version 4→5.
-    super::super::schema_v4::apply_schema_v5_retire_codegraph(conn)?;
+const CANDIDATE_CODE_LOCATION_COLUMNS: [(&str, &str); 5] = [
+    ("proposed_symbol", "TEXT"),
+    ("proposed_file_path", "TEXT"),
+    ("proposed_line", "INTEGER"),
+    ("proposed_signature", "TEXT"),
+    ("capture_source", "TEXT"),
+];
 
-    // CLEANUP (2026-06-05): drop the legacy `memories` and `memories_fts`
-    // tables that were created by a pre-kernel schema.  They have 0 rows and
-    // are schema dead-weight that confuses audits.
-    //
-    // ORDER IS CRITICAL (fix HIGH #2, 2026-06-05):
-    //   1. Drop the FTS5 virtual table FIRST.  SQLite automatically destroys
-    //      its shadow tables (_data, _idx, _docsize, _config, _content) when
-    //      the virtual table is dropped.  Dropping the shadows manually BEFORE
-    //      the virtual table makes `DROP TABLE memories_fts` fail with
-    //      "vtable constructor failed: memories_fts", which aborts the whole
-    //      execute_batch and leaves `memories` behind.
-    //   2. Drop `memories` AFTER `memories_fts`.
-    //
-    // `DROP TABLE IF EXISTS` is idempotent — safe on every open_conn.
-    // The canonical tables (memory_items / memory_items_fts) are not touched.
-    if let Err(e) = conn.execute_batch(
+/// CLEANUP (2026-06-05): drop the legacy `memories` and `memories_fts` tables
+/// created by a pre-kernel schema (0 rows, dead weight).
+///
+/// ORDER IS CRITICAL (fix HIGH #2, 2026-06-05): the FTS5 virtual table goes
+/// FIRST (SQLite destroys its shadow tables with it); dropping the shadows
+/// manually before makes `DROP TABLE memories_fts` fail with "vtable
+/// constructor failed". `DROP TABLE IF EXISTS` is idempotent and, with the
+/// tables already gone, writes nothing. Non-fatal: the canonical tables are not
+/// touched, so a failure here is logged and the open continues.
+fn drop_legacy_tables(conn: &Connection) {
+    if let Err(e) = exec(
+        conn,
         "DROP TABLE IF EXISTS memories_fts;
          DROP TABLE IF EXISTS memories;",
+        "legacy-table cleanup",
     ) {
-        eprintln!("[sqlite_store] legacy-table cleanup failed (non-fatal): {e}");
-    }
-
-    Ok(())
-}
-
-/// Idempotent `ALTER TABLE memory_items ADD COLUMN` (the common case).
-/// SQLite lacks `ADD COLUMN IF NOT EXISTS`, so probe `table_info` first. `decl`
-/// is always a constant code literal (never user input) -> no injection surface.
-pub(super) fn add_column_if_missing(conn: &Connection, col: &str, decl: &str) {
-    add_column_if_missing_on(conn, "memory_items", col, decl);
-}
-
-/// Table-parameterised variant of [`add_column_if_missing`]. `table`, `col` and
-/// `decl` are ALWAYS constant code literals (never user input) -> no injection
-/// surface; the `table_info` probe uses the same trusted literal.
-pub(super) fn add_column_if_missing_on(conn: &Connection, table: &str, col: &str, decl: &str) {
-    let present = conn
-        .prepare(&format!("PRAGMA table_info({table})"))
-        .ok()
-        .map(|mut s| {
-            s.query_map([], |r| r.get::<_, String>(1))
-                .map(|it| it.flatten().any(|c| c == col))
-                .unwrap_or(true) // on error assume present -> never re-ALTER
-        })
-        .unwrap_or(true);
-    if !present {
-        let _ = conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {decl};"));
+        tracing::warn!("[sqlite_store] {e} (non-fatal)");
     }
 }
 
 /// One-shot backfill of `content_hash` + `normalized_text` for rows written
 /// before those columns existed (the legacy active items). Gated by
-/// `PRAGMA user_version`: computes once, then bumps the version so later opens
-/// skip it with a single cheap PRAGMA read. Re-entrant-safe (only NULL rows).
-/// The joined text mirrors `MemoryItem::searchable_text()` so a backfilled hash
-/// equals the hash `insert_item` would later write for the same row.
-pub(super) fn backfill_derived_columns(conn: &Connection) {
+/// `PRAGMA user_version`: runs once, in one `BEGIN IMMEDIATE` transaction that
+/// also bumps the version, so the bump only lands if every UPDATE did. Later
+/// opens skip it with a single cheap PRAGMA read. Re-entrant-safe (only NULL
+/// rows). The joined text mirrors `MemoryItem::searchable_text()` so a
+/// backfilled hash equals the hash `insert_item` would later write.
+pub(super) fn backfill_derived_columns(conn: &Connection) -> Result<(), MemoryError> {
     const USER_VERSION_DERIVED: i64 = 2;
-    let uv: i64 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap_or(0);
-    if uv >= USER_VERSION_DERIVED {
-        return;
+    if user_version(conn)? >= USER_VERSION_DERIVED {
+        return Ok(());
     }
-    let rows: Vec<(String, String)> = match conn
+    super::tx::in_immediate_tx(conn, || {
+        for (id, raw) in rows_missing_hash(conn)? {
+            let normalized = crate::memory::texthash::normalize_text(&raw);
+            let chash = crate::memory::texthash::content_hash(&normalized);
+            conn.execute(
+                "UPDATE memory_items SET normalized_text = ?1, content_hash = ?2, \
+                 schema_version = ?3 WHERE id = ?4 AND content_hash IS NULL",
+                rusqlite::params![normalized, chash, crate::memory::model::SCHEMA_VERSION, id],
+            )
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("backfill content_hash: {e}")))?;
+        }
+        raise_user_version(conn, USER_VERSION_DERIVED)
+    })
+}
+
+/// `(id, texto unido)` de las filas sin `content_hash`.
+fn rows_missing_hash(conn: &Connection) -> Result<Vec<(String, String)>, MemoryError> {
+    let err = |e: rusqlite::Error| MemoryError::RemoteUnavailable(format!("backfill select: {e}"));
+    let mut stmt = conn
         .prepare("SELECT id, title, summary, content FROM memory_items WHERE content_hash IS NULL")
-    {
-        Ok(mut stmt) => stmt
-            .query_map([], |r| {
-                let title: Option<String> = r.get(1)?;
-                let summary: Option<String> = r.get(2)?;
-                let content: Option<String> = r.get(3)?;
-                let joined = [title, summary, content]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                Ok((r.get::<_, String>(0)?, joined))
-            })
-            .map(|it| it.flatten().collect())
-            .unwrap_or_default(),
-        Err(_) => return,
-    };
-    let _ = conn.execute_batch("BEGIN");
-    for (id, raw) in &rows {
-        let normalized = super::super::texthash::normalize_text(raw);
-        let chash = super::super::texthash::content_hash(&normalized);
-        let _ = conn.execute(
-            "UPDATE memory_items SET normalized_text = ?1, content_hash = ?2, \
-             schema_version = ?3 WHERE id = ?4 AND content_hash IS NULL",
-            rusqlite::params![normalized, chash, super::super::model::SCHEMA_VERSION, id],
-        );
-    }
-    let _ = conn.execute_batch("COMMIT");
-    let _ = conn.execute_batch(&format!("PRAGMA user_version = {USER_VERSION_DERIVED};"));
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            let joined = [
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n");
+            Ok((r.get::<_, String>(0)?, joined))
+        })
+        .map_err(err)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(err)
 }

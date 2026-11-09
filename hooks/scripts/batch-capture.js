@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Stop hook — capture REJECTED / FAILED shell commands into the Run Batch queue.
+ * Stop hook — capture REJECTED / UNRUNNABLE shell commands into the batch queue
+ * that the "Ejecutar .bat" dropdown of the Projects tab lists (BatchDropdown).
+ * It is NOT the kanban RunBatch (PTY card dispatch) retired on 2026-10-17.
  *
  * The user's rule: whenever a command is REJECTED (permission denied) OR the AI
  * itself cannot execute it, it must be LEFT in Run Batch (a persistent queue)
@@ -13,7 +15,10 @@
  *   3. Classify the reason:
  *        - "rejected"          — a permission/sandbox denial (human said no)
  *        - "ai_cannot_execute" — the tool/schema was unavailable to the agent
- *        - "failed"            — ran but errored (non-zero exit / runtime error)
+ *      A command that simply ran and failed (non-zero exit) is NOT captured
+ *      since 2026-10-23 (hooks-6 of the audit): 716 of the 729 pending lines
+ *      were exploration commands (`cd`, `grep`, tests) that nobody needs to
+ *      re-run by hand, and they buried the 13 that the rule is about.
  *   4. Append one line per captured command to
  *        ~/.ultron/batches/queue-pending.jsonl
  *      (drained into queue.jsonl by the Tauri backend) AND, when the command is
@@ -41,7 +46,7 @@ const { observe, logHookError } = require('./lib/hook-obs');
 const { appendJsonl } = require('./lib/jsonl-log');
 // PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
 const { readJsonlTail } = require('./lib/jsonl-tail');
-observe('batch-capture');
+if (require.main === module) observe('batch-capture');
 
 const HOME = os.homedir();
 const BATCHES_DIR = path.join(HOME, '.ultron', 'batches');
@@ -126,7 +131,7 @@ const SKIP_PATTERNS = [
 ];
 
 /**
- * Returns one of "rejected" | "ai_cannot_execute" | "failed" | null.
+ * Returns one of "rejected" | "ai_cannot_execute" | null.
  * null means "do not capture" (either not an error, or agent plumbing noise).
  */
 function classifyReason(errorText) {
@@ -152,12 +157,8 @@ function classifyReason(errorText) {
     return 'ai_cannot_execute';
   }
 
-  // Anything else that is flagged as an error and looks like a real command
-  // failure (exit code present, or non-trivial stderr) → failed.
-  if (t.includes('exit code') || t.trim().length > 0) {
-    return 'failed';
-  }
-
+  // A command that ran and failed is the agent's normal trial and error, not
+  // something the user has to run by hand: not captured (hooks-6).
   return null;
 }
 
@@ -390,14 +391,15 @@ function main() {
   sweepOldScripts();
 }
 
-try {
-  main();
-} catch (err) {
-  safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
-  logHookError('batch-capture', err);
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+    logHookError('batch-capture', err);
+  }
+  process.exitCode = 0;
 }
-
-process.exitCode = 0;
 
 // Exported for unit tests (require('./batch-capture.js')).
 module.exports = {

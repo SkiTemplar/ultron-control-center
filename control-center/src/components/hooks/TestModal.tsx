@@ -38,14 +38,14 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <div className="text-[15px] font-semibold">Test hook</div>
+          <div className="text-[15px] font-semibold">Probar hook</div>
           <button
             type="button"
             onClick={onClose}
             className="rounded px-2 py-0.5 text-[11.5px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Close
+            Cerrar
           </button>
         </div>
 
@@ -57,14 +57,16 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
             color: "var(--color-text-tertiary)",
           }}
         >
-          Runs the command in a sandboxed PowerShell with a 5s timeout. The payload is exposed
-          via the <code>CLAUDE_HOOK_PAYLOAD</code> env var. Hooks that block on stdin will hit the
-          timeout.
+          Ejecuta el comando real del hook (PowerShell, tope de 5 s) y le pasa el payload por
+          stdin, como Claude Code. <strong>No hay sandbox</strong>: lo que haga el hook (escribir
+          ficheros, lanzar procesos, red) ocurre de verdad. Si el payload no trae{" "}
+          <code>hook_event_name</code>, se añade el evento del hook. Se exporta{" "}
+          <code>ULTRON_HOOK_TEST=1</code>, pero solo lo respeta el hook que lo lea.
         </div>
 
         <label className="mb-3 block text-[12px]">
           <div className="mb-1" style={{ color: "var(--color-text-tertiary)" }}>
-            Mock payload (JSON)
+            Payload de prueba (JSON)
           </div>
           <textarea
             value={payload}
@@ -87,7 +89,7 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
-            {running ? "Running..." : "Run"}
+            {running ? "Ejecutando…" : "Ejecutar"}
           </button>
         </div>
 
@@ -111,7 +113,7 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
                   color: "var(--color-warn, #f80)",
                 }}
               >
-                TIMED OUT after 5s — the command likely blocked on stdin or an interactive prompt.
+                TIEMPO AGOTADO tras 5 s: el hook no terminó a tiempo (bucle, red lenta o un prompt interactivo).
               </div>
             )}
             {!result.timed_out && !result.success && (
@@ -123,7 +125,7 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
                   color: "var(--color-danger, #f88)",
                 }}
               >
-                FAILED (exit code {result.exit_code ?? "?"})
+                ERROR (exit code {result.exit_code ?? "?"})
               </div>
             )}
             {result.success && (
@@ -135,7 +137,7 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
                   color: "var(--color-success, #2da)",
                 }}
               >
-                OK (exit 0) · {result.elapsed_ms}ms
+                OK (exit 0) · {result.elapsed_ms} ms
               </div>
             )}
             {(["stdout", "stderr"] as const).map((ch) => (
@@ -155,7 +157,7 @@ export function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => 
                     whiteSpace: "pre-wrap",
                   }}
                 >
-                  {result[ch] || "(empty)"}
+                  {result[ch] || "(vacío)"}
                 </pre>
               </div>
             ))}

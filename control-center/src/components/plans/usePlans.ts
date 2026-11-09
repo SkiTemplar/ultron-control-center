@@ -9,6 +9,7 @@ import {
   EMPTY_FORM,
 } from "./types";
 import type { PlanFormState, PlanItem, PlansReport } from "./types";
+import { instructionsCwd, openInSessionsMessage, openPromptInSessions } from "../sessionsLaunch";
 
 export function usePlans() {
   const [report, setReport] = useState<PlansReport | null>(null);
@@ -137,7 +138,15 @@ export function usePlans() {
     }
   }
 
-  // Spawn a Claude session targeted at one of four plan workflows.
+  // Nombre visible de cada flujo de planes.
+  const FLOW_LABEL: Record<"execute" | "review" | "add" | "resolve", string> = {
+    execute: "ejecutar",
+    review: "revisar",
+    add: "añadir",
+    resolve: "desbloquear",
+  };
+
+  // Open a Sessions chat targeted at one of four plan workflows.
   // cwd = ~/.ultron/instructions/plans/ so Claude auto-reads the GUIDE.md
   // and knows the schema, status names, atomic-write rules, etc. — saves
   // a re-discovery pass each turn.
@@ -145,10 +154,12 @@ export function usePlans() {
     kind: "execute" | "review" | "add" | "resolve",
   ) {
     setError(null);
+    if (kind !== "add" && flowTargetCount[kind] === 0) {
+      setError(`Nada que hacer en «${FLOW_LABEL[kind]}»: no hay planes para este flujo.`);
+      return;
+    }
     try {
-      const instrPath = (await invoke("instruction_path", {
-        kind: "plans",
-      })) as string;
+      const instrPath = await instructionsCwd("plans");
       // v15.3.5: prompt bodies migrated to the central button-prompts
       // catalog. Each header button maps 1:1 to a `plans.*` key so the
       // user can refine the prompts from Settings → Button prompts
@@ -161,14 +172,9 @@ export function usePlans() {
       };
       const { getPrompt } = await import("../../lib/button-prompts");
       const prompt = await getPrompt(keyByKind[kind]);
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt,
-        cwd: instrPath,
-        flags: { dangerouslySkipPermissions: false },
-      });
-      setInfo(`Claude session opened (${kind}). Continue in wt.exe.`);
-      window.setTimeout(() => setInfo(null), 3500);
+      const r = await openPromptInSessions({ cwd: instrPath, prompt, permissionMode: "default" });
+      setInfo(openInSessionsMessage(`Planes · ${FLOW_LABEL[kind]}`, r));
+      if (!r.warning) window.setTimeout(() => setInfo(null), 3500);
     } catch (e) {
       setError(String(e));
     }
@@ -188,17 +194,17 @@ export function usePlans() {
           return `[${it.priority.toUpperCase()}] ${it.title}${effort}${desc}`;
         })
         .join("\n");
-      const { resolveAndSpawn } = await import("../../lib/button-prompts");
-      const { resolved } = await resolveAndSpawn({
-        key: "plans.sprint_ai",
-        vars: { open_plans_block: open_plans_block || "(no open plans)" },
-        cwd: null,
-        extraFlags: { pasteOnly: true },
+      const { getPrompt } = await import("../../lib/button-prompts");
+      const prompt = await getPrompt("plans.sprint_ai", {
+        open_plans_block: open_plans_block || "(no open plans)",
       });
-      setInfo(
-        `Sprint AI opened with ${resolved.entry.provider}. Prompt on the clipboard — paste with Ctrl+V and hit Enter.`,
-      );
-      window.setTimeout(() => setInfo(null), 5000);
+      const r = await openPromptInSessions({
+        cwd: await instructionsCwd("plans"),
+        prompt,
+        permissionMode: "default",
+      });
+      setInfo(openInSessionsMessage("Sprint con IA", r));
+      if (!r.warning) window.setTimeout(() => setInfo(null), 5000);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -210,7 +216,7 @@ export function usePlans() {
     setCleanBusy(true);
     try {
       const n = (await invoke("clean_resolved_plans")) as number;
-      setInfo(`Archived ${n} resolved plan${n === 1 ? "" : "s"} to plans/_archive/.`);
+      setInfo(`${n} plan${n === 1 ? "" : "es"} resuelto${n === 1 ? "" : "s"} archivado${n === 1 ? "" : "s"} en plans/_archive/.`);
       window.setTimeout(() => setInfo(null), 3000);
       setPendingClean(false);
       await load();
@@ -223,22 +229,24 @@ export function usePlans() {
 
   async function openResolutionSession(plan: PlanItem) {
     try {
-      // v15.2.40: prompt body comes from the central catalog
-      // (key "plans.resolve_one", zone "brainstorm_plans"). Vars include
-      // every plan field the template might want to interpolate. Auto-
-      // mode picks the right subagent via embed_agents.py query.
-      const { resolveAndSpawn } = await import("../../lib/button-prompts");
-      await resolveAndSpawn({
-        key: "plans.resolve_one",
-        vars: {
-          plan_id: plan.id,
-          plan_title: plan.title,
-          plan_status: plan.status,
-          plan_priority: plan.priority,
-          plan_description: plan.description ?? "",
-        },
-        cwd: null, // ULTRON cwd (current)
+      // El cuerpo del prompt sale del catálogo central (clave
+      // "plans.resolve_one"); las variables cubren todos los campos del plan
+      // que la plantilla pueda interpolar. Se abre en Sessions, no en wt.exe.
+      const { getPrompt } = await import("../../lib/button-prompts");
+      const prompt = await getPrompt("plans.resolve_one", {
+        plan_id: plan.id,
+        plan_title: plan.title,
+        plan_status: plan.status,
+        plan_priority: plan.priority,
+        plan_description: plan.description ?? "",
       });
+      const r = await openPromptInSessions({
+        cwd: await instructionsCwd("plans"),
+        prompt,
+        permissionMode: "default",
+      });
+      setInfo(openInSessionsMessage(`Resolver «${plan.title}»`, r));
+      if (!r.warning) window.setTimeout(() => setInfo(null), 3500);
     } catch (e) {
       setError(String(e));
     }
@@ -311,6 +319,24 @@ export function usePlans() {
     ).length;
   }, [report]);
 
+  // Plans each AI flow would act on, mirroring the scope of its prompt
+  // (button_prompts/defaults.rs): execute walks `open`; review takes
+  // `revision` and falls back to open p0/p1; resolve takes `in_progress`
+  // with the same fallback. Zero means the button would launch a session
+  // with nothing to do, so the UI disables it and the flow refuses.
+  const flowTargetCount = useMemo(() => {
+    const active = (report?.items ?? []).filter((it) => !ARCHIVED_STATUSES.has(it.status));
+    const byStatus = (s: string) => active.filter((it) => it.status === s).length;
+    const urgentOpen = active.filter(
+      (it) => it.status === "open" && priorityWeight(it.priority) <= 1,
+    ).length;
+    return {
+      execute: byStatus("open"),
+      review: byStatus("revision") || urgentOpen,
+      resolve: byStatus("in_progress") || urgentOpen,
+    };
+  }, [report]);
+
   const totalActive = useMemo(() => {
     if (!report) return 0;
     return report.items.filter((it) => !ARCHIVED_STATUSES.has(it.status)).length;
@@ -379,6 +405,7 @@ export function usePlans() {
     archivedItems,
     grouped,
     resolvedCount,
+    flowTargetCount,
     totalActive,
     priorityKeys,
     // actions

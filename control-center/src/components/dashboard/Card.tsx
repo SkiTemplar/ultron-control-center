@@ -93,7 +93,7 @@ export function Card({
             className="text-[13px]"
             style={{ color: "var(--color-text-faint)" }}
           >
-            Loading...
+            Cargando…
           </div>
         ) : error ? (
           <div
@@ -126,7 +126,8 @@ interface SmallButtonProps {
   onClick?: () => void;
   disabled?: boolean;
   title?: string;
-  variant?: "neutral" | "accent";
+  /** "danger": irreversible actions (borde y texto en rojo, nunca como la acción recomendada). */
+  variant?: "neutral" | "accent" | "danger";
   size?: "sm" | "md";
   children: ReactNode;
 }
@@ -140,6 +141,7 @@ export function SmallButton({
   children,
 }: SmallButtonProps) {
   const accent = variant === "accent";
+  const danger = variant === "danger";
   const sizeClass =
     size === "md"
       ? "rounded px-3 py-1 text-[12.5px] font-medium"
@@ -153,10 +155,16 @@ export function SmallButton({
       className={`${sizeClass} transition-colors disabled:opacity-50`}
       style={{
         background: accent ? "var(--color-accent)" : "var(--color-surface-3)",
-        color: accent ? "var(--color-accent-text)" : "var(--color-text)",
+        color: accent
+          ? "var(--color-accent-text)"
+          : danger
+            ? "var(--color-danger)"
+            : "var(--color-text)",
         border: accent
           ? "1px solid var(--color-accent)"
-          : "1px solid var(--color-border-strong)",
+          : danger
+            ? "1px solid var(--color-danger)"
+            : "1px solid var(--color-border-strong)",
       }}
     >
       {children}
@@ -166,15 +174,15 @@ export function SmallButton({
 
 // Small relative-time helper duplicated across cards.
 export function relativeTime(iso?: string | null): string {
-  if (!iso) return "never";
+  if (!iso) return "nunca";
   const ts = new Date(iso);
   if (Number.isNaN(ts.getTime())) return iso;
   const diff = Date.now() - ts.getTime();
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return "ahora mismo";
+  if (min < 60) return `hace ${min} min`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return `hace ${h} h`;
   const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  return `hace ${d} d`;
 }

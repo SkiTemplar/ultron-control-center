@@ -5,6 +5,7 @@ import type { ProjectInfo, SessionProvider } from "../../types";
 import type { CardStats } from "./types";
 import { statusBadge, providerBadge, projectAccent, accentWash } from "./utils";
 import { ProjectQuickActions } from "./ProjectQuickActions";
+import { formatRelativeTime } from "../../lib/relative-time";
 
 // ---------------------------------------------------------------------------
 // ProjectCard
@@ -102,7 +103,7 @@ export function ProjectCard({
                 color: badge.tint,
                 border: `1px solid ${badge.tint}33`,
               }}
-              title={`Default AI provider: ${badge.label}`}
+              title={`Proveedor de IA por defecto: ${badge.label}`}
             >
               <span
                 aria-hidden
@@ -141,9 +142,9 @@ export function ProjectCard({
               color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border)",
             }}
-            title="Edit project metadata"
+            title="Editar los datos del proyecto"
           >
-            Edit
+            Editar
           </button>
           <button
             type="button"
@@ -154,7 +155,7 @@ export function ProjectCard({
               color: "var(--color-danger)",
               border: "1px solid rgba(248, 81, 73, 0.32)",
             }}
-            title="Remove from registry (no files touched)"
+            title="Quitar del registro (no toca ningún fichero)"
           >
             ×
           </button>
@@ -172,16 +173,20 @@ export function ProjectCard({
         style={{ borderColor: "var(--color-border)", color: "var(--color-text-tertiary)" }}
       >
         <div className="flex items-center gap-3">
-          <span title="Pending kanban cards (everything outside Done / Complete)">
+          <span title="Tarjetas del kanban pendientes (todo lo que no está en Done / Complete)">
             <span className="tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
               {stats?.pending ?? "—"}
             </span>{" "}
-            pending
+            pendientes
           </span>
         </div>
         {p.last_active && (
-          <span className="tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-            {p.last_active}
+          <span
+            className="tabular-nums"
+            style={{ color: "var(--color-text-faint)" }}
+            title={`Última actividad: ${p.last_active}`}
+          >
+            {formatRelativeTime(p.last_active) ?? p.last_active}
           </span>
         )}
       </div>

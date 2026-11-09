@@ -30,12 +30,12 @@ export type PlanFormState = {
 };
 
 export const COLUMNS: { key: string; label: string; tint: string }[] = [
-  { key: "open", label: "Open", tint: "var(--color-text-secondary)" },
-  { key: "in_progress", label: "In progress", tint: "var(--color-warn)" },
-  { key: "revision", label: "Revision", tint: "#a875ff" },
-  { key: "blocked", label: "Blocked", tint: "var(--color-danger)" },
-  { key: "resolved", label: "Resolved", tint: "var(--color-success)" },
-  { key: "rejected", label: "Rejected", tint: "var(--color-text-tertiary)" },
+  { key: "open", label: "Abiertos", tint: "var(--color-text-secondary)" },
+  { key: "in_progress", label: "En curso", tint: "var(--color-warn)" },
+  { key: "revision", label: "En revisión", tint: "#a875ff" },
+  { key: "blocked", label: "Bloqueados", tint: "var(--color-danger)" },
+  { key: "resolved", label: "Resueltos", tint: "var(--color-success)" },
+  { key: "rejected", label: "Rechazados", tint: "var(--color-text-tertiary)" },
 ];
 
 // Bottom-row kanban lanes — exception / terminal states

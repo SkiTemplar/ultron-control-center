@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mascot",
+  "description": "Ventana transparente de la mascota de escritorio (label mascot). Solo eventos y comandos propios; nada de shell, opener ni dialogos.",
+  "windows": ["mascot"],
+  "permissions": ["core:default"]
+}

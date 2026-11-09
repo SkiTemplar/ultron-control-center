@@ -1,0 +1,28 @@
+/* Marcadores del hilo: botón de fijar en cada mensaje (aparece al pasar el
+   ratón; fijo y en color si está marcado), marca discreta del mensaje fijado,
+   resalte al saltar a él y menú «Marcadores» en la esquina del chat. */
+
+.pin-btn { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 4px; border-radius: 4px; color: var(--faint); opacity: 0; transition: opacity .15s; flex: none; }
+.pin-btn:hover { color: var(--fg); background: var(--raised); }
+.msg:hover .pin-btn, .pin-btn:focus-visible, .pin-btn[aria-pressed="true"] { opacity: 1; }
+.pin-btn[aria-pressed="true"] { color: var(--accent); }
+.pin-btn[aria-pressed="true"] path { fill: currentColor; }
+.pin-btn.float { position: absolute; top: 0; right: 0; background: var(--bg); }
+.msg.assistant { position: relative; }
+.msg.user.pinned .line { border-left-color: var(--accent); }
+.msg.assistant.pinned { box-shadow: inset 2px 0 0 var(--accent-soft); }
+
+.msg[data-flash] { animation: bm-flash 1.6s ease-out; border-radius: 6px; }
+@keyframes bm-flash { 0%, 35% { background: var(--accent-soft); } 100% { background: transparent; } }
+
+.bm { position: absolute; top: 6px; right: 18px; z-index: 6; font: 11.5px var(--f-mono); }
+.bm-toggle { display: inline-flex; gap: 5px; align-items: center; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--line-soft); background: var(--bg); color: var(--muted); opacity: .75; }
+.bm-toggle:hover, .bm-toggle[aria-expanded="true"] { opacity: 1; color: var(--fg); border-color: var(--line); }
+.bm-pop { position: absolute; top: calc(100% + 4px); right: 0; width: min(360px, 80vw); max-height: 50vh; overflow: auto; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); box-shadow: 0 6px 18px #0008; }
+.bm-list { list-style: none; margin: 0; padding: 0; }
+.bm-item { display: flex; align-items: center; gap: 4px; }
+.bm-go { flex: 1; min-width: 0; display: flex; gap: .8ch; align-items: baseline; text-align: left; padding: 4px 6px; border-radius: 4px; color: var(--fg); }
+.bm-go:hover { background: var(--bg); }
+.bm-role { color: var(--accent); flex: none; }
+.bm-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-note { margin: 4px 6px; color: var(--warn); white-space: normal; }

@@ -35,3 +35,20 @@ fn list_workflows_contains_canonical_seven() {
         );
     }
 }
+
+/// Los pasos delegan por subagent_type en agentes de ~/.claude/agents/: un id
+/// con espacio de nombres de plugin (`plugin:agente`) depende de un plugin
+/// instalado. `agent-skills:security-auditor` no lo estaba (2026-10-23).
+#[test]
+fn ningun_paso_apunta_a_un_agente_de_plugin() {
+    let plugin_steps: Vec<String> = list_workflows_inner()
+        .iter()
+        .flat_map(|w| {
+            w.steps
+                .iter()
+                .map(move |s| format!("{}: {}", w.id, s.agent))
+        })
+        .filter(|s| s.split_once(": ").is_some_and(|(_, a)| a.contains(':')))
+        .collect();
+    assert!(plugin_steps.is_empty(), "{plugin_steps:?}");
+}

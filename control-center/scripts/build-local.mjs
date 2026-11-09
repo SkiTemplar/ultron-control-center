@@ -1,6 +1,6 @@
 // Local build for this machine — includes the personal Finance feature.
 //
-// Finance is a local-only feature (KutxaBank data; Finance.tsx + the Rust
+// Finance is a local-only feature (datos bancarios locales; Finance.tsx + the Rust
 // `finance` cargo feature are excluded from the public repo). The public
 // `build:app` script deliberately omits it so third parties can build cleanly.
 // This wrapper turns it on for local builds without any .env file:
@@ -32,8 +32,9 @@ const run = (cmd, args) => {
   if (r.status !== 0) process.exit(r.status ?? 1);
 };
 
-// Close any running instance first (mirrors build:app).
-run("node", ["scripts/kill-running-app.mjs"]);
+// Free the locked .exe without closing ULTRON (mirrors build:app): the open
+// app and its Sessions keep running on the old binary until restarted.
+run("node", ["scripts/release-locked-exe.mjs"]);
 if (hasFinance) {
   // Build the bundle with the finance feature; VITE_FINANCE propagates to Vite.
   run("npx", ["tauri", "build", "--features", "finance"]);
@@ -50,4 +51,8 @@ if (hasFinance) {
 // (2026-08-16) Deploy del sidecar a ~/.ultron/bin/ SIEMPRE al final del build.
 // Sin este paso cada build:local dejaba el sidecar desplegado stale: los hooks
 // corrían un binario viejo y el check 7.7 del harness volvía a rojo.
-run("node", ["scripts/deploy-sidecar.mjs"]);
+// (2026-10-23) Con el mismo script que el redeploy manual, sin recompilar:
+// para los procesos del sidecar, copia, verifica `version` contra HEAD,
+// relanza `serve` y sale con 1 si algo falla (run() propaga el código). El
+// deploy-sidecar.mjs anterior solo comparaba tamaños y salía con 0 al fallar.
+run("node", ["../scripts/redeploy-memory-sidecar.mjs", "--no-build"]);

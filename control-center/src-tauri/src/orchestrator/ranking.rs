@@ -6,29 +6,15 @@ use crate::memory::catalog;
 use super::rules::preferred_skills;
 use super::types_model::{AgentChoice, PromptPlan, SkillChoice, StepPlan};
 
-/// ULTRON-internal META agents. They are housekeeping/self-improvement helpers
-/// (refresh docs, compose changelog, behaviour-preserving refactor, compress
-/// context, etc.), NOT task specialists. The semantic index over-weights them
-/// because their descriptions are generic, so the delegate ranking used to put
-/// `ultron-docs`/`ultron-changelog`/`ultron-refactor` above real specialists
-/// like `debugger` or `code-reviewer`. We demote them unless the prompt is
-/// explicitly about that meta task (handled via the intent boost below).
-const META_AGENTS: &[&str] = &[
-    "ultron-changelog",
-    "ultron-context",
-    "ultron-docs",
-    "ultron-metadata",
-    "ultron-refactor",
-    "ultron-self-improve",
-    "ultron-skill-editor",
-    "ultron-test",
-];
+// (2026-10-23) Se retiró la lista META_AGENTS (`ultron-docs`, `ultron-refactor`,
+// `ultron-context`...) y su penalización: ninguno de esos agentes existe en
+// `~/.claude/agents` ni en plugins, así que la penalización no actuaba nunca.
 
 /// Generic "catch-all" agents whose broad descriptions match almost ANY prompt,
 /// so the raw semantic score crowds out the real domain specialist. The
 /// independent verifier found code-reviewer/qa-expert/architect-reviewer ranking
 /// ~1.0 over postgres-pro/swift-expert/terraform-engineer (~0.84) across mobile,
-/// db, ios, android, go, cloud, data, graphql, etc. Demoted like meta agents
+/// db, ios, android, go, cloud, data, graphql, etc. Demoted
 /// UNLESS the detected intent explicitly prefers them (e.g. code-reviewer for a
 /// review/security/testing prompt, debugger for bug_fix). This scales to ALL ~78
 /// agents without enumerating each domain: the specialist the retrieval already
@@ -41,8 +27,6 @@ const GENERIC_AGENTS: &[&str] = &[
     "error-detective",
 ];
 
-/// Multiplicative penalty applied to META agents during delegate ranking.
-const META_PENALTY: f32 = 0.55;
 /// Multiplicative penalty for GENERIC agents that the intent does not prefer.
 const GENERIC_PENALTY: f32 = 0.60;
 /// Additive boost applied to agents the detected intent/workflow prefers.
@@ -114,19 +98,18 @@ pub(super) fn elegir_directive_agent<'a>(
         .or_else(|| agents.first())
 }
 
-/// Specialist agent names the detected `intent` should prioritise. These are
-/// REAL agents in `~/.claude/agents` (verified). The boost lifts them above the
-/// meta agents when the prompt clearly belongs to their domain.
+/// Candidate specialists the detected `intent` should prioritise, in priority
+/// order. Every name is a user agent that exists as `<name>.md` or
+/// `<name>.md.disabled` in `~/.claude/agents`; only the ACTIVE ones (`.md`,
+/// `catalog::known_agent_names`) are floor-injected, so a disabled candidate
+/// is skipped. An intent whose candidates are all disabled (on this machine,
+/// 2026-10-23: database, cloud_infra, data_eng, ios and android) or that has
+/// none (docs, writing) falls back to the top of the semantic ranking.
 pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
     match intent {
-        "security" => &[
-            "security-auditor",
-            "penetration-tester",
-            "ultron-security",
-            "code-reviewer",
-        ],
+        "security" => &["security-auditor", "code-reviewer"],
         "bug_fix" => &["debugger", "error-detective", "qa-expert"],
-        "performance" => &["performance-engineer", "ultron-perf", "debugger"],
+        "performance" => &["performance-engineer", "debugger"],
         "testing" => &["test-automator", "qa-expert", "code-reviewer"],
         // NOTE: 'ui-designer' is a SKILL, not an agent on disk — it used to sit
         // here as a dead ref (boost impossible). Real UI agents only; the
@@ -143,13 +126,14 @@ pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
             "kubernetes-specialist",
             "docker-expert",
         ],
-        "docs" => &["documentation-engineer", "ultron-docs"],
-        "refactor" => &["refactoring-specialist", "ultron-refactor", "code-reviewer"],
+        // Sin agente de documentación en disco (documentation-engineer y
+        // ultron-docs no han existido nunca): la directiva cae al ranking.
+        "docs" => &[],
+        "refactor" => &["refactoring-specialist", "code-reviewer"],
         "architecture_review" => &[
             "architect-reviewer",
             "microservices-architect",
             "cloud-architect",
-            "ultron-arch",
         ],
         // El implementador va PRIMERO (2026-08-23): cuando E5 no recupera
         // ninguno, los tres entran inyectados al mismo floor y el desempate es
@@ -162,10 +146,10 @@ pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
         "game" => &["unreal-engine-engineer", "cpp-pro", "architect-reviewer"],
         // Language / framework / infra domains — verifier found these buried
         // under generic agents. Floor-injected + boosted so they win their domain.
-        "database" => &["postgres-pro", "sql-pro", "database-administrator"],
+        "database" => &["sql-pro", "database-administrator"],
         "mobile" => &["mobile-developer", "react-specialist"],
         "ios" => &["swift-expert", "mobile-developer"],
-        "android" => &["kotlin-specialist", "mobile-developer"],
+        "android" => &["mobile-developer"],
         "golang" => &["golang-pro", "backend-developer"],
         "csharp" => &["csharp-developer", "backend-developer"],
         "rust" => &["rust-engineer", "cpp-pro"],
@@ -180,18 +164,18 @@ pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
         "data_eng" => &["data-engineer", "database-administrator"],
         "websocket" => &["websocket-engineer", "backend-developer"],
         "electron" => &["electron-pro", "frontend-developer"],
-        "nextjs" => &["nextjs-developer", "react-specialist"],
+        "nextjs" => &["react-specialist"],
         "api_design" => &[
             "api-designer",
             "backend-developer",
             "microservices-architect",
         ],
-        "llm" => &["llm-architect", "ai-engineer", "prompt-engineer"],
+        "llm" => &["llm-architect", "ai-engineer"],
         "accessibility" => &["accessibility-tester", "frontend-developer"],
         "docker" => &["docker-expert", "devops-engineer", "kubernetes-specialist"],
         "finance" => &["backend-developer"],
         "business" => &["backend-developer"],
-        "writing" => &["documentation-engineer"],
+        "writing" => &[],
         "learning" => &["llm-architect", "code-reviewer"],
         // El cajon de sastre NO impone especialistas. Antes devolvia
         // ["code-reviewer", "qa-expert"], y como inject_preferred_floor los mete
@@ -205,13 +189,13 @@ pub(super) fn preferred_specialists(intent: &str) -> &'static [&'static str] {
 }
 
 /// Re-rank the raw semantic catalog hits so that real specialists pertinent to
-/// the detected `intent` rank above the generic ULTRON-internal meta agents.
+/// the detected `intent` rank above the generic catch-all agents.
 ///
 /// Rules (first-match-wins ordering preserved upstream):
-///   - META agents get a multiplicative `META_PENALTY` (demoted)...
+///   - GENERIC agents get a multiplicative `GENERIC_PENALTY` (demoted)...
 ///   - ...UNLESS they are also in `preferred_specialists(intent)` (e.g.
-///     `ultron-docs` for the `docs` intent), in which case the penalty is
-///     waived and they get the boost like any other preferred specialist.
+///     `code-reviewer` for the `security` intent), in which case the penalty
+///     is waived and they get the boost like any other preferred specialist.
 ///   - Any preferred specialist gets an additive `SPECIALIST_BOOST`.
 ///
 /// Then sort by adjusted score (desc) and keep the top `keep`.
@@ -225,13 +209,8 @@ pub(super) fn rebalance_delegates(
         .into_iter()
         .map(|h| {
             let is_preferred = preferred.iter().any(|p| *p == h.name);
-            let is_meta = META_AGENTS.contains(&h.name.as_str());
             let is_generic = GENERIC_AGENTS.contains(&h.name.as_str());
             let mut score = h.score;
-            // Demote meta agents that are not pertinent to this intent.
-            if is_meta && !is_preferred {
-                score *= META_PENALTY;
-            }
             // Demote generic catch-all agents the intent doesn't prefer, so the
             // real domain specialist (already retrieved) is no longer buried.
             if is_generic && !is_preferred {
@@ -354,7 +333,41 @@ pub(super) fn rank_skills(
     skills
 }
 
-/// Build the orchestration context for a prompt. Pure read — writes no memory.
+/// ¿Hay en el prompt una referencia concreta (ruta, fichero, identificador o
+/// número)? Se mira token a token y sin la puntuación de los extremos: antes
+/// bastaba un '.' en cualquier sitio, y un punto final («arregla esto.»)
+/// anulaba la detección de vaguedad.
+fn has_concrete_ref(prompt: &str) -> bool {
+    prompt.split_whitespace().any(|raw| {
+        let token = raw.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '\\');
+        token.contains('/')
+            || token.contains('\\')
+            || token.chars().any(|c| c.is_ascii_digit())
+            || inner_separator(token, '.')
+            || inner_separator(token, '_')
+    })
+}
+
+/// `sep` entre dos caracteres alfanuméricos (`kanban.rs`, `run_batch`).
+fn inner_separator(token: &str, sep: char) -> bool {
+    let chars: Vec<char> = token.chars().collect();
+    chars
+        .windows(3)
+        .any(|w| w[1] == sep && w[0].is_alphanumeric() && w[2].is_alphanumeric())
+}
+
+/// ¿Pide el prompt varios pasos? Conectores explícitos o una lista numerada
+/// que empieza en «1.» / «1)» como token propio. Antes valía la subcadena
+/// «1.», que aparece en cualquier versión (2.1.3) y subía el modo a «high».
+fn is_multi_step(lower: &str) -> bool {
+    lower.contains(" y luego ")
+        || lower.contains(" despues ")
+        || lower.contains(" después ")
+        || lower
+            .split_whitespace()
+            .any(|t| t == "1." || t == "1)" || t == "(1)")
+}
+
 /// Paso de mejora de prompt (cat13). Determinista y rapido: clasifica la
 /// vaguedad, sugiere el modo ULTRON y extiende el prompt con un encuadre
 /// APPENDED por intent (advisory; no reemplaza el prompt enviado al modelo).
@@ -379,13 +392,8 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
         "optimiza",
     ];
     let has_vague_verb = vague_verbs.iter().any(|v| lower.contains(v));
-    let has_concrete_ref = p.contains('/')
-        || p.contains('\\')
-        || p.contains('.')
-        || p.contains('_')
-        || p.chars().any(|c| c.is_ascii_digit());
     let mut clarifying_questions = Vec::new();
-    if words <= 5 && has_vague_verb && !has_concrete_ref {
+    if words <= 5 && has_vague_verb && !has_concrete_ref(p) {
         clarifying_questions.push("¿Que archivo, modulo o pantalla exactamente?".to_string());
         clarifying_questions.push("¿Cual es el comportamiento esperado vs el actual?".to_string());
         clarifying_questions.push("¿Hay un error/log concreto que lo evidencie?".to_string());
@@ -408,10 +416,7 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
     ]
     .iter()
     .any(|k| lower.contains(k));
-    let multi_step = lower.contains(" y luego ")
-        || lower.contains(" despues ")
-        || lower.contains("1)")
-        || lower.contains("1.");
+    let multi_step = is_multi_step(&lower);
     let suggested_mode = if big_scope && (multi_step || words > 40) {
         "ultra"
     } else if big_scope || multi_step || matches!(intent, "security" | "performance") {
@@ -437,15 +442,7 @@ pub fn build_prompt_plan(prompt: &str, intent: &str) -> PromptPlan {
     }
 }
 
-/// Public canonical name of the prompt optimizer (cat13.2). Rewrites the prompt
-/// with the intent frame + suggested mode + success criteria. `build_prompt_plan`
-/// is the historical impl; `optimize_prompt` is the symbol the routing calls so
-/// the step "optimize the prompt" is literal and self-documenting.
-pub fn optimize_prompt(prompt: &str, intent: &str) -> PromptPlan {
-    build_prompt_plan(prompt, intent)
-}
-
-/// Work frame + success criteria per intent family. Shared by `optimize_prompt`
+/// Work frame + success criteria per intent family. Shared by `build_prompt_plan`
 /// (whole turn) and `build_step_plans` (per workflow step). The `review` and
 /// `architecture_review` frames exist for the per-step roles (code-reviewer /
 /// architect-reviewer) even though no top-level RULE routes to them.
@@ -508,13 +505,12 @@ pub(super) fn intent_frame(intent: &str) -> (&'static str, &'static [&'static st
 pub(super) fn agent_sub_intent(agent: &str) -> &'static str {
     match agent {
         "debugger" | "error-detective" => "bug_fix",
-        "security-auditor" | "penetration-tester" | "ultron-security" => "security",
+        "security-auditor" | "penetration-tester" => "security",
         "test-automator" | "qa-expert" => "testing",
-        "refactoring-specialist" | "ultron-refactor" => "refactor",
-        "performance-engineer" | "ultron-perf" => "performance",
-        "documentation-engineer" | "ultron-docs" => "docs",
+        "refactoring-specialist" => "refactor",
+        "performance-engineer" => "performance",
         "code-reviewer" => "review",
-        "architect-reviewer" | "microservices-architect" | "cloud-architect" | "ultron-arch" => {
+        "architect-reviewer" | "microservices-architect" | "cloud-architect" => {
             "architecture_review"
         }
         a if a.ends_with("-engineer")
@@ -531,7 +527,7 @@ pub(super) fn agent_sub_intent(agent: &str) -> &'static str {
 /// cat13.4: build a per-step optimized frame for a multi-step GROUP. Each step
 /// (a workflow agent) gets its role's sub-intent frame. Returns empty for fewer
 /// than 2 steps — a single step is not a "group", so the turn-level
-/// `optimize_prompt` already covers it.
+/// `build_prompt_plan` already covers it.
 pub(super) fn build_step_plans(steps: &[String]) -> Vec<StepPlan> {
     if steps.len() < 2 {
         return Vec::new();

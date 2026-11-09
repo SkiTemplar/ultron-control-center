@@ -8,7 +8,7 @@
 //   - last_activity_summary recortado + resumen AI bajo demanda (botón)
 //   - last_prompt recortado
 //   - "hace X min" desde age_seconds
-//   - Botón "Abrir en Projects" (solo si matched_project_id != null)
+//   - Botón "Abrir en Proyectos" (solo si matched_project_id != null)
 //   - Badge "subagente" cuando is_subagent = true
 
 import { useState } from "react";
@@ -39,11 +39,12 @@ const realSummaryCache = new Map<string, string>();
 // Helpers de presentación
 // ---------------------------------------------------------------------------
 
-/** Formatea age_seconds como "hace X s" / "hace X min" / "hace X h". */
+/** Formatea age_seconds como "ahora mismo" / "hace X s" / "hace X min" / "hace X h". */
 function formatAge(seconds: number): string {
-  if (seconds < 60) return `hace ${seconds}s`;
-  if (seconds < 3600) return `hace ${Math.floor(seconds / 60)}min`;
-  return `hace ${Math.floor(seconds / 3600)}h`;
+  if (seconds < 5) return "ahora mismo";
+  if (seconds < 60) return `hace ${seconds} s`;
+  if (seconds < 3600) return `hace ${Math.floor(seconds / 60)} min`;
+  return `hace ${Math.floor(seconds / 3600)} h`;
 }
 
 /** Recorta un string a maxLen caracteres añadiendo "…" si es necesario. */
@@ -75,25 +76,25 @@ function StatusBadge({ status }: StatusBadgeProps) {
     { label: string; bg: string; color: string; dot: string }
   > = {
     working: {
-      label: "working",
+      label: "trabajando",
       bg: "rgba(63,185,80,0.12)",
       color: "var(--color-success, #3fb950)",
       dot: "var(--color-success, #3fb950)",
     },
     waiting: {
-      label: "waiting",
+      label: "esperando",
       bg: "rgba(59,130,246,0.12)",
       color: "#3b82f6",
       dot: "#3b82f6",
     },
     idle: {
-      label: "idle",
+      label: "en reposo",
       bg: "rgba(210,153,34,0.12)",
       color: "var(--color-warn, #d2991f)",
       dot: "var(--color-warn, #d2991f)",
     },
     dead: {
-      label: "dead",
+      label: "muerta",
       bg: "rgba(120,120,120,0.12)",
       color: "var(--color-text-tertiary)",
       dot: "var(--color-text-faint)",
@@ -281,7 +282,7 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
         <span
           className="ml-auto text-[10px] tabular-nums"
           style={{ color: "var(--color-text-tertiary)" }}
-          title={`Session ID: ${session_id}`}
+          title={`ID de sesión: ${session_id}`}
         >
           {formatAge(age_seconds)}
         </span>
@@ -332,10 +333,10 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
           value={`${fmtTokens(context_tokens)}/${fmtTokens(context_limit)}`}
         />
         <TokenStat label="cache" value={fmtTokens(cache_read_tokens)} />
-        <TokenStat label="out" value={fmtTokens(output_tokens)} />
+        <TokenStat label="salida" value={fmtTokens(output_tokens)} />
       </div>
 
-      {/* ── Fila 5: resumen — truncado local por defecto, AI solo tras click ── */}
+      {/* ── Fila 5: resumen — truncado local por defecto, IA solo tras clic ── */}
       {(realSummary !== null || last_activity_summary !== null) && (
         <div className="flex items-start gap-1.5">
           <p
@@ -343,7 +344,7 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
             style={{ color: "var(--color-text-secondary)" }}
             title={
               summaryError !== null
-                ? `Resumen AI no disponible: ${summaryError}`
+                ? `Resumen con IA no disponible: ${summaryError}`
                 : undefined
             }
           >
@@ -354,11 +355,11 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
               type="button"
               onClick={handleSummarize}
               disabled={summaryFetching}
-              aria-label="Resumir actividad con AI"
+              aria-label="Resumir actividad con IA"
               title={
                 summaryError !== null
-                  ? `Resumen AI falló: ${summaryError} — click para reintentar`
-                  : "Resumir actividad con AI"
+                  ? `Falló el resumen con IA: ${summaryError}. Clic para reintentar`
+                  : "Resumir actividad con IA"
               }
               className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors disabled:cursor-wait disabled:opacity-60"
               style={{
@@ -373,8 +374,8 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
               {summaryFetching
                 ? "···"
                 : summaryError !== null
-                  ? "reintentar AI"
-                  : "resumir AI"}
+                  ? "reintentar IA"
+                  : "resumir con IA"}
             </button>
           )}
         </div>
@@ -418,7 +419,7 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
                   color: "var(--color-accent)",
                   border: "1px solid rgba(88,166,255,0.28)",
                 }}
-                title="Intent detectado por el orquestador"
+                title="Intención detectada por el orquestador"
               >
                 {orchestration.route}
               </span>
@@ -444,7 +445,7 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
                   border: "1px solid rgba(234,179,8,0.30)",
                 }}
               >
-                cross-project
+                entre proyectos
               </span>
             )}
           </div>
@@ -508,7 +509,10 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
         </div>
       )}
 
-      {/* ── Fila 7: botón "Abrir en Projects" ── */}
+      {/* ── Fila 7: botón "Abrir en Proyectos" ── */}
+      {/* Estilo de botón normal: con el tinte azul pálido de antes parecía
+          desactivado en sesiones en reposo aunque funcionaba. Solo el caso sin
+          proyecto registrado se pinta como desactivado. */}
       <div className="pt-0.5">
         <button
           type="button"
@@ -516,31 +520,17 @@ export function SessionCard({ session, orchestration, onOpenProject }: SessionCa
           disabled={!canOpenProject}
           title={
             canOpenProject
-              ? `Abrir proyecto ${project_name} en Projects`
-              : "Proyecto no registrado en ULTRON — registralo desde la pestaña Projects"
+              ? `Abrir el proyecto ${project_name} en Proyectos`
+              : "Proyecto no registrado en ULTRON: regístralo desde la pestaña Proyectos"
           }
-          className="rounded px-2 py-1 text-[10.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded px-2 py-1 text-[10.5px] font-medium transition-colors hover:bg-[var(--color-surface-1)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--color-surface-3)]"
           style={{
-            background: canOpenProject
-              ? "rgba(59,130,246,0.10)"
-              : "var(--color-surface-3)",
-            color: canOpenProject
-              ? "#3b82f6"
-              : "var(--color-text-tertiary)",
-            border: canOpenProject
-              ? "1px solid rgba(59,130,246,0.30)"
-              : "1px solid var(--color-border)",
-          }}
-          onMouseEnter={(e) => {
-            if (!canOpenProject) return;
-            e.currentTarget.style.background = "rgba(59,130,246,0.18)";
-          }}
-          onMouseLeave={(e) => {
-            if (!canOpenProject) return;
-            e.currentTarget.style.background = "rgba(59,130,246,0.10)";
+            background: "var(--color-surface-3)",
+            color: canOpenProject ? "var(--color-text)" : "var(--color-text-tertiary)",
+            border: `1px solid ${canOpenProject ? "var(--color-border-strong)" : "var(--color-border)"}`,
           }}
         >
-          Abrir en Projects
+          Abrir en Proyectos
         </button>
       </div>
     </div>

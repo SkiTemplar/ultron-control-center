@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import {
   buildGenerateRequest,
+  completionMode,
   buildWarmupRequest,
+  keepAliveFor,
   fetchCompletion,
   firstLoadedModelName,
   formatEngineStatus,
@@ -9,6 +11,7 @@ import {
   isModelLoaded,
   modelSizeMb,
   resolveEngine,
+  sanitizeBlock,
   sanitizeCompletion,
   vramWarning,
   type Engine,
@@ -46,6 +49,7 @@ interface Settings {
   model: string;
   debounceMs: number;
   timeoutMs: number;
+  blockTimeoutMs: number;
   maxPrefixChars: number;
   maxSuffixChars: number;
   logSuggestions: boolean;
@@ -65,10 +69,11 @@ function readSettings(): Settings {
     model: cfg.get<string>("model", ""),
     debounceMs: cfg.get<number>("debounceMs", 75),
     timeoutMs: cfg.get<number>("timeoutMs", 2500),
+    blockTimeoutMs: cfg.get<number>("blockTimeoutMs", 8000),
     maxPrefixChars: cfg.get<number>("maxPrefixChars", 3000),
     maxSuffixChars: cfg.get<number>("maxSuffixChars", 1000),
     logSuggestions: cfg.get<boolean>("logSuggestions", true),
-    keepAlive: cfg.get<string>("keepAlive", "30m"),
+    keepAlive: cfg.get<string>("keepAlive", ""),
     warmupTimeoutMs: cfg.get<number>("warmupTimeoutMs", 120_000),
   };
 }
@@ -177,7 +182,7 @@ function startWarmup(
   const startedAt = Date.now();
   warmupInFlight = fetchCompletion({
     endpoint: settings.endpoint,
-    request: buildWarmupRequest(model, settings.keepAlive),
+    request: buildWarmupRequest(model, keepAliveFor(settings.engine, settings.keepAlive)),
     timeoutMs: settings.warmupTimeoutMs,
     fetchImpl,
   })
@@ -411,11 +416,20 @@ class OllamaTabStatus {
 
 class OllamaInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private generation = 0;
+  /** Motivos de silencio ya registrados: cada uno se escribe una vez por sesion. */
+  private readonly traced = new Set<string>();
 
   constructor(
     private readonly status: OllamaTabStatus,
     private readonly output: vscode.OutputChannel,
   ) {}
+
+  /** Deja constancia, una sola vez por motivo, de por que no se sugiere nada. */
+  private traceOnce(reason: string): void {
+    if (this.traced.has(reason)) return;
+    this.traced.add(reason);
+    this.output.appendLine(`[ollama-tab] ${reason}`);
+  }
 
   async provideInlineCompletionItems(
     document: vscode.TextDocument,
@@ -423,11 +437,16 @@ class OllamaInlineCompletionProvider implements vscode.InlineCompletionItemProvi
     _context: vscode.InlineCompletionContext,
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | undefined> {
+    this.traceOnce(`VS Code pide sugerencias (${document.languageId}, ${document.uri.scheme})`);
     const settings = readSettings();
-    if (!settings.enabled) return undefined;
+    if (!settings.enabled) {
+      this.traceOnce("sin sugerir: ollamaTab.enabled = false");
+      return undefined;
+    }
     // Motor no local (Copilot u off): esta extension calla, para que no haya
     // dos proveedores proponiendo ghost text sobre el mismo cursor.
     if (!resolveEngine(settings.engine, engineModels(settings)).ollamaEnabled) {
+      this.traceOnce(`sin sugerir: motor ${settings.engine} no es local`);
       return undefined;
     }
 
@@ -451,13 +470,15 @@ class OllamaInlineCompletionProvider implements vscode.InlineCompletionItemProvi
     }
     if (token.isCancellationRequested) return undefined;
 
+    const mode = completionMode(fullPrefix);
     const request = buildGenerateRequest({
       model,
+      mode,
       prefix: fullPrefix,
       suffix: fullSuffix,
       maxPrefixChars: settings.maxPrefixChars,
       maxSuffixChars: settings.maxSuffixChars,
-      keepAlive: settings.keepAlive,
+      keepAlive: keepAliveFor(settings.engine, settings.keepAlive),
     });
 
     const controller = new AbortController();
@@ -470,7 +491,7 @@ class OllamaInlineCompletionProvider implements vscode.InlineCompletionItemProvi
       raw = await fetchCompletion({
         endpoint: settings.endpoint,
         request,
-        timeoutMs: settings.timeoutMs,
+        timeoutMs: mode === "block" ? settings.blockTimeoutMs : settings.timeoutMs,
         signal: controller.signal,
         fetchImpl: fetch,
       });
@@ -486,8 +507,11 @@ class OllamaInlineCompletionProvider implements vscode.InlineCompletionItemProvi
 
     if (token.isCancellationRequested || myGeneration !== this.generation) return undefined;
 
-    const suggestion = sanitizeCompletion(raw, fullSuffix);
-    if (!suggestion) return undefined;
+    const suggestion = mode === "block" ? sanitizeBlock(raw, fullSuffix) : sanitizeCompletion(raw, fullSuffix);
+    if (!suggestion) {
+      this.traceOnce(`sin sugerir: ${model} devolvio una sugerencia vacia o descartada`);
+      return undefined;
+    }
 
     const elapsedMs = Date.now() - requestStart;
     this.status.recordSuggestion(model);

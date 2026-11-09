@@ -14,11 +14,6 @@ S4 commands (new):
     add <name> --source X [--triggers a,b] [--tags x,y]
     deprecate <name>
 
-Legacy commands (v12.4 compat stubs):
-    rebuild       -> delegates to sync
-    status        -> delegates to list
-    sync-prompt   -> shows clipboard instructions
-
 PILAR I: no subprocess calls in this module (pure Python).
 """
 from __future__ import annotations
@@ -980,34 +975,6 @@ def deprecate(skill_name: str,
     return True
 
 
-# ── Legacy compat stubs (v12.4 commands still referenced in ultron.ps1) ───────
-
-def cmd_status_legacy(args) -> int:
-    """Legacy 'status' -> delegates to list."""
-    # Create a minimal args-like object for cmd_list
-    class _ListArgs:
-        deprecated = False
-        source = None
-        format = "table"
-    return cmd_list(_ListArgs())
-
-
-def cmd_rebuild_legacy(args) -> int:
-    """Legacy 'rebuild' -> delegates to sync."""
-    class _SyncArgs:
-        pass
-    return cmd_sync(_SyncArgs())
-
-
-def cmd_sync_prompt_legacy(args) -> int:
-    """Legacy 'sync-prompt' -> print instructions."""
-    print("[skill_manifest] sync-prompt: To identify untracked skills, run:")
-    print("  ultron manifest sync")
-    print("  ultron manifest validate")
-    print("  ultron manifest list --format json | clip")
-    return 0
-
-
 # ── CLI entry ─────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1041,11 +1008,6 @@ def main() -> int:
     dep_p = sub.add_parser("deprecate", help="Mark a skill deprecated")
     dep_p.add_argument("skill_name", metavar="SKILL_NAME")
 
-    # Legacy compat
-    sub.add_parser("status", help="[legacy] alias for list")
-    sub.add_parser("rebuild", help="[legacy] alias for sync")
-    sub.add_parser("sync-prompt", help="[legacy] clipboard instructions")
-
     args = p.parse_args()
 
     dispatch = {
@@ -1054,10 +1016,6 @@ def main() -> int:
         "validate": cmd_validate,
         "add": cmd_add,
         "deprecate": cmd_deprecate,
-        # Legacy stubs
-        "status": cmd_status_legacy,
-        "rebuild": cmd_rebuild_legacy,
-        "sync-prompt": cmd_sync_prompt_legacy,
     }
 
     fn = dispatch.get(args.cmd)

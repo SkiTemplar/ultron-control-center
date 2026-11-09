@@ -15,6 +15,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { invokeWithTimeout } from "../../lib/invoke-timeout";
+import { errMsg } from "../../lib/errors";
 import type { DiagnosticReport } from "../../types";
 import { Markdown } from "../../lib/markdown";
 import { DiagnosticHistoryPanel } from "./DiagnosticHistoryPanel";
@@ -23,8 +25,8 @@ import { confirmDialog } from "../../lib/dialog";
 import { getPrompt } from "../../lib/button-prompts";
 
 import type { CommonError, CommonErrorCheckResult, EventLogEntry, Fix, FixHistoryEntry, MaintenanceResult } from "./diagnostics/types";
-import { COMMON_ERRORS, COMMON_ERROR_CATEGORIES, FIX_CATALOG, CATEGORY_LABELS } from "./diagnostics/catalogs";
-import { appendFixHistory, loadFixHistory, saveFixHistory, pushFixHistory } from "./diagnostics/fixHistory";
+import { COMMON_ERRORS, COMMON_ERROR_CATEGORIES, COMMON_ERROR_CATEGORY_LABELS, FIX_CATALOG, CATEGORY_LABELS } from "./diagnostics/catalogs";
+import { loadFixHistory, saveFixHistory, pushFixHistory } from "./diagnostics/fixHistory";
 import { AppHealthCard } from "./diagnostics/AppHealthCard";
 import { CommonErrorRow } from "./diagnostics/CommonErrorRow";
 import { RecentFixesPanel } from "./diagnostics/RecentFixesPanel";
@@ -32,12 +34,12 @@ import { ToolboxPanel } from "./diagnostics/ToolboxPanel";
 import { EventLogPanel } from "./diagnostics/EventLogPanel";
 import { SolveWithAiModal } from "./diagnostics/SolveWithAiModal";
 
-// Re-export type used by sub-components (kept for backward compat if anyone imports it)
-export type { CommonErrorCategory } from "./diagnostics/types";
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+
+/** Plazo del diagnóstico y del visor de eventos (medidos: ~4 s y ~40 ms). */
+const DIAGNOSTIC_TIMEOUT_MS = 60_000;
 
 export function Diagnostics() {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
@@ -66,13 +68,15 @@ export function Diagnostics() {
   // Fix history
   const [fixHistory, setFixHistory] = useState<FixHistoryEntry[]>(() => loadFixHistory());
 
-  // Toolbox panel — "todos los comandos posibles". The user relies on it more
-  // than the common errors, so it starts OPEN and is shown at the very top.
-  const [toolboxOpen, setToolboxOpen] = useState(true);
+  // Toolbox panel — "todos los comandos posibles". 2026-10-17: it used to
+  // start OPEN above Common errors, which buried the Diagnose → Fix flow the
+  // header describes under 51 commands. It now sits below and starts closed.
+  const [toolboxOpen, setToolboxOpen] = useState(false);
   const [toolboxFilter, setToolboxFilter] = useState("");
 
-  // Common errors — sección colapsable, CERRADA por defecto (uso esporádico).
-  const [commonErrorsOpen, setCommonErrorsOpen] = useState(false);
+  // Common errors — sección colapsable, ABIERTA por defecto: es el flujo que
+  // explica la cabecera (Diagnose → Fix).
+  const [commonErrorsOpen, setCommonErrorsOpen] = useState(true);
 
   // Event log panel
   const [eventLogOpen, setEventLogOpen] = useState(false);
@@ -88,10 +92,12 @@ export function Diagnostics() {
     setErr(null);
     setAnalysis(null);
     try {
-      const r = (await invoke("run_diagnostic_native")) as DiagnosticReport;
+      // Con plazo (auditoría 2026-10-18): sin respuesta, el botón se quedaba
+      // en «Ejecutando…» para siempre. El diagnóstico tarda unos 4 s.
+      const r = await invokeWithTimeout<DiagnosticReport>("run_diagnostic_native", undefined, DIAGNOSTIC_TIMEOUT_MS);
       setReport(r);
     } catch (e) {
-      setErr(String(e));
+      setErr(errMsg(e));
     } finally {
       setLoading(false);
     }
@@ -101,10 +107,14 @@ export function Diagnostics() {
     setEventsLoading(true);
     setEventsErr(null);
     try {
-      const r = (await invoke("event_log_recent", { limit: 50, scope: "critical_and_error" })) as EventLogEntry[];
+      const r = await invokeWithTimeout<EventLogEntry[]>(
+        "event_log_recent",
+        { limit: 50, scope: "critical_and_error" },
+        DIAGNOSTIC_TIMEOUT_MS,
+      );
       setEvents(r);
     } catch (e) {
-      setEventsErr(String(e));
+      setEventsErr(errMsg(e));
     } finally {
       setEventsLoading(false);
     }
@@ -160,12 +170,11 @@ export function Diagnostics() {
       };
       const updated = pushFixHistory(entry);
       setFixHistory(updated);
-      void appendFixHistory(entry);
       if (r.success) {
-        setFixResult(`${fix.label}: ok (${r.elapsed_ms}ms).`);
+        setFixResult(`${fix.label}: hecho (${r.elapsed_ms} ms).`);
       } else {
         const tail = (r.stderr || r.stdout || "").trim().slice(0, 200);
-        setFixResult(`${fix.label}: failed (exit ${r.exit_code ?? "?"}). ${tail}`);
+        setFixResult(`${fix.label}: ha fallado (código ${r.exit_code ?? "?"}). ${tail}`);
       }
     } catch (e) {
       setFixResult(`${fix.label}: ${String(e)}`);
@@ -198,7 +207,7 @@ export function Diagnostics() {
       await invoke("spawn_session", { provider: "claude", prompt, cwd: null, flags: { dangerouslySkipPermissions: false } });
       setSolveOpen(false);
       setSolveProblem("");
-      setFixResult("Solve with AI: Claude session spawned with diagnostic context.");
+      setFixResult("Resolver con IA: se ha lanzado una sesión de Claude con el contexto del diagnóstico.");
     } catch (e) {
       setSolveError(String(e));
     } finally {
@@ -216,6 +225,7 @@ export function Diagnostics() {
       e.title.toLowerCase().includes(q) ||
       e.symptom.toLowerCase().includes(q) ||
       e.category.toLowerCase().includes(q) ||
+      COMMON_ERROR_CATEGORY_LABELS[e.category].toLowerCase().includes(q) ||
       e.id.toLowerCase().includes(q)
     );
   });
@@ -232,34 +242,34 @@ export function Diagnostics() {
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-              Diagnostics &amp; Fixes
+              Diagnóstico y arreglos
             </div>
             <div className="mt-0.5 text-[12px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
-              Selecciona un error conocido, haz clic en Diagnose para verificar si aplica, y usa Fix para corregirlo.
+              Elige un error conocido, pulsa Diagnosticar para ver si te afecta y después Arreglar para corregirlo. La caja de herramientas de Windows de abajo ejecuta cualquier comando directamente.
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             <button type="button" className="rounded px-2.5 py-1 text-[12px] font-medium transition-colors"
               style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
               onClick={() => setSolveOpen(true)}>
-              Solve with AI
+              Resolver con IA
             </button>
             <button type="button" className="rounded px-2.5 py-1 text-[12px] font-medium transition-colors"
               style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
               onClick={() => setHistoryOpen((v) => !v)}>
-              {historyOpen ? "Hide history" : "History"}
+              {historyOpen ? "Ocultar el historial" : "Historial"}
             </button>
             <button type="button" className="rounded px-2.5 py-1 text-[12px] font-medium transition-colors"
               style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
               onClick={() => setScheduleOpen((v) => !v)}>
-              {scheduleOpen ? "Hide schedule" : "Schedule"}
+              {scheduleOpen ? "Ocultar la programación" : "Programación"}
             </button>
             <button type="button"
               className="rounded px-3 py-1 text-[12px] font-medium transition-colors disabled:opacity-50"
               style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
               onClick={() => { void run(); void loadEvents(); }}
               disabled={loading || eventsLoading}>
-              {loading || eventsLoading ? "Running..." : "Refresh"}
+              {loading || eventsLoading ? "Ejecutando…" : "Actualizar"}
             </button>
           </div>
         </div>
@@ -285,19 +295,7 @@ export function Diagnostics() {
       {report && <AppHealthCard report={report} />}
 
       {/* ------------------------------------------------------------------ */}
-      {/* Toolbox Windows — "todos los comandos posibles" (prominente, arriba) */}
-      {/* ------------------------------------------------------------------ */}
-      <ToolboxPanel
-        open={toolboxOpen}
-        onToggle={() => setToolboxOpen((v) => !v)}
-        filter={toolboxFilter}
-        onFilterChange={setToolboxFilter}
-        runFix={(fix) => void runFix(fix, "toolbox")}
-        fixBusy={fixBusy}
-      />
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Common Errors section (colapsable, cerrada por defecto)             */}
+      {/* Common Errors section (colapsable, abierta por defecto)             */}
       {/* ------------------------------------------------------------------ */}
       <section
         className="rounded"
@@ -306,6 +304,7 @@ export function Diagnostics() {
         <button
           type="button"
           onClick={() => setCommonErrorsOpen((v) => !v)}
+          aria-expanded={commonErrorsOpen}
           className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors"
           style={{
             background: "var(--color-surface-1)",
@@ -313,9 +312,11 @@ export function Diagnostics() {
           }}
         >
           <span className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-            Common errors
+            Errores comunes
           </span>
-          <span style={{ color: "var(--color-text-faint)" }}>{commonErrorsOpen ? "▲" : "▼"}</span>
+          <span className="font-mono text-[12px]" style={{ color: "var(--color-text-tertiary)" }} aria-hidden>
+            {commonErrorsOpen ? "▾" : "▸"}
+          </span>
         </button>
 
         {commonErrorsOpen && (
@@ -330,7 +331,7 @@ export function Diagnostics() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search common errors..."
+                  placeholder="Buscar errores comunes…"
                   className="min-w-[200px] flex-1 rounded px-2.5 py-1 text-[12px]"
                   style={{
                     background: "var(--color-surface-2)",
@@ -352,7 +353,7 @@ export function Diagnostics() {
                         border: "1px solid var(--color-border-strong)",
                       }}
                     >
-                      {cat}
+                      {cat === "All" ? "Todos" : COMMON_ERROR_CATEGORY_LABELS[cat]}
                     </button>
                   ))}
                 </div>
@@ -361,7 +362,7 @@ export function Diagnostics() {
 
             {filteredErrors.length === 0 && (
               <div className="px-3 py-6 text-center text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-                No errors match "{searchQuery}".
+                Ningún error coincide con «{searchQuery}».
               </div>
             )}
 
@@ -380,6 +381,18 @@ export function Diagnostics() {
           </>
         )}
       </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Toolbox Windows — "todos los comandos posibles" (plegado por defecto) */}
+      {/* ------------------------------------------------------------------ */}
+      <ToolboxPanel
+        open={toolboxOpen}
+        onToggle={() => setToolboxOpen((v) => !v)}
+        filter={toolboxFilter}
+        onFilterChange={setToolboxFilter}
+        runFix={(fix) => void runFix(fix, "toolbox")}
+        fixBusy={fixBusy}
+      />
 
       {/* ------------------------------------------------------------------ */}
       {/* Recent Fixes                                                        */}
@@ -416,14 +429,14 @@ export function Diagnostics() {
             onClick={analyze}
             disabled={analyzing}
           >
-            {analyzing ? "Analyzing..." : "Analyze with AI"}
+            {analyzing ? "Analizando…" : "Analizar con IA"}
           </button>
         </div>
       )}
 
       {analysis && (
         <div className="rounded border border-white/10 bg-[var(--color-surface-1)] p-3">
-          <div className="mb-2 text-[12px] text-white/50">AI analysis</div>
+          <div className="mb-2 text-[12px] text-white/50">Análisis de la IA</div>
           <div className="prose prose-invert prose-sm max-w-none">
             <Markdown source={analysis} />
           </div>
@@ -441,7 +454,7 @@ export function Diagnostics() {
           onCancel={() => { setSolveOpen(false); setSolveError(null); }}
           onSend={() => {
             const trimmed = solveProblem.trim();
-            if (!trimmed) { setSolveError("Describe the problem first."); return; }
+            if (!trimmed) { setSolveError("Describe primero el problema."); return; }
             void solveWithAi(trimmed);
           }}
         />

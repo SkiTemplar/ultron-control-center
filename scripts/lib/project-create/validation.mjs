@@ -23,6 +23,30 @@ export function slugify(text) {
   return slug;
 }
 
+const SUBJECT_STOPWORDS = new Set(['a', 'al', 'de', 'del', 'e', 'el', 'en', 'la', 'las', 'los', 'o', 'u', 'y']);
+
+function stripDiacritics(text) {
+  return String(text ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+/**
+ * Nombre de carpeta de una asignatura: `CODIGO-NombreEnPascalCase`, solo
+ * [A-Za-z0-9-]. Sin espacios, tildes ni raya: esas rutas rompen toolchains y
+ * obligan a entrecomillar en cada shell. El nombre legible va al registro.
+ */
+export function subjectDirName(code, name) {
+  const codePart = stripDiacritics(code).replace(/[^A-Za-z0-9]+/g, '');
+  const words = stripDiacritics(name).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const significant = words.filter((w) => !SUBJECT_STOPWORDS.has(w.toLowerCase()));
+  const namePart = (significant.length ? significant : words)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join('');
+  if (!codePart || !namePart) {
+    throw new CliError('INVALID_NAME', `no se pudo derivar una carpeta ASCII a partir de "${code}" y "${name}"`);
+  }
+  return `${codePart}-${namePart}`;
+}
+
 export function validateName(name) {
   if (!name || typeof name !== 'string' || !name.trim()) {
     throw new CliError('INVALID_NAME', 'el nombre no puede estar vacio');

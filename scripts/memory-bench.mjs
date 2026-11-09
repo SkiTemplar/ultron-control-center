@@ -273,6 +273,8 @@ function runRecall(bin, spec) {
   const args = ["recall", spec.query];
   if (spec.project) args.push("--project", spec.project);
   if (spec.cross) args.push("--cross");
+  // Medición: sin evento Retrieved ni touch de access_count (falsearía el GC).
+  args.push("--diagnostic");
   const r = spawnSync(bin, args, { encoding: "utf8", timeout: 60000, windowsHide: true });
   const raw = (r.stdout || "").replace(/^﻿/, "");
   try {

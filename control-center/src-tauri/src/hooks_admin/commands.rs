@@ -1,22 +1,27 @@
 // hooks_admin/commands.rs — Public inner functions called from Tauri command wrappers in lib.rs.
 
 use std::fs;
-use std::time::Instant;
 
+use super::disabled::{read_store, store_path, write_store};
 use super::io::{
     compute_id, delete_entry_by_id, discover_plugin_hooks, flatten_hooks, mutate_entry_by_id,
     mutate_hooks, read_settings_value, settings_path,
 };
+use super::test_runner::{build_test_payload, run_hook_test};
+use super::toggle::{is_stored, set_enabled_inner, stored_hooks, toggle_inner};
 use super::types::{
     Hook, HookFire, HookFiresReport, HookLastFired, HookMutationResult, HookTestResult, HooksList,
 };
-use super::validation::{validate_command, validate_event, validate_matcher, TEST_TIMEOUT};
+use super::validation::{validate_command, validate_event, validate_matcher};
 
 pub fn list_hooks_inner() -> Result<HooksList, String> {
     let path = settings_path().ok_or_else(|| "no HOME".to_string())?;
     let exists = path.exists();
     let root = read_settings_value()?;
     let mut hooks = flatten_hooks(&root);
+    // Los desactivados viven fuera de settings.json (toggle.rs / disabled.rs).
+    let stored = stored_hooks(&hooks)?;
+    hooks.extend(stored);
     hooks.extend(discover_plugin_hooks());
     Ok(HooksList {
         hooks,
@@ -25,10 +30,47 @@ pub fn list_hooks_inner() -> Result<HooksList, String> {
     })
 }
 
+/// Tope de `timeout` que acepta la UI (segundos). Claude Code no fija uno; diez
+/// minutos bastan para cualquier hook y evitan una errata de tres ceros.
+const MAX_TIMEOUT_S: u32 = 600;
+
+/// `timeout` y `async` de una entrada (hooks-8: la UI no podía fijarlos).
+/// `timeout = 0` o `async = false` quitan la clave.
+fn apply_timing(
+    entry: &mut serde_json::Map<String, serde_json::Value>,
+    timeout: Option<u32>,
+    run_async: Option<bool>,
+) -> Result<(), String> {
+    match timeout {
+        Some(0) => {
+            entry.remove("timeout");
+        }
+        Some(t) if t > MAX_TIMEOUT_S => {
+            return Err(format!("timeout {t} s fuera de rango (1-{MAX_TIMEOUT_S})"));
+        }
+        Some(t) => {
+            entry.insert("timeout".into(), serde_json::Value::from(t));
+        }
+        None => {}
+    }
+    match run_async {
+        Some(true) => {
+            entry.insert("async".into(), serde_json::Value::Bool(true));
+        }
+        Some(false) => {
+            entry.remove("async");
+        }
+        None => {}
+    }
+    Ok(())
+}
+
 pub fn add_hook_inner(
     event: String,
     matcher: Option<String>,
     command: String,
+    timeout: Option<u32>,
+    run_async: Option<bool>,
 ) -> Result<HookMutationResult, String> {
     validate_event(&event)?;
     validate_command(&command)?;
@@ -44,6 +86,12 @@ pub fn add_hook_inner(
         "command".to_string(),
         serde_json::Value::String(command.clone()),
     );
+    apply_timing(&mut entry_obj, timeout, run_async)?;
+    let extra: serde_json::Map<String, serde_json::Value> = entry_obj
+        .iter()
+        .filter(|(k, _)| k.as_str() != "type" && k.as_str() != "command")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     let new_id = compute_id(&event, matcher.as_deref(), &command);
 
     let (_payload, backup_path) = mutate_hooks(|hooks_obj| {
@@ -123,86 +171,98 @@ pub fn add_hook_inner(
         enabled: true,
         source: "user".to_string(),
         description: None,
-        extra: serde_json::Value::Object(serde_json::Map::new()),
+        extra: serde_json::Value::Object(extra),
     };
     Ok(HookMutationResult {
         success: true,
         hook: Some(hook),
         backup_path,
+        manifest_sync: None,
     })
 }
 
-pub fn update_hook_inner(
-    id: String,
-    command: Option<String>,
-    enabled: Option<bool>,
-    matcher: Option<String>,
-) -> Result<HookMutationResult, String> {
-    if let Some(c) = &command {
+/// Campos editables de un hook. `None` = no se toca.
+pub struct HookUpdate {
+    pub command: Option<String>,
+    pub enabled: Option<bool>,
+    pub matcher: Option<String>,
+    pub timeout: Option<u32>,
+    pub run_async: Option<bool>,
+}
+
+impl HookUpdate {
+    fn edits_entry(&self) -> bool {
+        self.command.is_some()
+            || self.matcher.is_some()
+            || self.timeout.is_some()
+            || self.run_async.is_some()
+    }
+}
+
+pub fn update_hook_inner(id: String, upd: HookUpdate) -> Result<HookMutationResult, String> {
+    if let Some(c) = &upd.command {
         validate_command(c)?;
     }
-    if let Some(m) = matcher.as_deref() {
+    if let Some(m) = upd.matcher.as_deref() {
         if !m.is_empty() {
             validate_matcher(Some(m))?;
         }
     }
-    let mut hook_out: Option<Hook> = None;
-    let (_payload, backup_path) = mutate_hooks(|hooks_obj| {
-        let hook = mutate_entry_by_id(hooks_obj, &id, |entry_obj, matcher_slot| {
-            if let Some(c) = command.clone() {
-                entry_obj.insert("command".to_string(), serde_json::Value::String(c));
-            }
-            if let Some(e) = enabled {
-                let t = if e { "command" } else { "disabled-command" };
-                entry_obj.insert("type".to_string(), serde_json::Value::String(t.into()));
-            }
-            if let Some(m) = matcher.clone() {
-                if m.trim().is_empty() {
-                    *matcher_slot = None;
-                } else {
-                    *matcher_slot = Some(m);
-                }
-            }
-            Ok(())
-        })?;
-        hook_out = Some(hook);
-        Ok(serde_json::Value::Null)
-    })?;
-    Ok(HookMutationResult {
+    if upd.edits_entry() && is_stored(&id)? {
+        return Err("el hook está desactivado: actívalo antes de editarlo".to_string());
+    }
+    let mut out = HookMutationResult {
         success: true,
-        hook: hook_out,
-        backup_path,
-    })
+        hook: None,
+        backup_path: None,
+        manifest_sync: None,
+    };
+    let mut target = id.clone();
+    if upd.edits_entry() {
+        let mut hook_out: Option<Hook> = None;
+        let (_payload, backup_path) = mutate_hooks(|hooks_obj| {
+            let hook = mutate_entry_by_id(hooks_obj, &id, |entry_obj, matcher_slot| {
+                if let Some(c) = upd.command.clone() {
+                    entry_obj.insert("command".to_string(), serde_json::Value::String(c));
+                }
+                apply_timing(entry_obj, upd.timeout, upd.run_async)?;
+                if let Some(m) = upd.matcher.clone() {
+                    *matcher_slot = if m.trim().is_empty() { None } else { Some(m) };
+                }
+                Ok(())
+            })?;
+            hook_out = Some(hook);
+            Ok(serde_json::Value::Null)
+        })?;
+        target = hook_out.as_ref().map(|h| h.id.clone()).unwrap_or(target);
+        out.hook = hook_out;
+        out.backup_path = backup_path;
+    }
+    if let Some(e) = upd.enabled {
+        let toggled = set_enabled_inner(&target, e)?;
+        out.hook = toggled.hook;
+        out.backup_path = toggled.backup_path.or(out.backup_path);
+    }
+    Ok(out)
 }
 
 pub fn toggle_hook_inner(id: String) -> Result<HookMutationResult, String> {
-    let mut hook_out: Option<Hook> = None;
-    let (_payload, backup_path) = mutate_hooks(|hooks_obj| {
-        let hook = mutate_entry_by_id(hooks_obj, &id, |entry_obj, _matcher_slot| {
-            let current = entry_obj
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("command")
-                .to_string();
-            let next = if current == "disabled-command" {
-                "command"
-            } else {
-                "disabled-command"
-            };
-            entry_obj.insert("type".to_string(), serde_json::Value::String(next.into()));
-            Ok(())
-        })?;
-        hook_out = Some(hook);
-        Ok(serde_json::Value::Null)
-    })?;
-    Ok(HookMutationResult {
-        success: true,
-        hook: hook_out,
-        backup_path,
-    })
+    toggle_inner(&id)
 }
 
 pub fn delete_hook_inner(id: String) -> Result<HookMutationResult, String> {
+    if is_stored(&id)? {
+        let path = store_path().ok_or_else(|| "no HOME".to_string())?;
+        let mut items = read_store(&path)?;
+        items.retain(|d| d.id() != id);
+        write_store(&path, &items)?;
+        return Ok(HookMutationResult {
+            success: true,
+            hook: None,
+            backup_path: None,
+            manifest_sync: None,
+        });
+    }
     let (_payload, backup_path) = mutate_hooks(|hooks_obj| {
         delete_entry_by_id(hooks_obj, &id)?;
         Ok(serde_json::Value::Null)
@@ -211,14 +271,13 @@ pub fn delete_hook_inner(id: String) -> Result<HookMutationResult, String> {
         success: true,
         hook: None,
         backup_path,
+        manifest_sync: None,
     })
 }
 
-/// Run a hook's command in a sandboxed PowerShell with a 5s timeout.
+/// Ejecuta el comando del hook con el payload por stdin (como Claude Code) y
+/// un tope de 5 s. No hay sandbox: los efectos del hook son reales (H16).
 pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookTestResult, String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
     let list = list_hooks_inner()?;
     let hook = list
         .hooks
@@ -227,99 +286,8 @@ pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookT
         .ok_or_else(|| format!("hook id '{}' not found", id))?;
 
     validate_command(&hook.command)?;
-
-    let payload = mock_payload.unwrap_or_else(|| {
-        r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#.to_string()
-    });
-
-    let start = Instant::now();
-
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut c = Command::new("powershell.exe");
-        c.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "-",
-        ]);
-        c
-    };
-    #[cfg(not(target_os = "windows"))]
-    let mut cmd = {
-        let mut c = Command::new("bash");
-        c.arg("-s");
-        c
-    };
-
-    let mut child = cmd
-        .env("CLAUDE_HOOK_PAYLOAD", &payload)
-        .env("ULTRON_HOOK_TEST", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn test shell: {}", e))?;
-
-    if let Some(stdin) = child.stdin.as_mut() {
-        let _ = stdin.write_all(hook.command.as_bytes());
-        #[cfg(target_os = "windows")]
-        let _ = stdin.write_all(b"\nexit $LASTEXITCODE\n");
-        #[cfg(not(target_os = "windows"))]
-        let _ = stdin.write_all(b"\nexit $?\n");
-    }
-    drop(child.stdin.take());
-
-    let mut timed_out = false;
-    let status = {
-        let kill_start = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) => {
-                    if kill_start.elapsed() >= TEST_TIMEOUT {
-                        timed_out = true;
-                        let _ = child.kill();
-                        break child.wait().map_err(|e| format!("reap: {}", e))?;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                Err(e) => return Err(format!("try_wait: {}", e)),
-            }
-        }
-    };
-    let elapsed = start.elapsed();
-
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    if let Some(mut s) = child.stdout.take() {
-        use std::io::Read;
-        let _ = s.read_to_string(&mut stdout);
-    }
-    if let Some(mut s) = child.stderr.take() {
-        use std::io::Read;
-        let _ = s.read_to_string(&mut stderr);
-    }
-
-    if stdout.len() > 16_000 {
-        stdout.truncate(16_000);
-        stdout.push_str("\n[...output truncated at 16KB]");
-    }
-    if stderr.len() > 16_000 {
-        stderr.truncate(16_000);
-        stderr.push_str("\n[...output truncated at 16KB]");
-    }
-
-    Ok(HookTestResult {
-        success: status.success() && !timed_out,
-        exit_code: status.code(),
-        stdout,
-        stderr,
-        elapsed_ms: elapsed.as_millis(),
-        timed_out,
-    })
+    let payload = build_test_payload(&hook.event, mock_payload.as_deref())?;
+    run_hook_test(&hook.command, &payload)
 }
 
 pub fn recent_hook_fires_inner(limit: Option<usize>) -> Result<HookFiresReport, String> {
@@ -620,6 +588,27 @@ esto no es json\n\
         assert!(vacio.is_empty());
         let solo_rota = fires_de_timing("esto no es json\n", &[], 100);
         assert!(solo_rota.is_empty());
+    }
+
+    // hooks-8: la UI no podía fijar timeout ni async.
+    #[test]
+    fn apply_timing_fija_y_quita_timeout_y_async() {
+        let mut e = serde_json::Map::new();
+        apply_timing(&mut e, Some(15), Some(true)).unwrap();
+        assert_eq!(e["timeout"], 15);
+        assert_eq!(e["async"], true);
+        apply_timing(&mut e, None, None).unwrap();
+        assert_eq!(e["timeout"], 15, "None no toca");
+        apply_timing(&mut e, Some(0), Some(false)).unwrap();
+        assert!(e.get("timeout").is_none(), "0 quita la clave");
+        assert!(e.get("async").is_none(), "false quita la clave");
+    }
+
+    #[test]
+    fn apply_timing_rechaza_un_timeout_absurdo() {
+        let mut e = serde_json::Map::new();
+        assert!(apply_timing(&mut e, Some(MAX_TIMEOUT_S + 1), None).is_err());
+        assert!(e.get("timeout").is_none());
     }
 
     #[test]

@@ -24,7 +24,7 @@ import { LibraryDetailPane } from "./library/LibraryDetailPane";
 
 const NO_CATEGORY = "root";
 
-// Lime — distinct from skill cyan and agent violet.
+// Lima: se distingue del cian de las skills y del violeta de los agentes.
 const RULE_ACCENT = "rgba(132, 204, 22, 0.55)";
 const RULE_ACCENT_SOFT = "rgba(132, 204, 22, 0.18)";
 
@@ -33,6 +33,11 @@ function deriveCategory(r: RuleFile): string {
   const first = rel.split("/")[0];
   if (!first || first === r.name || first.endsWith(".md")) return NO_CATEGORY;
   return first;
+}
+
+/** Nombre visible de una categoría (la de las reglas sueltas es «raíz»). */
+function categoryLabel(c: string): string {
+  return c === NO_CATEGORY ? "raíz" : c;
 }
 
 function deriveSubGroup(r: RuleFile): string | null {
@@ -127,14 +132,14 @@ export function Rules() {
       .map(([id, list]) => {
         const byGroup = new Map<string, RuleFile[]>();
         for (const r of list) {
-          const sub = deriveSubGroup(r) ?? "(root)";
+          const sub = deriveSubGroup(r) ?? "(raíz)";
           const arr = byGroup.get(sub) ?? [];
           arr.push(r);
           byGroup.set(sub, arr);
         }
         return {
           id,
-          label: id,
+          label: categoryLabel(id),
           groups: Array.from(byGroup.entries())
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([name, leaves]) => ({
@@ -154,8 +159,9 @@ export function Rules() {
       filtered.map((r) => ({
         key: r.path,
         topGroup:
-          deriveCategory(r) === NO_CATEGORY ? "Root" : deriveCategory(r),
+          deriveCategory(r) === NO_CATEGORY ? "Raíz" : deriveCategory(r),
         subGroup: deriveSubGroup(r),
+        label: r.name,
         data: r,
       })),
     [filtered],
@@ -210,7 +216,7 @@ export function Rules() {
               style={{ color: "var(--color-text-tertiary)" }}
             >
               <BookOpen size={12} />
-              Rule
+              Regla
               {cat !== NO_CATEGORY && (
                 <span
                   className="ml-auto rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
@@ -240,12 +246,12 @@ export function Rules() {
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-lg font-semibold">Rules</h2>
+          <h2 className="text-lg font-semibold">Reglas</h2>
           <span
             className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            ~/.claude/rules/**/*.md · {filtered.length} of {rules.length}
+            ~/.claude/rules/**/*.md · {filtered.length} de {rules.length}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -259,7 +265,7 @@ export function Rules() {
               color: "var(--color-text)",
             }}
           >
-            Refresh
+            Actualizar
           </button>
         </div>
       </header>
@@ -270,7 +276,7 @@ export function Rules() {
             className="text-[10.5px] uppercase tracking-wide"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Category
+            Categoría
           </span>
           <button
             onClick={() => setCategory("all")}
@@ -290,7 +296,7 @@ export function Rules() {
                   : "var(--color-text-secondary)",
             }}
           >
-            All
+            Todas
           </button>
           {categories.map((c) => {
             const active = c === category;
@@ -311,7 +317,7 @@ export function Rules() {
                     : "var(--color-text-secondary)",
                 }}
               >
-                {c}
+                {categoryLabel(c)}
               </button>
             );
           })}
@@ -321,7 +327,7 @@ export function Rules() {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Buscar rules…"
+        placeholder="Buscar reglas…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",
@@ -355,7 +361,7 @@ export function Rules() {
               className="text-xs"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Loading…
+              Cargando…
             </p>
           ) : filtered.length === 0 ? (
             <p
@@ -367,7 +373,8 @@ export function Rules() {
           ) : view === "blocks" ? (
             <BlocksView<RuleFile>
               items={blockItems}
-              noun="rule"
+              noun="regla"
+              topSublabel="Carpeta"
               emptyLabel="Sin reglas para el filtro actual."
               topGroupAccent={() => RULE_ACCENT}
               renderLeaves={(items) =>

@@ -51,14 +51,14 @@ export function UninstallModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-2 text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
-          Uninstall {appInfo.name}?
+          ¿Desinstalar {appInfo.name}?
         </div>
         <div
           className="mb-3 text-[12.5px] leading-snug"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Routes through the {appInfo.provider} uninstaller. Irreversible. Type the app
-          name to confirm.
+          Se hace con el desinstalador de {appInfo.provider}. No se puede deshacer. Escribe el
+          nombre de la aplicación para confirmar.
         </div>
         <input
           type="text"
@@ -97,7 +97,7 @@ export function UninstallModal({
               border: "1px solid var(--color-border)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -109,7 +109,7 @@ export function UninstallModal({
               color: "white",
             }}
           >
-            {busy ? "Uninstalling…" : "Uninstall"}
+            {busy ? "Desinstalando…" : "Desinstalar"}
           </button>
         </div>
       </div>

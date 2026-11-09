@@ -1,0 +1,5 @@
+{
+  "name": "ultron-atajos",
+  "version": "0.1.0",
+  "description": "Atajos de proyecto: /compilar, /probar y /arrancar detectan el stack (cargo, uv, npm, cmake) y lanzan el comando en segundo plano"
+}

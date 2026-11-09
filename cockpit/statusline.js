@@ -22,6 +22,9 @@ const { execFileSync } = require('child_process');
 const ORCH_LOG =
   process.env.ULTRON_STATUSLINE_ORCH_LOG ||
   path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
+const SESSION_TONE_LOG =
+  process.env.ULTRON_SESSION_TONE_LOG ||
+  path.join(os.homedir(), '.claude', 'logs', 'session-tone.jsonl');
 const TONE_STATUS_PATH =
   process.env.ULTRON_STATUSLINE_TONE_STATUS ||
   path.join(os.homedir(), '.ultron', 'cockpit', 'tone-status.json');
@@ -79,23 +82,35 @@ function gitBranch(cwd) {
   }
 }
 
-/** Último tono detectado para esta sesión (orchestrate.jsonl, cola del log). */
-function activeTone(sessionId) {
-  if (!sessionId) return '';
+/**
+ * Tono del último prompt de la sesión en un log JSONL: el id, '' si ese prompt
+ * fue sin tono, o undefined si el log no tiene ninguna entrada de la sesión.
+ */
+function lastToneIn(file, sessionId) {
   try {
-    const raw = fs.readFileSync(ORCH_LOG, 'utf8');
-    const lines = raw.split(/\r?\n/).filter(Boolean).slice(-80);
+    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(-80);
     for (let i = lines.length - 1; i >= 0; i--) {
       let e;
       try { e = JSON.parse(lines[i]); } catch { continue; }
       if (e.session_id !== sessionId) continue;
-      if (e.tone && e.tone.id) return e.tone.id;
-      return ''; // el último prompt de esta sesión fue sin tono → default
+      return e.tone && e.tone.id ? e.tone.id : '';
     }
   } catch {
-    /* sin log → sin tono */
+    /* sin log */
   }
-  return '';
+  return undefined;
+}
+
+/**
+ * Último tono de esta sesión. El modo ligero de memory-orchestrate (el de por
+ * defecto desde 2026-09-28) lo apunta en session-tone.jsonl; el modo completo,
+ * en orchestrate.jsonl.
+ */
+function activeTone(sessionId) {
+  if (!sessionId) return '';
+  const light = lastToneIn(SESSION_TONE_LOG, sessionId);
+  if (light !== undefined) return light;
+  return lastToneIn(ORCH_LOG, sessionId) || '';
 }
 
 /** % redondeado o null (payload trae used_percentage pre-calculado). */
@@ -142,6 +157,69 @@ function rateLabel(key) {
   return String(key).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'LIM';
 }
 
+/**
+ * Histórico de límites de uso: una línea en logs/usage-history.jsonl cada vez
+ * que cambia el % de alguna ventana. Sin él no se puede comparar cuánto da cada
+ * plan (tokens consumidos entre dos lecturas frente a los puntos de % gastados).
+ */
+function registrarUso(inp) {
+  const rl = inp.rate_limits;
+  if (!rl || typeof rl !== 'object') return;
+  const muestra = {};
+  for (const [clave, v] of Object.entries(rl)) {
+    if (v && typeof v === 'object') muestra[clave] = { pct: v.used_percentage, resets_at: v.resets_at };
+  }
+  const firma = JSON.stringify(Object.entries(muestra).map(([k, v]) => [k, v.pct]));
+  const marca = path.join(os.homedir(), '.ultron', '.tmp', 'usage-history.last');
+  let anterior = '';
+  try { anterior = fs.readFileSync(marca, 'utf8'); } catch { /* primera muestra */ }
+  if (anterior === firma) return;
+  const linea = { ts: new Date().toISOString(), session_id: inp.session_id, model: inp.model && inp.model.id, limites: muestra };
+  fs.appendFileSync(path.join(os.homedir(), '.ultron', 'logs', 'usage-history.jsonl'), JSON.stringify(linea) + '\n');
+  fs.writeFileSync(marca, firma);
+}
+
+/** Ritmo por ventana (hooks/scripts/lib/usage-pace.js); {} si la lib falla. */
+function ratePaces(rl) {
+  try {
+    return require(path.join(__dirname, '..', 'hooks', 'scripts', 'lib', 'usage-pace.js')).paceAll(rl);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Ritmo = % usado / % de ventana transcurrido. 100 % = al ritmo justo para
+ * agotar la cuota en el reset; por encima (con el suelo de uso de la lib),
+ * REDUCIR USO en cualquier ventana.
+ */
+function paceBadge(p) {
+  if (!p) return '';
+  const value = Number.isFinite(p.projectedPct) ? `${Math.round(p.projectedPct)}%` : '∞';
+  const rate = `${p.alert ? color256(160) : color256(240)} ritmo ${value}${RESET}`;
+  return p.alert ? `${rate} ${BOLD}${color256(160)}▲REDUCIR USO${RESET}` : rate;
+}
+
+/** Lectura de agy en caché que aún se pinta (la refrescan usage-outlook y la pestaña Uso). */
+const AGY_CACHE_MAX_MS = 30 * 60000;
+
+/**
+ * Codex y agy en segundo plano: `CX 8/4% AG 6/2%` (5 h / semana) en gris,
+ * sin barras. agy sale solo de la caché: la statusline nunca lanza `agy`.
+ */
+function engineTokens() {
+  try {
+    const eu = require(path.join(__dirname, '..', 'hooks', 'scripts', 'lib', 'engine-usage.js'));
+    const tokens = [
+      eu.compactToken(eu.readCodexUsage(), 'CX'),
+      eu.compactToken(eu.readAgyUsage({ allowSpawn: false, maxCacheMs: AGY_CACHE_MAX_MS }), 'AG'),
+    ].filter(Boolean);
+    return tokens.length > 0 ? `${color256(240)}${tokens.join(' ')}${RESET}` : null;
+  } catch {
+    return null;
+  }
+}
+
 function main() {
   let inp = {};
   try {
@@ -175,18 +253,25 @@ function main() {
   // respuesta de la API). Se renderiza TODA clave con used_percentage, no
   // solo las documentadas — a la caza del límite semanal por-modelo.
   const rl = inp.rate_limits || {};
+  const paces = ratePaces(rl);
   for (const key of Object.keys(rl)) {
     const p = rl[key] ? pct(rl[key].used_percentage) : null;
-    if (p !== null) parts.push(metric(rateLabel(key), p));
+    if (p !== null) parts.push(metric(rateLabel(key), p) + paceBadge(paces[key]));
   }
+  const engines = engineTokens();
+  if (engines) parts.push(engines);
 
   // Snapshot best-effort del último payload real (receipts para verificar
   // qué claves llegan de verdad en sesiones vivas). Nunca rompe la barra.
+  // Solo payloads de una sesion real (traen session_id): una prueba manual con
+  // un payload inventado no debe contaminar el snapshot que lee usage-pace-guard.
   try {
+    if (!inp.session_id) throw new Error('payload sin session_id');
     fs.writeFileSync(
       path.join(os.homedir(), '.ultron', '.tmp', 'statusline-last-payload.json'),
       JSON.stringify(inp),
     );
+    registrarUso(inp);
   } catch {
     /* best-effort */
   }

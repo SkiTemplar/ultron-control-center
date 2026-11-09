@@ -3,8 +3,8 @@
 # whether the commit was made inside a Claude Code session or with bare `git
 # commit` from a terminal.
 #
-# The same Python script (auto-changelog.py) runs as a Stop hook from Claude
-# Code, so behaviour is identical regardless of who fired the commit.
+# auto-changelog.py is no longer a Claude Code Stop hook (it is not in
+# settings.json); this git hook is its only automatic caller.
 #
 # Installed by scripts/setup-git-hooks.ps1. Idempotent.
 
@@ -20,7 +20,7 @@ if [ ! -f "$SCRIPT" ]; then
     exit 0
 fi
 
-# Prefer uv run (matches how the Stop hook calls it). Fall back to bare
+# Prefer uv run. Fall back to bare
 # python if uv isn't on PATH.
 if command -v uv >/dev/null 2>&1; then
     uv run python "$SCRIPT" </dev/null >/dev/null 2>&1 || true

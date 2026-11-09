@@ -59,6 +59,11 @@
           "default": 2500,
           "description": "Tiempo maximo de espera de la respuesta de Ollama (ms)."
         },
+        "ollamaTab.blockTimeoutMs": {
+          "type": "number",
+          "default": 8000,
+          "description": "Tiempo maximo de espera de un bloque de varias lineas (linea vacia debajo de un comentario) (ms)."
+        },
         "ollamaTab.maxPrefixChars": {
           "type": "number",
           "default": 3000,
@@ -110,8 +115,8 @@
         },
         "ollamaTab.keepAlive": {
           "type": "string",
-          "default": "30m",
-          "description": "Cuanto mantiene Ollama el modelo residente en RAM tras cada peticion. Con el modelo cargado una sugerencia tarda ~50 ms; en frio la carga ronda los 10 s. '0' lo descarga al terminar, '-1' lo deja indefinidamente."
+          "default": "",
+          "description": "Vacío = según el motor (low/mid 5 min, high 10 min). Cuánto mantiene Ollama el modelo en VRAM tras la última petición; un valor explícito (p. ej. '30m', '0' o '-1') manda sobre el del motor."
         },
         "ollamaTab.warmupTimeoutMs": {
           "type": "number",

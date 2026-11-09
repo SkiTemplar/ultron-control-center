@@ -6,6 +6,7 @@ import type { AgentEntry } from "../../types";
 import { LibraryDetailPane } from "../library/LibraryDetailPane";
 import { NO_CATEGORY } from "./types";
 import { agentWorkspace, deriveCategory } from "./helpers";
+import { skillOriginLabel } from "../skills/helpers";
 
 interface AgentDetailPaneProps {
   selected: AgentEntry;
@@ -25,16 +26,16 @@ export function AgentDetailPane({
   onError,
 }: AgentDetailPaneProps) {
   const ws = agentWorkspace(selected);
-  const subtitleParts: string[] = [selected.origin];
+  const subtitleParts: string[] = [skillOriginLabel(selected.origin)];
   const cat = deriveCategory(selected);
   if (cat !== NO_CATEGORY) subtitleParts.push(cat);
-  subtitleParts.push(selected.enabled ? "enabled" : "disabled");
+  subtitleParts.push(selected.enabled ? "activado" : "desactivado");
 
   const handleOpen = async (path: string) => {
     try {
       await openPath(path);
     } catch (e) {
-      onError(`open ${path}: ${e}`);
+      onError(`No se pudo abrir ${path}: ${e}`);
     }
   };
 
@@ -57,7 +58,7 @@ export function AgentDetailPane({
           }
           onClose={onClose}
         />
-        {/* Secondary toggle button below the detail pane — mirrors Skills.tsx */}
+        {/* Botón secundario de activar/desactivar bajo el detalle, como en Skills.tsx */}
         {selected.origin === "global" && (
           <button
             type="button"
@@ -77,13 +78,13 @@ export function AgentDetailPane({
             }}
           >
             {toggleBusy.has(selected.path)
-              ? "Saving…"
+              ? "Guardando…"
               : selected.enabled
-                ? "Disable agent"
-                : "Enable agent"}
+                ? "Desactivar el agente"
+                : "Activar el agente"}
           </button>
         )}
-        {/* Open in editor fallback for non-global agents */}
+        {/* Para agentes no globales, abrir en el editor */}
         {selected.origin !== "global" && (
           <button
             type="button"
@@ -95,7 +96,7 @@ export function AgentDetailPane({
               color: "var(--color-text)",
             }}
           >
-            Open in editor
+            Abrir en el editor
           </button>
         )}
       </div>

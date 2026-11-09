@@ -8,8 +8,8 @@ import {
 } from "../creatorTemplates";
 import type { ModelChoice } from "./types";
 import type { TargetScope } from "../../../types";
-import { FieldLabel, HelperText, ScopeRadio, SummaryRow } from "./atoms";
-import { MarkdownPreview } from "./MarkdownPreview";
+import { FieldLabel, HelperText, ScopeRadio, SummaryRow } from "../wizard-ui";
+import { MarkdownPreview } from "../MarkdownPreview";
 
 export function StepTemplates(props: {
   templates: AgentTemplate[];
@@ -22,7 +22,7 @@ export function StepTemplates(props: {
   return (
     <div className="space-y-4">
       <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-        Templates seed the system prompt, tools list, and model preset.
+        Las plantillas rellenan el system prompt, la lista de herramientas y el modelo.
       </p>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {templates.map((tpl) => {
@@ -48,7 +48,7 @@ export function StepTemplates(props: {
                   className="ml-auto font-mono text-[10px]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
-                  {tpl.model || "default"}
+                  {tpl.model || "por defecto"}
                 </span>
               </div>
               <span
@@ -81,14 +81,14 @@ export function StepTemplates(props: {
       >
         <Sparkles size={14} />
         <span className="flex-1 text-xs">
-          Draft with AI — copies a prompt you can paste into Claude.
+          Borrador con IA: abre en Sessions un prompt para que Claude lo redacte.
         </span>
         <button
           className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
           style={{ borderColor: "var(--color-border)" }}
           onClick={onCopyAiPrompt}
         >
-          <Clipboard size={12} /> {aiCopied ? "Copied + session opened" : "Generate with AI"}
+          <Clipboard size={12} /> {aiCopied ? "Enviado a Sessions" : "Generar con IA"}
         </button>
       </div>
     </div>
@@ -116,7 +116,7 @@ export function StepFrontmatter(props: {
   } = props;
   return (
     <div className="space-y-4">
-      <FieldLabel label="Name (kebab-case, required)">
+      <FieldLabel label="Nombre (kebab-case, obligatorio)">
         <input
           className="w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 font-mono outline-none"
           style={{
@@ -127,17 +127,17 @@ export function StepFrontmatter(props: {
           }}
           value={name}
           onChange={(e) => setName(e.target.value.toLowerCase())}
-          placeholder="my-agent"
+          placeholder="mi-agente"
         />
         {name && !nameValid && (
           <HelperText error>
-            Lowercase letters, digits, single dashes only.
+            Solo minúsculas, dígitos y guiones sueltos.
           </HelperText>
         )}
       </FieldLabel>
 
       <FieldLabel
-        label={`Description (required, ${description.length}/${MAX_DESCRIPTION_CHARS})`}
+        label={`Descripción (obligatoria, ${description.length}/${MAX_DESCRIPTION_CHARS})`}
       >
         <textarea
           className="h-16 w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 outline-none"
@@ -149,23 +149,23 @@ export function StepFrontmatter(props: {
           }}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="One sentence: what this subagent does and when to dispatch it."
+          placeholder="Una frase: qué hace este subagente y cuándo delegarle."
         />
         {description && !descriptionValid && (
           <HelperText error>
-            Description must be 1 to {MAX_DESCRIPTION_CHARS} characters.
+            La descripción debe tener entre 1 y {MAX_DESCRIPTION_CHARS} caracteres.
           </HelperText>
         )}
         {descriptionTooShort && (
-          <HelperText>Short descriptions are dispatched less often.</HelperText>
+          <HelperText>Con una descripción corta se delega menos en él.</HelperText>
         )}
       </FieldLabel>
 
-      <FieldLabel label="Model">
+      <FieldLabel label="Modelo">
         <div className="flex gap-2">
           {(["", "haiku", "sonnet", "opus"] as const).map((m) => (
             <button
-              key={m || "default"}
+              key={m || "por defecto"}
               onClick={() => setModel(m)}
               className="rounded border px-2 py-1 text-xs"
               style={{
@@ -185,7 +185,7 @@ export function StepFrontmatter(props: {
         </div>
       </FieldLabel>
 
-      <FieldLabel label="Tools (the subagent will have access to these)">
+      <FieldLabel label="Herramientas (el subagente tendrá acceso a ellas)">
         <div className="flex flex-wrap gap-1">
           {COMMON_TOOLS.map((t) => {
             const active = toolsSelected.includes(t);
@@ -209,7 +209,7 @@ export function StepFrontmatter(props: {
           })}
         </div>
         <HelperText>
-          Pick the smallest set the subagent actually needs.
+          Elige el conjunto mínimo que el subagente necesita de verdad.
         </HelperText>
       </FieldLabel>
     </div>
@@ -229,7 +229,7 @@ export function StepBody(props: {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          Subagent system prompt body in markdown.
+          Cuerpo del system prompt del subagente, en markdown.
         </p>
         <button
           onClick={togglePreview}
@@ -237,7 +237,7 @@ export function StepBody(props: {
           style={{ borderColor: "var(--color-border)" }}
         >
           {previewOpen ? <Code size={12} /> : <Eye size={12} />}
-          {previewOpen ? "Hide preview" : "Show preview"}
+          {previewOpen ? "Ocultar vista previa" : "Mostrar vista previa"}
         </button>
       </div>
       <div className={previewOpen ? "grid grid-cols-2 gap-3" : ""}>
@@ -267,12 +267,12 @@ export function StepBody(props: {
       </div>
       {body && !bodyValid && (
         <HelperText error>
-          Body is {body.trim().length} chars; needs at least {MIN_BODY_CHARS}.
+          El cuerpo tiene {body.trim().length} caracteres; necesita al menos {MIN_BODY_CHARS}.
         </HelperText>
       )}
       {bodyMissingExample && (
         <HelperText>
-          Tip: subagents that declare an explicit Output section perform better.
+          Consejo: los subagentes que declaran una sección de salida explícita rinden mejor.
         </HelperText>
       )}
     </div>
@@ -298,7 +298,7 @@ export function StepTarget(props: {
   const { scope, setScope, projects, projectId, setProjectId, targetValid, summary } = props;
   return (
     <div className="space-y-4">
-      <FieldLabel label="Install scope">
+      <FieldLabel label="Ámbito de instalación">
         <div className="flex gap-3">
           <ScopeRadio
             label="Global"
@@ -307,8 +307,8 @@ export function StepTarget(props: {
             onClick={() => setScope("global")}
           />
           <ScopeRadio
-            label="Project"
-            sub="<project>/.claude/agents/"
+            label="Proyecto"
+            sub="<proyecto>/.claude/agents/"
             active={scope === "project"}
             onClick={() => setScope("project")}
           />
@@ -316,7 +316,7 @@ export function StepTarget(props: {
       </FieldLabel>
 
       {scope === "project" && (
-        <FieldLabel label="Project">
+        <FieldLabel label="Proyecto">
           <select
             className="w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 text-sm"
             style={{
@@ -327,7 +327,7 @@ export function StepTarget(props: {
             value={projectId ?? ""}
             onChange={(e) => setProjectId(e.target.value || null)}
           >
-            <option value="">(pick project)</option>
+            <option value="">(elige proyecto)</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -335,7 +335,7 @@ export function StepTarget(props: {
             ))}
           </select>
           {!projectId && (
-            <HelperText error>Project required for project scope.</HelperText>
+            <HelperText error>El ámbito de proyecto necesita un proyecto.</HelperText>
           )}
         </FieldLabel>
       )}
@@ -347,19 +347,19 @@ export function StepTarget(props: {
           background: "var(--color-surface-2)",
         }}
       >
-        <div className="mb-2 font-semibold">Summary</div>
-        <SummaryRow k="Template" v={summary.templateId} />
-        <SummaryRow k="Name" v={summary.name || "(missing)"} />
-        <SummaryRow k="Description" v={summary.description || "(missing)"} />
-        <SummaryRow k="Model" v={summary.model || "default"} />
+        <div className="mb-2 font-semibold">Resumen</div>
+        <SummaryRow k="Plantilla" v={summary.templateId} />
+        <SummaryRow k="Nombre" v={summary.name || "(falta)"} />
+        <SummaryRow k="Descripción" v={summary.description || "(falta)"} />
+        <SummaryRow k="Modelo" v={summary.model || "por defecto"} />
         {summary.toolsSelected.length > 0 && (
-          <SummaryRow k="Tools" v={summary.toolsSelected.join(", ")} />
+          <SummaryRow k="Herramientas" v={summary.toolsSelected.join(", ")} />
         )}
-        <SummaryRow k="Body" v={`${summary.body.trim().length} chars`} />
+        <SummaryRow k="Cuerpo" v={`${summary.body.trim().length} caracteres`} />
       </div>
 
       {!targetValid && (
-        <HelperText error>Pick a target before creating.</HelperText>
+        <HelperText error>Elige un destino antes de crear.</HelperText>
       )}
     </div>
   );

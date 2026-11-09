@@ -52,7 +52,7 @@ pub async fn workflow_get_runs(
 pub async fn workflow_load_user_defined() -> Result<Vec<WorkflowDefinition>, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let user = workflow_loader::load_user_workflows().unwrap_or_else(|e| {
-            eprintln!("[workflow_load_user_defined] load error: {e}");
+            tracing::warn!("[workflow_load_user_defined] load error: {e}");
             vec![]
         });
         let builtin = agent_orchestration::list_workflows_inner();

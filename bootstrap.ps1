@@ -8,9 +8,10 @@
 #   pwsh -ExecutionPolicy Bypass -File ultron-bootstrap.ps1
 #
 # What it does (no git clone required):
-#   1. Fetches the latest GitHub release for SkiTemplar/ultron-control-center.
+#   1. Fetches the latest GitHub release of the public repo (SkiTemplar/ultron-control-center).
 #   2. Downloads the `ultron-system-<ver>.zip` asset and extracts to ~/.ultron.
-#   3. Downloads the `ULTRON Control Center_<ver>_x64-setup.exe` installer.
+#   3. Downloads the `ULTRON Control Center_<ver>_x64-setup.exe` installer and
+#      verifies it against the SHA-256 published with the release.
 #   4. Runs install.ps1 (which wires skills / agents / hooks / Qdrant).
 #   5. Launches the Control Center installer interactively.
 #
@@ -27,7 +28,10 @@ param(
     # v15.5.14: refuse to extract an unsigned ZIP unless the caller explicitly
     # opts in. Default OFF preserves supply-chain integrity in the (rare) case
     # where the release maintainer forgot to publish the .sha256 sidecar.
-    [switch]$AllowUnsignedZip
+    [switch]$AllowUnsignedZip,
+    # Same opt-in for the Control Center installer: without its .sha256 sidecar the
+    # .exe is not executed unless the caller explicitly accepts it.
+    [switch]$AllowUnverifiedInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,7 +56,14 @@ Write-Step "Fetching latest release manifest from $apiUrl"
 try {
     $release = Invoke-RestMethod -Uri $apiUrl -Headers @{ "User-Agent" = "ultron-bootstrap" }
 } catch {
-    Write-Err "Failed to fetch latest release: $_"
+    $status = 0
+    if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+    if ($status -eq 404) {
+        Write-Err "$Repo has no published release (HTTP 404). Use the clone path from INSTALL.md:"
+        Write-Err "  git clone https://github.com/$Repo.git `$env:USERPROFILE\.ultron; cd `$env:USERPROFILE\.ultron; .\install.ps1"
+    } else {
+        Write-Err "Failed to fetch latest release: $_"
+    }
     exit 2
 }
 
@@ -160,6 +171,29 @@ if ($SkipInstaller -or -not $installerAsset) {
     Write-Step "Downloading Control Center installer ($([math]::Round($installerAsset.size / 1MB, 1)) MB)"
     if (-not $DryRun) {
         Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $exePath
+        # Same check as the ZIP: never execute an .exe whose hash does not match.
+        $exeShaName = "$($installerAsset.name).sha256"
+        $exeShaAsset = $release.assets | Where-Object { $_.name -eq $exeShaName } | Select-Object -First 1
+        if ($exeShaAsset) {
+            $exeShaTmp = Join-Path $tmpDir $exeShaName
+            Invoke-WebRequest -Uri $exeShaAsset.browser_download_url -OutFile $exeShaTmp
+            $expectedExeSha = (Get-Content $exeShaTmp -Raw).Trim().Split()[0].ToLower()
+            $actualExeSha = (Get-FileHash -Algorithm SHA256 -Path $exePath).Hash.ToLower()
+            if ($expectedExeSha -ne $actualExeSha) {
+                Remove-Item -LiteralPath $exePath -Force -ErrorAction SilentlyContinue
+                Write-Err "SHA256 mismatch - installer corrupt or tampered. Not executed."
+                Write-Err "  expected: $expectedExeSha"
+                Write-Err "  actual:   $actualExeSha"
+                exit 5
+            }
+            Write-Step "Installer SHA256 verified: $actualExeSha"
+        } elseif ($AllowUnverifiedInstaller) {
+            Write-Warn "Release $tag does not include $exeShaName - running the installer WITHOUT integrity check (-AllowUnverifiedInstaller)."
+        } else {
+            Write-Err "Release $tag does not include $exeShaName and -AllowUnverifiedInstaller was NOT passed."
+            Write-Err "Refusing to run an unverified installer. The system layer is installed; re-run with -SkipInstaller, or -AllowUnverifiedInstaller to bypass (NOT recommended)."
+            exit 5
+        }
         Write-Step "Launching installer (Windows SmartScreen may warn - click More info -> Run anyway)"
         Start-Process -FilePath $exePath -Wait
     }

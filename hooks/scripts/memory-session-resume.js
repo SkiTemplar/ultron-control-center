@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 // hooks/scripts/memory-session-resume.js — SessionStart hook.
 //
-// Loads a MINIMAL bounded resume (active workflows, open tasks, recent
-// decisions, pinned, next action) from the canonical store via the
-// `ultron-memory resume` sidecar, and injects it as additionalContext.
+// Loads a MINIMAL bounded resume from the canonical store via the
+// `ultron-memory resume` sidecar and injects it as additionalContext.
+// Recorte 2026-09-29 (~7.400 -> <3.000 caracteres): solo head, project,
+// open_tasks (max. 4), next_action y el estado vivo del proyecto
+// (lib/project-state.js, con topes por seccion). Fuera: project_profile,
+// response_meter, session_feedback, bloque codegraph, warnings del inbox,
+// recent_decisions del sidecar y la nota del harness.
+// Vuelven (auditoria 2026-11-01): pinned (max. 3, lo eleva el usuario a mano),
+// los avisos del kanban (ilegible, estancadas; el de la bandeja sigue fuera) y
+// los pendientes de la ultima bitacora que la fusion LLM haya perdido.
 // FAIL-SAFE: emits empty context (never breaks the session) if the binary is
 // missing or anything fails.
 
@@ -13,12 +20,6 @@ const path = require('path');
 const { execFileSync, spawn } = require('child_process');
 const { runCli, projectIdFromCwd, findBinary, spawnDetached } = require('./lib/ultron-memory-cli');
 const { observe, logHookError } = require('./lib/hook-obs');
-// ULTRON 4 12.1: lineas de feedback de sesion (lib/session-feedback).
-const { renderResumeLines: renderFeedbackLines } = require('./lib/session-feedback');
-// ULTRON 4 4.2: cifra de concision de las ultimas sesiones (lib/response-meter).
-const { renderResumeLine: renderMeterLine } = require('./lib/response-meter');
-// ULTRON 4 8.1: resumen del indice CodeGraph del proyecto (lib/codegraph-summary).
-const codegraphSummary = require('./lib/codegraph-summary');
 // F-resume (2026-09-11): resumen de la sesion ANTERIOR del proyecto. Puro
 // (lib/last-session.js) mas las funciones de seleccion de session-summarize-
 // previous.js, que se pueden requerir aqui porque solo definen funciones —
@@ -30,6 +31,10 @@ const sessionSummarizer = require('./session-summarize-previous');
 // seccion "## Cierres propuestos" de la ultima bitacora contra el kanban
 // vivo del proyecto (lib/kanban-closures.js, puro).
 const kanbanClosures = require('./lib/kanban-closures');
+// 2026-10-23: lotes que lib/kanban-auto.js aplico solo al kanban desde la bitacora.
+const kanbanAuto = require('./lib/kanban-auto');
+const projectState = require('./lib/project-state');
+const { externalTrackerFor } = require('./lib/project-tracker');
 const { safeId } = require('./lib/safe-id');
 observe('memory-session-resume');
 
@@ -58,133 +63,33 @@ function emit(additionalContext) {
 }
 
 // cat17.2 (mandamiento #12): precompact-preserve-l0.js deja el estado de trabajo
-// L0 en ~/.ultron/.tmp/context.md antes de una compactacion, pero hasta ahora
-// NADIE lo leia (el dato se escribia y se abandonaba). Aqui lo re-leemos en
-// SessionStart y lo inyectamos como contexto, para que el scratch preservado se
-// USE tras compactar. Bounded (<=2KB) + fail-safe + gate de frescura (<24h) para
-// no re-inyectar un scratch viejo en sesiones nuevas no relacionadas.
-const L0_SCRATCH = path.join(os.homedir(), '.ultron', '.tmp', 'context.md');
-const L0_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const L0_MAX_CHARS = 2000;
+// L0 antes de una compactacion y aqui se re-inyecta para que se USE tras
+// compactar. Desde el 2026-10-23 (hooks-4) el scratch es por sesion y solo
+// entra en el SessionStart source=compact de esa misma sesion: ver
+// lib/l0-scratch.js (tope 2 KB, frescura < 24 h, gate de proyecto).
+const { readL0Scratch, L0_MAX_AGE_MS, L0_MAX_CHARS } = require('./lib/l0-scratch');
 
-function readL0Scratch(currentProject) {
-  try {
-    const st = fs.statSync(L0_SCRATCH);
-    if (Date.now() - st.mtimeMs > L0_MAX_AGE_MS) return ''; // stale -> ignora
-    const raw = fs.readFileSync(L0_SCRATCH, 'utf8').trim();
-    if (!raw) return '';
-    // (2026-08-10) Gate CROSS-PROJECT: el scratch declara su proyecto en el
-    // header ("project: legacy-fc"); inyectarlo en una sesion de OTRO proyecto
-    // es contaminacion (caso real: scratch de legacy-fc del 08-02 apareciendo
-    // en ultron). Sin header o sin proyecto actual: se inyecta (compat).
-    if (currentProject) {
-      const m = raw.match(/^>?\s*trigger:.*?project:\s*(\S+)/m) || raw.match(/\bproject:\s*(\S+)\s*·/);
-      const scratchProject = m && m[1] ? m[1].trim() : '';
-      if (scratchProject && scratchProject !== currentProject) return '';
-    }
-    const clipped = raw.length > L0_MAX_CHARS ? raw.slice(0, L0_MAX_CHARS) + '\n[...]' : raw;
-    return '\n<l0-scratch source="precompact" trust="system">\n' + clipped + '\n</l0-scratch>';
-  } catch {
-    return ''; // no scratch / no leible -> nada que inyectar
-  }
-}
-
-// Perfil del proyecto ACTUAL (ULTRON 4 F1.4 / G9, 2026-09-03): "de que iba este
-// proyecto" respondido completo. Lo mantiene el hook SessionEnd project-profile
-// en cockpit/projects/<p>/profile.json (que es, stack, arquitectura, estado,
-// decisiones clave; fuente llm o deterministic). Sustituye a la captura
-// kind=context (context.md), que acumulaba frases sueltas y contaminacion de
-// otros proyectos sin responder nunca que era el proyecto. Bounded + fail-safe.
 const PROJECTS_DIR = path.join(os.homedir(), '.ultron', 'cockpit', 'projects');
-const PROFILE_FIELD_MAX_CHARS = 420;
-const PROFILE_MAX_DECISIONS = 5;
+/** Tope de open_tasks inyectadas (recorte 2026-09-29). */
+const MAX_OPEN_TASKS = 4;
+/** Tope de memorias fijadas inyectadas (el sidecar pone las del proyecto primero). */
+const MAX_PINNED = 3;
+/** Tope de cada linea de memoria fijada o de pendiente perdido. */
+const MAX_ITEM_CHARS = 240;
+/** Tope de la linea de avisos: las estancadas pueden traer 5 titulos. */
+const MAX_WARNINGS_CHARS = 600;
+/** Tope de pendientes de la ultima bitacora que se recuperan. */
+const MAX_LAST_PENDING = 5;
+/** El aviso de la bandeja sigue fuera del resume (recorte 2026-09-29). */
+const INBOX_WARNING_RE = /await validation in the inbox/;
+/** Parte de las palabras de un pendiente que deben estar ya pintadas para darlo por visto. */
+const PENDING_COVERED_RATIO = 0.5;
 
-function readProjectProfile(projectId) {
-  if (!projectId) return null;
-  try {
-    const doc = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, projectId, 'profile.json'), 'utf8'));
-    if (!doc || typeof doc !== 'object' || !doc.profile || typeof doc.profile.que_es !== 'string') return null;
-    return doc;
-  } catch {
-    return null; // sin profile.json / ilegible -> nada que inyectar (fail-safe)
-  }
-}
-
-function clipField(s) {
-  const plano = String(s || '').replace(/\s+/g, ' ').trim();
-  return plano.length > PROFILE_FIELD_MAX_CHARS ? plano.slice(0, PROFILE_FIELD_MAX_CHARS - 1) + '…' : plano;
-}
-
-// Lineas del bloque project_profile. Declara procedencia (fuente, fecha, HEAD) y
-// avisa si el perfil es de un HEAD anterior al actual: el "estado" puede haber
-// cambiado (mandamiento 13: declarar el alcance real). Las metricas memorizadas
-// se filtran igual que en las decisiones.
-function renderProfileLines(doc, currentHeadSha) {
-  if (!doc) return [];
-  const p = doc.profile;
-  if (!p || !String(p.que_es || '').trim()) return [];
-  const fecha = String(doc.generated_at || '').slice(0, 10) || '?';
-  const fuente = doc.source === 'llm' ? 'llm' : 'deterministic';
-  const sha = doc.head && doc.head.sha ? doc.head.sha : null;
-  const stale = sha && currentHeadSha && sha !== currentHeadSha;
-  const cab = [`project_profile (perfil del proyecto, generado ${fecha} por ${fuente}${sha ? `, head ${sha}` : ''})${stale ? ' -- de un HEAD anterior: el estado puede haber cambiado' : ''}:`];
-  const out = [];
-  for (const [k, v] of [['que_es', p.que_es], ['stack', p.stack], ['arquitectura', p.arquitectura], ['estado', p.estado]]) {
-    const t = clipField(v);
-    if (t && !isStaleMetricLine(t)) out.push(`  ${k}: ${t}`);
-  }
-  const decisiones = (Array.isArray(p.decisiones_clave) ? p.decisiones_clave : [])
-    .map(clipField)
-    .filter((d) => d && !isStaleMetricLine(d) && !isTrivialDecision(d))
-    .slice(0, PROFILE_MAX_DECISIONS);
-  if (decisiones.length) {
-    out.push('  decisiones_clave:');
-    for (const d of decisiones) out.push(`    - ${d}`);
-  }
-  return out.length ? cab.concat(out) : [];
-}
-
-// (2026-08-10) Gate de claims numericos: la memoria acumula metricas viejas sin
-// fecha ("ULTRON is a project at 9.73/10 score" — superseded desde 06-25) y el
-// resume las inyectaba como verdad. Las cifras de calidad VIVAS ya viajan en
-// harnessNote (con gate de frescura 48h); una metrica memorizada sin fecha es
-// peor que ninguna -> fuera de la inyeccion.
-const STALE_METRIC_RES = [
-  /\b\d+(?:[.,]\d+)?\s*\/\s*10\b/, // "9.73/10", "8 / 10"
-  /\brecall@?\d*\s*[=:]?\s*[01][.,]\d+/i, // "recall@8=0.823"
-  /\bnota\s+(?:de\s+)?\d+(?:[.,]\d+)?\b/i, // "nota 9.31"
-  /\bscore\b.*\b\d/i, // "... score 9.73" / "at X score"
-];
-
-function isStaleMetricLine(line) {
-  return STALE_METRIC_RES.some((re) => re.test(String(line)));
-}
-
-// (2026-08-10) Decision TRIVIAL = higiene generica de herramientas o dominio
-// ajeno al proyecto; no merece un slot de los 5 del resume. Patrones acotados a
-// lo observado en el corpus (audit 08-09) — el filtro de raiz vive en la captura.
-const TRIVIAL_DECISION_RES = [
-  // Higiene generica de tooling presentada como "decision".
-  /\bcargo\s+(fmt|test|clippy)\b/i,
-  /\bclippy\b/i,
-  /\.gitignore\b/i,
-  /\bgit\b[^.]*\bcontrol de versiones\b/i,
-  /\bpruebas?\s+automatizadas?\b[^.]*\b(calidad|estabilidad)\b/i,
-  // Dominio ajeno: precios/planes de otros proyectos (plan Tienda).
-  /\d+\s*(?:€|eur(?:os)?\b)/i,
-  /\bplan\s+["']?tienda\b/i,
-];
-
-function isTrivialDecision(summary) {
-  const s = String(summary || '').trim();
-  if (!s) return true; // sin texto no hay decision que mostrar
-  return TRIVIAL_DECISION_RES.some((re) => re.test(s));
-}
-
-// Nota VIVA del medidor (audit 2026-06-25): el resume arrastraba una nota
-// MEMORIZADA (p.ej. "9.31") que el harness en vivo desmentia (7.95). Inyectamos
-// la cifra fresca de logs/kirkardo-eval.json para que el modelo no crea el numero
-// viejo. Gate de frescura (<48h) + fail-safe (mand. 12: tener el dato != usarlo).
+// Nota VIVA del medidor (audit 2026-06-25): lee la cifra fresca de
+// logs/kirkardo-eval.json con gate de frescura (<48h). Desde el recorte del
+// 2026-09-29 el resume ya NO la inyecta; la funcion se conserva porque el
+// selftest de kirkardo-eval fija su contrato (scoped -> vacia, lidera con
+// all_cats_pass).
 const HARNESS_JSON = path.join(os.homedir(), '.ultron', 'logs', 'kirkardo-eval.json');
 const HARNESS_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
@@ -223,14 +128,25 @@ function readHarnessNote(jsonPath = HARNESS_JSON) {
 // HEAD real precomputado (audit 2026-06-25): el resume no reflejaba branch/sha,
 // asi que el modelo no podia cazar discrepancias y hacia arqueologia git al
 // arrancar. Lo calculamos UNA vez aqui (3 git baratos) para que el modelo NO los
-// repita. Fail-safe + timeout corto.
-function readHead(cwd) {
+// repita. Fail-safe + timeout corto. M2 (2026-10-26): cada git recibe como
+// timeout lo que quede hasta deadlineMs (tope 2,5 s); con menos de
+// MIN_GIT_MS no se lanza y se devuelve '' (el resume sale sin head).
+const HEAD_GIT_MAX_MS = 2500;
+const MIN_GIT_MS = 200;
+function readHead(cwd, deadlineMs = Infinity) {
   try {
-    const o = { cwd, encoding: 'utf8', timeout: 2500, stdio: ['ignore', 'pipe', 'ignore'] };
-    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], o).trim();
-    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], o).trim();
-    const subject = execFileSync('git', ['log', '-1', '--pretty=%s'], o).trim();
-    if (!branch || !sha) return '';
+    const git = (args) => {
+      const t = Math.floor(Math.min(HEAD_GIT_MAX_MS, deadlineMs - Date.now()));
+      if (t < MIN_GIT_MS) return null;
+      const o = { cwd, encoding: 'utf8', timeout: t, stdio: ['ignore', 'pipe', 'ignore'] };
+      return execFileSync('git', args, o).trim();
+    };
+    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+    if (!branch) return '';
+    const sha = git(['rev-parse', '--short', 'HEAD']);
+    if (!sha) return '';
+    const subject = git(['log', '-1', '--pretty=%s']);
+    if (subject === null) return '';
     return `${branch} @ ${sha} -- ${subject}`;
   } catch {
     return '';
@@ -241,7 +157,7 @@ const SUMMARIZE_SCRIPT = path.join(__dirname, 'session-summarize-previous.js');
 
 /**
  * Lanza session-summarize-previous.js totalmente desacoplado: SessionStart no
- * puede esperar los 20-40s que tarda `claude -p`. Mismo patron que
+ * puede esperar los 10-60 s que tarda la LLM secundaria. Mismo patron que
  * spawnDetached() de lib/ultron-memory-cli.js (stderr a fichero, unref, fd
  * cerrado justo despues del spawn -- el hijo ya tiene su copia del handle).
  * Fail-safe: cualquier error se traga, el resume sigue igual sin el resumidor.
@@ -316,7 +232,7 @@ function launchPortraitRefreshIfStale() {
  * ya existe se inyecta entero (acotado); si HAY UNA CANDIDATA BARATA (stat/
  * mtime, revision de codigo 2026-09-11: SessionStart NUNCA lee contenido de
  * transcripts -- eso vive en selectPreviousSession(), dentro del proceso
- * desacoplado) se lanza el resumidor en segundo plano (claude -p, ~20-40s) y
+ * desacoplado) se lanza el resumidor en segundo plano (LLM secundaria) y
  * se avisa de que llegara en el primer prompt (memory-orchestrate.js lo
  * entrega alli si SessionStart no llego a tiempo -- ver
  * lib/session-summary-delivery.js). Fail-safe: cualquier error deja el resume
@@ -343,14 +259,122 @@ function computeCierresPendientesLines(project, summary) {
   }
 }
 
+/**
+ * Aviso de lo que lib/kanban-auto.js aplico solo al kanban desde las bitacoras
+ * y aun no se habia anunciado, con el comando para deshacerlo. Cada lote se
+ * anuncia una vez. Fail-safe: sin log o con JSON roto, [] sin romper el resume.
+ */
+function computeKanbanAutoLines(project) {
+  if (!project) return [];
+  try {
+    const id = safeId(project);
+    const logPath = path.join(PROJECTS_DIR, id, kanbanAuto.LOG_FILE);
+    if (!fs.existsSync(logPath)) return [];
+    const lines = kanbanAuto.renderAutoLines(id, kanbanAuto.pendingReports(JSON.parse(fs.readFileSync(logPath, 'utf8'))));
+    if (lines.length) kanbanAuto.markReported({ projectsDir: PROJECTS_DIR, projectId: id });
+    return lines;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Aviso de auto-memoria caducada: scripts/memory-verify.mjs deja en
+ * memory-stale.json las memorias que citan ramas o rutas que ya no existen.
+ * Una linea con el recuento y los ficheros; [] sin informe o sin hallazgos.
+ */
+function computeMemoryStaleLines(project) {
+  if (!project) return [];
+  try {
+    const report = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, safeId(project), 'memory-stale.json'), 'utf8'));
+    const stale = Array.isArray(report.stale) ? report.stale : [];
+    if (!stale.length) return [];
+    const names = stale.slice(0, 6).map((s) => s.file).join(', ');
+    return [`memorias_por_revisar: ${stale.length} citan ramas o rutas que ya no existen (${names}${stale.length > 6 ? ', …' : ''}); detalle: node ~/.ultron/scripts/memory-verify.mjs --project ${project}`];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Items de la seccion "## Pendientes" de una bitacora, sin los que dicen que no
+ * hay ninguno. Puro.
+ *
+ * @param {string} content
+ * @returns {string[]}
+ */
+function pendingFromSummary(content) {
+  const text = String(content || '').replace(/\r\n/g, '\n');
+  const section = text.split(/^(?=## )/m).find((s) => /^## +pendientes/i.test(s));
+  if (!section) return [];
+  return section
+    .split('\n')
+    .map((l) => /^\s*[-*]\s+(.*\S)\s*$/.exec(l))
+    .filter(Boolean)
+    .map((m) => m[1])
+    .filter((item) => !/^(ningun[oa]?|nada|n\/a|sin pendientes)\b/i.test(item));
+}
+
+/** Palabras de 3 letras o mas, sin mayusculas ni acentos, para comparar textos. */
+function wordsOf(text) {
+  const plain = String(text).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return new Set(plain.split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+}
+
+/**
+ * Bloque con los pendientes de la ultima bitacora que NO se ven en `shownLines`
+ * (las lineas ya pintadas del estado del proyecto); [] si no falta ninguno.
+ *
+ * La fusion LLM de lib/project-state.js puede tirarlos (ultron: 0 de 3 sobrevivian,
+ * auditoria 2026-11-01) y, con la bitacora marcada como fusionada, el resume no los
+ * ensenaba por ninguna otra via: al abrir sesion faltaba lo que quedo a medias ayer.
+ * Comparacion por solapamiento de palabras contra cada linea, porque la fusion
+ * reformula y antepone fecha. Bloque propio con trust de bitacora: lo escribio un
+ * modelo. Puro.
+ *
+ * @param {{sessionId: string, content: string}|null} summary
+ * @param {string[]} shownLines
+ * @returns {string[]}
+ */
+function lostPendingLines(summary, shownLines) {
+  if (!summary) return [];
+  const shown = shownLines.filter((l) => /^\s{2}- /.test(l)).map(wordsOf);
+  const isShown = (item) => {
+    const words = wordsOf(item);
+    if (!words.size) return true;
+    return shown.some((s) => [...words].filter((w) => s.has(w)).length / words.size >= PENDING_COVERED_RATIO);
+  };
+  const lost = pendingFromSummary(summary.content).filter((item) => !isShown(item)).slice(0, MAX_LAST_PENDING);
+  if (!lost.length) return [];
+  return [
+    `<last-session-pending source="bitacora" trust="session-summary" session_id="${summary.sessionId}">`,
+    ...lost.map((item) => `  - ${item.slice(0, MAX_ITEM_CHARS)}`),
+    '</last-session-pending>',
+  ];
+}
+
 function computeLastSessionLines({ cwd, sessionId, transcriptPath, project }) {
   const out = [];
   try {
+    // Estado vivo del proyecto (bitacoras fusionadas, lib/project-state.js).
+    // Si ya contiene la ultima bitacora, esa no se repite entera: ahorra
+    // ~600 tokens por arranque; de ella solo viajan los pendientes que la fusion
+    // haya perdido, delante porque son lo mas reciente.
+    const state = project ? projectState.readState(project) : null;
+    // Con tracker externo (lib/project-tracker.js) no viajan ni los pendientes
+    // de las bitacoras ni los cierres del kanban local.
+    const externalTracker = externalTrackerFor(project);
+    const stateLines = projectState.renderLines(state, { externalTracker });
     const summary = lastSession.latestSummary(project, sessionId);
+    const merged = Boolean(summary) && projectState.hasMerged(state, summary.session_id || summary.sessionId);
+    if (merged && !externalTracker) out.push(...lostPendingLines(summary, stateLines));
+    out.push(...stateLines);
+    out.push(...computeMemoryStaleLines(project));
     if (summary) {
-      out.push(...lastSession.renderLastSessionLines(summary));
-      out.push(...computeCierresPendientesLines(project, summary));
+      if (!merged) out.push(...lastSession.renderLastSessionLines(summary));
+      if (!externalTracker) out.push(...computeCierresPendientesLines(project, summary));
     }
+    if (!externalTracker) out.push(...computeKanbanAutoLines(project));
     if (!project || !sessionId) return out;
     const transcriptsDir = sessionSummarizer.transcriptsDirFor(cwd, transcriptPath);
     const cheapCandidate = sessionSummarizer.hasCheapPendingCandidate({ transcriptsDir, currentSessionId: sessionId, projectId: project });
@@ -358,7 +382,7 @@ function computeLastSessionLines({ cwd, sessionId, transcriptPath, project }) {
       sessionSummaryDelivery.writePending(sessionId);
       launchSessionSummarizer(cwd, sessionId);
       out.push(
-        'last_session_pending: hay una sesion anterior sin resumir todavia -- se esta generando en segundo plano (claude -p) y llegara inyectada en el primer prompt de esta sesion.'
+        'last_session_pending: el resumen de la sesion anterior se genera en segundo plano y llegara en el primer prompt.'
       );
     }
   } catch {
@@ -367,89 +391,101 @@ function computeLastSessionLines({ cwd, sessionId, transcriptPath, project }) {
   return out;
 }
 
-function render(r, profileDoc, opts = {}) {
+/** Lineas `pinned:` (max. MAX_PINNED, una por memoria); [] sin fijadas. */
+function pinnedLines(pinned) {
+  const items = (Array.isArray(pinned) ? pinned : [])
+    .map((p) => String((p && p.summary) || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, MAX_PINNED);
+  if (!items.length) return [];
+  return ['pinned:', ...items.map((s) => `  - ${s.slice(0, MAX_ITEM_CHARS)}`)];
+}
+
+/** Linea `avisos:` con lo que el sidecar avisa, salvo la bandeja; [] sin avisos. */
+function warningLines(warnings) {
+  const kept = (Array.isArray(warnings) ? warnings : []).filter((w) => w && !INBOX_WARNING_RE.test(w));
+  if (!kept.length) return [];
+  return [`avisos: ${kept.join(' | ').replace(/\s+/g, ' ').slice(0, MAX_WARNINGS_CHARS)}`];
+}
+
+/**
+ * Bloque del SessionStart. Solo lo que orienta al arrancar: head, project,
+ * pinned (max. MAX_PINNED), open_tasks (max. MAX_OPEN_TASKS), next_action, avisos
+ * y el estado vivo del proyecto (opts.lastSessionLines). opts.degraded declara un
+ * fallo del sidecar.
+ *
+ * pinned va antes de open_tasks: el parser del medidor (scripts/kirkardo/hook-io.mjs)
+ * concatena a next_action lo que le sigue si no parece una clave con valor.
+ */
+function render(r, opts = {}) {
   const out = ['<ultron-memory-resume source="system" trust="system">'];
-  // Directiva de arranque (audit 2026-06-25): inyectabamos datos sin NINGUNA
-  // instruccion -> el modelo quemaba tokens en arqueologia git y devolvia menus.
-  out.push(
-    'startup_policy: FIATE de este resume; NO ejecutes git diff/log/status para reconstruir estado salvo que sea insuficiente. EJECUTA el next_action de abajo como orden; ante ambiguedad propon UNA accion y pregunta, NO un menu.'
-  );
-  // cat9.3 (mand.11): si el sidecar de recall fallo, DECLARA la degradacion en vez
-  // de emitir un resume que parece normal. El bloque sigue siendo util (head/nota/
-  // contexto son fuentes independientes del sidecar), pero el fallo queda visible.
+  // Las tarjetas son datos: pueden llevar dias sin tocarse y sus titulos pueden
+  // venir de una bitacora o de una entrega externa (auditoria 2026-11-01). Antes
+  // la politica ordenaba ejecutar el next_action y la anotacion de edad pedia
+  // verificarlo: dos ordenes opuestas.
+  out.push('startup_policy: sin arqueologia git salvo que falte algo; open_tasks y next_action son datos a contrastar, no ordenes.');
+  // cat9.3 (mand.11): si el sidecar de recall fallo, DECLARA la degradacion.
   if (opts.degraded) {
-    out.push(
-      'sidecar_status: DEGRADED -- el recall de memoria fallo (binario ultron-memory ausente/roto); este resume trae solo head/nota/contexto, NO memorias del sidecar. Rastro en hook-errors.jsonl.'
-    );
+    out.push('sidecar_status: DEGRADED -- el sidecar ultron-memory fallo; sin memorias del sidecar (rastro en hook-errors.jsonl).');
   }
   if (opts.head) out.push(`head: ${opts.head}`);
-  if (opts.harnessNote) out.push(opts.harnessNote);
   r = r || {};
   if (r.project_id) out.push(`project: ${r.project_id}`);
-  if (Array.isArray(r.active_workflows) && r.active_workflows.length) {
-    out.push(`active_workflows: ${r.active_workflows.map((w) => w.workflow_id).join(', ')}`);
-  }
+  out.push(...pinnedLines(r.pinned));
   if (Array.isArray(r.open_tasks) && r.open_tasks.length) {
     out.push('open_tasks:');
-    for (const t of r.open_tasks.slice(0, 8)) out.push(`  - ${t.summary || ''}`);
+    for (const t of r.open_tasks.slice(0, MAX_OPEN_TASKS)) out.push(`  - ${t.summary || ''}`);
   }
-  // (2026-08-10) Filtro de decisiones TRIVIALES en el punto de inyeccion: la
-  // captura automatica cuela higiene generica de herramientas ("se utiliza
-  // cargo fmt para...", "usar git para control de versiones") y dominio ajeno
-  // (precios "40 EUR/mes" del plan Tienda) como si fueran decisiones del
-  // proyecto. El fix de raiz va en la captura (card en kanban); esta es la
-  // defensa del resume — misma politica que el dedupe de context.
-  if (Array.isArray(r.decisions) && r.decisions.length) {
-    const meaningful = r.decisions.filter((d) => !isTrivialDecision(d.summary || ''));
-    if (meaningful.length) {
-      out.push('recent_decisions:');
-      for (const d of meaningful.slice(0, 5)) out.push(`  - ${d.summary || ''}`);
-    }
-  }
-  if (Array.isArray(r.pinned) && r.pinned.length) {
-    out.push('pinned_memories:');
-    for (const p of r.pinned.slice(0, 8)) out.push(`  - ${p.summary || ''}`);
-  }
-  // next_action como ORDEN, no etiqueta (audit 2026-06-25): renderizarlo como
-  // dato suelto hacia que el modelo lo ignorara y devolviera un menu.
-  if (r.next_action) {
-    out.push(`next_action: ${r.next_action}`);
-  } else if (opts.harnessNote) {
-    out.push('next_action: (sin tarea fijada) -- propon a partir de los laggards del harness (arriba), NO arqueologia git.');
-  }
-  if (Array.isArray(r.warnings) && r.warnings.length) out.push(`warnings: ${r.warnings.join('; ')}`);
-  for (const line of renderProfileLines(profileDoc, opts.headSha)) out.push(line);
-  // Metrica externa (12.1): pregunta pendiente para este proyecto y % de 'si'.
-  for (const line of (Array.isArray(opts.feedbackLines) ? opts.feedbackLines : [])) out.push(line);
-  // Medidor de concision (4.2/7.3): una linea, solo con datos.
-  if (opts.meterLine) out.push(opts.meterLine);
-  // CodeGraph (8.1, pilar 2): tamano, zonas y hubs del indice, con la orden de consultarlo.
-  for (const line of (Array.isArray(opts.codegraphLines) ? opts.codegraphLines : [])) out.push(line);
-  // F-resume: resumen de la sesion anterior (si ya existe) y/o aviso de que
-  // esta generandose en segundo plano y llegara en el primer prompt.
+  if (r.next_action) out.push(`next_action: ${r.next_action}`);
+  out.push(...warningLines(r.warnings));
   for (const line of (Array.isArray(opts.lastSessionLines) ? opts.lastSessionLines : [])) out.push(line);
   out.push('</ultron-memory-resume>');
   return out.join('\n');
 }
 
+// M2 (2026-10-26): presupuesto UNICO del hook, contado desde el arranque del
+// proceso (incluye node y los require). timeout_s del manifest = 12 s; se deja
+// 2 s de margen porque process.uptime() no ve lo que tarda la CLI en lanzar el
+// proceso. Antes: resume 11 s fijos + 3 git x 2,5 s = 18,5 s posibles, y la
+// CLI mataba el hook sin rastro. p95 medido del resume: 285 ms (max 1985 ms).
+const HOOK_BUDGET_MS = 10000;
+const HEAD_RESERVE_MS = 1000;
+const CLI_TIMEOUT_MAX_MS = 8000;
+
+/**
+ * Timeout de la CLI del resume dentro del plazo absoluto del hook, reservando
+ * HEAD_RESERVE_MS para readHead y el render. 0 = no hay tiempo: no se lanza.
+ *
+ * @param {number} nowMs
+ * @param {number} deadlineMs
+ * @returns {{ cliTimeoutMs: number }}
+ */
+function resumeBudget(nowMs, deadlineMs) {
+  const t = deadlineMs - nowMs - HEAD_RESERVE_MS;
+  return { cliTimeoutMs: Math.floor(Math.max(0, Math.min(CLI_TIMEOUT_MAX_MS, t))) };
+}
+
 function main() {
+  const deadline = Math.floor(Date.now() - process.uptime() * 1000) + HOOK_BUDGET_MS;
   let cwd = process.cwd();
   let sessionId = null;
   let transcriptPath = null;
+  let source = null;
   try {
     const raw = fs.readFileSync(0, 'utf8');
     const inp = JSON.parse(raw || '{}');
     if (inp.cwd) cwd = inp.cwd;
     sessionId = inp.session_id || inp.sessionId || null;
     transcriptPath = inp.transcript_path || inp.transcriptPath || null;
+    source = inp.source || null;
   } catch {
     /* no stdin / bad json — use process cwd */
   }
   const project = projectIdFromCwd(cwd);
-  const resume = runCli(
-    project ? ['resume', '--project', project] : ['resume'],
-    { timeoutMs: 11000 } // colchon para cold-hit E5 post-warmup; bajar a 3000 con daemon serve
-  );
+  const { cliTimeoutMs } = resumeBudget(Date.now(), deadline);
+  const resume = cliTimeoutMs > 0
+    ? runCli(project ? ['resume', '--project', project] : ['resume'], { timeoutMs: cliTimeoutMs })
+    : null;
   // cat9.3 (mandamiento 11: prohibido el no-op silencioso). runCli devuelve null
   // SOLO ante FALLO real del sidecar (binario ausente/no ejecutable, status!=0,
   // timeout, JSON corrupto), NUNCA por "proyecto sin memoria" (el binario sano
@@ -458,33 +494,23 @@ function main() {
   // el vacio legitimo es un objeto, no null).
   if (resume === null) {
     const reason = findBinary()
-      ? 'sidecar resume FALLO (binario presente pero status!=0 / timeout / JSON no parseable)'
+      ? (cliTimeoutMs > 0
+        ? 'sidecar resume FALLO (binario presente pero status!=0 / timeout / JSON no parseable)'
+        : 'sidecar resume NO LANZADO (sin plazo dentro del timeout del hook)')
       : 'sidecar resume FALLO (binario ultron-memory ausente: no instalado / ULTRON_MEMORY_BIN invalido)';
     logHookError('memory-session-resume', reason);
   }
-  // cat17.2: inyecta tambien el scratch L0 preservado en la ultima compactacion
-  // (aunque no haya resume del sidecar).
-  const l0 = readL0Scratch(project);
-  // Perfil del proyecto actual (independiente del sidecar: se inyecta aunque
-  // el resume Rust falle).
-  const profileDoc = readProjectProfile(project);
-  const harnessNote = readHarnessNote();
-  const head = readHead(cwd);
-  // ULTRON 4 12.1: pregunta de feedback pendiente + cifra global (fail-safe).
-  let feedbackLines = [];
-  try { feedbackLines = renderFeedbackLines(project); } catch { /* sin feedback */ }
-  let meterLine = '';
-  try { meterLine = renderMeterLine(); } catch { /* sin medidor */ }
-  let codegraphLines = [];
-  try { codegraphLines = codegraphSummary.renderLines(codegraphSummary.summarize(cwd)); } catch { /* sin indice */ }
+  // cat17.2: tras compactar, inyecta tambien el scratch L0 que PreCompact
+  // preservo para ESTA sesion (aunque no haya resume del sidecar).
+  const l0 = readL0Scratch(project, { sessionId, source });
+  const head = readHead(cwd, deadline);
   const lastSessionLines = computeLastSessionLines({ cwd, sessionId, transcriptPath, project });
   launchPortraitRefreshIfStale();
-  if (!resume && !profileDoc && !harnessNote && !head && !feedbackLines.length && !codegraphLines.length && !lastSessionLines.length) {
+  if (!resume && !head && !lastSessionLines.length) {
     emit(l0);
     return;
   }
-  const headSha = (head.match(/@ ([0-9a-f]+) --/) || [])[1] || null;
-  emit(render(resume, profileDoc, { harnessNote, head, headSha, degraded: resume === null, feedbackLines, meterLine, codegraphLines, lastSessionLines }) + l0);
+  emit(render(resume, { head, degraded: resume === null, lastSessionLines }) + l0);
 }
 
 // Exporta readL0Scratch para tests. El bloque main() solo corre cuando el script
@@ -498,5 +524,5 @@ if (require.main === module) {
   }
   process.exitCode = 0;
 } else {
-  module.exports = { readL0Scratch, readProjectProfile, renderProfileLines, render, readHarnessNote, readHead, isStaleMetricLine, isTrivialDecision, HARNESS_JSON, L0_SCRATCH, L0_MAX_AGE_MS, L0_MAX_CHARS, computeCierresPendientesLines, PROJECTS_DIR };
+  module.exports = { resumeBudget, HOOK_BUDGET_MS, HEAD_RESERVE_MS, readL0Scratch, render, readHarnessNote, readHead, HARNESS_JSON, L0_MAX_AGE_MS, L0_MAX_CHARS, MAX_OPEN_TASKS, MAX_PINNED, MAX_LAST_PENDING, pendingFromSummary, lostPendingLines, computeCierresPendientesLines, computeKanbanAutoLines, computeMemoryStaleLines, PROJECTS_DIR };
 }

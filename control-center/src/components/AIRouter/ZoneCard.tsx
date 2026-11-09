@@ -9,6 +9,22 @@ import type { Zone, ZoneAssignment, Provider } from "./types";
 import type { KeyValidation, ZoneEditorAction } from "./zoneEditorReducer";
 import { AssignmentRow } from "./ZoneEditorRows";
 
+// Etiquetas de las zonas del seed (ai_router/seed.rs). zones.json guarda la
+// etiqueta en inglés; solo se traduce si sigue siendo la del seed, así que una
+// etiqueta editada a mano se respeta tal cual.
+const SEED_LABELS_ES: Record<string, string> = {
+  "General chat": "Chat general",
+  "Code edit (multi-file)": "Edición de código (varios ficheros)",
+  "Code review": "Revisión de código",
+  "Summarize document": "Resumir un documento",
+  "Utility (internal automation tasks)": "Utilidad (tareas internas de automatización)",
+  "Light (fast single-turn completions)": "Ligera (respuestas rápidas de un turno)",
+};
+
+function zoneLabel(label: string): string {
+  return SEED_LABELS_ES[label] ?? label;
+}
+
 
 export function ZoneCard({
   zone,
@@ -78,7 +94,7 @@ export function ZoneCard({
               className="text-[13px] font-semibold"
               style={{ color: "var(--color-text)" }}
             >
-              {zone.label}
+              {zoneLabel(zone.label)}
             </span>
             <code
               className="text-[10px]"
@@ -94,16 +110,22 @@ export function ZoneCard({
                   color: "var(--color-warn)",
                   border: "1px solid rgba(210,153,34,0.35)",
                 }}
-                title="Uno o más providers de esta zona no tienen key configurada"
+                title="Uno o más proveedores de esta zona no tienen key configurada"
               >
                 ! key incompleta
               </span>
             )}
           </div>
         </div>
+        {/* Aspecto de botón; el clic lo atiende la cabecera (role=button),
+            así que no se anida un <button> dentro. */}
         <span
-          className="text-[11px] shrink-0"
-          style={{ color: "var(--color-text-tertiary)" }}
+          className="rounded px-2.5 py-1 text-[11.5px] shrink-0"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
         >
           {editing ? "Cerrar" : "Editar"}
         </span>
@@ -113,7 +135,7 @@ export function ZoneCard({
       <div className={editing ? "px-4 pt-3 pb-4 space-y-1" : "px-4 pt-2 pb-3 space-y-1"}>
         {/* Primary */}
         <AssignmentRow
-          label="Primary"
+          label="Principal"
           assignment={draft.primary}
           providers={providers}
           keyMap={keyMap}
@@ -201,16 +223,6 @@ export function ZoneCard({
                   Guardado
                 </span>
               )}
-              {saveResult && saveResult !== "ok" && (
-                <span
-                  className="text-[11px] max-w-[200px] truncate"
-                  style={{ color: "var(--color-danger)" }}
-                  title={saveResult}
-                >
-                  Error: {saveResult}
-                </span>
-              )}
-
               {/* Descartar */}
               <button
                 type="button"
@@ -238,9 +250,21 @@ export function ZoneCard({
                   border: "none",
                 }}
               >
-                {saving ? "Guardando..." : "Guardar"}
+                {saving ? "Guardando…" : "Guardar"}
               </button>
             </div>
+
+            {/* Rechazo del backend: el motivo entero, sin recortar (explica
+                qué revertiría la carga y por qué). */}
+            {saveResult && saveResult !== "ok" && (
+              <p
+                role="alert"
+                className="w-full text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                style={{ color: "var(--color-danger)" }}
+              >
+                {saveResult}
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -15,10 +15,17 @@
 // field is parsed defensively out of a serde_json::Value: a renamed or
 // dropped key degrades one gauge instead of failing the whole report. When
 // the call fails entirely the last good response is served with `stale =
-// true` so the panel shows slightly old numbers rather than an error.
+// true` so the panel shows slightly old numbers rather than an error, together
+// with the reason (`last_error`). A cached window whose `resets_at` already
+// passed is dropped: its percentage belongs to the previous window. After a
+// failure the endpoint is not retried until an exponential backoff expires
+// (the manual refresh skips it, except within FORCE_DEDUP_SECS of the last
+// attempt: one press of Refresh asks for the usage and its pace, and both share
+// that single call).
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +37,8 @@ const HTTP_TIMEOUT_SECS: u64 = 12;
 /// the panel live (it polls on focus and on a timer) without turning every
 /// window focus into an HTTP round-trip.
 const CACHE_TTL_SECS: u64 = 60;
+/// Ceiling of the retry backoff after consecutive failures.
+const MAX_BACKOFF_SECS: u64 = 15 * 60;
 
 // ---------------------------------------------------------------------------
 // Shapes returned to the frontend
@@ -78,6 +87,9 @@ pub struct PlanLimits {
     pub fetched_at: u64,
     /// True when the live call failed and these are cached numbers.
     pub stale: bool,
+    /// Why the last live call failed (only with `stale = true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +239,7 @@ fn shape(raw: &serde_json::Value, subscription_type: Option<String>) -> PlanLimi
             .unwrap_or(false),
         fetched_at: now_secs(),
         stale: false,
+        last_error: None,
     }
 }
 
@@ -254,34 +267,137 @@ fn write_cache(limits: &PlanLimits) {
 // Entry point
 // ---------------------------------------------------------------------------
 
-/// Fetches the plan gauges, honouring a short TTL cache.
-///
-/// `force` skips the TTL (the panel's manual refresh button). On a network or
-/// auth failure the cached payload is returned with `stale = true`; only a
-/// failure with nothing cached surfaces as an Err.
-pub fn plan_limits_inner(force: bool) -> Result<PlanLimits, String> {
-    let cached = read_cache();
-    if !force {
-        if let Some(c) = &cached {
-            if now_secs().saturating_sub(c.fetched_at) < CACHE_TTL_SECS {
-                return Ok(c.clone());
+/// Consecutive live failures and when the next attempt is allowed.
+#[derive(Debug, Default, Clone)]
+struct Backoff {
+    failures: u32,
+    retry_at: u64,
+    last_error: Option<String>,
+    /// Instant of the last live attempt, successful or not (0 = never).
+    last_attempt: u64,
+}
+
+static BACKOFF: Mutex<Backoff> = Mutex::new(Backoff {
+    failures: 0,
+    retry_at: 0,
+    last_error: None,
+    last_attempt: 0,
+});
+
+/// A forced refresh this close to the previous live attempt reuses its result
+/// (fresh cache or the same failure) instead of calling the endpoint again.
+const FORCE_DEDUP_SECS: u64 = 5;
+
+/// True when a forced refresh must really call the endpoint.
+fn forces_call(force: bool, now: u64, backoff: &Backoff) -> bool {
+    force
+        && (backoff.last_attempt == 0
+            || now.saturating_sub(backoff.last_attempt) >= FORCE_DEDUP_SECS)
+}
+
+/// Wait after `failures` consecutive failures: TTL, 2×TTL, 4×TTL… up to 15 min.
+fn backoff_delay(failures: u32) -> u64 {
+    let exp = failures.saturating_sub(1).min(10);
+    CACHE_TTL_SECS
+        .saturating_mul(1 << exp)
+        .min(MAX_BACKOFF_SECS)
+}
+
+/// True when `resets_at` (ISO-8601) is already in the past.
+fn has_reset(w: &PlanWindow, now: u64) -> bool {
+    w.resets_at
+        .as_deref()
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .and_then(|t| u64::try_from(t.timestamp()).ok())
+        .is_some_and(|t| t <= now)
+}
+
+/// Copy of the cached payload without the windows that already rolled over.
+fn without_reset_windows(c: &PlanLimits, now: u64) -> PlanLimits {
+    let keep = |w: &Option<PlanWindow>| w.clone().filter(|w| !has_reset(w, now));
+    PlanLimits {
+        five_hour: keep(&c.five_hour),
+        seven_day: keep(&c.seven_day),
+        ..c.clone()
+    }
+}
+
+/// Cached numbers served after a failure, with the reason.
+fn stale_copy(c: &PlanLimits, now: u64, error: &str) -> PlanLimits {
+    PlanLimits {
+        stale: true,
+        last_error: Some(error.to_string()),
+        ..without_reset_windows(c, now)
+    }
+}
+
+/// Outcome of one resolution: what to return and whether to persist it.
+enum Resolved {
+    Served(PlanLimits),
+    Live(PlanLimits),
+    Failed(String),
+}
+
+/// TTL cache, backoff and fallback, with the clock and the fetch injected.
+fn resolve(
+    cached: Option<&PlanLimits>,
+    force: bool,
+    now: u64,
+    backoff: &mut Backoff,
+    fetch: impl FnOnce() -> Result<PlanLimits, String>,
+) -> Resolved {
+    if !forces_call(force, now, backoff) {
+        let fresh = cached.filter(|c| now.saturating_sub(c.fetched_at) < CACHE_TTL_SECS);
+        if let Some(c) = fresh {
+            return Resolved::Served(without_reset_windows(c, now));
+        }
+        if now < backoff.retry_at {
+            let error = backoff.last_error.clone().unwrap_or_default();
+            return match cached {
+                Some(c) => Resolved::Served(stale_copy(c, now, &error)),
+                None => Resolved::Failed(error),
+            };
+        }
+    }
+    backoff.last_attempt = now;
+    match fetch() {
+        Ok(limits) => {
+            *backoff = Backoff {
+                last_attempt: now,
+                ..Backoff::default()
+            };
+            Resolved::Live(limits)
+        }
+        Err(e) => {
+            backoff.failures = backoff.failures.saturating_add(1);
+            backoff.retry_at = now.saturating_add(backoff_delay(backoff.failures));
+            backoff.last_error = Some(e.clone());
+            match cached {
+                // Serving numbers a few minutes old beats blanking the panel.
+                Some(c) => Resolved::Served(stale_copy(c, now, &e)),
+                None => Resolved::Failed(e),
             }
         }
     }
+}
 
-    match fetch_live() {
-        Ok(limits) => {
-            write_cache(&limits);
-            Ok(limits)
+/// Fetches the plan gauges, honouring a short TTL cache.
+///
+/// `force` skips the TTL and the backoff (the panel's manual refresh button),
+/// unless the last live attempt is under `FORCE_DEDUP_SECS` old.
+/// On a network or auth failure the cached payload is returned with `stale =
+/// true` and the reason in `last_error`; only a failure with nothing cached
+/// surfaces as an Err.
+pub fn plan_limits_inner(force: bool) -> Result<PlanLimits, String> {
+    let cached = read_cache();
+    let mut backoff = BACKOFF.lock().unwrap_or_else(|p| p.into_inner());
+    match resolve(cached.as_ref(), force, now_secs(), &mut backoff, fetch_live) {
+        Resolved::Served(l) => Ok(l),
+        Resolved::Live(l) => {
+            write_cache(&l);
+            Ok(l)
         }
-        Err(e) => match cached {
-            // Serving numbers a few minutes old beats blanking the panel.
-            Some(mut c) => {
-                c.stale = true;
-                Ok(c)
-            }
-            None => Err(e),
-        },
+        Resolved::Failed(e) => Err(e),
     }
 }
 
@@ -399,6 +515,149 @@ mod tests {
         let raw = serde_json::json!({ "five_hour": null, "seven_day_opus": null });
         let l = shape(&raw, None);
         assert!(l.five_hour.is_none());
+    }
+
+    fn cache_at(fetched_at: u64, five_resets: &str) -> PlanLimits {
+        PlanLimits {
+            five_hour: Some(PlanWindow {
+                utilization: 20.0,
+                resets_at: Some(five_resets.into()),
+            }),
+            seven_day: Some(PlanWindow {
+                utilization: 42.0,
+                resets_at: Some("2026-10-16T01:00:00Z".into()),
+            }),
+            fetched_at,
+            ..shape(&serde_json::json!({}), None)
+        }
+    }
+
+    /// 2026-10-13T21:33:00Z.
+    const NOW: u64 = 1_791_927_180;
+
+    fn served(r: Resolved) -> PlanLimits {
+        match r {
+            Resolved::Served(l) | Resolved::Live(l) => l,
+            Resolved::Failed(e) => panic!("no se esperaba un fallo: {e}"),
+        }
+    }
+
+    /// Hallazgo 3: caché de hace horas con la ventana de 5 h ya reiniciada y la
+    /// llamada en vivo fallando: no se sirve el porcentaje viejo y sí el motivo.
+    #[test]
+    fn stale_cache_drops_rolled_over_windows_and_keeps_the_reason() {
+        let cache = cache_at(NOW - 4 * 3600, "2026-10-13T19:39:00Z");
+        let mut b = Backoff::default();
+        let l = served(resolve(Some(&cache), false, NOW, &mut b, || {
+            Err("token OAuth rechazado (401/403).".into())
+        }));
+        assert!(l.stale);
+        assert!(l.five_hour.is_none(), "la ventana de 5 h ya se reinició");
+        assert_eq!(l.seven_day.as_ref().map(|w| w.utilization), Some(42.0));
+        assert_eq!(
+            l.last_error.as_deref(),
+            Some("token OAuth rechazado (401/403).")
+        );
+    }
+
+    /// Hallazgo 4: tras un fallo no se vuelve a llamar hasta que vence la
+    /// espera, que crece con cada fallo; `force` la salta.
+    #[test]
+    fn failures_back_off_exponentially_and_force_skips_it() {
+        let cache = cache_at(NOW - 3600, "2026-10-13T23:00:00Z");
+        let mut b = Backoff::default();
+        let calls = std::cell::Cell::new(0);
+        let failing = || {
+            calls.set(calls.get() + 1);
+            Err::<PlanLimits, String>("sin red".into())
+        };
+        served(resolve(Some(&cache), false, NOW, &mut b, failing));
+        assert_eq!((calls.get(), b.retry_at), (1, NOW + CACHE_TTL_SECS));
+        let l = served(resolve(Some(&cache), false, NOW + 30, &mut b, failing));
+        assert_eq!(calls.get(), 1, "en espera no se llama al endpoint");
+        assert_eq!(l.last_error.as_deref(), Some("sin red"));
+        served(resolve(Some(&cache), false, NOW + 61, &mut b, failing));
+        assert_eq!(
+            (calls.get(), b.retry_at),
+            (2, NOW + 61 + 2 * CACHE_TTL_SECS)
+        );
+        served(resolve(Some(&cache), true, NOW + 70, &mut b, failing));
+        assert_eq!(calls.get(), 3, "Actualizar salta la espera");
+        assert_eq!(backoff_delay(30), MAX_BACKOFF_SECS);
+    }
+
+    /// Actualizar en la ventana Sesiones pide el uso y el ritmo con `force`:
+    /// la segunda petición, segundos después, reutiliza la primera llamada
+    /// (fallida o no) y una pulsación posterior vuelve a llamar.
+    #[test]
+    fn a_second_forced_refresh_within_seconds_reuses_the_attempt() {
+        let cache = cache_at(NOW - 3600, "2026-10-13T23:00:00Z");
+        let mut b = Backoff::default();
+        let calls = std::cell::Cell::new(0);
+        let failing = || {
+            calls.set(calls.get() + 1);
+            Err::<PlanLimits, String>("sin red".into())
+        };
+        served(resolve(Some(&cache), true, NOW, &mut b, failing));
+        let l = served(resolve(Some(&cache), true, NOW + 1, &mut b, failing));
+        assert_eq!(calls.get(), 1, "uso y ritmo comparten la llamada");
+        assert_eq!(l.last_error.as_deref(), Some("sin red"));
+        served(resolve(
+            Some(&cache),
+            true,
+            NOW + FORCE_DEDUP_SECS,
+            &mut b,
+            failing,
+        ));
+        assert_eq!(calls.get(), 2, "otra pulsación salta la espera");
+        let ok = || Ok(cache_at(NOW + 20, "2026-10-13T23:00:00Z"));
+        assert!(matches!(
+            resolve(Some(&cache), true, NOW + 20, &mut b, ok),
+            Resolved::Live(_)
+        ));
+        assert_eq!(b.last_attempt, NOW + 20);
+    }
+
+    #[test]
+    fn a_live_success_resets_the_backoff() {
+        let mut b = Backoff {
+            failures: 3,
+            retry_at: 0,
+            last_error: Some("x".into()),
+            last_attempt: 0,
+        };
+        let r = resolve(None, false, NOW, &mut b, || {
+            Ok(cache_at(NOW, "2026-10-13T23:00:00Z"))
+        });
+        assert!(matches!(r, Resolved::Live(_)));
+        assert_eq!(b.failures, 0);
+        assert!(b.last_error.is_none());
+    }
+
+    #[test]
+    fn without_cache_the_failure_surfaces_as_an_error() {
+        let mut b = Backoff::default();
+        let r = resolve(None, false, NOW, &mut b, || Err("sin red".into()));
+        assert!(matches!(r, Resolved::Failed(e) if e == "sin red"));
+        let r = resolve(None, false, NOW + 1, &mut b, || {
+            Ok(cache_at(NOW, "2026-10-13T23:00:00Z"))
+        });
+        assert!(
+            matches!(r, Resolved::Failed(e) if e == "sin red"),
+            "en espera"
+        );
+    }
+
+    /// Una caché fresca tampoco sirve una ventana que ya se reinició.
+    #[test]
+    fn fresh_cache_also_drops_a_rolled_over_window() {
+        let cache = cache_at(NOW - 10, "2026-10-13T21:32:00Z");
+        let mut b = Backoff::default();
+        let l = served(resolve(Some(&cache), false, NOW, &mut b, || {
+            panic!("dentro del TTL no se llama")
+        }));
+        assert!(l.five_hour.is_none());
+        assert!(!l.stale);
     }
 
     #[test]

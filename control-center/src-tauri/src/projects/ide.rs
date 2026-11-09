@@ -335,7 +335,14 @@ fn pick_launcher(output: &str) -> Option<String> {
 /// out of the spawn — see `pick_launcher`.
 fn locate_on_path(cli: &str) -> Option<String> {
     let probe = if cfg!(windows) { "where" } else { "which" };
-    let out = std::process::Command::new(probe).arg(cli).output().ok()?;
+    let mut cmd = std::process::Command::new(probe);
+    cmd.arg(cli);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: sin consola fugaz
+    }
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }

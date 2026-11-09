@@ -4,11 +4,13 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::MutexGuard;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::file_lock::BoardFileLock;
 use super::types_model::kanban_lock;
 use super::types_model::{
-    Card, CardPartial, CardPatch, CardRun, Column, ColumnRole, KanbanBoard, SCHEMA_VERSION,
+    Card, CardPartial, CardPatch, Column, ColumnRole, KanbanBoard, RunStatus, SCHEMA_VERSION,
 };
 
 /// Returns ~/.ultron/cockpit/projects/<project_id>/kanban.json
@@ -108,7 +110,39 @@ pub fn infer_and_migrate_roles(board: &mut KanbanBoard) -> bool {
     changed
 }
 
+/// Guardia de escritura de un tablero: el Mutex del proceso (hilos de la app)
+/// y el lock de fichero `kanban.json.lock` (otros procesos: el hook
+/// kanban-auto y scripts/kanban.mjs). Orden fijo, Mutex y luego fichero, para
+/// que dos hilos de la app no compitan por el fichero con sus reintentos.
+pub(super) struct BoardWriteGuard {
+    _file: BoardFileLock,
+    _mutex: MutexGuard<'static, ()>,
+}
+
+/// Toma el Mutex del proceso y el lock de fichero del tablero de `project_id`.
+/// Todo leer-modificar-escribir de kanban.json va dentro de esta guardia.
+pub(super) fn lock_board(project_id: &str) -> Result<BoardWriteGuard, String> {
+    let mutex = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
+    let file = BoardFileLock::acquire(&board_path(project_id)?)?;
+    Ok(BoardWriteGuard {
+        _file: file,
+        _mutex: mutex,
+    })
+}
+
+/// Carga el tablero bajo la guardia de escritura: `load` puede escribir (crea
+/// el tablero por defecto o persiste la autorreparación), así que también se
+/// serializa con los demás escritores.
 pub fn load(project_id: &str) -> Result<KanbanBoard, String> {
+    let _g = lock_board(project_id)?;
+    load_unlocked(project_id)
+}
+
+/// Cuerpo de [`load`] sin tomar locks: solo para quien ya sostiene la guardia
+/// de [`lock_board`].
+pub(super) fn load_unlocked(project_id: &str) -> Result<KanbanBoard, String> {
     let path = board_path(project_id)?;
     if !path.exists() {
         let board = default_board(project_id);
@@ -128,12 +162,46 @@ pub fn load(project_id: &str) -> Result<KanbanBoard, String> {
     let mut dirty = infer_and_migrate_roles(&mut board);
     dirty |= relink_orphan_cards(&mut board);
     dirty |= normalize_card_orders(&mut board);
+    dirty |= close_orphan_runs(&mut board, &now_iso());
     if dirty {
         if let Err(e) = save(&board) {
-            eprintln!("[kanban] load-time normalization save failed: {e}");
+            tracing::warn!("[kanban] load-time normalization save failed: {e}");
         }
     }
     Ok(board)
+}
+
+/// Motivo con el que se cierran los runs que quedaron en `Running`.
+pub const ORPHAN_RUN_REASON: &str = "El run lanzó un PTY de Claude invisible que nadie seguía: \
+     la app no registraba su final y la tarjeta se quedaba en «running» para siempre. \
+     El despacho automático se retiró el 2026-10-17; abre la tarjeta en Sessions.";
+
+/// Cierra como `Failed` todo run que siga en `Running`.
+///
+/// Desde el 2026-10-17 ningún camino del código crea runs `Running` (el
+/// despacho por PTY se retiró, H12 de la auditoría), así que cualquiera que
+/// quede en disco es un huérfano del despacho antiguo: su proceso no tenía
+/// `on_exit` y nadie iba a cerrarlo. Sin esto la tarjeta seguía «running» y
+/// bloqueaba volver a despacharla.
+///
+/// Devuelve `true` si cerró alguno. Idempotente.
+pub fn close_orphan_runs(board: &mut KanbanBoard, now: &str) -> bool {
+    let mut changed = false;
+    for card in &mut board.cards {
+        for run in &mut card.runs {
+            if run.status == RunStatus::Running {
+                run.status = RunStatus::Failed;
+                if run.ended_at.is_none() {
+                    run.ended_at = Some(now.to_string());
+                }
+                if run.error.is_none() {
+                    run.error = Some(ORPHAN_RUN_REASON.to_string());
+                }
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 /// Re-link cards whose `column_id` matches no column id but *does* match a
@@ -216,7 +284,8 @@ pub fn create_card(
     column_id: &str,
     partial: CardPartial,
 ) -> Result<Card, String> {
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     if !board.columns.iter().any(|c| c.id == column_id) {
         return Err(format!("column {column_id} not found"));
     }
@@ -249,7 +318,8 @@ pub fn create_card(
 }
 
 pub fn update_card(project_id: &str, card_id: &str, patch: CardPatch) -> Result<Card, String> {
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     let card = board
         .cards
         .iter_mut()
@@ -285,7 +355,8 @@ pub fn move_card(
     target_column_id: &str,
     order: i32,
 ) -> Result<KanbanBoard, String> {
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     apply_move(&mut board, card_id, target_column_id, order)?;
     save(&board)?;
     Ok(board)
@@ -363,7 +434,8 @@ fn reassign_orders(board: &mut KanbanBoard, ordered_ids: &[String]) {
 }
 
 pub fn delete_card(project_id: &str, card_id: &str) -> Result<(), String> {
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     let before = board.cards.len();
     board.cards.retain(|c| c.id != card_id);
     if board.cards.len() == before {
@@ -373,32 +445,9 @@ pub fn delete_card(project_id: &str, card_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn append_run(project_id: &str, card_id: &str, run: CardRun) -> Result<(), String> {
-    let _g = kanban_lock()
-        .lock()
-        .map_err(|_| "kanban lock poisoned".to_string())?;
-    let mut board = load(project_id)?;
-    let card = board
-        .cards
-        .iter_mut()
-        .find(|c| c.id == card_id)
-        .ok_or_else(|| format!("card {card_id} not found"))?;
-    card.runs.push(run);
-    card.updated_at = now_iso();
-    save(&board)?;
-    Ok(())
-}
-
-pub fn column_by_name<'a>(board: &'a KanbanBoard, name: &str) -> Option<&'a Column> {
-    board
-        .columns
-        .iter()
-        .find(|c| c.name.eq_ignore_ascii_case(name))
-}
-
-pub fn card_by_id<'a>(board: &'a KanbanBoard, card_id: &str) -> Option<&'a Card> {
-    board.cards.iter().find(|c| c.id == card_id)
-}
+// `append_run` y `column_by_name` se borraron el 2026-10-17 con el despacho
+// por PTY (H12): eran su único llamante y ningún camino crea runs ya;
+// `card_by_id` se fue el 2026-10-23 con `kanban_dispatch_card`.
 
 // ---------------------------------------------------------------------------
 // v2.14 -- Column CRUD
@@ -412,10 +461,8 @@ pub fn add_column(
     name: impl Into<String>,
     role: ColumnRole,
 ) -> Result<Column, String> {
-    let _g = kanban_lock()
-        .lock()
-        .map_err(|_| "kanban lock poisoned".to_string())?;
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     let next_order = board
         .columns
         .iter()
@@ -494,10 +541,8 @@ pub fn delete_column(
     column_id: &str,
     reassign_to_column_id: Option<&str>,
 ) -> Result<(), String> {
-    let _g = kanban_lock()
-        .lock()
-        .map_err(|_| "kanban lock poisoned".to_string())?;
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     delete_column_in_memory(&mut board, column_id, reassign_to_column_id)?;
     save(&board)?;
     Ok(())
@@ -509,10 +554,8 @@ pub fn rename_column(
     column_id: &str,
     name: impl Into<String>,
 ) -> Result<Column, String> {
-    let _g = kanban_lock()
-        .lock()
-        .map_err(|_| "kanban lock poisoned".to_string())?;
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     let col = board
         .columns
         .iter_mut()
@@ -530,10 +573,8 @@ pub fn rename_column(
 /// return `Err`.  The `order` field of each column is set to its index in
 /// `ordered_ids`.
 pub fn reorder_columns(project_id: &str, ordered_ids: &[String]) -> Result<KanbanBoard, String> {
-    let _g = kanban_lock()
-        .lock()
-        .map_err(|_| "kanban lock poisoned".to_string())?;
-    let mut board = load(project_id)?;
+    let _g = lock_board(project_id)?;
+    let mut board = load_unlocked(project_id)?;
 
     if ordered_ids.len() != board.columns.len() {
         return Err(format!(
@@ -564,6 +605,10 @@ pub fn migrate_all_projects(project_ids: &[String]) -> Result<u32, String> {
     let mut created = 0u32;
     for pid in project_ids {
         let path = board_path(pid)?;
+        if path.exists() {
+            continue;
+        }
+        let _g = lock_board(pid)?;
         if !path.exists() {
             save(&default_board(pid))?;
             created += 1;

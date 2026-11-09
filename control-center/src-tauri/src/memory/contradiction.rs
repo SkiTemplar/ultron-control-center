@@ -7,10 +7,17 @@
 // `Quarantine`. It NEVER writes items and NEVER auto-approves.
 //
 // FAIL-SAFE by construction (1.7: now fail-CLOSED on infra):
-//   - The semantic step (dense search + the LLM judge) is isolated in `check`.
-//     When Qdrant/E5 is off, `check` returns `None` (NOT verifiable) so the
-//     write-path marks the candidate `unjudged` and never auto-approves it; the
-//     pipeline is never BLOCKED (the hook still completes).
+//   - The semantic step (neighbour search + the LLM judge) is isolated in
+//     `check`. With the dense stack ON but Qdrant/E5 down, `check` returns
+//     `None` (NOT verifiable) so the write-path marks the candidate `unjudged`
+//     and never auto-approves it; the pipeline is never BLOCKED (the hook still
+//     completes).
+//   - With the dense stack deliberately OFF (`ULTRON_DENSE=0`, 2026-09-28) the
+//     neighbours come from FTS5 instead (H11, 2026-10-17): before, every
+//     candidate stayed `unjudged` forever and auto-approve never fired (677 of
+//     677 pending). The lexical neighbours pass a topic floor
+//     (`is_lexical_neighbour`) before reaching the judge, in the role of the
+//     0.83 cosine floor of the dense path.
 //   - The LLM judge (`ai_tasks::judge_contradiction`) is tolerant: on any
 //     parse/route failure it reports `false` (no contradiction), so a degraded
 //     model can never spuriously quarantine a memory.
@@ -23,13 +30,29 @@
 use rusqlite::Connection;
 
 use super::ai_tasks::ContradictionClass;
-use super::model::CandidateAction;
+use super::model::{CandidateAction, MemoryItem, Status};
 use super::sqlite_store as store;
 
 /// How many dense neighbours to inspect per proposal. Kept small: the LLM
 /// judge is the expensive step, and a contradiction with the proposal will be
 /// among the very nearest items if it exists at all.
 const NEIGHBOUR_LIMIT: u32 = 5;
+
+/// Candidatos que se piden a FTS5 (orden BM25) con el denso apagado, antes de
+/// filtrar por proyecto y por tema. Holgado frente a `NEIGHBOUR_LIMIT` porque el
+/// OR de términos de FTS5 trae ruido que el filtro descarta.
+const LEXICAL_FANOUT: usize = 20;
+
+/// Suelo de tema del camino léxico: términos de contenido compartidos mínimos.
+/// Con uno solo, cualquier palabra común ("memoria", "build") emparejaría temas
+/// sin relación y el juez decidiría sobre pares absurdos.
+const LEXICAL_MIN_SHARED: usize = 2;
+
+/// Suelo de tema del camino léxico: fracción del vocabulario del texto más corto
+/// que aparece en el otro (coeficiente de solapamiento). Por debajo de la mitad
+/// no es "el mismo tema" y no hay proposición que contradecir: el mismo papel
+/// que el 0.83 de coseno del camino denso.
+const LEXICAL_MIN_OVERLAP: f32 = 0.5;
 
 /// A single detected contradiction between a proposal and an ACTIVE item.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,8 +94,10 @@ impl ContradictionFinding {
 ///
 /// Degradation contract (1.7 fail-closed):
 ///   - Empty / whitespace-only proposal   -> `Some(vec![])` (nothing to compare).
-///   - Qdrant/E5 unavailable              -> `None` (NOT verifiable → the caller
+///   - Dense ON, Qdrant/E5 unavailable    -> `None` (NOT verifiable → the caller
 ///     marks the candidate `unjudged` and never auto-approves it).
+///   - Dense OFF (`ULTRON_DENSE=0`)        -> neighbours from FTS5 + topic floor;
+///     a SQLite error on that search -> `None` (same fail-closed contract).
 ///   - Query ran but found 0 neighbours    -> `Some(vec![])` (verified clean).
 ///   - A neighbour id no longer in SQLite  -> skipped (never errors).
 ///   - The LLM judge unavailable           -> conservative `false` (declared
@@ -96,8 +121,7 @@ pub fn check(
     // (`Some(vec![])`). Antes `search_dense` colapsaba ambos a un vec vacío, que el
     // pipeline trataba como "verificado limpio" → con auto-approve ON y Qdrant
     // caído, una Fact contradictoria se auto-promovía.
-    let neighbour_ids =
-        super::qdrant_index::search_dense_checked(proposed, NEIGHBOUR_LIMIT, project_id)?;
+    let neighbour_ids = neighbour_ids(conn, proposed, project_id)?;
 
     let mut findings: Vec<ContradictionFinding> = Vec::new();
     for id in neighbour_ids {
@@ -136,10 +160,71 @@ pub fn check(
         }
     }
 
-    // La búsqueda densa quedó VERIFICADA (Some). Residual declarado (mand. 13): el
-    // juez LLM sigue conservador — un None del modelo no marca ese vecino; el
-    // fail-closed cubre la infra de BÚSQUEDA, el juez-LLM-caído es residual menor.
+    // La búsqueda de vecinos (densa o FTS5) quedó VERIFICADA (Some). Residual
+    // declarado (mand. 13): el juez LLM sigue conservador — un None del modelo no
+    // marca ese vecino; el fail-closed cubre la infra de BÚSQUEDA, el
+    // juez-LLM-caído es residual menor.
     Some(findings)
+}
+
+/// Vecinos ACTIVOS que el juez debe mirar. Denso encendido: k-NN en Qdrant con
+/// su floor de coseno (y `None` si la infra está caída, fail-closed). Denso
+/// apagado a propósito: FTS5 más el suelo de tema léxico. En ese caso no se toca
+/// Qdrant: está apagado y sondearlo solo costaría el timeout del healthz.
+fn neighbour_ids(
+    conn: &Connection,
+    proposed: &str,
+    project_id: Option<&str>,
+) -> Option<Vec<String>> {
+    if crate::qdrant::dense_enabled() {
+        return super::qdrant_index::search_dense_checked(proposed, NEIGHBOUR_LIMIT, project_id);
+    }
+    let hits = store::search_items(conn, proposed, Status::Active, LEXICAL_FANOUT).ok()?;
+    Some(select_lexical_neighbours(proposed, project_id, &hits))
+}
+
+/// PURA: de los resultados de FTS5 (ya en orden BM25) se queda con los del mismo
+/// proyecto o globales (el mismo filtro que el camino denso) que superan el
+/// suelo de tema, hasta `NEIGHBOUR_LIMIT`.
+fn select_lexical_neighbours(
+    proposed: &str,
+    project_id: Option<&str>,
+    hits: &[MemoryItem],
+) -> Vec<String> {
+    hits.iter()
+        .filter(|item| match (project_id, item.project_id.as_deref()) {
+            (Some(pid), Some(other)) => other.is_empty() || other == pid,
+            _ => true,
+        })
+        .filter(|item| is_lexical_neighbour(proposed, &lexical_text(item)))
+        .take(NEIGHBOUR_LIMIT as usize)
+        .map(|item| item.id.clone())
+        .collect()
+}
+
+/// Texto de un item para el suelo de tema: título más resumen, o más contenido
+/// si no hay resumen.
+fn lexical_text(item: &MemoryItem) -> String {
+    let body = item
+        .summary
+        .as_deref()
+        .or(item.content.as_deref())
+        .unwrap_or("");
+    format!("{} {body}", item.title.as_deref().unwrap_or(""))
+}
+
+/// PURA: ¿hablan los dos textos del mismo tema? Al menos `LEXICAL_MIN_SHARED`
+/// términos de contenido en común y un coeficiente de solapamiento (compartidos
+/// entre el vocabulario del texto más corto) de al menos `LEXICAL_MIN_OVERLAP`.
+fn is_lexical_neighbour(a: &str, b: &str) -> bool {
+    let ta = store::row_mapping::content_terms(a);
+    let tb = store::row_mapping::content_terms(b);
+    let shared = ta.intersection(&tb).count();
+    let shortest = ta.len().min(tb.len());
+    if shared < LEXICAL_MIN_SHARED || shortest == 0 {
+        return false;
+    }
+    shared as f32 / shortest as f32 >= LEXICAL_MIN_OVERLAP
 }
 
 /// Decide the recommended disposition for a candidate given its contradiction
@@ -303,5 +388,140 @@ mod tests {
     #[test]
     fn supersede_no_findings_is_none() {
         assert_eq!(supersede_disposition(&[], true), Disposition::None);
+    }
+
+    // --- camino léxico con el denso apagado (H11): sin LLM ni red ---
+
+    fn item(id: &str, project: Option<&str>, title: &str, summary: &str) -> MemoryItem {
+        use super::super::model::{MemoryType, Scope, Source};
+        let mut it = MemoryItem::new(
+            MemoryType::Decision,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
+        it.id = id.to_string();
+        it.project_id = project.map(str::to_string);
+        it.title = Some(title.to_string());
+        it.summary = Some(summary.to_string());
+        it
+    }
+
+    #[test]
+    fn lexical_neighbour_accepts_same_topic_with_opposite_claim() {
+        // Una contradicción real comparte el tema aunque cambie la conclusión.
+        assert!(is_lexical_neighbour(
+            "Usar postgres como base de datos del cockpit",
+            "Decisión: usar sqlite como base de datos del cockpit",
+        ));
+    }
+
+    #[test]
+    fn lexical_neighbour_rejects_unrelated_topics() {
+        // Caso negativo: el par del falso positivo histórico del camino denso.
+        assert!(!is_lexical_neighbour(
+            "El usuario entrenó en otoño",
+            "Mantener Autumn activo en el tema",
+        ));
+        // Una sola palabra común no basta (suelo de dos términos).
+        assert!(!is_lexical_neighbour(
+            "La memoria del daemon ocupa 17 MB",
+            "Revisar la memoria del TFG antes de entregar",
+        ));
+    }
+
+    #[test]
+    fn lexical_neighbour_ignores_stop_words_and_folds_accents() {
+        // Solo palabras vacías en común: no es el mismo tema.
+        assert!(!is_lexical_neighbour(
+            "de la que por para",
+            "de la que por para"
+        ));
+        // Las tildes no separan el mismo vocabulario.
+        assert!(is_lexical_neighbour(
+            "decisión sobre la política de caché",
+            "decision politica cache revisada",
+        ));
+    }
+
+    #[test]
+    fn select_lexical_neighbours_filters_project_topic_and_limit() {
+        let mut hits = vec![
+            item(
+                "otro-proyecto",
+                Some("explored"),
+                "Usar postgres",
+                "base de datos del cockpit",
+            ),
+            item("sin-tema", Some("ultron"), "Kanban", "columnas del tablero"),
+            item("global", None, "Usar sqlite", "base de datos del cockpit"),
+            item(
+                "mismo",
+                Some("ultron"),
+                "Usar sqlite",
+                "base de datos del cockpit",
+            ),
+        ];
+        for i in 0..10 {
+            hits.push(item(
+                &format!("extra-{i}"),
+                Some("ultron"),
+                "Usar sqlite",
+                "base de datos del cockpit",
+            ));
+        }
+        let got = select_lexical_neighbours(
+            "Usar postgres como base de datos del cockpit",
+            Some("ultron"),
+            &hits,
+        );
+        assert!(!got.contains(&"otro-proyecto".to_string()), "got={got:?}");
+        assert!(!got.contains(&"sin-tema".to_string()), "got={got:?}");
+        assert_eq!(got[0], "global", "conserva el orden BM25: got={got:?}");
+        assert_eq!(got[1], "mismo", "got={got:?}");
+        assert_eq!(got.len(), NEIGHBOUR_LIMIT as usize, "got={got:?}");
+    }
+
+    #[test]
+    fn select_lexical_neighbours_without_project_keeps_every_project() {
+        let hits = vec![item(
+            "a",
+            Some("explored"),
+            "Usar sqlite",
+            "base de datos del cockpit",
+        )];
+        let got = select_lexical_neighbours("usar postgres base datos cockpit", None, &hits);
+        assert_eq!(got, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn lexical_search_over_fts5_finds_the_neighbour_and_skips_noise() {
+        // Extremo a extremo sobre una base en memoria: FTS5 real más el suelo de
+        // tema. El ruido comparte una palabra ("cockpit") y FTS5 lo devuelve,
+        // pero no llega al juez.
+        let conn = Connection::open_in_memory().expect("open in-memory");
+        store::apply_schema(&conn).expect("schema");
+        let vecino = item(
+            "vecino",
+            Some("ultron"),
+            "Usar sqlite",
+            "base de datos del cockpit",
+        );
+        let ruido = item(
+            "ruido",
+            Some("ultron"),
+            "Cockpit",
+            "colores del tema oscuro",
+        );
+        store::insert_item(&conn, &vecino).expect("insert vecino");
+        store::insert_item(&conn, &ruido).expect("insert ruido");
+
+        let propuesta = "Usar postgres como base de datos del cockpit";
+        let hits =
+            store::search_items(&conn, propuesta, Status::Active, LEXICAL_FANOUT).expect("search");
+        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+        assert!(ids.contains(&"ruido"), "FTS5 trae el ruido: ids={ids:?}");
+        let got = select_lexical_neighbours(propuesta, Some("ultron"), &hits);
+        assert_eq!(got, vec!["vecino".to_string()], "ids={ids:?}");
     }
 }

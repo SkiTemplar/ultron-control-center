@@ -8,8 +8,8 @@
  * La SoT de QUE corre es settings.json; el manifest es el espejo versionado y
  * auditado. Este script hace el espejo reproducible:
  *
- *   node hooks/regen-manifest.js          # regenera manifest.json
- *   node hooks/regen-manifest.js --check  # exit 1 si el manifest esta desfasado (gate CI/local)
+ *   node hooks/regen-manifest.js          # regenera manifest.json y templates/settings-hooks.json
+ *   node hooks/regen-manifest.js --check  # exit 1 si alguno de los dos esta desfasado (gate CI/local)
  *
  * Metadatos que el settings.json no tiene (description, env_allowlist,
  * writes_memory, writer_path, version) se conservan del manifest anterior por
@@ -24,9 +24,26 @@ const path = require('path');
 const crypto = require('crypto');
 
 const HOME = os.homedir();
-const SETTINGS = path.join(HOME, '.claude', 'settings.json');
+const REPO_ROOT = path.resolve(__dirname, '..');
 const MANIFEST = path.join(__dirname, 'manifest.json');
+const TEMPLATE = path.join(__dirname, '..', 'templates', 'settings-hooks.json');
 const CHECK_MODE = process.argv.includes('--check');
+
+/**
+ * settings.json de origen: `--settings <ruta>` o ULTRON_HOOKS_SETTINGS, y si no
+ * el vivo. Sirve para regenerar desde un worktree un cableado propuesto que
+ * todavia no se ha aplicado al settings.json real (2026-10-23).
+ */
+function settingsPath(argv = process.argv, env = process.env) {
+  const i = argv.indexOf('--settings');
+  if (i >= 0 && argv[i + 1]) return path.resolve(argv[i + 1]);
+  if (env.ULTRON_HOOKS_SETTINGS) return path.resolve(env.ULTRON_HOOKS_SETTINGS);
+  return path.join(HOME, '.claude', 'settings.json');
+}
+
+function sha256Text(text) {
+  return crypto.createHash('sha256').update(text, 'latin1').digest('hex');
+}
 
 function sha256(file) {
   try {
@@ -35,11 +52,60 @@ function sha256(file) {
     // BYTES CRUDOS hacia fluctuar el checksum -> el gate de paridad fallaba en casi
     // cada commit. Hashear el contenido normalizado lo hace estable y portable
     // (mismo hash en Windows/Linux, con o sin autocrlf). latin1 preserva bytes 1:1.
-    const normalized = fs.readFileSync(file).toString('latin1').replace(/\r\n/g, '\n');
-    return crypto.createHash('sha256').update(normalized, 'latin1').digest('hex');
+    return sha256Text(fs.readFileSync(file).toString('latin1').replace(/\r\n/g, '\n'));
   } catch (_) {
     return 'FILE_MISSING';
   }
+}
+
+/**
+ * Ruta del script dentro de ESTE repo. settings.json apunta a ~/.ultron/...;
+ * desde un worktree, hashear esa ruta media el checkout principal y no los
+ * ficheros que se van a commitear (el gate pasaba con checksums viejos).
+ */
+function repoPathOf(scriptPath) {
+  const rel = dehome(scriptPath || '').replace(/\\/g, '/');
+  return rel.startsWith('~/.ultron/') ? path.join(REPO_ROOT, rel.slice('~/.ultron/'.length)) : scriptPath;
+}
+
+// `require('./x')` / `require("../lib/y.js")` con ruta relativa literal.
+const RE_REQUIRE = /require\(\s*(['"])(\.{1,2}\/[^'"]+)\1\s*\)/g;
+
+/** Dependencias locales (transitivas) de un script, con ruta absoluta y ordenadas. */
+function localDeps(file, seen = new Set()) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (_) {
+    return [...seen].sort();
+  }
+  for (const m of text.matchAll(RE_REQUIRE)) {
+    const base = path.resolve(path.dirname(file), m[2]);
+    const dep = [base, base + '.js', path.join(base, 'index.js')].find((p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch (_) {
+        return false;
+      }
+    });
+    if (!dep || seen.has(dep)) continue;
+    seen.add(dep);
+    localDeps(dep, seen);
+  }
+  return [...seen].sort();
+}
+
+/**
+ * Checksum de las librerias locales que el script carga (hooks-12, auditoria
+ * 2026-10-23): un cambio de comportamiento en lib/ no alteraba el manifest y
+ * el gate seguia verde. Limite: un `require` con ruta calculada en tiempo de
+ * ejecucion (`require(path.join(...))`) no se sigue.
+ */
+function depsChecksum(file) {
+  const deps = localDeps(file).filter((d) => d !== path.resolve(file));
+  if (!deps.length) return null;
+  const lines = deps.map((d) => path.relative(REPO_ROOT, d).replace(/\\/g, '/') + ' ' + sha256(d));
+  return sha256Text(lines.join('\n'));
 }
 
 /** Despersonaliza rutas (repo publico, gate PII): C:/Users/<yo> -> ~. */
@@ -62,20 +128,72 @@ function scriptPathOf(command) {
   return m ? m[2] : null;
 }
 
+/**
+ * Entradas que Claude Code ejecuta. La pestana Hooks marcaba un hook
+ * desactivado con `type: "disabled-command"`, que Claude Code no acepta
+ * (hooks-8, 2026-10-23): esas entradas legadas no corren, asi que no entran
+ * ni en el manifest ni en la plantilla del instalador.
+ */
+function liveEntries(group) {
+  return (group.hooks || []).filter((h) => h && h.type !== 'disabled-command');
+}
+
 function idOf(scriptPath, command) {
   if (scriptPath) return path.basename(scriptPath).replace(/\.(js|py|ps1)$/, '');
   return command.slice(0, 40).replace(/\W+/g, '-');
 }
 
+/**
+ * Plantilla de instalacion (templates/settings-hooks.json) derivada de la misma
+ * config viva: install.ps1 / install.sh la fusionan en settings.json, asi que
+ * una plantilla escrita a mano acababa cableando hooks retirados y sin los
+ * vivos (2026-10-08). Solo entran los hooks cuyo script vive en ~/.ultron; el
+ * HOME se sustituye por el token {USERPROFILE} que expande el instalador.
+ */
+function buildTemplate(settings, prevTemplate) {
+  const tokenize = (cmd) => dehome(cmd).replace(/(^|[\s"'])~(?=[\\/])/g, '$1{USERPROFILE}');
+  const hooks = {};
+  for (const [event, groups] of Object.entries(settings.hooks || {})) {
+    const outGroups = [];
+    for (const group of groups) {
+      const entries = liveEntries(group)
+        .filter((h) => /\{USERPROFILE\}\/\.ultron\//.test(tokenize(h.command || '')))
+        .map((h) => {
+          const e = { type: h.type || 'command', command: tokenize(h.command) };
+          if (h.timeout != null) e.timeout = h.timeout;
+          if (h.async === true) e.async = true;
+          return e;
+        });
+      if (entries.length) outGroups.push({ matcher: group.matcher || '*', hooks: entries });
+    }
+    if (outGroups.length) hooks[event] = outGroups;
+  }
+  return {
+    _comment:
+      'ULTRON hook template, GENERADA por hooks/regen-manifest.js desde ~/.claude/settings.json (no editar a mano). ' +
+      'install.ps1 / install.sh la fusionan en ~/.claude/settings.json y expanden {USERPROFILE} al home del usuario (barras /). ' +
+      'Gate de paridad: node hooks/regen-manifest.js --check.',
+    _schema_version: 4,
+    permissions: (prevTemplate && prevTemplate.permissions) || {},
+    hooks,
+  };
+}
+
+/** Hooks cuyo writer_path no esta permitido: el metadato se hereda y nada lo validaba. */
+function invalidWriters(manifest) {
+  const permitidos = new Set(manifest.writer_paths_allowed || []);
+  return (manifest.hooks || []).filter((h) => !permitidos.has(h.writer_path)).map((h) => h.id);
+}
+
 function main() {
-  const settings = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
+  const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
   const old = fs.existsSync(MANIFEST) ? JSON.parse(fs.readFileSync(MANIFEST, 'utf8')) : {};
   const oldById = new Map((old.hooks || []).map((h) => [h.id, h]));
 
   const hooks = [];
   for (const [event, groups] of Object.entries(settings.hooks || {})) {
     for (const group of groups) {
-      for (const h of group.hooks || []) {
+      for (const h of liveEntries(group)) {
         const sp = scriptPathOf(h.command);
         const id = idOf(sp, h.command);
         const prev = oldById.get(id) || {};
@@ -90,7 +208,8 @@ function main() {
           // fire-and-forget y su stdout JSON SE DESCARTA — sin este campo el
           // manifest vendia como sincronos hooks que no pueden hablar al modelo.
           async: h.async === true,
-          checksum_sha256: sp ? sha256(sp) : null,
+          checksum_sha256: sp ? sha256(repoPathOf(sp)) : null,
+          deps_sha256: sp ? depsChecksum(repoPathOf(sp)) : null,
           version: prev.version || '1.0.0',
           env_allowlist: prev.env_allowlist || [],
           failure_policy: prev.failure_policy || 'no_op',
@@ -120,7 +239,21 @@ function main() {
     deregistered: old.deregistered || [],
   };
 
+  const invalidos = invalidWriters(manifest);
+  if (invalidos.length) {
+    console.error('writer_path fuera de writer_paths_allowed: ' + invalidos.join(', '));
+    process.exit(1);
+  }
+
   const next = JSON.stringify(manifest, null, 2) + '\n';
+  const prevTemplateText = fs.existsSync(TEMPLATE) ? fs.readFileSync(TEMPLATE, 'utf8') : '';
+  let prevTemplate = null;
+  try {
+    prevTemplate = prevTemplateText ? JSON.parse(prevTemplateText) : null;
+  } catch (e) {
+    console.error('AVISO: ' + TEMPLATE + ' no es JSON valido (' + e.message + '); se regenera sin permissions.');
+  }
+  const nextTemplate = JSON.stringify(buildTemplate(settings, prevTemplate), null, 2) + '\n';
 
   if (CHECK_MODE) {
     const cur = fs.existsSync(MANIFEST) ? fs.readFileSync(MANIFEST, 'utf8') : '';
@@ -133,11 +266,16 @@ function main() {
       console.error('DRIFT: hooks/manifest.json no coincide con settings.json + checksums reales. Ejecuta: node hooks/regen-manifest.js');
       process.exit(1);
     }
-    console.log('OK: manifest en paridad con settings.json (' + hooks.length + ' hooks)');
+    if (norm(prevTemplateText) !== norm(nextTemplate)) {
+      console.error('DRIFT: templates/settings-hooks.json no coincide con settings.json. Ejecuta: node hooks/regen-manifest.js');
+      process.exit(1);
+    }
+    console.log('OK: manifest y plantilla en paridad con settings.json (' + hooks.length + ' hooks)');
     return;
   }
 
   fs.writeFileSync(MANIFEST, next);
+  fs.writeFileSync(TEMPLATE, nextTemplate);
   const missing = hooks.filter((h) => h.checksum_sha256 === 'FILE_MISSING');
   const todo = hooks.filter((h) => h.description.startsWith('TODO'));
   console.log('manifest regenerado: ' + hooks.length + ' hooks');
@@ -145,4 +283,7 @@ function main() {
   if (todo.length) console.log('AVISO descripciones TODO: ' + todo.map((h) => h.id).join(', '));
 }
 
-main();
+
+if (require.main === module) main();
+
+module.exports = { settingsPath, repoPathOf, localDeps, depsChecksum, buildTemplate, liveEntries, invalidWriters };

@@ -22,6 +22,8 @@
 
 'use strict';
 
+const { HEURISTICS_DENSIDAD } = require('./ai-text-heuristics-densidad');
+
 // --- utilidades de segmentación --------------------------------------------
 
 /** Trocea en frases por . ! ? ; y saltos de línea, conservando offsets. */
@@ -313,6 +315,8 @@ const HEURISTICS = {
   emdash_incisos: emdashIncisos,
   espanol_neutro: espanolNeutro,
   tricolon,
+  // Densidad de negritas, contraste negativo y metacomentario (2026-10-18).
+  ...HEURISTICS_DENSIDAD,
 };
 
 function runHeuristic(id, text) {

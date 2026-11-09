@@ -33,26 +33,37 @@ $ConfigPath = Join-Path $env:USERPROFILE ".ultron\cockpit\schedule-config.json"
 $LogDir     = Join-Path $env:USERPROFILE ".ultron\cockpit\scheduler-logs"
 
 # Map task name -> python script path (relative to scripts/cockpit)
+# 2026-10-08: Retention-Daily, Standup-Weekday, Research-Weekly and
+# GithubTrending-Daily left the map (retention.py, ai_standup.py, research.py
+# and github_trending.py no longer exist). A config entry without mapping is
+# skipped with a warning.
 $ScriptMap = @{
     "ScanProjects-Login"   = "scan_projects.py"
-    "Retention-Daily"      = "retention.py"
-    "Standup-Weekday"      = "ai_standup.py"
-    "Research-Weekly"      = "research.py"
-    "GithubTrending-Daily" = "github_trending.py"
     "Doctor-Weekly"        = "doctor.py"
 }
 # v15.4: TUI-Login removed (tui.py deleted; Control Center is the new cockpit).
-$BackupTaskName = "Backup-Weekly"  # special: invokes ~/.ultron/scripts/backup/weekly-backup.ps1
-$BackupScriptPath = Join-Path $env:USERPROFILE ".ultron\scripts\backup\weekly-backup.ps1"
+# 2026-10-23 (audit N1): the weekly backup task is NOT installed here any more.
+# Its single owner is Settings -> Backups in the Control Center
+# (control-center/src-tauri/src/backup_status/schedule.rs, BACKUP_TASK_NAME),
+# which reads its schedule back from the registered task. A second task from
+# this installer ("UltronBackup-Weekly", AtLogOn) made the UI query a task
+# that did not exist. The "Backup-Weekly" config entry is skipped, and the
+# backup task (recognised by its action, whatever its name) is never removed
+# by the clean-slate or -Uninstall below.
+$BackupTaskName = "Backup-Weekly"
 
-# Task name prefix in Windows Task Scheduler
-$TaskPrefix = "Ultron"
+# 2026-10-23: status, -Uninstall and the clean slate only touch the tasks this
+# installer owns (exact names, see scheduler-tasks.ps1). "Ultron*" alone also
+# matched ULTRON-BitacoraSweep, UltronQdrant and ULTRON-QdrantWatchdog.
+. (Join-Path $PSScriptRoot "scheduler-tasks.ps1")
+$TaskPrefix = $CockpitTaskPrefix
+$OwnedNames = Get-CockpitOwnedNames @($ScriptMap.Keys)
 
 # -- Status --------------------------------------------------------------------
 if ($Status) {
     Write-Host "[Cockpit] Scheduled tasks status:" -ForegroundColor Cyan
-    $tasks = Get-ScheduledTask -TaskName "$TaskPrefix*" -ErrorAction SilentlyContinue
-    if (-not $tasks) {
+    $tasks = Select-CockpitTasks (Get-ScheduledTask -TaskName "$TaskPrefix*" -ErrorAction SilentlyContinue) $OwnedNames
+    if ($tasks.Count -eq 0) {
         Write-Host "  (no Ultron tasks installed - run without -Status to install)"
         return
     }
@@ -66,9 +77,9 @@ if ($Status) {
 
 # -- Uninstall ----------------------------------------------------------------
 if ($Uninstall) {
-    $tasks = Get-ScheduledTask -TaskName "$TaskPrefix*" -ErrorAction SilentlyContinue
-    if (-not $tasks) {
-        Write-Host "[Cockpit] No Ultron tasks to uninstall."
+    $tasks = Select-CockpitTasks (Get-ScheduledTask -TaskName "$TaskPrefix*" -ErrorAction SilentlyContinue) $OwnedNames
+    if ($tasks.Count -eq 0) {
+        Write-Host "[Cockpit] No Ultron tasks to uninstall (the backup task is managed in Settings -> Backups)."
         return
     }
     foreach ($t in $tasks) {
@@ -113,8 +124,8 @@ Write-Host "[Cockpit] All scripts present"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 # -- Remove existing Ultron tasks first (clean slate) -------------------------
-$existing = Get-ScheduledTask -TaskName "$TaskPrefix*" -ErrorAction SilentlyContinue
-if ($existing) {
+$existing = Select-CockpitTasks (Get-ScheduledTask -TaskName "$TaskPrefix*" -ErrorAction SilentlyContinue) $OwnedNames
+if ($existing.Count -gt 0) {
     Write-Host "[Cockpit] Removing $($existing.Count) existing Ultron tasks before reinstall..."
     foreach ($t in $existing) {
         Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false
@@ -194,20 +205,9 @@ foreach ($prop in $config.tasks.PSObject.Properties) {
         $skipped++
         continue
     } elseif ($taskShortName -eq $BackupTaskName) {
-        # v14.7 Backup: invoke weekly-backup.ps1 in ~/.ultron/scripts/backup/.
-        # Script self-skips if D: drive is missing (exit 2). Logs go to its own dir.
-        if (-not (Test-Path $BackupScriptPath)) {
-            Write-Host "[Cockpit] [WARN] Backup script missing: $BackupScriptPath. Skipping $fullName."
-            $skipped++
-            continue
-        }
-        $logName  = "backup-weekly.log"
-        $logPath  = Join-Path $LogDir $logName
-        $bkCmd    = "& '$BackupScriptPath' 2>&1 | Out-File -Append -Encoding utf8 '$logPath'"
-        $bkArgs   = "-ExecutionPolicy Bypass -WindowStyle Hidden -NonInteractive -Command `"$bkCmd`""
-        $action   = New-ScheduledTaskAction -Execute "PowerShell.exe" `
-                                            -Argument $bkArgs `
-                                            -WorkingDirectory $env:USERPROFILE
+        Write-Host "[Cockpit] [INFO] $taskShortName is managed in Control Center -> Settings -> Backups (task 'ULTRON Weekly Backup'). Skipping."
+        $skipped++
+        continue
     } else {
         if (-not $ScriptMap.ContainsKey($taskShortName)) {
             Write-Host "[Cockpit] [WARN] Unknown task in config: $taskShortName (no script mapping). Skipping."
@@ -216,12 +216,9 @@ foreach ($prop in $config.tasks.PSObject.Properties) {
         }
         $scriptName = $ScriptMap[$taskShortName]
         $logName    = ($scriptName -replace "\.py$", ".log")
-        # Pass --from-cron to scripts that have weekly/daily guards
-        $extraArgs = ""
-        if ($taskShortName -in @("Retention-Daily","Standup-Weekday","Research-Weekly","Doctor-Weekly")) {
-            $extraArgs = "--from-cron"
-        }
-        $action = New-PyAction $scriptName $logName $extraArgs
+        # No --from-cron: the scripts that had that guard are gone and
+        # doctor.py (argparse) rejects unknown flags.
+        $action = New-PyAction $scriptName $logName ""
     }
 
     Register-ScheduledTask -TaskName $fullName `

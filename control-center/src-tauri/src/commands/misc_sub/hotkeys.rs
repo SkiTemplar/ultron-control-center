@@ -10,7 +10,7 @@
 // cablearse). Git los conserva si algun dia hacen falta.
 
 use crate::hotkeys;
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 #[tauri::command]
 pub async fn get_global_hotkey() -> Result<String, String> {
@@ -20,20 +20,76 @@ pub async fn get_global_hotkey() -> Result<String, String> {
 #[tauri::command]
 pub async fn set_global_hotkey(app: tauri::AppHandle, spec: String) -> Result<String, String> {
     let new_shortcut = hotkeys::parse_hotkey(&spec)?;
-    let handle = app.global_shortcut();
-    // Unregister whatever is currently bound, then register the new one.
-    // If the new register fails (e.g. another app owns it), we attempt to
-    // restore the previous spec so the user isn't left with NO hotkey.
-    let previous = hotkeys::load_hotkey_spec();
-    if let Ok(prev_sc) = hotkeys::parse_hotkey(&previous) {
-        let _ = handle.unregister(prev_sc);
-    }
-    if let Err(e) = handle.register(new_shortcut) {
-        if let Ok(prev_sc) = hotkeys::parse_hotkey(&previous) {
-            let _ = handle.register(prev_sc);
-        }
-        return Err(format!("register '{}' failed: {}", spec, e));
-    }
-    hotkeys::save_hotkey_spec(&spec)?;
+    let previous = hotkeys::parse_hotkey(&hotkeys::load_hotkey_spec()).ok();
+    let registro = RegistroTauri(app.global_shortcut());
+    cambiar_atajo(&registro, previous, new_shortcut, || {
+        hotkeys::save_hotkey_spec(&spec)
+    })
+    .map_err(|e| format!("'{spec}': {e}"))?;
     Ok(spec)
 }
+
+/// Registro de atajos globales. Separa la secuencia de `set_global_hotkey`
+/// del plugin para poder probar los caminos de fallo.
+trait RegistroAtajos {
+    type Atajo: Clone;
+    fn registrar(&self, atajo: Self::Atajo) -> Result<(), String>;
+    fn desregistrar(&self, atajo: Self::Atajo) -> Result<(), String>;
+}
+
+struct RegistroTauri<'a>(&'a tauri_plugin_global_shortcut::GlobalShortcut<tauri::Wry>);
+
+impl RegistroAtajos for RegistroTauri<'_> {
+    type Atajo = Shortcut;
+    fn registrar(&self, atajo: Shortcut) -> Result<(), String> {
+        self.0.register(atajo).map_err(|e| e.to_string())
+    }
+    fn desregistrar(&self, atajo: Shortcut) -> Result<(), String> {
+        self.0.unregister(atajo).map_err(|e| e.to_string())
+    }
+}
+
+/// Sustituye `previo` por `nuevo` y persiste el cambio con `guardar`.
+///
+/// Atómico desde fuera: si falla el registro del nuevo o el guardado, se
+/// deshace lo hecho y vuelve a quedar registrado el anterior, para no dejar
+/// al usuario sin atajo ni con uno registrado que no sobrevive al reinicio.
+/// Un fallo del propio rollback no oculta el error original: se registra en
+/// el log.
+fn cambiar_atajo<R: RegistroAtajos>(
+    registro: &R,
+    previo: Option<R::Atajo>,
+    nuevo: R::Atajo,
+    guardar: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(p) = previo.clone() {
+        // El anterior puede no estar registrado (otra app lo tenía al
+        // arrancar): no impide el cambio, pero no se calla.
+        if let Err(e) = registro.desregistrar(p) {
+            tracing::warn!(error = %e, "[hotkeys] no se pudo desregistrar el atajo anterior");
+        }
+    }
+    if let Err(e) = registro.registrar(nuevo.clone()) {
+        restaurar_previo(registro, previo);
+        return Err(format!("register failed: {e}"));
+    }
+    if let Err(e) = guardar() {
+        if let Err(re) = registro.desregistrar(nuevo) {
+            tracing::warn!(error = %re, "[hotkeys] rollback: no se pudo desregistrar el atajo nuevo");
+        }
+        restaurar_previo(registro, previo);
+        return Err(format!("save failed, previous hotkey restored: {e}"));
+    }
+    Ok(())
+}
+
+fn restaurar_previo<R: RegistroAtajos>(registro: &R, previo: Option<R::Atajo>) {
+    let Some(p) = previo else { return };
+    if let Err(e) = registro.registrar(p) {
+        tracing::warn!(error = %e, "[hotkeys] rollback: no se pudo volver a registrar el atajo anterior");
+    }
+}
+
+#[cfg(test)]
+#[path = "hotkeys_tests.rs"]
+mod tests;

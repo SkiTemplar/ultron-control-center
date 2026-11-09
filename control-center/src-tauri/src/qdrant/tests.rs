@@ -18,6 +18,36 @@ fn rerank_env_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+/// Aísla los tests del entorno de la máquina (aquí `ULTRON_DENSE=0` y
+/// `ULTRON_RERANK=0` son variables de usuario): borra las variables al crearse
+/// y restaura su valor previo al soltarse. Usar siempre bajo `rerank_env_lock`.
+struct EnvAislado(Vec<(&'static str, Option<String>)>);
+
+impl EnvAislado {
+    fn sin(vars: &[&'static str]) -> Self {
+        let previas = vars
+            .iter()
+            .map(|v| {
+                let prev = std::env::var(v).ok();
+                std::env::remove_var(v);
+                (*v, prev)
+            })
+            .collect();
+        Self(previas)
+    }
+}
+
+impl Drop for EnvAislado {
+    fn drop(&mut self) {
+        for (v, prev) in &self.0 {
+            match prev {
+                Some(x) => std::env::set_var(v, x),
+                None => std::env::remove_var(v),
+            }
+        }
+    }
+}
+
 // card-test-fixtures-rust-infra: keep the fixture honest against the private
 // SearchResponse/RawHit shape that `search()` actually deserialises.
 #[test]
@@ -86,9 +116,9 @@ fn qdrant_not_running_msg_contains_url() {
 /// (caso negativo: restaura el pipeline clasico byte-a-byte).
 #[test]
 fn reranker_env_matrix() {
-    let prev = std::env::var("ULTRON_RERANK").ok();
+    let _env = rerank_env_lock();
+    let _aislado = EnvAislado::sin(&["ULTRON_DENSE", "ULTRON_RERANK"]);
 
-    std::env::remove_var("ULTRON_RERANK");
     assert!(
         reranker_enabled(),
         "reranker_enabled() must be TRUE when ULTRON_RERANK is unset (default ON)"
@@ -107,11 +137,11 @@ fn reranker_env_matrix() {
             "reranker_enabled() must be true with ULTRON_RERANK={on}"
         );
     }
-
-    match prev {
-        Some(v) => std::env::set_var("ULTRON_RERANK", v),
-        None => std::env::remove_var("ULTRON_RERANK"),
-    }
+    std::env::set_var("ULTRON_DENSE", "0");
+    assert!(
+        !reranker_enabled(),
+        "ULTRON_DENSE=0 apaga el reranker aunque ULTRON_RERANK=1"
+    );
 }
 
 /// Matriz de ULTRON_RERANK_HOT (opt-in del cross-encoder en el hot path),
@@ -151,6 +181,7 @@ fn rerank_hot_env_matrix() {
 #[test]
 fn rerank_hot_mode_by_route() {
     let _env = rerank_env_lock();
+    let _aislado = EnvAislado::sin(&["ULTRON_DENSE", "ULTRON_RERANK"]);
     let prev = std::env::var("ULTRON_RERANK_HOT").ok();
     for unset_or_route in [None, Some("route")] {
         match unset_or_route {

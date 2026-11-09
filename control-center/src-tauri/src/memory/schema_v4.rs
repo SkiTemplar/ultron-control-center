@@ -37,14 +37,9 @@ pub(crate) fn apply_schema_v5_retire_codegraph(conn: &Connection) -> Result<(), 
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("schema v5 retire codegraph: {e}")))?;
 
-    let uv: i64 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap_or(0);
-    if uv < USER_VERSION_V5 {
-        let _ = conn.execute_batch(&format!("PRAGMA user_version = {USER_VERSION_V5};"));
-    }
-
-    Ok(())
+    // Bump monotónico; un fallo al leer o escribir la versión se propaga (antes
+    // se tragaba y la migración quedaba a medias sin que nadie lo supiera).
+    super::sqlite_store::schema::raise_user_version(conn, USER_VERSION_V5)
 }
 
 // ---------------------------------------------------------------------------

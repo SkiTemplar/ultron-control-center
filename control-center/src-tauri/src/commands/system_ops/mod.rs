@@ -10,6 +10,7 @@
 //   turn_off          — Scheduled shutdown (shutdown.exe, Windows-only)
 
 pub mod apps;
+mod diagnostic_checks;
 pub mod diagnostics_native;
 pub mod event_log;
 pub mod lifecycle;

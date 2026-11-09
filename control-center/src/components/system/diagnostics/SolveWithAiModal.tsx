@@ -1,4 +1,4 @@
-// Diagnostics — Solve with AI modal
+// Diagnostics — modal «Resolver con IA»
 
 import { FIX_CATALOG } from "./catalogs";
 
@@ -15,15 +15,15 @@ export function SolveWithAiModal({
       <div className="w-full max-w-lg rounded p-4"
         style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
         onClick={(e) => e.stopPropagation()}>
-        <div className="mb-2 text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>Solve with AI</div>
+        <div className="mb-2 text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>Resolver con IA</div>
         <div className="mb-3 text-[12px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
-          Describe the problem. Claude will be spawned with the current diagnostic snapshot ({eventsCount} recent events
-          {hasReport ? ", App health" : ""}, {Object.keys(FIX_CATALOG).length} available fixes).
+          Describe el problema. Se lanzará Claude con la foto actual del diagnóstico ({eventsCount} eventos recientes
+          {hasReport ? ", salud de la aplicación" : ""}, {Object.keys(FIX_CATALOG).length} arreglos disponibles).
         </div>
         <textarea
           value={problem}
           onChange={(e) => onProblemChange(e.target.value)}
-          placeholder="e.g. Qdrant fails to start, Claude session spawns then dies immediately..."
+          placeholder="p. ej.: Qdrant no arranca, la sesión de Claude se abre y se cierra al momento…"
           rows={5}
           className="w-full rounded p-2 text-[12.5px]"
           style={{ background: "var(--color-surface-1)", color: "var(--color-text)", border: "1px solid var(--color-border)", outline: "none", resize: "vertical" }}
@@ -39,12 +39,12 @@ export function SolveWithAiModal({
           <button type="button" onClick={onCancel} disabled={sending}
             className="rounded px-2.5 py-1 text-[12px] font-medium transition-colors disabled:opacity-50"
             style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}>
-            Cancel
+            Cancelar
           </button>
           <button type="button" onClick={onSend} disabled={sending}
             className="rounded px-3 py-1 text-[12px] font-medium transition-colors disabled:opacity-50"
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}>
-            {sending ? "Spawning..." : "Send to Claude"}
+            {sending ? "Lanzando…" : "Enviar a Claude"}
           </button>
         </div>
       </div>

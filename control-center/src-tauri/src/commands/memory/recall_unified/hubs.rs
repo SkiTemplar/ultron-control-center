@@ -226,9 +226,16 @@ pub fn compute_hubs(
     let mut injected: Vec<Vec<String>> = Vec::with_capacity(prompts.len());
     for p in &prompts {
         // Mismo camino que el hot path del hook: híbrido, sin cross-encoder.
-        let ids = super::engine::build_trace(&p.prompt, 8, Some(&p.project), false, true, false)
-            .map(|t| t.injected.into_iter().map(|e| e.canonical_id).collect())
-            .unwrap_or_default();
+        let ids = super::usage::build_trace_diagnostic(
+            &p.prompt,
+            8,
+            Some(&p.project),
+            false,
+            true,
+            false,
+        )
+        .map(|t| t.injected.into_iter().map(|e| e.canonical_id).collect())
+        .unwrap_or_default();
         injected.push(ids);
     }
 

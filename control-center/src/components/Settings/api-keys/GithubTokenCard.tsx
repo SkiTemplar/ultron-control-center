@@ -197,7 +197,7 @@ export function GithubTokenCard() {
             color: "var(--color-accent-text)",
           }}
         >
-          {saving ? "Guardando…" : "Save token"}
+          {saving ? "Guardando…" : "Guardar token"}
         </button>
       </div>
 

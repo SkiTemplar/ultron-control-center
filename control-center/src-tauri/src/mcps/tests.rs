@@ -4,43 +4,20 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use super::discovery::collect_plugin_mcps_from;
-use super::mutations_gen::PlanPing;
+use super::ping::PlanPing;
 use super::types_io::{
-    build_mcp_info, is_unknown_mcp, normalize_mcp_name, parse_installed_plugins,
+    build_mcp_info, is_unknown_mcp, normalize_mcp_name, parse_installed_plugins, real_command_line,
     select_enabled_plugin_paths, FallbackEntry, HealthDoc, InstalledPluginEntry,
     InstalledPluginsDoc, McpInfo, McpServerCfg,
 };
 
-/// Parse a top-level + project-scoped `~/.claude.json` blob the same way
-/// `collect_claude_json_mcps` does, but from an in-memory string so the
-/// test is hermetic (no dependency on the real home file).
+/// Parse a top-level + project-scoped `~/.claude.json` blob with the real
+/// `claude_json_sources_from_value` (hermetic: in-memory value, no home).
 fn collect_from_value(value: &serde_json::Value) -> Vec<(String, String, McpServerCfg)> {
-    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
-    if let Some(obj) = value.get("mcpServers").and_then(|v| v.as_object()) {
-        for (name, cfg_val) in obj.iter() {
-            if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
-                out.push(("user-claudejson".to_string(), name.clone(), cfg));
-            }
-        }
-    }
-    if let Some(projects) = value.get("projects").and_then(|v| v.as_object()) {
-        for (proj_path, proj_val) in projects.iter() {
-            let Some(servers) = proj_val.get("mcpServers").and_then(|v| v.as_object()) else {
-                continue;
-            };
-            let basename = std::path::Path::new(proj_path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or(proj_path.as_str());
-            let origin = format!("project:{}", basename);
-            for (name, cfg_val) in servers.iter() {
-                if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(cfg_val.clone()) {
-                    out.push((origin.clone(), name.clone(), cfg));
-                }
-            }
-        }
-    }
-    out
+    super::discovery::claude_json_sources_from_value(value)
+        .into_iter()
+        .map(|s| (s.origin, s.name, s.cfg))
+        .collect()
 }
 
 fn sample_claude_json() -> serde_json::Value {
@@ -82,10 +59,11 @@ fn parses_top_level_and_project_scoped_servers() {
     // 3 top-level + 1 (Dev) + 5 (System32) + 1 (skills) = 10 entries.
     assert_eq!(collected.len(), 10);
 
-    // Top-level entries carry the user-claudejson origin.
+    // Top-level entries are the real user scope (H14: antes "user-claudejson",
+    // que la pestaña trataba como solo lectura).
     let top: Vec<&String> = collected
         .iter()
-        .filter(|(o, _, _)| o == "user-claudejson")
+        .filter(|(o, _, _)| o == "user")
         .map(|(_, n, _)| n)
         .collect();
     assert_eq!(top.len(), 3);
@@ -177,6 +155,63 @@ fn unknown_flag_marks_unrecognised_servers() {
     assert!(is_unknown_mcp("imessage"));
     // github-pat is a user-specific alias, not the canonical "github".
     assert!(is_unknown_mcp("github-pat"));
+}
+
+fn strings(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn real_command_line_unwraps_cmd_c() {
+    // cmd /c npx ... → lo que se ejecuta de verdad, sin el envoltorio.
+    assert_eq!(
+        real_command_line(
+            "cmd",
+            &strings(&["/c", "npx", "-y", "@scope/server", "--mcp"])
+        ),
+        "npx -y @scope/server --mcp"
+    );
+    assert_eq!(
+        real_command_line(
+            "C:\\Windows\\System32\\cmd.exe",
+            &strings(&["/C", "node", "srv.js"])
+        ),
+        "node srv.js"
+    );
+    // Caso negativo: sin envoltorio se conserva el comando y todos los args.
+    assert_eq!(
+        real_command_line("node", &strings(&["tools/mcp.js", "--port", "3"])),
+        "node tools/mcp.js --port 3"
+    );
+    // cmd sin /c no es un envoltorio: se enseña tal cual.
+    assert_eq!(real_command_line("cmd", &strings(&["echo"])), "cmd echo");
+    // cmd /c sin nada detrás: al menos el comando.
+    assert_eq!(real_command_line("cmd", &strings(&["/c"])), "cmd");
+}
+
+#[test]
+fn generic_description_shows_real_command() {
+    let cfg: McpServerCfg = serde_json::from_value(serde_json::json!({
+        "command": "cmd",
+        "args": ["/c", "npx", "-y", "@colbymchenry/codegraph", "serve"]
+    }))
+    .unwrap();
+    let info = build_mcp_info(
+        "codegraph",
+        &cfg,
+        "user".to_string(),
+        None,
+        &HealthDoc {
+            checked_at: None,
+            results: BTreeMap::new(),
+        },
+        &BTreeMap::new(),
+    );
+    assert_eq!(
+        info.description,
+        "Servidor local (stdio): `npx -y @colbymchenry/codegraph serve`."
+    );
+    assert!(!info.description.contains("cmd /c"));
 }
 
 #[test]
@@ -438,10 +473,7 @@ fn un_servidor_deshabilitado_no_se_lanza_aunque_le_pidan_ping() {
         "disabled": true
     }))
     .expect("cfg valida");
-    assert_eq!(
-        super::mutations_gen::plan_de_ping(&cfg),
-        PlanPing::Deshabilitado
-    );
+    assert_eq!(super::ping::plan_de_ping(&cfg), PlanPing::Deshabilitado);
 }
 
 #[test]
@@ -455,7 +487,7 @@ fn un_servidor_habilitado_si_se_lanza() {
     }))
     .expect("cfg valida");
     assert_eq!(
-        super::mutations_gen::plan_de_ping(&cfg),
+        super::ping::plan_de_ping(&cfg),
         PlanPing::Lanzar(
             "npx".to_string(),
             vec!["-y".to_string(), "paquete-cualquiera".to_string()]
@@ -473,10 +505,7 @@ fn un_http_deshabilitado_tampoco_responde_que_si() {
         "disabled": true
     }))
     .expect("cfg valida");
-    assert_eq!(
-        super::mutations_gen::plan_de_ping(&cfg),
-        PlanPing::Deshabilitado
-    );
+    assert_eq!(super::ping::plan_de_ping(&cfg), PlanPing::Deshabilitado);
 }
 
 #[test]
@@ -487,8 +516,118 @@ fn stdio_sin_comando_no_tiene_plan_de_lanzar() {
         "type": "stdio"
     }))
     .expect("cfg valida");
+    assert_eq!(super::ping::plan_de_ping(&cfg), PlanPing::SinComando);
+}
+
+// ---------------------------------------------------------------------------
+// H14/H15 (2026-10-17): ámbito de usuario en ~/.claude.json, unión de fuentes
+// compartida por listado, «Test» y chequeo de salud, y validación al editar.
+// ---------------------------------------------------------------------------
+
+fn source(origin: &str, name: &str, command: &str) -> super::discovery::McpSource {
+    super::discovery::McpSource {
+        origin: origin.to_string(),
+        plugin: None,
+        name: name.to_string(),
+        cfg: serde_json::from_value(serde_json::json!({ "command": command })).unwrap(),
+        cwd: None,
+        requiere_aprobacion: false,
+    }
+}
+
+#[test]
+fn claude_json_top_level_is_user_scope_with_project_cwd() {
+    let srcs = super::discovery::claude_json_sources_from_value(&sample_claude_json());
+    let qdrant = srcs.iter().find(|s| s.name == "qdrant").expect("qdrant");
+    assert_eq!(qdrant.origin, "user");
+    assert!(qdrant.cwd.is_none());
+    let gemini = srcs.iter().find(|s| s.name == "gemini").expect("gemini");
+    assert_eq!(gemini.origin, "project:Dev");
     assert_eq!(
-        super::mutations_gen::plan_de_ping(&cfg),
-        PlanPing::SinComando
+        gemini.cwd.as_deref(),
+        Some(std::path::Path::new(r"C:\Users\Dev"))
     );
+}
+
+#[test]
+fn resolve_server_prefers_user_scope_and_misses_unknown() {
+    let srcs = vec![
+        source("settings", "x", "legacy"),
+        source("plugin:p", "x", "plugin"),
+        source("project:a", "x", "project"),
+        source("user", "x", "user"),
+    ];
+    let hit = super::discovery::resolve_server(&srcs, &[], "x").expect("hit");
+    assert_eq!(hit.origin, "user");
+    assert_eq!(hit.cfg.command.as_deref(), Some("user"));
+    // Caso negativo: un nombre que no está en ninguna fuente.
+    assert!(super::discovery::resolve_server(&srcs, &[], "nope").is_none());
+}
+
+#[test]
+fn resolve_server_applies_disabled_mcpjson_list() {
+    let srcs = vec![source("project:a", "x", "node")];
+    let hit = super::discovery::resolve_server(&srcs, &["x".to_string()], "x").unwrap();
+    assert!(hit.cfg.disabled);
+    assert_eq!(super::ping::plan_de_ping(&hit.cfg), PlanPing::Deshabilitado);
+}
+
+#[test]
+fn legacy_settings_origin_ranks_below_everything_real() {
+    use super::discovery::editability_rank;
+    assert!(editability_rank("user") < editability_rank("project:a"));
+    assert!(editability_rank("plugin:p") < editability_rank("settings"));
+    assert!(editability_rank("settings") < editability_rank("otra-cosa"));
+}
+
+#[test]
+fn cfg_with_non_string_env_value_still_parses() {
+    // Un valor no textual en `env` no debe hacer desaparecer la entrada.
+    let cfg: McpServerCfg = serde_json::from_value(serde_json::json!({
+        "command": "node", "env": {"PORT": 8080, "NAME": "x"}
+    }))
+    .expect("cfg");
+    assert_eq!(cfg.env.len(), 2);
+}
+
+#[test]
+fn edit_keeps_unchanged_non_allowlisted_command_but_not_a_new_one() {
+    use super::mutations_gen::validate_mcp_config_with;
+    let cfg = serde_json::json!({"command": "codegraph", "args": ["serve", "--mcp"]});
+    // Alta (sin comando de confianza): rechazado.
+    assert!(validate_mcp_config_with(&cfg, None).is_err());
+    // Edición con el mismo comando que ya tenía: permitido.
+    assert!(validate_mcp_config_with(&cfg, Some("codegraph")).is_ok());
+    // Edición que cambia el comando a otro fuera de la allowlist: rechazado.
+    assert!(validate_mcp_config_with(&cfg, Some("otro")).is_err());
+}
+
+#[test]
+fn cmd_c_wrapper_requires_allowlisted_launcher_and_no_metachars() {
+    use super::mutations_gen::validate_mcp_config_with;
+    let ok = serde_json::json!({"command": "cmd", "args": ["/c", "npx", "-y", "pkg"]});
+    assert!(validate_mcp_config_with(&ok, None).is_ok());
+    let bad_launcher = serde_json::json!({"command": "cmd", "args": ["/c", "powershell", "x"]});
+    assert!(validate_mcp_config_with(&bad_launcher, None).is_err());
+    let no_c = serde_json::json!({"command": "cmd", "args": ["/k", "npx"]});
+    assert!(validate_mcp_config_with(&no_c, None).is_err());
+    let chained = serde_json::json!({"command": "cmd", "args": ["/c", "npx", "pkg", "&", "calc"]});
+    assert!(validate_mcp_config_with(&chained, None).is_err());
+    // `cmd` no se cuela como «comando de confianza» al editar.
+    assert!(validate_mcp_config_with(&bad_launcher, Some("cmd")).is_err());
+}
+
+#[test]
+fn merge_edited_config_replaces_form_keys_and_keeps_the_rest() {
+    let existing = serde_json::json!({
+        "type": "stdio", "command": "cmd", "args": ["/c", "npx", "a"],
+        "env": {"TOKEN": "x"}, "timeout": 30000, "alwaysAllow": ["t"]
+    });
+    let edited = serde_json::json!({"type": "stdio", "command": "cmd", "args": ["/c", "npx", "b"]});
+    let merged = super::mutations_gen::merge_edited_config(&existing, &edited);
+    assert_eq!(merged["args"][2], "b");
+    assert_eq!(merged["timeout"], 30000);
+    assert_eq!(merged["alwaysAllow"][0], "t");
+    // El formulario quitó todas las variables: `env` desaparece.
+    assert!(merged.get("env").is_none());
 }

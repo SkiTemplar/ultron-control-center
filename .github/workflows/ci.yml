@@ -8,16 +8,19 @@ on:
   # Disparo manual (cat12): re-medir la duracion del job Rust con cache
   # caliente sin necesidad de un commit vacio (gh workflow run ci.yml).
   workflow_dispatch:
-  # v15.5.19paths-ignore on `docs/**` + `**/*.md` was a
-  # loophole — markdown-only PRs bypassed the personal-info leakage gate
-  #caught HIGH=1 in docs/CHANGELOG-POLICY.md after exactly
-  # that loophole let it merge). Now every push/PR runs the full gate
-  # matrix. The 3 jobs (cargo, typescript, python) gate themselves
-  # internally on changed-files via `paths` filters where it matters.
+  # v15.5.19: paths-ignore on `docs/**` + `**/*.md` was a loophole: markdown-only
+  # PRs bypassed the personal-info leakage gate (it caught HIGH=1 in
+  # docs/CHANGELOG-POLICY.md after that loophole let it merge). Every push/PR runs
+  # every job; there are no `paths` filters.
 
-# Cancel any in-flight run for the same branch/PR on force-push.
-# group uses head_ref (PR branch name) for PRs and ref (e.g. refs/heads/main)
-# for direct pushes so concurrent main pushes don't cancel each other.
+# Read-only by default: no job here publishes or writes to the repo.
+permissions:
+  contents: read
+
+# Cancel any in-flight run of the same branch/PR. group uses head_ref (PR branch
+# name) for PRs and ref (e.g. refs/heads/main) for direct pushes, so a new push to
+# main DOES cancel the previous run of main: only the last commit of a burst is
+# verified, which is what keeps the Actions minutes bounded.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -32,9 +35,9 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: Run version_propagate.py --check
@@ -50,11 +53,11 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0   # audit reads git ls-files; needs the tree
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: Run audit_personal_data.py
@@ -110,11 +113,14 @@ jobs:
           }
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
+      # Fixed version: with `stable`, a new clippy turns CI red without any change in
+      # the repo. Bump it together with the local toolchain (rustc --version).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: 1.99.1
           components: clippy
 
       - name: Cache cargo registry + build artifacts
@@ -133,7 +139,7 @@ jobs:
         # re-guarda tras "full match", ese veneno era permanente (run #29653454511
         # guardo 169MB parciales -> el success posterior recompilo 676 crates,
         # 511s). cache-on-failure sigue cubriendo fallos reales de clippy/test.
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: control-center/src-tauri
           cache-on-failure: true
@@ -154,7 +160,7 @@ jobs:
         # cuota); en un miss ambos jobs intentan guardar y el segundo recibe un
         # warning inocuo de "cache already exists", no es fallo.
         id: ort-dfbin
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           # Path REAL verificado contra el vendored dirs.rs de ort-sys y el disco
           # local: cache_dir() = %LOCALAPPDATA%\ort.pyke.io (PYKE_ROOT) y dfbin
@@ -207,8 +213,23 @@ jobs:
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
   cargo-test:
-    name: Rust (cargo test)
+    # 2026-11-02: tres jobs en paralelo para el check 12.5 (< 300 s). En uno solo, compilar y
+    # ejecutar las ~2.800 pruebas llegaba a 397 s; en dos, la mitad «resto» seguia en 328 s
+    # (~90 s de preparacion, 159 s de compilacion y 66 s de pruebas). Particion sin solapes:
+    # 915 sesiones + 756 memory/mascot + 1089 resto = 2760 en local. La parte «resto» conserva
+    # el nombre del job de siempre.
+    name: Rust (cargo test${{ matrix.part != 'resto' && format(' {0}', matrix.part) || '' }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: sesiones
+            args: "sesiones::"
+          - part: memoria
+            args: "-- memory:: mascot::"
+          - part: resto
+            args: "-- --skip sesiones:: --skip memory:: --skip mascot::"
     # 30: mismo razonamiento que cargo-clippy — frio ~25 min, caliente ~4 min.
     timeout-minutes: 30
     # CARGO_INCREMENTAL=0: mismo razonamiento que en cargo-clippy.
@@ -230,11 +251,13 @@ jobs:
           }
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       # Sin components: clippy — este job solo compila y ejecuta los tests.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
 
       - name: Cache cargo registry + build artifacts
         # shared-key cargo-test-profile ES la key del job Rust pre-split: el
@@ -244,7 +267,7 @@ jobs:
         # que en cargo-clippy — historia completa (veneno del run cancelado
         # #29653454511; y NO cablear cache-hit -> CARGO_NET_OFFLINE, roto en
         # run #28608208137) en el step homologo de cargo-clippy.
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: control-center/src-tauri
           cache-on-failure: true
@@ -256,7 +279,7 @@ jobs:
         # Historia completa (CI ROJO 2026-07-02, path PYKE_ROOT verificado,
         # key compartida entre jobs) en el step homologo de cargo-clippy.
         id: ort-dfbin
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/AppData/Local/ort.pyke.io/dfbin
           key: ort-dfbin-${{ runner.os }}-${{ hashFiles('control-center/src-tauri/Cargo.lock') }}
@@ -302,7 +325,7 @@ jobs:
         # test-link is gone. Trims the Rust wall toward the <300 s target without
         # losing any assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
         working-directory: control-center/src-tauri
-        run: cargo test --lib --profile test
+        run: cargo test --lib --profile test ${{ matrix.args }}
 
   typescript:
     name: TypeScript (tsc --noEmit)
@@ -323,10 +346,10 @@ jobs:
           }
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Set up Node 22
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           cache: npm
@@ -340,11 +363,45 @@ jobs:
         working-directory: control-center
         run: npx tsc --noEmit
 
-      - name: Unit tests (vitest)
-        # Previously tsc-only: the 29 vitest specs never ran in CI. Now they
-        # gate the merge like the Rust tests.
+  vitest:
+    # 2026-11-02: vitest salio del job de tsc y se parte en 3 shards. Con ~1.900 tests
+    # tardaba 395 s en un solo runner de Windows y era el camino critico del check 12.5
+    # (< 300 s). Cada shard instala por su cuenta (npm ci con cache, ~30 s).
+    name: Unit tests (vitest ${{ matrix.shard }}/3)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Exclude workspace from Windows Defender real-time scan
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction Stop
+            Write-Host "Defender exclusion added for workspace."
+          } catch {
+            Write-Host "Defender exclusion skipped (unsupported on this runner): $($_.Exception.Message)"
+          }
+
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: control-center/package-lock.json
+
+      - name: Install dependencies
         working-directory: control-center
-        run: npm test
+        run: npm ci
+
+      - name: Unit tests (vitest)
+        working-directory: control-center
+        run: npx vitest run --shard=${{ matrix.shard }}/3
 
   routing-dispatcher:
     name: Routing dispatcher loads (syntax + require chain)
@@ -361,9 +418,9 @@ jobs:
     # apuntando a un dir vacío hace el harness portable sin fixtures de skills.
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Set up Node 22
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
       - name: Dispatcher loads (syntax + require chain)
@@ -382,9 +439,24 @@ jobs:
           ULTRON_ROUTING_FIXTURES="${RUNNER_TEMP}/ultron-route-fixtures" node cockpit/skill-lazy/_accuracy_at3.js
 
   hook-selftests:
-    name: Hook & script selftests (hermetic)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 2026-11-02: delegate.selftest (188 s en el runner) va en su propio job; el resto conserva
+    # el nombre del job de siempre.
+    name: Hook & script selftests (hermetic${{ matrix.part == 'delegate' && ', delegate' || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: delegate
+            args: --filter scripts/delegate.selftest.mjs
+          - part: resto
+            args: --exclude scripts/delegate.selftest.mjs
+    # windows-latest (2026-09-28): los 62 selftests del manifiesto se verificaron con HOME limpio en
+    # Windows (stubs, rutas, powershell); en ubuntu no se han medido. El nombre del job no cambia
+    # para no romper checks obligatorios.
+    runs-on: windows-latest
+    # 25: delegate.selftest ya tarda mas de 2 min en local con carga (su tope son 300 s,
+    # manifiesto) y el runner no es mas rapido. La suma de la bateria no se ha medido en CI.
+    timeout-minutes: 25
     # (2026-08-10, higiene bloque 7) Estos selftests existían pero JAMÁS
     # corrían en CI — una regresión en los hooks de memoria/captura pasaba en
     # silencio. Solo los HERMÉTICOS (verificado con HOME falso en limpio):
@@ -393,33 +465,21 @@ jobs:
     # por entorno, no por regresión.
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Set up Node 22
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
-      - name: Script selftests (memoria / captura / lifecycle)
-        run: |
-          node scripts/memory-bench.selftest.mjs
-          node scripts/memory-gc.selftest.mjs
-          node scripts/posttoolfail-capture.selftest.mjs
-          node scripts/stop-compress-session.selftest.mjs
-          node scripts/subagent-harvest.selftest.mjs
-          node scripts/subagent-lifecycle.selftest.mjs
-          node hooks/scripts/kanban-update-reminder.selftest.mjs
-          node hooks/scripts/deny-secrets.selftest.mjs
-          node hooks/scripts/system-turn.selftest.mjs
-          node hooks/scripts/session-end-bitacora.selftest.mjs
-          node hooks/scripts/tests/test-session-summarize-previous.js
-          node hooks/scripts/tests/test-last-session.js
-          node scripts/package-cowork-plugin.selftest.mjs
-      - name: Hook selftests (resume - frescura + calidad)
-        run: |
-          node hooks/scripts/tests/test-freshness-gate.js
-          node hooks/scripts/tests/test-resume-quality.js
-          node hooks/scripts/tests/test-orchestrate-recovery.js
-          node hooks/scripts/tests/test-session-digest.js
-          node hooks/scripts/tests/test-session-summarize-previous.js
+      # Todos los selftests de hooks/ y scripts/ salen de scripts/selftests.manifest.json
+      # (2026-09-28): antes se listaban a mano y los nuevos entraban sin que nadie los
+      # ejecutara. `run-selftests.mjs --ci` falla si hay un selftest sin clasificar en el
+      # manifiesto y ejecuta los hermeticos (ci:true); los que necesitan el ~/.ultron
+      # real, el corpus humano o el sidecar compilado son ci:false con su motivo.
+      # 2026-11-02: en paralelo (--jobs 4, los vCPU del runner) y con un HOME limpio por
+      # selftest (--fake-home) para que no se pisen. En serie el job tardaba 358 s y era
+      # el camino critico del check 12.5 (< 300 s) junto a vitest.
+      - name: Selftests de hooks y scripts (manifiesto unico)
+        run: node scripts/run-selftests.mjs --ci --fake-home --jobs 4 ${{ matrix.args }}
       # Detector de texto IA: cobertura patron a patron y separacion sobre
       # documentos completos. Ambos harness existian desde el 2026-08-15 y no
       # los ejecutaba nadie, asi que una regresion del catalogo entraba sin
@@ -427,8 +487,11 @@ jobs:
       # (escritura personal): en CI se salta con un aviso explicito en vez de
       # dar un verde que no ha medido nada.
       - name: Detector texto-IA (cobertura del catalogo)
+        if: matrix.part == 'resto'
         run: node scripts/catalog-coverage.js
       - name: Detector texto-IA (banco de documentos, si hay corpus humano)
+        if: matrix.part == 'resto'
+        shell: bash
         run: |
           if [ -n "$(ls -A scripts/fixtures/ai-text-docs/humano/*.txt 2>/dev/null)" ]; then
             node scripts/detector-bench.js
@@ -436,10 +499,50 @@ jobs:
             echo "SKIP: sin corpus humano versionado (control local del usuario)"
           fi
 
-  # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
-  # removed during the 2026-06-04 cleanup. The 15.x Python test suite that
-  # lived in `tests/` has been archived to `_legacy_archive/tests-python-15x/`
-  # and is no longer part of the runtime, so the job had no `tests/` directory
-  # to run and would fail on every push. The two remaining Python gates that
-  # still matter — version-drift and personal-info-leak — run as their own
-  # jobs above and are unaffected.
+  # mascota-mods-3 (2026-10-23): los tests de los 18 mods (`claude plugin test`)
+  # y del MCP de escritorio no corrian en ningun gate; el rojo de ultron-permisos
+  # paso desapercibido. `claude plugin test` no necesita sesion iniciada ni el
+  # ~/.claude del usuario (verificado con HOME limpio y sin CLAUDE_*/ANTHROPIC_*),
+  # asi que basta con instalar la CLI desde npm con la version FIJADA: el motor de
+  # mods cambia entre versiones y un `latest` haria el gate no reproducible.
+  # Subir CLAUDE_CODE_VERSION a mano cuando se actualice la CLI local.
+  mods-tests:
+    name: Mods de Claude Code + MCP de escritorio (claude plugin test)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      CLAUDE_CODE_VERSION: "2.1.309"
+      DISABLE_AUTOUPDATER: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Set up Node 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+      - name: Install Claude Code CLI (version fijada)
+        run: npm install -g "@anthropic-ai/claude-code@$env:CLAUDE_CODE_VERSION"
+      - name: Tests de mods y del MCP de escritorio
+        run: node scripts/run-mod-tests.mjs
+
+  # tests/ (pytest) quedo versionado pero sin job desde la limpieza del
+  # 2026-06-04; el comentario que lo daba por archivado era falso. Vuelve
+  # (2026-10-08) con solo pytest + pyyaml: los tests cubren scan_projects,
+  # audit_personal_data, la superficie estatica de embed_skills y que
+  # templates/settings-hooks.json solo cite scripts versionados. No necesitan
+  # Qdrant ni modelos (verificado con un entorno aislado: 61 passed).
+  python-tests:
+    name: Python tests (pytest tests/)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest + pyyaml (versions from uv.lock)
+        run: python -m pip install pytest==9.0.3 pyyaml==6.0.3
+      - name: Run pytest
+        run: python -m pytest tests -q

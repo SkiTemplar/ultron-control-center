@@ -3,7 +3,13 @@
 // claves de email de RESEARCH_KEYS estan marcadas como no secretas.
 
 import { describe, expect, it } from "vitest";
-import { EMAIL_ENV_VARS, PROVIDER_KEYS, RESEARCH_KEYS } from "./key-catalog";
+import {
+  EMAIL_ENV_VARS,
+  PROVIDER_KEYS,
+  RESEARCH_KEYS,
+  SUBSCRIPTION_CLIS,
+  keysOfGroup,
+} from "./key-catalog";
 import type { ProviderKeyDef, ResearchKeyDef } from "./types";
 
 function expectValidTutorial(def: ProviderKeyDef) {
@@ -34,6 +40,58 @@ describe("PROVIDER_KEYS", () => {
     const envVars = PROVIDER_KEYS.map((d) => d.envVar);
     expect(new Set(envVars).size).toBe(envVars.length);
   });
+
+  it("incluye las variables del contrato del delegador (§5)", () => {
+    const envVars = new Set(PROVIDER_KEYS.map((d) => d.envVar));
+    for (const v of [
+      "CEREBRAS_API_KEY",
+      "MISTRAL_API_KEY",
+      "NVIDIA_NIM_API_KEY",
+      "GITHUB_MODELS_TOKEN",
+      "TOGETHER_API_KEY",
+      "FIREWORKS_API_KEY",
+      "XAI_API_KEY",
+      "SAMBANOVA_API_KEY",
+      "HF_TOKEN",
+      "MOONSHOT_API_KEY",
+      "DASHSCOPE_API_KEY",
+      "ZAI_API_KEY",
+      "COHERE_API_KEY",
+      "OPENROUTER_API_KEY",
+      "DEEPSEEK_API_KEY",
+    ]) {
+      expect(envVars.has(v)).toBe(true);
+    }
+  });
+
+  it("cada clave de provider es de pago o gratuita, nunca de otro grupo", () => {
+    for (const def of PROVIDER_KEYS) {
+      expect(["paid", "free"]).toContain(def.group);
+    }
+    expect(keysOfGroup("paid").length + keysOfGroup("free").length).toBe(PROVIDER_KEYS.length);
+  });
+
+  it("ninguna clave fija usa el prefijo reservado de los personalizados", () => {
+    for (const def of [...PROVIDER_KEYS, ...RESEARCH_KEYS]) {
+      expect(def.envVar.startsWith("ULTRON_KEY_")).toBe(false);
+    }
+  });
+
+  it("DeepSeek documenta la delegación con OpenCode y sus dos modelos", () => {
+    const ds = PROVIDER_KEYS.find((d) => d.envVar === "DEEPSEEK_API_KEY");
+    expect(ds?.tutorial.usedFor).toMatch(/OpenCode/);
+    expect(ds?.tutorial.usedFor).toMatch(/deepseek-flash/);
+    expect(ds?.tutorial.usedFor).toMatch(/deepseek-v4-pro/);
+  });
+});
+
+describe("SUBSCRIPTION_CLIS", () => {
+  it("son Codex, Antigravity y claude -p, con id de motor y docsUrl https", () => {
+    expect(SUBSCRIPTION_CLIS.map((c) => c.engineId)).toEqual(["codex", "agy", "claude-p"]);
+    for (const cli of SUBSCRIPTION_CLIS) {
+      expect(cli.docsUrl.startsWith("https://")).toBe(true);
+    }
+  });
 });
 
 describe("RESEARCH_KEYS", () => {
@@ -45,6 +103,10 @@ describe("RESEARCH_KEYS", () => {
     for (const def of RESEARCH_KEYS) {
       expectValidTutorial(def);
     }
+  });
+
+  it("todas pertenecen al grupo research", () => {
+    expect(keysOfGroup("research")).toEqual(RESEARCH_KEYS);
   });
 
   it("las claves de email estan marcadas isEmail y en EMAIL_ENV_VARS", () => {

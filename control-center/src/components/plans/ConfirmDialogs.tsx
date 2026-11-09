@@ -28,14 +28,14 @@ export function DeleteConfirmDialog({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-[14px] font-semibold">Delete plan</h3>
+        <h3 className="text-[14px] font-semibold">Borrar plan</h3>
         <p
           className="mt-2 text-[12.5px] leading-relaxed"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Drop <b>{plan.title || plan.id}</b> from
-          PLANS.json? The change is atomic (tmp+rename). The spec on
-          disk is left untouched.
+          ¿Quitar <b>{plan.title || plan.id}</b> de
+          PLANS.json? El cambio es atómico (tmp+rename). La spec en
+          disco no se toca.
         </p>
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
@@ -49,7 +49,7 @@ export function DeleteConfirmDialog({
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -61,7 +61,7 @@ export function DeleteConfirmDialog({
               color: "#fff",
             }}
           >
-            {busy ? "Deleting..." : "Delete"}
+            {busy ? "Borrando…" : "Borrar"}
           </button>
         </div>
       </div>
@@ -94,14 +94,14 @@ export function ArchiveConfirmDialog({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-[14px] font-semibold">Archive resolved</h3>
+        <h3 className="text-[14px] font-semibold">Archivar resueltos</h3>
         <p
           className="mt-2 text-[12.5px] leading-relaxed"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Moves the {resolvedCount} plans with status="resolved" to
-          plans/_archive/resolved-YYYY-MM.json and removes them from PLANS.json.
-          They are kept on disk — not deleted. Atomic (tmp+rename).
+          Mueve los {resolvedCount} planes con status="resolved" a
+          plans/_archive/resolved-YYYY-MM.json y los quita de PLANS.json.
+          Se conservan en disco, no se borran. Atómico (tmp+rename).
         </p>
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
@@ -115,7 +115,7 @@ export function ArchiveConfirmDialog({
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -127,7 +127,7 @@ export function ArchiveConfirmDialog({
               color: "#fff",
             }}
           >
-            {busy ? "Archiving..." : `Archive ${resolvedCount}`}
+            {busy ? "Archivando…" : `Archivar ${resolvedCount}`}
           </button>
         </div>
       </div>

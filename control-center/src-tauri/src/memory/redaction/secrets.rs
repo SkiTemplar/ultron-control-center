@@ -5,14 +5,31 @@
 //! `key=value` assignments, `Bearer`/`Token` headers and PEM private-key blocks.
 //! It errs toward NOT flagging ambiguous text (low false-positive bias): a
 //! recognised prefix must be followed by a sufficiently long token tail.
+//!
+//! A word is not a single token: `NOMBRE_TOKEN=valor`, compact JSON
+//! (`{"token":"valor","k":"ghp_..."}`), query strings and URLs with credentials
+//! carry several fields without whitespace. Hasta la auditoría 2026-11-01 solo se
+//! miraba el primer `=` y la primera racha de la palabra, y un PAT de GitHub con
+//! nombre compuesto delante llegó en claro a `memory_candidates` y
+//! `memory_events`.
 
 use crate::memory::model::Sensitivity;
+
+#[path = "secret_values.rs"]
+mod values;
+use values::{looks_generated, symbol_password, value_looks_secret, value_offset, value_span_len};
 
 /// Class of secret detected in free text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecretKind {
     AnthropicKey,
     OpenAiKey,
+    GroqKey,
+    XaiKey,
+    HuggingFaceToken,
+    SupabaseToken,
+    StripeKey,
+    NpmToken,
     GithubToken,
     GoogleApiKey,
     AwsAccessKey,
@@ -32,6 +49,12 @@ impl SecretKind {
         match self {
             Self::AnthropicKey => "anthropic_key",
             Self::OpenAiKey => "openai_key",
+            Self::GroqKey => "groq_key",
+            Self::XaiKey => "xai_key",
+            Self::HuggingFaceToken => "huggingface_token",
+            Self::SupabaseToken => "supabase_token",
+            Self::StripeKey => "stripe_key",
+            Self::NpmToken => "npm_token",
             Self::GithubToken => "github_token",
             Self::GoogleApiKey => "google_api_key",
             Self::AwsAccessKey => "aws_access_key",
@@ -71,6 +94,13 @@ fn classify_token(tok: &str) -> Option<SecretKind> {
     const RULES: &[(&str, SecretKind, usize)] = &[
         ("sk-ant-", SecretKind::AnthropicKey, 20),
         ("sk-", SecretKind::OpenAiKey, 16),
+        ("gsk_", SecretKind::GroqKey, 24),
+        ("xai-", SecretKind::XaiKey, 24),
+        ("hf_", SecretKind::HuggingFaceToken, 24),
+        ("sbp_", SecretKind::SupabaseToken, 24),
+        ("sk_live_", SecretKind::StripeKey, 24),
+        ("rk_live_", SecretKind::StripeKey, 24),
+        ("npm_", SecretKind::NpmToken, 24),
         ("github_pat_", SecretKind::GithubToken, 22),
         ("ghp_", SecretKind::GithubToken, 20),
         ("gho_", SecretKind::GithubToken, 20),
@@ -94,6 +124,25 @@ fn classify_token(tok: &str) -> Option<SecretKind> {
     }
     None
 }
+
+/// Sufijos de un nombre compuesto que lleva un secreto (`GITHUB_TOKEN`,
+/// `ANTHROPIC_API_KEY`, `DB_PASSWORD`). `_key` a secas queda fuera a propósito:
+/// `SORT_KEY` o `PRIMARY_KEY` son vocabulario normal.
+const SECRET_NAME_SUFFIXES: &[&str] = &[
+    "_token",
+    "_api_key",
+    "_apikey",
+    "_secret",
+    "_secret_key",
+    "_access_key",
+    "_private_key",
+    "_password",
+    "_passwd",
+    "_pwd",
+    "_pat",
+    "_credential",
+    "_credentials",
+];
 
 /// Is `name` (the left side of `name=value`) a known secret-bearing key?
 fn is_secret_key_name(name: &str) -> bool {
@@ -120,21 +169,180 @@ fn is_secret_key_name(name: &str) -> bool {
             | "authorization"
             | "private_key"
             | "secret_key"
-    )
+            | "contraseña"
+            | "contrasena"
+    ) || cleaned.starts_with("ultron_key_")
+        || SECRET_NAME_SUFFIXES.iter().any(|s| cleaned.ends_with(s))
 }
 
-/// A value looks like a real secret (not a placeholder/empty) if it has a
-/// non-trivial token tail and is not an obvious placeholder.
-fn value_looks_secret(value: &str) -> bool {
-    let run = token_run_len(value);
-    if run < 8 {
-        return false;
+/// Asignaciones `nombre=valor` y `nombre:valor` dentro de una palabra, en
+/// cualquier posición: `GITHUB_TOKEN=x`, `{"a":1,"token":"x"}`, `?api_key=x&b=1`.
+fn detect_assignments(word: &str, word_start: usize) -> Vec<SecretHit> {
+    let mut hits = Vec::new();
+    let mut consumed = 0usize;
+    for (sep, b) in word.bytes().enumerate() {
+        if (b != b'=' && b != b':') || sep < consumed {
+            continue;
+        }
+        let left = word[..sep].trim_end_matches(['"', '\'', '\\', '`']);
+        // Por caracteres: `contraseña=` tiene una letra no ASCII en el nombre.
+        let name_len: usize = left
+            .chars()
+            .rev()
+            .take_while(|&c| c == '-' || c == '_' || c.is_alphanumeric())
+            .map(char::len_utf8)
+            .sum();
+        if !is_secret_key_name(&left[left.len() - name_len..]) {
+            continue;
+        }
+        let Some(voff) = value_offset(&word[sep + 1..]) else {
+            continue;
+        };
+        let vstart = sep + 1 + voff;
+        let value = &word[vstart..];
+        if !value_looks_secret(value) {
+            continue;
+        }
+        let span = value_span_len(value);
+        let run = token_run_len(value);
+        hits.push(SecretHit {
+            kind: classify_token(&value[..run]).unwrap_or(SecretKind::AssignedSecret),
+            start: word_start + vstart,
+            end: word_start + vstart + span,
+        });
+        consumed = vstart + span;
     }
-    let lower = value[..run].to_ascii_lowercase();
-    !matches!(
-        lower.as_str(),
-        "changeme" | "your_token" | "your_api_key" | "placeholder" | "redacted" | "xxxxxxxx"
-    )
+    hits
+}
+
+/// Contraseña en la autoridad de una URL: `https://usuario:valor@host/ruta`.
+fn detect_url_credential(word: &str, word_start: usize) -> Option<SecretHit> {
+    let authority_start = word.find("://")? + 3;
+    let tail = &word[authority_start..];
+    let authority = &tail[..tail.find(['/', '?', '#']).unwrap_or(tail.len())];
+    let at = authority.rfind('@')?;
+    let colon = authority[..at].find(':')?;
+    let password = &authority[colon + 1..at];
+    if password.len() < 6 || password.starts_with(['$', '%', '{', '<', '[']) {
+        return None;
+    }
+    let start = word_start + authority_start + colon + 1;
+    Some(SecretHit {
+        kind: classify_token(password).unwrap_or(SecretKind::AssignedSecret),
+        start,
+        end: start + password.len(),
+    })
+}
+
+/// Rachas de token de la palabra con un prefijo conocido. La primera se clasifica
+/// como siempre; las siguientes (`NOMBRE=ghp_...`, `/ruta/sk-...`) exigen además
+/// forma de valor generado, porque en rutas y URLs abundan los nombres de paquete.
+fn detect_bare_tokens(word: &str, word_start: usize) -> Vec<SecretHit> {
+    let mut hits = Vec::new();
+    let mut offset = 0usize;
+    let mut is_first = true;
+    while offset < word.len() {
+        offset += word[offset..]
+            .bytes()
+            .take_while(|&b| !is_token_char(b))
+            .count();
+        let run = token_run_len(&word[offset..]);
+        if run == 0 {
+            break;
+        }
+        let tok = &word[offset..offset + run];
+        if let Some(kind) = classify_token(tok).filter(|_| is_first || looks_generated(tok)) {
+            hits.push(SecretHit {
+                kind,
+                start: word_start + offset,
+                end: word_start + offset + run,
+            });
+        }
+        is_first = false;
+        offset += run;
+    }
+    hits
+}
+
+/// Tipo de cabecera si `prev` es `Bearer` o `Token`. `Bearer` también vale al final
+/// de un fragmento pegado (`"authorization":"Bearer valor"`).
+fn header_kind(prev: &str) -> Option<SecretKind> {
+    if prev == "Token" {
+        return Some(SecretKind::TokenHeader);
+    }
+    let head = prev.strip_suffix("Bearer")?;
+    let glued = head.chars().last().is_some_and(char::is_alphanumeric);
+    (!glued).then_some(SecretKind::BearerHeader)
+}
+
+/// Valor de una cabecera `Bearer`/`Token`, incluido el de forma JWT con puntos.
+fn header_hit(prev: Option<&str>, word: &str, word_start: usize) -> Option<SecretHit> {
+    let kind = header_kind(prev?)?;
+    let dotted = word
+        .bytes()
+        .take_while(|&b| is_token_char(b) || b == b'.')
+        .count();
+    let span = token_run_len(word).max(dotted);
+    (span >= 8).then_some(SecretHit {
+        kind,
+        start: word_start,
+        end: word_start + span,
+    })
+}
+
+/// Todas las coincidencias de una palabra, sin solapes. Manda la URL, que corta el
+/// valor en la `@` (`x-access-token:valor@host`); después las asignaciones, que dan
+/// el tramo entero del valor, y por último la clasificación por prefijo.
+fn detect_in_word(word: &str, word_start: usize) -> Vec<SecretHit> {
+    let mut hits: Vec<SecretHit> = detect_url_credential(word, word_start)
+        .into_iter()
+        .collect();
+    let found = [
+        detect_assignments(word, word_start),
+        detect_bare_tokens(word, word_start),
+    ];
+    for h in found.into_iter().flatten() {
+        if !hits.iter().any(|e| h.start < e.end && e.start < h.end) {
+            hits.push(h);
+        }
+    }
+    hits
+}
+
+/// Bloques PEM de clave privada (multilínea), cada uno hasta el final de la línea de
+/// su `END`. Un `fullchain.pem` lleva certificados delante de la clave y un fichero
+/// puede llevar varias claves: se mira la etiqueta de cada `BEGIN`. Un certificado es
+/// público y no se redacta.
+fn private_key_blocks(text: &str) -> Vec<SecretHit> {
+    const BEGIN: &str = "-----BEGIN ";
+    let mut hits = Vec::new();
+    let mut from = 0usize;
+    while let Some(rel) = text[from..].find(BEGIN) {
+        let begin = from + rel;
+        let after_begin = begin + BEGIN.len();
+        let tail = &text[after_begin..];
+        let label = &tail[..tail.find("-----").unwrap_or(tail.len())];
+        let label = label.lines().next().unwrap_or(label);
+        // Un bloque ajeno sin `END` no puede saltarse la clave que venga detrás.
+        from = after_begin;
+        if !label.contains("PRIVATE KEY") {
+            continue;
+        }
+        let end = match text[begin..].find("-----END ") {
+            Some(rel_end) => {
+                let after = begin + rel_end;
+                text[after..].find('\n').map_or(text.len(), |nl| after + nl)
+            }
+            None => text.len(),
+        };
+        hits.push(SecretHit {
+            kind: SecretKind::PrivateKeyBlock,
+            start: begin,
+            end,
+        });
+        from = end;
+    }
+    hits
 }
 
 /// Pass 3 (1.6): a labeled secret in PROSE, e.g. "la clave es Patata2024" or
@@ -155,7 +363,7 @@ fn detect_prose_secrets(text: &str) -> Vec<SecretHit> {
         "token",
         "passphrase",
     ];
-    const CONNECTOR: &[&str] = &["es", "son", "era", "=", ":"];
+    const CONNECTOR: &[&str] = &["es", "son", "era"];
     let norm = |w: &str| {
         w.trim_matches(|c: char| !c.is_alphanumeric())
             .to_lowercase()
@@ -177,9 +385,14 @@ fn detect_prose_secrets(text: &str) -> Vec<SecretHit> {
     let mut hits = Vec::new();
     let mut w = 0usize;
     while w < words.len() {
-        if KW.contains(&norm(words[w].0).as_str()) {
+        let keyword = norm(words[w].0);
+        if KW.contains(&keyword.as_str()) || is_secret_key_name(&keyword) {
             let mut j = w + 1;
-            if j < words.len() && CONNECTOR.contains(&norm(words[j].0).as_str()) {
+            // `norm` deja en vacío un `=` o `:` suelto: se comparan en crudo.
+            if j < words.len()
+                && (CONNECTOR.contains(&norm(words[j].0).as_str())
+                    || matches!(words[j].0, "=" | ":"))
+            {
                 j += 1;
             }
             if j < words.len() {
@@ -189,12 +402,14 @@ fn detect_prose_secrets(text: &str) -> Vec<SecretHit> {
                 let val = &vw[lead..lead + run];
                 let has_digit = val.bytes().any(|b| b.is_ascii_digit());
                 let has_alpha = val.bytes().any(|b| b.is_ascii_alphabetic());
-                if run >= 6 && has_digit && has_alpha {
+                let span = value_span_len(&vw[lead..]);
+                let looks_mixed = run >= 6 && has_digit && has_alpha;
+                if looks_mixed || symbol_password(&vw[lead..lead + span]) {
                     let start = vs + lead;
                     hits.push(SecretHit {
                         kind: SecretKind::AssignedSecret,
                         start,
-                        end: start + run,
+                        end: start + span.max(run),
                     });
                     w = j + 1;
                     continue;
@@ -210,28 +425,10 @@ fn detect_prose_secrets(text: &str) -> Vec<SecretHit> {
 /// non-overlapping (earlier/longer match wins).
 #[must_use]
 pub fn detect_secrets(text: &str) -> Vec<SecretHit> {
-    let mut hits: Vec<SecretHit> = Vec::new();
     let bytes = text.as_bytes();
 
     // Pass 1: PEM private-key blocks (multi-line) take precedence.
-    if let Some(begin) = text.find("-----BEGIN ") {
-        if text[begin..].contains("PRIVATE KEY") {
-            // Extend to the end of the matching END marker line, else end of text.
-            let end = match text[begin..].find("-----END ") {
-                Some(rel) => {
-                    let after = begin + rel;
-
-                    text[after..].find('\n').map_or(text.len(), |nl| after + nl)
-                }
-                None => text.len(),
-            };
-            hits.push(SecretHit {
-                kind: SecretKind::PrivateKeyBlock,
-                start: begin,
-                end,
-            });
-        }
-    }
+    let mut hits: Vec<SecretHit> = private_key_blocks(text);
 
     // Pass 2: word-by-word scan for tokens, headers and assignments.
     let mut i = 0usize;
@@ -247,85 +444,18 @@ pub fn detect_secrets(text: &str) -> Vec<SecretHit> {
         while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
             i += 1;
         }
-        let word_end = i;
-        let word = &text[word_start..word_end];
+        let word = &text[word_start..i];
 
         // Skip if already covered by an earlier hit (e.g. inside a PEM block).
         let covered = hits
             .iter()
             .any(|h| word_start >= h.start && word_start < h.end);
-        if covered {
-            prev_word = Some(word);
-            continue;
-        }
-
-        // (a) Header value: previous word was Bearer/Token.
-        if let Some(prev) = prev_word {
-            let header_kind = match prev {
-                "Bearer" => Some(SecretKind::BearerHeader),
-                "Token" => Some(SecretKind::TokenHeader),
-                _ => None,
-            };
-            if let Some(kind) = header_kind {
-                let run = token_run_len(word);
-                // Allow JWT-style dotted values too: extend over '.' separators.
-                let dotted = word
-                    .bytes()
-                    .take_while(|&b| is_token_char(b) || b == b'.')
-                    .count();
-                let span = run.max(dotted);
-                if span >= 8 {
-                    hits.push(SecretHit {
-                        kind,
-                        start: word_start,
-                        end: word_start + span,
-                    });
-                    prev_word = Some(word);
-                    continue;
-                }
+        if !covered {
+            match header_hit(prev_word, word, word_start) {
+                Some(hit) => hits.push(hit),
+                None => hits.extend(detect_in_word(word, word_start)),
             }
         }
-
-        // (b) Assignment `name=value` (also handles surrounding quotes on value).
-        if let Some(eq) = word.find('=') {
-            let (name, rest) = word.split_at(eq);
-            let value_raw = &rest[1..]; // skip '='
-            if is_secret_key_name(name) {
-                // Locate the value's leading token-run, skipping an opening quote.
-                let voff = value_raw
-                    .find(|c: char| c.is_ascii_alphanumeric())
-                    .unwrap_or(0);
-                let value = &value_raw[voff..];
-                if value_looks_secret(value) {
-                    let vstart = word_start + name.len() + 1 + voff;
-                    let run = token_run_len(value);
-                    let kind = classify_token(value).unwrap_or(SecretKind::AssignedSecret);
-                    hits.push(SecretHit {
-                        kind,
-                        start: vstart,
-                        end: vstart + run,
-                    });
-                    prev_word = Some(word);
-                    continue;
-                }
-            }
-        }
-
-        // (c) Bare token: trim leading non-token chars (quotes), classify the run.
-        let lead_skip = word.bytes().take_while(|&b| !is_token_char(b)).count();
-        let inner = &word[lead_skip..];
-        let run = token_run_len(inner);
-        if run > 0 {
-            if let Some(kind) = classify_token(&inner[..run]) {
-                let start = word_start + lead_skip;
-                hits.push(SecretHit {
-                    kind,
-                    start,
-                    end: start + run,
-                });
-            }
-        }
-
         prev_word = Some(word);
     }
 
@@ -393,6 +523,11 @@ pub fn redact_in_place(field: &mut Option<String>) -> bool {
     }
     false
 }
+
+// Formas sin espacios (asignaciones con nombre compuesto, JSON compacto, URL).
+#[cfg(test)]
+#[path = "secrets_tests.rs"]
+mod compound_tests;
 
 #[cfg(test)]
 mod tests {
@@ -520,6 +655,46 @@ mod tests {
         let hits = detect_secrets(t);
         assert_eq!(hits.len(), 2);
         assert!(hits[0].start < hits[1].start);
+    }
+
+    /// Prefijos de proveedores habituales. Las claves se montan en tiempo de
+    /// ejecución para que el fuente no contenga una credencial literal.
+    #[test]
+    fn detects_common_provider_prefixes() {
+        let tail = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+        let cases = [
+            ("gsk_", SecretKind::GroqKey),
+            ("sk-ant-api03-", SecretKind::AnthropicKey),
+            ("sk-proj-", SecretKind::OpenAiKey),
+            ("AIzaSy", SecretKind::GoogleApiKey),
+            ("ghp_", SecretKind::GithubToken),
+            ("github_pat_11", SecretKind::GithubToken),
+            ("sbp_", SecretKind::SupabaseToken),
+            ("hf_", SecretKind::HuggingFaceToken),
+            ("xai-", SecretKind::XaiKey),
+            ("sk_live_", SecretKind::StripeKey),
+            ("rk_live_", SecretKind::StripeKey),
+            ("npm_", SecretKind::NpmToken),
+        ];
+        for (prefix, kind) in cases {
+            let key = format!("{prefix}{tail}");
+            let text = format!("401 invalid key {key} (retry)");
+            let hits = detect_secrets(&text);
+            assert_eq!(hits.len(), 1, "{prefix}: {hits:?}");
+            assert_eq!(hits[0].kind, kind, "{prefix}");
+            let out = redact(&text);
+            assert!(
+                !out.contains(&key[..prefix.len() + 4]),
+                "{prefix} escapa: {out}"
+            );
+            assert!(out.ends_with(" (retry)"), "{out}");
+        }
+    }
+
+    #[test]
+    fn bare_new_prefixes_without_body_are_not_secrets() {
+        assert!(!contains_secret("gsk_ sbp_ hf_ xai- npm_ prefijos sueltos"));
+        assert!(!contains_secret("usa gsk_short o hf_token en la doc"));
     }
 
     #[test]

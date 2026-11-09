@@ -1,7 +1,7 @@
 // Agent usage stats strip — pinned above the agent grid.
 //
 // Shows aggregated invocation counts from subagent-harvest.jsonl via the
-// agent_usage_stats Tauri command. Gemela visual de DelegationsStrip.
+// agent_usage_stats Tauri command.
 //
 // HONESTY (mandamiento 13): generic orchestration wrappers
 // (workflow-subagent, general-purpose, unknown) are NOT real specialists —
@@ -40,10 +40,10 @@ function ageFromIso(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "–";
   const s = ms / 1000;
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 60) return "ahora mismo";
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+  return `hace ${Math.floor(s / 86400)} d`;
 }
 
 interface UsageCardProps {
@@ -82,9 +82,9 @@ function UsageCard({ entry, dimmed }: UsageCardProps) {
         className="flex items-center gap-2 text-[10px]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        <span title="Total chars output">{fmtChars(entry.chars)} chars</span>
+        <span title="Caracteres de salida en total">{fmtChars(entry.chars)} caracteres</span>
         <span aria-hidden>·</span>
-        <span title="Last finished (SubagentStop)">{ageFromIso(entry.lastTs)}</span>
+        <span title="Último fin (SubagentStop)">{ageFromIso(entry.lastTs)}</span>
       </div>
       {entry.topLabels.length > 0 && (
         <div className="flex flex-wrap gap-1">
@@ -96,7 +96,7 @@ function UsageCard({ entry, dimmed }: UsageCardProps) {
                 background: "var(--color-surface-3)",
                 color: "var(--color-text-tertiary)",
               }}
-              title={`${lc.n} calls with label "${lc.label}"`}
+              title={`${lc.n} llamadas con la etiqueta «${lc.label}»`}
             >
               {lc.label}
             </span>
@@ -107,7 +107,7 @@ function UsageCard({ entry, dimmed }: UsageCardProps) {
   );
 }
 
-export function AgentUsageStrip({ usage, scopeLabel = "all projects" }: AgentUsageStripProps) {
+export function AgentUsageStrip({ usage, scopeLabel = "todos los proyectos" }: AgentUsageStripProps) {
   const [showAllSpecialists, setShowAllSpecialists] = useState(false);
   const [showGenerics, setShowGenerics] = useState(false);
 
@@ -129,7 +129,7 @@ export function AgentUsageStrip({ usage, scopeLabel = "all projects" }: AgentUsa
           className="text-[11px] uppercase tracking-wide"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Agent usage · {scopeLabel} ({usage.length} type
+          Uso de agentes · {scopeLabel} ({usage.length} tipo
           {usage.length !== 1 ? "s" : ""})
         </span>
         {specialists.length > 6 && (
@@ -140,13 +140,13 @@ export function AgentUsageStrip({ usage, scopeLabel = "all projects" }: AgentUsa
             style={{ color: "var(--color-text-secondary)" }}
           >
             {showAllSpecialists
-              ? "Show fewer"
-              : `Show all ${specialists.length}`}
+              ? "Mostrar menos"
+              : `Mostrar los ${specialists.length}`}
           </button>
         )}
       </div>
 
-      {/* Named specialists — highlighted */}
+      {/* Especialistas con nombre, destacados */}
       {specialists.length > 0 && (
         <ul className="mb-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {visibleSpecialists.map((u) => (
@@ -155,7 +155,7 @@ export function AgentUsageStrip({ usage, scopeLabel = "all projects" }: AgentUsa
         </ul>
       )}
 
-      {/* Generic wrappers — dimmed + collapsed by default */}
+      {/* Envoltorios genéricos: atenuados y plegados por defecto */}
       {generics.length > 0 && (
         <div>
           <button
@@ -163,14 +163,14 @@ export function AgentUsageStrip({ usage, scopeLabel = "all projects" }: AgentUsa
             className="mb-1 flex items-center gap-1 text-[10px]"
             style={{ color: "var(--color-text-tertiary)" }}
             onClick={() => setShowGenerics((v) => !v)}
-            title="Orchestration wrappers or session captures without named agent attribution. Not real specialists."
+            title="Envoltorios de orquestación o capturas de sesión sin agente con nombre. No son especialistas de verdad."
           >
             <span aria-hidden>{showGenerics ? "▾" : "▸"}</span>
             <span>
-              {genericTotal} call{genericTotal !== 1 ? "s" : ""} via generics /{" "}
-              unattributed ({generics.length} type
-              {generics.length !== 1 ? "s" : ""}) — orchestration wrappers, not
-              specialists
+              {genericTotal} llamada{genericTotal !== 1 ? "s" : ""} por genéricos o{" "}
+              sin atribuir ({generics.length} tipo
+              {generics.length !== 1 ? "s" : ""}): envoltorios de orquestación, no
+              especialistas
             </span>
           </button>
           {showGenerics && (

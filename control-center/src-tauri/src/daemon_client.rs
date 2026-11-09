@@ -74,7 +74,13 @@ fn parse_endpoint(raw: &str) -> Option<(u16, String)> {
 }
 
 /// (puerto, token) del daemon anunciado en el lockfile, si lo hay.
+///
+/// Con `ULTRON_BRAIN_DB` definida no hay daemon: el daemon sirve la base de
+/// producción y este proceso trabaja contra otra (harness, check 21.3).
 fn endpoint() -> Option<(u16, String)> {
+    if crate::memory::sqlite_store::brain_db_overridden() {
+        return None;
+    }
     parse_endpoint(&std::fs::read_to_string(lockfile_path()).ok()?)
 }
 
@@ -132,12 +138,16 @@ pub fn orchestrate(prompt: &str, project: Option<&str>, timeout: Duration) -> Op
 }
 
 /// Recall híbrido por el daemon. `cross` = búsqueda en todo el cerebro.
+/// `diagnostic` = recall de medición: el daemon no registra el evento Retrieved
+/// ni toca `access_count`/`last_accessed_at` (un daemon anterior al 2026-10-23
+/// ignora el campo; se actualiza con el mismo binario al redesplegar).
 pub fn recall(
     query: &str,
     limit: u32,
     project: Option<&str>,
     cross: bool,
     rerank: bool,
+    diagnostic: bool,
     timeout: Duration,
 ) -> Option<Value> {
     request(
@@ -148,6 +158,7 @@ pub fn recall(
             "top": limit,
             "cross": cross,
             "rerank": rerank,
+            "diagnostic": diagnostic,
         }),
         timeout,
     )
@@ -194,8 +205,10 @@ fn parse_embedding(resp: &Value) -> Option<Vec<f32>> {
 }
 
 /// Embedding por el daemon. `None` = no hay daemon, no contestó, o contestó algo
-/// que no es un vector de este índice.
-fn remote_embed(text: &str) -> Option<Vec<f32>> {
+/// que no es un vector de este índice. Nunca carga E5 en este proceso: lo usan
+/// los llamantes de la GUI que prefieren no saber antes que cargar ~1,5 GB
+/// (p. ej. la sonda de `memory_health`).
+pub fn remote_embed(text: &str) -> Option<Vec<f32>> {
     let resp = request("embed", serde_json::json!({ "text": text }), EMBED_TIMEOUT)?;
     parse_embedding(&resp)
 }

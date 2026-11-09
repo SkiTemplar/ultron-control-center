@@ -6,11 +6,12 @@
 //   FolderTreeView.tsx, BlocksProjectView.tsx
 //   ProjectWizardModal.tsx, AddItemModal.tsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import BatchDropdown from "./projects/BatchDropdown";
+import { scanResultAction, type ScanReport } from "./projects/scanReport";
 import type {
   CreateProjectResult,
   LauncherItem,
@@ -23,10 +24,10 @@ import type {
   KanbanBoard,
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
-import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
 import { NewProjectWizard } from "./projects/NewProjectWizard";
 import { ProjectCard } from "./projects/ProjectCard";
 import { ProjectRow } from "./projects/ProjectRow";
+import { useDismissable } from "./useDismissable";
 import { FolderTreeView } from "./projects/FolderTreeView";
 import { BlocksProjectView } from "./projects/BlocksProjectView";
 import { ProjectWizardModal } from "./projects/ProjectWizardModal";
@@ -42,6 +43,14 @@ import type {
   SortBy,
   ViewMode,
 } from "./projects/types";
+
+const HIERARCHY_LABELS: Record<HierarchyMode, string> = { blocks: "Bloques", tree: "Árbol", flat: "Lista" };
+const HIERARCHY_TITLES: Record<HierarchyMode, string> = {
+  blocks: "Baldosas grandes por carpeta padre: clic para entrar",
+  tree: "Agrupa por carpeta padre común",
+  flat: "Cuadrícula sin agrupar",
+};
+const VIEW_MODE_LABELS: Record<ViewMode, string> = { cards: "Tarjetas", list: "Filas" };
 
 export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // ---------------------------------------------------------------------------
@@ -106,8 +115,10 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [openglModalOpen, setOpenglModalOpen] = useState(false);
   const [newProjectWizardOpen, setNewProjectWizardOpen] = useState(false);
+  const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
+  const refreshMenuRef = useRef<HTMLDivElement>(null);
+  useDismissable(refreshMenuRef, refreshMenuOpen, () => setRefreshMenuOpen(false));
 
   // ---------------------------------------------------------------------------
   // Add-item modal state
@@ -126,7 +137,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // Workspace navigation
   // ---------------------------------------------------------------------------
   const tabsCtx = useProjectsTabs();
-  // Bump last_active so "Most recent" ordering tracks real usage. Optimistic:
+  // Bump last_active so "Más recientes" ordering tracks real usage. Optimistic:
   // patch local state so the project jumps to the top immediately, then persist
   // (best-effort — the visible order is already correct without the round-trip).
   function touchProject(id: string) {
@@ -177,8 +188,10 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     setScanning(true);
     setError(null);
     try {
-      const r = (await invoke("scan_projects")) as ProjectInfo[];
-      setProjects(r);
+      const report = await invoke<ScanReport>("scan_projects");
+      setProjects(report.projects);
+      setLastAction(scanResultAction(report));
+      void refreshStats(report.projects);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -217,14 +230,14 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   async function cardOpenFolder(p: ProjectInfo) {
     if (!p.path) return;
     try { await openPath(p.path); }
-    catch (e) { setLastAction({ success: false, stdout: "", stderr: `open folder: ${String(e)}`, exit_code: null }); }
+    catch (e) { setLastAction({ success: false, stdout: "", stderr: `abrir carpeta: ${String(e)}`, exit_code: null }); }
   }
 
   async function cardOpenIde(p: ProjectInfo) {
     if (!p.path) return;
     touchProject(p.id);
     try { await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null }); }
-    catch (e) { setLastAction({ success: false, stdout: "", stderr: `open IDE: ${String(e)}`, exit_code: null }); }
+    catch (e) { setLastAction({ success: false, stdout: "", stderr: `abrir IDE: ${String(e)}`, exit_code: null }); }
   }
 
   async function cardOpenAi(p: ProjectInfo) {
@@ -237,7 +250,9 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         provider,
         cwd: p.path ?? null,
         prompt: null,
-        flags: { dangerouslySkipPermissions: false },
+        // Flujo interno sobre un proyecto propio: sin decisión explícita de
+        // permisos manda el defecto de sessions.rs (resolve_dangerous).
+        flags: {},
       });
     } catch (e) {
       setLastAction({ success: false, stdout: "", stderr: `spawn ${provider}: ${String(e)}`, exit_code: null });
@@ -262,7 +277,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       const project = projects.find((p) => p.id === projectId);
       const total = (project?.items ?? []).filter((it) => it.kind !== "folder").length;
       if (launched < total) {
-        setLastAction({ success: false, stdout: "", stderr: `Only ${launched}/${total} items launched — check terminal logs`, exit_code: null });
+        setLastAction({ success: false, stdout: "", stderr: `Solo se lanzaron ${launched} de ${total} elementos: revisa los logs de la terminal`, exit_code: null });
       }
     } catch (e) {
       setLastAction({ success: false, stdout: "", stderr: `launch_all_items: ${String(e)}`, exit_code: null });
@@ -368,7 +383,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
 
   async function pickWizardPath() {
     try {
-      const path = await openDialog({ directory: true, multiple: false, title: "Project folder" });
+      const path = await openDialog({ directory: true, multiple: false, title: "Carpeta del proyecto" });
       if (typeof path === "string" && path) setWPath(path);
     } catch { /* cancelled */ }
   }
@@ -383,14 +398,14 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
 
   async function pickItemFile() {
     try {
-      const path = await openDialog({ directory: false, multiple: false, title: "Pick an executable, shortcut or batch file" });
+      const path = await openDialog({ directory: false, multiple: false, title: "Elige un ejecutable, acceso directo o .bat" });
       if (typeof path === "string" && path) setIPath(path);
     } catch { /* cancelled */ }
   }
 
   async function pickItemFolder() {
     try {
-      const path = await openDialog({ directory: true, multiple: false, title: "Pick a folder" });
+      const path = await openDialog({ directory: true, multiple: false, title: "Elige una carpeta" });
       if (typeof path === "string" && path) { if (iKind === "folder") setIPath(path); else setICwd(path); }
     } catch { /* cancelled */ }
   }
@@ -469,7 +484,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     setCollapsedFolders((prev) => { const next = new Set(prev); if (next.has(fullPath)) next.delete(fullPath); else next.add(fullPath); return next; });
   }
 
-  function openWizard() { resetWizard(); setWizardOpen(true); }
   function closeWizard() { setWizardOpen(false); resetWizard(); }
 
   // ---------------------------------------------------------------------------
@@ -488,13 +502,13 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       {/* Header */}
       <header className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-semibold leading-tight">Projects</h1>
+          <h1 className="text-[20px] font-semibold leading-tight">Proyectos</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            {projects.length} registered · {filtered.length} shown
+            {projects.length} registrados · {filtered.length} visibles
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Run Batch — siempre visible en el header de la lista de proyectos */}
+          {/* Ejecutar .bat — siempre visible en el header de la lista de proyectos */}
           <BatchDropdown headerStyle />
           <button type="button" onClick={() => setNewProjectWizardOpen(true)}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
@@ -503,27 +517,42 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           >
             + Nuevo proyecto
           </button>
-          <button type="button" onClick={() => setOpenglModalOpen(true)}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-            style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
-            title="Scaffold a new OpenGL/vcpkg project"
-          >
-            + OpenGL Project
-          </button>
-          <button type="button" onClick={scan} disabled={scanning}
-            className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
-            style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
-            title="Walk filesystem for new projects"
-          >
-            {scanning ? "Scanning…" : "Rescan disk"}
-          </button>
-          <button type="button" onClick={load} disabled={loading}
-            className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
-            style={{ background: "transparent", color: "var(--color-text-secondary)", border: "1px solid var(--color-border-strong)" }}
-            title="Re-read projects.json without touching the disk"
-          >
-            {loading ? "Loading…" : "Refresh list"}
-          </button>
+          {/* Un solo control de actualización: el botón principal relee projects.json;
+              el recorrido del disco (lento, encuentra carpetas nuevas) es la opción secundaria. */}
+          <div ref={refreshMenuRef} className="relative flex items-stretch" onMouseLeave={() => setRefreshMenuOpen(false)}>
+            <button type="button" onClick={load} disabled={loading || scanning}
+              className="rounded-l px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
+              style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}
+              title="Relee projects.json sin tocar el disco"
+            >
+              {scanning ? "Escaneando…" : loading ? "Cargando…" : "Actualizar"}
+            </button>
+            <button type="button" onClick={() => setRefreshMenuOpen((v) => !v)} disabled={loading || scanning}
+              className="rounded-r px-1.5 text-[11px] transition-colors disabled:opacity-50"
+              style={{ background: "var(--color-surface-3)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border-strong)", borderLeft: "none" }}
+              aria-haspopup="menu" aria-expanded={refreshMenuOpen}
+              aria-label="Más opciones de actualización" title="Más opciones de actualización"
+            >
+              ▾
+            </button>
+            {refreshMenuOpen && (
+              <div role="menu" className="absolute right-0 top-full z-20 w-56 rounded-md py-1 shadow-lg"
+                style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)" }}
+              >
+                <button type="button" role="menuitem"
+                  onClick={() => { setRefreshMenuOpen(false); void scan(); }}
+                  className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)]"
+                  style={{ color: "var(--color-text)" }}
+                  title="Recorre el disco en busca de proyectos nuevos"
+                >
+                  Volver a escanear el disco
+                  <span className="block text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                    Recorre las raíces de proyectos en busca de carpetas nuevas
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -550,68 +579,64 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         </div>
       )}
 
-      {/* Search + sort + view toggle + new project CTA */}
+      {/* Search + sort + view toggle */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input type="text" placeholder="Search id, name, path, language, tag, item…"
+        <input type="text" placeholder="Buscar por id, nombre, ruta, lenguaje, etiqueta o elemento…"
           value={query} onChange={(e) => setQuery(e.target.value)}
           className="flex-1 rounded px-3 py-1.5 text-[12.5px]"
           style={{ background: "var(--color-surface-2)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)", outline: "none", minWidth: "min(280px, 100%)" }}
         />
         <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em]" style={{ color: "var(--color-text-tertiary)" }}>
-          Sort
+          Orden
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}
             className="rounded px-2 py-1 text-[11.5px]"
             style={{ background: "var(--color-surface-2)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)", outline: "none" }}
           >
-            <option value="recent">Most recent</option>
-            <option value="alpha">Alphabetical</option>
-            <option value="type">By type</option>
+            <option value="recent">Más recientes</option>
+            <option value="alpha">Alfabético</option>
+            <option value="type">Por tipo</option>
           </select>
         </label>
+        {/* Disposición y estilo de elemento comparten el mismo control segmentado.
+            Tarjetas/Filas solo aplica a árbol y lista: bloques tiene sus propias baldosas. */}
         <div className="flex items-center gap-px overflow-hidden rounded"
           style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)" }}
-          aria-label="View mode"
+          aria-label="Disposición"
         >
-          {(["cards", "list"] as ViewMode[]).map((m) => {
-            const active = viewMode === m;
+          {(["blocks", "tree", "flat"] as HierarchyMode[]).map((m) => {
+            const active = hierarchy === m;
             return (
-              <button key={m} type="button" onClick={() => setViewMode(m)}
+              <button key={m} type="button"
+                onClick={() => { setHierarchy(m); if (m !== "blocks") setBlockPath([]); }}
                 className="px-2 py-1 text-[11.5px] font-medium capitalize transition-colors"
                 style={{ background: active ? "var(--color-accent)" : "transparent", color: active ? "var(--color-accent-text)" : "var(--color-text-secondary)" }}
                 aria-pressed={active}
+                title={HIERARCHY_TITLES[m]}
               >
-                {m}
+                {HIERARCHY_LABELS[m]}
               </button>
             );
           })}
         </div>
-        <button type="button" onClick={wizardOpen ? closeWizard : openWizard}
-          className="rounded px-3 py-1.5 text-[11.5px] font-medium transition-colors"
-          style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
-          title="Create a new project (wizard)"
-        >
-          + New project
-        </button>
-      </div>
-
-      {/* Hierarchy toggle */}
-      <div className="mb-4 flex items-center gap-1.5">
-        <span className="w-16 text-[10px] font-medium uppercase tracking-[0.06em]" style={{ color: "var(--color-text-tertiary)" }}>
-          Layout
-        </span>
-        {(["blocks", "tree", "flat"] as HierarchyMode[]).map((m) => {
-          const active = hierarchy === m;
-          return (
-            <button key={m} type="button"
-              onClick={() => { setHierarchy(m); if (m !== "blocks") setBlockPath([]); }}
-              className="rounded px-2 py-0.5 text-[11.5px] transition-colors"
-              style={{ background: active ? "var(--color-surface-3)" : "transparent", color: active ? "var(--color-text)" : "var(--color-text-tertiary)", border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}` }}
-              title={m === "blocks" ? "Big tiles per parent folder — drill in by clicking" : m === "tree" ? "Group by common parent folder" : "Flat grid"}
-            >
-              {m}
-            </button>
-          );
-        })}
+        {hierarchy !== "blocks" && (
+          <div className="flex items-center gap-px overflow-hidden rounded"
+            style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)" }}
+            aria-label="Modo de vista"
+          >
+            {(["cards", "list"] as ViewMode[]).map((m) => {
+              const active = viewMode === m;
+              return (
+                <button key={m} type="button" onClick={() => setViewMode(m)}
+                  className="px-2 py-1 text-[11.5px] font-medium capitalize transition-colors"
+                  style={{ background: active ? "var(--color-accent)" : "transparent", color: active ? "var(--color-accent-text)" : "var(--color-text-secondary)" }}
+                  aria-pressed={active}
+                >
+                  {VIEW_MODE_LABELS[m]}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Last-action error */}
@@ -623,12 +648,12 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       )}
 
       {loading && projects.length === 0 && (
-        <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>Loading…</div>
+        <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>Cargando…</div>
       )}
       {!loading && filtered.length === 0 && projects.length > 0 && (
         <div className="rounded p-6 text-center text-[13px]"
           style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
-          No projects match the current filters.
+          Ningún proyecto coincide con los filtros actuales.
         </div>
       )}
 
@@ -657,15 +682,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 onDelete={() => setPendingDelete(p)}
               />
             ))}
-            {/* In-grid CTA tile */}
-            <button type="button" onClick={wizardOpen ? closeWizard : openWizard}
-              className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded transition-colors"
-              style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)", border: "1px dashed var(--color-border-strong)" }}
-              title="Create a new project (wizard)"
-            >
-              <span className="text-[22px] font-light leading-none" style={{ color: "var(--color-accent)" }}>+</span>
-              <span className="text-[12px] font-medium">New project</span>
-            </button>
           </div>
         ) : (
           <div className="space-y-2">
@@ -710,23 +726,31 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
             style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border-strong)" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-[14px] font-semibold">Delete from registry</h3>
+            <h3 className="text-[14px] font-semibold">Quitar del registro</h3>
             <p className="mt-2 text-[12.5px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
-              Remove <b>{pendingDelete.name ?? pendingDelete.id}</b> from projects.json?
-              No files on disk are touched — only the registry entry is removed.
+              ¿Quitar <b>{pendingDelete.name ?? pendingDelete.id}</b> de projects.json?
+              No se toca ningún fichero del disco: solo se borra la entrada del registro.
             </p>
+            {pendingDelete.path && (
+              <p className="mt-2 text-[12px] leading-relaxed" style={{ color: "var(--color-warn)" }}>
+                No es permanente: si la carpeta sigue bajo una raíz de proyectos, el siguiente «Volver a escanear el disco» la vuelve a añadir. Para dejarla fuera,
+                añade <code style={{ fontFamily: "var(--font-mono)" }}>{pendingDelete.id}</code> a{" "}
+                <code style={{ fontFamily: "var(--font-mono)" }}>excluded_by_id</code> en{" "}
+                <code style={{ fontFamily: "var(--font-mono)" }}>~/.ultron/cockpit/projects-exclusions.json</code>.
+              </p>
+            )}
             <div className="mt-4 flex items-center justify-end gap-2">
               <button type="button" onClick={() => setPendingDelete(null)} disabled={deleteBusy}
                 className="rounded px-3 py-1.5 text-[12px]"
                 style={{ background: "transparent", color: "var(--color-text-tertiary)", border: "1px solid var(--color-border-strong)" }}
               >
-                Cancel
+                Cancelar
               </button>
               <button type="button" onClick={confirmDelete} disabled={deleteBusy}
                 className="rounded px-3 py-1.5 text-[12px] font-medium"
                 style={{ background: "var(--color-danger)", color: "#fff" }}
               >
-                {deleteBusy ? "Deleting…" : "Delete"}
+                {deleteBusy ? "Borrando…" : "Borrar"}
               </button>
             </div>
           </div>
@@ -739,16 +763,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         onClose={() => setNewProjectWizardOpen(false)}
         onCreated={(projectPath) => {
           setLastAction({ success: true, stdout: `Proyecto creado en ${projectPath}`, stderr: "", exit_code: 0 });
-          void scan();
-        }}
-      />
-
-      {/* OpenGL scaffolder modal */}
-      <NewOpenGlProjectModal
-        open={openglModalOpen}
-        onClose={() => setOpenglModalOpen(false)}
-        onCreated={(projectPath) => {
-          setLastAction({ success: true, stdout: `OpenGL project created at ${projectPath}`, stderr: "", exit_code: 0 });
+          // El creador ya lo registró: basta con releer, sin recorrer el disco.
           void load();
         }}
       />

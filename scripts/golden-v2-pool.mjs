@@ -114,7 +114,8 @@ function sample(turns) {
 
 async function recall(prompt, project, top, cross) {
   const r = await daemonRequest(
-    { cmd: 'recall', prompt, project: project || undefined, top, cross, rerank: false },
+    // diagnostic: medición, sin telemetría de uso en brain.db.
+    { cmd: 'recall', prompt, project: project || undefined, top, cross, rerank: false, diagnostic: true },
     RECALL_TIMEOUT_MS
   );
   return r && Array.isArray(r.entries) ? r.entries : [];

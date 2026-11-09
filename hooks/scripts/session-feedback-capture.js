@@ -12,9 +12,15 @@
  *
  * Prompts que no empiezan por `fb:` salen sin tocar nada y sin output.
  *
- * Overrides (solo selftest): SESSION_FEEDBACK_PROJECT y los de
- * lib/session-feedback.js; ULTRON_MEMORY_BIN apuntando a un binario ausente
- * evita el candidato.
+ * Alcance del campo `candidate` del trace (L2, 2026-10-26): true significa
+ * «el sidecar arranco» (evento 'spawn' del hijo), no «el candidato se guardo».
+ * El codigo de salida de `ultron-memory candidate` no se espera a proposito
+ * (fire-and-forget); si el arranque falla, candidate=false y candidate_error
+ * lleva el codigo (ENOENT, EACCES...).
+ *
+ * Overrides (solo selftest): SESSION_FEEDBACK_PROJECT, SESSION_FEEDBACK_TRACE
+ * y los de lib/session-feedback.js; ULTRON_MEMORY_BIN apuntando a un binario
+ * ausente evita el candidato.
  */
 'use strict';
 
@@ -29,7 +35,8 @@ const feedback = require('./lib/session-feedback');
 
 observe('session-feedback-capture');
 
-const TRACE_PATH = path.join(os.homedir(), '.claude', 'logs', 'session-feedback-hook.jsonl');
+const TRACE_PATH = process.env.SESSION_FEEDBACK_TRACE
+  || path.join(os.homedir(), '.claude', 'logs', 'session-feedback-hook.jsonl');
 const NOTE_MAX_CHARS = 400;
 
 function trace(entry) {
@@ -45,10 +52,12 @@ function readStdin() {
 }
 
 // Candidato de memoria con la nota (la cifra vive en el jsonl; la memoria
-// guarda el CONTEXTO: que ayudo o estorbo y por que).
+// guarda el CONTEXTO: que ayudo o estorbo y por que). Resuelve {ok:true} cuando
+// el hijo arranca y {ok:false, code} si spawn falla (sincrono o con el evento
+// 'error', que llega despues de devolver el control).
 function proposeCandidate(project, entry) {
   const bin = findBinary();
-  if (!bin || !entry.note) return false;
+  if (!bin || !entry.note) return Promise.resolve({ ok: false });
   const fecha = String(entry.rated_ended_at || entry.ts).slice(0, 10);
   const candidate = {
     type: 'session_summary',
@@ -62,19 +71,22 @@ function proposeCandidate(project, entry) {
     recommended_action: 'review',
     session_id: entry.rated_session_id || null,
   };
-  try {
-    const child = spawn(bin, ['candidate', '--project', project], {
-      detached: true,
-      stdio: ['pipe', 'ignore', 'ignore'],
-      windowsHide: true,
-    });
-    child.on('error', () => { /* fire-and-forget */ });
-    child.stdin.end(JSON.stringify(candidate));
-    child.unref();
-    return true;
-  } catch (_) {
-    return false;
-  }
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(bin, ['candidate', '--project', project], {
+        detached: true,
+        stdio: ['pipe', 'ignore', 'ignore'],
+        windowsHide: true,
+      });
+      child.once('spawn', () => resolve({ ok: true }));
+      child.once('error', (err) => resolve({ ok: false, code: (err && err.code) || 'ERROR' }));
+      child.stdin.on('error', () => { /* el hijo no arranco: lo reporta 'error' */ });
+      child.stdin.end(JSON.stringify(candidate));
+      child.unref();
+    } catch (err) {
+      resolve({ ok: false, code: (err && err.code) || 'ERROR' });
+    }
+  });
 }
 
 function main() {
@@ -102,8 +114,10 @@ function main() {
   };
   feedback.appendFeedback(entry);
   if (pending) feedback.removePending(project);
-  const proposed = proposeCandidate(project, entry);
-  trace({ msg: 'captured', project, answer: entry.answer, had_pending: entry.had_pending, note_chars: entry.note.length, candidate: proposed, session_id: sessionId });
+  const base = { msg: 'captured', project, answer: entry.answer, had_pending: entry.had_pending, note_chars: entry.note.length, session_id: sessionId };
+  proposeCandidate(project, entry)
+    .then((res) => trace({ ...base, candidate: res.ok, ...(res.ok ? {} : res.code ? { candidate_error: res.code } : {}) }))
+    .catch((err) => logHookError('session-feedback-capture', err));
 
   const s = feedback.stats();
   const cifra = s.n ? ` Acumulado: si ${s.pct_si} % de ${s.n}.` : '';

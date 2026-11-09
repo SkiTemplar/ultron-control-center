@@ -266,8 +266,9 @@ fn classify_skill_kind(name: &str, description: &str) -> &'static str {
 ///     "agent::{name}" so a skill and an agent of the same name never
 ///     collide on the same Qdrant point.
 ///
-/// `.disabled` skills are excluded: `list_skills_with_origin_inner` marks them
-/// `enabled = false`, and we skip any skill that is not enabled or whose
+/// Disabled skills (`_disabled/<name>/`) are excluded: `list_skills_with_origin_inner`
+/// marks them `enabled = false` (a legacy `<name>.disabled/` loads in Claude
+/// Code, so it counts as enabled), and we skip any skill that is not enabled or whose
 /// description is empty (an empty description embeds to noise).
 ///
 /// Idempotent (deterministic id → upsert, not duplicate). Warms E5 first so a

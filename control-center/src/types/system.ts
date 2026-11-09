@@ -33,19 +33,6 @@ export type DeleteTaskResult = {
   error: string;
 };
 
-export type ScheduledTriggerType = "Daily" | "Weekly" | "AtLogon";
-
-export type SystemInfo = {
-  hostname: string;
-  user: string;
-  os_name: string;
-  os_version: string;
-  uptime_seconds: number;
-  disk_c_total_gb: number;
-  disk_c_free_gb: number;
-  disk_c_pct_used: number;
-};
-
 export type TaskTrigger = {
   kind: string;
   start: string;

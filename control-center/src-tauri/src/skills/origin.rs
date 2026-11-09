@@ -21,16 +21,17 @@ pub(crate) fn project_skills_dir(project_path: &str) -> PathBuf {
 
 /// Plugin skills live three levels deep:
 /// `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/`.
-/// For each `<marketplace>/<plugin>` pair we keep only the latest version dir
-/// (sorted lexicographically descending — works for stable semver tags;
-/// `-rc`/`-alpha` suffixes fall back to a sane lex order). Each entry carries
+/// For each `<marketplace>/<plugin>` pair we keep only the installed version
+/// dir from `installed_plugins.json` (see `plugin_state::pick_version_dir`;
+/// the cache keeps stale commit-hash dirs that do not sort as semver, and an
+/// uninstalled plugin's leftover cache is skipped). Each entry carries
 /// `disabled = true` when the plugin is turned off in settings.json
 /// `enabledPlugins` (key `<plugin>@<marketplace>`): casilla 2.2.
 pub(crate) fn plugin_skills_dirs() -> Vec<(bool, PathBuf)> {
     plugin_subdirs("skills")
 }
 
-/// Subdirectorio `sub` de la versión más reciente de cada plugin instalado,
+/// Subdirectorio `sub` de la versión instalada de cada plugin,
 /// junto a si el plugin está deshabilitado. `skills` da el pool de skills;
 /// `commands` da los slash commands, que el enrutador también necesita.
 pub(crate) fn plugin_subdirs(sub: &str) -> Vec<(bool, PathBuf)> {
@@ -39,6 +40,7 @@ pub(crate) fn plugin_subdirs(sub: &str) -> Vec<(bool, PathBuf)> {
     };
     let cache = home.join(".claude").join("plugins").join("cache");
     let enabled = crate::plugin_state::read_enabled_plugins();
+    let installed = crate::plugin_state::read_installed_paths();
     let mut out = Vec::new();
     let Ok(marketplaces) = std::fs::read_dir(&cache) else {
         return out;
@@ -59,22 +61,11 @@ pub(crate) fn plugin_subdirs(sub: &str) -> Vec<(bool, PathBuf)> {
             }
             let plugin = pname_entry.file_name().to_string_lossy().to_string();
             let disabled = crate::plugin_state::plugin_is_disabled(&plugin, &marketplace, &enabled);
-            // Collect version dirs, keep the lex-desc latest.
-            let mut versions: Vec<PathBuf> = match std::fs::read_dir(&pname_path) {
-                Ok(rd) => rd
-                    .flatten()
-                    .map(|e| e.path())
-                    .filter(|p| p.is_dir())
-                    .collect(),
-                Err(_) => continue,
-            };
-            versions.sort_by(|a, b| {
-                let an = a.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                let bn = b.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                bn.cmp(an)
-            });
-            if let Some(latest) = versions.first() {
-                let dir = latest.join(sub);
+            let key = format!("{plugin}@{marketplace}");
+            if let Some(version) =
+                crate::plugin_state::pick_version_dir(&pname_path, &key, installed.as_ref())
+            {
+                let dir = version.join(sub);
                 if dir.is_dir() {
                     out.push((disabled, dir));
                 }
@@ -125,12 +116,14 @@ pub(crate) fn parse_yaml_description(after_key: &str, following: &[&str]) -> Str
 /// declares at least `name:` and `description:`. Anything else is rejected
 /// as a false positive.
 ///
-/// **Disabled detection** — two conventions are supported in parallel:
+/// **Disabled detection** — only one convention keeps a skill out of the session:
 ///   1. Suffix `.disabled` on the folder itself (e.g. `kotlin-patterns.disabled`).
-///      Legacy: Claude Code still lists these in every session, so the toggle
-///      no longer writes this form.
-///   2. `_disabled/` container parent — what the toggle writes since 2026-09-06;
-///      invisible to Claude Code, injectable by the ULTRON dispatcher.
+///      Legacy and NOT disabled: Claude Code ignores the suffix and loads its
+///      `SKILL.md` in every session, so it is reported as `enabled = true` (it
+///      is active) and the toggle never writes this form.
+///   2. `_disabled/` container parent — the preferred convention since
+///      2026-09-06 and the one the toggle writes; Claude Code does not descend
+///      into it, so the skill stays out of the session (`enabled = false`).
 pub(crate) fn read_skill_meta(dir: &std::path::Path) -> (String, String, bool, bool) {
     let raw_dir_name = dir
         .file_name()
@@ -147,7 +140,8 @@ pub(crate) fn read_skill_meta(dir: &std::path::Path) -> (String, String, bool, b
         .map(|s| s == "_disabled")
         .unwrap_or(false);
 
-    let enabled = !has_suffix && !in_disabled_dir;
+    // A `.disabled` suffix does not stop Claude Code from loading the skill.
+    let enabled = !in_disabled_dir;
 
     // The logical name strips the `.disabled` suffix so the UI always shows
     // the clean skill name regardless of enabled state.
@@ -212,7 +206,7 @@ pub(crate) fn collect_skills_from(
         }
         let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
-        // Legacy convention: `_disabled/` container directory.
+        // Preferred convention (since 2026-09-06): `_disabled/` container.
         // Recurse into it and surface each child as a disabled skill.
         if dir_name == "_disabled" {
             if include_disabled {
@@ -238,13 +232,9 @@ pub(crate) fn collect_skills_from(
             continue;
         }
 
-        // Convention 1: `.disabled` suffix on the folder itself.
-        // `read_skill_meta` strips the suffix from the logical name and sets
-        // `enabled = false` so we only need to gate on `include_disabled`.
-        let has_disabled_suffix = dir_name.ends_with(".disabled");
-        if has_disabled_suffix && !include_disabled {
-            continue;
-        }
+        // Legacy `.disabled` suffix on the folder itself: Claude Code still
+        // loads it, so it is listed as an active skill (`read_skill_meta`
+        // strips the suffix from the logical name and reports it enabled).
 
         let (n, desc, enabled, valid) = read_skill_meta(&path);
         if !valid {
@@ -380,20 +370,20 @@ pub fn list_skills_with_origin_inner(
 /// | Convention | Enabled path | Disabled path |
 /// |------------|--------------|---------------|
 /// | Container (preferred since 2026-09-06) | `skills/<name>/` | `skills/_disabled/<name>/` |
-/// | Suffix (legacy, read-only) | `skills/<name>/` | `skills/<name>.disabled/` |
+/// | Suffix (legacy, never written) | `skills/<name>/` or `skills/<name>.disabled/` | — |
 ///
 /// Toggle resolution order (for enabling):
 ///   1. Look for `<name>.disabled/` (legacy suffix) — rename to `<name>/`.
 ///   2. Look for `_disabled/<name>/` (container) — rename to `<name>/`.
 ///
 /// Toggle resolution order (for disabling):
-///   1. Look for `<name>/` — move to `_disabled/<name>/` (container).
+///   1. Look for `<name>/` or `<name>.disabled/` — move to `_disabled/<name>/`.
 ///
 /// Disabling always writes the container. Claude Code lists every
 /// `<name>.disabled/SKILL.md` in the session context (~3k tokens for 85 lazy
-/// skills) but does not descend into `_disabled/<name>/`, so the container is
-/// the only form that keeps a lazy skill out of the session while the ULTRON
-/// dispatcher can still inject it on demand.
+/// skills), so a suffixed folder is active, but it does not descend into
+/// `_disabled/<name>/`: the container is the only form that keeps a skill out
+/// of the session (it stays on disk for a direct Read or a later toggle).
 pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, String> {
     skill_toggle_at(&global_skills_dir()?, name, enabled)
 }
@@ -411,63 +401,80 @@ pub(crate) fn skill_toggle_at(
         return Err("invalid skill name: path separators not allowed".to_string());
     }
 
-    // Candidate paths for each convention.
-    let path_enabled = root.join(&name);
-    let path_suffix_disabled = root.join(format!("{}.disabled", name));
-    let path_container_disabled = root.join("_disabled").join(&name);
-
+    let paths = TogglePaths {
+        enabled: root.join(&name),
+        suffix: root.join(format!("{}.disabled", name)),
+        container: root.join("_disabled").join(&name),
+    };
     if enabled {
-        // Re-enabling: find whichever disabled form exists.
-        let from = if path_suffix_disabled.exists() {
-            path_suffix_disabled
-        } else if path_container_disabled.exists() {
-            path_container_disabled
-        } else {
-            return Err(format!(
-                "skill '{name}' not found in disabled state (checked {}.disabled and _disabled/{name})",
-                name
-            ));
-        };
-        if path_enabled.exists() {
-            return Err(format!("skill '{name}' already exists at enabled path"));
-        }
-        std::fs::rename(&from, &path_enabled)
-            .map_err(|e| format!("rename {:?} → {:?}: {e}", from, path_enabled))?;
-        let (n, desc, e, _) = read_skill_meta(&path_enabled);
-        return Ok(SkillEntry {
-            name: n,
-            path: path_enabled.to_string_lossy().to_string(),
-            description: desc,
-            origin: SkillOrigin::Global,
-            enabled: e,
-        });
+        enable_skill(&paths, &name)
+    } else {
+        disable_skill(&paths, &name)
     }
+}
 
-    // Disabling: always write the container convention.
-    if !path_enabled.exists() {
-        return Err(format!("skill '{name}' not found at enabled path"));
-    }
-    if path_suffix_disabled.exists() || path_container_disabled.exists() {
-        return Err(format!("skill '{name}' already disabled"));
-    }
-    if let Some(container) = path_container_disabled.parent() {
-        std::fs::create_dir_all(container)
-            .map_err(|e| format!("create_dir_all {:?}: {e}", container))?;
-    }
-    std::fs::rename(&path_enabled, &path_container_disabled).map_err(|e| {
-        format!(
-            "rename {:?} → {:?}: {e}",
-            path_enabled, path_container_disabled
-        )
-    })?;
-    let (n, desc, e, _) = read_skill_meta(&path_container_disabled);
-    Ok(SkillEntry {
+/// Candidate paths of a global skill under each on-disk convention.
+struct TogglePaths {
+    enabled: std::path::PathBuf,
+    suffix: std::path::PathBuf,
+    container: std::path::PathBuf,
+}
+
+fn moved_entry(to: &std::path::Path) -> SkillEntry {
+    let (n, desc, e, _) = read_skill_meta(to);
+    SkillEntry {
         name: n,
-        path: path_container_disabled.to_string_lossy().to_string(),
+        path: to.to_string_lossy().to_string(),
         description: desc,
         origin: SkillOrigin::Global,
         enabled: e,
-    })
+    }
+}
+
+/// Enabling: rename whichever other form exists to `<name>/`. A legacy
+/// `<name>.disabled/` already loads; renaming it only normalises the name.
+fn enable_skill(p: &TogglePaths, name: &str) -> Result<SkillEntry, String> {
+    let from = if p.suffix.exists() {
+        &p.suffix
+    } else if p.container.exists() {
+        &p.container
+    } else {
+        return Err(format!(
+            "skill '{name}' not found in disabled state (checked {name}.disabled and _disabled/{name})"
+        ));
+    };
+    if p.enabled.exists() {
+        return Err(format!("skill '{name}' already exists at enabled path"));
+    }
+    std::fs::rename(from, &p.enabled)
+        .map_err(|e| format!("rename {:?} → {:?}: {e}", from, p.enabled))?;
+    Ok(moved_entry(&p.enabled))
+}
+
+/// Disabling: always write the container convention. A legacy
+/// `<name>.disabled/` is active too (Claude Code loads it), so it is a valid
+/// source; with both forms on disk the choice is left to the person.
+fn disable_skill(p: &TogglePaths, name: &str) -> Result<SkillEntry, String> {
+    if p.container.exists() {
+        return Err(format!("skill '{name}' already disabled"));
+    }
+    let from = match (p.enabled.exists(), p.suffix.exists()) {
+        (true, false) => &p.enabled,
+        (false, true) => &p.suffix,
+        (true, true) => {
+            return Err(format!(
+                "skill '{name}' exists as both {name}/ and {name}.disabled/ and both load: keep one by hand"
+            ))
+        }
+        (false, false) => return Err(format!("skill '{name}' not found at enabled path")),
+    };
+    if let Some(container) = p.container.parent() {
+        std::fs::create_dir_all(container)
+            .map_err(|e| format!("create_dir_all {:?}: {e}", container))?;
+    }
+    std::fs::rename(from, &p.container)
+        .map_err(|e| format!("rename {:?} → {:?}: {e}", from, p.container))?;
+    Ok(moved_entry(&p.container))
 }
 
 /// Enable or disable many global skills in one call. `disabled = true` moves
@@ -556,12 +563,46 @@ mod toggle_tests {
         let e = skill_toggle_at(tmp.path(), "beta".into(), true).unwrap();
         assert!(e.enabled);
         assert!(tmp.path().join("beta").is_dir());
-        // Convencion legacy `_disabled/<name>`.
+        // Convencion contenedor `_disabled/<name>` (la preferida).
         make_skill(&tmp.path().join("_disabled"), "gamma");
         let e2 = skill_toggle_at(tmp.path(), "gamma".into(), true).unwrap();
         assert!(e2.enabled);
         assert!(tmp.path().join("gamma").is_dir());
         assert!(!tmp.path().join("_disabled").join("gamma").exists());
+    }
+
+    #[test]
+    fn suffix_disabled_dir_counts_as_active_because_claude_code_loads_it() {
+        // Claude Code no mira el sufijo: `<name>.disabled/SKILL.md` entra en
+        // la sesión. La pestaña no puede pintarla como desactivada.
+        let tmp = tempfile::tempdir().unwrap();
+        make_skill(tmp.path(), "eps.disabled");
+        let (name, _, enabled, valid) = read_skill_meta(&tmp.path().join("eps.disabled"));
+        assert_eq!(name, "eps");
+        assert!(enabled, "una carpeta .disabled carga: cuenta como activa");
+        assert!(valid);
+        let listed = collect_skills_from(tmp.path(), SkillOrigin::Global, false, false);
+        assert!(
+            listed.iter().any(|s| s.name == "eps" && s.enabled),
+            "también aparece entre las activas"
+        );
+        // El contenedor `_disabled/<name>/` sí queda fuera de la sesión.
+        make_skill(&tmp.path().join("_disabled"), "eta");
+        let (_, _, enabled, _) = read_skill_meta(&tmp.path().join("_disabled").join("eta"));
+        assert!(!enabled);
+    }
+
+    #[test]
+    fn disabling_a_suffix_skill_moves_it_to_the_container() {
+        let tmp = tempfile::tempdir().unwrap();
+        make_skill(tmp.path(), "zeta.disabled");
+        let entry = skill_toggle_at(tmp.path(), "zeta".into(), false).unwrap();
+        assert!(!entry.enabled);
+        assert!(tmp.path().join("_disabled").join("zeta").is_dir());
+        assert!(!tmp.path().join("zeta.disabled").exists());
+        // Desactivar otra vez: ya está en el contenedor.
+        let err = skill_toggle_at(tmp.path(), "zeta".into(), false).unwrap_err();
+        assert!(err.contains("already disabled"), "{err}");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::memory::catalog;
 use super::orchestrate::orchestrate;
 use super::ranking::{
     agent_sub_intent, apply_token_budget, build_prompt_plan, build_step_plans,
-    inject_preferred_floor, optimize_prompt, rebalance_delegates,
+    inject_preferred_floor, preferred_specialists, rebalance_delegates,
 };
 use super::rules::{classify_intent, detect_cross_project};
 use super::types_model::{AgentChoice, SkillChoice, StepPlan};
@@ -145,55 +145,105 @@ fn classifies_new_intents_ui_test_perf_docs_refactor() {
     );
 }
 
+fn agent_hit(name: &str, score: f32) -> catalog::CatalogHit {
+    catalog::CatalogHit {
+        entity: "agent".into(),
+        name: name.into(),
+        description: format!("{name} description"),
+        score,
+        kind: String::new(),
+    }
+}
+
 #[test]
-fn rebalance_demotes_meta_and_boosts_specialists() {
-    // Meta agent ranks first by raw semantic score; the pertinent specialist
-    // is below it. After rebalancing for the `bug_fix` intent, `debugger`
-    // (a preferred specialist) must outrank `ultron-refactor` (a meta agent
-    // not pertinent to this intent).
+fn rebalance_demotes_generic_and_boosts_specialists() {
+    // A generic catch-all agent ranks first by raw semantic score; the
+    // pertinent specialist is below it. For `bug_fix`, `debugger` (preferred)
+    // must outrank `code-reviewer` (generic, not preferred for this intent).
     let hits = vec![
-        catalog::CatalogHit {
-            entity: "agent".into(),
-            name: "ultron-refactor".into(),
-            description: "meta refactor".into(),
-            score: 0.90,
-            kind: String::new(),
-        },
-        catalog::CatalogHit {
-            entity: "agent".into(),
-            name: "debugger".into(),
-            description: "systematic debugging".into(),
-            score: 0.80,
-            kind: String::new(),
-        },
+        agent_hit("code-reviewer", 0.90),
+        agent_hit("debugger", 0.80),
     ];
     let ranked = rebalance_delegates(hits, "bug_fix", 5);
     assert_eq!(
         ranked[0].name, "debugger",
-        "preferred specialist must outrank a non-pertinent meta agent"
+        "preferred specialist must outrank a non-pertinent generic agent"
     );
-    assert_eq!(ranked[1].name, "ultron-refactor");
-    // ultron-refactor demoted: 0.90 * META_PENALTY < 0.90
+    assert_eq!(ranked[1].name, "code-reviewer");
+    // code-reviewer demoted: 0.90 * GENERIC_PENALTY < 0.90
     assert!(ranked[1].score < 0.90);
 }
 
 #[test]
-fn rebalance_waives_penalty_for_pertinent_meta() {
-    // For the `docs` intent, `ultron-docs` IS a preferred specialist, so it
-    // must NOT be penalised — it should be boosted instead.
-    let hits = vec![catalog::CatalogHit {
-        entity: "agent".into(),
-        name: "ultron-docs".into(),
-        description: "refresh docs".into(),
-        score: 0.50,
-        kind: String::new(),
-    }];
-    let ranked = rebalance_delegates(hits, "docs", 5);
-    assert_eq!(ranked[0].name, "ultron-docs");
+fn rebalance_waives_penalty_for_pertinent_generic() {
+    // For the `security` intent, `code-reviewer` IS a preferred specialist,
+    // so it must NOT be penalised: it is boosted instead.
+    let ranked = rebalance_delegates(vec![agent_hit("code-reviewer", 0.85)], "security", 5);
+    assert_eq!(ranked[0].name, "code-reviewer");
     assert!(
-        ranked[0].score > 0.50,
-        "pertinent meta agent should be boosted, not penalised"
+        ranked[0].score > 0.85,
+        "pertinent generic agent should be boosted, not penalised"
     );
+}
+
+/// Nombres que no existen ni como `.md` ni como `.md.disabled` en
+/// `~/.claude/agents` ni en plugins (auditoría 2026-10-23): no deben volver a
+/// las listas de especialistas.
+const GHOST_AGENTS: &[&str] = &[
+    "documentation-engineer",
+    "prompt-engineer",
+    "postgres-pro",
+    "kotlin-specialist",
+    "nextjs-developer",
+];
+
+#[test]
+fn preferred_specialists_name_no_ghost_agents() {
+    let intents = [
+        "security",
+        "bug_fix",
+        "performance",
+        "testing",
+        "ui_design",
+        "devops",
+        "docs",
+        "refactor",
+        "architecture_review",
+        "feature",
+        "research",
+        "game",
+        "database",
+        "mobile",
+        "ios",
+        "android",
+        "golang",
+        "csharp",
+        "rust",
+        "python",
+        "typescript",
+        "cloud_infra",
+        "ml",
+        "data_eng",
+        "websocket",
+        "electron",
+        "nextjs",
+        "api_design",
+        "llm",
+        "accessibility",
+        "docker",
+        "finance",
+        "business",
+        "writing",
+        "learning",
+    ];
+    for intent in intents {
+        for name in preferred_specialists(intent) {
+            assert!(
+                !name.starts_with("ultron-") && !GHOST_AGENTS.contains(name),
+                "intent {intent}: {name} no existe como agente"
+            );
+        }
+    }
 }
 
 // cat16.4 — TOKEN_BUDGET es un presupuesto COMPARTIDO entre las 4 capas.
@@ -399,7 +449,7 @@ fn e2e_orchestrate_real() {
 
 /// cat13.4 — the routing proposes a GROUP and optimizes the prompt of each step
 /// by the role sub-intent of the agent that runs it; a single step is not a group
-/// (caso negativo); optimize_prompt is the canonical alias (cat13.2).
+/// (caso negativo).
 #[test]
 fn step_plans_optimize_each_group_step_by_role() {
     assert_eq!(agent_sub_intent("debugger"), "bug_fix");
@@ -430,12 +480,6 @@ fn step_plans_optimize_each_group_step_by_role() {
     // Caso negativo: a single-step / empty workflow is NOT a group -> no step plans.
     assert!(build_step_plans(&["rust-engineer".to_string()]).is_empty());
     assert!(build_step_plans(&[]).is_empty());
-
-    // optimize_prompt (cat13.2 literal symbol) == build_prompt_plan.
-    let a = optimize_prompt("implementa login con tests", "feature");
-    let b = build_prompt_plan("implementa login con tests", "feature");
-    assert_eq!(a.improved_prompt, b.improved_prompt);
-    assert_eq!(a.suggested_mode, b.suggested_mode);
 }
 
 /// Delegación automática (plano chat, 2026-06-23): el cableado en orchestrate().
@@ -588,8 +632,8 @@ fn rebalance_abstains_when_top_score_is_noise() {
         },
         catalog::CatalogHit {
             entity: "agent".into(),
-            name: "nextjs-developer".into(),
-            description: "nextjs apps".into(),
+            name: "websocket-engineer".into(),
+            description: "websocket servers".into(),
             score: 0.77,
             kind: String::new(),
         },

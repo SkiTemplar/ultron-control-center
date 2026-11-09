@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
  * session-summarize-previous.js — genera el resumen de la SESION ANTERIOR del
- * mismo proyecto con `claude -p` (Sonnet, misma suscripcion OAuth que la
- * sesion interactiva -- NUNCA API key de pago por token: ver README abajo).
+ * mismo proyecto. Primer eslabon: Codex CLI (`codex exec`, lib/codex-exec.js;
+ * suscripcion de ChatGPT, coste 0 por uso y contexto grande). Si Codex no esta
+ * instalado, falla o agota su plazo, sigue la LLM SECUNDARIA
+ * (lib/secondary-llm.js: Groq con relevo a Gemini por API). NUNCA Claude:
+ * desde 2026-09-29 no se llama a `claude -p` (consumia la cuota del plan Max).
+ * Si toda la cadena falla, se registra el fallo y no hay resumen.
  *
  * NO es un hook de Claude Code: lo lanzan desacoplados session-end-bitacora.js
  * (SessionEnd, desde 2026-09-22: la sesion que cierra, con --target-session y
  * --transcript) y memory-session-resume.js (SessionStart: la sesion anterior
- * sin resumen o con uno viejo, como red), porque `claude -p` tarda 20-40s y
+ * sin resumen o con uno viejo, como red), porque la llamada tarda 10-60 s y
  * ningun hook puede bloquear ese tiempo. Si no termina a tiempo,
  * memory-orchestrate.js entrega el resumen en el primer prompt (ver
  * lib/session-summary-delivery.js). Para el historico: scripts/session-summary-backfill.mjs.
@@ -17,69 +21,50 @@
  *   2. Elige la sesion anterior mas reciente que: no sea la actual, tenga
  *      >=2 prompts reales, se haya modificado en los ultimos MAX_AGE_DAYS
  *      dias y no tenga summary.md todavia.
- *   3. Construye el digest (lib/session-digest.js) y llama a `claude -p`.
+ *   3. Construye el digest (lib/session-digest.js) y lo resume: Codex primero,
+ *      Groq -> Gemini de relevo.
  *   4. Escribe cockpit/projects/<projectId>/sessions/<sessionId>/summary.md
  *      (atomico, con cabecera de procedencia). NUNCA escribe en brain.db.
  *
- * Anti-recursion (`claude -p` dispara su propio SessionStart si no se corta):
- *   - `--safe-mode`: Claude Code desactiva TODOS los hooks (entre otras cosas)
- *     para esa sesion. Verificado en runtime 2026-09-11: con --safe-mode no
- *     aparece ninguna entrada nueva en hook-timing.jsonl durante la llamada.
- *   - `CLAUDE_NO_HOOKS=1` en el entorno del hijo: por si algun hook se
- *     invocara pese a --safe-mode, todos los hooks de este repo lo comprueban
- *     al entrar y no hacen nada.
- *   - Variable propia `ULTRON_SUMMARY_SUBPROCESS=1`: comprobada al inicio de
- *     este mismo script (main()) por si, pese a lo anterior, algo volviera a
- *     invocarlo dentro del arbol del hijo.
- *
- * Auth (`--bare` vs `--safe-mode`, verificado en runtime 2026-09-11):
- *   `--bare` fuerza auth por ANTHROPIC_API_KEY/apiKeyHelper (nunca OAuth) --
- *   con la ANTHROPIC_API_KEY del entorno de ULTRON (AI Router) la llamada
- *   fallo con "Credit balance is too low" (API de pago, no la suscripcion).
- *   `--safe-mode` SI deja usar la sesion OAuth interactiva, pero solo si
- *   ANTHROPIC_API_KEY no esta en el entorno del hijo (si esta, `claude -p` la
- *   prioriza igual que --bare). Por eso runClaude() borra esa variable del
- *   entorno del hijo antes de lanzar el proceso -- confirmado: sin la key,
- *   `claude -p --safe-mode` cobra de la suscripcion Sonnet (total_cost_usd
- *   notional del plan, no facturacion por token).
- *
- * Prompt por stdin (2026-09-11): el prompt viajaba como ultimo argumento y en
- * Windows la linea de comandos completa no puede pasar de 32.767 caracteres.
- * Con un digest de ~21k caracteres funcionaba; con uno mayor (tope del digest:
- * 150.000) spawnSync fallaba al instante con ENAMETOOLONG, se contaba como
- * fallo de `claude -p` y la sesion acababa en backoff sin resumen. Ahora va
- * por stdin (`input` de spawnSync), que no tiene ese limite; `claude -p` sin
- * prompt posicional lo lee de stdin (verificado en runtime con estos flags).
+ * Tamano: los digests reales rondan 150.000 caracteres (SESSION_SUMMARY_MAX_CHARS).
+ * Codex los admite; Groq los rechaza con HTTP 413 (cuota de tokens por minuto)
+ * y entonces responde Gemini.
  *
  * Redaccion (revision de codigo 2026-09-11, hallazgo MEDIUM): el digest sale
- * de la maquina hacia `claude -p` y summary.md se inyecta luego en el
+ * de la maquina hacia el proveedor externo y summary.md se inyecta luego en el
  * contexto de otra sesion, asi que ambos pasan por lib/security-helpers.js
  * (los mismos patrones que stop-compress-session.js/project-profile.js)
  * ANTES de salir/escribirse. FAIL-CLOSED: si el modulo no carga, main() no
  * resume nada (mandamiento de seguridad: mejor sin resumen que sin redactar).
  *
- * Backoff por sesion objetivo (hallazgo LOW/MEDIUM): un fallo de `claude -p`
+ * Backoff por sesion objetivo (hallazgo LOW/MEDIUM): un fallo de la LLM
  * se cuenta en ~/.ultron/.tmp/session-summary-attempts/<sessionId>.json. Con
  * 2 fallos, esa sesion no se reintenta durante BACKOFF_MS (6h); con 5, se
  * abandona (selectPreviousSession la salta y prueba la siguiente candidata).
  * `--target-session` (verificacion manual) IGNORA el backoff a proposito.
+ * Si TODOS los eslabones responden HTTP 429 (cuota agotada), no cuenta para
+ * el backoff y congela los resumenes QUOTA_COOLDOWN_MIN minutos.
  *
  * Seams de test (ninguno toca el sistema real):
- *   SESSION_SUMMARY_CLAUDE_BIN        binario de claude a invocar (stub en tests)
  *   SESSION_SUMMARY_PROJECTS_DIR      raiz de cockpit/projects
  *   SESSION_SUMMARY_LOCK_DIR          directorio de locks single-flight
  *   SESSION_SUMMARY_LOG               ruta del log jsonl
  *   SESSION_SUMMARY_TRANSCRIPTS_DIR   fuerza el directorio de transcripts (salta el slug)
  *   SESSION_SUMMARY_ATTEMPTS_DIR      directorio del backoff por sesion objetivo
  *   SESSION_SUMMARY_MAX_AGE_DAYS      edad maxima de una sesion candidata (dias)
- *   SESSION_SUMMARY_TIMEOUT_MS        timeout de la llamada a claude -p
+ *   SESSION_SUMMARY_TIMEOUT_MS        plazo total de la cadena de la LLM secundaria
+ *   SESSION_SUMMARY_CODEX             0 = sin Codex (directo a Groq -> Gemini)
+ *   SESSION_SUMMARY_CODEX_MODEL       modelo de Codex (gpt-5.6-terra por defecto)
+ *   SESSION_SUMMARY_CODEX_EFFORT      model_reasoning_effort de Codex (low)
+ *   SESSION_SUMMARY_CODEX_TIMEOUT_MS  plazo de Codex (120 s por defecto)
+ *   CODEX_EXEC_BIN                    lanzador de Codex (lib/codex-exec.js)
  *   SESSION_SUMMARY_MAX_CHARS         tope de caracteres del digest
- *   SESSION_SUMMARY_MODEL             modelo (default: sonnet)
+ *   SECONDARY_LLM_ENDPOINT / SECONDARY_LLM_ENV_FILE  (lib/secondary-llm.js)
  *   SESSION_SUMMARY_FORCE_NO_REDACTION  1 = simula que security-helpers.js no
  *                                        cargo (solo tests del fail-closed)
  *
  * NO-OP-SAFE: cualquier fallo (sin candidata, lock ocupado, sin redaccion,
- * claude -p falla o hace timeout, JSON no parseable) sale con 0 y sin escribir
+ * la LLM secundaria falla o agota el plazo) sale con 0 y sin escribir
  * summary.md; el error queda en logs/session-summary.jsonl y hook-errors.jsonl.
  */
 
@@ -95,29 +80,41 @@ const { resolveProjectId } = require('./lib/project-identity');
 const { safeId } = require('./lib/safe-id');
 const digest = require('./lib/session-digest');
 const lastSession = require('./lib/last-session');
+const kanbanAuto = require('./lib/kanban-auto');
+const { externalTrackerFor, isManualKanban } = require('./lib/project-tracker');
 
 const HOME = os.homedir();
 const LOG_PATH = process.env.SESSION_SUMMARY_LOG || path.join(HOME, '.ultron', 'logs', 'session-summary.jsonl');
 const LOCK_DIR = process.env.SESSION_SUMMARY_LOCK_DIR || path.join(HOME, '.ultron', 'run', 'session-summary');
 const ATTEMPTS_DIR = process.env.SESSION_SUMMARY_ATTEMPTS_DIR || path.join(HOME, '.ultron', '.tmp', 'session-summary-attempts');
-const MODEL = process.env.SESSION_SUMMARY_MODEL || 'sonnet';
 const MAX_AGE_DAYS = Number(process.env.SESSION_SUMMARY_MAX_AGE_DAYS) || 7;
 const MIN_USER_PROMPTS = digest.MIN_USER_PROMPTS;
 const TIMEOUT_MS = Number(process.env.SESSION_SUMMARY_TIMEOUT_MS) || 180000;
 const MAX_DIGEST_CHARS = Number(process.env.SESSION_SUMMARY_MAX_CHARS) || digest.DEFAULT_MAX_CHARS;
-const STALE_LOCK_MS = TIMEOUT_MS + 60000;
-const GUARD_ENV = 'ULTRON_SUMMARY_SUBPROCESS';
+// Codex (primer eslabon): Terra basta para resumir y no gasta la cuota de Astra.
+const CODEX_ENABLED = process.env.SESSION_SUMMARY_CODEX !== '0';
+const CODEX_MODEL = process.env.SESSION_SUMMARY_CODEX_MODEL || 'gpt-5.6-terra';
+const CODEX_EFFORT = process.env.SESSION_SUMMARY_CODEX_EFFORT || 'low';
+const CODEX_TIMEOUT_MS = Number(process.env.SESSION_SUMMARY_CODEX_TIMEOUT_MS) || 120000;
+const STALE_LOCK_MS = (CODEX_ENABLED ? CODEX_TIMEOUT_MS : 0) + TIMEOUT_MS + 60000;
 // Backoff por sesion objetivo (ver cabecera del fichero).
 const BACKOFF_AFTER_FAILURES = 2;
 const BACKOFF_MS = 6 * 60 * 60 * 1000;
 const ABANDON_AFTER_FAILURES = 5;
-// Cuota del plan agotada (diagnostico 2026-09-26): `claude -p` sale con
-// status=1 en 2-4 s y el motivo viaja en el JSON de STDOUT ("You've hit your
-// session limit"), no en stderr. No es culpa de la sesion objetivo: no cuenta
-// para el backoff/abandono y congela TODOS los resumenes un rato (ver
-// recordQuotaCooldown) en vez de gastar un intento por sesion y pasada.
+// Cuota agotada: si TODOS los eslabones de la cadena responden HTTP 429, no
+// es culpa de la sesion objetivo: no cuenta para el backoff/abandono y congela
+// TODOS los resumenes un rato (ver recordQuotaCooldown) en vez de gastar un
+// intento por sesion y pasada.
 const QUOTA_COOLDOWN_MIN = Number(process.env.SESSION_SUMMARY_QUOTA_COOLDOWN_MIN) || 30;
-const QUOTA_ERROR_RE = /session limit|usage limit|weekly limit|hit your (?:\w+ )?limit|rate[ _-]?limit|\b429\b|overloaded|\b529\b/i;
+// Cadena propia: el 120b resume mejor que el 20b; Gemini recoge los digests
+// que Groq rechaza por tamano (HTTP 413).
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const SUMMARY_CHAIN = [
+  { provider: 'groq', model: 'openai/gpt-oss-120b', endpoint: GROQ_URL, keyVar: 'GROQ_API_KEY' },
+  { provider: 'groq', model: 'openai/gpt-oss-20b', endpoint: GROQ_URL, keyVar: 'GROQ_API_KEY' },
+  { provider: 'gemini', model: 'gemini-3.6-flash', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', keyVar: 'GEMINI_API_KEY' },
+];
+const SUMMARY_MAX_TOKENS = 4000;
 
 // ---------------------------------------------------------------------------
 // Redaccion — lib/security-helpers.js (mismo modulo que stop-compress-session.js
@@ -237,7 +234,7 @@ function isKnownNonCandidate(sessionId, mtimeMs) {
   return a.trivial_mtime > 0 && a.trivial_mtime === Math.floor(mtimeMs);
 }
 
-/** Registra un fallo de `claude -p` para `sessionId`. Devuelve el estado tras contarlo. */
+/** Registra un fallo de la LLM secundaria para `sessionId`. Devuelve el estado tras contarlo. */
 function recordFailure(sessionId) {
   const prev = readAttempts(sessionId);
   const next = { failures: prev.failures + 1, last_failure_at: Date.now() };
@@ -266,9 +263,9 @@ function quotaCooldownPath() {
   return path.join(ATTEMPTS_DIR, '_quota-cooldown.json');
 }
 
-/** ¿El error de `claude -p` es de cuota/limite del plan (transitorio y global)? */
-function isQuotaError(text) {
-  return QUOTA_ERROR_RE.test(String(text || ''));
+/** ¿Todos los intentos de la cadena fallaron por cuota (HTTP 429)? */
+function isQuotaExhausted(attempts) {
+  return Array.isArray(attempts) && attempts.length > 0 && attempts.every((a) => /HTTP 429\b/.test(String(a)));
 }
 
 /** Congela todos los resumenes durante QUOTA_COOLDOWN_MIN (best effort). */
@@ -285,7 +282,7 @@ function recordQuotaCooldown(reason) {
   }
 }
 
-/** Milisegundos que quedan de congelacion por cuota (0 = se puede llamar a claude -p). */
+/** Milisegundos que quedan de congelacion por cuota (0 = se puede llamar a la LLM). */
 function quotaCooldownRemainingMs() {
   try {
     const o = JSON.parse(fs.readFileSync(quotaCooldownPath(), 'utf8'));
@@ -417,119 +414,168 @@ function releaseLock(file) {
   }
 }
 
-function resolveClaudeBin() {
-  if (process.env.SESSION_SUMMARY_CLAUDE_BIN) return process.env.SESSION_SUMMARY_CLAUDE_BIN;
-  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
-  const candidate = path.join(HOME, '.local', 'bin', exe);
-  try {
-    if (fs.existsSync(candidate)) return candidate;
-  } catch {
-    /* cae al PATH */
-  }
-  return 'claude';
+const SUMMARY_SYSTEM = [
+  'Eres un asistente que resume sesiones de trabajo de un desarrollador para que',
+  'su PROXIMA sesion arranque con contexto real. El usuario te pasa el',
+  'contenido de una sesion de Claude Code (prompts del usuario y texto del',
+  'asistente; las llamadas a herramientas ya se han quitado).',
+  '',
+  'Genera un resumen en espanol, en Markdown, con EXACTAMENTE estas 6 secciones',
+  'y un maximo de 50 lineas en total:',
+  '',
+  '## Temas',
+  '## Decisiones',
+  '(indica quien decidio -- el usuario o el asistente -- cuando se pueda inferir)',
+  '## Pendientes',
+  '## Ficheros/commits relevantes',
+  '## Cierres propuestos',
+  '(tarjetas de la lista TARJETAS ABIERTAS DEL KANBAN cuyo trabajo la sesion deja',
+  'TERMINADO -- no a medias ni solo empezado. Una por linea con el formato',
+  '"<id exacto de la lista> | motivo breve". Solo ids de esa lista; sin lista o',
+  'sin cierres claros: "(nada relevante)")',
+  '## Tarjetas nuevas',
+  '(como maximo 3: trabajo pendiente CONCRETO que la sesion deja abierto y que no',
+  'este ya en la lista de tarjetas abiertas. Una por linea con el formato',
+  '"todo | Titulo corto" o "doing | Titulo corto" (doing si se quedo a medias).',
+  'Nada de ideas vagas ni de lo ya hecho; sin nada: "(nada relevante)")',
+  '',
+  'Reglas: no inventes nada que no este en el texto de la sesion; si una seccion no',
+  'tiene contenido, escribe "(nada relevante)"; sintetiza, no copies el texto',
+  'integro. Responde SOLO con el Markdown de las 6 secciones, sin preambulo.',
+].join('\n');
+
+/**
+ * Mensajes para la LLM: instrucciones fijas (system) y la sesion (user), con
+ * las tarjetas abiertas del kanban detras si las hay (lib/kanban-auto.js).
+ */
+function buildPrompt(digestText, openCardsBlock = '') {
+  const user = ['--- INICIO SESION ---', digestText, '--- FIN SESION ---'];
+  if (openCardsBlock) user.push('', openCardsBlock);
+  return { system: SUMMARY_SYSTEM, user: user.join('\n') };
 }
 
-function buildPrompt(digestText) {
+/** Motivo por el que kanban-auto no toca el tablero del proyecto, o ''. */
+function kanbanAutoExclusion(projectId) {
+  if (process.env.KANBAN_AUTO_DISABLED === '1') return 'KANBAN_AUTO_DISABLED=1';
+  const tracker = externalTrackerFor(projectId);
+  if (tracker) return `tracker externo (${tracker})`;
+  return isManualKanban(projectId) ? 'kanban:manual' : '';
+}
+
+/** Tablero del proyecto o null (sin kanban.json, JSON roto). */
+function readBoard(projectId) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(lastSession.projectsDir(), safeId(projectId), 'kanban.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Aplica al kanban los cierres y tarjetas nuevas de la bitacora recien
+ * escrita. Un fallo se registra y no toca la bitacora.
+ */
+function applyKanbanAuto(projectId, sessionId, summaryText, excluded) {
+  try {
+    const r = kanbanAuto.applyFromSummary({
+      projectsDir: lastSession.projectsDir(),
+      projectId: safeId(projectId),
+      sessionId,
+      summary: summaryText,
+      excluded,
+    });
+    if (r.applied || r.skipped) logResult({ project: projectId, session_id: sessionId, kanban_auto: r });
+  } catch (e) {
+    logHookError('session-summarize-previous', e);
+  }
+}
+
+/** Quita un envoltorio ```markdown ... ``` si el modelo lo anade. */
+function stripFence(text) {
+  const raw = String(text || '').trim();
+  const m = /^\`\`\`(?:markdown|md)?[ \t]*\r?\n([\s\S]*?)\r?\n\`\`\`$/.exec(raw);
+  return (m ? m[1] : raw).trim();
+}
+
+/** Prompt unico para Codex: `codex exec` recibe un solo mensaje por stdin. */
+function buildCodexPrompt(prompt) {
   return [
-    'Eres un asistente que resume sesiones de trabajo de un desarrollador para que',
-    'su PROXIMA sesion arranque con contexto real. A continuacion tienes el',
-    'contenido de una sesion de Claude Code (prompts del usuario y texto del',
-    'asistente; las llamadas a herramientas ya se han quitado).',
+    prompt.system,
     '',
-    'Genera un resumen en espanol, en Markdown, con EXACTAMENTE estas 5 secciones',
-    'y un maximo de 45 lineas en total:',
+    'No ejecutes comandos ni leas o escribas ficheros: todo lo que necesitas esta',
+    'en este mensaje. Tu respuesta final es el Markdown del resumen, nada mas.',
     '',
-    '## Temas',
-    '## Decisiones',
-    '(indica quien decidio -- el usuario o el asistente -- cuando se pueda inferir)',
-    '## Pendientes',
-    '## Ficheros/commits relevantes',
-    '## Cierres propuestos',
-    '(tareas o tarjetas del kanban que el texto de la sesion da por CERRADAS,',
-    'TERMINADAS o propone cerrar/archivar -- una por linea, usa el nombre/titulo',
-    'tal como aparece en el texto; NO inventes ids que no esten en el texto)',
-    '',
-    'Reglas: no inventes nada que no este en el texto de abajo; si una seccion no',
-    'tiene contenido, escribe "(nada relevante)"; sintetiza, no copies el texto',
-    'integro. Responde SOLO con el Markdown de las 5 secciones, sin preambulo.',
-    '',
-    '--- INICIO SESION ---',
-    digestText,
-    '--- FIN SESION ---',
+    prompt.user,
   ].join('\n');
 }
 
 /**
- * Llama a `claude -p` de forma sincrona (este script YA corre desacoplado del
- * hook que lo lanzo, asi que bloquearse aqui es seguro). Ver cabecera del
- * fichero para el porque de cada flag.
- * @returns {{ok: true, text: string, model: string}|{ok: false, error: string}}
+ * Resume con Codex CLI. Se llama al modulo en el momento para que los tests
+ * puedan sustituir askCodex.
+ * @returns {Promise<{ok: true, text: string, model: string}|{ok: false, error: string}>}
  */
-function runClaude(promptText) {
-  const bin = resolveClaudeBin();
-  const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY; // fuerza la suscripcion OAuth, no pago por token
-  env[GUARD_ENV] = '1';
-  env.CLAUDE_NO_HOOKS = '1';
-  const args = [
-    '-p',
-    '--model', MODEL,
-    '--safe-mode',
-    '--tools', '',
-    '--no-session-persistence',
-    '--output-format', 'json',
-  ];
+async function summarizeWithCodex(prompt) {
   let res;
   try {
-    res = spawnSync(bin, args, {
-      cwd: os.tmpdir(), // fuera de cualquier proyecto: sin CLAUDE.md que cargar
-      env,
-      input: promptText, // por stdin, nunca como argumento (ver cabecera: ENAMETOOLONG)
-      encoding: 'utf8',
-      timeout: TIMEOUT_MS,
-      windowsHide: true,
-      maxBuffer: 8 * 1024 * 1024,
+    res = await require('./lib/codex-exec').askCodex({
+      prompt: buildCodexPrompt(prompt),
+      model: CODEX_MODEL,
+      reasoningEffort: CODEX_EFFORT,
+      timeoutMs: CODEX_TIMEOUT_MS,
     });
   } catch (e) {
-    return { ok: false, error: `spawnSync lanzo: ${String((e && e.message) || e)}` };
+    return { ok: false, error: `codex lanzo: ${String((e && e.message) || e)}` };
   }
-  if (!res) return { ok: false, error: 'spawnSync sin resultado' };
-  if (res.error) return { ok: false, error: `spawnSync error: ${String(res.error.message || res.error)}` };
-  if (res.signal) return { ok: false, error: `claude -p señal ${res.signal} (probable timeout de ${TIMEOUT_MS} ms)` };
-  if (res.status !== 0) {
-    // Con --output-format json el motivo (cuota, modelo, API) va en el JSON de
-    // STDOUT y stderr suele venir vacio: sin leerlo, el log decia solo
-    // "status=1: " (6 fallos del 2026-09-26, todos por limite de sesion).
-    const error = `claude -p status=${res.status}: ${describeClaudeFailure(res)}`;
-    return { ok: false, error, quota: isQuotaError(error) };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(res.stdout);
-  } catch (e) {
-    return { ok: false, error: `salida no-JSON de claude -p: ${String(e.message)}` };
-  }
-  if (parsed.is_error || typeof parsed.result !== 'string' || !parsed.result.trim()) {
-    const error = `claude -p is_error=${!!parsed.is_error}: ${String(parsed.result || '').slice(0, 300)}`;
-    return { ok: false, error, quota: isQuotaError(error) };
-  }
-  return { ok: true, text: parsed.result.trim(), model: MODEL };
+  if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'codex: sin respuesta' };
+  const text = stripFence(res.text);
+  if (!text) return { ok: false, error: 'codex: resumen vacio' };
+  return { ok: true, text, model: `codex/${res.model}` };
 }
 
-/** Motivo legible de un `claude -p` con status != 0: JSON de stdout primero, luego stderr. */
-function describeClaudeFailure(res) {
-  const parts = [];
-  try {
-    const o = JSON.parse(String(res.stdout || ''));
-    if (o && o.api_error_status) parts.push(`api_error_status=${o.api_error_status}`);
-    if (o && typeof o.result === 'string' && o.result.trim()) parts.push(o.result.trim());
-  } catch {
-    const raw = String(res.stdout || '').trim();
-    if (raw) parts.push(`stdout: ${raw}`);
+/**
+ * Cadena completa: Codex y, si falla, Groq -> Gemini. `quota` solo refleja la
+ * cadena secundaria (un Codex caido no congela nada por si solo).
+ * @returns {Promise<{ok: true, text: string, model: string, codexError?: string}
+ *                  |{ok: false, error: string, quota: boolean}>}
+ */
+async function summarize(prompt) {
+  let codexError = null;
+  if (CODEX_ENABLED) {
+    const c = await summarizeWithCodex(prompt);
+    if (c.ok) return c;
+    codexError = c.error;
   }
-  const err = String(res.stderr || '').trim();
-  if (err) parts.push(`stderr: ${err}`);
-  return parts.join(' | ').slice(0, 400) || '(sin salida)';
+  const r = await summarizeWithSecondaryLlm(prompt);
+  if (!codexError) return r;
+  return r.ok ? { ...r, codexError } : { ...r, error: `${codexError}; ${r.error}` };
+}
+
+/**
+ * Resume con la LLM secundaria (Groq -> Gemini). Se llama al modulo en el
+ * momento (no destructurado al cargar) para que los tests puedan sustituir
+ * askText sin red.
+ * @returns {Promise<{ok: true, text: string, model: string}|{ok: false, error: string, quota: boolean}>}
+ */
+async function summarizeWithSecondaryLlm(prompt) {
+  let res;
+  try {
+    res = await require('./lib/secondary-llm').askText({
+      system: prompt.system,
+      user: prompt.user,
+      deadlineMs: TIMEOUT_MS,
+      maxTokens: SUMMARY_MAX_TOKENS,
+      chain: SUMMARY_CHAIN,
+    });
+  } catch (e) {
+    return { ok: false, error: `LLM secundaria lanzo: ${String((e && e.message) || e)}`, quota: false };
+  }
+  if (!res || !res.ok) {
+    const error = `LLM secundaria: ${(res && res.error) || 'sin respuesta'}`;
+    return { ok: false, error, quota: isQuotaExhausted(res && res.attempts) };
+  }
+  const text = stripFence(res.text);
+  if (!text) return { ok: false, error: 'LLM secundaria: resumen vacio', quota: false };
+  return { ok: true, text, model: `${res.provider}/${res.model}` };
 }
 
 /** Huella corta del digest: si no cambia, el resumen existente sigue valiendo. */
@@ -573,6 +619,28 @@ function logResult(rec) {
   appendJsonl(LOG_PATH, rec);
 }
 
+/**
+ * Fusiona la bitacora recien escrita en el estado vivo del proyecto
+ * (lib/project-state.js, LLM secundaria: Groq -> Gemini). Proceso aparte y
+ * sincrono (este script ya corre desacoplado). `rebuild --last 3` es
+ * idempotente: fusiona esta bitacora y recupera las 2 anteriores si su fusion
+ * fallo (429 de Groq, red). Un fallo no toca el summary.md ya escrito.
+ * Opt-out: PROJECT_STATE_DISABLED=1.
+ */
+function mergeIntoProjectState(projectId, sessionId) {
+  if (process.env.PROJECT_STATE_DISABLED === '1') return;
+  try {
+    const r = spawnSync(process.execPath, [path.join(__dirname, 'lib', 'project-state.js'), 'rebuild', '--project', projectId, '--last', '3'], {
+      encoding: 'utf8',
+      timeout: 150000,
+      windowsHide: true,
+    });
+    logResult({ project: projectId, session_id: sessionId, project_state: (r.stdout || '').trim().slice(0, 300) || `status ${r.status}` });
+  } catch (e) {
+    logHookError('session-summarize-previous', e);
+  }
+}
+
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
@@ -586,14 +654,10 @@ function parseArgs(argv) {
   return out;
 }
 
-function main() {
+async function main() {
   observe('session-summarize-previous');
-  if (process.env[GUARD_ENV] === '1') {
-    logResult({ skipped: 'guardia anti-recursion: subproceso de claude -p' });
-    return;
-  }
   // FAIL-CLOSED (hallazgo MEDIUM): el digest sale de la maquina hacia
-  // claude -p y summary.md se inyecta luego en otra sesion. Sin redaccion
+  // el proveedor externo y summary.md se inyecta luego en otra sesion. Sin redaccion
   // real, mejor no resumir que arriesgar un secreto sin redactar.
   if (!securityHelpersLoaded) {
     return logResult({ skipped: 'sin redaccion (fail-closed): security-helpers.js no cargo' });
@@ -605,7 +669,7 @@ function main() {
   if (!projectId) return logResult({ skipped: 'sin project_id', cwd });
   const coolMs = quotaCooldownRemainingMs();
   if (coolMs > 0) {
-    return logResult({ project: projectId, skipped: `cuota del plan agotada: pausa ${Math.ceil(coolMs / 60000)} min` });
+    return logResult({ project: projectId, skipped: `cuota de la LLM secundaria agotada: pausa ${Math.ceil(coolMs / 60000)} min` });
   }
 
   // `--transcript` (SessionEnd, 2026-09-22): el hook trae transcript_path; con
@@ -632,19 +696,21 @@ function main() {
       }
       return logResult({ project: projectId, session_id: target.sessionId, skipped: 'sin sustancia (menos de 2 prompts reales y menos de 20 turnos)' });
     }
-    // Redaccion ANTES de que el digest salga de la maquina hacia claude -p.
+    // Redaccion ANTES de que el digest salga de la maquina.
     const digestText = redactSecrets(digest.buildDigest(entries, { maxChars: MAX_DIGEST_CHARS }));
     const range = digest.sessionTimeRange(entries);
     const sha = digestSha(digestText);
     // Transcript tocado sin contenido nuevo (cost-state, away_summary, bridge
     // de una sesion remota): el 25-09 la misma sesion se re-resumio 10 veces
-    // con el mismo digest. Se da el resumen por vigente sin llamar a claude -p.
+    // con el mismo digest. Se da el resumen por vigente sin llamar a la LLM.
     if (existingDigestSha(projectId, target.sessionId) === sha) {
       const now = new Date();
       fs.utimesSync(lastSession.summaryPath(projectId, target.sessionId), now, now);
       return logResult({ project: projectId, session_id: target.sessionId, skipped: 'digest sin cambios: resumen vigente' });
     }
-    const result = runClaude(buildPrompt(digestText));
+    const kanbanExcluded = kanbanAutoExclusion(projectId);
+    const openCardsBlock = kanbanExcluded ? '' : redactSecrets(kanbanAuto.renderOpenCardsBlock(readBoard(projectId)));
+    const result = await summarize(buildPrompt(digestText, openCardsBlock));
     if (!result.ok) {
       logHookError('session-summarize-previous', result.error);
       if (result.quota) {
@@ -661,7 +727,17 @@ function main() {
     const header = summaryHeader({ sessionId: target.sessionId, range, model: result.model, generatedAt: new Date().toISOString(), digestShaValue: sha });
     writeSummaryAtomic(lastSession.summaryPath(projectId, target.sessionId), header + redactedText + '\n');
     clearAttempts(target.sessionId);
-    logResult({ project: projectId, session_id: target.sessionId, ok: true, ms: Date.now() - t0, digest_chars: digestText.length });
+    applyKanbanAuto(projectId, target.sessionId, redactedText, kanbanExcluded);
+    logResult({
+      project: projectId,
+      session_id: target.sessionId,
+      ok: true,
+      modelo: result.model,
+      ms: Date.now() - t0,
+      digest_chars: digestText.length,
+      ...(result.codexError ? { codex_error: result.codexError } : {}),
+    });
+    mergeIntoProjectState(projectId, target.sessionId);
   } catch (e) {
     logHookError('session-summarize-previous', e);
     logResult({ project: projectId, session_id: target.sessionId, ok: false, error: String((e && e.message) || e) });
@@ -671,12 +747,13 @@ function main() {
 }
 
 if (require.main === module) {
-  try {
-    main();
-  } catch (e) {
-    try { logHookError('session-summarize-previous', e); } catch { /* ignore */ }
-  }
-  process.exitCode = 0;
+  main()
+    .catch((e) => {
+      try { logHookError('session-summarize-previous', e); } catch { /* ignore */ }
+    })
+    .finally(() => {
+      process.exitCode = 0;
+    });
 } else {
   module.exports = {
     cwdToSlug,
@@ -689,9 +766,15 @@ if (require.main === module) {
     SUMMARY_STALE_GRACE_MS,
     acquireLock,
     releaseLock,
-    resolveClaudeBin,
     buildPrompt,
-    runClaude,
+    kanbanAutoExclusion,
+    stripFence,
+    summarizeWithSecondaryLlm,
+    summarizeWithCodex,
+    summarize,
+    buildCodexPrompt,
+    SUMMARY_CHAIN,
+    CODEX_MODEL,
     summaryHeader,
     writeSummaryAtomic,
     parseArgs,
@@ -699,10 +782,9 @@ if (require.main === module) {
     recordFailure,
     clearAttempts,
     backoffReason,
-    isQuotaError,
+    isQuotaExhausted,
     recordQuotaCooldown,
     quotaCooldownRemainingMs,
-    describeClaudeFailure,
     digestSha,
     existingDigestSha,
     securityHelpersLoaded,

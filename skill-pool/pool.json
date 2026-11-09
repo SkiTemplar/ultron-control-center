@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "brag-slim",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "069432cac935ed1895859df201c31436c07fb74e",
+        "notas": "APTA CON CONDICIONES. Sin red propia, sin scripts ni hooks; solo escribe en brag-output/. MEDIUM: el modo Website lee contenido externo (inyección indirecta); puede proponer npx/npm install para renderizar. Condiciones: invocar solo con /brag-slim, URLs de confianza, aprobar a mano cualquier instalación."
+      },
+      "repo": "https://github.com/latent-spaces/brag.git",
+      "sha": "069432cac935ed1895859df201c31436c07fb74e",
+      "path": "skills/brag-slim",
+      "ref": null
+    },
+    {
+      "name": "humanizer",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "8c307f367c91bd974002f10f2be2965d642c13df",
+        "notas": "APTA CON CONDICIONES. Sin red, hooks ni postinstall; validate-package.py es un linter de solo lectura. MEDIUM: SKILL.md de ~5.000 palabras (7-8K tokens por invocación). Condiciones: solo bajo petición explícita; nunca sobre texto evaluable académico ni en borrador/ o entrega/ de asignaturas uni."
+      },
+      "repo": "https://github.com/blader/humanizer.git",
+      "sha": "8c307f367c91bd974002f10f2be2965d642c13df",
+      "path": ".",
+      "ref": null
+    },
+    {
+      "name": "impeccable",
+      "kind": "skill",
+      "license": "Apache-2.0",
+      "templates": [
+        "web-vite-react-ts"
+      ],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "2f46b7a8b059af00d20dd13b64dbe165e7c6a742",
+        "notas": "APTA CON CONDICIONES. HIGH mitigado: el lanzador descarga un binario sin firmar de las releases si no lo encuentra. Condiciones: IMPECCABLE_BIN apuntando al motor compilado desde este SHA (skill-pool/bin/), DO_NOT_TRACK=1, IMPECCABLE_NO_UPDATE_CHECK=1; nunca npx impeccable install, el plugin ni /impeccable hooks on. Se enlaza .claude/skills/impeccable (skill/ trae placeholders sin resolver). generate-image usa OPENAI_API_KEY: no usar."
+      },
+      "repo": "https://github.com/pbakaus/impeccable.git",
+      "sha": "2f46b7a8b059af00d20dd13b64dbe165e7c6a742",
+      "path": ".claude/skills/impeccable",
+      "ref": null
+    },
+    {
+      "name": "supabase",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "web-vite-react-ts"
+      ],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+        "notas": "APTA CON CONDICIONES. MEDIUM: aplica cambios de esquema con execute_sql sin confirmación y sin distinguir local de remoto. Condiciones: MCP de Supabase sin conectar o con read_only=true y project_ref de desarrollo; cualquier SQL contra un proyecto remoto, con confirmación explícita. LOW: consulta docs de supabase.com y crea .mcp.json."
+      },
+      "repo": "https://github.com/supabase/agent-skills.git",
+      "sha": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+      "path": "skills/supabase",
+      "ref": null
+    },
+    {
+      "name": "react-best-practices",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "web-vite-react-ts"
+      ],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+        "notas": "APTA. Sin red, scripts ni escrituras. LOW: remite a AGENTS.md (~30K tokens); leer solo los ficheros de rules/ necesarios. deploy-to-vercel del mismo repo queda FUERA (HIGH: publica el proyecto en un endpoint anónimo si falla vercel login)."
+      },
+      "repo": "https://github.com/vercel-labs/agent-skills.git",
+      "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "path": "skills/react-best-practices",
+      "ref": null
+    },
+    {
+      "name": "unrealcv",
+      "kind": "ue-plugin",
+      "license": "MIT",
+      "templates": [],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "67d466a246c7bacffab5392312b0746191fa5c10",
+        "notas": "APTA CON CONDICIONES (uso de laboratorio). CRITICAL/HIGH: escucha en 0.0.0.0:9000 sin autenticación ni dirección configurable; vrun = cualquier comando de consola (con PythonScriptPlugin activo, ejecución remota); vexec = cualquier UFunction; capturas con ruta sin sanear. Arranca en editor y en builds (EnabledByDefault). Condiciones: regla de firewall que bloquee la entrada a UnrealEditor.exe y al .exe empaquetado; PythonScriptPlugin desactivado mientras UnrealCV esté activo; fuera de cualquier build distribuida. No se copia a ningún proyecto hasta que el usuario lo pida."
+      },
+      "repo": "https://github.com/unrealcv/unrealcv.git",
+      "sha": "67d466a246c7bacffab5392312b0746191fa5c10",
+      "path": ".",
+      "ref": "5.2"
+    },
+    {
+      "name": "supervision",
+      "kind": "python-lib",
+      "license": "MIT",
+      "templates": [],
+      "review": {
+        "fecha": "2026-10-18",
+        "sha": "0.31.0",
+        "notas": "APTA. Paquete PyPI de Roboflow, MIT, Python >=3.10; dependencias habituales (numpy, scipy, matplotlib, pillow, av, requests). Fijada a 0.31.0 con uv add."
+      },
+      "repo": "https://github.com/roboflow/supervision.git",
+      "version": "0.31.0",
+      "path": null
+    }
+  ]
+}

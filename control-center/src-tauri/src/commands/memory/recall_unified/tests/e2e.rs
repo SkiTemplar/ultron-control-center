@@ -28,18 +28,15 @@ fn e2e_embed_e5_smoke() {
 
 #[test]
 #[ignore = "e2e: real Qdrant + brain.db + downloads E5 ONNX; run explicitly"]
-fn e2e_full_pipeline_migrate_reindex_recall() {
+fn e2e_full_pipeline_reindex_recall() {
     use crate::memory::sqlite_store::{get_item, open_conn};
     use crate::memory::{qdrant_index, MemoryService};
 
-    // 1) Canonical DB live.
+    // 1) Canonical DB live. (El paso de ETL one-shot se retiró el 2026-10-26
+    //    junto con memory/migrations.rs: no tenía otro llamante.)
     crate::memory::sqlite_store::SqliteStore::init().expect("brain.db init");
 
-    // 2) ETL one-shot (idempotent; backs up brain.db).
-    let report = crate::memory::migrations::run_full_etl();
-    eprintln!("\n=== ETL REPORT ===\n{report:#?}");
-
-    // 3) Reindex active items into ultron_memory (E5 1024d). First call
+    // 2) Reindex active items into ultron_memory (E5 1024d). First call
     //    downloads the ONNX model — may take minutes.
     let (indexed, errors) = qdrant_index::reindex_all().expect("reindex_all");
     eprintln!("\n=== REINDEX === indexed={indexed} errors={errors}");
@@ -48,7 +45,7 @@ fn e2e_full_pipeline_migrate_reindex_recall() {
         "expected >=1 active item indexed into ultron_memory"
     );
 
-    // 4) Hybrid recall (replicates the `recall` command's sync core).
+    // 3) Hybrid recall (replicates the `recall` command's sync core).
     let query = "qdrant";
     let dense = qdrant_index::search_dense(query, FANOUT_K as u32, None);
     let sparse = MemoryService::search_active(query, FANOUT_K).expect("sparse search");

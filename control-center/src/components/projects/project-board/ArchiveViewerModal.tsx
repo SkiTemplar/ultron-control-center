@@ -21,11 +21,11 @@ export function ArchiveViewerModal({ openedArchive, onClose }: ArchiveViewerModa
         <div className="flex items-baseline justify-between">
           <div>
             <h3 className="text-[14px] font-semibold text-[var(--color-text)]">
-              Archive · {openedArchive.name}
+              Archivo · {openedArchive.name}
             </h3>
             <p className="mt-0.5 text-[11.5px] text-[var(--color-text-tertiary)]">
-              {openedArchive.cards.length} card
-              {openedArchive.cards.length === 1 ? "" : "s"} · archived{" "}
+              {openedArchive.cards.length} tarjeta
+              {openedArchive.cards.length === 1 ? "" : "s"} · archivado el{" "}
               {openedArchive.archived_at}
             </p>
           </div>
@@ -39,7 +39,7 @@ export function ArchiveViewerModal({ openedArchive, onClose }: ArchiveViewerModa
               border: "1px solid var(--color-border)",
             }}
           >
-            Close
+            Cerrar
           </button>
         </div>
         <div className="mt-3 max-h-[60vh] space-y-1.5 overflow-y-auto pr-1">

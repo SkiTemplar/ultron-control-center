@@ -16,8 +16,3 @@ C#/Unity, TypeScript/React/Next.js, Python, shell, or graphics work.)
 1. (First step — detect stack from file extensions and code patterns.)
 2. (Second step — surgical implementation with minimal output.)
 3. (Final output expectation — verified change with tests or doc.)
-
-## Customize
-This file lives at `~/.claude/skills/senior-engineer/SKILL.md`. Modify it to fit
-your workflow. The installer's manifest entry points here via
-`repo://skills/senior-engineer`.

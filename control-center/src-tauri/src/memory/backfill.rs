@@ -191,11 +191,10 @@ fn set_item_project(
     };
     let before = item.project_id.clone().unwrap_or_else(|| "null".into());
     item.project_id = Some(project.to_string());
-    store::insert_item(conn, &item).map_err(|e| e.to_string())?;
     let ev = MemoryEvent::new(EventType::Edited, Some(id.to_string()), Actor::System).with_reason(
         format!("backfill-projects ({phase}): {before} -> {project}"),
     );
-    let _ = store::insert_event(conn, &ev);
+    store::insert_item_with_event(conn, &item, &ev).map_err(|e| e.to_string())?;
     // Qdrant: solo los ACTIVE tienen punto; un miss/fallo no aborta el backfill
     // (reindex_all reconstruye payloads de todos modos).
     if item.status == Status::Active {

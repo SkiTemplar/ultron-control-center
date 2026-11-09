@@ -29,19 +29,40 @@ interface ProviderUsageRow {
 
 interface RouterUsageSummary {
   providers: ProviderUsageRow[];
-  /** EMA de fallo por intento (ex-fallback_rate). */
+  /** EMA de fallo por intento: contexto, no una tasa por ruta. */
   attempt_failure_rate: number;
-  /** Fracción de rutas que cayeron a secundario (0.0..=1.0). */
+  /** Rutas que el primary no sirvió (fallback o cadena agotada), acumulado. */
   real_fallback_rate: number;
-  /** Contador absoluto de rutas con fallback ganador. */
-  real_fallback_count: number;
-  /** Total de invocaciones de route() completadas. Optional for old backend compat. */
+  /** Rutas con la cadena agotada (sin respuesta), acumulado. */
+  route_failure_rate?: number;
+  routes_failed?: number;
+  /** Total de llamadas a route(), fallidas incluidas. */
   routes_total?: number;
-  /** Campo legacy — puede estar ausente en versiones nuevas. */
-  fallback_rate?: number;
+  /** Lo mismo que real_fallback_rate sobre las últimas `recent_window` rutas: la señal accionable. */
+  real_fallback_rate_recent?: number;
+  route_failure_rate_recent?: number;
+  recent_window?: number;
 }
 
-function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
+function rateColor(pct: number): string {
+  if (pct > 50) return "var(--color-danger)";
+  if (pct > 20) return "var(--color-warn)";
+  return "var(--color-success)";
+}
+
+const pct = (x: number | undefined) => Math.round((x ?? 0) * 100);
+
+function SummaryStat({
+  label,
+  value,
+  color,
+  sub,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+  sub?: string;
+}) {
   return (
     <div
       className="flex flex-col gap-1 rounded-lg p-4"
@@ -56,6 +77,11 @@ function SummaryStat({ label, value, color }: { label: string; value: string; co
       <span className="text-[22px] font-bold tabular-nums" style={{ color: color ?? "var(--color-text)" }}>
         {value}
       </span>
+      {sub && (
+        <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+          {sub}
+        </span>
+      )}
     </div>
   );
 }
@@ -81,42 +107,40 @@ export function RouterDashboard() {
   const providerCount = summary ? summary.providers.length : 0;
   const keyedCount = summary ? summary.providers.filter((p) => p.key_present).length : 0;
   const routesTotal = summary ? (summary.routes_total ?? 0) : 0;
+  const recentWindow = summary?.recent_window ?? 0;
 
-  // real_fallback_rate = fraction of routes that fell to a secondary provider
-  // (the honest metric). attempt_failure_rate = EMA of per-attempt failures
-  // (can inflate the number; shown separately as context, not as the headline).
-  const realFallbackPct = summary ? Math.round(summary.real_fallback_rate * 100) : 0;
-  const attemptFailurePct = summary ? Math.round(summary.attempt_failure_rate * 100) : 0;
-  const realFallbackColor =
-    realFallbackPct > 50
-      ? "var(--color-danger)"
-      : realFallbackPct > 20
-        ? "var(--color-warn)"
-        : "var(--color-success)";
-  const attemptColor =
-    attemptFailurePct > 50
-      ? "var(--color-danger)"
-      : attemptFailurePct > 20
-        ? "var(--color-warn)"
-        : "var(--color-success)";
+  // Titular = real_fallback_rate sobre la ventana reciente: el dato honesto y
+  // accionable (rutas que el primary no sirvió, fallos totales incluidos). El
+  // acumulado arrastra proveedores retirados y va como contexto, igual que la
+  // EMA de fallo por intento, que no es una tasa por ruta.
+  const recentPct = pct(summary?.real_fallback_rate_recent);
+  const recentFailedPct = pct(summary?.route_failure_rate_recent);
+  const cumulativePct = pct(summary?.real_fallback_rate);
+  const cumulativeFailedPct = pct(summary?.route_failure_rate);
+  const attemptFailurePct = pct(summary?.attempt_failure_rate);
 
   return (
     <div className="space-y-2">
-      {/* Summary strip — 3 stats: providers keyed, real fallback (headline), attempt failure */}
+      {/* Summary strip — providers keyed, real fallback (recent window, headline), attempt failure */}
       <div className="grid grid-cols-2 gap-3 px-6 pt-6 sm:grid-cols-3">
         <SummaryStat
-          label="Providers con key"
+          label="Proveedores con key"
           value={`${keyedCount}/${providerCount}`}
         />
         <SummaryStat
-          label="Fallback real (cae a secundario)"
-          value={routesTotal === 0 ? "—" : `${realFallbackPct}%`}
-          color={routesTotal === 0 ? undefined : realFallbackColor}
+          label={`Fallback real (últimas ${recentWindow} rutas)`}
+          value={recentWindow === 0 ? "—" : `${recentPct}%`}
+          color={recentWindow === 0 ? undefined : rateColor(recentPct)}
+          sub={
+            routesTotal === 0
+              ? undefined
+              : `sin respuesta ${recentFailedPct}% · acumulado ${cumulativePct}% (sin respuesta ${cumulativeFailedPct}%) de ${routesTotal} rutas`
+          }
         />
         <SummaryStat
-          label="Fallo por intento (EMA)"
+          label="Fallo por intento (EMA, contexto)"
           value={routesTotal === 0 ? "—" : `${attemptFailurePct}%`}
-          color={routesTotal === 0 ? undefined : attemptColor}
+          color={routesTotal === 0 ? undefined : rateColor(attemptFailurePct)}
         />
       </div>
 
@@ -128,7 +152,7 @@ export function RouterDashboard() {
             className="mb-2 text-[13px] font-semibold"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Salud de providers (hoy)
+            Salud de los proveedores (hoy)
           </h2>
           <div className="space-y-1">
             {summary.providers
@@ -185,12 +209,12 @@ export function RouterDashboard() {
           className="mb-3 text-[13px] font-semibold"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Proxy free-tier
+          Proxy de nivel gratuito
         </h2>
         <ProxyControl />
       </div>
 
-      {/* Modelo local (Ollama) — interruptor de bandeja + gestion completa. */}
+      {/* Modelo local (Ollama) — motor del autocompletado (mismo mando que la bandeja). */}
       <div className="px-6 pb-6">
         <h2
           className="mb-3 text-[13px] font-semibold"

@@ -1,4 +1,5 @@
-// AI Router tests — 46 tests covering all areas.
+// AI Router tests by area (route() itself is tested in
+// providers/routing_tests.rs and the zone store in store/*tests.rs).
 //
 // Uses `crate::ai_router::*` for all imports so the test-vs-impl boundary
 // matches what external callers see (modulo the pub(crate) items listed below).
@@ -65,6 +66,8 @@ mod ai_router_tests {
             default_model: "test-model".into(),
             models: vec![],
             cli_command: cli_command.map(String::from),
+            api_format: crate::ai_router::api_format::infer_api_format(id, kind),
+            custom: false,
         }
     }
 
@@ -81,7 +84,6 @@ mod ai_router_tests {
             cost_per_mtok: 0.0,
             primary_cost_per_mtok: 0.0,
             latency_ms: 50,
-            mode: None,
             retry_count: 0,
             fail_reason: None,
             error: None,

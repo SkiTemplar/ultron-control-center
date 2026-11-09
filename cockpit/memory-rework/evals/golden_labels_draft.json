@@ -11,7 +11,7 @@
         "5b09821e-59b5-45e3-b358-100a20e0e8ee"
       ],
       "n_relevant": 5,
-      "nota": "Tratan directamente de Qdrant: decision de uso, config del named vector, ubicacion D:/Ultron/qdrant y proceso activo; descarto los de build/compilacion y 'SQLite y Qdrant' que solo lo mencionan de pasada."
+      "nota": "Tratan directamente de Qdrant: decision de uso, config del named vector, ubicacion de la instalacion nativa y proceso activo; descarto los de build/compilacion y 'SQLite y Qdrant' que solo lo mencionan de pasada."
     },
     {
       "id": "gs-0002",

@@ -96,7 +96,7 @@ export function ModelSelect({
         disabled={disabled}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="model id"
+        placeholder="id del modelo"
         className="rounded px-2 py-1 text-[12px]"
         style={{
           background: "var(--color-surface-3)",

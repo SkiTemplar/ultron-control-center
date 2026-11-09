@@ -156,17 +156,16 @@ impl MemoryService {
                 updated.title = Some(t);
             }
             updated.updated_at = now_millis();
-            match store::insert_item(&conn, &updated) {
+            let ev = MemoryEvent::new(EventType::Updated, Some(updated.id.clone()), actor)
+                .with_reason(
+                    "secret-backfill: [REDACTED_PHONE] era una fecha ISO (falso positivo del detector de PII, 2026-09-22)"
+                        .to_string(),
+                )
+                .with_before(before)
+                .with_after(serde_json::to_string(&updated).unwrap_or_default());
+            match store::insert_item_with_event(&conn, &updated, &ev) {
                 Ok(()) => {
                     sync_index(&updated);
-                    let ev = MemoryEvent::new(EventType::Updated, Some(updated.id.clone()), actor)
-                        .with_reason(
-                            "secret-backfill: [REDACTED_PHONE] era una fecha ISO (falso positivo del detector de PII, 2026-09-22)"
-                                .to_string(),
-                        )
-                        .with_before(before)
-                        .with_after(serde_json::to_string(&updated).unwrap_or_default());
-                    let _ = store::insert_event(&conn, &ev);
                     if downgrade {
                         result.downgraded.push(updated.id.clone());
                     }

@@ -1,0 +1,6 @@
+{
+  "name": "ultron-codex",
+  "version": "0.1.0",
+  "description": "Panel /codex: lanza tareas y revisiones de Codex en segundo plano y trae el resultado al chat",
+  "types": "./types/index.d.ts"
+}

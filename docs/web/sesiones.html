@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ULTRON Sessions — Claude Code con ventana propia</title>
+<meta name="description" content="ULTRON Sessions envuelve la CLI real de Claude Code en un PTY y la presenta como un chat: Markdown, tarjetas de permisos y preguntas, cola de mensajes, slash commands, árbol de subagentes, HUD de cuota y varias sesiones a la vez." />
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     ULTRON Sessions — misma familia visual que index.html: negro puro,
+     monocromo, hairlines de 1px, sans + mono. Sin gradientes de color,
+     sin radios gordos, sin emojis. Móvil primero.
+     ─────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#000000;
+    --bg-1:#070707;
+    --bg-2:#0c0c0d;
+    --line:#1c1c1e;
+    --line-2:#2a2a2d;
+    --ink:#ededed;
+    --ink-2:#a0a0a4;
+    --ink-3:#8a8a8e;       /* texto secundario: 5,7:1 sobre --bg-2 (igual que index.html) */
+    --ink-4:#7c7c80;       /* etiquetas: 4,7:1 sobre --bg-2 (igual que index.html) */
+    --mono:"Berkeley Mono","SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:920px;
+    --maxw-media:1120px;
+    --pad:16px;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;scrollbar-gutter:stable;}
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition-duration:.01ms !important;animation-duration:.01ms !important;}
+  }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.7;
+    letter-spacing:-0.011em;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    text-rendering:optimizeLegibility;
+    font-feature-settings:"kern","liga","calt";
+    overflow-wrap:break-word;
+  }
+  ::selection{background:#26262a;color:#fff;}
+  a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line-2);transition:border-color .15s ease,color .15s ease;}
+  a:hover{border-color:var(--ink);}
+  :focus-visible{outline:1px solid var(--ink-2);outline-offset:3px;}
+  a:focus-visible{outline-offset:4px;}
+  code,.mono{font-family:var(--mono);font-feature-settings:"ss01","cv01";}
+  h1,h2,h3,h4{letter-spacing:-0.02em;font-weight:560;text-wrap:balance;}
+  p{text-wrap:pretty;margin:14px 0;color:var(--ink-2);}
+  p b{color:var(--ink);font-weight:520;}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);}
+  .wrap.media{max-width:var(--maxw-media);}
+
+  code.t{
+    font-size:12.5px;color:var(--ink);background:var(--bg-2);
+    border:1px solid var(--line);padding:1px 6px;letter-spacing:-0.01em;
+  }
+
+  /* ── Topbar ─────────────────────────────────────────────── */
+  .topbar{
+    position:sticky;top:0;z-index:50;
+    background:rgba(0,0,0,0.72);
+    backdrop-filter:saturate(140%) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:16px;min-height:52px;padding-block:4px;}
+  .brand{font-family:var(--mono);font-size:12.5px;letter-spacing:0.04em;color:var(--ink);border:none;}
+  .brand .dim{color:var(--ink-3);}
+  .topbar nav{display:flex;gap:2px;align-items:center;}
+  .topbar nav a{
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+    padding:6px 9px;border:none;letter-spacing:0.02em;transition:color .15s ease;
+  }
+  .topbar nav a:hover{color:var(--ink);}
+  .topbar nav a.part{color:var(--ink);}
+  .topbar nav .sep{display:none;width:1px;height:16px;background:var(--line-2);margin:0 8px;}
+  /* móvil primero: la navegación secundaria aparece al ganar ancho */
+  .topbar nav a.lvl2{display:none;}
+  .brand .dim{display:none;}
+  @media (min-width:481px){.brand .dim{display:inline;}}
+  @media (min-width:561px){.topbar nav .sep{display:inline-block;}}
+  @media (min-width:821px){.topbar nav a.lvl2{display:inline;}}
+
+  /* ── Hero ───────────────────────────────────────────────── */
+  .hero{border-bottom:1px solid var(--line);padding:56px 0 44px;position:relative;}
+  .hero::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--bg-1) 1px,transparent 1px),linear-gradient(90deg,var(--bg-1) 1px,transparent 1px);
+    background-size:38px 38px;
+    -webkit-mask-image:radial-gradient(120% 80% at 50% 0%,#000 0%,transparent 70%);
+    mask-image:radial-gradient(120% 80% at 50% 0%,#000 0%,transparent 70%);
+    opacity:.5;
+  }
+  .hero .wrap{position:relative;}
+  .eyebrow{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:0.22em;text-transform:uppercase;
+    color:var(--ink-3);margin:0 0 24px;display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow .tick{width:6px;height:6px;background:var(--ink);display:inline-block;flex:none;}
+  h1{
+    font-size:clamp(32px,7vw,46px);line-height:1.05;margin:0 0 22px;
+    font-weight:580;letter-spacing:-0.035em;max-width:18ch;
+  }
+  .lede{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:64ch;margin:0;font-weight:400;}
+  .lede b{color:var(--ink);font-weight:520;}
+
+  /* ── Vídeo y capturas: hairline + sombra neutra discreta ─ */
+  .frame{
+    margin:0;border:1px solid var(--line-2);background:var(--bg-1);
+    box-shadow:0 1px 0 rgba(255,255,255,0.03) inset,0 24px 48px -28px rgba(0,0,0,0.9);
+  }
+  .frame video,.frame img{display:block;width:100%;height:auto;aspect-ratio:16/9;background:var(--bg-2);}
+  .frame figcaption{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--ink-4);padding:11px 14px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;gap:12px;
+  }
+  .frame figcaption .id{color:var(--ink-3);}
+  .hero .frame{margin-top:36px;}
+
+  /* ── Sections ───────────────────────────────────────────── */
+  section{border-bottom:1px solid var(--line);padding:56px 0;}
+  .sec-head{margin-bottom:32px;}
+  .sec-kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:0.04em;color:var(--ink-3);
+    display:flex;align-items:center;gap:12px;margin-bottom:18px;
+  }
+  .sec-kicker .num{color:var(--ink);}
+  .sec-kicker .rule{flex:1;height:1px;background:var(--line);}
+  h2{font-size:clamp(24px,4.4vw,30px);line-height:1.12;margin:0 0 16px;font-weight:560;letter-spacing:-0.03em;}
+  .sec-sub{font-size:16px;color:var(--ink-2);max-width:66ch;margin:0;line-height:1.62;}
+  .sec-sub b{color:var(--ink);font-weight:520;}
+
+  /* ── Bloques de función ────────────────────────────────── */
+  .feat{padding:36px 0 40px;border-top:1px solid var(--line);}
+  .feat:first-of-type{border-top:none;padding-top:0;}
+  .feat-text{max-width:var(--maxw);margin:0 auto 22px;padding:0 var(--pad);}
+  .feat .fn{font-family:var(--mono);font-size:10.5px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);margin-bottom:9px;}
+  .feat h3{font-size:18px;line-height:1.3;margin:0 0 8px;color:var(--ink);}
+  .feat p{margin:0;font-size:14.5px;line-height:1.6;max-width:66ch;}
+
+  /* ── Diagrama ──────────────────────────────────────────── */
+  .fig{border:1px solid var(--line);background:var(--bg-1);margin:28px 0;}
+  .fig-cap{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--ink-4);padding:13px 18px;border-bottom:1px solid var(--line);
+  }
+  .fig-body{padding:20px 16px;}
+  .flow{display:flex;flex-direction:column;}
+  .node{border:1px solid var(--line-2);background:var(--bg-2);padding:14px 15px;}
+  .node.lead{border-color:#3a3a3e;}
+  .node .nb{font-family:var(--mono);font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-4);margin-bottom:9px;}
+  .node .nt{font-family:var(--mono);font-size:13px;color:var(--ink);letter-spacing:-0.01em;line-height:1.3;}
+  .node .nd{font-size:12px;color:var(--ink-3);margin-top:7px;line-height:1.45;}
+  .arrow{
+    display:flex;align-items:center;justify-content:center;flex:none;min-height:34px;padding:6px 0;
+    font-family:var(--mono);font-size:11px;color:var(--ink-4);gap:8px;
+  }
+  .arrow .lab{font-size:9.5px;letter-spacing:0.04em;}
+  .arrow .h{display:none;}
+  @media (min-width:760px){
+    .fig-body{padding:26px 22px;}
+    .flow{flex-direction:row;align-items:stretch;}
+    .flow .node{flex:1 1 0;min-width:0;}
+    .arrow{flex-direction:column;min-width:64px;min-height:0;padding:0 6px;gap:4px;}
+    .arrow .v{display:none;}
+    .arrow .h{display:inline;}
+  }
+
+  /* ── Prose lists ───────────────────────────────────────── */
+  ul.list{list-style:none;padding:0;margin:18px 0;border-top:1px solid var(--line);}
+  ul.list li{
+    padding:13px 0 13px 28px;border-bottom:1px solid var(--line);position:relative;
+    color:var(--ink-2);font-size:14.5px;line-height:1.55;
+  }
+  ul.list li::before{content:"";position:absolute;left:2px;top:21px;width:9px;height:1px;background:var(--ink-4);}
+  ul.list li b{color:var(--ink);font-weight:520;}
+
+  /* ── Footer ─────────────────────────────────────────────── */
+  footer{padding:48px 0 72px;}
+  footer .ftitle{font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-4);margin-bottom:18px;}
+  footer .files{display:flex;flex-direction:column;gap:4px;}
+  footer .files code{font-family:var(--mono);font-size:12px;color:var(--ink-3);}
+  footer .files code b{color:var(--ink-2);font-weight:400;}
+  footer .meta{margin-top:30px;padding-top:22px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--ink-4);line-height:1.8;}
+
+  /* ── Escalado hacia escritorio ─────────────────────────── */
+  @media (min-width:401px){:root{--pad:20px;}}
+  @media (min-width:641px){
+    :root{--pad:28px;}
+    section{padding:80px 0;}
+    .hero{padding:92px 0 64px;}
+    .hero .frame{margin-top:44px;}
+    .feat{padding:48px 0 52px;}
+    footer{padding:64px 0 96px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html">ULTRON<span class="dim"> / sessions</span></a>
+    <nav>
+      <a href="#funciones" class="lvl2">Funciones</a>
+      <a href="#como-funciona" class="lvl2">Cómo funciona</a>
+      <span class="sep"></span>
+      <a href="index.html" class="part">ULTRON</a>
+      <a href="como-funciona.html" class="part">Manual técnico</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow"><span class="tick"></span>ULTRON Control Center · ventana de sesiones</p>
+    <h1>ULTRON Sessions</h1>
+    <p class="lede">
+      <b>Claude Code con ventana propia: la CLI real, presentada como un chat.</b>
+      Sessions no reimplementa Claude Code ni habla con la API por su cuenta: arranca la CLI
+      de siempre y le pone delante una interfaz de escritorio.
+    </p>
+  </div>
+  <div class="wrap media">
+    <figure class="frame">
+      <video controls playsinline preload="metadata" poster="media/sesiones/poster.jpg" width="1920" height="1080">
+        <source src="media/sesiones/trailer.mp4" type="video/mp4" />
+        Tu navegador no reproduce vídeo MP4. <a href="media/sesiones/trailer.mp4">Descarga el tráiler</a>.
+      </video>
+      <figcaption><span class="id">tráiler</span><span>ULTRON Sessions</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<main>
+
+<!-- ════════════════ FUNCIONES ════════════════ -->
+<section id="funciones">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">01</span><span>Funciones</span><span class="rule"></span></div>
+      <h2>Lo que hace la ventana.</h2>
+      <p class="sec-sub">
+        Nueve cosas que la terminal no da, sin cambiar el motor: todo lo que ves sale de la
+        sesión real de Claude Code.
+      </p>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.1 · Chat</div>
+      <h3>Markdown rico y respuesta en streaming.</h3>
+      <p>Chat con Markdown rico: tablas, bloques de código y respuesta en streaming mientras Claude escribe.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/chat.png" width="1920" height="1080" alt="Conversación en ULTRON Sessions con una tabla, un bloque de código y una respuesta en curso." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.2 · Preguntas, planes y permisos</div>
+      <h3>Tarjetas con botones, sin salir del chat.</h3>
+      <p>Preguntas, planes y permisos de Claude como tarjetas con botones, sin salir del chat.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/pregunta.png" width="1920" height="1080" alt="Tarjeta de pregunta de Claude con sus opciones como botones dentro del chat." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.3 · Cola de mensajes</div>
+      <h3>Escribe mientras trabaja.</h3>
+      <p>Los mensajes esperan en una cola y se envían en orden, sin duplicados.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/cola.png" width="1920" height="1080" alt="Mensajes en cola esperando turno mientras Claude trabaja." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.4 · Slash commands</div>
+      <h3>Todos los comandos desde el chat.</h3>
+      <p>Todos los slash commands desde el chat, incluidos los menús de la TUI.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/comandos.png" width="1920" height="1080" alt="Desplegable de slash commands y un menú de la TUI presentado dentro del chat." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.5 · Subagentes</div>
+      <h3>Árbol de la sesión.</h3>
+      <p>Cada subagente con su contexto, sus turnos y su tarea.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/agentes.png" width="1920" height="1080" alt="Árbol de la sesión con los subagentes, su contexto, sus turnos y su tarea." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.6 · HUD</div>
+      <h3>El estado de la sesión, en una línea.</h3>
+      <p>HUD inferior: modelo, effort, contexto, cuota de 5 h y semanal con ritmo, rama de git y coste.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/hud.png" width="1920" height="1080" alt="Barra inferior con modelo, effort, contexto, cuota de 5 horas y semanal, rama de git y coste." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.7 · Varias sesiones</div>
+      <h3>Paneles divididos o ventanas separadas.</h3>
+      <p>Varias sesiones a la vez en paneles divididos o en ventanas separadas.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/dividir.png" width="1920" height="1080" alt="Dos sesiones de Claude Code abiertas en paneles divididos." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.8 · Segunda opinión</div>
+      <h3>Codex o Gemini, de vuelta a Claude.</h3>
+      <p>Manda la última respuesta a Codex o Gemini y trae su resultado a Claude.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/codex.png" width="1920" height="1080" alt="Revisión de Codex sobre la última respuesta, lista para devolverla a Claude." />
+      </figure>
+    </div>
+  </div>
+
+  <div class="feat">
+    <div class="feat-text">
+      <div class="fn">1.9 · Temas</div>
+      <h3>Siete temas.</h3>
+      <p>En la captura, cuatro de ellos: Obsidiana, Vacío, Fósforo y Acero.</p>
+    </div>
+    <div class="wrap media">
+      <figure class="frame">
+        <img loading="lazy" src="media/sesiones/temas.png" width="1920" height="1080" alt="La ventana de Sessions con los temas Obsidiana, Vacío, Fósforo y Acero." />
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ CÓMO FUNCIONA ════════════════ -->
+<section id="como-funciona">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">02</span><span>Cómo funciona</span><span class="rule"></span></div>
+      <h2>La CLI corre de verdad. Sessions la lee.</h2>
+      <p class="sec-sub">
+        Claude Code se ejecuta tal cual en un <b>PTY</b>. Sessions no sustituye nada: lee lo que
+        la CLI pinta y lo que escribe en disco, y recibe por HTTP local lo que la pantalla no
+        cuenta.
+      </p>
+    </div>
+
+    <div class="fig">
+      <div class="fig-cap">Flujo de una sesión</div>
+      <div class="fig-body">
+        <div class="flow">
+          <div class="node lead">
+            <div class="nb">proceso</div>
+            <div class="nt">Claude Code CLI</div>
+            <div class="nd">La CLI real, ejecutándose en un PTY.</div>
+          </div>
+          <div class="arrow"><span class="v">↓</span><span class="h">→</span><span class="lab">pantalla + JSONL</span></div>
+          <div class="node">
+            <div class="nb">lectura</div>
+            <div class="nt">vt100 + transcript</div>
+            <div class="nd">Pantalla emulada y transcript JSONL de la sesión.</div>
+          </div>
+          <div class="arrow"><span class="v">↓</span><span class="h">→</span><span class="lab">estado</span></div>
+          <div class="node">
+            <div class="nb">interfaz</div>
+            <div class="nt">Sessions</div>
+            <div class="nd">El chat, las tarjetas, la cola y el HUD.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="list">
+      <li><b>PTY.</b> Claude Code corre de verdad en un pseudoterminal: misma CLI, mismos hooks, misma configuración.</li>
+      <li><b>Pantalla emulada.</b> Sessions lee la pantalla de la TUI con un emulador <code class="t">vt100</code> y el transcript JSONL que la CLI escribe en disco.</li>
+      <li><b>Mod propio.</b> <code class="t">ultron-puente</code> le pasa por HTTP local los eventos de streaming, permisos y preguntas.</li>
+      <li><b>Restauración.</b> Las sesiones abiertas se restauran al reiniciar la app.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="ftitle">Cómo está hecho · leído del código real</div>
+    <div class="files">
+      <code><b>Sesión y PTY:</b> src-tauri/src/pty/ · sesiones/{gestor, lanzamiento, maquina}.rs</code>
+      <code><b>Lectura:</b> sesiones/{pantalla, transcript, seguidor}.rs (vt100 + JSONL)</code>
+      <code><b>Puente:</b> mods/ultron-puente · sesiones/puente*.rs (HTTP local)</code>
+      <code><b>Restauración:</b> sesiones/persistencia*.rs</code>
+      <code><b>Interfaz:</b> control-center/src/sesiones/ (React 19)</code>
+    </div>
+    <div class="meta">
+      Página estática autocontenida · CSS inline · sin dependencias de red · sin JavaScript.<br/>
+      Parte de <a href="index.html">ULTRON Control Center</a> (Tauri 2 + React 19 + Rust). Describe
+      la ventana tal como está construida. Cero datos personales, cero nube: las sesiones corren
+      en tu ordenador.
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

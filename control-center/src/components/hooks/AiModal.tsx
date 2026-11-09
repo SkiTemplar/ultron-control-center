@@ -22,18 +22,18 @@ export function AiModal({
         style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-3 text-[15px] font-semibold">Add hook with AI</div>
+        <div className="mb-3 text-[15px] font-semibold">Añadir hook con IA</div>
 
         <div className="mb-3 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Describe in plain language what the hook should do. Claude opens a new session, drafts
-          the JSON, and you paste the result back into "Add hook" to confirm.
+          Describe con tus palabras qué debe hacer el hook. Claude abre una sesión nueva, redacta
+          el JSON y tú pegas el resultado en «Añadir hook» para confirmarlo.
         </div>
 
         <textarea
           value={description}
           onChange={(e) => onChange(e.target.value)}
           rows={6}
-          placeholder="e.g. Before every Bash tool call, log the command being run to ~/.ultron/.tmp/bash-audit.jsonl"
+          placeholder="p. ej.: antes de cada llamada a la herramienta Bash, registra el comando en ~/.ultron/.tmp/bash-audit.jsonl"
           className="mb-3 w-full rounded px-2 py-1 text-[12px]"
           style={{
             background: "var(--color-surface-2)",
@@ -49,7 +49,7 @@ export function AiModal({
             className="rounded px-3 py-1.5 text-[12px]"
             style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)" }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -58,7 +58,7 @@ export function AiModal({
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
-            {busy ? "Opening..." : "Open Claude"}
+            {busy ? "Abriendo…" : "Abrir Claude"}
           </button>
         </div>
       </div>

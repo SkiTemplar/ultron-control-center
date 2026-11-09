@@ -4,23 +4,31 @@
 // task-class pero el backend keyea por provider/modelo). Ahora:
 //   - Cuando totalCalls === 0: banner informativo + acordeón "Avanzado" colapsado.
 //   - Cuando totalCalls > 0: Tarjetas + Matriz POR MODELO visibles.
-//   - Tarjetas: tokens saved, cost saved, total invocations, success rate.
+//   - Tarjetas: tokens saved, cost saved, total invocations, éxito por ruta
+//     (routeSuccess.ts; el éxito por intento no ve las cadenas saltadas enteras).
 //   - Matriz POR MODELO (by_model): provider · model · calls · success% · tokens · latencia.
 //
 // Data source: ai_router_metrics() Tauri command (RouterMetrics con by_model).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { routeSuccess } from "./routeSuccess";
 import type { ModelMetrics, RouterMetrics as RouterMetricsType } from "./types";
 
 const PLACEHOLDER_METRICS: RouterMetricsType = {
   fallback_output_tokens: 0,
   cost_saved_usd: 0,
   by_class: {},
-  real_fallback_rate: 0,
-  attempt_failure_rate: 0,
   by_model: {},
 };
+
+/** "error 20 · rate_limit 3", de más a menos frecuente. */
+function formatFailReasons(reasons: Record<string, number> | undefined): string {
+  return Object.entries(reasons ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, n]) => `${reason} ${formatNum(n)}`)
+    .join(" · ");
+}
 
 function formatNum(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
@@ -93,7 +101,11 @@ function SuccessBadge({ pct, calls }: { pct: number; calls: number }) {
   return (
     <span
       className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
-      style={{ background: `${color}22`, color, border: `1px solid ${color}44` }}
+      style={{
+        background: `color-mix(in srgb, ${color} 13%, transparent)`,
+        color,
+        border: `1px solid color-mix(in srgb, ${color} 27%, transparent)`,
+      }}
     >
       {pct.toFixed(0)}%
     </span>
@@ -115,14 +127,17 @@ export function RouterMetrics() {
     try {
       const result = (await invoke("ai_router_metrics")) as RouterMetricsType;
       setMetrics({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        fallback_output_tokens: result?.fallback_output_tokens ?? (result as any)?.tokens_saved_total ?? 0,
+        // Legacy payloads named this counter tokens_saved_total.
+        fallback_output_tokens:
+          result?.fallback_output_tokens ??
+          (result as { tokens_saved_total?: number } | null)?.tokens_saved_total ??
+          0,
         cost_saved_usd: result?.cost_saved_usd ?? 0,
-        // Prefer the new contract fields; fall back to legacy fallback_rate if absent.
-        real_fallback_rate: result?.real_fallback_rate ?? result?.fallback_rate ?? 0,
-        attempt_failure_rate: result?.attempt_failure_rate ?? result?.fallback_rate ?? 0,
         real_fallback_count: result?.real_fallback_count ?? 0,
+        routes_failed: result?.routes_failed ?? 0,
         routes_total: result?.routes_total ?? 0,
+        recent_outcomes: result?.recent_outcomes ?? [],
+        fail_reasons: result?.fail_reasons ?? {},
         by_class: result?.by_class ?? {},
         by_model: result?.by_model ?? {},
       });
@@ -148,9 +163,10 @@ export function RouterMetrics() {
   const totalCalls = models.reduce((s, m) => s + m.count, 0);
   const totalSuccess = models.reduce((s, m) => s + m.success_count, 0);
   const totalTokens = models.reduce((s, m) => s + m.output_tokens, 0);
-  const successRate = totalCalls > 0 ? (totalSuccess / totalCalls) * 100 : 0;
+  const routes = routeSuccess(metrics);
 
-  const hasTraffic = totalCalls > 0;
+  // Una cadena saltada entera no hace intentos: también es tráfico.
+  const hasTraffic = totalCalls > 0 || routes.routesTotal > 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -159,7 +175,7 @@ export function RouterMetrics() {
           className="rounded p-3 text-[12px]"
           style={{ background: "rgba(248,81,73,0.08)", color: "var(--color-danger)", border: "1px solid rgba(248,81,73,0.3)" }}
         >
-          <span className="font-semibold">Metrics command failed: </span>
+          <span className="font-semibold">Ha fallado el comando de métricas: </span>
           {backendError}
         </div>
       )}
@@ -171,22 +187,22 @@ export function RouterMetrics() {
           style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
         >
           <p className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-            El AI Router aun no esta capturando trafico
+            El Router de IA aún no está registrando tráfico
           </p>
           <p className="mt-1.5 text-[12px] leading-relaxed" style={{ color: "var(--color-text-faint)" }}>
-            Las metricas apareceran aqui cuando alguna feature use el router (boton Test en
-            Zones, auto-nombre de hooks, analisis de catalogo, goals de workdays...).
-            El trafico principal de Claude Code no pasa por aqui.
+            Las métricas aparecerán aquí cuando alguna función use el router (captura de
+            memoria, nombre automático de hooks, análisis del catálogo…).
+            El tráfico principal de Claude Code no pasa por aquí.
           </p>
         </div>
       )}
 
-      {/* Con trafico — mostrar tarjetas + matriz */}
+      {/* Con tráfico: tarjetas + matriz */}
       {hasTraffic && (
         <>
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <StatCard
-              label="Tokens salida fallback"
+              label="Tokens de salida del fallback"
               value={formatNum(metrics.fallback_output_tokens)}
               sub="Tokens de salida del fallback barato (no = ahorro de contexto)"
               color="var(--color-success)"
@@ -200,13 +216,26 @@ export function RouterMetrics() {
             <StatCard
               label="Invocaciones"
               value={formatNum(totalCalls)}
-              sub={`${formatNum(totalTokens)} tokens · fallback real ${((metrics.real_fallback_rate ?? 0) * 100).toFixed(0)}%`}
+              sub={`${formatNum(totalTokens)} tokens · ${formatNum(metrics.routes_total ?? 0)} rutas (${formatNum(metrics.routes_failed ?? 0)} sin respuesta)`}
             />
             <StatCard
-              label="Success rate"
-              value={`${successRate.toFixed(0)}%`}
-              sub={`${formatNum(totalSuccess)}/${formatNum(totalCalls)} OK`}
-              color={successColor(successRate)}
+              label="Éxito por ruta"
+              value={routes.pct === null ? "—" : `${routes.pct.toFixed(0)}%`}
+              sub={[
+                routes.window > 0
+                  ? `${formatNum(routes.failedRecent)} de ${formatNum(routes.window)} rutas sin respuesta`
+                  : null,
+                routes.cumulativePct === null
+                  ? null
+                  : `acumulado ${routes.cumulativePct.toFixed(0)}% de ${formatNum(routes.routesTotal)}`,
+                `intentos ${formatNum(totalSuccess)}/${formatNum(totalCalls)} OK`,
+                formatFailReasons(metrics.fail_reasons)
+                  ? `fallos: ${formatFailReasons(metrics.fail_reasons)}`
+                  : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")}
+              color={routes.pct === null ? undefined : successColor(routes.pct)}
             />
           </div>
 
@@ -221,7 +250,7 @@ export function RouterMetrics() {
               <table className="w-full table-auto text-left">
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-1)" }}>
-                    {["Proveedor", "Modelo", "Llamadas", "Success", "Tokens", "Latencia avg", "p50", "p95"].map((h) => (
+                    {["Proveedor", "Modelo", "Llamadas", "Éxito por intento", "Tokens", "Latencia media", "p50", "p95"].map((h) => (
                       <th
                         key={h}
                         className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide"
@@ -286,7 +315,7 @@ export function RouterMetrics() {
               background: "var(--color-surface-1)",
               color: "var(--color-text-secondary)",
             }}
-            title={hasTraffic ? undefined : "Disponible cuando el router haya procesado trafico"}
+            title={hasTraffic ? undefined : "Disponible cuando el router haya procesado tráfico"}
           >
             <span>Avanzado — desglose por clase de tarea</span>
             <span style={{ color: "var(--color-text-faint)" }}>
@@ -322,10 +351,10 @@ export function RouterMetrics() {
       <div className="flex items-center justify-between">
         <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
           {loading
-            ? "Cargando metricas..."
+            ? "Cargando métricas…"
             : lastRefreshed !== null
               ? `Actualizado ${lastRefreshed.toLocaleTimeString()}`
-              : "Metricas no disponibles."}
+              : "Métricas no disponibles."}
         </p>
         <button
           type="button"
@@ -334,7 +363,7 @@ export function RouterMetrics() {
           className="rounded px-3 py-1.5 text-[11px] transition-colors disabled:opacity-40"
           style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }}
         >
-          {loading ? "Refrescando..." : "Refresh"}
+          {loading ? "Actualizando…" : "Actualizar"}
         </button>
       </div>
     </div>

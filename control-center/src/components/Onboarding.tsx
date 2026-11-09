@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Onboarding — first-run welcome overlay.
@@ -12,46 +12,48 @@ import { useEffect, useState } from "react";
 // It is dismissable (button / Esc / backdrop click) and NOT permanently
 // blocking — closing it sets the flag so it never auto-shows again.
 //
-// Re-opening: GeneralSection has a "Show welcome screen" button that
-// dispatches the in-window "open-onboarding" event this component listens
-// for. (Settings → General was chosen over LifecyclePanel because the
-// welcome screen is an orientation aid, not an app-lifecycle action.)
+// Re-opening: Settings → General (LifecyclePanel) and the command palette
+// ("Show welcome screen") dispatch the in-window "open-onboarding" event
+// this component listens for.
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = "ultron_onboarding_seen";
 
+const FOCUSABLE =
+  'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 /** Event name used to re-open the overlay from elsewhere (Settings). */
 export const OPEN_ONBOARDING_EVENT = "open-onboarding";
 
-/** Core-jargon glossary — one line each. */
+/** Glosario de la jerga básica: una línea por término. */
 const GLOSSARY: { term: string; def: string }[] = [
   {
     term: "Skill",
-    def: "A packaged capability — instructions Claude Code invokes for a kind of task.",
+    def: "Una capacidad empaquetada: instrucciones que Claude Code invoca para un tipo de tarea.",
   },
   {
-    term: "Agent",
-    def: "A specialized sub-assistant focused on one concrete job.",
+    term: "Agente",
+    def: "Un subasistente especializado en un trabajo concreto.",
   },
   {
     term: "MCP",
-    def: "Model Context Protocol — connects Claude to external tools and data.",
+    def: "Model Context Protocol: conecta Claude con herramientas y datos externos.",
   },
   {
-    term: "Vault",
-    def: "Your persistent memory: notes, decisions and past sessions.",
+    term: "Memoria",
+    def: "Tu memoria persistente (decisiones y sesiones anteriores). La gestionan los hooks; el Panel muestra su estado.",
   },
   {
     term: "Plan",
-    def: "A single task or feature tracked in your backlog.",
+    def: "Una tarea o funcionalidad que sigues en tu backlog.",
   },
   {
-    term: "Session",
-    def: "One working session with Claude or Codex.",
+    term: "Sesión",
+    def: "Una sesión de trabajo con Claude o Codex.",
   },
   {
     term: "Hook",
-    def: "An automation that runs on lifecycle events.",
+    def: "Una automatización que se ejecuta en eventos del ciclo de vida.",
   },
 ];
 
@@ -67,6 +69,26 @@ export function Onboarding() {
     }
   });
 
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const startRef = useRef<HTMLButtonElement | null>(null);
+
+  // Modal focus: the rest of the app goes inert while open, focus starts on
+  // "Get started" and returns to the previous element on close.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const overlay = overlayRef.current;
+    const siblings = Array.from(overlay?.parentElement?.children ?? []).filter(
+      (el) => el !== overlay && !el.hasAttribute("inert"),
+    );
+    for (const el of siblings) el.setAttribute("inert", "");
+    startRef.current?.focus();
+    return () => {
+      for (const el of siblings) el.removeAttribute("inert");
+      if (previous && document.contains(previous)) previous.focus();
+    };
+  }, [open]);
+
   // Listen for the re-open request emitted by the Settings button.
   useEffect(() => {
     function reopen() {
@@ -76,18 +98,34 @@ export function Onboarding() {
     return () => window.removeEventListener(OPEN_ONBOARDING_EVENT, reopen);
   }, []);
 
-  // Esc closes while open.
+  // Esc closes while open; Tab / Shift+Tab cycle inside the dialog.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         dismiss();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = Array.from(
+        overlayRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [],
+      );
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const current = document.activeElement;
+      const inside = overlayRef.current?.contains(current) ?? false;
+      if (e.shiftKey && (current === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (current === last || !inside)) {
+        e.preventDefault();
+        first.focus();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   function dismiss() {
@@ -104,9 +142,10 @@ export function Onboarding() {
 
   return (
     <div
+      ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label="Welcome to ULTRON"
+      aria-label="Bienvenida a ULTRON"
       style={{
         position: "fixed",
         inset: 0,
@@ -144,7 +183,7 @@ export function Onboarding() {
             letterSpacing: "0.08em",
           }}
         >
-          Welcome
+          Bienvenida
         </div>
         <h1
           style={{
@@ -154,7 +193,7 @@ export function Onboarding() {
             lineHeight: 1.25,
           }}
         >
-          This is the ULTRON Control Center
+          Esto es ULTRON Control Center
         </h1>
 
         {/* What is ULTRON */}
@@ -166,9 +205,9 @@ export function Onboarding() {
             color: "var(--color-text-secondary)",
           }}
         >
-          ULTRON is a personal command center for Claude Code. From this one
-          app you manage your skills, agents, memory, projects and your
-          system — instead of juggling scattered config files and terminals.
+          ULTRON es un centro de mando personal para Claude Code. Desde esta
+          aplicación gestionas tus skills, agentes, proyectos y tu
+          sistema, en lugar de ir saltando entre ficheros de configuración y terminales.
         </p>
 
         {/* Glossary */}
@@ -181,7 +220,7 @@ export function Onboarding() {
             letterSpacing: "0.06em",
           }}
         >
-          The core terms
+          Los términos básicos
         </div>
         <dl style={{ margin: "8px 0 0" }}>
           {GLOSSARY.map(({ term, def }) => (
@@ -227,9 +266,9 @@ export function Onboarding() {
             color: "var(--color-text-tertiary)",
           }}
         >
-          Where to start: the <strong style={{ color: "var(--color-text-secondary)" }}>Dashboard</strong> gives you
-          the live system status; head to <strong style={{ color: "var(--color-text-secondary)" }}>Settings</strong> to
-          configure ULTRON to your taste.
+          Por dónde empezar: el <strong style={{ color: "var(--color-text-secondary)" }}>Panel</strong> te da
+          el estado del sistema en directo; en <strong style={{ color: "var(--color-text-secondary)" }}>Ajustes</strong>
+          configuras ULTRON a tu gusto.
         </p>
 
         {/* Action */}
@@ -244,9 +283,10 @@ export function Onboarding() {
           <span
             style={{ fontSize: 10.5, color: "var(--color-text-faint)" }}
           >
-            Reopen anytime from Settings → General.
+            Puedes reabrirlo cuando quieras desde Ajustes → General.
           </span>
           <button
+            ref={startRef}
             type="button"
             onClick={dismiss}
             style={{
@@ -260,7 +300,7 @@ export function Onboarding() {
               cursor: "pointer",
             }}
           >
-            Get started
+            Empezar
           </button>
         </div>
       </div>

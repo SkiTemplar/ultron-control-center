@@ -8,7 +8,7 @@ export function severityStyle(sev: string): SevStyle {
         color: "var(--color-danger)",
         bg: "rgba(248, 81, 73, 0.06)",
         ring: "rgba(248, 81, 73, 0.20)",
-        label: "critical",
+        label: "crítica",
         key: "critical",
         weight: 2,
       };
@@ -17,7 +17,7 @@ export function severityStyle(sev: string): SevStyle {
         color: "var(--color-warn)",
         bg: "rgba(210, 153, 34, 0.05)",
         ring: "rgba(210, 153, 34, 0.18)",
-        label: "warn",
+        label: "aviso",
         key: "warn",
         weight: 1,
       };
@@ -27,7 +27,7 @@ export function severityStyle(sev: string): SevStyle {
         color: "var(--color-text-tertiary)",
         bg: "transparent",
         ring: "var(--color-border)",
-        label: "info",
+        label: "información",
         key: "info",
         weight: 0,
       };

@@ -16,17 +16,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Save, BookOpen } from "./icons";
+import { errMsg } from "../../lib/errors";
 
 interface ClaudeMdModalProps {
   projectPath: string;
   projectName: string;
   onClose: () => void;
-}
-
-function errMsg(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  return "Unexpected error";
 }
 
 export function ClaudeMdModal({ projectPath, projectName, onClose }: ClaudeMdModalProps) {
@@ -48,7 +43,7 @@ export function ClaudeMdModal({ projectPath, projectName, onClose }: ClaudeMdMod
       setContent(text);
       setOriginal(text);
     } catch (e) {
-      setMsg(`Load failed: ${errMsg(e)}`);
+      setMsg(`No se pudo cargar: ${errMsg(e)}`);
     } finally {
       setLoading(false);
     }
@@ -75,7 +70,7 @@ export function ClaudeMdModal({ projectPath, projectName, onClose }: ClaudeMdMod
       setOriginal(content);
       setMsg("Guardado.");
     } catch (e) {
-      setMsg(`Save failed: ${errMsg(e)}`);
+      setMsg(`No se pudo guardar: ${errMsg(e)}`);
     } finally {
       setSaving(false);
     }
@@ -93,7 +88,7 @@ export function ClaudeMdModal({ projectPath, projectName, onClose }: ClaudeMdMod
       setOriginal(stub);
       setMsg("Stub creado — edítalo y guarda.");
     } catch (e) {
-      setMsg(`Create failed: ${errMsg(e)}`);
+      setMsg(`No se pudo crear: ${errMsg(e)}`);
     } finally {
       setCreating(false);
     }
@@ -205,7 +200,7 @@ export function ClaudeMdModal({ projectPath, projectName, onClose }: ClaudeMdMod
           className="flex shrink-0 items-center justify-between border-t px-4 py-2 text-[11px]"
           style={{ borderColor: "var(--color-border)", color: "var(--color-text-tertiary)" }}
         >
-          <span>{msg ?? `${content.length} chars`}</span>
+          <span>{msg ?? `${content.length} caracteres`}</span>
           <span>Resolución: .claude/CLAUDE.md → CLAUDE.md (raíz) · escritura atómica</span>
         </div>
       </div>

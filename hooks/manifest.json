@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-09-27",
+  "generated_at": "2026-11-02",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -28,6 +28,7 @@
       "timeout_s": 15,
       "async": true,
       "checksum_sha256": "3b19b9607b27ba108e5aa994fe0edce993c4ae4f0a62fa4367cdec774ed8d7fa",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -39,6 +40,44 @@
       "description": "Reenvia cada notificacion de Claude Code (idle/permiso/etc.) al log de scratch ~/.ultron/.tmp/notifications.log con rotacion. Solo append local; NO toca brain.db/Qdrant/sidecar, no escribe memoria. Fail-safe: error -> exit 0."
     },
     {
+      "id": "pupus-permission",
+      "event": "PermissionRequest",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/pupus-permission.js",
+      "script": "~/.ultron/hooks/scripts/pupus-permission.js",
+      "timeout_s": 660,
+      "async": false,
+      "checksum_sha256": "05567fc91af54d09f233d7fc7959a280f35456f6a795e19fa02f295c9649efda",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "ULTRON_SESION_ID",
+        "PUPUS_PERMISSION_DISABLED",
+        "CLAUDE_NO_HOOKS"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Lleva las peticiones de permiso de Claude Code en terminal al bocadillo de Pupus (POST /v1/permission del puente) y devuelve allow/deny; sin respuesta no decide y manda el dialogo de la terminal. Excluye las sesiones de ULTRON Sessions."
+    },
+    {
+      "id": "model-family-guard",
+      "event": "PostModelSwitch",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/model-family-guard.js",
+      "script": "~/.ultron/hooks/scripts/model-family-guard.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "3e42afa4c8ede8ca3e88c521803a5be67eeaf24dddd65d41c996308d1a12f263",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Cableado en DOS eventos (sincrono: la decision y el aviso viajan por stdout). Aplica la regla de modelos de ULTRON: solo la familia 5.5 (claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, con o sin [1m] o fecha). PreModelSwitch: un cambio pedido con /model, el selector, /config o un set_model del SDK hacia otro modelo se deniega (permissionDecision=deny, motivo visible). PostModelSwitch: si un cambio que no se puede bloquear (fallback automatico, resume) deja la sesion fuera de la familia, avisa al usuario (systemMessage) y al modelo (additionalContext). No cubre el modelo de arranque ni el model de un subagente (alias de settings.json y frontmatter). Escape ULTRON_MODEL_GUARD=0. Fail-open con entrada ilegible. No escribe memoria. Verificado en vivo (2.1.309, set_model por stream-json) 2026-10-23."
+    },
+    {
       "id": "posttoolfail-capture",
       "event": "PostToolUse",
       "matcher": "*",
@@ -47,6 +86,7 @@
       "timeout_s": 15,
       "async": true,
       "checksum_sha256": "a1f365f70a749aba889b7d2a5e547c5536fbd56d62071b87d056af788769c4a6",
+      "deps_sha256": "f93047f314b427716057b40243a2d2238c414309338185061d77d98791ac8d0a",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -56,23 +96,7 @@
       "failure_policy": "no_op",
       "writes_memory": true,
       "writer_path": "MemoryService",
-      "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado, nunca auto-promueve. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
-    },
-    {
-      "id": "ai-text-warn",
-      "event": "PostToolUse",
-      "matcher": "Write|Edit",
-      "command": "node ~/.ultron/hooks/scripts/ai-text-warn.js",
-      "script": "~/.ultron/hooks/scripts/ai-text-warn.js",
-      "timeout_s": 10,
-      "async": false,
-      "checksum_sha256": "66444e825179e7e29633dcf69904a782f5cc06f9eae4954b1957f4d6343807c5",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Detector de texto-IA en el flujo de escritura (card pp97cd): tras un Write/Edit de prosa (.md .tex .txt .rst) ejecuta el matcher del catalogo patrones-texto-ia.json (misma fuente que el Lab) y, si el texto nuevo tiene señales, avisa al modelo con patron+señal+correccion via additionalContext. SINCRONO a proposito (un async descarta el stdout). Solo avisa, nunca bloquea; excluye memoria del asistente, docs research y scratchpad."
+      "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado; el drenaje autonomo (inbox drain --auto, que lanza stop-compress-session) lo aprueba o rechaza despues con la politica del binario. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
     },
     {
       "id": "guardrails-post",
@@ -83,6 +107,7 @@
       "timeout_s": 10,
       "async": false,
       "checksum_sha256": "3ea8b93a8df0292b6315b94f79af9d467520dd6bcae0fd97c3df24f47b49e137",
+      "deps_sha256": "8d2c27bba7f85e471f6eb4b61582564df780e445e127c52ea42b12bf0dc9a1a4",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -99,31 +124,13 @@
       "timeout_s": 10,
       "async": true,
       "checksum_sha256": "06a915ff9c8b26f43e09ea2aa1587efa60602777fca6cfc9aa6291a777ca256a",
+      "deps_sha256": "82e432ae7e76bba3696c02622763109dd42dc822cfe82f851791c241d9e9b401",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "PostToolUse Edit|Write|MultiEdit|NotebookEdit (async): ULTRON 4 F4.1, tests que se lanzan solos. Si el fichero editado es codigo dentro del cwd, resuelve el comando de test (linea `test: <cmd>` en el CLAUDE.md del proyecto, o package.json/Cargo.toml/pyproject/go.mod), aplica debounce 60 s y lanza un runner desacoplado que ejecuta la suite COMPLETA con tope de 120 s (mata el arbol al vencer) y escribe .tmp/run-tests/<project>.result.json. No habla al modelo: lo hace run-project-tests-report.js en el turno siguiente (Q3b). Sin comando: registra no_command. No escribe memoria."
-    },
-    {
-      "id": "markdown-lint-hint",
-      "event": "PostToolUse",
-      "matcher": "Write|Edit|MultiEdit",
-      "command": "node ~/.ultron/hooks/scripts/markdown-lint-hint.js",
-      "script": "~/.ultron/hooks/scripts/markdown-lint-hint.js",
-      "timeout_s": 5,
-      "async": false,
-      "checksum_sha256": "f73b8f5e4419c1fec4967178bec7e74efe80f5218c07050cc27459b030475122",
-      "version": "1.0.0",
-      "env_allowlist": [
-        "CLAUDE_NO_HOOKS",
-        "MARKDOWN_LINT_HINT_RUMDL_CMD"
-      ],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Tras Write/Edit/MultiEdit de un .md/.markdown, corre `rumdl check <fichero>` (uv tool, timeout 3s) y avisa con additionalContext (recuento + 5 primeras lineas) si hay avisos de estilo Markdown. SINCRONO (habla al modelo). Silencio si rumdl no esta instalado, no hay avisos, o la ruta cae bajo .ultron/cockpit/, .claude/projects/*/memory/, node_modules/ o es un transcript. Nunca bloquea el Write/Edit."
     },
     {
       "id": "posttoolfail-capture",
@@ -134,6 +141,7 @@
       "timeout_s": 15,
       "async": true,
       "checksum_sha256": "a1f365f70a749aba889b7d2a5e547c5536fbd56d62071b87d056af788769c4a6",
+      "deps_sha256": "f93047f314b427716057b40243a2d2238c414309338185061d77d98791ac8d0a",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -143,7 +151,7 @@
       "failure_policy": "no_op",
       "writes_memory": true,
       "writer_path": "MemoryService",
-      "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado, nunca auto-promueve. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
+      "description": "Cableado en DOS eventos complementarios: PostToolUse (fallos CON resultado: is_error/status=error/success=false/exit code != 0) y PostToolUseFailure (fallos donde la tool NI ejecuto: permiso/timeout/error de harness, con 'error' top-level, masterplan 3.9). En fallo PROPONE un candidate error_resolution via 'ultron-memory candidate' (escritor unico = sidecar) con tool + snippet; cae pending al inbox gobernado; el drenaje autonomo (inbox drain --auto, que lanza stop-compress-session) lo aprueba o rechaza despues con la politica del binario. En exito sale sin llamar al sidecar ni escribir. NO escribe brain.db directamente. Fail-safe: error -> exit 0, nunca bloquea el tool."
     },
     {
       "id": "precompact-preserve-l0",
@@ -153,7 +161,8 @@
       "script": "~/.ultron/hooks/scripts/precompact-preserve-l0.js",
       "timeout_s": 15,
       "async": false,
-      "checksum_sha256": "176562e9c61759eed033724c6a8e48e7fbfce7d32e4f4fdffa3472df330208a0",
+      "checksum_sha256": "4d231dfa8c00ae5c3cbb19157a3588ddf2135d88d6b771993d995af49d7eae5c",
+      "deps_sha256": "d482e81ba199d918e4bf596a6a4808b7e53dd017a861563f282f3dad9e1de276",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -165,36 +174,40 @@
       "description": "Antes de compactar preserva el estado L0 (hechos clave heuristicos del tail) en el fichero de scratch ~/.ultron/.tmp/context.md. Es un fichero de trabajo, NO memoria gobernada; no toca brain.db/Qdrant/sidecar. Fail-safe: error -> exit 0 sin abortar la compactacion."
     },
     {
-      "id": "deny-secrets",
-      "event": "PreToolUse",
-      "matcher": "Read|Edit|Write|NotebookEdit|Bash",
-      "command": "node ~/.ultron/hooks/scripts/deny-secrets.js",
-      "script": "~/.ultron/hooks/scripts/deny-secrets.js",
+      "id": "model-family-guard",
+      "event": "PreModelSwitch",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/model-family-guard.js",
+      "script": "~/.ultron/hooks/scripts/model-family-guard.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "07704de5e484bba154485256930ae2fa013cfbace463f8ad12e110d5ae911700",
-      "version": "2.0.0",
+      "checksum_sha256": "3e42afa4c8ede8ca3e88c521803a5be67eeaf24dddd65d41c996308d1a12f263",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
+      "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse(Read|Edit|Write|NotebookEdit|Bash): gate de credenciales. Claves privadas, keystores, .ssh, credenciales cloud y service accounts en deny duro; el fichero de variables de entorno del proyecto degrada a permissionDecision 'ask' (v2.1 2026-08-19) para que el usuario conceda el acceso caso a caso en vez de tener que salir a una shell manual. Verificado por selftest con casos deny, ask y allow."
+      "description": "Cableado en DOS eventos (sincrono: la decision y el aviso viajan por stdout). Aplica la regla de modelos de ULTRON: solo la familia 5.5 (claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, con o sin [1m] o fecha). PreModelSwitch: un cambio pedido con /model, el selector, /config o un set_model del SDK hacia otro modelo se deniega (permissionDecision=deny, motivo visible). PostModelSwitch: si un cambio que no se puede bloquear (fallback automatico, resume) deja la sesion fuera de la familia, avisa al usuario (systemMessage) y al modelo (additionalContext). No cubre el modelo de arranque ni el model de un subagente (alias de settings.json y frontmatter). Escape ULTRON_MODEL_GUARD=0. Fail-open con entrada ilegible. No escribe memoria. Verificado en vivo (2.1.309, set_model por stream-json) 2026-10-23."
     },
     {
-      "id": "codegraph-reminder",
+      "id": "deny-secrets",
       "event": "PreToolUse",
-      "matcher": "Read|Grep|Glob|Bash",
-      "command": "node ~/.ultron/hooks/scripts/codegraph-reminder.js",
-      "script": "~/.ultron/hooks/scripts/codegraph-reminder.js",
-      "timeout_s": 5,
+      "matcher": "Read|Edit|MultiEdit|Write|NotebookEdit|Bash|PowerShell|Monitor|Grep",
+      "command": "node ~/.ultron/hooks/scripts/deny-secrets.js",
+      "script": "~/.ultron/hooks/scripts/deny-secrets.js",
+      "timeout_s": 15,
       "async": false,
-      "checksum_sha256": "742287ed716f25091e565da16960aa7489401b66949da8ab2162b2567b76bf94",
-      "version": "1.1.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
+      "checksum_sha256": "00a38999c640a5d80017aceb905ad2947b725b8e5835ab1e239988fc988ff141",
+      "deps_sha256": "34c6eb4479faa3b8fb6cff5f76d42ca74529387a0bef760f2a6528ec22ac1861",
+      "version": "2.3.0",
+      "env_allowlist": [
+        "ULTRON_DENY_SECRETS_PAUSA"
+      ],
+      "failure_policy": "fail_closed",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse(Read|Grep|Glob|Bash): recuerda usar codegraph_explore/search en vez de explorar a ciegas (token-control). Nudge en la 1a exploracion y re-nudge tras cada 10 exploraciones sin llamada codegraph intermedia (contador en temp por session_id; uso de mcp__codegraph__* en el transcript lo resetea). Incluye instruccion de carga deferred via ToolSearch."
+      "description": "PreToolUse(Read|Edit|Write|NotebookEdit|Bash|PowerShell|Grep): gate de credenciales. Claves privadas, keystores, .ssh, credenciales cloud, service accounts, .git-credentials, .netrc y el hosts.yml de GitHub CLI en deny duro; el fichero de variables de entorno del proyecto y los .npmrc/.pypirc degradan a permissionDecision 'ask' (v2.1 2026-08-19) para que el usuario conceda el acceso caso a caso. v2.2 (2026-10-17, H23): PowerShell y Grep (path y glob) en el matcher, clasificador comun de shell con rutas de Windows ancladas (C:\\, ~\\, $HOME\\, %VAR%\\, .\\), redirecciones pegadas y flags con =; los escapes de regex (\\.env) no cuentan como ruta. Limite declarado: un Grep o rg sobre un directorio entero puede alcanzar un .env si ripgrep no lo ignora. Verificado por selftest con casos deny, ask, allow y paridad tool<->matcher contra la plantilla. FAIL-CLOSED ante error del clasificador. v2.3 (2026-10-17, seguridad MEDIUM de la auditoria): deny duro a escribir, mover o borrar los ficheros de control de los guardianes (la pausa deny-secrets-pausa.json y el marcador .ultron-trabajo.json) con Edit/Write/NotebookEdit o con una shell que los nombre y no sea de solo lectura (lib/guard-control-files.js); leerlos sigue permitido. La pausa solo la pone /permisos pausar-env desde el chat y una fecha a mas de 12 h vista se ignora. Limite declarado: no ve el nombre construido en tiempo de ejecucion ni enlaces simbolicos. v2.4 (2026-10-18, revision adversarial): reconoce el nombre partido por comillas, escapes, llaves, concatenacion de PowerShell, comodines con al menos 3 letras fijas, punto o blanco final y flujo NTFS; `less`, `rg --pre`, `find -delete/-exec` y `sort -o` dejan de contar como lectura y `>/dev/null/..` ya no pasa por redireccion nula."
     },
     {
       "id": "document-convert-hint",
@@ -205,6 +218,7 @@
       "timeout_s": 5,
       "async": false,
       "checksum_sha256": "632f06988fc277c5eb50ba5dd93b4d5c1869fc66b24ff364b826f2d129ae91fd",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS"
@@ -215,38 +229,60 @@
       "description": "En Read de un documento binario que Read no interpreta bien (.docx/.pptx/.xlsx/.epub, o un .pdf de mas de 5MB), sugiere con additionalContext `markitdown \"<ruta>\"` (uv tool) para convertirlo a Markdown antes de leerlo. SINCRONO. Nunca bloquea el Read; silencio en el resto de extensiones/tamanos."
     },
     {
+      "id": "codegraph-first",
+      "event": "PreToolUse",
+      "matcher": "Grep|Glob|Read|mcp__codegraph__.*",
+      "command": "node ~/.ultron/hooks/scripts/codegraph-first.js",
+      "script": "~/.ultron/hooks/scripts/codegraph-first.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "c144bfbb8e5b65dd78669d76264c3f440a6d120b4743827bb76f0f9b5fb5ed21",
+      "deps_sha256": null,
+      "version": "1.0.0",
+      "env_allowlist": [
+        "CLAUDE_NO_HOOKS",
+        "ULTRON_CODEGRAPH_FIRST"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "PreToolUse(Grep|Glob|Read|mcp__codegraph__.*): pilar 2 de GOAL.md (check 2.6, consumo de CodeGraph 0,23 frente a 0,80 el 2026-11-01). En un proyecto con indice (.codegraph/codegraph.db en cwd o un ancestro, sin contar ~/.codegraph, que es el directorio global), la segunda llamada de exploracion (Grep, Glob o Read de codigo) sin haber usado CodeGraph se deniega UNA vez por sesion y por subagente con el motivo; despues todo pasa, porque el hook no sabe si el agente tiene la herramienta. Estado en <tmp>/ultron-codegraph-first/ (TTL 2 dias). Fail-open; opt-out ULTRON_CODEGRAPH_FIRST=0."
+    },
+    {
       "id": "guardrails-pre",
       "event": "PreToolUse",
-      "matcher": "Bash|Agent|Task",
+      "matcher": "Bash|PowerShell|Monitor|Agent|Task",
       "command": "node ~/.ultron/hooks/scripts/guardrails-pre.js",
       "script": "~/.ultron/hooks/scripts/guardrails-pre.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "e8efea73ca213c1a5dff73a58c09d0f2aed0f873af2d7aeac28883fc72940df0",
-      "version": "1.0.0",
+      "checksum_sha256": "e438f2f50c4ecf2c9d77ea918dcefadbda7e9c8ae43f164b5d847f6d97a1087f",
+      "deps_sha256": "9ea82d195d14a788787f8965f20c8162eaafb1b45475ff0a8cb65c05c4f2fa91",
+      "version": "1.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse (Bash|Agent|Task). Convierte en comprobacion determinista las condiciones que vivian como prosa en CLAUDE.md/rules: subagent_type inexistente (DENY; un tipo fantasma no da error, la delegacion se pierde en silencio -- KIRKARDO CRITICAL 2026-05-27), Python fuera de UV (DENY), git commit sin prefijo convencional (DENY), invocar claude saltandose permisos (DENY) y push forzado (ASK). El cuerpo de los here-docs se ignora: son datos, no comandos. NO escribe memoria. FAIL-OPEN: catalogo de agentes incompleto (<20) o error del clasificador -> deja pasar, para no convertirse en el fallo que evita."
+      "description": "PreToolUse (Bash|PowerShell|Agent|Task). Convierte en comprobacion determinista las condiciones que vivian como prosa en CLAUDE.md/rules: subagent_type inexistente (DENY; un tipo fantasma no da error, la delegacion se pierde en silencio -- KIRKARDO CRITICAL 2026-05-27), Python fuera de UV (DENY), git commit sin prefijo convencional (DENY; lee -m, here-strings de PowerShell y el formato `-m \"$(cat <<'EOF' ...)\"` de Claude Code), invocar claude saltandose permisos (DENY; tambien `& \"ruta\\claude.exe\"` en PowerShell) y push forzado (ASK). v1.1 (2026-10-17, H24/H25): PowerShell en el matcher (antes el codigo lo trataba pero no se ejecutaba nunca) y selftest de paridad tool<->matcher. El cuerpo de los here-docs se ignora: son datos, no comandos. NO escribe memoria. FAIL-OPEN: catalogo de agentes incompleto (<20) o error del clasificador -> deja pasar, para no convertirse en el fallo que evita."
     },
     {
       "id": "uni-deliverable-guard",
       "event": "PreToolUse",
-      "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+      "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Monitor",
       "command": "node ~/.ultron/hooks/scripts/uni-deliverable-guard.js",
       "script": "~/.ultron/hooks/scripts/uni-deliverable-guard.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "233146127ec25ebbf9caa847ea2af70bc533b5695db8c6fecb680206a8ebe94b",
-      "version": "1.0.0",
+      "checksum_sha256": "a3ffb8d87ba7acf636b8677d65da931a4517cae4ab26508b1bd96a5e75f9dced",
+      "deps_sha256": "eab16179c9fbfa6d5ef970037421857c85df5d95b27a1b5b9c9b52c4251d4070",
+      "version": "1.1.0",
       "env_allowlist": [
         "ULTRON_UNI_GUARD"
       ],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "PreToolUse (Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell). Modo trabajo universitario (decidido 2026-09-14): BLOQUEO real (no solo recordatorio) de escritura del entregable en proyectos de asignatura con marcador .ultron-trabajo.json (busqueda hasta 4 niveles por encima del cwd; lo crea project-create.mjs para el template trabajo-entrega, protegidas por defecto borrador+entrega). Complementa a socratic-gate.js (modo uni, UserPromptSubmit): el gate recuerda la norma en cada prompt, este hook la hace cumplir de verdad. Write/Edit/MultiEdit/NotebookEdit: exacto via tool_input.file_path. Bash/PowerShell: heuristica sobre redirecciones (> >>), -Destination y el ultimo argumento de cp/copy/move/mv/xcopy/robocopy/Copy-Item/Move-Item -- declarado que NO cubre variables indirectas, tee, escritura desde otro interprete (python -c, node -e) ni symlinks. Desactivar a proposito: ULTRON_UNI_GUARD=off. Marcador corrupto: NO bloquea (fail-open) pero avisa por systemMessage y deja traza en logHookError -- nunca silencioso en ningun sentido. NO escribe memoria. Fail-safe: error interno -> exit 0 sin decision."
+      "description": "PreToolUse (Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell). Modo trabajo universitario (decidido 2026-09-14): BLOQUEO real (no solo recordatorio) de escritura del entregable en proyectos de asignatura con marcador .ultron-trabajo.json (lo crea project-create.mjs para el template trabajo-entrega, protegidas por defecto borrador+entrega). v1.1 (2026-10-17, H27): el marcador se busca hasta 4 niveles por encima de la carpeta del DESTINO y, si no hay, del cwd; antes solo del cwd y la sesion abierta en la asignatura no veia el marcador de trabajos/<X>/. Escritura en trabajos/<X>/borrador|entrega sin marcador: aviso por systemMessage, sin bloqueo. Complementa a socratic-gate.js (modo uni, UserPromptSubmit): el gate recuerda la norma en cada prompt, este hook la hace cumplir de verdad. Write/Edit/MultiEdit/NotebookEdit: exacto via tool_input.file_path. Bash/PowerShell: heuristica sobre redirecciones (> >>), -Destination y el ultimo argumento de cp/copy/move/mv/xcopy/robocopy/Copy-Item/Move-Item -- declarado que NO cubre variables indirectas, tee, escritura desde otro interprete (python -c, node -e) ni symlinks. Desactivar a proposito: ULTRON_UNI_GUARD=off. Marcador corrupto: NO bloquea (fail-open) pero avisa por systemMessage y deja traza en logHookError -- nunca silencioso en ningun sentido. NO escribe memoria. Fail-safe: error interno -> exit 0 sin decision."
     },
     {
       "id": "session-end-bitacora",
@@ -256,13 +292,14 @@
       "script": "~/.ultron/hooks/scripts/session-end-bitacora.js",
       "timeout_s": 10,
       "async": true,
-      "checksum_sha256": "10b72f14b5f900c34aa6babff6999f1d7ec290b6a0c8277e85f669c1ae0e9b50",
+      "checksum_sha256": "4f0a943071c777cdba6bfd89a14fc9e74b8a83216d384b8561aa7b7d4e031d36",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Bitacora de la sesion que cierra (2026-09-22): lanza session-summarize-previous.js desacoplado con --target-session <session_id> y --transcript <transcript_path>; claude -p Sonnet escribe cockpit/projects/<id>/sessions/<sid>/summary.md. Antes solo se generaba en el SessionStart siguiente del mismo proyecto (<7 dias): ultron 20/119, auto-album-maker 0/38. Mismos gates del resumidor (>=2 prompts, lock, backoff, redaccion); SessionStart queda como red si el transcript siguio creciendo."
+      "description": "Bitacora de la sesion que cierra (2026-09-22): lanza session-summarize-previous.js desacoplado con --target-session <session_id> y --transcript <transcript_path>; Codex CLI (relevo Groq -> Gemini, nunca Claude) escribe cockpit/projects/<id>/sessions/<sid>/summary.md. Antes solo se generaba en el SessionStart siguiente del mismo proyecto (<7 dias): ultron 20/119, auto-album-maker 0/38. Mismos gates del resumidor (>=2 prompts, lock, backoff, redaccion); SessionStart queda como red si el transcript siguio creciendo."
     },
     {
       "id": "lesson-distill",
@@ -273,6 +310,7 @@
       "timeout_s": 60,
       "async": true,
       "checksum_sha256": "13b2ff3119c60a273c4994c8250f33d570e827069dbe10f931990d2cabddf7f1",
+      "deps_sha256": "0e882a664ce5fb1dcc75159704eb7408a67d4e1d7a075a8ded05b7447cd2648c",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -286,7 +324,7 @@
       "failure_policy": "no_op",
       "writes_memory": true,
       "writer_path": "MemoryService",
-      "description": "ULTRON 4 F1.2 (Q2b): al cerrar la sesion destila 0-3 LECCIONES (sintoma, causa, regla) y las PROPONE como candidates 'lesson' via 'ultron-memory candidate' (escritor unico = sidecar); caen pending al inbox, nunca auto-promueve. Entrada: cola del transcript (turnos + tool_result con is_error) redactada (fail-closed sin security-helpers) y con tope 12k chars; destilado en el daemon (cmd lesson_distill, cadena de proveedores de skill_llm con cuota separada del AI Router, validacion estructural en Rust). Sin daemon o digest <300 chars: no hace nada. Traza en ~/.ultron/.tmp/lesson-distill.jsonl. Fail-safe: error -> exit 0."
+      "description": "ULTRON 4 F1.2 (Q2b): al cerrar la sesion destila 0-3 LECCIONES (sintoma, causa, regla) y las PROPONE como candidates 'lesson' via 'ultron-memory candidate' (escritor unico = sidecar); caen pending al inbox y el drenaje autonomo (inbox drain --auto, que lanza stop-compress-session tras cada Stop; inbox 100 % autonomo desde 2026-07-13) las aprueba si su banda es A/B o las rechaza con razon auditable. Entrada: cola del transcript (turnos + tool_result con is_error) redactada (fail-closed sin security-helpers) y con tope 12k chars; destilado en el daemon (cmd lesson_distill, cadena de proveedores de skill_llm con cuota separada del AI Router, validacion estructural en Rust). Sin daemon o digest <300 chars: no hace nada. Traza en ~/.ultron/.tmp/lesson-distill.jsonl. Fail-safe: error -> exit 0."
     },
     {
       "id": "project-profile",
@@ -297,6 +335,7 @@
       "timeout_s": 75,
       "async": true,
       "checksum_sha256": "52194a13ad898d020383ae2dc26bb90617b8e8cc214ea0de5635317753a1316d",
+      "deps_sha256": "dfacaf2d3d230dfe282e1d72a206e42b2ef004a413ef01949001752e40a461c1",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -324,6 +363,7 @@
       "timeout_s": 10,
       "async": true,
       "checksum_sha256": "c4ad74ea8d8f20eaf015686961c44c52baaadc9da23b36fbe30543aea3dcf277",
+      "deps_sha256": "d8a65cd2ebd018c73a0e1d4ad7ed63b6e249a97c97fa3c9f041c2056ee4d2ba1",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -339,7 +379,8 @@
       "script": "~/.ultron/hooks/scripts/memory-gc.js",
       "timeout_s": 120,
       "async": true,
-      "checksum_sha256": "d479f4e2849e70ea9f63e65b9d036c94905ee45e485b60a400f5da7305b6b3d6",
+      "checksum_sha256": "31fc420d45ea1b3f6920111394752d7145f0514d3387f8b88c3a39e867df6b84",
+      "deps_sha256": "f93047f314b427716057b40243a2d2238c414309338185061d77d98791ac8d0a",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -354,22 +395,6 @@
       "description": "Mantenimiento a 90 dias de brain.db (F1.8): como maximo una vez por semana lanza `ultron-memory gc --days 90`, con tres reglas — decaimiento a stale de los ACTIVE sin recall ni cambios, poda de los memory_events de items deprecated/rejected y poda de los eventos que ya no cuelgan de ningun item (memory_id NULL o item inexistente). Los eventos de items active/stale quedan intactos. Cadencia en .tmp/memory-gc-last.json, traza en logs/memory-gc.jsonl. El hook no toca brain.db: escribe el sidecar via MemoryService."
     },
     {
-      "id": "ensure-qdrant",
-      "event": "SessionStart",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/ensure-qdrant.js",
-      "script": "~/.ultron/hooks/scripts/ensure-qdrant.js",
-      "timeout_s": 10,
-      "async": false,
-      "checksum_sha256": "fb5ad305c44a1c9951129ce748003b1c37501a0416d50a8ee47ed02ee177c830",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "SessionStart: auto-launch de Qdrant nativo si :6333 no responde (PowerShell, sincrono). Infra, no memoria."
-    },
-    {
       "id": "ensure-codegraph",
       "event": "SessionStart",
       "matcher": "*",
@@ -377,61 +402,14 @@
       "script": "~/.ultron/hooks/scripts/ensure-codegraph.js",
       "timeout_s": 10,
       "async": false,
-      "checksum_sha256": "922629cd38cb252a6bc974a07adb26e87d85777357010e04b9dbbc80f7326800",
+      "checksum_sha256": "360b7b8a5206c4ec0513e0adabab8770b129e66069ab37c5a23c370f8358bd8b",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "SessionStart: mantiene SIEMPRE vivo el daemon/watcher de CodeGraph. PID vivo en .codegraph/daemon.pid -> salida inmediata; muerto/ausente -> spawn detached del shim npm con CODEGRAPH_DAEMON_INTERNAL=1 (el daemon arbitra el lock O_EXCL, sin duplicados) e IDLE_TIMEOUT_MS=0 (nunca idle-exit), log en .codegraph/daemon.log. Infra, no memoria; fail-safe: nunca bloquea el arranque."
-    },
-    {
-      "id": "memory-warmup",
-      "event": "SessionStart",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/memory-warmup.js",
-      "script": "~/.ultron/hooks/scripts/memory-warmup.js",
-      "timeout_s": 5,
-      "async": false,
-      "checksum_sha256": "6a20618be036b5e8c86a08648920cb6f603a12e9fe701cf5fe96557ae3feda46",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "SessionStart: spawn detached del sidecar para calentar el page-cache del ONNX E5 (~1.3GB). El hook no espera al hijo (<50ms)."
-    },
-    {
-      "id": "load-cross-project-memory",
-      "event": "SessionStart",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/load-cross-project-memory.js",
-      "script": "~/.ultron/hooks/scripts/load-cross-project-memory.js",
-      "timeout_s": 8,
-      "async": false,
-      "checksum_sha256": "c3e2528e27cdb2b6dd20acd33b335f558d75d17c5f8c5f648166d3f84af89091",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Inyecta como additionalContext el indice resumido de MEMORY.md de proyectos recientes. Solo lectura; no escribe memoria."
-    },
-    {
-      "id": "session-start-override",
-      "event": "SessionStart",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/session-start-override.js",
-      "script": "~/.ultron/hooks/scripts/session-start-override.js",
-      "timeout_s": 5,
-      "async": false,
-      "checksum_sha256": "3e08760666ae06165ff870b0c6fc04f511e389e0fc7c9a54245963e54fe34ba2",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Fallback de resumen de sesion previa por nombre de proyecto cuando el match por worktree del plugin ECC falla. Solo lectura + additionalContext."
     },
     {
       "id": "memory-session-resume",
@@ -441,7 +419,8 @@
       "script": "~/.ultron/hooks/scripts/memory-session-resume.js",
       "timeout_s": 12,
       "async": false,
-      "checksum_sha256": "4695fbc04f7fbec3567bf9551c9e4cf66d63a5b71c29f8f29a4e1ea434d1238c",
+      "checksum_sha256": "4fe51f93f9bdeea1b4587d98e3ca05bc82625f023a1560d412547a3957bac9e7",
+      "deps_sha256": "98aa41e6a8d851c8d4ef64c017ffec5a4a78e9c90b140a38bf1263c427e5d694",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -449,23 +428,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Resume acotado (workflows activos, tareas abiertas, decisiones, pinned, next action) leido del SoT via 'ultron-memory resume'. SOLO LECTURA del sidecar; no escribe. Ademas inyecta el summary.md de la sesion ANTERIOR del proyecto (fichero por sesion, no brain.db) y, si aun no existe, lanza session-summarize-previous.js ('claude -p' Sonnet, desacoplado) para generarlo."
-    },
-    {
-      "id": "project-roster-context",
-      "event": "SessionStart",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/project-roster-context.js",
-      "script": "~/.ultron/hooks/scripts/project-roster-context.js",
-      "timeout_s": 10,
-      "async": false,
-      "checksum_sha256": "26338fc7dd8dfdf629568da49461970c10666abf3aa4499dfaba943d58ea6e9e",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "SessionStart: resuelve el proyecto por cwd contra cockpit/projects.json e inyecta como additionalContext el roster de subagentes de ese proyecto (cockpit/projects/<id>/agent-roster.json). Si no hay roster lo genera deterministicamente por stack detectado y lo persiste; filtra agentes sin fichero en ~/.claude/agents. No llama a ningun LLM, no escribe memoria. Fail-safe: error -> sin output, exit 0."
+      "description": "Resume acotado (workflows activos, tareas abiertas, decisiones, pinned, next action) leido del SoT via 'ultron-memory resume'. SOLO LECTURA del sidecar; no escribe. Ademas inyecta el summary.md de la sesion ANTERIOR del proyecto (fichero por sesion, no brain.db) y, si aun no existe, lanza session-summarize-previous.js (Codex CLI con relevo Groq -> Gemini, desacoplado) para generarlo."
     },
     {
       "id": "ensure-project",
@@ -475,13 +438,35 @@
       "script": "~/.ultron/hooks/scripts/ensure-project.js",
       "timeout_s": 15,
       "async": false,
-      "checksum_sha256": "7be77a38a07b4e34b52516a2231df7fd4c44cf1d68217d7298f4a334e6dc89c2",
+      "checksum_sha256": "0ee6e16f91a4f45ef9696fcda1f4fca9b99b1f706f60745f8e690def877d61e4",
+      "deps_sha256": "807dd7ce793398dcf98e1c6a0cb43f6a2c356365b9e71380030f45962a1c75b2",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "SessionStart. Aplica de forma automatica las tres normas de alta de proyecto que antes se hacian a mano y por tanto casi nunca (2026-08-22): da de alta el proyecto en cockpit/projects.json si falta (un proyecto que existe en disco pero no en el registro es invisible para Projects, kanban, sesiones y resume), avisa si el repo no tiene su propio CLAUDE.md, y comprueba el indice CodeGraph. Criterio de alta: memoria + git. Baja con project-remove.mjs. NO escribe memoria."
+    },
+    {
+      "id": "sessions-rich-format",
+      "event": "SessionStart",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/sessions-rich-format.js",
+      "script": "~/.ultron/hooks/scripts/sessions-rich-format.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "eab9e9346e1d472a41541d06be0b639d2c895c393b86b8493da4fe2554b99776",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "ULTRON_SESION_ID",
+        "SESSIONS_RICH_FORMAT_DISABLED",
+        "CLAUDE_NO_HOOKS"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "En sesiones de ULTRON Sessions (ULTRON_SESION_ID) inyecta el formato enriquecido de /rico como estilo diario del chat, tambien tras /clear y compactar. Fuera de Sessions no emite nada. No escribe memoria."
     },
     {
       "id": "stop-compress-session",
@@ -491,7 +476,8 @@
       "script": "~/.ultron/hooks/scripts/stop-compress-session.js",
       "timeout_s": 60,
       "async": true,
-      "checksum_sha256": "3bbe797b692bcffc50a07963d0d04e1abd3a3fa6ba3ac1506b343ab246f45425",
+      "checksum_sha256": "f1ad4ba7cd2dbdc0b3e15ec91fbc7e4d7a74da7d19b09e820fd4bb5acbd6dc94",
+      "deps_sha256": "9e4dc070744d9b7bdb38291f0783a576c514ceea269dbfec174fef19d71c3fc8",
       "version": "1.1.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -500,41 +486,9 @@
         "ULTRON_EMBED_BIN"
       ],
       "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Comprime la sesion a hechos via el sidecar ultron-memory capture (extraccion por AI Router, redaction + inbox con aprobacion humana). Un solo camino de extraccion desde 2026-09-10; throttle por sesion y global."
-    },
-    {
-      "id": "response-meter",
-      "event": "Stop",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/response-meter.js",
-      "script": "~/.ultron/hooks/scripts/response-meter.js",
-      "timeout_s": 10,
-      "async": true,
-      "checksum_sha256": "42e2b64837e655cac3b53efdb7f88f56f1cf1e06e723d252951b6fd440a3d4ed",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Stop (async): ULTRON 4 F4.2/7.3, medidor de concision. Mide el texto del asistente del turno que termina (lineas, palabras, cabeceras, listas, tablas, disculpas y preambulos; sobre el limite si >12 lineas o >220 palabras) y lo registra en logs/response-meter.jsonl. No habla al modelo: memory-session-resume.js pinta la media de las ultimas 3 sesiones, el % sobre el limite y la tendencia. No escribe memoria."
-    },
-    {
-      "id": "kanban-update-reminder",
-      "event": "Stop",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/kanban-update-reminder.js",
-      "script": "~/.ultron/hooks/scripts/kanban-update-reminder.js",
-      "timeout_s": 5,
-      "async": false,
-      "checksum_sha256": "a5cd551767ebfb29bd18b2bce9281d24c163fb1558883b9fc4189560e4faea2e",
-      "version": "3.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Stop: solo con evidencia de trabajo en el turno (Edit/Write/MultiEdit/NotebookEdit dentro del cwd o `git commit` por Bash). Cierra en kanban.json las cards vivas cuyo titulo matchea un commit reciente (evidencia dura) y lo anuncia; si no cierra nada pero hay tarjetas In Progress, las nombra con el comando de cierre, una vez por sesion (cooldown 30 min). Sin trabajo en el turno o sin tablero resoluble (nunca cae a ultron): silencio. v3.0 2026-09-04 (ULTRON 4 F4.4): retiradas las heuristicas verbo+marcador (47 avisos/29 sesiones, 0 cierres reales). No escribe memoria."
+      "writes_memory": true,
+      "writer_path": "MemoryService",
+      "description": "Comprime la sesion a hechos via el sidecar ultron-memory capture (extraccion por AI Router, redaction + inbox) y lanza en segundo plano inbox drain --auto, que aprueba las bandas A/B y rechaza secreto, duplicado, conflicto y ruido sin intervencion del usuario (inbox autonomo desde 2026-07-13). Un solo camino de extraccion desde 2026-09-10; throttle por sesion y global."
     },
     {
       "id": "batch-capture",
@@ -544,7 +498,8 @@
       "script": "~/.ultron/hooks/scripts/batch-capture.js",
       "timeout_s": 10,
       "async": true,
-      "checksum_sha256": "4e6add1bf462e7159155c373f3a24ff232baf7404d3a082863f8e50d4d9c7eff",
+      "checksum_sha256": "8bf9287ebdc8bb97de4ae2f13d95b0f05c8a1abaecb77437e6462903b197378d",
+      "deps_sha256": "70ea9d86ff5782b0a64638301a83b02ad39eaf0e09ccc47d1fdb2cca50ff9cd0",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -553,39 +508,7 @@
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "Captura comandos REJECTED / FAILED / ai_cannot_execute a la cola Run Batch (~/.ultron/batches/queue-pending.jsonl). Cola operativa, no memoria semantica."
-    },
-    {
-      "id": "qdrant-mirror-sync",
-      "event": "Stop",
-      "matcher": "*",
-      "command": "node ~/.ultron/hooks/scripts/qdrant-mirror-sync.js",
-      "script": "~/.ultron/hooks/scripts/qdrant-mirror-sync.js",
-      "timeout_s": 30,
-      "async": true,
-      "checksum_sha256": "3ebfa5af00340a70b460cd84bbc3c4675cef07b0db4fe758c9649402ef98ff05",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Stop: sincroniza el espejo derivado read-only ultron_mcp_mirror en Qdrant (UNICO hook con escritura Qdrant directa permitida: solo a la coleccion espejo, nunca a ultron_memory)."
-    },
-    {
-      "id": "route_quality_aggregator",
-      "event": "Stop",
-      "matcher": "*",
-      "command": "uv run python ~/.ultron/scripts/cockpit/route_quality_aggregator.py aggregate --today",
-      "script": "~/.ultron/scripts/cockpit/route_quality_aggregator.py",
-      "timeout_s": 20,
-      "async": true,
-      "checksum_sha256": "d9df609c9db2b1e2e9b561bff197a4b4acdeb362691be4f966089d4450e5addc",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "Stop: agrega telemetria de calidad de routing del dia a ficheros cockpit (uv run python). No escribe memoria."
+      "description": "Captura comandos REJECTED / ai_cannot_execute (los que solo fallaron ya no, 2026-10-23) a la cola ~/.ultron/batches/queue-pending.jsonl, que consume el desplegable Ejecutar .bat de Projects (no el RunBatch del kanban, retirado el 2026-10-17). Cola operativa, no memoria semantica."
     },
     {
       "id": "subagent-lifecycle",
@@ -596,6 +519,7 @@
       "timeout_s": 15,
       "async": true,
       "checksum_sha256": "abdedd1b5a3763fcbcfe68f89dc3c4f12ace41f78ebc9916aa42f365e2f818c5",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -611,7 +535,8 @@
       "script": "~/.ultron/hooks/scripts/subagent-harvest.js",
       "timeout_s": 20,
       "async": true,
-      "checksum_sha256": "9761d97a0363bc5bffdccc36e3e2fdded812264850f03517a28e146bf974e70e",
+      "checksum_sha256": "48cf2ed10eefab8de8e9893be7baccd9f2fa45c2bd664c3db91e8053a00dacc7",
+      "deps_sha256": "d9d484c8ac56c6c1cc1181657dbc11760c6a1e5cb0505097f660d69732b2ab0b",
       "version": "1.0.0",
       "env_allowlist": [
         "CLAUDE_NO_HOOKS",
@@ -621,7 +546,7 @@
       "failure_policy": "no_op",
       "writes_memory": true,
       "writer_path": "MemoryService",
-      "description": "Al terminar un subagente registra su resultado: siempre append al scratch ~/.ultron/.tmp/subagent-harvest.jsonl (writer NONE) y, si el resultado es no trivial, PROPONE un candidate agent_note via 'ultron-memory candidate' (escritor unico = sidecar) que cae pending al inbox gobernado; nunca auto-promueve. NO escribe brain.db directamente. Fail-safe: error -> exit 0."
+      "description": "Al terminar un subagente registra su resultado: siempre append al scratch ~/.ultron/.tmp/subagent-harvest.jsonl (writer NONE) y, si el resultado es no trivial, PROPONE un candidate agent_note via 'ultron-memory candidate' (escritor unico = sidecar) que cae pending al inbox y el drenaje autonomo (inbox drain --auto, que lanza stop-compress-session tras cada Stop; inbox 100 % autonomo desde 2026-07-13) lo aprueba si su banda es A/B o lo rechaza con razon auditable. NO escribe brain.db directamente. Fail-safe: error -> exit 0."
     },
     {
       "id": "subagent-lifecycle",
@@ -632,28 +557,13 @@
       "timeout_s": 15,
       "async": true,
       "checksum_sha256": "abdedd1b5a3763fcbcfe68f89dc3c4f12ace41f78ebc9916aa42f365e2f818c5",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "Registra el ciclo de vida de cada subagente (Task tool): en SubagentStart escribe event=start; en SubagentStop event=stop; ambos al scratch ~/.ultron/.tmp/subagent-lifecycle.jsonl (writer NONE, no toca brain.db/Qdrant). El backend (live_session_feed) reduce por agent_id -> muestra subagentes EN VUELO en el Monitor (masterplan 3.9). Fail-safe: error -> exit 0."
-    },
-    {
-      "id": "routing-dispatcher.v3",
-      "event": "UserPromptSubmit",
-      "matcher": "*",
-      "command": "node ~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
-      "script": "~/.ultron/cockpit/skill-lazy/routing-dispatcher.v3.js",
-      "timeout_s": 60,
-      "async": false,
-      "checksum_sha256": "d2f58fa7fcdee374da12c1d0ff72117aa5072f49b3c302b0daf2609d49912dc4",
-      "version": "1.0.0",
-      "env_allowlist": [],
-      "failure_policy": "no_op",
-      "writes_memory": false,
-      "writer_path": "NONE",
-      "description": "UserPromptSubmit: dispatcher v3 = v2 determinista + fallback semantico. En prompts de baja confianza (<0.80) consulta el daemon E5 (skill_query sobre ultron_skills_lazy, incl. .disabled, ~42ms warm) y anade un hint de skills por similitud. Reactivado 2026-06-26 al migrar del subproceso embed_skills.py (~10s) al daemon E5 residente. Fail-safe: sin daemon, degrada al determinista v2 sin coste."
     },
     {
       "id": "socratic-gate",
@@ -663,7 +573,8 @@
       "script": "~/.ultron/hooks/scripts/socratic-gate.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "6513ee3eaec9259a870ea40e836a07fb9825222e6445a94ffaf4fad0b1043e95",
+      "checksum_sha256": "f2d8638c15b6f3bf42053b759b47c993f1799215ee7508e583c52297e0c26c6b",
+      "deps_sha256": "c7b07b944e636fd166e77b4df7860ffd3619dbf53ad66cb370113b96a347e8f3",
       "version": "2.1.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -680,6 +591,7 @@
       "timeout_s": 5,
       "async": false,
       "checksum_sha256": "958cfaaa6ecd7e6485371c4fe819b34004253b83bd18d7881946e023854a5280",
+      "deps_sha256": "e50284940a7fed43c49a20cbc22d59aea2be39307ed77f051f1c4e22949dcc3b",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -695,7 +607,8 @@
       "script": "~/.ultron/hooks/scripts/memory-orchestrate.js",
       "timeout_s": 90,
       "async": false,
-      "checksum_sha256": "61d6536ff07653c007a62929501eea8bed6935a35a8c1f22bc71e8de009b6319",
+      "checksum_sha256": "7ee49aab84408549aab2cc893bc798fb7c91202e3bc8b728e8d4d8767214a333",
+      "deps_sha256": "5e77c01d4bc1002e9242a0d21c28ac66a961a5f8b430104bde10b92f6e7460fe",
       "version": "1.0.0",
       "env_allowlist": [
         "ULTRON_MEMORY_BIN"
@@ -713,12 +626,13 @@
       "script": "~/.ultron/hooks/scripts/session-feedback-capture.js",
       "timeout_s": 5,
       "async": false,
-      "checksum_sha256": "a26ef01b322381ebb3613079c667562974caa24ebeb7f1495d5c801cff87d3c6",
+      "checksum_sha256": "6401f65895877b99af30c3accbfcf31c65262cb2a1c705d455825b85dcd03e42",
+      "deps_sha256": "d8a65cd2ebd018c73a0e1d4ad7ed63b6e249a97c97fa3c9f041c2056ee4d2ba1",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": true,
-      "writer_path": "ultron-memory candidate (MemoryService)",
+      "writer_path": "MemoryService",
       "description": "UserPromptSubmit (sincrono): captura `fb: si|no|estorbo [nota]` (prefijo explicito, cero heuristica) en logs/session-feedback.jsonl, retira el feedback-pending.json del proyecto y, si hay nota, la propone como candidato de memoria via ultron-memory candidate (single writer, fire-and-forget). Devuelve una linea de contexto para que el modelo no comente el feedback. Prompts sin `fb:`: silencio."
     },
     {
@@ -730,6 +644,7 @@
       "timeout_s": 5,
       "async": false,
       "checksum_sha256": "6aae0632d238442042e29ebf81546da507ca7d9e186dc2de51aca166c49fd1a6",
+      "deps_sha256": "82e432ae7e76bba3696c02622763109dd42dc822cfe82f851791c241d9e9b401",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
@@ -745,13 +660,31 @@
       "script": "~/.ultron/hooks/scripts/context-guard.js",
       "timeout_s": 15,
       "async": false,
-      "checksum_sha256": "8f3611ec0ca22e519369334df74fd214a4eb42cf63f91ce60b6cd34bfa782211",
+      "checksum_sha256": "86287431a4fd910a9d499b2ed89ba79912c4fc71f4b3dde6b0756692d51f302d",
+      "deps_sha256": "70c889dc8182fed078165f32b6cf1bd5d36d8f0b35af3c2231af3a43e12f1045",
       "version": "1.0.0",
       "env_allowlist": [],
       "failure_policy": "no_op",
       "writes_memory": false,
       "writer_path": "NONE",
-      "description": "A partir de 200k de contexto avisa y una LLM secundaria (Groq) decide con la bitácora si compactar; si procede bloquea el turno con /compact <foco>. A 500k siempre. Escape: ULTRON_CONTEXT_GUARD=0 o prefijo forzar:."
+      "description": "A partir de 200k de contexto avisa y una LLM secundaria (Groq) decide con la bitácora si compactar; si procede avisa al agente (additionalContext, sin bloquear) para que cierre su respuesta recomendando /compact <foco>; sin veredicto juzga el propio agente. A 500k siempre. Escape: ULTRON_CONTEXT_GUARD=0 o prefijo forzar:."
+    },
+    {
+      "id": "usage-pace-guard",
+      "event": "UserPromptSubmit",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/usage-pace-guard.js",
+      "script": "~/.ultron/hooks/scripts/usage-pace-guard.js",
+      "timeout_s": 5,
+      "async": false,
+      "checksum_sha256": "c5d9689937354b1ff900e2e3f31a6de566a414d844f8b759629d6140194e08cf",
+      "deps_sha256": "eeb19d59eaaddaaf9acf355b3c6ad2fa0f8fe6e4c67ec1576e5201ab3cc2596b",
+      "version": "1.0.0",
+      "env_allowlist": [],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "UserPromptSubmit (sincrono): lee el snapshot del statusline (rate_limits 5 h y semanal con resets_at) y, si el % usado supera al % de ventana transcurrido (suelo 15 %), avisa REDUCIR USO al usuario (systemMessage) y al agente (additionalContext). Una vez por sesion y ventana; repite si la proyeccion sube 50 puntos. Snapshot >15 min: silencio. Escape ULTRON_USAGE_PACE=0. No escribe memoria."
     }
   ],
   "deregistered": [
@@ -767,7 +700,7 @@
     },
     {
       "id": "quota-capture",
-      "reason": "Quota quitado (cbb2d5c). Vive en hooks/hooks/quota-capture.js, no registrado.",
+      "reason": "Quota quitado (cbb2d5c). Script borrado con hooks/hooks/ el 2026-08-09 (239a2ab4).",
       "former_event": "PostToolUse"
     },
     {
@@ -777,8 +710,13 @@
     },
     {
       "id": "workday-auto-update",
-      "reason": "No es hook de Claude Code: tarea programada de Windows. Vive en hooks/hooks/.",
+      "reason": "No es hook de Claude Code: tarea programada de Windows. Script borrado con hooks/hooks/ el 2026-08-09 (239a2ab4).",
       "former_event": "scheduled-task"
+    },
+    {
+      "id": "response-meter",
+      "reason": "Retirado 2026-10-23 (auditoria Kirkardo, N2): su unico consumidor, la linea de concision del resume, salio el 2026-09-29 (7ff38577, menos contexto inyectado) y logs/response-meter.jsonl crecia sin lector. Script, libreria y selftest borrados.",
+      "former_event": "Stop"
     }
   ]
 }

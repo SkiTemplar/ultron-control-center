@@ -10,6 +10,8 @@ export { NombreStep, type NombreStepProps } from "./NombreStep";
 export { PlantillaStep, type PlantillaStepProps } from "./PlantillaStep";
 export { OpcionesStep, type OpcionesStepProps } from "./OpcionesStep";
 export { ResultView, type ResultViewProps } from "./ResultView";
+export { SkillsSection, type SkillsSectionProps } from "./SkillsSection";
+export { useSkillPicker, defaultSelection, type SkillPickerState } from "./useSkillPicker";
 export { ErrorBox, type ErrorBoxProps } from "./ErrorBox";
 export type { CreateResult, IdeOption, NewProjectWizardProps, StepId } from "./types";
 export { IDE_OPTIONS, inputStyle, labelStyle } from "./types";

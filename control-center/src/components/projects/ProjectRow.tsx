@@ -1,10 +1,12 @@
 // ProjectRow — legacy dense list row for a single project (list-view mode).
 // Extracted from Projects.tsx (3594 L) as part of the P1 split refactor.
 
+import { useRef, useState } from "react";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { statusBadge, isBuiltinItem, builtinTooltip, customItemName, providerToKind, projectAccent, accentWash } from "./utils";
 import { BuiltinIcon } from "./LauncherIcons";
 import { ProjectQuickActions } from "./ProjectQuickActions";
+import { useDismissable } from "../useDismissable";
 
 export interface ProjectRowProps {
   p: ProjectInfo;
@@ -46,6 +48,9 @@ export function ProjectRow({
   const defaultKind = providerToKind(defaultProvider);
   const accent = projectAccent(p.color);
   const surface = selected ? "var(--color-surface-3)" : "var(--color-surface-2)";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismissable(menuRef, menuOpen, () => setMenuOpen(false));
 
   return (
     <div
@@ -62,20 +67,27 @@ export function ProjectRow({
           style={{ width: 3, background: accent }}
         />
       )}
-      <div className="flex items-baseline gap-3">
-        <button type="button" onClick={onClick} className="min-w-0 flex-1 text-left">
-          <div className="flex items-baseline gap-2">
+      {/* flex-wrap: when the name and the actions do not fit side by side
+          (narrow windows) the action group drops to its own line instead of
+          squeezing the name into four lines. */}
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <button type="button" onClick={onClick} className="min-w-[240px] flex-1 text-left">
+          <div className="flex min-w-0 items-baseline gap-2">
             <span
-              className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
               style={{ background: b.bg, color: b.color, minWidth: 56, textAlign: "center" }}
             >
               {b.label}
             </span>
-            <span className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+            <span
+              className="min-w-0 truncate text-[13px] font-medium"
+              style={{ color: "var(--color-text)" }}
+              title={p.name ?? p.id}
+            >
               {p.name ?? p.id}
             </span>
             {p.language && (
-              <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
+              <span className="shrink-0 whitespace-nowrap text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
                 · {p.language}
               </span>
             )}
@@ -108,7 +120,7 @@ export function ProjectRow({
           )}
         </button>
 
-        <div className="flex flex-col items-end gap-1">
+        <div className="ml-auto flex flex-col items-end gap-1">
           {p.last_active && (
             <span className="text-[10.5px] tabular-nums" style={{ color: "var(--color-text-faint)" }}>
               {p.last_active}
@@ -116,38 +128,12 @@ export function ProjectRow({
           )}
           <div className="proj-action-group flex flex-wrap items-center justify-end gap-1">
             {/* Quick actions: Folder / IDE / AI / Terminal / Launch all */}
-            <ProjectQuickActions density="compact" project={p} showBatch={false} />
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded px-2 py-1 text-[10.5px] transition-colors"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text-secondary)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-              title="Edit project metadata"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={onDelete}
-              className="rounded px-2 py-1 text-[10.5px] transition-colors"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-danger)",
-                border: "1px solid rgba(248, 81, 73, 0.32)",
-              }}
-              title="Remove from registry (no files touched)"
-            >
-              ×
-            </button>
+            <ProjectQuickActions density="compact" project={p} showBatch={false} showLaunchAll={false} />
             {(() => {
+              // Un solo item lanzable ya tiene su chip y el botón del proveedor:
+              // «Lanzar todo» solo aparece cuando agrupa dos o más.
               const launchable = items.filter((it) => it.kind !== "folder").length;
-              const hasIde = !!p.ide && !!p.path;
-              if (launchable < 2 && !hasIde) return null;
-              if (launchable < 1) return null;
+              if (launchable < 2) return null;
               const ideHint = p.ide ? ` + ${p.ide}` : "";
               return (
                 <button
@@ -156,15 +142,9 @@ export function ProjectRow({
                   disabled={launchingAll}
                   className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                   style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
-                  title={`Fires ${launchable} item${launchable === 1 ? "" : "s"} (providers/exe only — folder chips skipped)`}
+                  title={`Lanza ${launchable} elemento${launchable === 1 ? "" : "s"} (solo proveedores y ejecutables; las carpetas se omiten)`}
                 >
-                  {launchingAll
-                    ? "Launching…"
-                    : launchable === 0
-                    ? `Launch ${p.ide}`
-                    : launchable === 1
-                    ? p.ide ? `Launch + ${p.ide}` : "Launch"
-                    : `Launch all (${launchable}${ideHint})`}
+                  {launchingAll ? "Lanzando…" : `Lanzar todo (${launchable}${ideHint})`}
                 </button>
               );
             })()}
@@ -175,11 +155,59 @@ export function ProjectRow({
                 disabled={opening}
                 className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
-                title={`Open ${p.id} (legacy)`}
+                title={`Abrir ${p.id} (modo antiguo)`}
               >
-                {opening ? "Opening…" : "Open"}
+                {opening ? "Abriendo…" : "Abrir"}
               </button>
             )}
+            {/* Edit / remove live in a "···" menu: they are not launch actions
+                and were competing with them for the row width. */}
+            <div ref={menuRef} className="relative" onMouseLeave={() => setMenuOpen(false)}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
+                className="flex h-7 items-center rounded px-2 text-[13px] leading-none transition-colors"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label="Más acciones del proyecto"
+                title="Más acciones del proyecto"
+              >
+                ···
+              </button>
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-20 w-48 rounded-md py-1 shadow-lg"
+                  style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)" }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); onEdit(); }}
+                    className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)]"
+                    style={{ color: "var(--color-text)" }}
+                    title="Editar los datos del proyecto"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); onDelete(); }}
+                    className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)]"
+                    style={{ color: "var(--color-danger)" }}
+                    title="Quitar del registro (no toca ningún fichero)"
+                  >
+                    Quitar del registro
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -194,7 +222,7 @@ export function ProjectRow({
             const isDefault =
               (it.kind === "claude" || it.kind === "codex") &&
               it.kind === defaultKind;
-            const tipFull = isDefault ? `${tip} — default provider` : tip;
+            const tipFull = isDefault ? `${tip} (proveedor por defecto)` : tip;
             return (
               <div key={i} className="relative inline-flex">
                 <button
@@ -224,8 +252,8 @@ export function ProjectRow({
                     color: "var(--color-danger)",
                     border: "1px solid var(--color-border-strong)",
                   }}
-                  title="Remove this item"
-                  aria-label="Remove item"
+                  title="Quitar este elemento"
+                  aria-label="Quitar elemento"
                 >
                   ×
                 </button>
@@ -264,8 +292,8 @@ export function ProjectRow({
                   color: "var(--color-danger)",
                   border: "1px solid var(--color-border-strong)",
                 }}
-                title="Remove this item"
-                aria-label="Remove item"
+                title="Quitar este elemento"
+                aria-label="Quitar elemento"
               >
                 ×
               </button>
@@ -282,23 +310,23 @@ export function ProjectRow({
             color: "var(--color-text-tertiary)",
             border: "1px dashed var(--color-border-strong)",
           }}
-          title="Add a new launcher item to this project"
+          title="Añadir un lanzador nuevo a este proyecto"
         >
-          + Add item
+          + Añadir elemento
         </button>
 
         {/* Inline default-provider selector */}
         <div
           className="ml-auto flex items-center gap-1 rounded px-1 py-0.5"
           style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border)" }}
-          title="Default provider — the chip with this provider is the main launch path"
-          aria-label="Default provider selector"
+          title="Proveedor por defecto: el chip de este proveedor es el lanzador principal"
+          aria-label="Selector del proveedor por defecto"
         >
           <span
             className="px-1 text-[9.5px] font-medium uppercase tracking-[0.06em]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            default
+            por defecto
           </span>
           {(["claude", "codex"] as SessionProvider[]).map((prov) => {
             const active = prov === defaultProvider;
@@ -314,7 +342,7 @@ export function ProjectRow({
                   border: `1px solid ${active ? "var(--color-accent)" : "transparent"}`,
                 }}
                 aria-pressed={active}
-                title={`Set ${prov} as the default provider for this project`}
+                title={`Usar ${prov} como proveedor por defecto de este proyecto`}
               >
                 {prov}
               </button>

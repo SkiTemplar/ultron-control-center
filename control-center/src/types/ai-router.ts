@@ -3,15 +3,6 @@
 // Mirrors `ai_router::ProviderUsageRow` and `ai_router::UsageSummary` in Rust.
 // ---------------------------------------------------------------------------
 
-/** How a provider authenticates. CLI providers use "cli-installed" or
- *  "cli-missing" instead of the API-key sources "env" / "none" / "local". */
-export type ProviderKeySource =
-  | "env"
-  | "local"
-  | "none"
-  | "cli-installed"
-  | "cli-missing";
-
 export type ProviderUsageRow = {
   provider_id: string;
   provider_label: string;
@@ -28,7 +19,7 @@ export type ProviderUsageRow = {
   fallback_for_zones: string[];
   /** Published free-tier daily request limit (RPD). null = no free tier. */
   free_tier_limit: number | null;
-  /** Requests routed to this provider today (UTC). */
+  /** Requests sent today (UTC) to this provider's most used model bucket (the quota is per model). */
   free_tier_used_today: number;
   /** % of the daily free tier consumed today. null when no known limit. */
   free_tier_pct: number | null;
@@ -36,8 +27,19 @@ export type ProviderUsageRow = {
 
 export type RouterUsageSummary = {
   providers: ProviderUsageRow[];
-  /** Global EMA fallback rate across all routes (0.0–1.0). */
-  fallback_rate: number;
+  /** EMA of per-attempt failures (0.0–1.0); context, not a route-level rate. */
+  attempt_failure_rate: number;
+  /** Routes the primary did not serve (fallback or failed chain), cumulative. */
+  real_fallback_rate: number;
+  real_fallback_count: number;
+  /** Routes whose whole chain failed (no answer). */
+  routes_failed: number;
+  route_failure_rate: number;
+  routes_total: number;
+  /** real_fallback_rate over the last `recent_window` routes: the actionable signal. */
+  real_fallback_rate_recent: number;
+  route_failure_rate_recent: number;
+  recent_window: number;
   /** Per-zone chain: zone_id → [primary_id, fallback1_id, ...] */
   zone_chains: Record<string, string[]>;
 };

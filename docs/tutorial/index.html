@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ULTRON · Guía de uso</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151d;
+    --panel-2: #181c26;
+    --line: #232837;
+    --text: #e6e8ee;
+    --muted: #9aa1b2;
+    --faint: #6b7286;
+    --accent: #ef4b5a;
+    --accent-soft: rgba(239, 75, 90, .12);
+    --blue: #6aa6ff;
+    --green: #4fd1a5;
+    --amber: #f5b85a;
+    --radius: 12px;
+    --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }
+  nav.side {
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    padding: 28px 18px; border-right: 1px solid var(--line); background: #0d1017;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin: 0 6px 22px; }
+  .brand .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 16px var(--accent); }
+  .brand b { letter-spacing: .18em; font-size: 15px; }
+  .brand span { color: var(--faint); font-size: 12px; margin-left: auto; }
+  #q {
+    width: 100%; padding: 9px 12px; margin-bottom: 18px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px;
+  }
+  #q:focus { outline: none; border-color: var(--accent); }
+  nav.side ol { list-style: none; margin: 0; padding: 0; }
+  nav.side li a {
+    display: block; padding: 6px 10px; border-radius: 8px; color: var(--muted); font-size: 13.5px;
+  }
+  nav.side li a:hover { background: var(--panel); color: var(--text); text-decoration: none; }
+  nav.side li a.on { background: var(--accent-soft); color: var(--text); }
+  nav.side li.sub a { padding-left: 24px; font-size: 12.8px; }
+
+  main { padding: 48px clamp(20px, 5vw, 72px) 120px; max-width: 1120px; }
+  header.hero { margin-bottom: 40px; }
+  header.hero h1 { font-size: 34px; margin: 0 0 8px; letter-spacing: -.01em; }
+  header.hero p { color: var(--muted); margin: 0; max-width: 760px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .pill { font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+
+  section { margin: 0 0 56px; }
+  section > h2 {
+    font-size: 23px; margin: 0 0 6px; display: flex; align-items: center; gap: 12px;
+  }
+  section > h2 .n {
+    font: 600 12px var(--mono); color: var(--accent); border: 1px solid var(--accent);
+    border-radius: 6px; padding: 2px 7px;
+  }
+  section > p.lead { color: var(--muted); margin: 0 0 22px; }
+  h3 { font-size: 16.5px; margin: 28px 0 10px; }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 14.5px; }
+  .card p, .card ul { margin: 0; color: var(--muted); font-size: 13.8px; }
+  .card ul { padding-left: 18px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { white-space: nowrap; }
+
+  kbd {
+    font: 12px var(--mono); padding: 2px 7px; border-radius: 6px; background: var(--panel-2);
+    border: 1px solid #2f3547; border-bottom-width: 2px; color: var(--text); white-space: nowrap;
+  }
+  code { font: 13px var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; color: #ffd7dc; }
+  pre {
+    font: 13px/1.55 var(--mono); background: #090b10; border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; overflow-x: auto; color: #d7dbe6; margin: 10px 0 0;
+  }
+  pre .c { color: var(--faint); }
+
+  .note { border-left: 3px solid var(--blue); background: rgba(106, 166, 255, .07); padding: 12px 16px; border-radius: 0 10px 10px 0; color: var(--muted); font-size: 14px; margin: 16px 0; }
+  .note.warn { border-color: var(--amber); background: rgba(245, 184, 90, .07); }
+  .note.tip { border-color: var(--green); background: rgba(79, 209, 165, .07); }
+  .note b { color: var(--text); }
+
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+  .steps li { counter-increment: s; position: relative; padding: 0 0 14px 40px; color: var(--muted); }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center; font: 600 12px var(--mono); background: var(--accent-soft); color: var(--accent);
+  }
+  .steps li b { color: var(--text); }
+  .hidden { display: none !important; }
+  footer { color: var(--faint); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 18px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="side">
+  <div class="brand"><span class="dot"></span><b>ULTRON</b><span>guía · 2026-10-28</span></div>
+  <input id="q" type="search" placeholder="Buscar (atajo, comando…)" autocomplete="off">
+  <ol id="toc">
+    <li><a href="#dia">Día a día en 5 minutos</a></li>
+    <li><a href="#chuleta">Chuleta de atajos</a></li>
+    <li><a href="#home">Home: crear proyectos</a></li>
+    <li><a href="#cc">Control Center</a></li>
+    <li class="sub"><a href="#cc-tabs">Pestañas</a></li>
+    <li class="sub"><a href="#cc-keys">Atajos y paleta</a></li>
+    <li class="sub"><a href="#cc-projects">Proyectos</a></li>
+    <li><a href="#ses">ULTRON Sessions</a></li>
+    <li class="sub"><a href="#ses-open">Abrir y gestionar sesiones</a></li>
+    <li class="sub"><a href="#ses-composer">Cuadro de texto</a></li>
+    <li class="sub"><a href="#ses-cmds">Comandos en Sessions</a></li>
+    <li class="sub"><a href="#ses-ui">Rejilla, inspector y cola</a></li>
+    <li class="sub"><a href="#ses-engines">Codex y Gemini</a></li>
+    <li class="sub"><a href="#ses-limits">Límites</a></li>
+    <li><a href="#mods">Comandos de ULTRON en Claude</a></li>
+    <li><a href="#pupus">Pupus</a></li>
+    <li><a href="#cli">Terminal: scripts</a></li>
+    <li><a href="#recetas">Recetas</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>ULTRON · guía de uso</h1>
+  <p>Todo lo que puedes hacer con el Control Center, ULTRON Sessions, Pupus y los scripts de terminal, con sus atajos y comandos. Sacado del código el 28-10-2026; si algo no cuadra con la app, manda la app.</p>
+  <div class="pills"><span class="pill">Control Center</span><span class="pill">Sessions</span><span class="pill">Pupus</span><span class="pill">Mods de Claude Code</span><span class="pill">Scripts</span></div>
+</header>
+
+<!-- ============================================================ -->
+<section id="dia">
+  <h2><span class="n">00</span>Día a día en 5 minutos</h2>
+  <p class="lead">El circuito mínimo para trabajar sin pensar en la herramienta.</p>
+  <ol class="steps">
+    <li><b>Abre ULTRON</b> con <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>U</kbd> (desde cualquier sitio). Cerrar la ventana la manda a la bandeja; no la apaga.</li>
+    <li><b>Ve a Projects</b> (<kbd>Alt</kbd>+<kbd>5</kbd>) y pulsa el botón de IA del proyecto: abre su sesión en ULTRON Sessions.</li>
+    <li><b>Trabaja en Sessions</b>: <kbd>Enter</kbd> envía; si Claude está ocupado, encola. <kbd>Esc</kbd> interrumpe. <kbd>Ctrl</kbd>+<kbd>T</kbd> abre otra sesión.</li>
+    <li><b>Los permisos te los pide Pupus</b> en su bocadillo («No», «Siempre», «Sí, hazlo»), estés donde estés.</li>
+    <li><b>Mira la cuota</b> con <code>/uso</code> antes de un trabajo largo, y guarda el estado con <code>/relevo</code> antes de cambiar de motor o de cerrar.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<section id="chuleta">
+  <h2><span class="n">01</span>Chuleta de atajos</h2>
+  <p class="lead">Los que más se usan. El resto está en cada sección.</p>
+  <div class="grid">
+    <div class="card"><h4>Globales (Windows)</h4>
+      <table>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>U</kbd></td><td>Mostrar u ocultar ULTRON</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd></td><td>Esconder o mostrar a Pupus</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+clic</td><td>Pupus va a ese punto</td></tr>
+      </table>
+    </div>
+    <div class="card"><h4>Control Center</h4>
+      <table>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Paleta de comandos</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Settings</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>R</kbd></td><td>Refrescar datos</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>0</kbd></td><td>Saltar de pestaña</td></tr>
+      </table>
+    </div>
+    <div class="card"><h4>Sessions · ventana</h4>
+      <table>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>Sesión nueva</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Cerrar panel (no mata la sesión)</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>4</kbd></td><td>Foco en el panel N</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Buscar en el hilo</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Mandar a segundo plano</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Espacio</kbd></td><td>Dictado</td></tr>
+      </table>
+    </div>
+    <div class="card"><h4>Sessions · cuadro de texto</h4>
+      <table>
+        <tr><td><kbd>Enter</kbd></td><td>Enviar o encolar</td></tr>
+        <tr><td><kbd>Mayús</kbd>+<kbd>Enter</kbd></td><td>Salto de línea</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Enviar ya</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Mayús</kbd>+<kbd>Enter</kbd></td><td>Interrumpir y enviar</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Interrumpir o salir del menú</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd> · <kbd>Ctrl</kbd>+<kbd>R</kbd></td><td>Historial · buscar en él</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="home">
+  <h2><span class="n">02</span>Home: crear proyectos</h2>
+  <p class="lead">La sesión abierta en tu carpeta de usuario es donde nacen los proyectos. Describe la idea y pide el scaffold; por debajo se usa el creador.</p>
+  <div class="grid">
+    <div class="card"><h4>Desde la app</h4><p>Projects → <b>+ Nuevo proyecto</b>: asistente guiado (asignatura o personal, carpeta, plantilla). Es el mismo núcleo que el script.</p></div>
+    <div class="card"><h4>Plantillas</h4><p><code>opengl-cmake-vcpkg</code>, <code>trabajo-entrega</code> (con fecha; protege <code>borrador/</code> y <code>entrega/</code>), <code>vacio</code>, <code>python-uv</code>, <code>web-vite-react-ts</code>, <code>rust-cargo</code>.</p></div>
+    <div class="card"><h4>Asignaturas</h4><p>Bajo la raíz de asignaturas el proyecto nace con modo socrático <code>uni</code>. Rutas solo ASCII y sin espacios.</p></div>
+  </div>
+<pre><span class="c"># Ver raíces, asignaturas y plantillas</span>
+node ~/.ultron/scripts/project-create.mjs roots
+node ~/.ultron/scripts/project-create.mjs list --root asignaturas
+node ~/.ultron/scripts/project-create.mjs templates
+
+<span class="c"># Asignatura nueva y práctica dentro (prueba antes con --dry-run)</span>
+node ~/.ultron/scripts/project-create.mjs subject new --root asignaturas --code ASIG --name "Asignatura"
+node ~/.ultron/scripts/project-create.mjs create --root asignaturas --sub "ASIG/codigo" \
+  --name Practica7 --template opengl-cmake-vcpkg --dry-run
+
+<span class="c"># Dar de alta una carpeta que ya existe (con tarjetas iniciales)</span>
+node ~/.ultron/scripts/project-new.mjs --name "Mi App" --path "C:\\ruta\\al\\proyecto" \
+  --tags app --card "Primera tarea" --card "Segunda tarea"</pre>
+  <div class="note tip"><b>Si abres Claude en una carpeta sin registrar</b>, el hook de arranque la da de alta sola y avisa si le falta <code>CLAUDE.md</code>.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="cc">
+  <h2><span class="n">03</span>Control Center</h2>
+  <p class="lead">La ventana principal: proyectos, uso, sistema y ajustes. La barra lateral está en inglés y el contenido, en español.</p>
+
+  <h3 id="cc-tabs">Pestañas</h3>
+  <table>
+    <tr><th>Pestaña</th><th>Para qué</th></tr>
+    <tr><td>Dashboard <kbd>Alt</kbd>+<kbd>1</kbd></td><td>Memoria, fallos, kanban pendiente, copias y proyectos recientes.</td></tr>
+    <tr><td>Usage <kbd>Alt</kbd>+<kbd>2</kbd></td><td>Consumo de Claude: límites del plan, barras diarias, por hora y por modelo.</td></tr>
+    <tr><td>AI Router</td><td>Ahorro y proxy, proveedores, zonas y la cadena de <b>Delegation</b> (Codex, AGY…).</td></tr>
+    <tr><td>System</td><td>Diagnóstico del PC, apps, tareas y apagado.</td></tr>
+    <tr><td>MCPs</td><td>Servidores MCP con botón «Probar».</td></tr>
+    <tr><td>Library <kbd>Alt</kbd>+<kbd>8</kbd></td><td>Skills, agentes, reglas y catálogo.</td></tr>
+    <tr><td>Notes</td><td>Notas markdown comunes a todos los proyectos.</td></tr>
+    <tr><td>Lab</td><td>Detector de patrones de texto IA.</td></tr>
+    <tr><td>Session Monitor <kbd>Alt</kbd>+<kbd>4</kbd></td><td>Buscador global de sesiones pasadas (no es ULTRON Sessions).</td></tr>
+    <tr><td>Projects <kbd>Alt</kbd>+<kbd>5</kbd></td><td>Tus proyectos, su kanban y sus acciones rápidas.</td></tr>
+    <tr><td>Finance</td><td>Solo en el build local.</td></tr>
+    <tr><td>Notifications <kbd>Alt</kbd>+<kbd>3</kbd> · Settings <kbd>Alt</kbd>+<kbd>0</kbd></td><td>En el pie de la barra, junto a <b>ULTRON Sessions ↗</b>.</td></tr>
+  </table>
+  <p style="color:var(--muted);font-size:13.5px">Plans (<kbd>Alt</kbd>+<kbd>6</kbd>) y Changelog no salen en la barra: se abren con atajo o desde la paleta.</p>
+
+  <h3 id="cc-keys">Atajos, paleta y bandeja</h3>
+  <div class="grid">
+    <div class="card"><h4>Paleta <kbd>Ctrl</kbd>+<kbd>K</kbd></h4>
+      <ul>
+        <li>Búsqueda difusa; <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd> y <kbd>Esc</kbd>.</li>
+        <li>Ir a cualquier pestaña, incluidas las ocultas.</li>
+        <li>IA: abrir Sessions, sesión de Claude, sesión de Codex.</li>
+        <li>Sistema: recompilar, escanear proyectos, limpiar arranque automático.</li>
+        <li>Mantenimiento (las destructivas piden confirmación).</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Bandeja del sistema</h4>
+      <ul>
+        <li>Clic izquierdo: mostrar u ocultar.</li>
+        <li>Clic derecho: Open ULTRON, ULTRON Sessions, New Claude session, New Codex session, Open Plans, autocompletado de Ollama, Quit.</li>
+        <li>Solo <b>Quit</b> cierra de verdad.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Cambiar atajos</h4>
+      <ul>
+        <li>El global se cambia en Settings → «Atajo para abrir ULTRON».</li>
+        <li>Los de dentro de la app, editando <code>~/.ultron/.tmp/in-app-shortcuts.json</code>.</li>
+        <li>Atajos por proyecto: <code>~/.ultron/cockpit/project-hotkeys.json</code>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 id="cc-projects">Proyectos</h3>
+  <div class="grid">
+    <div class="card"><h4>Tarjeta de proyecto</h4>
+      <ul>
+        <li>Clic: abre su espacio de trabajo (kanban).</li>
+        <li><b>Carpeta</b>, <b>IDE</b> y el <b>botón de IA</b>: Claude abre su sesión en Sessions; Codex lanza su CLI.</li>
+        <li><b>Abrir app</b> si tiene <code>app_command</code>.</li>
+        <li><b>Jugar</b> en proyectos de Unreal o Unity: build empaquetado si existe; si no, editor en modo juego o player.</li>
+        <li>Un botón por ejecutable y <b>Lanzar todo</b>.</li>
+        <li><b>×</b> lo quita del registro, sin borrar ficheros.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Espacio de trabajo</h4>
+      <ul>
+        <li>Abrir en ventana aparte.</li>
+        <li>Sesión IA, IDE, carpeta y consola en la raíz.</li>
+        <li>CodeGraph, repositorio e historial de sesiones resumidas.</li>
+        <li>Uso y coste del proyecto.</li>
+        <li>Editar su <code>CLAUDE.md</code>.</li>
+        <li>Kanban con «Abrir en Sessions» en cada tarjeta.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Cabecera de Projects</h4>
+      <ul>
+        <li><b>+ Nuevo proyecto</b>.</li>
+        <li><b>Actualizar</b> (▾ para volver a escanear el disco).</li>
+        <li>Buscador; orden por recientes, alfabético o por tipo.</li>
+        <li>Vista en bloques, árbol o plana; tarjetas o filas.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ses">
+  <h2><span class="n">04</span>ULTRON Sessions</h2>
+  <p class="lead">Ventana de chat aparte donde corre <code>claude</code> de verdad (cuenta contra tu plan, con todas sus funciones). Cerrar la ventana no mata las sesiones: al reabrirla se reengancha.</p>
+
+  <h3 id="ses-open">Abrir y gestionar sesiones</h3>
+  <div class="grid">
+    <div class="card"><h4>Abrir la ventana</h4>
+      <ul>
+        <li>Botón de IA de un proyecto.</li>
+        <li><b>ULTRON Sessions ↗</b> en la barra lateral, la paleta o la bandeja.</li>
+        <li>«Abrir en Sessions» en una tarjeta del kanban.</li>
+        <li>Clic en Pupus cuando tiene un aviso pendiente.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Crear y retomar</h4>
+      <ul>
+        <li><b>+ Claude</b> (aquí, otro proyecto o un perfil), <kbd>Ctrl</kbd>+<kbd>T</kbd>, el «+» de las pestañas o <code>/perfil &lt;nombre&gt;</code>.</li>
+        <li><b>+ Claude → Retomar conversación</b> para continuar una anterior.</li>
+        <li>Al arrancar ULTRON se relanzan las sesiones que estaban abiertas, con su cola.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Cerrar: dos cosas distintas</h4>
+      <ul>
+        <li><b>Quitar de la vista</b>: <kbd>Ctrl</kbd>+<kbd>W</kbd> o la × de la pestaña. La sesión sigue viva.</li>
+        <li><b>Terminar</b> (mata el proceso): la × de la barra lateral o <code>/exit</code>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 id="ses-composer">Cuadro de texto</h3>
+  <table>
+    <tr><th>Escribe</th><th>Qué pasa</th></tr>
+    <tr><td><code>/</code></td><td>Paleta de comandos: <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd> ejecuta, <kbd>Tab</kbd> completa sin ejecutar.</td></tr>
+    <tr><td><code>@</code></td><td>Autocompleta ficheros del proyecto.</td></tr>
+    <tr><td><code>! comando</code></td><td>Ejecuta un comando de shell en la carpeta del proyecto y lo pinta como tarjeta. Sirve para logins que abren el navegador (<code>! gh auth login --web</code>, <code>! gcloud auth login</code>). No admite responder a preguntas en la consola.</td></tr>
+    <tr><td>Adjuntar</td><td>Botón, pegar del portapapeles o arrastrar ficheros a cualquier panel. Se guardan en <code>~/.ultron/adjuntos/</code>.</td></tr>
+    <tr><td>Enviar a</td><td>Selector de destino: Claude, Codex, Codex Cloud, Gemini u OpenCode, con su modelo.</td></tr>
+  </table>
+  <div class="note"><b>Cola.</b> Con Claude ocupado, <kbd>Enter</kbd> encola y el botón pasa a «Encolar». Desde la cola: editar, «Delegar» a un subagente, «Enviar ya», reordenar, quitar o reintentar.</div>
+  <div class="note"><b>Tarjetas de pregunta o permiso.</b> <kbd>1</kbd>…<kbd>9</kbd> eligen opción; desde el cuadro de texto, <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd>.</div>
+
+  <h3 id="ses-cmds">Comandos en Sessions</h3>
+  <div class="grid">
+    <div class="card"><h4>Propios de Sessions</h4>
+      <ul>
+        <li><code>/exportar md|html</code></li>
+        <li><code>/segunda-opinion on|off</code>: revisión automática de Codex.</li>
+        <li><code>/perfil &lt;nombre&gt;</code>: sesión nueva con ese perfil.</li>
+        <li><code>/motor-modelo codex|gemini|opencode &lt;modelo&gt;</code></li>
+        <li><code>/mejorar &lt;borrador&gt;</code>: reescribe tu prompt.</li>
+      </ul>
+      <p style="margin-top:8px">Sin argumento abren un menú de opciones en el chat.</p>
+    </div>
+    <div class="card"><h4>Menús de Claude dentro del chat</h4>
+      <p><code>/config</code> <code>/model</code> <code>/effort</code> <code>/fast</code> <code>/permissions</code> <code>/mcp</code> <code>/plugin</code> <code>/doctor</code> <code>/agents</code> <code>/hooks</code> <code>/memory</code> <code>/resume</code> <code>/export</code> <code>/login</code> <code>/logout</code> <code>/skills</code> <code>/tasks</code> <code>/rewind</code> <code>/add-dir</code></p>
+      <p style="margin-top:8px">La pantalla de la TUI sale como bloque en el chat; se maneja con teclado o ratón. <kbd>Esc</kbd> o «Salir del menú» salen siempre.</p>
+    </div>
+    <div class="card"><h4>Texto y turnos</h4>
+      <ul>
+        <li>Tarjeta con su salida: <code>/clear</code>, <code>/cost</code>, <code>/status</code>, <code>/context</code>, <code>/help</code>.</li>
+        <li>Lanzan un turno: <code>/compact</code>, <code>/init</code>, <code>/review</code>, <code>/security-review</code>, <code>/plan</code>.</li>
+        <li><code>/exit</code> pide confirmación.</li>
+        <li>No admitidos: <code>/vim</code>, <code>/voice</code> (usa <kbd>Ctrl</kbd>+<kbd>Espacio</kbd>) y <code>/background</code> (usa <kbd>Ctrl</kbd>+<kbd>B</kbd>).</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 id="ses-ui">Rejilla, inspector y cola</h3>
+  <div class="grid">
+    <div class="card"><h4>Rejilla («juntar»)</h4>
+      <ul>
+        <li>Hasta 4 paneles (2×2).</li>
+        <li>Arrastra una pestaña a un borde para dividir, o usa «Dividir».</li>
+        <li>Cada panel muestra una sesión o un subagente y puede sacarse a otra ventana.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Inspector</h4>
+      <ul>
+        <li><b>Agentes</b>: clic abre el transcript del subagente; <kbd>Mayús</kbd>+clic, en un panel nuevo.</li>
+        <li><b>Git</b>: cambios, diff y commit.</li>
+        <li><b>Contexto</b> y <b>Uso</b>.</li>
+        <li><b>Adjuntos</b> de entrada y salida.</li>
+        <li><b>Bitácora</b> del proyecto.</li>
+        <li><b>Motores</b>: Codex, Gemini, Tribunal y «Traer a Claude».</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Bajo cada respuesta y arriba</h4>
+      <ul>
+        <li>Copiar y «Segunda opinión» de Codex o Gemini.</li>
+        <li>Marcadores: fija mensajes y vuelve a ellos.</li>
+        <li>Barra superior: proyecto, rama, modelo y modo de permisos, Exportar, Ajustes e Inspector.</li>
+        <li>Ajustes: 7 temas (Obsidiana, Vacío, Fósforo, Acero, Grafito, Medianoche, Ámbar), escala, avisos sin foco, perfiles.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 id="ses-engines">Codex y Gemini dentro de Sessions</h3>
+  <p style="color:var(--muted)">No son sesiones interactivas como las de Claude: son <b>tareas de motor</b> en segundo plano que aparecen en Inspector → Motores.</p>
+  <ul style="color:var(--muted)">
+    <li><b>Codex</b>: <code>codex exec</code> en tu carpeta. Si la sesión ya tiene un hilo de Codex, el siguiente envío lo continúa (<code>codex exec resume</code>), así que se puede conversar por turnos.</li>
+    <li><b>Gemini</b>: va por <code>agy</code> (Antigravity) en modo no interactivo; si no está instalado, por la CLI <code>gemini</code>.</li>
+    <li>Se lanzan con <b>Enviar a</b> en el cuadro de texto o con <b>+ Motor</b> en la barra lateral. Con «Traer a Claude» pasas el resultado a la sesión de Claude.</li>
+    <li>Con destino Codex, Gemini u OpenCode no hay comandos <code>/</code>, solo <code>@</code>.</li>
+  </ul>
+
+  <h3 id="ses-limits">Límites a tener en cuenta</h3>
+  <div class="note warn">
+    <b>«Enviar ya» espera a que acabe la herramienta en curso.</b> Para cortar antes, <kbd>Ctrl</kbd>+<kbd>B</kbd> (solo con Bash, PowerShell, Agent/Task o MCP, y cuando la TUI muestra «ctrl+b to run in background»).<br>
+    <b>No hay vista de terminal.</b> Lo que no pinta el chat sale en el bloque de menú.<br>
+    <b><code>!</code> no es interactivo.</b> Los logins que piden texto en la consola no funcionan; los que abren el navegador, sí.<br>
+    <b>El historial carga por páginas</b> de 400 mensajes.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="mods">
+  <h2><span class="n">05</span>Comandos de ULTRON en Claude</h2>
+  <p class="lead">Los mods de ULTRON añaden estos <code>/comandos</code> a Claude Code. Funcionan en Sessions y en la terminal.</p>
+  <table>
+    <tr><th>Comando</th><th>Para qué</th></tr>
+    <tr><td><code>/uso</code></td><td>Cuota de las ventanas de 5 h y semanal, con la hora estimada del límite.</td></tr>
+    <tr><td><code>/relevo [nota]</code></td><td>Guarda el estado en <code>.claude/relevos/</code> y deja listo el prompt para retomar (otra sesión, otro motor).</td></tr>
+    <tr><td><code>/contexto [exacto]</code></td><td>En qué se va la ventana de contexto.</td></tr>
+    <tr><td><code>/git</code></td><td>Ficheros tocados en el turno y su diff.</td></tr>
+    <tr><td><code>/agentes</code></td><td>Panel de subagentes.</td></tr>
+    <tr><td><code>/skills</code></td><td>Skills activas en la sesión (<code>/skills todas</code> da el listado original).</td></tr>
+    <tr><td><code>/codex [prompt]</code> · <code>/codex-write</code> · <code>/codex-review</code></td><td>Codex de solo lectura, Codex que escribe ficheros, y revisión del árbol de trabajo.</td></tr>
+    <tr><td><code>/compilar</code> · <code>/probar</code> · <code>/arrancar</code></td><td>Detectan el stack (cargo, uv, npm, cmake) y lo lanzan en segundo plano.</td></tr>
+    <tr><td><code>/checkpoints</code> · <code>/checkpoint-diff &lt;n&gt;</code></td><td>Fotos del árbol de trabajo y diferencias con el estado actual.</td></tr>
+    <tr><td><code>/adjuntar</code> · <code>/captura [n]</code> · <code>/citar</code></td><td>Buscar ficheros, adjuntar la última captura, citar lo último que seleccionaste.</td></tr>
+    <tr><td><code>/entregas [próximas]</code></td><td>Entregas pendientes de las asignaturas.</td></tr>
+    <tr><td><code>/socratico [modo]</code></td><td>Ver o cambiar el modo socrático del proyecto.</td></tr>
+    <tr><td><code>/permisos</code></td><td><code>aceptar &lt;n&gt;</code>, <code>quitar &lt;n&gt;</code>, <code>pausar-env &lt;min&gt;</code>, <code>reanudar-env</code>.</td></tr>
+    <tr><td><code>/mejorar &lt;borrador&gt;</code></td><td>Reescribe el prompt con el contexto del proyecto.</td></tr>
+    <tr><td><code>/papercut síntoma · arreglo</code></td><td>Apunta una fricción en <code>~/.ultron/papercuts.md</code>.</td></tr>
+  </table>
+  <h3>Tonos y modo socrático</h3>
+  <div class="grid">
+    <div class="card"><h4>Tonos (solo en el chat)</h4><p>Escríbelo en el prompt: <code>modo cani</code>, <code>modo andaluz</code>, <code>modo cuñado</code>, <code>modo british</code>, <code>modo cowboy</code>, <code>modo hood</code>, <code>modo gitano</code>, <code>modo pura cepa</code>. Para volver: <code>modo ultron</code> o <code>quita el tono</code>.</p></div>
+    <div class="card"><h4>Modo socrático</h4><p><code>strict</code> (por defecto), <code>light</code>, <code>off</code> o <code>uni</code> (trabajos evaluables: bloquea escribir en <code>borrador/</code> y <code>entrega/</code>). Se cambia con <code>/socratico</code> o con el script.</p></div>
+    <div class="card"><h4>Avisos automáticos</h4><p>«REDUCIR USO» si gastas más deprisa que el ritmo de tu ventana, y una recomendación de <code>/compact</code> a partir de 200k de contexto (salta con el prefijo <code>forzar:</code>).</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="pupus">
+  <h2><span class="n">06</span>Pupus</h2>
+  <p class="lead">La mascota de escritorio: avisos, permisos y un chat rápido con Claude, Codex o Antigravity.</p>
+  <div class="grid">
+    <div class="card"><h4>Ratón</h4>
+      <ul>
+        <li><b>Clic</b>: atiende el aviso pendiente; si no hay, salta o se despierta.</li>
+        <li><b>Arrastrar y soltar</b>: lo lanzas. Con <kbd>Ctrl</kbd> al soltar se queda colgado de una chincheta.</li>
+        <li><b>Frotar el cursor</b>: caricias (rápido, cosquillas).</li>
+        <li><b><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+clic</b>: va hasta allí, incluso a otro monitor. Si hay un fichero debajo, lo coge y abre el chat con él.</li>
+        <li><b>Soltarle ficheros</b>: abre el chat con ellos adjuntos.</li>
+        <li><b>Clic derecho</b>: última respuesta, «¿Qué tengo pendiente?», Ajustes, Esconder, Cerrar.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Chat</h4>
+      <ul>
+        <li>Pasa el ratón por encima: botones Claude, Codex y Antigravity.</li>
+        <li><kbd>Enter</kbd> envía, <kbd>Mayús</kbd>+<kbd>Enter</kbd> salto de línea, <kbd>Esc</kbd> cierra.</li>
+        <li><kbd>Ctrl</kbd>+<kbd>Espacio</kbd> o el micro: dictado (nunca se envía solo).</li>
+        <li>«nueva» reinicia la conversación; respuestas con copiar y responder.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Permisos y avisos</h4>
+      <ul>
+        <li><b>Permisos</b>: bocadillo con «No», «Siempre» (solo Sessions) y «Sí, hazlo». Llegan de Sessions, de Claude Code en terminal y de su propio chat. No se mueve a buscar la sesión.</li>
+        <li><b>Sesiones</b>: avisa si una espera, se cae, se atasca o acaba un turno largo; con una pregunta señala el botón de Sessions en la barra. Clic: enfoca esa sesión.</li>
+        <li><b>Entregas</b>: el día antes y el mismo día lleva un calendario.</li>
+        <li><b>Builds y tests</b> en rojo.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Ajustes (Settings → Pupus)</h4>
+      <ul>
+        <li>Pasear, subirse a ventanas, saltar, estamparse, disfraces, travesuras, actividades, bailar con música.</li>
+        <li>Tamaño, gravedad, rebote, dormir tras.</li>
+        <li>Salir en grabaciones, esconderse en llamadas.</li>
+        <li>Modo juego (disfraz y no molestar), barra transparente con islas.</li>
+        <li>Calendario ICS de entregas.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note tip"><b>Barra transparente.</b> Con «islas» activado, Pupus anda por los huecos entre las píldoras de la barra, pero nunca por delante de ellas: al llegar a una, salta encima.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="cli">
+  <h2><span class="n">07</span>Terminal: scripts</h2>
+  <p class="lead">Desde cualquier terminal, o con <code>! comando</code> en Sessions. Todos viven en <code>~/.ultron/scripts/</code>.</p>
+  <div class="grid">
+    <div class="card"><h4>Kanban</h4>
+<pre>node ~/.ultron/scripts/kanban.mjs list [proyecto]
+node ~/.ultron/scripts/kanban.mjs add ultron todo "Título" "desc"
+node ~/.ultron/scripts/kanban.mjs mv ultron "texto" doing
+node ~/.ultron/scripts/kanban.mjs rm ultron "texto"
+node ~/.ultron/scripts/kanban.mjs archive-done ultron
+node ~/.ultron/scripts/kanban.mjs undo ultron</pre>
+      <p style="margin-top:8px">Columnas: <code>todo</code>, <code>doing</code>, <code>blocked</code>, <code>done</code>.</p>
+    </div>
+    <div class="card"><h4>Delegación en otros motores</h4>
+<pre>node ~/.ultron/scripts/delegate.mjs status
+node ~/.ultron/scripts/delegate.mjs run --tier standard \
+  --brief encargo.md --check "npm test" --scope "src/**"
+node ~/.ultron/scripts/delegate.mjs list
+node ~/.ultron/scripts/delegate.mjs merge &lt;id&gt;
+node ~/.ultron/scripts/delegate.mjs clean &lt;id&gt;
+node ~/.ultron/scripts/delegate.mjs gc --dry-run</pre>
+      <p style="margin-top:8px">Niveles: <code>complex</code> → Codex, <code>standard</code> → AGY, <code>trivial</code> → DeepSeek. Si uno falla, pasa al siguiente. Trabaja en una rama <code>delegate/&lt;id&gt;</code> aislada.</p>
+    </div>
+    <div class="card"><h4>Uso y cuota</h4>
+<pre>node ~/.ultron/scripts/usage-outlook.mjs
+node ~/.ultron/scripts/project-usage.mjs ultron --days 7
+node ~/.ultron/scripts/engine-usage.mjs</pre>
+      <p style="margin-top:8px">Margen semanal según tu horario, coste por proyecto y uso de Codex y AGY.</p>
+    </div>
+    <div class="card"><h4>Memoria</h4>
+<pre>~/.ultron/bin/ultron-memory.exe doctor
+~/.ultron/bin/ultron-memory.exe stats
+~/.ultron/bin/ultron-memory.exe recall --project ultron
+~/.ultron/bin/ultron-memory.exe inbox list
+node ~/.ultron/scripts/memory-verify.mjs --project ultron</pre>
+      <p style="margin-top:8px">Sin argumentos, <code>ultron-memory.exe</code> lista todos sus subcomandos.</p>
+    </div>
+    <div class="card"><h4>Proyectos</h4>
+<pre>node ~/.ultron/scripts/project-socratic.mjs &lt;id&gt; light
+node ~/.ultron/scripts/project-socratic.mjs --list
+node ~/.ultron/scripts/project-remove.mjs &lt;id&gt; --dry-run
+node ~/.ultron/scripts/curso.mjs</pre>
+    </div>
+    <div class="card"><h4>Skills por proyecto</h4>
+<pre>node ~/.ultron/scripts/skill-pool.mjs list
+node ~/.ultron/scripts/skill-pool.mjs show &lt;skill&gt;
+node ~/.ultron/scripts/skill-pool.mjs link &lt;proyecto&gt; &lt;skill&gt;
+node ~/.ultron/scripts/skill-pool.mjs unlink &lt;proyecto&gt; &lt;skill&gt;</pre>
+      <p style="margin-top:8px">Skills de terceros fijadas a un commit y revisadas; nunca globales.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="recetas">
+  <h2><span class="n">08</span>Recetas</h2>
+  <div class="grid">
+    <div class="card"><h4>Llegar al límite sin parar (relevo automático)</h4>
+      <ol class="steps" style="margin-top:8px">
+        <li>Sigue trabajando: al chocar con el límite, Sessions pasa la conversación a <b>Codex</b> solo, con el prompt que falló, los últimos mensajes y el <code>git status</code>.</li>
+        <li>Lo que escribas va a Codex (banda «Relevo» sobre el cuadro de texto). Si Codex falla, pasa a <b>Gemini</b>; con «Pasar a Gemini» lo fuerzas.</li>
+        <li>Al reiniciarse la ventana, trae a Claude el resumen y vuelve a enviarle a él. «Volver a Claude ya» lo adelanta.</li>
+        <li>Se apaga en Ajustes → Motores → «Relevo automático».</li>
+      </ol>
+    </div>
+    <div class="card"><h4>Varias cosas a la vez</h4>
+      <ol class="steps" style="margin-top:8px">
+        <li><kbd>Ctrl</kbd>+<kbd>T</kbd> por cada frente.</li>
+        <li>«Dividir» hasta 2×2.</li>
+        <li><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>4</kbd> para saltar.</li>
+        <li>Los permisos te llegan por Pupus.</li>
+      </ol>
+    </div>
+    <div class="card"><h4>Tarea cerrada para otro motor</h4>
+      <ol class="steps" style="margin-top:8px">
+        <li>Escribe el encargo: objetivo, ficheros, qué no tocar y criterio.</li>
+        <li><code>delegate.mjs run --tier … --check "…"</code>.</li>
+        <li>Check verde y diff coherente: <code>merge</code>.</li>
+      </ol>
+    </div>
+    <div class="card"><h4>Login de una CLI</h4>
+      <ol class="steps" style="margin-top:8px">
+        <li>En Sessions: <code>! gh auth status</code> para ver el estado.</li>
+        <li><code>! gh auth login --web</code>, <code>! supabase login</code>, <code>! gcloud auth login</code>…</li>
+        <li>Si pide texto en la consola, hazlo en una terminal normal.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<footer>Generada a partir del código de ULTRON Control Center (control-center/src, src-tauri/src, scripts y mods) el 28-10-2026. Si cambias atajos o comandos, regenera esta guía.</footer>
+</main>
+</div>
+
+<script>
+  // Filtro: oculta las tarjetas, filas y secciones que no contienen el texto buscado.
+  const q = document.getElementById("q");
+  const units = () => document.querySelectorAll("main .card, main table tr:not(:first-child), main .note, main pre");
+  q.addEventListener("input", () => {
+    const term = q.value.trim().toLowerCase();
+    units().forEach((el) => el.classList.toggle("hidden", term !== "" && !el.textContent.toLowerCase().includes(term)));
+    document.querySelectorAll("main section").forEach((s) => {
+      const any = term === "" || s.textContent.toLowerCase().includes(term);
+      s.classList.toggle("hidden", !any);
+    });
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+    if (e.key === "Escape" && document.activeElement === q) { q.value = ""; q.dispatchEvent(new Event("input")); q.blur(); }
+  });
+  // Resalta en el índice la sección visible.
+  const links = [...document.querySelectorAll("#toc a")];
+  const obs = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      links.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id));
+    }
+  }, { rootMargin: "0px 0px -70% 0px" });
+  document.querySelectorAll("main section, main h3[id]").forEach((el) => obs.observe(el));
+</script>
+</body>
+</html>

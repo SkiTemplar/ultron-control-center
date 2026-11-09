@@ -36,13 +36,13 @@ export function ArchivedDrawer({
           style={{ borderColor: "var(--color-border)" }}
         >
           <div>
-            <h3 className="text-[14px] font-semibold">Archived plans</h3>
+            <h3 className="text-[14px] font-semibold">Planes archivados</h3>
             <p
               className="mt-0.5 text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Resolved more than {archivedDays} days ago — off the kanban
-              but still in PLANS.json ({archivedItems.length} items).
+              Resueltos hace más de {archivedDays} días: fuera del kanban,
+              pero siguen en PLANS.json ({archivedItems.length} elementos).
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -50,7 +50,7 @@ export function ArchivedDrawer({
               className="text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Days
+              Días
             </label>
             <input
               type="number"
@@ -66,16 +66,16 @@ export function ArchivedDrawer({
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Threshold in days for auto-archiving resolved plans (default 30, persists for the session only)."
+              title="Días tras los que se archivan solos los planes resueltos (30 por defecto; solo dura esta sesión)."
             />
             <button
               type="button"
               onClick={onClose}
               className="rounded px-2 py-0.5 text-[12px]"
               style={{ color: "var(--color-text-tertiary)" }}
-              aria-label="Close"
+              aria-label="Cerrar"
             >
-              close
+              cerrar
             </button>
           </div>
         </header>
@@ -85,7 +85,7 @@ export function ArchivedDrawer({
               className="px-1 py-4 text-center text-[12px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              No archived plans yet.
+              Todavía no hay planes archivados.
             </p>
           )}
           {archivedItems.map((it) => (
@@ -113,7 +113,7 @@ export function ArchivedDrawer({
                       color: "var(--color-text-faint)",
                     }}
                   >
-                    {it.id} · resolved {it.resolved_at?.slice(0, 10) ?? "?"}
+                    {it.id} · resuelto {it.resolved_at?.slice(0, 10) ?? "?"}
                   </div>
                 </div>
                 <button
@@ -125,9 +125,9 @@ export function ArchivedDrawer({
                     color: "var(--color-text-secondary)",
                     border: "1px solid var(--color-border)",
                   }}
-                  title="Return this plan to the kanban (status=resolved) so it shows up again."
+                  title="Devuelve este plan al kanban (status=resolved) para que vuelva a verse."
                 >
-                  Restore
+                  Restaurar
                 </button>
               </div>
             </div>

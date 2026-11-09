@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // hooks/scripts/tests/test-resume-quality.js
-// Tests del bloque calidad-resume (2026-08-10, audit 08-09; perfil 2026-09-03):
-//   1) gate de claims numericos memorizados (isStaleMetricLine)
-//   2) bloque project_profile (renderProfileLines + render): procedencia, aviso
-//      de HEAD anterior, filtros de metrica/trivialidad, ausencia limpia
-//   3) filtro de decisiones triviales (isTrivialDecision + render)
-// Cada bloque incluye caso negativo (mandamiento 7).
+// Contrato del bloque del SessionStart tras el recorte del 2026-09-29:
+//   1) solo viajan head, project, open_tasks (max. MAX_OPEN_TASKS),
+//      next_action y el estado vivo del proyecto (lastSessionLines);
+//   2) NEGATIVO: lo retirado (project_profile, response_meter,
+//      session_feedback, codegraph, warnings del inbox, recent_decisions,
+//      pinned, nota del harness) no aparece aunque el sidecar lo traiga;
+//   3) la startup_policy es una frase corta y el fallo del sidecar se declara.
 //
 // Uso: node hooks/scripts/tests/test-resume-quality.js
 
@@ -13,12 +14,7 @@
 
 const assert = require('assert');
 
-const {
-  render,
-  renderProfileLines,
-  isStaleMetricLine,
-  isTrivialDecision,
-} = require('../memory-session-resume');
+const { render, MAX_OPEN_TASKS } = require('../memory-session-resume');
 
 let passed = 0;
 let failed = 0;
@@ -35,161 +31,68 @@ function run(name, fn) {
   }
 }
 
-// ---- 1) Gate de claims numericos -----------------------------------------
-run('metrica memorizada X/10 se filtra', () => {
-  assert.strictEqual(isStaleMetricLine('ULTRON is a project at 9.73/10 score'), true);
-});
-run('recall memorizado se filtra', () => {
-  assert.strictEqual(isStaleMetricLine('recall@8=0.823 medido ayer'), true);
-});
-run('nota numerica se filtra', () => {
-  assert.strictEqual(isStaleMetricLine('la nota 9.31 del harness'), true);
-});
-run('NEGATIVO: descripcion sin metrica NO se filtra', () => {
-  assert.strictEqual(isStaleMetricLine('ULTRON es una app Tauri 2 + React 19'), false);
-  assert.strictEqual(isStaleMetricLine('Qdrant nativo en D:/Ultron para recall denso'), false);
-});
-// ---- 2) Bloque project_profile --------------------------------------------
-const PERFIL = {
-  version: 1,
-  project: 'tortunabo',
-  generated_at: '2026-09-03T18:00:00.000Z',
-  head: { branch: 'main', sha: 'abc1234' },
-  source: 'llm',
-  profile: {
-    que_es: 'Juego cooperativo multijugador (1-4) en tercera persona, entrega academica.',
-    stack: 'Unreal Engine 5.6, C++ y Blueprints, Steam Sockets.',
-    arquitectura: 'Modulo Tortunabo con GameInstance propio y replicacion por servidor.',
-    estado: 'Fase 2 cerrada; pendiente el playtest PIE 4P.',
-    decisiones_clave: [
-      'Steam Sockets en vez de LAN para el multijugador',
-      'Se utiliza cargo fmt para mantener la consistencia',
-      'Recall memorizado 0.823 recall@8=0.823',
-      'Ragdoll de muerte replicado por snapshot',
-    ],
-  },
-};
-run('el perfil se renderiza con procedencia y todos los campos', () => {
-  const lines = renderProfileLines(PERFIL, 'abc1234');
-  assert.ok(lines[0].startsWith('project_profile (perfil del proyecto, generado 2026-09-03 por llm, head abc1234)'), lines[0]);
-  assert.ok(!lines[0].includes('HEAD anterior'), 'mismo HEAD: sin aviso');
-  assert.ok(lines.some((l) => l.startsWith('  que_es: Juego cooperativo')), 'que_es');
-  assert.ok(lines.some((l) => l.startsWith('  stack: Unreal')), 'stack');
-  assert.ok(lines.some((l) => l.startsWith('  arquitectura: Modulo')), 'arquitectura');
-  assert.ok(lines.some((l) => l.startsWith('  estado: Fase 2')), 'estado');
-});
-run('HEAD distinto al actual -> aviso de perfil de un HEAD anterior', () => {
-  const lines = renderProfileLines(PERFIL, 'ffff000');
-  assert.ok(lines[0].includes('de un HEAD anterior'), lines[0]);
-});
-run('decisiones_clave filtra higiene y metricas, conserva las estructurales', () => {
-  const lines = renderProfileLines(PERFIL, 'abc1234');
-  const decisiones = lines.filter((l) => l.startsWith('    - '));
-  assert.strictEqual(decisiones.length, 2, `esperaba 2, hubo ${decisiones.length}: ${decisiones}`);
-  assert.ok(decisiones.some((d) => d.includes('Steam Sockets')));
-  assert.ok(decisiones.some((d) => d.includes('Ragdoll')));
-  assert.ok(!decisiones.some((d) => d.includes('cargo fmt')), 'la higiene no se cuela');
-  assert.ok(!decisiones.some((d) => d.includes('0.823')), 'la metrica no se cuela');
-});
-run('NEGATIVO: sin perfil o sin que_es no hay bloque', () => {
-  assert.deepStrictEqual(renderProfileLines(null, 'abc'), []);
-  assert.deepStrictEqual(renderProfileLines({ profile: { que_es: '   ' } }, 'abc'), []);
-  const r = { project_id: 'x', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  assert.ok(!render(r, null).includes('project_profile'), 'render sin perfil no pinta la seccion');
-});
-run('render integra el perfil al final del bloque', () => {
-  const r = { project_id: 'tortunabo', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: 'playtest', warnings: [] };
-  const out = render(r, PERFIL, { headSha: 'abc1234' });
-  const idx = out.indexOf('project_profile');
-  assert.ok(idx > out.indexOf('next_action'), 'el perfil va despues del next_action');
-  assert.ok(out.endsWith('</ultron-memory-resume>'));
-});
-
-// ---- 3) Filtro de decisiones triviales -----------------------------------
-run('higiene de tooling NO es decision (cargo fmt/test, gitignore, git)', () => {
-  assert.strictEqual(isTrivialDecision('Se utiliza cargo fmt para mantener la consistencia en el codigo'), true);
-  assert.strictEqual(isTrivialDecision('Se utilizaron pruebas automatizadas con cargo test y clippy para garantizar la calidad y la estabilidad'), true);
-  assert.strictEqual(isTrivialDecision('Se agrego una regla a .gitignore para evitar subir kanbans personales'), true);
-  assert.strictEqual(isTrivialDecision('El usuario ha decidido utilizar Git para el control de versiones de sus scripts'), true);
-});
-run('dominio ajeno NO es decision del proyecto (precios plan Tienda)', () => {
-  assert.strictEqual(isTrivialDecision('El plan Tienda ofrece 6 horas de actualizaciones al mes por 40 EUR/mes'), true);
-});
-run('NEGATIVO: decision real de arquitectura SI pasa', () => {
-  assert.strictEqual(isTrivialDecision('Mem0 se descarta: la memoria la gestiona brain.db + Qdrant nativo'), false);
-  assert.strictEqual(isTrivialDecision('El AI Router arranca las zonas de codigo por CLI (codex-cli)'), false);
-});
-run('render omite recent_decisions cuando todas son triviales', () => {
-  const r = {
+/** Respuesta del sidecar con TODO lo que el resume solia pintar. */
+function fullSidecar() {
+  return {
     project_id: 'ultron',
-    decisions: [
-      { summary: 'Se utiliza cargo fmt para mantener la consistencia' },
-      { summary: 'El plan Tienda cuesta 40 EUR/mes' },
-    ],
-    open_tasks: [],
-    pinned: [],
-    active_workflows: [],
-    pending_candidates: 0,
-    next_action: null,
-    warnings: [],
+    open_tasks: Array.from({ length: 8 }, (_, i) => ({ summary: `tarea ${i}` })),
+    decisions: [{ summary: 'Mem0 se descarta: la memoria la gestiona brain.db' }],
+    pinned: [{ summary: 'memoria fijada' }],
+    active_workflows: [{ workflow_id: 'wf-demo' }],
+    next_action: 'cerrar la tarjeta X',
+    warnings: ['95 memory candidate(s) await validation in the inbox'],
   };
-  const out = render(r, '');
-  assert.ok(!out.includes('recent_decisions'), `no debe haber seccion: ${out}`);
+}
+
+const STATE_LINES = ['<project-state source="bitacoras" trust="session-summary" updated="x">', 'resumen: r', '</project-state>'];
+
+// ---- 1) Lo que se conserva -------------------------------------------------
+run('conserva head, project, open_tasks, next_action y el estado del proyecto, en ese orden', () => {
+  const out = render(fullSidecar(), { head: 'main @ abc1234 -- feat: x', lastSessionLines: STATE_LINES });
+  const order = ['head: main @ abc1234', 'project: ultron', 'open_tasks:', 'next_action: cerrar la tarjeta X', '<project-state'];
+  let prev = -1;
+  for (const marker of order) {
+    const i = out.indexOf(marker);
+    assert.ok(i > prev, `${marker} falta o esta fuera de orden`);
+    prev = i;
+  }
+  assert.ok(out.startsWith('<ultron-memory-resume') && out.endsWith('</ultron-memory-resume>'));
 });
-run('NEGATIVO: render conserva las decisiones con sustancia', () => {
-  const r = {
-    project_id: 'ultron',
-    decisions: [
-      { summary: 'Se utiliza cargo fmt para mantener la consistencia' },
-      { summary: 'Qdrant nativo sustituye a Mem0 como recall denso' },
-    ],
-    open_tasks: [],
-    pinned: [],
-    active_workflows: [],
-    pending_candidates: 0,
-    next_action: null,
-    warnings: [],
-  };
-  const out = render(r, '');
-  assert.ok(out.includes('recent_decisions'), 'debe haber seccion');
-  assert.ok(out.includes('Qdrant nativo sustituye'), 'la decision real debe quedar');
-  assert.ok(!out.includes('cargo fmt'), 'la trivial no debe colarse');
+run(`open_tasks se corta en ${MAX_OPEN_TASKS}`, () => {
+  const out = render(fullSidecar(), {});
+  assert.strictEqual(MAX_OPEN_TASKS, 4);
+  assert.strictEqual((out.match(/^ {2}- tarea \d$/gm) || []).length, MAX_OPEN_TASKS);
+  assert.ok(out.includes('tarea 3') && !out.includes('tarea 4'), 'se quedan las primeras');
 });
 
-// ---- 4) Lineas de feedback de sesion (ULTRON 4, 12.1) -------------------
-run('render inyecta las lineas de feedback antes del cierre', () => {
-  const r = { project_id: 'laundry', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  const out = render(r, null, { feedbackLines: ['feedback_pendiente: PREGUNTA al usuario', 'session_feedback (ultimas 5 sesiones de proyecto): si 80 %'] });
-  const i1 = out.indexOf('feedback_pendiente');
-  const i2 = out.indexOf('session_feedback (ultimas');
-  const fin = out.indexOf('</ultron-memory-resume>');
-  assert.ok(i1 > 0 && i2 > i1 && fin > i2, 'las dos lineas van dentro del bloque, en orden');
+// ---- 2) NEGATIVO: lo retirado no vuelve -----------------------------------
+run('NEGATIVO: sin recent_decisions, pinned, active_workflows ni warnings del inbox', () => {
+  const out = render(fullSidecar(), {});
+  for (const gone of ['recent_decisions', 'pinned_memories', 'active_workflows', 'warnings:', 'await validation', 'Mem0 se descarta']) {
+    assert.ok(!out.includes(gone), `no debe aparecer "${gone}"`);
+  }
 });
-run('NEGATIVO: sin feedbackLines el resume no menciona feedback', () => {
-  const r = { project_id: 'laundry', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  const out = render(r, null, {});
-  assert.ok(!out.includes('feedback_pendiente') && !out.includes('session_feedback'), 'nada de feedback');
-});
-
-run('render inyecta la linea del response_meter (4.2)', () => {
-  const r = { project_id: 'laundry', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  const out = render(r, null, { meterLine: 'response_meter (ultimas 3 sesiones, 7 respuestas): media 3,9 lineas' });
-  assert.ok(out.indexOf('response_meter') > 0 && out.indexOf('response_meter') < out.indexOf('</ultron-memory-resume>'), 'la linea va dentro del bloque');
-});
-run('NEGATIVO: sin meterLine no aparece response_meter', () => {
-  const r = { project_id: 'laundry', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  assert.ok(!render(r, null, {}).includes('response_meter'), 'nada de medidor');
+run('NEGATIVO: opciones retiradas (perfil, feedback, medidor, codegraph, harness) se ignoran', () => {
+  const out = render(fullSidecar(), {
+    harnessNote: 'harness (medidor honesto): all_cats_pass=FAIL',
+    feedbackLines: ['session_feedback (ultimas 20 sesiones de proyecto): si 0 %'],
+    meterLine: 'response_meter (ultimas 3 sesiones): media 23,4 lineas',
+    codegraphLines: ['codegraph (indice .codegraph: 5 ficheros):', '  zonas: src (70)'],
+  });
+  for (const gone of ['harness (', 'session_feedback', 'response_meter', 'codegraph (', 'project_profile']) {
+    assert.ok(!out.includes(gone), `no debe aparecer "${gone}"`);
+  }
 });
 
-run('render inyecta el bloque codegraph (8.1) antes del cierre', () => {
-  const r = { project_id: 'laundry', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  const out = render(r, null, { codegraphLines: ['codegraph (indice .codegraph: 5 ficheros, 10 simbolos, 14 aristas):', '  zonas: src/memory (70)'] });
-  const i = out.indexOf('codegraph (indice');
-  assert.ok(i > 0 && i < out.indexOf('</ultron-memory-resume>') && out.includes('  zonas: src/memory (70)'), 'bloque codegraph dentro del resume');
+// ---- 3) Politica de arranque y degradacion --------------------------------
+run('startup_policy cabe en una frase corta', () => {
+  const line = render({}, {}).split('\n').find((l) => l.startsWith('startup_policy:'));
+  assert.ok(line, 'la politica sigue presente');
+  assert.ok(line.length <= 120, `demasiado larga (${line.length})`);
 });
-run('NEGATIVO: sin codegraphLines no aparece el bloque', () => {
-  const r = { project_id: 'laundry', decisions: [], open_tasks: [], pinned: [], active_workflows: [], pending_candidates: 0, next_action: null, warnings: [] };
-  assert.ok(!render(r, null, {}).includes('codegraph ('), 'nada de codegraph');
+run('sidecar caido: se declara DEGRADED; sano: no', () => {
+  assert.ok(render(null, { degraded: true }).includes('DEGRADED'));
+  assert.ok(!render(fullSidecar(), {}).includes('DEGRADED'));
 });
 
 // ---- Resultado final ------------------------------------------------------

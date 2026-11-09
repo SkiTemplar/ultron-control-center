@@ -20,7 +20,7 @@ export function RecentFixesPanel({
         style={{ background: "var(--color-surface-1)", borderBottom: "1px solid var(--color-border)" }}
       >
         <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-          Recent fixes
+          Arreglos recientes
         </div>
         <button
           type="button"
@@ -28,7 +28,7 @@ export function RecentFixesPanel({
           className="text-[11px] transition-colors hover:underline"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Clear
+          Limpiar
         </button>
       </header>
       <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
@@ -38,7 +38,7 @@ export function RecentFixesPanel({
               className="shrink-0 text-[11px]"
               style={{ color: entry.success ? "var(--color-success, #3fb950)" : "var(--color-danger)" }}
             >
-              {entry.success ? "OK" : "FAIL"}
+              {entry.success ? "OK" : "FALLO"}
             </span>
             <span className="flex-1 truncate text-[12px]" style={{ color: "var(--color-text)" }}>
               {entry.label}

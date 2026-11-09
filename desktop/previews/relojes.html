@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · 10 diseños de reloj</title>
+<style>
+  :root { --bg: #0E0F13; --surface: #1B1D24; --primary: #8AB4FF; --text: #F2F3F5; --muted: #9AA0AE; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px; background: radial-gradient(circle at 30% 20%, #2a3550, #07080b 70%);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; color: var(--text); min-height: 100vh; }
+  h1 { font-weight: 600; margin: 0 0 6px; }
+  p.sub { color: var(--muted); margin: 0 0 32px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(420px, 1fr)); gap: 22px 32px; }
+  .card { display: flex; align-items: center; gap: 18px; }
+  .num { width: 34px; height: 34px; border-radius: 50%; background: var(--primary); color: var(--bg);
+         display: grid; place-items: center; font-weight: 700; flex: none; }
+  .name { color: var(--muted); font-size: 13px; width: 120px; flex: none; }
+  .pill { display: flex; align-items: center; gap: 14px; height: 50px; padding: 0 16px;
+          background: rgba(14, 15, 19, .93); border: 1px solid rgba(138, 180, 255, .55); border-radius: 14px; }
+  .icons { font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets'; font-size: 15px; display: flex; gap: 12px; color: var(--text); }
+  .clock { display: flex; align-items: center; gap: 10px; }
+  .time { line-height: 1; }
+  .date { display: flex; flex-direction: column; line-height: 1.15; }
+</style>
+</head>
+<body>
+<h1>Elige un reloj</h1>
+<p class="sub">Todos con la hora en blanco y, a su derecha, el día arriba y la fecha abajo. Dime el número.</p>
+<div class="grid" id="grid"></div>
+<script>
+  const D = [
+    { n: 'Clásico', t: 'font: 600 19px "Segoe UI Variable Display"', d: 'font: 600 10px "Segoe UI Variable Text"; letter-spacing: .14em; color: #9AA0AE', w: 'MAR', f: '27.10' },
+    { n: 'Bold', t: 'font: 700 21px "Segoe UI Variable Display"', d: 'font: 600 10px "Segoe UI Variable Text"; color: rgba(242,243,245,.75)', w: 'MAR', f: '27.10' },
+    { n: 'Fino', t: 'font: 300 22px "Segoe UI Variable Display"', d: 'font: 600 10px "Segoe UI Variable Text"; letter-spacing: .18em; color: #9AA0AE', w: 'MAR', f: '27.10' },
+    { n: 'Mono', t: 'font: 700 18px "JetBrainsMono NF"', d: 'font: 500 10px "JetBrainsMono NF"; color: #9AA0AE', w: 'MAR', f: '27.10' },
+    { n: 'Técnico', t: 'font: 600 21px "Bahnschrift SemiCondensed", Bahnschrift', d: 'font: 600 10px Bahnschrift; letter-spacing: .12em; color: #9AA0AE', w: 'MAR', f: '27.10' },
+    { n: 'Código', t: 'font: 600 18px "Cascadia Code"', d: 'font: 400 10px "Cascadia Code"; color: #9AA0AE', w: 'mar', f: '27/10' },
+    { n: 'Impacto', t: 'font: 900 20px "Segoe UI"', d: 'font: 700 9px "Segoe UI"; letter-spacing: .22em; color: #9AA0AE', w: 'MAR', f: '27.10' },
+    { n: 'Ligero', t: 'font: 300 22px Bahnschrift', d: 'font: 600 10px Bahnschrift; color: #F2F3F5', w: 'MARTES', f: '27 OCT' },
+    { n: 'Natural', t: 'font: 600 19px "Segoe UI Variable Display"', d: 'font: 400 11px "Segoe UI Variable Text"; color: #F2F3F5', w: 'mar', f: '27 oct' },
+    { n: 'Blanco total', t: 'font: 600 20px "Segoe UI Variable Display"', d: 'font: 700 10px "Segoe UI Variable Text"; letter-spacing: .1em; color: #F2F3F5', w: 'MAR', f: '27.10' },
+  ];
+  const grid = document.getElementById('grid');
+  D.forEach((x, i) => {
+    grid.insertAdjacentHTML('beforeend', `
+      <div class="card">
+        <div class="num">${i + 1}</div>
+        <div class="name">${x.n}</div>
+        <div class="pill">
+          <div class="icons"><span>&#xE70E;</span><span>&#xE701;</span><span>&#xE767;</span><span>&#xE83F;</span></div>
+          <div class="clock">
+            <div class="time" style='${x.t}; color: #F2F3F5'>17:15</div>
+            <div class="date" style='${x.d}'><span>${x.w}</span><span>${x.f}</span></div>
+          </div>
+        </div>
+      </div>`);
+  });
+</script>
+</body>
+</html>

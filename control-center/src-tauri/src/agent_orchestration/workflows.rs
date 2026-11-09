@@ -89,7 +89,9 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
                     note: Some("OWASP + blast radius".to_string()),
                 },
                 WorkflowStep {
-                    agent: "penetration-tester".to_string(),
+                    // Segunda pasada del agente real de ~/.claude/agents/: el
+                    // plugin agent-skills no está instalado (2026-10-23).
+                    agent: "security-auditor".to_string(),
                     note: Some("Dependencies + taint".to_string()),
                 },
                 WorkflowStep {

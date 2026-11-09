@@ -1,8 +1,13 @@
 # ULTRON Vault
 
-This is your personal markdown vault — like an Obsidian notebook. ULTRON
-uses it as L2 memory: notes here are indexed by `brain_index.py` (FTS5)
-and embedded into Qdrant (`ultron_vault` collection) for semantic recall.
+This is your personal markdown vault, like an Obsidian notebook. ULTRON
+indexes it with `brain_index.py` (SQLite FTS5 in
+`~/.ultron/brain_index/index.db`) so the cockpit scripts can search it.
+
+The governed memory that Claude Code sessions use is a different store:
+`~/.ultron/brain.db` (SQLite + FTS5), written only by the `ultron-memory`
+sidecar. Dense recall over Qdrant (`ultron_memory` collection) is optional
+and can be turned off with `ULTRON_DENSE=0`.
 
 ## Conventions
 - Markdown only (.md). Wikilinks `[[note-name]]` are supported.
@@ -13,7 +18,7 @@ and embedded into Qdrant (`ultron_vault` collection) for semantic recall.
 ## Next steps
 1. Create a note: `your-first-note.md` with `# My first note` and any content.
 2. Run `uv run python ~/.ultron/scripts/cockpit/brain_index.py update`.
-3. The Memory tab in the Control Center should now find your note.
+3. Search it: `uv run python ~/.ultron/scripts/cockpit/brain_index.py query "first note"`.
 
-This is YOUR vault. ULTRON only reads it for memory recall — never modifies
-without explicit instruction.
+This is YOUR vault. ULTRON only reads it; it never modifies it without
+explicit instruction.

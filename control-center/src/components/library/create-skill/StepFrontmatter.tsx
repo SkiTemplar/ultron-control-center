@@ -1,7 +1,7 @@
 // Step 2 — Frontmatter form (name, description, tags, model, tools).
 
 import { COMMON_TOOLS, MAX_DESCRIPTION_CHARS } from "../creatorTemplates";
-import { Chip, FieldLabel, HelperText } from "./ui-primitives";
+import { Chip, FieldLabel, HelperText } from "../wizard-ui";
 
 type StepFrontmatterProps = {
   name: string;
@@ -30,7 +30,7 @@ export function StepFrontmatter(props: StepFrontmatterProps) {
   } = props;
   return (
     <div className="space-y-4">
-      <FieldLabel label="Name (kebab-case, required)">
+      <FieldLabel label="Nombre (kebab-case, obligatorio)">
         <input
           className="w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 font-mono outline-none"
           style={{
@@ -41,18 +41,17 @@ export function StepFrontmatter(props: StepFrontmatterProps) {
           }}
           value={name}
           onChange={(e) => setName(e.target.value.toLowerCase())}
-          placeholder="my-skill"
+          placeholder="mi-skill"
         />
         {name && !nameValid && (
           <HelperText error>
-            Lowercase letters, digits, and single dashes only. No leading or
-            trailing dash.
+            Solo minúsculas, dígitos y guiones sueltos. Sin guion al principio ni al final.
           </HelperText>
         )}
       </FieldLabel>
 
       <FieldLabel
-        label={`Description (required, ${description.length}/${MAX_DESCRIPTION_CHARS})`}
+        label={`Descripción (obligatoria, ${description.length}/${MAX_DESCRIPTION_CHARS})`}
       >
         <textarea
           className="h-16 w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 outline-none"
@@ -64,19 +63,19 @@ export function StepFrontmatter(props: StepFrontmatterProps) {
           }}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="One sentence: when to activate this skill and what it produces."
+          placeholder="Una frase: cuándo activar esta skill y qué produce."
         />
         {description && !descriptionValid && (
           <HelperText error>
-            Description must be 1 to {MAX_DESCRIPTION_CHARS} characters.
+            La descripción debe tener entre 1 y {MAX_DESCRIPTION_CHARS} caracteres.
           </HelperText>
         )}
         {descriptionTooShort && (
-          <HelperText>Short descriptions trigger less reliably.</HelperText>
+          <HelperText>Con una descripción corta se activa con menos fiabilidad.</HelperText>
         )}
       </FieldLabel>
 
-      <FieldLabel label="Tags (comma-separated, optional)">
+      <FieldLabel label="Tags (separadas por comas, opcional)">
         <input
           className="w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 outline-none"
           style={{ borderColor: "var(--color-border)" }}
@@ -93,11 +92,11 @@ export function StepFrontmatter(props: StepFrontmatterProps) {
         )}
       </FieldLabel>
 
-      <FieldLabel label="Model (optional)">
+      <FieldLabel label="Modelo (opcional)">
         <div className="flex gap-2">
           {(["", "haiku", "sonnet", "opus"] as const).map((m) => (
             <button
-              key={m || "default"}
+              key={m || "por defecto"}
               onClick={() => setModel(m)}
               className="rounded border px-2 py-1 text-xs"
               style={{
@@ -117,7 +116,7 @@ export function StepFrontmatter(props: StepFrontmatterProps) {
         </div>
       </FieldLabel>
 
-      <FieldLabel label="Tools (optional)">
+      <FieldLabel label="Herramientas (opcional)">
         <div className="flex flex-wrap gap-1">
           {COMMON_TOOLS.map((t) => {
             const active = toolsSelected.includes(t);

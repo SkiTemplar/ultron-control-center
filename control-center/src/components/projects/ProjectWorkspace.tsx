@@ -1,7 +1,8 @@
 // ULTRON Control Center 2.0 — Per-project workspace (Dashboard V2)
 //
 // Layout:
-//   1. Identity bar — back button + project name/path + detach
+//   1. Identity bar — back button + project name/path + detach (in a detached
+//      window: «Ventana principal» instead of both)
 //   2. Dashboard — "Acciones rapidas": barra de 5 botones (AI, IDE, Folder,
 //      CodeGraph, Repo) + tiles de ejecutables
 //   3. Kanban board — fills all remaining space (flex-1 min-h-0)
@@ -17,9 +18,11 @@
 //
 // Design: no emojis, SVG icons from ./icons, semantic color tokens.
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Window, getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bot,
   Folder,
@@ -33,12 +36,20 @@ import {
 } from "./icons";
 import { ClaudeMdModal } from "./ClaudeMdModal";
 import { SessionLogModal } from "./SessionLogModal";
+import { UsageModal } from "./UsageModal";
 import ProjectBoard from "./ProjectBoard";
 import { RepoModal } from "./RepoModal";
+import { ChevronLeft, CodeIcon, PrimaryCard, UsageIcon } from "./WorkspaceCards";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import type { ProjectInfo, SessionLogEntry, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
-import { getPrompt } from "../../lib/button-prompts";
+import { CodeGraphModal } from "./codegraph/CodeGraphModal";
+import {
+  codeGraphSubtitle,
+  codeGraphTooltip,
+  useCodeGraphCard,
+} from "./codegraph/useCodeGraphCard";
+import { fetchProjectUsage, usageSubtitle, type ProjectUsage } from "../../lib/project-usage";
 // GitStatus vivia en RepoPanelWidget (borrado 2026-07); este era su unico consumidor real.
 export type GitStatus = {
   state: GitRepoState | null;
@@ -47,51 +58,15 @@ export type GitStatus = {
 };
 
 // ---------------------------------------------------------------------------
-// Inline icons not yet in icons.tsx
-// ---------------------------------------------------------------------------
-
-function ChevronLeft({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  );
-}
-
-function CodeIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Props = { projectId: string };
+type Props = {
+  projectId: string;
+  /** True inside the detached project window (DetachedProjectView): there is
+   *  no list to go back to and nothing left to detach. */
+  detached?: boolean;
+};
 
 type ProjectMeta = {
   id: string;
@@ -119,93 +94,15 @@ type ProjectListEntry = {
 };
 
 // ---------------------------------------------------------------------------
-// PrimaryCard — Claude/AI + Kanban (large, 2-column)
-// ---------------------------------------------------------------------------
-
-interface PrimaryCardProps {
-  icon: React.ReactNode;
-  label: string;
-  sub: string;
-  tint: string;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}
-
-function PrimaryCard({
-  icon,
-  label,
-  sub,
-  tint,
-  onClick,
-  disabled = false,
-  title,
-}: PrimaryCardProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className="flex flex-1 flex-col gap-3 rounded-lg p-4 text-left transition-colors disabled:opacity-40"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-        minHeight: 88,
-        minWidth: 0,
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.background = "var(--color-surface-3)";
-        e.currentTarget.style.borderColor = "var(--color-border-strong)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "var(--color-surface-2)";
-        e.currentTarget.style.borderColor = "var(--color-border)";
-      }}
-    >
-      {/* Icon pill */}
-      <div
-        className="flex h-8 w-8 items-center justify-center rounded-md"
-        style={{
-          background: "var(--color-surface-1)",
-          border: "1px solid var(--color-border)",
-          color: tint,
-        }}
-      >
-        {icon}
-      </div>
-
-      {/* Text */}
-      <div>
-        <div
-          className="text-[13px] font-semibold leading-tight"
-          style={{ color: "var(--color-text)" }}
-        >
-          {label}
-        </div>
-        <div
-          className="mt-0.5 text-[11px] leading-snug"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          {sub}
-        </div>
-      </div>
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SecTile — IDE, Folder, Executables (secondary row, compact)
-// ---------------------------------------------------------------------------
-
-
-// ---------------------------------------------------------------------------
 // ProjectWorkspace
 // ---------------------------------------------------------------------------
 
-export default function ProjectWorkspace({ projectId }: Props) {
+export default function ProjectWorkspace({ projectId, detached = false }: Props) {
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
+  // Registered project without a folder: meta stays null (every action needs
+  // the path), but the workspace says so instead of loading forever.
+  const [noPath, setNoPath] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [git, setGit] = useState<GitStatus>({ state: null, busy: false, error: null });
@@ -216,19 +113,31 @@ export default function ProjectWorkspace({ projectId }: Props) {
   // que trabaje aqui"), asi que vive en el subtitulo del boton.
   const [sessionLog, setSessionLog] = useState<SessionLogEntry[] | null>(null);
   const [sessionLogOpen, setSessionLogOpen] = useState(false);
-  const [cgIndexed, setCgIndexed] = useState<boolean | null>(null);
-  // cat2.5 (2026-06-10): resumen REAL del grafo leido del codegraph.db por la
-  // app (codegraph_summary) — antes solo se comprobaba que el fichero existia.
-  const [cgSummary, setCgSummary] = useState<{
-    files: number;
-    nodes: number;
-    edges: number;
-    languages: [string, number][];
-    last_indexed_at: number | null;
-  } | null>(null);
-  const [cgBusy, setCgBusy] = useState(false);
+  // Uso de Claude: se calcula al entrar (30 d) para poner el titular en la
+  // tarjeta; el detalle vive en UsageModal. Un fallo se muestra, no se traga.
+  const [usage, setUsage] = useState<ProjectUsage | null | "error">(null);
+  const [usageOpen, setUsageOpen] = useState(false);
+  // Tarjeta CodeGraph: índice, resumen real del codegraph.db y visor.
+  const codeGraph = useCodeGraphCard(meta?.path ?? null);
+  const [codeGraphOpen, setCodeGraphOpen] = useState(false);
 
   const tabsCtx = useProjectsTabs();
+
+  useEffect(() => {
+    let cancelled = false;
+    setUsage(null);
+    (async () => {
+      try {
+        const r = await fetchProjectUsage(projectId, 30);
+        if (!cancelled) setUsage(r.ok ? r : "error");
+      } catch {
+        if (!cancelled) setUsage("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   // Load project meta from registry
   // Bitacora: se pide al entrar al proyecto porque su titular se enseña en el
@@ -259,7 +168,11 @@ export default function ProjectWorkspace({ projectId }: Props) {
         const list = (await invoke("list_projects")) as ProjectListEntry[];
         const found = list.find((p) => p.id === projectId);
         if (!cancelled) {
-          if (found && found.path) {
+          setNoPath(!!found && !found.path);
+          if (found && !found.path) {
+            setMeta(null);
+            setProjectInfo(found as unknown as ProjectInfo);
+          } else if (found && found.path) {
             setMeta({
               id: found.id,
               name: found.name ?? found.id,
@@ -278,18 +191,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
             } catch (e) {
               gitErr = `git_repo_state fallo: ${String(e)}`;
             }
-            const indexed = await invoke<boolean>("codegraph_is_indexed", { path: found.path }).catch(() => false);
             setGit({ state: repoState, busy: false, error: gitErr });
-            setCgIndexed(indexed);
-            if (indexed) {
-              invoke<typeof cgSummary>("codegraph_summary", { path: found.path })
-                .then((s) => {
-                  if (!cancelled) setCgSummary(s);
-                })
-                .catch(() => {
-                  /* resumen opcional: el panel sigue mostrando el estado básico */
-                });
-            }
           } else {
             setError(`Proyecto ${projectId} no encontrado`);
           }
@@ -301,7 +203,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, reloadKey]);
 
   // Provider badge for the AI session button
   const provider: SessionProvider =
@@ -314,39 +216,76 @@ export default function ProjectWorkspace({ projectId }: Props) {
 
   const handleBack = () => tabsCtx.close(projectId);
 
+  // Ventana separada: no hay lista a la que volver. Se trae al frente la
+  // ventana principal y se cierra esta.
+  const handleBackToMain = async () => {
+    try {
+      const main = await Window.getByLabel("main");
+      if (main) {
+        await main.show();
+        await main.setFocus();
+      }
+      await getCurrentWindow().close();
+    } catch (e) {
+      setError(`No se pudo volver a la ventana principal: ${String(e)}`);
+    }
+  };
+
+  const handleAssignFolder = async () => {
+    setError(null);
+    try {
+      const picked = await openDialog({ directory: true, multiple: false, title: "Carpeta del proyecto" });
+      if (typeof picked !== "string" || !picked) return;
+      await invoke("update_project", { id: projectId, path: picked });
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      reportFailure("asignar la carpeta", e);
+    }
+  };
+
+  // Mandamiento 11: un botón que falla dice por qué. Antes IA, IDE, carpeta y
+  // ejecutables tragaban el error (p. ej. un proyecto
+  // fuera del scope del opener no hacía nada al pulsar Folder).
+  const reportFailure = (action: string, e: unknown) =>
+    setError(`No se pudo ${action}: ${String(e)}`);
+
   const handleAi = async () => {
     if (!meta) return;
+    setError(null);
     try {
       await invoke("spawn_session", {
         provider,
         cwd: meta.path,
         prompt: null,
-        flags: { dangerouslySkipPermissions: false },
+        // Flujo interno sobre un proyecto propio: sin decisión explícita de
+        // permisos manda el defecto de sessions.rs (resolve_dangerous).
+        flags: {},
       });
-    } catch {
-      /* silencioso */
+    } catch (e) {
+      reportFailure(`lanzar la sesión de ${badge.label}`, e);
     }
   };
 
-
   const handleIde = async () => {
     if (!meta) return;
+    setError(null);
     try {
       await invoke("open_project_in_ide", {
         path: meta.path,
         preferredIde: projectInfo?.ide ?? null,
       });
-    } catch {
-      /* silencioso */
+    } catch (e) {
+      reportFailure("abrir el IDE", e);
     }
   };
 
   const handleFolder = async () => {
     if (!meta) return;
+    setError(null);
     try {
       await openPath(meta.path);
-    } catch {
-      /* silencioso */
+    } catch (e) {
+      reportFailure(`abrir la carpeta ${meta.path}`, e);
     }
   };
 
@@ -373,10 +312,11 @@ export default function ProjectWorkspace({ projectId }: Props) {
   };
 
   const handleExe = async (path: string) => {
+    setError(null);
     try {
       await openPath(path);
-    } catch {
-      /* silencioso */
+    } catch (e) {
+      reportFailure(`abrir ${path}`, e);
     }
   };
 
@@ -401,43 +341,17 @@ export default function ProjectWorkspace({ projectId }: Props) {
     }
   }, [meta, refreshGit]);
 
-  const handleCodeGraphSession = async () => {
-    if (!meta) return;
-    try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        cwd: meta.path,
-        prompt: await getPrompt("projects.codegraph_session", {
-          project_name: meta.name,
-        }),
-        flags: { dangerouslySkipPermissions: false },
-      });
-    } catch {
-      /* silencioso */
-    }
-  };
-
-  const handleCodeGraphInit = async () => {
-    if (!meta || cgBusy) return;
-    setCgBusy(true);
-    try {
-      await invoke("codegraph_init_project", { path: meta.path });
-      setCgIndexed(true);
-    } catch {
-      // si falla, dejamos cgIndexed en false para que el botón siga visible
-    } finally {
-      setCgBusy(false);
-    }
-  };
-
-  // Tarjeta única CodeGraph (masterplan 3.6): sin índice → indexar; indexado →
-  // abrir sesión de exploración. Nunca es un no-op (mandamiento 11).
+  // Tarjeta única CodeGraph: sin índice → indexar; error al comprobar →
+  // reintentar; indexado → abrir el visor del grafo (pilar 3: ver el grafo,
+  // no lanzar sesiones). Nunca es un no-op (mandamiento 11).
   const handleCodeGraphCard = async () => {
-    if (!meta || cgBusy) return;
-    if (cgIndexed) {
-      await handleCodeGraphSession();
+    if (!meta || codeGraph.busy || codeGraph.indexed === null) return;
+    if (codeGraph.indexed === true) {
+      setCodeGraphOpen(true);
+    } else if (codeGraph.indexed === "error") {
+      await codeGraph.refresh();
     } else {
-      await handleCodeGraphInit();
+      await codeGraph.init();
     }
   };
 
@@ -457,40 +371,29 @@ export default function ProjectWorkspace({ projectId }: Props) {
     await runGitOp("git_init");
   };
 
-  const codeGraphSub = cgBusy
-    ? "Indexando…"
-    : cgIndexed === null
-    ? "Verificando índice…"
-    : cgIndexed
-    ? cgSummary
-      ? `${cgSummary.files} archivos · ${cgSummary.nodes} símbolos`
-      : "Indexado"
-    : "Sin índice — click para indexar";
-
-  const codeGraphTitle = cgIndexed
-    ? "Abrir sesión Claude Code con herramientas codegraph"
-    : "Indexar este proyecto con codegraph init -i";
-
-  const repoSub = !meta
+  const repoSub = noPath
+    ? "Sin carpeta asignada"
+    : !meta
     ? "Cargando…"
     : git.error
-    ? "Error de estado — click para reintentar"
+    ? "Error de estado: clic para reintentar"
     : git.state?.is_repo
     ? `${git.state.branch ?? "?"} · ${
         git.state.dirty
           ? `${git.state.dirty_count} cambio${git.state.dirty_count !== 1 ? "s" : ""}`
           : "limpio"
       }`
-    : "Sin repositorio git — click para crear";
+    : "Sin repositorio git: clic para crear";
 
-  // El titular de la ultima sesion, recortado para que quepa bajo el boton.
+  // El titular de la ultima sesion: la tarjeta lo corta a dos lineas y el
+  // texto completo queda en el tooltip.
   // Sin resumenes se dice por que, en vez de dejar la tarjeta muda: el
   // generador solo escribe el resumen de una sesion al abrir la siguiente.
   const sessionLogSub = !sessionLog
     ? "Cargando…"
     : sessionLog.length === 0
     ? "Sin resúmenes todavía"
-    : (sessionLog[0].headline ?? "Resumen sin temas").slice(0, 46);
+    : sessionLog[0].headline ?? "Resumen sin temas";
 
   const repoTitle = git.state?.is_repo
     ? "Ver cambios, commit e historial (micro GitHub Desktop)"
@@ -511,10 +414,10 @@ export default function ProjectWorkspace({ projectId }: Props) {
           background: "var(--color-surface-2)",
         }}
       >
-        {/* Back to projects */}
+        {/* Back to projects (main window) / back to the main window (detached) */}
         <button
           type="button"
-          onClick={handleBack}
+          onClick={detached ? () => void handleBackToMain() : handleBack}
           className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors"
           style={{ color: "var(--color-text-tertiary)", background: "transparent" }}
           onMouseEnter={(e) => {
@@ -525,10 +428,14 @@ export default function ProjectWorkspace({ projectId }: Props) {
             e.currentTarget.style.color = "var(--color-text-tertiary)";
             e.currentTarget.style.background = "transparent";
           }}
-          title="Volver a la lista de proyectos"
+          title={
+            detached
+              ? "Traer al frente la ventana principal y cerrar esta"
+              : "Volver a la lista de proyectos"
+          }
         >
           <ChevronLeft size={12} />
-          Projects
+          {detached ? "Ventana principal" : "Proyectos"}
         </button>
 
         <span
@@ -545,7 +452,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
             className="text-[13px] font-semibold"
             style={{ color: "var(--color-text)" }}
           >
-            {meta?.name ?? projectId}
+            {meta?.name ?? projectInfo?.name ?? projectId}
           </span>
           {meta?.path && (
             <span
@@ -561,58 +468,87 @@ export default function ProjectWorkspace({ projectId }: Props) {
           )}
         </div>
 
-        {/* Detach */}
-        <button
-          type="button"
-          onClick={handleDetach}
-          disabled={!meta}
-          className="flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
-          style={{
-            color: "var(--color-text-tertiary)",
-            border: "1px solid var(--color-border)",
-            background: "transparent",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--color-text)";
-            e.currentTarget.style.borderColor = "var(--color-border-strong)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--color-text-tertiary)";
-            e.currentTarget.style.borderColor = "var(--color-border)";
-          }}
-          title="Abrir en ventana independiente"
-        >
-          <ExternalLink size={11} />
-          Detach
-        </button>
+        {/* Detach (not inside a window that is already detached) */}
+        {!detached && (
+          <button
+            type="button"
+            onClick={handleDetach}
+            disabled={!meta}
+            className="flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
+            style={{
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+              background: "transparent",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.borderColor = "var(--color-border-strong)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-tertiary)";
+              e.currentTarget.style.borderColor = "var(--color-border)";
+            }}
+            title="Abrir en ventana independiente"
+          >
+            <ExternalLink size={11} />
+            Separar
+          </button>
+        )}
       </div>
+
+      {noPath && (
+        <div
+          className="flex shrink-0 items-center gap-3 border-b px-5 py-2 text-[11.5px]"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-surface-2)",
+            color: "var(--color-text-secondary)",
+          }}
+          role="status"
+        >
+          <span className="min-w-0 flex-1">
+            Este proyecto no tiene carpeta asignada: IA, IDE, carpeta, terminal,
+            CodeGraph, repo y CLAUDE.md necesitan una para funcionar.
+          </span>
+          <button
+            type="button"
+            onClick={() => void handleAssignFolder()}
+            className="shrink-0 rounded px-2.5 py-1 text-[11.5px] font-medium"
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
+          >
+            Asignar carpeta…
+          </button>
+        </div>
+      )}
 
       {/* ── 2. Dashboard — Acciones rapidas ─────────────────────────────── */}
       <div
-        className="shrink-0 border-b px-5 py-4"
+        className="shrink-0 border-b px-5 py-3"
         style={{ borderColor: "var(--color-border)" }}
       >
         {/* Dos grupos ESTABLES (antes: un solo flex-wrap donde CodeGraph/Repo
             caian a filas distintas segun el ancho de ventana). Fila 1 =
-            lanzar cosas; fila 2 = codigo (CodeGraph + Repo siempre juntos). */}
+            lanzar cosas; fila 2 = proyecto (CodeGraph, Repo, Bitácora, uso y
+            CLAUDE.md). Las dos son rejillas de 5 columnas con tiles compactos
+            para que se alineen y dejen el alto al Kanban. */}
         <p
-          className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em]"
+          className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           Lanzar
         </p>
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-5 gap-2">
           <PrimaryCard
-            icon={<Bot size={16} />}
+            icon={<Bot size={20} />}
             label={badge.label}
-            sub="Iniciar sesion de IA"
+            sub="Iniciar sesión de IA"
             tint={badge.tint}
             onClick={handleAi}
             disabled={!meta}
-            title={`Lanzar sesion ${badge.label} en este proyecto`}
+            title={`Lanzar sesión de ${badge.label} en este proyecto`}
           />
           <PrimaryCard
-            icon={<CodeIcon size={16} />}
+            icon={<CodeIcon size={20} />}
             label="IDE"
             sub={projectInfo?.ide ?? "Editor preferido"}
             tint="var(--color-text-secondary)"
@@ -621,34 +557,34 @@ export default function ProjectWorkspace({ projectId }: Props) {
             title="Abrir en IDE preferido"
           />
           <PrimaryCard
-            icon={<Folder size={16} />}
-            label="Folder"
-            sub="Abrir en Explorer"
+            icon={<Folder size={20} />}
+            label="Carpeta"
+            sub="Abrir en el Explorador"
             tint="var(--color-text-secondary)"
             onClick={handleFolder}
             disabled={!meta}
             title="Abrir carpeta del proyecto"
           />
           <PrimaryCard
-            icon={<Terminal size={16} />}
+            icon={<Terminal size={20} />}
             label="Terminal"
             sub={
               meta?.default_shell === "cmd"
-                ? "cmd.exe aqui"
+                ? "cmd.exe aquí"
                 : meta?.default_shell === "powershell-admin"
-                  ? "PowerShell (admin) aqui"
-                  : "PowerShell aqui"
+                  ? "PowerShell (admin) aquí"
+                  : "PowerShell aquí"
             }
             tint="var(--color-text-secondary)"
             onClick={() => void handleTerminal()}
             disabled={!meta}
-            title="Abrir una consola en la raiz del proyecto"
+            title="Abrir una consola en la raíz del proyecto"
           />
           {executables.map((exe, i) => (
             <PrimaryCard
               key={i}
-              icon={<Play size={16} />}
-              label={exe.name || "Launch"}
+              icon={<Play size={20} />}
+              label={exe.name || "Lanzar"}
               sub={exe.path.split(/[/\\]/).pop() ?? exe.path}
               tint="var(--color-success, #3fb950)"
               onClick={() => void handleExe(exe.path)}
@@ -658,23 +594,25 @@ export default function ProjectWorkspace({ projectId }: Props) {
         </div>
 
         <p
-          className="mb-3 mt-4 text-[10px] font-semibold uppercase tracking-[0.08em]"
+          className="mb-2 mt-3.5 text-[11px] font-semibold uppercase tracking-[0.08em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Codigo
+          Proyecto
         </p>
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-5 gap-2">
           <PrimaryCard
-            icon={<Share2 size={16} />}
+            icon={<Share2 size={20} />}
             label="CodeGraph"
-            sub={codeGraphSub}
+            sub={codeGraphSubtitle(codeGraph, noPath)}
             tint="var(--color-text-secondary)"
             onClick={() => void handleCodeGraphCard()}
-            disabled={!meta || cgBusy}
-            title={codeGraphTitle}
+            // Mientras se comprueba el índice no hay acción que elegir: un clic
+            // antes de tiempo lanzaba `codegraph init` sobre un proyecto indexado.
+            disabled={!meta || codeGraph.busy || codeGraph.indexed === null}
+            title={codeGraphTooltip(codeGraph)}
           />
           <PrimaryCard
-            icon={<GitBranch size={16} />}
+            icon={<GitBranch size={20} />}
             label="Repo"
             sub={repoSub}
             tint={git.state?.dirty ? "#ca8a04" : "var(--color-text-secondary)"}
@@ -683,37 +621,53 @@ export default function ProjectWorkspace({ projectId }: Props) {
             title={repoTitle}
           />
           <PrimaryCard
-            icon={<History size={16} />}
+            icon={<History size={20} />}
             label="Bitácora"
             sub={sessionLogSub}
             tint="var(--color-text-secondary)"
             onClick={() => setSessionLogOpen(true)}
-            disabled={!meta}
-            title="Historial de sesiones resumidas: que se trabajo, que se decidio y que quedo pendiente"
+            disabled={!meta && !noPath}
+            title="Historial de sesiones resumidas: qué se trabajó, qué se decidió y qué quedó pendiente"
           />
           <PrimaryCard
-            icon={<BookOpen size={16} />}
+            icon={<UsageIcon size={20} />}
+            label="Uso de Claude"
+            sub={
+              usage === null
+                ? "Calculando…"
+                : usage === "error"
+                ? "No disponible: clic para ver por qué"
+                : usageSubtitle(usage)
+            }
+            tint="var(--color-text-secondary)"
+            onClick={() => setUsageOpen(true)}
+            disabled={!meta && !noPath}
+            title="Coste nocional, modelos y subagentes de las sesiones de Claude Code de este proyecto"
+          />
+          <PrimaryCard
+            icon={<BookOpen size={20} />}
             label="CLAUDE.md"
             sub="Instrucciones del proyecto"
             tint="var(--color-text-secondary)"
             onClick={() => setClaudeMdOpen(true)}
             disabled={!meta}
-            title="Editar el CLAUDE.md que Claude Code carga en cada sesion de este proyecto"
+            title="Editar el CLAUDE.md que Claude Code carga en cada sesión de este proyecto"
           />
         </div>
       </div>
 
-      {error && (
+      {[error, codeGraph.error].filter(Boolean).map((msg) => (
         <div
+          key={msg}
           className="shrink-0 border-b px-4 py-2 text-[11.5px]"
           style={{
             borderColor: "rgba(239,68,68,0.30)",
             color: "var(--color-danger, #ef4444)",
           }}
         >
-          {error}
+          {msg}
         </div>
-      )}
+      ))}
 
       {/* ── 3. Kanban board — fills all remaining space ─────────────────── */}
       {/* CodeGraph y Repo ya no tienen una franja dedicada aparte (masterplan
@@ -732,11 +686,27 @@ export default function ProjectWorkspace({ projectId }: Props) {
         />
       )}
 
-      {sessionLogOpen && meta && (
+      {codeGraphOpen && meta && (
+        <CodeGraphModal
+          path={meta.path}
+          projectName={meta.name}
+          onClose={() => setCodeGraphOpen(false)}
+        />
+      )}
+
+      {sessionLogOpen && (meta || noPath) && (
         <SessionLogModal
           projectId={projectId}
           projectName={projectInfo?.name ?? projectId}
           onClose={() => setSessionLogOpen(false)}
+        />
+      )}
+
+      {usageOpen && (meta || noPath) && (
+        <UsageModal
+          projectId={projectId}
+          projectName={projectInfo?.name ?? projectId}
+          onClose={() => setUsageOpen(false)}
         />
       )}
 

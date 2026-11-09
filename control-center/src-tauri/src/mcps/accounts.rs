@@ -256,7 +256,7 @@ pub fn account_remove_inner(name: &str) -> Result<String, String> {
         .any(|tpl| entry_matches_template(name, cfg, tpl));
     if !managed {
         return Err(format!(
-            "'{name}' no es una cuenta gestionada por plantilla — edítalo desde settings.json"
+            "'{name}' no es una cuenta gestionada por plantilla — edítalo o bórralo desde la pestaña MCPs"
         ));
     }
     servers.remove(name);

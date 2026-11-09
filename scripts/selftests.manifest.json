@@ -1,0 +1,336 @@
+{
+  "$comment": "Clasificacion de TODOS los selftests de hooks/ y scripts/. ci:true = hermetico (corre en el runner limpio del CI); ci:false = solo local, con motivo. Lo comprueba scripts/run-selftests.mjs --check (falla si hay un selftest sin clasificar o una entrada sin fichero). Regenerar la clase de uno nuevo: ejecutarlo con --fake-home y anadirlo aqui.",
+  "tests": {
+    "cockpit/skill-lazy/gate-intencion.selftest.mjs": {
+      "ci": true
+    },
+    "cockpit/skill-lazy/phantom-ids.selftest.mjs": {
+      "ci": false,
+      "reason": "el bloque 1 resuelve los ids del routing contra el ~/.claude real (skills, agentes y plugins instalados) y los rosters de cockpit/projects, que no se versionan: pasa en local, falla con HOME limpio"
+    },
+    "cockpit/skill-lazy/sync-registry.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/regen-manifest.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/batch-capture.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/codegraph-first.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/context-guard.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/deny-secrets-rutas-volcados.selftest.mjs": {
+      "ci": true,
+      "serial": true
+    },
+    "hooks/scripts/deny-secrets.selftest.mjs": {
+      "ci": true,
+      "serial": true
+    },
+    "hooks/scripts/document-convert-hint.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/engine-usage.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/ensure-codegraph.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/ensure-project.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/fast-lane.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/guardrails-post.selftest.mjs": {
+      "ci": false,
+      "reason": "necesita el personality.json y el ~/.claude reales (registro coloquial): pasa en local, falla con HOME limpio"
+    },
+    "hooks/scripts/guardrails-pre.adversarial.selftest.mjs": {
+      "ci": true,
+      "serial": true
+    },
+    "hooks/scripts/guardrails-pre.selftest.mjs": {
+      "ci": false,
+      "reason": "necesita el roster de agentes de ~/.claude/agents (agente fantasma): pasa en local, falla con HOME limpio"
+    },
+    "hooks/scripts/hubs-refresh.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/kanban-auto.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/kanban-closures.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/kanban-lock.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/last-session.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/lib/ai-text-detector.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/lib/ai-text-falsos-negativos.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/lib/hook-obs.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/lib/project-state.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/memory-session-resume.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/model-family-guard.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/precompact-preserve-l0.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/project-identity.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/project-roster-context.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/pupus-permission.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-fixes.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-http.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-integration.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-mcp.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-normalize.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-ranking.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-retraction.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-snowball.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/research-verify.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/run-project-tests.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/save-user-prompt.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/session-end-bitacora.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/session-feedback.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/sessions-rich-format.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/socratic-gate.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/stop-compress-compact.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/system-turn.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-ensure-project-codegraph.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-freshness-gate.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-last-session.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-log-rotation.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-memory-orchestrate-render.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-memory-warm-models.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-note-title.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-orchestrate-recovery.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-project-identity.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-resume-quality.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-security-helpers.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-session-digest.js": {
+      "ci": true
+    },
+    "hooks/scripts/tests/test-session-summarize-previous.js": {
+      "ci": true
+    },
+    "hooks/scripts/uni-deliverable-guard.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/usage-pace-guard.selftest.mjs": {
+      "ci": true
+    },
+    "hooks/scripts/usage-schedule.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/adjuntos-ignorados.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/ai-text-eval.selftest.mjs": {
+      "ci": false,
+      "reason": "necesita el corpus humano, que no se versiona (escritura personal): pasa en local"
+    },
+    "scripts/backup/weekly-backup.selftest.mjs": {
+      "ci": true,
+      "serial": true
+    },
+    "scripts/batches-archive.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/bitacora-sweep.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/cockpit/scheduler-tasks.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/code-size-budget.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/codegraph-index-projects.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/delegate.selftest.mjs": {
+      "ci": true,
+      "timeoutSec": 420
+    },
+    "scripts/docs-ci-drift.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/home-reorg-guard.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/kanban.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/kirkardo-eval.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/lesson-distill.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/lib/curso.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/lib/public-rewrite.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/lib/registry-backup.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/lib/sync-public-gate.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/mcp-memory-server.selftest.mjs": {
+      "ci": false,
+      "reason": "necesita el sidecar ultron-memory.exe compilado en bin/ y tarda ~90 s"
+    },
+    "scripts/memory-bench.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/memory-gc.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/memory-portrait.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/memory-verify.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/posttoolfail-capture.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/project-create-skills.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/project-create.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/project-new.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/project-profile.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/project-usage.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/redeploy-memory-sidecar.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/release-locked-exe.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/run-mod-tests.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/run-selftests.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/sesiones-incidentes.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/skill-pool.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/staged-sources-gate.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/statusline-tone.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/stop-compress-session.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/subagent-harvest.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/subagent-lifecycle.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/usage-hours.selftest.mjs": {
+      "ci": true
+    },
+    "scripts/usage-schedule-fit.selftest.mjs": {
+      "ci": true
+    }
+  }
+}

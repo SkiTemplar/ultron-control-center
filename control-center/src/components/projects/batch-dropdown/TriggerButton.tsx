@@ -74,7 +74,7 @@ export function TriggerButton({
               className="text-[13px] font-semibold"
               style={{ color: "var(--color-text)" }}
             >
-              {runningName ? `Ejecutando: ${runningName}` : "Run Batch"}
+              {runningName ? `Ejecutando: ${runningName}` : "Ejecutar .bat"}
             </span>
             {queueCount > 0 && (
               <span
@@ -142,7 +142,7 @@ export function TriggerButton({
       style={triggerStyle}
       onMouseEnter={handleTriggerEnter}
       onMouseLeave={handleTriggerLeave}
-      title="Execute a pre-approved script from ~/.ultron/batches/"
+      title="Ejecutar un script aprobado de ~/.ultron/batches/"
       aria-expanded={open}
       aria-haspopup="menu"
     >
@@ -161,7 +161,7 @@ export function TriggerButton({
           <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
       </span>
-      <span>{runningName ? `Running: ${runningName}` : "Run batch"}</span>
+      <span>{runningName ? `Ejecutando: ${runningName}` : "Ejecutar .bat"}</span>
       {runningName && (
         <svg
           width="11"
@@ -185,7 +185,7 @@ export function TriggerButton({
             color: "var(--color-text-secondary)",
             border: "1px solid var(--color-border)",
           }}
-          title={`${count} batch script${count === 1 ? "" : "s"} available`}
+          title={`${count} script${count === 1 ? "" : "s"} disponible${count === 1 ? "" : "s"}`}
         >
           {count}
         </span>
@@ -198,7 +198,7 @@ export function TriggerButton({
             color: "var(--color-danger)",
             border: "1px solid rgba(248, 81, 73, 0.35)",
           }}
-          title={`${queueCount} en cola -- requieren tu click`}
+          title={`${queueCount} en cola: requieren tu clic`}
         >
           {queueCount}
         </span>

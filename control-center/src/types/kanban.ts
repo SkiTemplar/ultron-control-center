@@ -12,6 +12,8 @@ export type CardRun = {
   ended_at: string | null;
   status: RunStatus;
   exit_code: number | null;
+  /** Motivo cuando el run acabó en failed/killed; ausente en runs antiguos. */
+  error?: string | null;
 };
 
 export type Card = {
@@ -47,31 +49,9 @@ export type KanbanBoard = {
   schema_version: number;
 };
 
-export type CardPartial = {
-  title: string;
-  description?: string;
-  agent?: string | null;
-  prompt_template?: string | null;
-  cwd?: string | null;
-  tags?: string[];
-};
-
-export type CardPatch = {
-  title?: string;
-  description?: string;
-  agent?: string | null;
-  prompt_template?: string | null;
-  cwd?: string | null;
-  tags?: string[];
-};
-
 export type OpenTab = {
   id: string;        // "home" | project_id
   kind: "home" | "project";
   title: string;
   order: number;
 };
-
-// V1 redesign: the per-project workspace is a flat button row + Kanban board.
-// The sub-tab union collapsed to the single remaining view.
-export type ProjectSubTab = "board";

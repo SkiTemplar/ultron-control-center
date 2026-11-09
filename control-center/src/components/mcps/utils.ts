@@ -24,12 +24,12 @@ export function isStaleTimestamp(iso: string | null | undefined): boolean {
   return age === null || age > STALE_THRESHOLD_MS;
 }
 
-/** Formatea ms en "Xh Ym" (o "Xd" para más de 24h). */
+/** Formatea ms como antigüedad relativa: "ahora mismo", "hace 5 min", "hace 20 h", "hace 3 d". */
 export function formatAge(ms: number): string {
-  if (ms < 60_000) return "hace un momento";
-  if (ms < 3_600_000) return `hace ${Math.floor(ms / 60_000)}m`;
-  if (ms < 86_400_000) return `hace ${Math.floor(ms / 3_600_000)}h`;
-  return `hace ${Math.floor(ms / 86_400_000)}d`;
+  if (ms < 60_000) return "ahora mismo";
+  if (ms < 3_600_000) return `hace ${Math.floor(ms / 60_000)} min`;
+  if (ms < 86_400_000) return `hace ${Math.floor(ms / 3_600_000)} h`;
+  return `hace ${Math.floor(ms / 86_400_000)} d`;
 }
 
 export function loadHidden(): Set<string> {
@@ -61,7 +61,9 @@ export function statusColor(s: McpStatus, expectedOffline: boolean, stale: boole
 
 export function parseOrigin(o: string | undefined): { kind: McpOriginKind; label: string } {
   if (!o) return { kind: "unknown", label: "?" };
-  if (o === "user") return { kind: "user", label: "user" };
+  // "user-claudejson" era el origen antiguo del mismo ámbito (H14).
+  if (o === "user" || o === "user-claudejson") return { kind: "user", label: "user" };
+  if (o === "settings") return { kind: "settings", label: "settings.json" };
   if (o.startsWith("project:")) {
     return { kind: "project", label: o.slice("project:".length) || "project" };
   }
@@ -79,17 +81,37 @@ export function originBadgeColor(kind: McpOriginKind): { bg: string; fg: string 
       return { bg: "rgba(63, 185, 80, 0.12)", fg: "var(--color-success)" };
     case "plugin":
       return { bg: "rgba(163, 113, 247, 0.12)", fg: "#a371f7" };
+    case "settings":
+      return { bg: "rgba(210, 153, 34, 0.15)", fg: "#d29922" };
     default:
       return { bg: "var(--color-surface-3)", fg: "var(--color-text-secondary)" };
   }
 }
 
+/** Nombre visible del tipo de origen (el `kind` interno no se traduce). */
+export function originKindLabel(kind: McpOriginKind): string {
+  switch (kind) {
+    case "user":
+      return "usuario";
+    case "project":
+      return "proyecto";
+    case "plugin":
+      return "plugin";
+    case "settings":
+      return "settings.json";
+    default:
+      return "desconocido";
+  }
+}
+
 export function statusLabel(s: McpStatus, expectedOffline: boolean, stale: boolean): string {
-  if (stale) return "desconocido";
-  if (s === "ok") return "connected";
-  if (s === "degraded") return expectedOffline ? "offline" : "degraded";
-  if (s === "missing") return "missing";
-  if (s === "unknown") return "unknown";
+  // Sin dato de salud (o dato caducado): "sin comprobar", para no chocar con
+  // el chip "no reconocido", que habla del servidor y no de su salud.
+  if (stale) return "sin comprobar";
+  if (s === "ok") return "conectado";
+  if (s === "degraded") return expectedOffline ? "desconectado" : "degradado";
+  if (s === "missing") return "no encontrado";
+  if (s === "unknown") return "sin comprobar";
   return s;
 }
 
@@ -128,11 +150,11 @@ export function configToEditable(name: string, cfg: Record<string, unknown>): Ed
   };
 }
 
+// `type` explícito, como lo escribe `claude mcp add`: una entrada con `url`
+// y sin `type` no es un servidor HTTP válido para Claude Code.
 export function editableToConfig(m: EditableMcp): Record<string, unknown> {
   if (m.transport === "http" || m.transport === "sse") {
-    const out: Record<string, unknown> = { url: m.url.trim() };
-    if (m.transport === "sse") out.type = "sse";
-    return out;
+    return { type: m.transport, url: m.url.trim() };
   }
   const args = m.argsText
     .split("\n")
@@ -144,6 +166,7 @@ export function editableToConfig(m: EditableMcp): Record<string, unknown> {
     if (k) env[k] = r.value;
   }
   const out: Record<string, unknown> = {
+    type: "stdio",
     command: m.command.trim(),
     args,
   };
@@ -151,18 +174,21 @@ export function editableToConfig(m: EditableMcp): Record<string, unknown> {
   return out;
 }
 
-export function validateEditable(m: EditableMcp): string | null {
-  if (!NAME_RE.test(m.name)) {
-    return "Name must match ^[a-z0-9][a-z0-9_-]{1,60}$ (lowercase, digits, _ or -).";
+// `existing`: edición de una entrada que ya existe. Su nombre no se cambia
+// y puede venir de `claude mcp add` con mayúsculas, así que la regla de
+// nombres solo se aplica a las altas.
+export function validateEditable(m: EditableMcp, existing = false): string | null {
+  if (!existing && !NAME_RE.test(m.name)) {
+    return "El nombre debe cumplir ^[a-z0-9][a-z0-9_-]{1,60}$ (minúsculas, dígitos, _ o -).";
   }
   if (m.transport === "stdio") {
-    if (!m.command.trim()) return "Command is required for stdio transport.";
+    if (!m.command.trim()) return "El comando es obligatorio con transporte stdio.";
   } else {
-    if (!m.url.trim()) return "URL is required for http/sse transport.";
+    if (!m.url.trim()) return "La URL es obligatoria con transporte http/sse.";
     try {
       new URL(m.url.trim());
     } catch {
-      return "URL is not a valid URL.";
+      return "La URL no es válida.";
     }
   }
   return null;

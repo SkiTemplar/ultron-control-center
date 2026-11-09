@@ -4,14 +4,14 @@
 // reservados del sistema).
 
 import { describe, expect, it } from "vitest";
-import { isValidProjectName, validateProjectName } from "./project-name";
+import { validateProjectName } from "./project-name";
 
 describe("validateProjectName", () => {
   it("acepta nombres normales con espacios, guiones y acentos", () => {
     expect(validateProjectName("Practica 1")).toBeNull();
     expect(validateProjectName("mi-proyecto_final")).toBeNull();
     expect(validateProjectName("Programación II")).toBeNull();
-    expect(isValidProjectName("TFG")).toBe(true);
+    expect(validateProjectName("TFG")).toBeNull();
   });
 
   it("rechaza el nombre vacio o solo espacios", () => {

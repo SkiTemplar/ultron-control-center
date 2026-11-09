@@ -22,9 +22,11 @@ import {
   type CliTemplate,
   type RootKind,
 } from "../../../lib/project-create-cli";
+import { confirmDialog } from "../../../lib/dialog";
 import { validateProjectName } from "../../../lib/project-name";
 import type { CreateResult, NewProjectWizardProps, StepId } from "./types";
 import type { UseNewProjectWizardResult } from "./useNewProjectWizard.types";
+import { useSkillPicker } from "./useSkillPicker";
 
 export function useNewProjectWizard({
   open,
@@ -66,6 +68,8 @@ export function useNewProjectWizard({
   const [templatesError, setTemplatesError] = useState<CliError | null>(null);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
+  // Skills de la pool: se recargan al cambiar de plantilla (sus sugeridas).
+  const skillPicker = useSkillPicker(open, templateId);
 
   // -- Paso 6: opciones -------------------------------------------------------
   const [gitInit, setGitInit] = useState(true);
@@ -119,7 +123,6 @@ export function useNewProjectWizard({
     setOpenIde("");
     setResult(null);
     void loadRoots();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   async function loadRoots() {
@@ -139,7 +142,6 @@ export function useNewProjectWizard({
   useEffect(() => {
     if (!open || kind !== "asignatura" || !selectedRoot) return;
     void loadSubjects();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, kind, selectedRoot?.id]);
 
   async function loadSubjects() {
@@ -186,7 +188,6 @@ export function useNewProjectWizard({
   useEffect(() => {
     if (!open || currentStep !== "carpeta" || !selectedRoot) return;
     void loadFolder(currentSub);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentStep, selectedRoot?.id, currentSub]);
 
   // Al entrar en el paso "carpeta", arrancar la navegación en la asignatura
@@ -194,7 +195,6 @@ export function useNewProjectWizard({
   useEffect(() => {
     if (currentStep !== "carpeta") return;
     setCurrentSub(kind === "asignatura" ? subjectRelPath ?? "" : "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep]);
 
   async function loadFolder(sub: string) {
@@ -211,10 +211,13 @@ export function useNewProjectWizard({
     }
   }
 
-  function enterFolder(entry: CliEntry) {
+  async function enterFolder(entry: CliEntry) {
     if (entry.isProject) {
-      const ok = window.confirm(
+      // confirmDialog (popup interno), no window.confirm: Tauri desvía este último
+      // al plugin nativo `plugin:dialog|confirm`, que fallaba por ACL.
+      const ok = await confirmDialog(
         `"${entry.name}" ya es un proyecto. ¿Crear el nuevo proyecto DENTRO de él de todos modos?`,
+        { title: "Nuevo proyecto", kind: "warning", okLabel: "Crear dentro", cancelLabel: "Cancelar" },
       );
       if (!ok) return;
     }
@@ -257,7 +260,6 @@ export function useNewProjectWizard({
   useEffect(() => {
     if (!open || currentStep !== "plantilla" || !kind || templates) return;
     void loadTemplates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentStep, kind]);
 
   async function loadTemplates() {
@@ -307,7 +309,8 @@ export function useNewProjectWizard({
       case "plantilla":
         return !!selectedTemplate && selectedTemplate.available;
       case "opciones":
-        return true;
+        // Sin crear hasta conocer la pool: `--skills` va siempre explícito.
+        return !skillPicker.loading;
       default:
         return false;
     }
@@ -340,6 +343,7 @@ export function useNewProjectWizard({
       git: gitInit,
       claudeMd,
       due: selectedTemplate?.id === "trabajo-entrega" && dueDate ? dueDate : undefined,
+      skills: skillPicker.selected,
     });
     setCreating(false);
     if (r.ok) {
@@ -369,7 +373,7 @@ export function useNewProjectWizard({
     showNewFolder, setShowNewFolder, folderBusy, baseSub, crumbSegments, enterFolder, goToCrumb, createFolder,
     name, setName, nameInputRef, nameError,
     templates, templatesError, templateId, setTemplateId, dueDate, setDueDate, selectedTemplate,
-    gitInit, setGitInit, claudeMd, setClaudeMd, openIde, setOpenIde,
+    gitInit, setGitInit, claudeMd, setClaudeMd, openIde, setOpenIde, skillPicker,
     steps, stepIndex, currentStep, canAdvance, next, back,
     creating, result, setResult, previewPath, submitCreate, finishAndClose,
   };

@@ -2,8 +2,11 @@
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
 that orchestrates Claude Code and Codex through their official CLIs.
-It runs entirely on your machine and uses your existing subscriptions — no
-API keys, no cloud services, no admin rights.
+It runs on your machine without admin rights. Claude Code and Codex use your
+existing subscriptions through their CLIs, so they need no API key. The app's
+AI Router (zones chat/summarize/utility/light: groq as primary, Gemini in the
+cloud as fallback) does use optional API keys; without them those features
+have no provider.
 
 ## Recommended path — clone the repo
 
@@ -12,14 +15,14 @@ compile the Control Center from source.
 
 ```powershell
 # Windows (PowerShell 5+)
-git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
 .\install.ps1
 ```
 
 ```bash
 # Linux (bash)
-git clone https://github.com/SkiTemplar/ultron.git "$HOME/.ultron"
+git clone https://github.com/SkiTemplar/ultron-control-center.git "$HOME/.ultron"
 cd "$HOME/.ultron"
 ./install.sh
 ```
@@ -36,41 +39,13 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 
 ## Bootstrap one-liner (when a Release is published)
 
-> [!NOTE]
-> This path downloads prebuilt binaries from the latest GitHub Release
-> (system zip, memory binaries, and Control Center installers for Windows
-> and Linux; first release published 2026-07-06). It installs the release
-> snapshot, which may lag `main`; use the clone path above if you need the
-> newest commits. The pipeline that produces releases is described in
-> [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md).
-
-This skips the clone entirely. Pick the line for your OS:
-
-```powershell
-# Windows (PowerShell)
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
-```
-
-```bash
-# Linux (bash) — Debian / Ubuntu / Fedora / Arch
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
-```
-
-Both one-liners resolve the latest release, download
-`ultron-system-<tag>.zip` + `.sha256`, verify the hash, extract to
-`~/.ultron`, run the per-OS installer (`install.ps1` on Windows,
-`install.sh` on Linux), and pull the Control Center binary
-(NSIS `.exe` on Windows; `.deb` or `.AppImage` on Linux).
-
-For reproducible installs pinned to a release tag, swap `main` for the tag:
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.7.0/bootstrap.ps1 | iex
-```
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.7.0/bootstrap.sh | bash
-```
+The one-liners, the pinned-tag variant and what they download are in
+[`INSTALL.md` §2](../INSTALL.md#2-bootstrap-one-liner) at the repo root,
+which is the canonical install guide; this page is the longer walkthrough of
+what the installer does and how to recover. In short: the release lags
+`main` (latest release v15.7.0 from 2026-07-18 as of 2026-10-23, app 15.8.0 on
+`main`), and the public mirror has no Releases yet, so the clone path above is
+the one to use.
 
 ## What the installer does
 
@@ -107,8 +82,9 @@ non-zero code.
    modules are physically purged; flip toggles later from
    **Settings → Features**.
 9. **Control Center build.** `npm install` + `tauri build` inside
-   `control-center/`. Skipped with `-NoApp`. The first build takes a few
-   minutes.
+   `control-center/`, on by default. Skipped with `-NoApp`. A cold build takes
+   up to ~25 minutes and needs the MSVC linker, which the installer offers to
+   install. If it fails, the installer ends with exit 1.
 10. **Doctor.** Runs `scripts/cockpit/doctor.py` to verify the install end
     to end.
 
@@ -123,9 +99,12 @@ non-zero code.
 | Codex CLI   | latest          | optional  | https://github.com/openai/codex                 |
 
 You sign in to each CLI once (`claude`, `codex`) using your existing
-subscription. ULTRON never asks for an API key. (The Gemini CLI was dropped on
-2026-06-19 when Google ended its free-tier OAuth; Gemini is still reachable as a
-cloud fallback in the AI Router via an API key.)
+subscription; Claude Code and Codex need no API key. The app's AI Router
+(zones chat/summarize/utility/light: groq as primary, Gemini in the cloud as
+fallback) does use optional API keys, set in Settings → API Keys or in
+`~/.ultron/.env`; without them those features have no provider. (The Gemini
+CLI was dropped on 2026-06-19 when Google ended its free-tier OAuth; Gemini is
+still reachable as a cloud fallback in the AI Router via an API key.)
 
 ## Feature toggles
 
@@ -259,8 +238,9 @@ from the GitHub Releases page and re-running it.
 
 You can always update by hand:
 
-1. Download the newest installer from
-   `https://github.com/SkiTemplar/ultron/releases/latest`.
+1. Download the newest installer from the Releases page of the repository
+   you installed from (`/releases/latest`). With a clone install, `git pull`
+   plus `npm run build:app` in `control-center/` does the same from source.
 2. Run it. The installer detects the existing install and upgrades in
    place without touching your `~/.ultron/` data directory.
 
@@ -309,19 +289,18 @@ package database.
 
 ### What runs and what doesn't
 
-Maintenance commands are gated per-OS. On Linux the Control Center hides
-the Windows-only entries (NSIS uninstaller, CrashDumps cleanup, Recycle
-Bin, MSI repair). The cross-platform ones — `skill-registry-rebuild`,
-`brain-index-update`, `memory-vault-sync`, `mcp-health`, `agents-reembed`,
-`deadwood-scan`, `audit-skills`, `weekly-backup` (bash variant) —
-behave the same.
+Maintenance commands are gated per-OS. The `pc-*` quick actions are
+Windows-only (`#[cfg(target_os = "windows")]`) and fail with an
+unknown-kind error elsewhere. The cross-platform ones (`skill-security-audit`,
+`registry-sync`, `mcp-health`, `deadwood-scan`, `doctor-fix`,
+`weekly-backup` with its bash variant) behave the same; see
+`docs/COMMANDS.md` §2.
 
-Hooks: PowerShell `.ps1` hooks are not invoked on Linux. The Python
-hooks (`auto-recall.py`, `intent-dispatcher.py`, `validate_push.py`,
-`block-dangerous-bash.py`, `auto-approve-readonly.py`, `auto-changelog.py`,
-`detect_gaps.py`, etc.) are cross-platform and run identically. The
-Qdrant boot and memory-sync hooks have bash siblings (`ensure-qdrant.sh`,
-`stop-memory-sync.sh`) wired into `settings.json` on Linux installs.
+Hooks: every Claude Code hook ULTRON registers is a Node script under
+`hooks/scripts/` and runs identically on Linux (`install.sh` merges
+`templates/settings-hooks.json` with `{USERPROFILE}` expanded to `$HOME`).
+The Qdrant boot helper has a bash sibling (`scripts/qdrant/ensure-qdrant.sh`),
+but it is not a hook.
 
 ### Removing ULTRON on Linux
 

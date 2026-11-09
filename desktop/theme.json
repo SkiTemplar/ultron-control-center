@@ -1,0 +1,106 @@
+{
+  "$comment": "Fuente de verdad del escritorio. Paletas = presets de Lienzo (Tilde). Cambiar active y ejecutar: node apply.mjs (Terminal y acento). El dock de Windhawk: windhawk/dock-noche.ps1 como admin.",
+  "active": "noche",
+  "font": {
+    "mono": "JetBrainsMono NF",
+    "terminalSize": 11
+  },
+  "presets": {
+    "noche": {
+      "label": "Noche",
+      "mode": "dark",
+      "palette": {
+        "background": "#0E0F13",
+        "surface": "#1B1D24",
+        "onSurface": "#F2F3F5",
+        "primary": "#8AB4FF",
+        "accent": "#FFB86B"
+      }
+    },
+    "papel": {
+      "label": "Papel",
+      "mode": "light",
+      "palette": {
+        "background": "#F4F1EA",
+        "surface": "#FFFFFF",
+        "onSurface": "#1F1D1A",
+        "primary": "#3B5BDB",
+        "accent": "#E8590C"
+      }
+    },
+    "terminal": {
+      "label": "Terminal",
+      "mode": "dark",
+      "palette": {
+        "background": "#0B0F0B",
+        "surface": "#121A12",
+        "onSurface": "#B8F5B0",
+        "primary": "#5CFF7A",
+        "accent": "#FFD166"
+      }
+    },
+    "atardecer": {
+      "label": "Atardecer",
+      "mode": "dark",
+      "palette": {
+        "background": "#2B1B3D",
+        "surface": "#3D2850",
+        "onSurface": "#FFF4EC",
+        "primary": "#FFB38A",
+        "accent": "#FF6F91"
+      }
+    },
+    "minimo": {
+      "label": "Mínimo",
+      "mode": "dark",
+      "palette": {
+        "background": "#000000",
+        "surface": "#1A1A1A",
+        "onSurface": "#FFFFFF",
+        "primary": "#FFFFFF",
+        "accent": "#9E9E9E"
+      }
+    },
+    "columnas": {
+      "label": "Columnas",
+      "mode": "dark",
+      "palette": {
+        "background": "#10141C",
+        "surface": "#1C2430",
+        "onSurface": "#E6EDF3",
+        "primary": "#7CC4FA",
+        "accent": "#F4A261"
+      }
+    }
+  },
+  "ansi": {
+    "dark": {
+      "red": "#FF6B6B",
+      "green": "#7EE787",
+      "yellow": "#F2CC60",
+      "blue": "#79A8FF",
+      "purple": "#C792EA",
+      "cyan": "#5FD7D7",
+      "brightRed": "#FF8E8E",
+      "brightGreen": "#A5F2AB",
+      "brightYellow": "#FFE08A",
+      "brightBlue": "#A5C4FF",
+      "brightPurple": "#DDB6F2",
+      "brightCyan": "#8FE9E9"
+    },
+    "light": {
+      "red": "#C92A2A",
+      "green": "#2B8A3E",
+      "yellow": "#B7791F",
+      "blue": "#1C5CC9",
+      "purple": "#862E9C",
+      "cyan": "#0C8599",
+      "brightRed": "#E03131",
+      "brightGreen": "#37B24D",
+      "brightYellow": "#D9480F",
+      "brightBlue": "#3B5BDB",
+      "brightPurple": "#AE3EC9",
+      "brightCyan": "#1098AD"
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 import type { TargetScope } from "../../../types";
 import type { SkillTemplateId } from "../creatorTemplates";
-import { FieldLabel, HelperText, ScopeRadio, SummaryRow } from "./ui-primitives";
+import { FieldLabel, HelperText, ScopeRadio, SummaryRow } from "../wizard-ui";
 
 type StepTargetProps = {
   scope: TargetScope;
@@ -26,7 +26,7 @@ export function StepTarget(props: StepTargetProps) {
   const { scope, setScope, projects, projectId, setProjectId, targetValid, summary } = props;
   return (
     <div className="space-y-4">
-      <FieldLabel label="Install scope">
+      <FieldLabel label="Ámbito de instalación">
         <div className="flex gap-3">
           <ScopeRadio
             label="Global"
@@ -35,8 +35,8 @@ export function StepTarget(props: StepTargetProps) {
             onClick={() => setScope("global")}
           />
           <ScopeRadio
-            label="Project"
-            sub="<project>/.claude/skills/"
+            label="Proyecto"
+            sub="<proyecto>/.claude/skills/"
             active={scope === "project"}
             onClick={() => setScope("project")}
           />
@@ -44,7 +44,7 @@ export function StepTarget(props: StepTargetProps) {
       </FieldLabel>
 
       {scope === "project" && (
-        <FieldLabel label="Project">
+        <FieldLabel label="Proyecto">
           <select
             className="w-full rounded border bg-[var(--color-surface-2)] px-2 py-1 text-sm"
             style={{
@@ -55,7 +55,7 @@ export function StepTarget(props: StepTargetProps) {
             value={projectId ?? ""}
             onChange={(e) => setProjectId(e.target.value || null)}
           >
-            <option value="">(pick project)</option>
+            <option value="">(elige proyecto)</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -63,7 +63,7 @@ export function StepTarget(props: StepTargetProps) {
             ))}
           </select>
           {!projectId && (
-            <HelperText error>Project required for project scope.</HelperText>
+            <HelperText error>El ámbito de proyecto necesita un proyecto.</HelperText>
           )}
         </FieldLabel>
       )}
@@ -75,22 +75,22 @@ export function StepTarget(props: StepTargetProps) {
           background: "var(--color-surface-2)",
         }}
       >
-        <div className="mb-2 font-semibold">Summary</div>
-        <SummaryRow k="Template" v={summary.templateId} />
-        <SummaryRow k="Name" v={summary.name || "(missing)"} />
-        <SummaryRow k="Description" v={summary.description || "(missing)"} />
+        <div className="mb-2 font-semibold">Resumen</div>
+        <SummaryRow k="Plantilla" v={summary.templateId} />
+        <SummaryRow k="Nombre" v={summary.name || "(falta)"} />
+        <SummaryRow k="Descripción" v={summary.description || "(falta)"} />
         {summary.tags.length > 0 && (
           <SummaryRow k="Tags" v={summary.tags.join(", ")} />
         )}
-        {summary.model && <SummaryRow k="Model" v={summary.model} />}
+        {summary.model && <SummaryRow k="Modelo" v={summary.model} />}
         {summary.toolsSelected.length > 0 && (
-          <SummaryRow k="Tools" v={summary.toolsSelected.join(", ")} />
+          <SummaryRow k="Herramientas" v={summary.toolsSelected.join(", ")} />
         )}
-        <SummaryRow k="Body" v={`${summary.body.trim().length} chars`} />
+        <SummaryRow k="Cuerpo" v={`${summary.body.trim().length} caracteres`} />
       </div>
 
       {!targetValid && (
-        <HelperText error>Pick a target before creating.</HelperText>
+        <HelperText error>Elige un destino antes de crear.</HelperText>
       )}
     </div>
   );

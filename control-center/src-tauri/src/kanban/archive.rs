@@ -11,8 +11,8 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use super::board_io::{is_done_column, load, now_iso, save};
-use super::types_model::{kanban_lock, ArchivedCard, KanbanArchive, KanbanArchiveSummary};
+use super::board_io::{is_done_column, load_unlocked, lock_board, now_iso, save};
+use super::types_model::{ArchivedCard, KanbanArchive, KanbanArchiveSummary};
 
 fn archives_dir(project_id: &str) -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
@@ -53,14 +53,12 @@ fn archive_path(project_id: &str, sanitised_name: &str) -> Result<PathBuf, Strin
 /// Idempotency note: passing the same `archive_name` twice merges into the
 /// existing archive -- we append the new batch instead of clobbering it.
 pub fn archive_done(project_id: &str, archive_name: &str) -> Result<KanbanArchive, String> {
-    let _g = kanban_lock()
-        .lock()
-        .map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = lock_board(project_id)?;
     let safe = sanitise_archive_name(archive_name);
     if safe.is_empty() {
         return Err("archive name is empty after sanitisation".into());
     }
-    let mut board = load(project_id)?;
+    let mut board = load_unlocked(project_id)?;
     // Resolve the set of Done-ish column ids on the live board using the
     // canonical role when available, falling back to name-based heuristics.
     let done_col_ids: std::collections::HashSet<String> = board

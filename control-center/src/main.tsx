@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { DetachedProjectView } from "./components/DetachedProjectView";
+import { MascotApp } from "./components/mascot/MascotApp";
 import "@fontsource-variable/inter";
 import "./styles.css";
 
@@ -15,6 +16,11 @@ import "./styles.css";
 
 function resolveRoot(): React.ReactNode {
   const { pathname, search } = window.location;
+
+  // Ventana transparente de la mascota de escritorio (mascot/mod.rs).
+  if (pathname === "/mascot") {
+    return <MascotApp />;
+  }
 
   if (pathname === "/detached/project") {
     const params = new URLSearchParams(search);

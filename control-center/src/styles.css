@@ -24,8 +24,8 @@
   /* Text - escala de grises legible */
   --color-text: #f5f5f5;
   --color-text-secondary: #a0a0a0;
-  --color-text-tertiary: #6e6e6e;
-  --color-text-faint: #4a4a4a;
+  --color-text-tertiary: #8a8a8a;
+  --color-text-faint: #7a7a7a;     /* >= 4,5:1 sobre surface-2 */
 
   /* Status - solo 3 colores con significado (GitHub-style, WCAG AA verified) */
   --color-success: #3fb950;
@@ -42,6 +42,12 @@
 
   /* Sombras minimal (apenas perceptibles sobre OLED) */
   --shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+:root {
+  /* Controles nativos (casillas, selects, input time) con el tema oscuro */
+  color-scheme: dark;
+  accent-color: var(--color-accent);
 }
 
 html, body, #root {
@@ -131,12 +137,30 @@ html, body, #root {
 /* v15.1.6: defensive overflow on page headers so button groups don't clip
    off the right edge at small window widths (1100x720 default, 1280x820
    reported by webapp testing). Page-level main containers get overflow-x
-   handling, and header rows wrap if too crowded. */
+   handling, and header rows wrap if too crowded. `clip` y no `auto`: con
+   `auto` la página pasa a ser contenedor de scroll y se rompe cualquier
+   position:sticky de dentro. */
 main.flex-1 > div.px-10.py-8,
 main.flex-1 > div.px-8.py-6,
 .cc-page {
-  overflow-x: auto;
+  overflow-x: clip;
   min-width: 0;
+}
+/* Con `clip`, lo que se sale por la derecha se corta sin barra de scroll.
+   Medido el 2026-10-17 a 900 y 1100 px: nada se corta hoy (la tabla de
+   Activity y los bloques de Markdown ya llevan su propio overflow-x). Red
+   para contenido futuro: el código en bloque hace scroll propio y el código
+   en línea (rutas, comandos) parte línea en vez de desaparecer. */
+main.flex-1 > div.px-10.py-8 pre,
+main.flex-1 > div.px-8.py-6 pre,
+.cc-page pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+main.flex-1 > div.px-10.py-8 :not(pre) > code,
+main.flex-1 > div.px-8.py-6 :not(pre) > code,
+.cc-page :not(pre) > code {
+  overflow-wrap: anywhere;
 }
 main.flex-1 > div.px-10.py-8 > header,
 main.flex-1 > div.px-8.py-6 > header,
@@ -155,13 +179,6 @@ main.flex-1 > div.px-8.py-6 > header,
   padding: 2rem 2.5rem;
   overflow-x: auto;
   min-width: 0;
-}
-
-/* En el bento grid, algunas cards pueden pedir 2 columnas cuando hay espacio */
-@media (min-width: 1024px) {
-  .dashboard-span-2 {
-    grid-column: span 2;
-  }
 }
 
 @media (min-width: 1280px) {

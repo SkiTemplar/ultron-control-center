@@ -19,12 +19,12 @@
 //   RESEARCH_ROOT_OVERRIDE         raiz de sesiones de investigacion (la
 //                                  respeta lib/research/session.js)
 //
-// Subcomandos: roots | roots set | list | templates | subject new | mkdir | create
+// Subcomandos: roots | roots set | list | templates | skills | subject new | mkdir | create
 // Uso completo: node scripts/project-create.mjs --help
 
 import { CliError } from './lib/project-create/errors.mjs';
 import {
-  cmdRoots, cmdRootsSet, cmdList, cmdTemplates, cmdSubjectNew, cmdMkdir, cmdCreate,
+  cmdRoots, cmdRootsSet, cmdList, cmdTemplates, cmdSkills, cmdSubjectNew, cmdMkdir, cmdCreate,
 } from './lib/project-create/commands.mjs';
 
 function parseArgs(argv, { boolFlags = [] } = {}) {
@@ -69,6 +69,13 @@ function printHuman(command, data) {
         console.log(`  ${t.id.padEnd(24)} (${t.source})  ${av}  — ${t.description || ''}`);
       }
       break;
+    case 'skills':
+      if (!data.skills.length) console.log('La pool no tiene entradas kind "skill".');
+      for (const s of data.skills) {
+        const marks = [s.suggested ? 'sugerida' : null, s.reviewed ? null : 'SIN REVISAR'].filter(Boolean).join(',');
+        console.log(`  ${s.name.padEnd(24)} ${(s.license || '?').padEnd(12)} ${marks ? `[${marks}] ` : ''}${s.conditions}`);
+      }
+      break;
     case 'subject new':
       console.log(`Asignatura creada: ${data.subjectPath}`);
       console.log(`Proyecto registrado: ${data.projectId}`);
@@ -79,6 +86,9 @@ function printHuman(command, data) {
     case 'create':
       console.log(`Proyecto: ${data.projectPath}  (plantilla: ${data.template})`);
       for (const s of data.steps) console.log(`  [${s.ok ? 'ok' : 'FALLO'}] ${s.step}: ${s.message}`);
+      if (data.steps.some((s) => !s.ok)) {
+        console.error('[project-create] AVISO: hay pasos con FALLO (ver arriba); el proyecto se creo igualmente.');
+      }
       break;
     default:
       console.log(JSON.stringify(data, null, 2));
@@ -117,10 +127,12 @@ Subcomandos:
   roots set --id <id> --label "<label>" --path <abs> --kind asignatura|personal
   list --root <id> [--sub <relPath>]
   templates [--kind asignatura|personal]
+  skills [--template <id>]      skills de la pool (kind skill) y cuales sugiere la plantilla
   subject new --root <id> --code <CODE> --name "<Nombre>"
   mkdir --root <id> [--sub <relPath>] --name <n>
   create --root <id> [--sub <relPath>] --name <Nombre> --template <id>
          [--no-git] [--no-claude-md] [--tags a,b] [--due YYYY-MM-DD] [--dry-run]
+         [--skills a,b|none]   sin --skills: las de la pool sugeridas por la plantilla
 
 Anade --json a cualquier subcomando para obtener un unico objeto JSON en stdout.`);
 }
@@ -151,6 +163,9 @@ function main() {
     } else if (cmd === 'templates') {
       command = 'templates';
       data = cmdTemplates(parseArgs(argv.slice(1)).flags);
+    } else if (cmd === 'skills') {
+      command = 'skills';
+      data = cmdSkills(parseArgs(argv.slice(1)).flags);
     } else if (cmd === 'subject' && argv[1] === 'new') {
       command = 'subject new';
       data = cmdSubjectNew(parseArgs(argv.slice(2)).flags);

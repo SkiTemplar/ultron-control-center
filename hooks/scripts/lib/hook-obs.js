@@ -26,9 +26,31 @@ const { appendJsonl, appendJsonlRetained } = require('./jsonl-log');
 // logs/hook-timing.<stamp>-<pid>.jsonl (ver jsonl-log.retainedFiles).
 const TIMING_RETAIN = { maxBytes: 4 * 1024 * 1024, retainDays: 8 };
 
-const LOGS_DIR = path.join(os.homedir(), '.ultron', 'logs');
-const TIMING_LOG = path.join(LOGS_DIR, 'hook-timing.jsonl');
-const ERROR_LOG = path.join(LOGS_DIR, 'hook-errors.jsonl');
+// Telemetria aislada de las pruebas (hooks-7, auditoria 2026-10-23): 76 de
+// las 222 lineas de hook-errors.jsonl venian de selftests y hook-timing
+// registraba como "disparos" las corridas de los harnesses, y la pestana Hooks
+// las ensenaba como reales. Destino, por orden:
+//   1. ULTRON_HOOK_LOGS_DIR, si esta fijada (los harnesses y el medidor).
+//   2. <tmp>/ultron-selftest-logs si el proceso es una prueba: ULTRON_SELFTEST=1
+//      (lo fija scripts/run-selftests.mjs para cada hijo) o el script principal
+//      es un `*.selftest.mjs` (selftest lanzado a mano que carga el hook).
+//   3. ~/.ultron/logs (produccion).
+// Se resuelve en cada escritura: un selftest puede fijar la variable despues
+// de cargar el modulo.
+const SELFTEST_SCRIPT = /\.selftest\.mjs$/i;
+
+function isTestProcess(env = process.env, argv = process.argv) {
+  return env.ULTRON_SELFTEST === '1' || SELFTEST_SCRIPT.test(String(argv[1] || ''));
+}
+
+function logsDir(env = process.env, argv = process.argv) {
+  if (env.ULTRON_HOOK_LOGS_DIR) return env.ULTRON_HOOK_LOGS_DIR;
+  if (isTestProcess(env, argv)) return path.join(os.tmpdir(), 'ultron-selftest-logs');
+  return path.join(os.homedir(), '.ultron', 'logs');
+}
+
+const timingLog = () => path.join(logsDir(), 'hook-timing.jsonl');
+const errorLog = () => path.join(logsDir(), 'hook-errors.jsonl');
 
 // Campos extra que `annotate()` acumula y que se vuelcan en la MISMA linea de
 // timing al salir. Vive fuera de observe() porque quien anota (el cuerpo del
@@ -41,7 +63,7 @@ function observe(hookId) {
   try {
     process.on('exit', () => {
       appendJsonlRetained(
-        TIMING_LOG,
+        timingLog(),
         {
           hook: String(hookId || 'unknown'),
           elapsed_ms: Date.now() - t0,
@@ -77,11 +99,11 @@ function annotate(fields) {
 
 /** Append a bounded error record for a hook's top-level catch (cat9.5). Never throws. */
 function logHookError(hookId, err) {
-  appendJsonl(ERROR_LOG, {
+  appendJsonl(errorLog(), {
     hook: String(hookId || 'unknown'),
     error: String((err && err.message) || err),
     stack: err && err.stack ? String(err.stack).slice(0, 1000) : undefined,
   });
 }
 
-module.exports = { observe, annotate, logHookError };
+module.exports = { observe, annotate, logHookError, logsDir, isTestProcess };

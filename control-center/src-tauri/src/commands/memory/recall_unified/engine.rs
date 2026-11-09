@@ -7,27 +7,18 @@
 //    per-call token cap — no cumulative per-session budget.
 // `recall_pack`: thin wrapper over `build_trace` that returns the compact pack.
 
-use std::collections::HashMap;
-
-use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, MemoryType, Scope};
+use crate::memory::{MemoryType, Scope};
 
-use super::types_model::{
-    DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, AMBIENT_PENALTY, FANOUT_K,
-    FANOUT_K_QUALITY, PER_CALL_TOKEN_CAP, RRF_K,
-};
-use crate::commands::memory::recall_unified::rrf_fuse_weighted;
-
-use super::pack::{
-    assemble_pack, diacritic_probe_variants, informative_query_terms, trust_terms_enabled,
-    unknown_terms_dominate,
-};
+use super::pack::assemble_pack;
+use super::types_model::{RecallEntry, RecallPack, RecallTrace, PER_CALL_TOKEN_CAP};
+use super::usage::RecallUse;
 
 /// Core hybrid recall + full trace (Retrieval Inspector). Synchronous; both the
-/// compact `recall` and the verbose `recall_inspect` derive from this so there is
+/// compact `recall` and the verbose trace (sidecar `trace`) derive from this so there is
 /// ONE retrieval path. Global-scope items bypass the project filter (they apply
-/// everywhere). Emits a `Retrieved` audit event.
+/// everywhere). Emits a `Retrieved` audit event and touches the injected items
+/// (only real recalls; diagnostic ones go through `super::usage`).
 ///
 /// CROSS-PROJECT: when `cross_project` is true the dense (Qdrant) k-NN is run
 /// WITHOUT the `project_id` payload filter and the project-equality gate in
@@ -86,477 +77,104 @@ pub fn build_trace_typed(
     rerank: bool,
     only_type: Option<MemoryType>,
 ) -> Result<RecallTrace, String> {
-    // (1) DENSE — E5 query embedding + Qdrant filtered k-NN. Empty if offline,
-    //     OR skipped when dense_enabled=false. OJO: desde la política
-    //     quality-first (2026-06-19) el hook UserPromptSubmit TAMBIÉN corre
-    //     híbrido (dense=true vía daemon/CLI); `false` queda como modo de
-    //     degradación (E5/Qdrant caídos) o para callers que sacrifiquen
-    //     calidad por latencia. El embed E5 del query cuesta ~0.3-1 s warm.
-    //     Score-aware (B1): keep the cosine similarity to break RRF ties.
-    // (cat1 ranking) knobs tuneables por env para el A/B (default = consts).
-    // Fanout partido por intencion del caller (2026-07-22): `rerank` distingue
-    // el path de CALIDAD (evals/CLI/trace, tolera segundos) del hot path del
-    // hook (rerank=false, p50 134 ms) — el fanout hondo solo se paga donde el
-    // coste no importa. ULTRON_FANOUT_K sigue mandando sobre AMBOS si esta set.
-    let fanout_default = if rerank { FANOUT_K_QUALITY } else { FANOUT_K };
-    let fanout_k = env_knob_usize("ULTRON_FANOUT_K", fanout_default);
-    let rrf_k = env_knob_f32("ULTRON_RRF_K", RRF_K);
-    let dense_scored = if dense_enabled {
-        // Dense (Qdrant) project filter: drop it in cross-project mode so the
-        // k-NN is not pre-restricted to the current project at the index level.
-        let dense_project = if cross_project { None } else { project_id };
-        qdrant_index::search_dense_scored_typed(
-            query,
-            fanout_k as u32,
-            dense_project,
-            only_type.map(|t| t.as_str()),
-        )
-    } else {
-        Vec::new()
-    };
-    let dense_ids: Vec<String> = dense_scored.iter().map(|(id, _)| id.clone()).collect();
-    let dense_score_map: HashMap<&str, f32> = dense_scored
-        .iter()
-        .map(|(id, s)| (id.as_str(), *s))
-        .collect();
-    // (2) SPARSE — FTS5/bm25 over ACTIVE items. When dense is OFF (modo
-    //     degradación) we widen the pool: the dense Qdrant project-filter that
-    //     normally surfaces in-project items is gone, and under a project filter
-    //     assemble_pack drops the global vault + off-project hits that dominate
-    //     the BM25 top-30, leaving too few. A wider fanout lets in-project items
-    //     reach the gate. Quality callers keep the tight FANOUT_K (dense covers them).
-    //     (2026-08-10) dense ON pero VACÍO (Qdrant caído / colección ausente /
-    //     E5 sin modelo) es la MISMA degradación: sin ensanche, el modo sparse
-    //     "existente" nunca se activaba con dense_enabled=true (audit 08-09).
-    let sparse_fanout = if dense_enabled && !dense_scored.is_empty() {
-        fanout_k
-    } else {
-        fanout_k * 12
-    };
-    let sparse_items = match only_type {
-        Some(kind) => MemoryService::search_active_of_type(query, kind, sparse_fanout),
-        None => MemoryService::search_active(query, sparse_fanout),
-    }
-    .map_err(|e| format!("sparse search: {e}"))?;
-    let sparse_ids: Vec<String> = sparse_items.iter().map(|it| it.id.clone()).collect();
-
-    let dense_rank: HashMap<&str, usize> = dense_ids
-        .iter()
-        .enumerate()
-        .map(|(i, id)| (id.as_str(), i))
-        .collect();
-    let sparse_rank: HashMap<&str, usize> = sparse_ids
-        .iter()
-        .enumerate()
-        .map(|(i, id)| (id.as_str(), i))
-        .collect();
-
-    // (3) RRF fusion + dedup by canonical_id; cosine similarity carried for tie-break.
-    // (cat1 ranking) Fusión PONDERADA: dense (E5) puede pesar sobre sparse (BM25,
-    // ruidoso con stopwords). Default 0.8: ganador del sweep de 20 configs
-    // (2026-07-22, oraculo golden 29 queries): 0.749 vs 0.704-0.721 con 1.0;
-    // 0.7 y 0.6 empeoran (0.708/0.631) — el sparse acierta claims literales que
-    // el dense entierra (gs-0007), pero quitarle mas peso al dense pierde recall
-    // semantico neto.
-    let dense_w = env_knob_f32("ULTRON_DENSE_W", 0.8);
-    let mut fused: Vec<FusedHit> = rrf_fuse_weighted(
-        &[(dense_ids.clone(), dense_w), (sparse_ids.clone(), 1.0)],
-        rrf_k,
+    build_trace_with(
+        query,
+        limit,
+        project_id,
+        cross_project,
+        dense_enabled,
+        rerank,
+        only_type,
+        RecallUse::Live,
     )
-    .into_iter()
-    .map(|(id, score)| FusedHit {
-        dense_rank: dense_rank.get(id.as_str()).copied(),
-        sparse_rank: sparse_rank.get(id.as_str()).copied(),
-        dense_score: dense_score_map.get(id.as_str()).copied(),
-        canonical_id: id,
-        rrf_score: score,
-    })
-    .collect();
-    // B1: tie-break equal RRF scores by REAL cosine similarity. Rank-pure RRF
-    // produces many ties; the dense cosine restores a continuous quality signal
-    // (the full reranker lands in Ola 4).
-    fused.sort_by(|a, b| {
-        b.rrf_score
-            .partial_cmp(&a.rrf_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                b.dense_score
-                    .unwrap_or(0.0)
-                    .partial_cmp(&a.dense_score.unwrap_or(0.0))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| a.canonical_id.cmp(&b.canonical_id))
-    });
+}
 
-    // Pilar 1 — quality re-ranker: apply a confidence-based multiplier to each
-    // fused hit so that codebase_fact / decision items (confidence 0.6–0.95) rise
-    // above imported_vault bulk noise (confidence 0.5 default).
-    //
-    // Formula: rrf_score' = rrf_score * (1 + 0.6 * confidence)
-    //   - confidence = 1.0  → ×1.60  (validated knowledge)
-    //   - confidence = 0.8  → ×1.48  (good codebase_fact)
-    //   - confidence = 0.6  → ×1.36  (typical real capture)
-    //   - confidence = 0.5  → ×1.17  (imported_vault default — soft penalty ×0.9 active)
-    //
-    // A soft penalty for confidence < 0.6 (×0.9 factor) discourages generic imports
-    // without hard-filtering them (vault gate in assemble_pack handles the bulk case).
-    //
-    // Recency boost (optional): items updated in the last 7 days get a modest ×1.05
-    // lift so stale vault items don't crowd out fresh captures.
-    //
-    // The RRF K-damping (60) already keeps differences modest when relevance scores
-    // differ a lot; this multiplier only reorders near-ties and equal-relevance bands.
-    //
-    // Single connection reuse: the same `conn` opened here feeds both the quality
-    // re-ranker loop and assemble_pack below, avoiding a second open_conn call.
+/// Pipeline común de [`build_trace_typed`] y de los recalls de diagnóstico
+/// (`super::usage`). `usage` decide si el recall deja telemetría de uso en
+/// `brain.db` (evento Retrieved + `touch_injected`): solo los recalls reales.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_trace_with(
+    query: &str,
+    limit: usize,
+    project_id: Option<&str>,
+    cross_project: bool,
+    dense_enabled: bool,
+    rerank: bool,
+    only_type: Option<MemoryType>,
+    usage: RecallUse,
+) -> Result<RecallTrace, String> {
+    // (1)-(3) denso + sparse + fusión RRF ponderada (ver `stages`).
+    let mut candidates = stages::retrieve_and_fuse(
+        query,
+        project_id,
+        cross_project,
+        dense_enabled,
+        rerank,
+        only_type,
+    )?;
+    // Single connection reuse: the same `conn` feeds the quality re-ranker,
+    // the cross-encoder pairs and assemble_pack, avoiding a second open_conn.
     let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
-    {
-        let now_ms = crate::memory::model::now_millis();
-        const SEVEN_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
-        // (2026-07-13) Down-rank AMBIENTE: ver ambient_rank_factor + AMBIENT_PENALTY.
-        // (2026-08-11, decidido por el usuario; activado tras backfill-projects
-        // --apply: 782→639 huerfanos) scope=Project SIN project_id es atribucion
-        // ilegal (bug del write-path corregido en capture): bajo filtro de
-        // proyecto se EXCLUYE del pack — se colaba como comodin en cualquier
-        // proyecto. En cross-project (cerebro entero) sigue visible; el ambiente
-        // Session/Agent mantiene solo el down-rank del 07-13.
-        let ambient_penalty = env_knob_f32("ULTRON_AMBIENT_PENALTY", AMBIENT_PENALTY);
-        let hub_penalty = super::hubs::hub_penalty();
-        fused.retain_mut(|hit| {
-            let (confidence, updated_at, item_project, item_scope) =
-                store::get_item(&conn, &hit.canonical_id)
-                    .ok()
-                    .flatten()
-                    .map(|it| (it.confidence, it.updated_at, it.project_id, it.scope))
-                    .unwrap_or((0.5, 0, None, Scope::Global)); // unknown → vault-level, sin castigo doble
-            if is_orphan_project_item(
-                project_id,
-                cross_project,
-                item_project.as_deref(),
-                item_scope,
-            ) {
-                return false;
-            }
-            let quality_factor: f32 = if confidence >= 0.6 {
-                1.0 + 0.6 * confidence
-            } else {
-                // Soft penalty for low-confidence items (generic imports).
-                (1.0 + 0.6 * confidence) * 0.9
-            };
-            let recency_factor = if now_ms - updated_at < SEVEN_DAYS_MS {
-                1.05_f32
-            } else {
-                1.0_f32
-            };
-            let ambient_factor = ambient_rank_factor(
-                project_id,
-                cross_project,
-                item_project.as_deref(),
-                item_scope,
-                ambient_penalty,
-            );
-            // (2026-09-23) Hubs: items que el recall en crudo inyecta en una
-            // fracción alta de prompts sin relación (ver hubs.rs).
-            let hub = super::hubs::hub_factor(&hit.canonical_id, hub_penalty);
-            hit.rrf_score *= quality_factor * recency_factor * ambient_factor * hub;
-            true
-        });
-        // Re-sort after quality adjustment (preserves dense_score as final tie-break).
-        fused.sort_by(|a, b| {
-            b.rrf_score
-                .partial_cmp(&a.rrf_score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    b.dense_score
-                        .unwrap_or(0.0)
-                        .partial_cmp(&a.dense_score.unwrap_or(0.0))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .then_with(|| a.canonical_id.cmp(&b.canonical_id))
-        });
-    }
-
-    // Pilar 1 — cross-encoder re-ranker (A/B, ULTRON_RERANK=1, default OFF).
-    //
-    // Takes the top RERANK_TOP_N candidates AFTER the heuristic quality sort
-    // and re-orders them by BGERerankerV2M3 cross-encoder score. Candidates
-    // beyond RERANK_TOP_N keep their existing position after the re-ranked
-    // block. Only the ORDER changes; canonical_id / dense_score are untouched.
-    //
-    // Default OFF guarantee: when ULTRON_RERANK is unset (or any value other
-    // than "1"/"true") this entire block is skipped and `fused` is IDENTICAL
-    // to what the heuristic quality sort produced — the baseline nDCG@8 /
-    // recall@8 is unchanged. This is the A/B measurability invariant.
-    //
-    // Fallback: any error from rerank_pairs is printed to stderr and silently
-    // ignored — the existing `fused` order is preserved and recall continues.
-    // The recall MUST NOT fail because the re-ranker is unavailable.
-    // 2026-09-06: 48 -> 24. Medido sobre el golden v2 (30 prompts reales, con
-    // proyecto): nDCG@8 0.636 -> 0.626 y recall@8 0.827 -> 0.818, a cambio de
-    // 5.5 s -> 2.7 s por turno bug_fix en el hot path. Decidido tras ver la
-    // latencia real, no la estimada.
-    const RERANK_TOP_N: usize = 24;
-    if rerank && crate::qdrant::reranker_enabled() {
-        // (cat1 2026-07-03, subido 2026-07-22) N tuneable por env para el A/B:
-        // el diagnostico del golden situo relevantes cortados hasta fused rank
-        // 56 — con N=24 el cross-encoder ni los veia (techo ~0.82); N=48 sube
-        // el techo a ~0.92 a cambio del doble de pares por query.
-        // (2026-08-16) El hook YA NO pasa siempre rerank=false: desde el rerank
-        // selectivo (2026-08-13) un prompt tecnico entra aqui con el modelo
-        // caliente. Lo que nunca ocurre en el hot path es CARGARLO: si esta
-        // frio, `orchestrate` pasa rerank=false y lo calienta en background.
-        let rerank_top_n = env_knob_usize("ULTRON_RERANK_TOP_N", RERANK_TOP_N);
-        let top_n_len = rerank_top_n.min(fused.len());
-        // Collect (id, text) pairs for the cross-encoder. Items whose text
-        // cannot be resolved (store miss or no summary/title) are omitted from
-        // the pairs list; they will receive NEG_INFINITY in the re-sort and
-        // sink to the bottom of the top-N block, which is acceptable.
-        let pairs: Vec<(String, String)> = fused[..top_n_len]
-            .iter()
-            .filter_map(|hit| {
-                store::get_item(&conn, &hit.canonical_id)
-                    .ok()
-                    .flatten()
-                    .map(|it| {
-                        // Use summary (the prompt-injected form); fall back to
-                        // title, then to an empty string. Empty strings are
-                        // scored poorly by the cross-encoder — an acceptable
-                        // outcome for items without descriptive text.
-                        // (cat1 2026-07-03 MEDIDO: enriquecer con content
-                        // recortado EMPEORA — recall@8 0.709→0.657 — el content
-                        // diluye la senal del summary conciso. No "mejorar".)
-                        let text = it.summary.or(it.title).unwrap_or_default();
-                        (hit.canonical_id.clone(), text)
-                    })
-            })
-            .collect();
-
-        // En el daemon, el re-rank espera su turno de inferencia (FIFO, sin
-        // descartar por contención) y solo se abandona ante un cuelgue real
-        // del cómputo (`RERANK_HANG_TIMEOUT`, 2026-09-27). Fuera de él (eval,
-        // trace, one-shot) no hay hook que proteger y se espera sin techo: con
-        // el antiguo tope de 3,5 s el eval del golden cortaba el rerank en las
-        // 13 queries del v3 (2026-09-23).
-        let reranked = if crate::daemon_client::is_in_daemon() {
-            crate::qdrant::rerank_pairs_bounded(query, &pairs)
-        } else {
-            crate::qdrant::rerank_pairs(query, &pairs)
-        };
-        match reranked {
-            Ok(ranked) => {
-                // Build a score lookup: id → cross-encoder score.
-                let score_map: HashMap<&str, f32> =
-                    ranked.iter().map(|(id, s)| (id.as_str(), *s)).collect();
-                // Re-sort ONLY the top-N slice; the tail keeps its position.
-                // Items not present in score_map (text was empty / not in pairs)
-                // receive NEG_INFINITY and sink within the top-N block.
-                fused[..top_n_len].sort_by(|a, b| {
-                    let sa = score_map
-                        .get(a.canonical_id.as_str())
-                        .copied()
-                        .unwrap_or(f32::NEG_INFINITY);
-                    let sb = score_map
-                        .get(b.canonical_id.as_str())
-                        .copied()
-                        .unwrap_or(f32::NEG_INFINITY);
-                    sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
-                });
-            }
-            Err(e) => {
-                // Graceful fallback: log and keep the heuristic order intact.
-                eprintln!("[reranker] fallback (order unchanged): {e}");
-            }
-        }
-    }
+    stages::apply_quality_factors(&conn, &mut candidates.fused, project_id, cross_project);
+    stages::cross_encoder_rerank(&conn, query, rerank, &mut candidates.fused);
 
     // (4)+(5) load items + apply governance + the per-call token cap via the
     // pure assemble_pack. Every recall receives the FULL per-call cap — there is
     // NO cumulative per-session budget, so the memory is never silenced
     // mid-session. The item-count `limit` is the primary bloat ceiling.
-    let (mut injected, mut discarded, mut total_tokens) = assemble_pack(
+    let (injected, discarded, total_tokens) = assemble_pack(
         &conn,
-        &fused,
+        &candidates.fused,
         limit,
         project_id,
         cross_project,
         PER_CALL_TOKEN_CAP,
     );
-
-    let mut warnings: Vec<String> = Vec::new();
-    // (floor) 2026-07-02 — abstención a nivel de PACK: si NINGUNA entrada trae
-    // señal de confianza (ni dense >= floor ni sparse fuerte), el pack se vacía
-    // en vez de inyectar relleno como contexto. Complementa SPARSE_TAIL_CUTOFF
-    // (que poda la cola léxica ENTRADA a entrada): esto cubre la query
-    // INCONTESTABLE donde todo el pack es cola. memory-bench abstain_empty era
-    // 0/3 sin esto. Auditable: cada entrada vaciada queda en `discarded` y el
-    // pack lleva warning (mandamiento 11: nada de no-ops silenciosos).
-    if let Some(floor) = recall_floor() {
-        if !injected.is_empty() && !pack_has_confident_signal(&injected, floor) {
-            for e in injected.drain(..) {
-                discarded.push(DiscardedHit {
-                    canonical_id: e.canonical_id,
-                    reason: format!("abstain: sin señal de confianza (floor {floor})"),
-                });
-            }
-            total_tokens = 0;
-            warnings.push(format!(
-                "recall abstained — ninguna entrada con dense >= {floor} ni sparse fuerte"
-            ));
-        }
+    let mut gates = stages::PackGates {
+        injected,
+        discarded,
+        total_tokens,
+        warnings: Vec::new(),
+    };
+    gates.abstain_without_signal();
+    gates.prune_by_margin();
+    gates.abstain_on_unknown_terms(query);
+    stages::context_warnings(
+        &mut gates.warnings,
+        project_id,
+        cross_project,
+        dense_enabled,
+        candidates.dense_ids.len(),
+    );
+    let lazy_load_ids: Vec<String> = gates
+        .injected
+        .iter()
+        .map(|e| e.canonical_id.clone())
+        .collect();
+    if let Some(w) =
+        stages::record_retrieved(&conn, usage, query, &candidates, &gates, &lazy_load_ids)
+    {
+        gates.warnings.push(w);
     }
-    // (margen) 2026-08-13 — PODA POR MARGEN, entrada a entrada. El floor de
-    // arriba es todo-o-nada (vacía el pack entero o lo deja intacto), así que
-    // un pack CON señal arrastraba también su cola: medido sobre el golden,
-    // precision@8 0.267 y context_waste 0.733 (de 8 inyectadas ~2 relevantes;
-    // las otras 6 gastan contexto en CADA prompt y se quedan en el historial).
-    // Se poda relativo al MEJOR dense del propio pack — un umbral absoluto no
-    // sirve porque los dense reales se apiñan en 0.79-0.82 y el reparto cambia
-    // con cada query. Se conservan siempre las PRUNE_KEEP_MIN primeras (nunca
-    // se destripa un pack bueno) y lo podado queda en `discarded` con su razón
-    // (mandamiento 11: nada de recortes silenciosos).
-    if injected.len() > PRUNE_KEEP_MIN {
-        if let Some(margin) = prune_margin() {
-            let best_dense = injected
-                .iter()
-                .filter_map(|e| e.dense_score)
-                .fold(f32::NEG_INFINITY, f32::max);
-            if best_dense.is_finite() {
-                let cutoff = best_dense - margin;
-                let mut kept: Vec<RecallEntry> = Vec::with_capacity(injected.len());
-                let mut pruned = 0usize;
-                for (idx, e) in injected.drain(..).enumerate() {
-                    let strong_sparse = e.sparse_rank.is_some_and(|r| r <= STRONG_SPARSE_RANK);
-                    let dense_ok = e.dense_score.is_some_and(|s| s >= cutoff);
-                    if idx < PRUNE_KEEP_MIN || dense_ok || strong_sparse {
-                        kept.push(e);
-                    } else {
-                        pruned += 1;
-                        total_tokens = total_tokens.saturating_sub(e.token_estimate.max(0));
-                        discarded.push(DiscardedHit {
-                            canonical_id: e.canonical_id,
-                            reason: format!(
-                                "poda por margen: dense {:.3} < cutoff {cutoff:.3}",
-                                e.dense_score.unwrap_or(0.0)
-                            ),
-                        });
-                    }
-                }
-                injected = kept;
-                if pruned > 0 {
-                    warnings.push(format!(
-                        "poda por margen: {pruned} entrada(s) fuera (cutoff {cutoff:.3})"
-                    ));
-                }
-            }
-        }
-    }
-    // (c trust gate, 2026-07-02) COBERTURA DE TÉRMINOS: si la query trae un
-    // término informativo con CERO documentos en el corpus, el sistema no puede
-    // saber de eso — inyectar vecinos temáticos es alucinar contexto (near-miss
-    // "AWS": dense 0.8503 de puro tema ULTRON, pero AWS no existe en memoria;
-    // el floor plano no puede pararlo). Fail-open si el FTS falla (gate de
-    // honestidad, no de seguridad). ULTRON_TRUST_TERMS=off lo desactiva.
-    if !injected.is_empty() && trust_terms_enabled() {
-        // (2026-07-22) Diacriticos: el fallback LIKE del sparse (build sin FTS5)
-        // compara bytes — 'simbolos' NO matchea un corpus con 'símbolos' y el
-        // gate abstenia en falso (gs-0017, unico recall=0 del golden). Antes de
-        // declarar un termino desconocido se prueban tambien sus variantes de
-        // tilde/ñ; solo df=0 en TODAS confirma que el corpus no sabe de eso.
-        let term_is_unknown = |term: &str| {
-            MemoryService::search_active(term, 1)
-                .map(|v| v.is_empty())
-                .unwrap_or(false) // fail-open: error FTS != termino desconocido
-        };
-        // (2026-08-16) Ya NO basta el PRIMER desconocido: se cuentan todos y
-        // decide `unknown_terms_dominate`. Con el corte al primero, un `venga` o
-        // el id de una tarjeta vaciaba el pack de un turno entero de trabajo
-        // (medido: 412/670 packs, 61,5% del tráfico real).
-        let terms = informative_query_terms(query);
-        let unknown: Vec<String> = terms
-            .iter()
-            .filter(|t| {
-                term_is_unknown(t)
-                    && diacritic_probe_variants(t)
-                        .iter()
-                        .all(|v| term_is_unknown(v))
-            })
-            .cloned()
-            .collect();
-        if unknown_terms_dominate(terms.len(), unknown.len()) {
-            let lista = unknown.join("', '");
-            for e in injected.drain(..) {
-                discarded.push(DiscardedHit {
-                    canonical_id: e.canonical_id,
-                    reason: format!(
-                        "abstain: término(s) desconocido(s) para el corpus ('{lista}')"
-                    ),
-                });
-            }
-            total_tokens = 0;
-            warnings.push(format!(
-                "recall abstained — el corpus no conoce '{lista}' ({}/{} términos de la query)",
-                unknown.len(),
-                terms.len()
-            ));
-        }
-    }
-    if cross_project && project_id.is_some() {
-        warnings.push(
-            "cross-project recall — project filter relaxed (Secret still excluded)".to_string(),
-        );
-    }
-    if dense_ids.is_empty() {
-        warnings.push("dense recall empty — E5/Qdrant unavailable; sparse-only".to_string());
-    }
-    if let Ok(stats) = MemoryService::stats() {
-        if stats.candidates_pending > 0 {
-            warnings.push(format!(
-                "{} memory candidate(s) await validation in the inbox",
-                stats.candidates_pending
-            ));
-        }
-    }
-    let lazy_load_ids: Vec<String> = injected.iter().map(|e| e.canonical_id.clone()).collect();
-
-    // Audit: record a compact Retrieved event (best-effort).
-    let ev = MemoryEvent::new(EventType::Retrieved, None, Actor::System)
-        .with_reason(format!(
-            "recall '{query}' -> {} injected / {} fused",
-            injected.len(),
-            fused.len()
-        ))
-        .with_after(
-            serde_json::json!({
-                "query": query,
-                "injected_ids": lazy_load_ids,
-                "total_tokens": total_tokens,
-                "dense_hits": dense_ids.len(),
-                "sparse_hits": sparse_ids.len(),
-            })
-            .to_string(),
-        );
-    let _ = store::insert_event(&conn, &ev);
-
-    // Telemetria de utilidad (2026-08-28): lo que entra en el pack queda
-    // marcado como inyectado. Es la unica forma de saber despues que memoria
-    // se usa de verdad y cual solo ocupa sitio en el retriever.
-    let injected_ids: Vec<String> = injected.iter().map(|e| e.canonical_id.clone()).collect();
-    store::touch_injected(&conn, &injected_ids);
 
     Ok(RecallTrace {
         query: query.to_string(),
         project_filter: project_id.map(str::to_string),
         token_budget: PER_CALL_TOKEN_CAP,
-        dense_ids,
-        sparse_ids,
-        fused,
-        injected,
-        discarded,
-        total_tokens,
+        dense_ids: candidates.dense_ids,
+        sparse_ids: candidates.sparse_ids,
+        fused: candidates.fused,
+        injected: gates.injected,
+        discarded: gates.discarded,
+        total_tokens: gates.total_tokens,
         lazy_load_ids,
-        warnings,
+        warnings: gates.warnings,
     })
 }
+
+/// Etapas del pipeline de [`build_trace_with`] (calidad-rust-4, 2026-10-23).
+#[path = "engine_stages.rs"]
+mod stages;
 
 /// Floor por defecto del gate de abstención (E5 cosine). Barrido empírico
 /// 2026-07-02 sobre golden eval-full + memory-bench abstain:
@@ -749,13 +367,19 @@ pub fn recall_pack(
 ) -> Result<RecallPack, String> {
     // Manual recall path (UI inspection) keeps full hybrid quality (dense on).
     let t = build_trace(query, limit, project_id, cross_project, true, rerank)?;
-    Ok(RecallPack {
+    Ok(pack_from_trace(t))
+}
+
+/// Pack compacto de una traza (lo comparten `recall_pack` y su variante de
+/// diagnóstico).
+pub(super) fn pack_from_trace(t: RecallTrace) -> RecallPack {
+    RecallPack {
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),
         total_tokens: t.total_tokens,
         abstained: t.warnings.iter().any(|w| w.starts_with("recall abstained")),
         entries: t.injected,
-    })
+    }
 }
 
 // Tests del floor y los knobs — extraidos a fichero hermano (limite 800 lineas,

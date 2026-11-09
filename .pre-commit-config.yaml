@@ -21,6 +21,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: selftests-manifest
+        name: "Selftests: todos clasificados en selftests.manifest.json"
+        entry: node scripts/run-selftests.mjs --check
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: cargo-fmt-check
         name: "cargo fmt --check (src-tauri)"
         entry: bash -c 'cd control-center/src-tauri && cargo fmt --check'

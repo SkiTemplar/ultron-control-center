@@ -78,10 +78,9 @@ pub fn curate_item(
 
     let mut reindexed = false;
     if apply {
-        store::insert_item(&conn, &item).map_err(|e| e.to_string())?;
         let ev = MemoryEvent::new(EventType::Edited, Some(id.clone()), Actor::User)
             .with_reason(format!("curate: {}", changes.join(" · ")));
-        let _ = store::insert_event(&conn, &ev);
+        store::insert_item_with_event(&conn, &item, &ev).map_err(|e| e.to_string())?;
         if item.status == Status::Active {
             if title.is_some() {
                 // Título nuevo = texto nuevo = embedding nuevo.

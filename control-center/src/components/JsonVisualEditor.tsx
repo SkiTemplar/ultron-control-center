@@ -273,7 +273,7 @@ function ArrayField({
               color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border)",
             }}
-            title="Remove this item"
+            title="Quitar este elemento"
           >
             −
           </button>
@@ -295,9 +295,9 @@ function ArrayField({
           color: "var(--color-text)",
           border: "1px solid var(--color-border-strong)",
         }}
-        title="Append new item"
+        title="Añadir un elemento al final"
       >
-        + Add item
+        + Añadir elemento
       </button>
     </div>
   );
@@ -314,7 +314,7 @@ function ObjectField({
   if (keys.length === 0) {
     return (
       <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
-        (empty object)
+        (objeto vacío)
       </span>
     );
   }
@@ -376,7 +376,7 @@ function HooksEditor({
             >
               {event}{" "}
               <span style={{ color: "var(--color-text-tertiary)" }}>
-                ({groups.length} group{groups.length === 1 ? "" : "s"})
+                ({groups.length} grupo{groups.length === 1 ? "" : "s"})
               </span>
             </summary>
             <div className="space-y-2 px-3 pb-3">
@@ -407,7 +407,7 @@ function HooksEditor({
                         border: "1px solid rgba(248, 81, 73, 0.32)",
                       }}
                     >
-                      − Group
+                      − Grupo
                     </button>
                   </div>
                   <div className="mt-1">
@@ -436,7 +436,7 @@ function HooksEditor({
                       >
                         <div className="flex gap-2">
                           <div className="w-32 shrink-0">
-                            <FieldLabel>Type</FieldLabel>
+                            <FieldLabel>Tipo</FieldLabel>
                             <TextInput
                               value={typeof h.type === "string" ? h.type : "command"}
                               onChange={(v) => {
@@ -451,7 +451,7 @@ function HooksEditor({
                             />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <FieldLabel>Command</FieldLabel>
+                            <FieldLabel>Comando</FieldLabel>
                             <TextInput
                               value={typeof h.command === "string" ? h.command : ""}
                               onChange={(v) => {
@@ -505,7 +505,7 @@ function HooksEditor({
                         border: "1px solid var(--color-border-strong)",
                       }}
                     >
-                      + Add hook
+                      + Añadir hook
                     </button>
                   </div>
                 </div>
@@ -526,7 +526,7 @@ function HooksEditor({
                   border: "1px solid var(--color-border-strong)",
                 }}
               >
-                + Add matcher group
+                + Añadir grupo de matcher
               </button>
             </div>
           </details>
@@ -597,7 +597,7 @@ function McpServersEditor({
                   <TextInput
                     value={typeof srv.command === "string" ? srv.command : ""}
                     onChange={(v) => patch({ command: v })}
-                    placeholder="(stdio servers only)"
+                    placeholder="(solo servidores stdio)"
                   />
                 </div>
               </div>
@@ -607,7 +607,7 @@ function McpServersEditor({
                   <TextInput
                     value={typeof srv.url === "string" ? srv.url : ""}
                     onChange={(v) => patch({ url: v })}
-                    placeholder="(http/sse servers only)"
+                    placeholder="(solo servidores http/sse)"
                   />
                 </div>
               </div>
@@ -621,7 +621,7 @@ function McpServersEditor({
                 </div>
               </div>
               <div>
-                <FieldLabel>env (raw JSON object)</FieldLabel>
+                <FieldLabel>env (objeto JSON en bruto)</FieldLabel>
                 <div className="mt-1">
                   <JsonSnippet
                     value={isPlainObject(srv.env) ? srv.env : {}}
@@ -694,7 +694,7 @@ export function JsonVisualEditor({
           color: "var(--color-text-tertiary)",
         }}
       >
-        settings.json is empty. Edit ~/.claude/settings.json directly to add the first top-level key, then reload.
+        settings.json está vacío. Edita ~/.claude/settings.json a mano para añadir la primera clave de primer nivel y recarga.
       </div>
     );
   }
@@ -709,11 +709,11 @@ export function JsonVisualEditor({
           color: "var(--color-text-tertiary)",
         }}
       >
-        Visual form for top-level keys. Adding or renaming top-level keys is
-        not supported here — edit{" "}
+        Formulario de las claves de primer nivel. Aquí no se pueden añadir ni
+        renombrar claves de primer nivel: edita{" "}
         <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span>
-        {" "}directly and reload. Arrays of complex objects fall back to a JSON
-        snippet textarea.
+        {" "}a mano y recarga. Las listas de objetos complejos se editan como un
+        fragmento de JSON.
       </div>
 
       {keys.map((k) => {

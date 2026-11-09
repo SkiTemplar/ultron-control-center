@@ -31,7 +31,7 @@ const MAX_LENGTH = 80;
  */
 export function validateProjectName(rawName: string): string | null {
   const name = rawName.trim();
-  if (!name) return "El nombre no puede estar vacio.";
+  if (!name) return "El nombre no puede estar vacío.";
   if (FORBIDDEN_CHARS.test(name)) {
     return 'Caracteres no permitidos: < > : " / \\ | ? *';
   }
@@ -51,12 +51,7 @@ export function validateProjectName(rawName: string): string | null {
     return `"${bareName}" es un nombre reservado del sistema operativo.`;
   }
   if (name.length > MAX_LENGTH) {
-    return `Nombre demasiado largo (maximo ${MAX_LENGTH} caracteres).`;
+    return `Nombre demasiado largo (máximo ${MAX_LENGTH} caracteres).`;
   }
   return null;
-}
-
-/** `true` cuando `validateProjectName` no encuentra ningun problema. */
-export function isValidProjectName(rawName: string): boolean {
-  return validateProjectName(rawName) === null;
 }

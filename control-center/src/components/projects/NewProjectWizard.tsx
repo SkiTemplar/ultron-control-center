@@ -3,7 +3,8 @@
 // Envuelve el CLI `~/.ultron/scripts/project-create.mjs` (via el comando
 // Tauri `project_create_cli`, ver src/lib/project-create-cli.ts) en un
 // stepper de 6 pasos: Tipo -> Asignatura (solo asignaturas) -> Subcarpeta ->
-// Nombre -> Plantilla -> Opciones -> (Crear) -> Resultado. El objetivo es
+// Nombre -> Plantilla -> Opciones (con las skills de la pool) -> (Crear) ->
+// Resultado. El objetivo es
 // que el usuario NUNCA tenga que abrir el Explorador de Windows: todo el
 // árbol de carpetas se navega dentro del propio asistente.
 //
@@ -18,10 +19,21 @@ import {
   OpcionesStep,
   PlantillaStep,
   ResultView,
+  SkillsSection,
   TipoStep,
   useNewProjectWizard,
   type NewProjectWizardProps,
 } from "./new-project-wizard";
+import type { StepId } from "./new-project-wizard/types";
+
+const STEP_LABELS: Record<StepId, string> = {
+  tipo: "Tipo",
+  asignatura: "Asignatura",
+  carpeta: "Carpeta",
+  nombre: "Nombre",
+  plantilla: "Plantilla",
+  opciones: "Opciones",
+};
 
 export function NewProjectWizard({ open, onClose, onCreated }: NewProjectWizardProps) {
   const wizard = useNewProjectWizard({ open, onClose, onCreated });
@@ -36,7 +48,7 @@ export function NewProjectWizard({ open, onClose, onCreated }: NewProjectWizardP
     showNewFolder, setShowNewFolder, newFolderName, setNewFolderName, folderBusy, createFolder,
     name, setName, nameInputRef, nameError,
     templates, templatesError, templateId, setTemplateId, dueDate, setDueDate, selectedTemplate,
-    gitInit, setGitInit, claudeMd, setClaudeMd, openIde, setOpenIde,
+    gitInit, setGitInit, claudeMd, setClaudeMd, openIde, setOpenIde, skillPicker,
     steps, stepIndex, currentStep, canAdvance, next, back,
     creating, result, setResult, previewPath, submitCreate, finishAndClose,
   } = wizard;
@@ -83,13 +95,20 @@ export function NewProjectWizard({ open, onClose, onCreated }: NewProjectWizardP
           <ResultView result={result} onClose={finishAndClose} onRetry={() => setResult(null)} />
         ) : (
           <>
-            {/* Stepper header */}
+            {/* Stepper header: nombre del paso actual y, cuando ya se ha elegido
+                raíz (el total depende de ella), «Paso N de M» y los puntos. */}
             <div className="flex items-center gap-1 border-b px-4 py-2" style={{ borderColor: "var(--color-border)" }}>
-              {steps.map((s, i) => (
+              <span className="mr-2 text-[11px] font-medium" style={{ color: "var(--color-text)" }}>
+                {selectedRoot
+                  ? `Paso ${stepIndex + 1} de ${steps.length} · ${STEP_LABELS[currentStep]}`
+                  : `Paso ${stepIndex + 1} · ${STEP_LABELS[currentStep]}`}
+              </span>
+              {selectedRoot && steps.map((s, i) => (
                 <div
                   key={s}
                   className="flex items-center gap-1 text-[10.5px]"
                   style={{ color: i === stepIndex ? "var(--color-text)" : "var(--color-text-faint)" }}
+                  title={`${i + 1}. ${STEP_LABELS[s]}`}
                 >
                   <span
                     className="flex h-4 w-4 items-center justify-center rounded-full text-[9.5px]"
@@ -106,7 +125,7 @@ export function NewProjectWizard({ open, onClose, onCreated }: NewProjectWizardP
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4">
               {currentStep === "tipo" && (
                 <TipoStep
                   loading={loadingRoots}
@@ -167,14 +186,17 @@ export function NewProjectWizard({ open, onClose, onCreated }: NewProjectWizardP
                 />
               )}
               {currentStep === "opciones" && (
-                <OpcionesStep
-                  gitInit={gitInit}
-                  onGitInitChange={setGitInit}
-                  claudeMd={claudeMd}
-                  onClaudeMdChange={setClaudeMd}
-                  openIde={openIde}
-                  onOpenIdeChange={setOpenIde}
-                />
+                <div className="space-y-4">
+                  <OpcionesStep
+                    gitInit={gitInit}
+                    onGitInitChange={setGitInit}
+                    claudeMd={claudeMd}
+                    onClaudeMdChange={setClaudeMd}
+                    openIde={openIde}
+                    onOpenIdeChange={setOpenIde}
+                  />
+                  <SkillsSection picker={skillPicker} />
+                </div>
               )}
             </div>
 

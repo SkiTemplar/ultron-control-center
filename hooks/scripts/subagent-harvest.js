@@ -8,7 +8,9 @@
 //   2. Best-effort: if the subagent produced a non-trivial text result AND the
 //      sidecar is available, PROPOSE an `agent_note` candidate via
 //      `ultron-memory candidate` (writer_path = MemoryService — single writer).
-//      Lands as a pending candidate in the governed inbox; never auto-promoted.
+//      Lands as a pending candidate in the governed inbox; the autonomous
+//      drain (`inbox drain --auto`, spawned by stop-compress-session after
+//      each Stop) approves it if its band is A/B or rejects it with a reason.
 //
 // NO-OP-SAFE: any failure exits 0 silently. A failed SubagentStop hook must
 // never break the harness.

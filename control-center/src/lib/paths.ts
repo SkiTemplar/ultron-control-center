@@ -6,26 +6,18 @@
 // `C:\Users\<name>\.ultron` or `~/.claude` so the app stays portable
 // across user accounts and OSes.
 //
-// Both helpers cache the result for the lifetime of the page so repeated
+// getUltronRoot caches the result for the lifetime of the page so repeated
 // calls don't roundtrip through the Tauri bridge.
 
 import { invoke } from "@tauri-apps/api/core";
 
 let ultronRootCache: string | null = null;
-let homeDirCache: string | null = null;
 
 export async function getUltronRoot(): Promise<string> {
   if (ultronRootCache !== null) return ultronRootCache;
   const root = await invoke<string>("ultron_root_str");
   ultronRootCache = root;
   return root;
-}
-
-export async function getHomeDir(): Promise<string> {
-  if (homeDirCache !== null) return homeDirCache;
-  const home = await invoke<string>("home_dir_str");
-  homeDirCache = home;
-  return home;
 }
 
 /// Joins path segments with the platform separator inferred from the base.

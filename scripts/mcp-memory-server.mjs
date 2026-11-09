@@ -27,21 +27,6 @@ const PROTOCOL_VERSION = "2024-11-05";
 
 const TOOLS = [
   {
-    name: "memory_recall",
-    description:
-      "Busca en la memoria personal de ULTRON (recall hibrido BM25+E5 sobre brain.db/Qdrant). " +
-      "Devuelve las memorias mas relevantes para la consulta: decisiones, arquitectura, gotchas, contexto de proyectos.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Consulta en lenguaje natural" },
-        project: { type: "string", description: "Slug del proyecto para acotar (opcional)" },
-        cross_project: { type: "boolean", description: "true = buscar en TODO el cerebro, no solo el proyecto" },
-      },
-      required: ["query"],
-    },
-  },
-  {
     name: "memory_stats",
     description: "Salud y tamano de la memoria: items activos, deprecados, candidatos pendientes.",
     inputSchema: { type: "object", properties: {} },
@@ -82,14 +67,6 @@ function runSidecar(args, timeoutMs = 70_000) {
 
 function callTool(name, args) {
   switch (name) {
-    case "memory_recall": {
-      const q = String(args?.query ?? "").trim();
-      if (!q) throw new Error("query vacia");
-      const cli = ["recall", q];
-      if (args?.project) cli.push("--project", String(args.project));
-      if (args?.cross_project) cli.push("--cross");
-      return runSidecar(cli);
-    }
     case "memory_stats":
       return runSidecar(["stats"], 30_000);
     case "memory_provenance": {

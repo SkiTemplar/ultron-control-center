@@ -11,8 +11,11 @@
  *   2. Parse last N turns (MAX_TURNS = 60) from the JSONL.
  *   3. Propone los hechos extraidos como candidatos gobernados via el UNICO
  *      camino de extraccion: el sidecar `ultron-memory capture` (AI Router con
- *      cadena primary->fallback y las keys del usuario, redaccion, dedupe,
- *      inbox con aprobacion humana). Este script ya NO llama a ningun proveedor
+ *      cadena primary->fallback y las keys del usuario, redaccion, dedupe e
+ *      inbox). Justo despues lanza `ultron-memory inbox drain --auto` (detached):
+ *      el inbox es autonomo desde 2026-07-13, sin aprobacion humana; el binario
+ *      re-verifica, aprueba las bandas A/B y rechaza secreto, duplicado,
+ *      conflicto o ruido con razon auditable. Este script ya NO llama a ningun proveedor
  *      cloud por su cuenta — decidido por el usuario 2026-09-10: la llamada
  *      directa (Groq sin fallback) estaba DUPLICADA con la del sidecar y
  *      fallaba el 51% de las veces (218/426, HTTP 429) sin aportar nada que el
@@ -462,6 +465,47 @@ function gitLogRecent(cwd, maxCommits) {
   }
 }
 
+/** Une dos listas de una seccion sin repetir, por su texto. */
+function unionPorTexto(previa, nueva) {
+  const clave = (x) => (x && typeof x === 'object' ? x.text : x);
+  const vistas = new Set();
+  const out = [];
+  for (const x of [...(Array.isArray(previa) ? previa : []), ...(Array.isArray(nueva) ? nueva : [])]) {
+    if (vistas.has(clave(x))) continue;
+    vistas.add(clave(x));
+    out.push(x);
+  }
+  return out;
+}
+
+/**
+ * Una sesion se comprime en varias pasadas, y hasta el 2026-11-01 cada una pisaba
+ * compact.json: una pasada sin captura (throttle global o router caido) dejaba un
+ * stub encima de los hechos de la anterior. Las secciones y el contador acumulan;
+ * el resto describe la ultima pasada. Pura, para el selftest.
+ */
+function mergeCompact(previo, compact) {
+  if (!previo || typeof previo !== 'object') return compact;
+  const prevMachine = previo.machine && typeof previo.machine === 'object' ? previo.machine : {};
+  return {
+    ...compact,
+    decisions: unionPorTexto(previo.decisions, compact.decisions),
+    next: unionPorTexto(previo.next, compact.next),
+    bugs: unionPorTexto(previo.bugs, compact.bugs),
+    machine: {
+      ...compact.machine,
+      facts_extracted: (Number(prevMachine.facts_extracted) || 0) + (compact.machine.facts_extracted || 0),
+      ai_used: Boolean(prevMachine.ai_used) || compact.machine.ai_used,
+    },
+  };
+}
+
+/** Estado de la captura de esta pasada, para compact.json y el log. */
+function captureStatusOf(report, wasAttempted) {
+  if (!wasAttempted) return 'throttled';
+  return report && typeof report.strategy === 'string' ? report.strategy : 'no_report';
+}
+
 /**
  * `facts` es el array `facts` del CaptureReport del sidecar (ver
  * control-center/src-tauri/src/memory/capture.rs — CapturedFact): cada
@@ -483,11 +527,18 @@ function gitLogRecent(cwd, maxCommits) {
  * no aparece en ninguna de las tres listas: compact.json es un resumen
  * operativo de la sesion, no un espejo completo de brain.db.
  */
-function writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date) {
+function writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date, captureStatus) {
   try {
     const sessionDir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId, 'sessions', sessionId);
     fs.mkdirSync(sessionDir, { recursive: true });
     const outPath = path.join(sessionDir, 'compact.json');
+    let previo = null;
+    try {
+      previo = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+    } catch (e) {
+      // Sin fichero es lo normal en la primera pasada; corrupto se reescribe, con rastro.
+      if (e && e.code !== 'ENOENT') safeLog({ level: 'warn', msg: 'compact_previous_unreadable', sessionId });
+    }
 
     // human: prosa — primer prompt del usuario + resumen de turno
     const firstUser = turns.find(t => t.role === 'user');
@@ -506,6 +557,9 @@ function writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date) {
       turns_assistant: assistantTurns,
       facts_extracted: (facts || []).length,
       ai_used: !!aiUsed,
+      // Por que esta pasada dejo o no hechos: `router_error->skip` es la cadena del
+      // router caida, no una sesion sin nada que guardar (check Kirkardo 17.5).
+      capture: captureStatus || 'unknown',
       sha_head: gitHeadSha(cwd) || null,
       generated_at: new Date().toISOString(),
     };
@@ -538,7 +592,7 @@ function writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date) {
       arch_delta,
     };
 
-    fs.writeFileSync(outPath, JSON.stringify(compact, null, 2), 'utf8');
+    fs.writeFileSync(outPath, JSON.stringify(mergeCompact(previo, compact), null, 2), 'utf8');
     safeLog({ level: 'info', msg: 'compact_written', path: outPath, sessionId });
   } catch (e) {
     safeLog({ level: 'warn', msg: 'compact_write_failed', error: String(e && e.message), sessionId });
@@ -604,6 +658,7 @@ async function main() {
   // pasada de una sesion nueva SIGUE respetandolo, que es justo lo que ahorra
   // cuota cuando hay varias sesiones concurrentes.
   let report = null;
+  let wasAttempted = false;
   const nowMs = Date.now();
   const globalThrottle = readGlobalThrottleState();
   if (shouldThrottleGlobal(globalThrottle, nowMs)) {
@@ -618,6 +673,7 @@ async function main() {
     const memBin = findBinary();
     if (memBin) {
       writeGlobalThrottleState({ ts: nowMs });
+      wasAttempted = true;
       report = attemptCapture(memBin, turns, projectId, sessionId);
     } else {
       safeLog({ level: 'warn', msg: 'memory_bin_not_found', sessionId });
@@ -626,14 +682,19 @@ async function main() {
 
   const facts = (report && Array.isArray(report.facts)) ? report.facts : [];
   const aiUsed = !!(report && report.router_used);
-  safeLog({ level: 'info', msg: 'facts_extracted', count: facts.length, aiUsed, sessionId });
+  const captureStatus = captureStatusOf(report, wasAttempted);
+  safeLog({ level: 'info', msg: 'facts_extracted', count: facts.length, aiUsed, capture: captureStatus, sessionId });
+  if (captureStatus === 'router_error->skip') {
+    // Sin rastro aparte parecia una sesion sin hechos: 255 de 263 capturas medidas.
+    logHookError('stop-compress-session', new Error('capture: la cadena del router ha fallado, sesion sin hechos'));
+  }
 
   // projectId=null (cwd sin proyecto: home, dir generico) -> nada de escribir
   // en cockpit/projects/<null>/ ni de estampar un proyecto inventado; la
   // captura de arriba ya fue SIN --project (candidato ambiente, down-rankeado).
   if (projectId) {
     // cat17.1 — escribe compact.json con >=4 outputs estructurados (human/machine/decisions/next/bugs/arch_delta).
-    writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date);
+    writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date, captureStatus);
   }
 
   // OLA A/B (2026-06-04): the legacy upsert to the RETIRED Qdrant `ultron_sessions`
@@ -666,6 +727,8 @@ if (require.main === module) {
 } else {
   module.exports = {
     resolveProjectId,
+    mergeCompact,
+    captureStatusOf,
     shouldThrottle,
     shouldThrottleGlobal,
     CAPTURE_MIN_USER_TURNS,

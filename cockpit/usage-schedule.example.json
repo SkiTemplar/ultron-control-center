@@ -1,0 +1,12 @@
+{
+  "_comment": "Plantilla. Copiar a cockpit/usage-schedule.json (ignorado por git) y ajustar. Horas locales de la máquina; franjas [inicio, fin). lowWeight: peso de las horas en franja baja respecto a una hora normal (1). baseWeight: peso por día fuera de franja (por defecto 1). Sin el fichero real, el ritmo semanal es lineal.",
+  "lowWeight": 0.2,
+  "baseWeight": { "sat": 0.8, "sun": 0.8 },
+  "low": {
+    "mon": [["00:00", "08:00"], ["13:00", "14:00"]],
+    "tue": [["00:00", "08:00"], ["13:00", "14:00"]],
+    "wed": [["00:00", "08:00"], ["13:00", "14:00"]],
+    "thu": [["00:00", "08:00"], ["13:00", "14:00"]],
+    "fri": [["00:00", "08:00"]]
+  }
+}

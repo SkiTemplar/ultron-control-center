@@ -6,7 +6,7 @@
  * kanban VIVO del proyecto, para avisar en el resume cuando una card que la
  * bitacora dio por cerrada/terminada SIGUE abierta.
  *
- * Por que por TITULO y no por id (2026-09-25): el digest que ve `claude -p`
+ * Por que por TITULO y no por id (2026-09-25): el digest que ve la LLM resumidora
  * (lib/session-digest.js) quita TODAS las llamadas a herramientas -- un
  * `kanban.mjs mv <proyecto> <id> done` nunca llega al modelo. Lo unico que
  * puede citar es el texto que el propio asistente narro, y ahi lo normal es

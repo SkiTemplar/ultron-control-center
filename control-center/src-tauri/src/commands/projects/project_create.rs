@@ -4,7 +4,8 @@
 // plantillas) y habla `--json` puro por stdout; este comando solo lo lanza,
 // aplica la allowlist de subcomandos y traduce el resultado.
 //
-// Contrato de subcomandos: roots|list|templates|subject|mkdir|create. La
+// Contrato de subcomandos: roots|list|templates|skills|subject|mkdir|create.
+// `skills` es de solo lectura (lista la pool de skills de terceros). La
 // configuracion de raices (`roots set`) NO se expone a la UI: permitiria a un
 // webview comprometido declarar una raiz arbitraria y escribir fuera de ella.
 //
@@ -24,7 +25,15 @@ use crate::ai_router::exec::run_with_timeout;
 /// Subcomandos que el contrato de `project-create.mjs` reconoce. Cualquier
 /// otro primer argumento se rechaza ANTES de tocar `std::process::Command`
 /// — nunca se delega la validacion al propio proceso hijo.
-const ALLOWED_SUBCOMMANDS: [&str; 6] = ["roots", "list", "templates", "subject", "mkdir", "create"];
+const ALLOWED_SUBCOMMANDS: [&str; 7] = [
+    "roots",
+    "list",
+    "templates",
+    "skills",
+    "subject",
+    "mkdir",
+    "create",
+];
 
 /// Hay generadores de plantilla que instalan dependencias (npm/uv/cargo);
 /// 6 minutos de margen antes de matar el proceso.
@@ -32,7 +41,7 @@ const TIMEOUT: Duration = Duration::from_secs(360);
 
 fn validate_subcommand(args: &[String]) -> Result<&str, String> {
     let first = args.first().ok_or_else(|| {
-        "project_create_cli: falta el subcomando (roots|list|templates|subject|mkdir|create)"
+        "project_create_cli: falta el subcomando (roots|list|templates|skills|subject|mkdir|create)"
             .to_string()
     })?;
     if !ALLOWED_SUBCOMMANDS.contains(&first.as_str()) {
@@ -84,10 +93,19 @@ fn script_path() -> Result<PathBuf, String> {
 /// parseos validos; el frontend decide segun el campo `ok`. Solo se
 /// devuelve `Err` cuando el proceso no produjo JSON en absoluto (crash,
 /// script ausente, node no encontrado, timeout).
+///
+/// Es `async` con `spawn_blocking` (H22, auditoría 2026-10-17): un comando
+/// síncrono de Tauri corre en el hilo principal, y un `create` que instala
+/// dependencias congelaba la ventana hasta 6 minutos.
 #[tauri::command]
-pub fn project_create_cli(args: Vec<String>) -> Result<serde_json::Value, String> {
+pub async fn project_create_cli(args: Vec<String>) -> Result<serde_json::Value, String> {
     validate_subcommand(&args)?;
+    tauri::async_runtime::spawn_blocking(move || run_project_create(&args))
+        .await
+        .map_err(|e| format!("project_create_cli: la tarea se interrumpió: {e}"))?
+}
 
+fn run_project_create(args: &[String]) -> Result<serde_json::Value, String> {
     let script = script_path()?;
     if !script.is_file() {
         return Err(format!(
@@ -98,7 +116,7 @@ pub fn project_create_cli(args: Vec<String>) -> Result<serde_json::Value, String
 
     let mut cmd = Command::new("node");
     cmd.arg(&script);
-    cmd.args(&args);
+    cmd.args(args);
     if !args.iter().any(|a| a == "--json") {
         cmd.arg("--json");
     }
@@ -155,6 +173,14 @@ mod tests {
         assert!(validate_subcommand(&s(&["subject", "new", "--code", "X"])).is_ok());
         assert!(validate_subcommand(&s(&["subject", "rm"])).is_err());
         assert!(validate_subcommand(&s(&["subject"])).is_err());
+    }
+
+    /// El asistente lista la pool de skills con `skills --template <id>`.
+    #[test]
+    fn acepta_skills_para_el_asistente() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(validate_subcommand(&s(&["skills", "--template", "vacio"])).is_ok());
+        assert!(validate_subcommand(&s(&["skill-pool", "link"])).is_err());
     }
 
     #[test]

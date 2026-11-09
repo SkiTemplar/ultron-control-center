@@ -117,6 +117,24 @@ Uso desproporcionado del guion largo '—' donde el español usaría coma, paré
 - Ejemplo (ES): 'El resultado —que era el esperado— confirma la hipótesis —planteada en el capítulo 2— del estudio'
 - Correccion: Usar coma, paréntesis o punto y seguido según el registro académico español; reservar el guion largo para incisos puntuales, no como muletilla de puntuación en cada frase.
 
+### Negrita decorativa en prosa
+
+Negrita como etiqueta o énfasis en cada viñeta y en mitad de la prosa ("**Memoria gobernada** — ..."), aunque nada en el contenido pida resaltarlo. Es Markdown válido, así que en un destino .md el patrón de artefactos de markup no la mide; lo que delata es la acumulación en prosa, no una negrita suelta. No cuentan las tablas, las listas de definiciones ("- **Clave**: valor") ni los bloques de código.
+- Ejemplo (ES): '- **Memoria gobernada** — brain.db como única fuente de verdad' repetido en cada viñeta, más tres términos en negrita en el párrafo de entrada
+- Correccion: Quitar la negrita de las etiquetas y del cuerpo; si la viñeta necesita etiqueta, basta con dos puntos. Reservar la negrita para un aviso que el lector no puede pasar por alto.
+
+### Contraste negativo 'no X: lo Y' / 'no es X, es Y'
+
+Negar algo que el lector no había supuesto para afirmar a continuación lo real: 'no es X, es Y', 'no X, sino Y' o 'no reemplaza a X: lo envuelve'. Las formas 'no es X, sino Y' y 'no solo X, sino también Y' tienen patrón propio de aparición; este cubre las demás y solo pesa por acumulación, porque un contraste suelto es escritura normal.
+- Ejemplo (ES): 'No reemplaza a Claude Code: lo envuelve con estado persistente' y, dos párrafos después, 'la caché no es un adorno, es la pieza que sostiene el rendimiento'
+- Correccion: Afirmar directamente ('Se ejecuta sobre Claude Code y le añade...') salvo que el contraste responda a una confusión real del lector.
+
+### Metacomentario sobre el propio documento
+
+El texto habla de sí mismo en lugar de dar la información: 'esta documentación describe...', 'en esta sección...', 'a continuación se detallan...'. Complementa el anuncio de estructura (fórmulas de apertura completas) y solo pesa por acumulación: una referencia suelta al propio documento es normal.
+- Ejemplo (ES): 'Esta documentación describe el sistema tal y como está en el disco' en la entrada y 'A continuación se detallan los pasos' en la sección siguiente
+- Correccion: Quitar la frase sobre el documento y conservar solo la afirmación útil que contenga.
+
 ### Falsos rangos sin detalle real
 
 'Desde X hasta Y' usado para aparentar exhaustividad sin desarrollar ninguno de los elementos intermedios.

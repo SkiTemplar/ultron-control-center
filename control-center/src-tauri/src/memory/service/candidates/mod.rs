@@ -5,15 +5,12 @@
 //   dedupe       — dedupe exacto (content_hash) + near-dup Jaccard (FTS).
 //   paraphrase   — gate anti-paráfrasis del write-path (título + coseno E5).
 //   discard_log  — rastro jsonl de lo que el write-path descarta.
-//   intake       — create_candidate / edit_candidate / list_pending_candidates.
+//   intake       — create_candidate / list_pending_candidates.
 //   reverify     — reverify_candidate (drain --auto) + persistencia condicional.
 //   approval     — approve_candidate / reject_candidate (+ variantes `_on`).
 // Aquí quedan solo los helpers compartidos por varios de esos módulos.
 
-use rusqlite::Connection;
-
 use super::super::model::MemoryCandidate;
-use super::super::MemoryError;
 
 mod approval;
 mod dedupe;
@@ -58,29 +55,9 @@ pub(super) fn pii_scan_text(cand: &MemoryCandidate) -> String {
     .join(" ")
 }
 
-/// Ejecuta `f` dentro de `BEGIN IMMEDIATE … COMMIT` (ROLLBACK si falla). Con
-/// IMMEDIATE el escritor toma el lock al entrar, así que "leer estado y
-/// escribir según ese estado" no deja hueco a otro proceso (busy_timeout de
-/// `open_conn` absorbe la espera). Sobre `&Connection` porque el store expone
-/// funciones con esa firma; no anida (SQLite no admite BEGIN dentro de BEGIN).
-fn in_immediate_tx<T>(
-    conn: &Connection,
-    f: impl FnOnce() -> Result<T, MemoryError>,
-) -> Result<T, MemoryError> {
-    conn.execute_batch("BEGIN IMMEDIATE")
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("begin immediate: {e}")))?;
-    match f() {
-        Ok(v) => {
-            conn.execute_batch("COMMIT")
-                .map_err(|e| MemoryError::RemoteUnavailable(format!("commit: {e}")))?;
-            Ok(v)
-        }
-        Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK");
-            Err(e)
-        }
-    }
-}
+// Transacción de escritura (BEGIN IMMEDIATE … COMMIT, ROLLBACK si falla): la
+// comparte el store; vive en `sqlite_store::tx`.
+use super::super::sqlite_store::in_immediate_tx;
 
 // Tests (approve-gate + near-dup) — fichero hermano heredado del split anterior.
 #[cfg(test)]

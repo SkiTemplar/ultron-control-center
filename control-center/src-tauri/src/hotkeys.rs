@@ -1,64 +1,8 @@
-// ULTRON Control Center — Inbox Quick-Capture Hotkey
+// ULTRON Control Center — atajo global principal (mostrar/ocultar la ventana).
 //
-// LIB_RS_WIRING:
-// 1. Add `mod hotkeys;` to the module list at the top of lib.rs.
-// 2. Inside the `tauri_plugin_global_shortcut::Builder::new().with_handler(...)`
-//    closure, BEFORE the existing `toggle_window(app)` call, add a branch
-//    that checks if the pressed shortcut matches the inbox shortcut and
-//    emits "open-inbox" instead of toggling the window. The cleanest
-//    way is to compare against the parsed `INBOX_SHORTCUT` constant via
-//    `hotkeys::is_inbox_shortcut(shortcut)`.
-//
-//    Drop-in replacement for the existing handler closure:
-//
-//        .with_handler(|app, shortcut, event| {
-//            if event.state() == ShortcutState::Pressed {
-//                if hotkeys::is_inbox_shortcut(shortcut) {
-//                    if let Some(w) = app.get_webview_window("main") {
-//                        let _ = w.emit("open-inbox", ());
-//                    }
-//                    return;
-//                }
-//                toggle_window(app);
-//            }
-//        })
-//
-//    (Add `use tauri::Emitter;` near the other tauri imports so `.emit` resolves.)
-//
-// 3. Inside the `.setup(|app| { ... })` closure, after the existing
-//    `shortcut_handle.register(shortcut)` call for the main hotkey, add:
-//
-//        if let Err(e) = hotkeys::register_inbox_shortcut(app) {
-//            eprintln!("[ultron] inbox hotkey register failed: {}", e);
-//        }
-//
-// 4. Add the new commands to `tauri::generate_handler![...]`:
-//
-//        compute_cost,
-//        append_inbox,
-//        list_inbox,
-//
-// 5. Add the command wrappers anywhere in lib.rs (next to the others):
-//
-//        #[tauri::command]
-//        async fn compute_cost(window_hours: Option<u32>) -> Result<cost_watchdog::CostSnapshot, String> {
-//            cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
-//        }
-//
-//        #[tauri::command]
-//        async fn append_inbox(text: String) -> Result<(), String> {
-//            inbox::append_inbox_inner(&text)
-//        }
-//
-//        #[tauri::command]
-//        async fn list_inbox(limit: Option<usize>) -> Result<Vec<inbox::InboxEntry>, String> {
-//            inbox::list_inbox_inner(limit.unwrap_or(100))
-//        }
-//
-// 6. Add the new modules to the top of lib.rs:
-//        mod cost_watchdog;
-//        mod hotkeys;
-//        mod inbox;
+// Parseo de la cadena tipo `Ctrl+Alt+U` a `Shortcut` y carga/guardado de la
+// preferencia en disco. El registro con el plugin global-shortcut lo hacen
+// `lib.rs` (arranque) y `commands/misc_sub/hotkeys.rs` (cambio en caliente).
 
 use std::path::PathBuf;
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};

@@ -1,0 +1,535 @@
+/* Mascota — ventana transparente. Estilo «cómic pixelado»: borde negro,
+   sombra dura desplazada y nada de desenfoques. */
+
+html.mascot-root,
+html.mascot-root body,
+html.mascot-root #root {
+  background: transparent !important;
+  overflow: hidden;
+  user-select: none;
+}
+
+.mascot-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mascot-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.mascot-hit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.mascot-hit:active {
+  cursor: grabbing;
+}
+
+.mascot-buttons {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+  animation: mascot-pop 140ms steps(3, end);
+}
+
+.mascot-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #141413;
+  border-radius: 8px;
+  box-shadow: 2px 2px 0 #141413;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 80ms steps(2, end);
+}
+.mascot-btn:hover {
+  transform: translateY(-2px);
+}
+.mascot-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+/* Bocadillo en modo oscuro: fondo carbón, borde negro y sombra de cómic. */
+.mascot-panel {
+  --bubble-bg: #262624;
+  --bubble-fg: #ece9e1;
+  --bubble-ink: #0b0b0a;
+  --bubble-muted: #9a958b;
+  --bubble-accent: #e8916f;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 320px;
+  max-width: calc(100vw - 12px);
+  pointer-events: auto;
+  background: var(--bubble-bg);
+  color: var(--bubble-fg);
+  border: 2px solid var(--bubble-ink);
+  border-radius: 6px;
+  box-shadow: 3px 3px 0 var(--bubble-ink);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 10px 9px;
+  user-select: text;
+  animation: mascot-pop 160ms steps(3, end);
+}
+
+/* Mientras piensa: solo un minibocadillo con tres puntitos. */
+.mascot-panel--mini {
+  width: auto;
+  padding: 5px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mascot-tail {
+  position: absolute;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  background: var(--bubble-bg);
+  border-right: 2px solid var(--bubble-ink);
+  border-bottom: 2px solid var(--bubble-ink);
+  transform: rotate(45deg);
+}
+.mascot-panel--mini .mascot-tail {
+  width: 10px;
+  height: 10px;
+  bottom: -6px;
+}
+
+.mascot-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.mascot-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--bubble-ink);
+  display: grid;
+  place-items: center;
+}
+
+.mascot-agent {
+  font-weight: 700;
+  flex: 1;
+}
+
+.mascot-x {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--bubble-fg);
+  padding: 0 2px;
+}
+
+.mascot-link {
+  border: none;
+  background: transparent;
+  color: var(--bubble-accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mascot-a {
+  color: var(--bubble-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.mascot-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.mascot-input {
+  flex: 1;
+  resize: none;
+  border: 2px solid var(--bubble-ink);
+  border-radius: 4px;
+  padding: 5px 7px;
+  font: inherit;
+  color: var(--bubble-fg);
+  background: #1a1a19;
+  outline: none;
+  max-height: 140px;
+  field-sizing: content;
+}
+.mascot-input::placeholder {
+  color: var(--bubble-muted);
+}
+.mascot-input:focus {
+  border-color: #d97757;
+}
+
+.mascot-send {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--bubble-ink);
+  border-radius: 6px;
+  background: #d97757;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--bubble-ink);
+}
+.mascot-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mascot-thinking {
+  color: var(--bubble-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.mascot-dots::after {
+  content: "";
+  animation: mascot-dots 1.2s steps(4, end) infinite;
+}
+
+.mascot-bubble-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  height: 12px;
+}
+.mascot-bubble-dots i {
+  width: 6px;
+  height: 6px;
+  background: var(--bubble-fg);
+  animation: mascot-bounce 1s steps(2, end) infinite;
+}
+.mascot-bubble-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.mascot-bubble-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.mascot-reply {
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mascot-error {
+  color: #ff8a7a;
+  font-size: 12px;
+}
+
+.mascot-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.mascot-via {
+  flex: 1;
+  color: var(--bubble-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Freno: confirmación de una acción destructiva. */
+.mascot-approval {
+  border: 2px solid #d97757;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  background: #2f2a26;
+}
+.mascot-approval-title {
+  font-weight: 700;
+  color: #f2b49b;
+  margin-bottom: 4px;
+}
+.mascot-approval-cmd {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 90px;
+  overflow-y: auto;
+  color: var(--bubble-fg);
+}
+.mascot-approval-origin {
+  font-size: 11px;
+  opacity: 0.8;
+  margin: -2px 0 4px;
+}
+.mascot-approval-chat {
+  margin-top: 6px;
+  padding: 4px 6px;
+  border-left: 2px solid #d97757;
+  font-size: 11px;
+  white-space: pre-wrap;
+  max-height: 140px;
+  overflow-y: auto;
+  color: var(--bubble-fg);
+}
+.mascot-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+.mascot-approve-peek {
+  margin-right: auto;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 11px;
+  color: #f2b49b;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.mascot-approve-no,
+.mascot-approve-yes {
+  border: 2px solid var(--bubble-ink);
+  border-radius: 5px;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--bubble-ink);
+}
+.mascot-approve-no {
+  background: #3a3835;
+  color: var(--bubble-fg);
+}
+.mascot-approve-yes {
+  background: #d97757;
+  color: #fff;
+}
+
+@keyframes mascot-pop {
+  from {
+    opacity: 0;
+    transform-origin: bottom center;
+    scale: 0.6;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes mascot-bounce {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -3px;
+  }
+}
+
+@keyframes mascot-dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75% {
+    content: "...";
+  }
+}
+
+/* Ficheros adjuntos (soltados encima o cogidos con Ctrl+Alt+clic). */
+.mascot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.mascot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 4px 1px 6px;
+  border: 1.5px solid #0b0b0a;
+  border-radius: 4px;
+  background: #3a3835;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mascot-chip-x {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+/* Menú del clic derecho. */
+.mascot-menu {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  pointer-events: auto;
+  background: #262624;
+  color: #ece9e1;
+  border: 2px solid #0b0b0a;
+  border-radius: 6px;
+  box-shadow: 3px 3px 0 #0b0b0a;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  animation: mascot-pop 120ms steps(3, end);
+}
+.mascot-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.mascot-menu button:hover {
+  background: #3a3835;
+}
+.mascot-menu-key {
+  color: #9a958b;
+  font-size: 11px;
+}
+.mascot-menu-note {
+  padding: 4px 8px 6px;
+  color: #9a958b;
+  font-size: 11px;
+  border-bottom: 1px solid #3a3835;
+  margin-bottom: 2px;
+}
+.mascot-menu-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.mascot-menu-wrap .mascot-menu {
+  position: static;
+}
+
+/* Conversación sobre un fichero, marcada hasta «nueva» (solo lectura en
+   Antigravity; Claude y Codex conservan sus permisos). */
+.mascot-ro {
+  font-size: 10px;
+  color: #9a958b;
+  white-space: nowrap;
+}
+
+/* Silencio de juego (useForeground.ts pone la clase en <html>): sin
+   bocadillos, botones ni menú, y atravesable. Las confirmaciones del freno
+   siguen en la cola y se ven al salir del juego. */
+.mascot-quiet .mascot-panel,
+.mascot-quiet .mascot-buttons,
+.mascot-quiet .mascot-menu-wrap {
+  display: none !important;
+}
+
+.mascot-quiet .mascot-hit {
+  pointer-events: none;
+}
+
+/* Aviso pasivo (build/tests en rojo, entregas): no recibe el ratón y se
+   coloca solo encima de la cabeza (NoticeBubble.tsx). */
+.mascot-notice {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 280px;
+  pointer-events: none;
+  background: #262624;
+  color: #ece9e1;
+  border: 2px solid #0b0b0a;
+  border-radius: 6px;
+  box-shadow: 3px 3px 0 #0b0b0a;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 5px 8px 6px;
+  white-space: pre-line;
+  animation: mascot-pop 160ms steps(3, end);
+}
+
+.mascot-notice-hint {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #a8a49b;
+}
+
+/* «ver chat»: la conversación entera (ChatHead.tsx). */
+.mascot-transcript {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding-right: 2px;
+}
+.mascot-turn {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 5px 8px;
+  border-radius: 9px;
+  font-size: 12.5px;
+}
+.mascot-turn--user {
+  align-self: flex-end;
+  max-width: 88%;
+  background: color-mix(in srgb, var(--bubble-accent) 18%, transparent);
+}
+.mascot-turn--assistant {
+  align-self: stretch;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}

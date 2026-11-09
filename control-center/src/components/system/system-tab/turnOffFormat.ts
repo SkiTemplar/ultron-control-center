@@ -1,4 +1,4 @@
-// Helpers puros de Turn Off: formateo de cuenta atrás y validación de horas
+// Helpers puros de Apagar (Turn Off): formateo de cuenta atrás y validación de horas
 // en cliente. Separados del componente para poder testearlos sin invoke() ni
 // timers — el backend (src-tauri/src/turn_off.rs) sigue siendo la única
 // fuente de verdad del rango válido; esto es solo feedback instantáneo de UX.

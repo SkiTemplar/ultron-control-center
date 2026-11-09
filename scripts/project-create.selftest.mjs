@@ -10,11 +10,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
-  mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync,
+  mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, readdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { toIdentifier } from './lib/project-create/templates.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
@@ -33,6 +34,9 @@ function makeWorkspace() {
     ULTRON_PROJECTS_JSON_OVERRIDE: join(dir, 'projects.json'),
     ULTRON_BOARDS_DIR_OVERRIDE: join(dir, 'boards'),
     RESEARCH_ROOT_OVERRIDE: join(dir, 'research'),
+    // Pool vacía: `create` no debe leer ni enlazar la pool real (sus casos
+    // viven en project-create-skills.selftest.mjs).
+    ULTRON_SKILL_POOL_ROOT: join(dir, 'skill-pool'),
   };
   return {
     dir, asignaturasDir, personalDir, env,
@@ -143,7 +147,7 @@ test('subject new: crea carpeta con apuntes/codigo/trabajos + registro con socra
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.json.ok, true);
   const subjectPath = r.json.subjectPath;
-  assert.ok(subjectPath.includes('ASIG'));
+  assert.ok(subjectPath.endsWith(`${sep}ASIG-AsignaturaEjemplo`), subjectPath);
   assert.ok(existsSync(join(subjectPath, 'apuntes')));
   assert.ok(existsSync(join(subjectPath, 'codigo')));
   assert.ok(existsSync(join(subjectPath, 'trabajos')));
@@ -152,18 +156,118 @@ test('subject new: crea carpeta con apuntes/codigo/trabajos + registro con socra
   const entry = registry.projects.find((p) => p.id === r.json.projectId);
   assert.ok(entry, 'asignatura registrada en projects.json');
   assert.equal(entry.socratic, 'uni', 'raiz asignatura: socratic = uni');
+  assert.equal(entry.name, 'ASIG — Asignatura Ejemplo', 'el nombre legible se queda en el registro');
   assert.ok(existsSync(join(ws.dir, 'boards', r.json.projectId, 'kanban.json')), 'kanban de la asignatura creado');
   rmSync(ws.dir, { recursive: true, force: true });
 });
 
+test('subject new: la carpeta es solo ASCII sin espacios aunque el nombre lleve tildes, enie o raya', () => {
+  const ws = makeWorkspace();
+  seedRoots(ws.env, ws);
+  const r = run(['subject', 'new', '--root', 'asignaturas', '--code', 'DVJ', '--name', 'Diseño de Videojuegos — Año 1'], ws.env);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const dirName = r.json.subjectPath.split(sep).pop();
+  assert.equal(dirName, 'DVJ-DisenoVideojuegosAno1');
+  assert.match(dirName, /^[A-Za-z0-9-]+$/);
+  assert.equal(r.json.projectId, 'dvj-diseno-de-videojuegos-ano-1', 'el id sale del nombre legible');
+  rmSync(ws.dir, { recursive: true, force: true });
+});
+
 // --- create: trabajo-entrega (marcador + socratic + research + kanban card) -
+
+// --- plantillas de motor: Unreal Engine y Unity -------------------------------
+
+/** Rutas relativas (con /) de todos los ficheros bajo dir. */
+function listFiles(dir, base = dir) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) out.push(...listFiles(full, base));
+    else out.push(full.slice(base.length + 1).split(sep).join('/'));
+  }
+  return out;
+}
+
+test('toIdentifier: PascalCase valido para C++/C# en los casos limite', () => {
+  assert.equal(toIdentifier('Mi Juego 2'), 'MiJuego2');
+  assert.equal(toIdentifier('Práctica — 7'), 'Practica7');
+  assert.equal(toIdentifier('mi-juego_ok'), 'MiJuegoOk');
+  assert.equal(toIdentifier('123 juego'), 'P123Juego');
+  assert.equal(toIdentifier('---'), 'Project');
+});
+
+test('templates: unreal-cpp y unity figuran como disponibles', () => {
+  const ws = makeWorkspace();
+  const r = run(['templates'], ws.env);
+  const byId = Object.fromEntries(r.json.templates.map((t) => [t.id, t]));
+  assert.ok(byId['unreal-cpp'] && byId['unreal-cpp'].available, 'unreal-cpp disponible');
+  assert.ok(byId.unity && byId.unity.available, 'unity disponible');
+  rmSync(ws.dir, { recursive: true, force: true });
+});
+
+test('create: plantilla unreal-cpp — nombres con identificador, sin marcadores y CLAUDE.md propio', () => {
+  const ws = makeWorkspace();
+  seedRoots(ws.env, ws);
+  const r = run(['create', '--root', 'personal', '--name', 'Mi Juego 2', '--template', 'unreal-cpp'], ws.env);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const p = r.json.projectPath;
+  const files = listFiles(p);
+  for (const f of [
+    'MiJuego2.uproject', 'Source/MiJuego2.Target.cs', 'Source/MiJuego2Editor.Target.cs',
+    'Source/MiJuego2/MiJuego2.Build.cs', 'Source/MiJuego2/MiJuego2.h', 'Source/MiJuego2/MiJuego2.cpp',
+    'Source/MiJuego2/Tests/MiJuego2SmokeSpec.cpp', 'Tools/build.ps1', 'Tools/test.ps1', 'Tools/common.ps1', 'CLAUDE.md',
+  ]) assert.ok(files.includes(f), `falta ${f}`);
+  for (const f of files.filter((x) => !x.startsWith('.git/'))) {
+    assert.doesNotMatch(f, /[{}]/, `llaves en el nombre ${f}`);
+    assert.doesNotMatch(readFileSync(join(p, f), 'utf8'), /\{\{\w+\}\}/, `marcador sin sustituir en ${f}`);
+  }
+  assert.equal(JSON.parse(readFileSync(join(p, 'MiJuego2.uproject'), 'utf8')).Modules[0].Name, 'MiJuego2');
+  const claude = readFileSync(join(p, 'CLAUDE.md'), 'utf8');
+  assert.match(claude, /Unreal Engine 5\.6/);
+  assert.doesNotMatch(claude, /Carpeta vacia|Pendiente de definir/);
+  assert.ok(r.json.steps.some((s) => s.step === 'claude-md' && /plantilla/.test(s.message)), 'paso claude-md respeta la plantilla');
+  rmSync(ws.dir, { recursive: true, force: true });
+});
+
+test('create: --no-claude-md borra el CLAUDE.md que trae la plantilla', () => {
+  const ws = makeWorkspace();
+  seedRoots(ws.env, ws);
+  const r = run(['create', '--root', 'personal', '--name', 'SinDoc', '--template', 'unreal-cpp', '--no-claude-md'], ws.env);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.equal(existsSync(join(r.json.projectPath, 'CLAUDE.md')), false);
+  rmSync(ws.dir, { recursive: true, force: true });
+});
+
+test('create: plantilla unity — usa el editor mas reciente instalado y trae su CLAUDE.md', () => {
+  const ws = makeWorkspace();
+  seedRoots(ws.env, ws);
+  const editors = join(ws.dir, 'editors');
+  for (const d of ['2022.3.5f1', '6000.0.60f1-x86_64', '6000.3.11f1', 'Hub']) mkdirSync(join(editors, d), { recursive: true });
+  const env = { ...ws.env, ULTRON_UNITY_EDITORS_DIR: editors };
+  const r = run(['create', '--root', 'personal', '--name', 'Prueba Unity', '--template', 'unity'], env);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const p = r.json.projectPath;
+  assert.equal(readFileSync(join(p, 'ProjectSettings', 'ProjectVersion.txt'), 'utf8').trim(), 'm_EditorVersion: 6000.3.11f1');
+  const files = listFiles(p);
+  for (const f of ['Assets/.gitkeep', 'Packages/manifest.json', '.gitignore', '.gitattributes', 'CLAUDE.md']) assert.ok(files.includes(f), `falta ${f}`);
+  assert.match(readFileSync(join(p, '.gitignore'), 'utf8'), /\[Ll\]ibrary/);
+  JSON.parse(readFileSync(join(p, 'Packages', 'manifest.json'), 'utf8'));
+  assert.match(readFileSync(join(p, 'CLAUDE.md'), 'utf8'), /Unity 6000\.3\.11f1/);
+  // Sin editores instalados: cae a una version conocida con formato valido.
+  const empty = join(ws.dir, 'sin-editores');
+  mkdirSync(empty, { recursive: true });
+  const r2 = run(['create', '--root', 'personal', '--name', 'Sin Editor', '--template', 'unity'], { ...ws.env, ULTRON_UNITY_EDITORS_DIR: empty });
+  assert.equal(r2.status, 0, r2.stderr || r2.stdout);
+  assert.match(readFileSync(join(r2.json.projectPath, 'ProjectSettings', 'ProjectVersion.txt'), 'utf8'), /m_EditorVersion: \d+\.\d+\.\d+f\d+/);
+  rmSync(ws.dir, { recursive: true, force: true });
+});
 
 test('create: plantilla trabajo-entrega dentro de una asignatura — marcador, socratic=uni, sesion y tarjeta', () => {
   const ws = makeWorkspace();
   seedRoots(ws.env, ws);
   const subj = run(['subject', 'new', '--root', 'asignaturas', '--code', 'ASIG', '--name', 'Asignatura Ejemplo'], ws.env);
   assert.equal(subj.status, 0, subj.stdout + subj.stderr);
-  const subjectDirName = 'ASIG — Asignatura Ejemplo';
+  const subjectDirName = 'ASIG-AsignaturaEjemplo';
 
   const r = run([
     'create', '--root', 'asignaturas', '--sub', `${subjectDirName}/trabajos`,
@@ -187,6 +291,7 @@ test('create: plantilla trabajo-entrega dentro de una asignatura — marcador, s
   assert.deepEqual(marker.protegidas, ['borrador', 'entrega']);
   assert.equal(marker.asignatura, subjectDirName);
   assert.ok(marker.creado);
+  assert.equal(marker.due, '2026-12-01', 'la fecha de entrega va al marcador (ultron-entregas la lee)');
 
   const registry = readRegistry(ws);
   const entry = registry.projects.find((p) => p.id === r.json.projectId);
@@ -222,7 +327,7 @@ test('list: marca isProject/isSubject correctamente', () => {
   assert.equal(suelta.isProject, false);
   assert.equal(suelta.isSubject, true);
 
-  const inner = run(['list', '--root', 'asignaturas', '--sub', 'ASIG — Asignatura Ejemplo'], ws.env);
+  const inner = run(['list', '--root', 'asignaturas', '--sub', 'ASIG-AsignaturaEjemplo'], ws.env);
   assert.equal(inner.status, 0, inner.stdout + inner.stderr);
   const apuntes = inner.json.entries.find((e) => e.name === 'apuntes');
   assert.ok(apuntes);

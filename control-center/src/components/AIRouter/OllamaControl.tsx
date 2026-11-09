@@ -1,81 +1,44 @@
 // ULTRON Control Center — AI Router: Modelo local (Ollama)
 //
-// Seccion de gestion del modelo local usado como autocompletado de codigo
-// (interruptor de bandeja + extension de VS Code, ver
-// plugins/vscode-ollama-tab). Consume los comandos de
+// Sección del autocompletado de código. Un solo mando: el motor del editor
+// (`ollamaTab.engine` en el settings.json de VS Code, ver
+// plugins/vscode-ollama-tab): tres niveles locales de Ollama, Copilot o
+// apagado. La bandeja del sistema usa el mismo mando (alterna entre el último
+// motor local y Copilot). Consume los comandos de
 // src-tauri/src/ollama/commands.rs:
 //
-//   ollama_status      — estado completo (instalado, servidor, version,
-//                         modelo configurado, cargados, descargados)
-//   ollama_activate    — carga el modelo en memoria (keep_alive: -1)
-//   ollama_deactivate  — lo descarga de memoria
-//   ollama_set_model   — cambia el modelo elegido (persiste + recarga si
-//                         el anterior estaba cargado)
+//   ollama_status      — estado (instalado, servidor, versión, modelo del
+//                         motor local de referencia, cargados, descargados)
+//   editor_engine_status / editor_engine_set — lee y cambia el motor; al
+//                         cambiar suelta los modelos que no tocan y carga
+//                         el del motor elegido
 //   ollama_benchmark   — mide latencia con 5 peticiones FIM en caliente
-//   ollama_pull        — descarga un modelo del registro (progreso via el
+//   ollama_pull        — descarga un modelo del registro (progreso vía el
 //                         evento "ollama_pull_progress")
 //   ollama_delete      — borra un modelo de disco
-//   editor_engine_status / editor_engine_set — motor de autocompletado del
-//                         editor (`ollamaTab.engine` en el settings.json de
-//                         VS Code): low/mid/high locales, Copilot u off
 //
-// Refresco: sondeo cada 5 s mientras el componente esta montado (deja de
-// sondear solo con desmontarlo — no hace falta trackear visibilidad
-// aparte porque el padre, RouterDashboard, ya se desmonta al cambiar de
-// sub-pestaña de AI Router).
+// Etiquetas y estados derivados: ollamaEngine.ts (puro, con tests).
+//
+// Refresco: sondeo cada 5 s mientras el componente está montado (deja de
+// sondear solo con desmontarlo — el padre, RouterDashboard, ya se desmonta
+// al cambiar de sub-pestaña de AI Router).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-
-// ---------------------------------------------------------------------------
-// Tipos — espejo de src-tauri/src/ollama/api.rs
-// ---------------------------------------------------------------------------
-
-/** Espejo de `EditorEngineStatus` en src-tauri/src/ollama/editor.rs. */
-interface EditorEngineStatus {
-  available: boolean;
-  engine: string;
-  model_low: string;
-  model_mid: string;
-  model_high: string;
-  active_model: string | null;
-  settings_path: string | null;
-}
-
-const ENGINE_OPTIONS: { engine: string; label: string; hint: string }[] = [
-  { engine: "low", label: "Low", hint: "Local, rapido y de poca VRAM" },
-  { engine: "mid", label: "Mid", hint: "Local, equilibrio calidad/VRAM" },
-  { engine: "high", label: "High", hint: "Local, el mas capaz; ocupa mucha VRAM" },
-  { engine: "copilot", label: "Copilot", hint: "En la nube; libera la VRAM" },
-  { engine: "off", label: "Off", hint: "Sin autocompletado" },
-];
-
-interface LoadedModel {
-  name: string;
-  size_vram: number;
-  expires_at: string | null;
-}
-
-interface DownloadedModel {
-  name: string;
-  size: number;
-  family: string | null;
-  parameter_size: string | null;
-  quantization_level: string | null;
-}
-
-type ConfiguredModelSource = "env" | "config" | "default";
-
-interface OllamaStatus {
-  installed: boolean;
-  server_up: boolean;
-  version: string | null;
-  configured_model: string;
-  configured_model_source: ConfiguredModelSource;
-  loaded_models: LoadedModel[];
-  downloaded_models: DownloadedModel[];
-}
+import {
+  benchmarkBlockReason,
+  engineOptions,
+  findLoaded,
+  formatExpiry,
+  headerState,
+  isConfiguredDownloaded,
+  isLocalEngine,
+  modelSizeLabel,
+  type EditorEngineStatus,
+  type HeaderTone,
+  type OllamaStatus,
+} from "./ollamaEngine";
 
 interface BenchmarkResult {
   model: string;
@@ -97,10 +60,12 @@ interface PullProgressEvent {
 
 const POLL_MS = 5_000;
 
-const SOURCE_LABEL: Record<ConfiguredModelSource, string> = {
-  env: "variable de entorno ULTRON_OLLAMA_MODEL",
-  config: "elegido en esta pantalla",
-  default: "valor por defecto",
+const TONE_COLOR: Record<HeaderTone, string> = {
+  ok: "var(--color-success, #4ade80)",
+  warn: "var(--color-warn, #facc15)",
+  danger: "var(--color-danger, #f87171)",
+  muted: "var(--color-text-tertiary)",
+  accent: "var(--color-accent, #58a6ff)",
 };
 
 function formatBytes(bytes: number): string {
@@ -111,24 +76,13 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(exp === 0 ? 0 : 1)} ${units[exp]}`;
 }
 
-/** "fijado" cuando Ollama devuelve un `expires_at` muy lejano en el futuro
- * (así es como marca `keep_alive: -1` — visto en runtime: ~300 años
- * vista). Si no, se muestra la hora local de expiracion. */
-function formatExpiry(expiresAt: string | null): string | null {
-  if (!expiresAt) return null;
-  const date = new Date(expiresAt);
-  if (Number.isNaN(date.getTime())) return null;
-  const yearsAhead = (date.getTime() - Date.now()) / (365 * 24 * 60 * 60 * 1000);
-  if (yearsAhead > 10) return "fijado (sin expiracion)";
-  if (yearsAhead < 0) return "expirado";
-  return `hasta ${date.toLocaleTimeString()}`;
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export function OllamaControl() {
   const [status, setStatus] = useState<OllamaStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const [benchmarking, setBenchmarking] = useState(false);
   const [benchmark, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
@@ -150,30 +104,32 @@ export function OllamaControl() {
 
   const refresh = useCallback(async () => {
     try {
-      const s = await invoke<OllamaStatus>("ollama_status");
-      setStatus(s);
+      setStatus(await invoke<OllamaStatus>("ollama_status"));
       setStatusError(null);
     } catch (e) {
-      setStatusError(e instanceof Error ? e.message : String(e));
+      setStatusError(errorText(e));
     }
     try {
       setEngine(await invoke<EditorEngineStatus>("editor_engine_status"));
     } catch (e) {
-      setEngineError(e instanceof Error ? e.message : String(e));
+      setEngineError(errorText(e));
     }
   }, []);
 
-  // Cambiar de motor mueve modelos de VRAM: puede tardar segundos.
+  // Cambiar de motor mueve modelos de VRAM: puede tardar segundos. Se
+  // refresca también si falla, porque el settings.json puede haber cambiado
+  // aunque la carga del modelo no.
   const changeEngine = useCallback(
     async (next: string) => {
       setEngineBusy(true);
       setEngineError(null);
+      setBenchmarkResult(null);
       try {
         setEngine(await invoke<EditorEngineStatus>("editor_engine_set", { engine: next }));
-        await refresh();
       } catch (e) {
-        setEngineError(e instanceof Error ? e.message : String(e));
+        setEngineError(errorText(e));
       } finally {
+        await refresh();
         setEngineBusy(false);
       }
     },
@@ -186,8 +142,8 @@ export function OllamaControl() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Progreso de descarga — filtrado por el modelo que se esta pidiendo
-  // ahora mismo (el evento es global; otra sesion/ventana podria emitirlo).
+  // Progreso de descarga — filtrado por el modelo que se está pidiendo
+  // ahora mismo (el evento es global; otra sesión/ventana podría emitirlo).
   useEffect(() => {
     const unlistenPromise = listen<PullProgressEvent>("ollama_pull_progress", (e) => {
       if (e.payload.model !== pullingModelRef.current) return;
@@ -197,44 +153,6 @@ export function OllamaControl() {
       void unlistenPromise.then((unlisten) => unlisten());
     };
   }, []);
-
-  const isLoaded = status?.loaded_models.some((m) => m.name === status.configured_model) ?? false;
-  const isDownloaded =
-    status?.downloaded_models.some((m) => m.name === status.configured_model) ?? false;
-
-  const toggleActivation = useCallback(async () => {
-    if (!status) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      if (isLoaded) {
-        await invoke("ollama_deactivate", { model: status.configured_model });
-      } else {
-        await invoke("ollama_activate", { model: status.configured_model });
-      }
-      await refresh();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [status, isLoaded, refresh]);
-
-  const changeModel = useCallback(
-    async (name: string) => {
-      setBusy(true);
-      setActionError(null);
-      try {
-        const s = await invoke<OllamaStatus>("ollama_set_model", { name });
-        setStatus(s);
-      } catch (e) {
-        setActionError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
-  );
 
   const runBenchmark = useCallback(async () => {
     if (!status) return;
@@ -247,7 +165,7 @@ export function OllamaControl() {
       });
       setBenchmarkResult(r);
     } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e));
+      setBenchmarkError(errorText(e));
     } finally {
       setBenchmarking(false);
     }
@@ -265,7 +183,7 @@ export function OllamaControl() {
       setPullName("");
       await refresh();
     } catch (e) {
-      setPullError(e instanceof Error ? e.message : String(e));
+      setPullError(errorText(e));
     } finally {
       setPulling(false);
       pullingModelRef.current = null;
@@ -281,7 +199,7 @@ export function OllamaControl() {
         setConfirmDelete(null);
         await refresh();
       } catch (e) {
-        setDeleteError(e instanceof Error ? e.message : String(e));
+        setDeleteError(errorText(e));
       } finally {
         setDeleting(false);
       }
@@ -289,35 +207,13 @@ export function OllamaControl() {
     [refresh],
   );
 
-  // -- Estado derivado para el badge --
-  let badgeLabel = "comprobando…";
-  let badgeColor = "var(--color-text-tertiary)";
-  if (status) {
-    if (!status.installed) {
-      badgeLabel = "no instalado";
-      badgeColor = "var(--color-text-faint, #555)";
-    } else if (!status.server_up) {
-      badgeLabel = "servidor parado";
-      badgeColor = "var(--color-warn, #facc15)";
-    } else if (busy) {
-      badgeLabel = "trabajando…";
-      badgeColor = "var(--color-warn, #facc15)";
-    } else if (isLoaded) {
-      badgeLabel = "cargado";
-      badgeColor = "var(--color-success, #4ade80)";
-    } else if (isDownloaded) {
-      badgeLabel = "descargado (no cargado)";
-      badgeColor = "var(--color-text-tertiary)";
-    } else {
-      badgeLabel = "modelo no descargado";
-      badgeColor = "var(--color-danger, #f87171)";
-    }
-  } else if (statusError) {
-    badgeLabel = "error";
-    badgeColor = "var(--color-danger, #f87171)";
-  }
-
-  const loadedInfo = status?.loaded_models.find((m) => m.name === status.configured_model);
+  const header = headerState(status, engine, statusError, engineBusy);
+  const loadedInfo = findLoaded(status);
+  const isLocal = engine ? isLocalEngine(engine.engine) : false;
+  const benchmarkBlock = benchmarkBlockReason(status, engine);
+  const benchmarkDisabled = benchmarking || benchmarkBlock !== null;
+  const engineDisabled = engineBusy || !engine?.available;
+  const options = engine ? engineOptions(engine) : [];
 
   return (
     <div>
@@ -325,70 +221,64 @@ export function OllamaControl() {
         className="rounded-lg border p-5"
         style={{ background: "var(--color-surface-2)", borderColor: "var(--color-border)" }}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
-                {status?.configured_model ?? "Modelo local"}
-              </span>
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: badgeColor,
-                  flexShrink: 0,
-                }}
-                title={badgeLabel}
-              />
-              <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                {badgeLabel}
-              </span>
-              {status?.version && (
-                <span
-                  className="rounded px-1.5 py-px text-[10.5px] font-medium"
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    background: "var(--color-surface-3)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border)",
-                  }}
-                >
-                  ollama {status.version}
-                </span>
-              )}
-            </div>
-            <p className="text-[12px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
-              Modelo elegido por {status ? SOURCE_LABEL[status.configured_model_source] : "…"}.
-              {loadedInfo && (
-                <>
-                  {" "}
-                  VRAM: {formatBytes(loadedInfo.size_vram)}
-                  {formatExpiry(loadedInfo.expires_at) ? ` · ${formatExpiry(loadedInfo.expires_at)}` : ""}.
-                </>
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void toggleActivation()}
-            disabled={busy || !status?.installed}
-            className="shrink-0 rounded-full px-5 py-2 text-[13px] font-semibold transition-colors"
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
+            {header.title}
+          </span>
+          <span
             style={{
-              background: isLoaded ? "var(--color-success, #4ade80)" : "var(--color-surface-3)",
-              color: isLoaded ? "#062b13" : "var(--color-text-secondary)",
-              border: "1px solid var(--color-border)",
-              opacity: busy || !status?.installed ? 0.6 : 1,
-              cursor: busy || !status?.installed ? "not-allowed" : "pointer",
-              minWidth: 100,
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: TONE_COLOR[header.tone],
+              flexShrink: 0,
             }}
-          >
-            {busy ? "…" : isLoaded ? "Desactivar" : "Activar"}
-          </button>
+            title={header.label}
+          />
+          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            {header.label}
+          </span>
+          {status?.version && (
+            <span
+              className="rounded px-1.5 py-px text-[10.5px] font-medium"
+              style={{
+                fontFamily: "var(--font-mono)",
+                background: "var(--color-surface-3)",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              ollama {status.version}
+            </span>
+          )}
         </div>
+        <p className="text-[12px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+          {status && engine && !isLocal && (
+            <>
+              Motor local de reserva: <code className="font-mono">{status.configured_model}</code>{" "}
+              ({modelSizeLabel(status.configured_model)}); se carga al volver a un motor local.
+            </>
+          )}
+          {isLocal && loadedInfo && (
+            <>
+              VRAM: {formatBytes(loadedInfo.size_vram)}
+              {formatExpiry(loadedInfo.expires_at) ? ` · ${formatExpiry(loadedInfo.expires_at)}` : ""}.
+            </>
+          )}
+          {isLocal && status?.server_up && !loadedInfo && !engineBusy && (
+            isConfiguredDownloaded(status) ? (
+              <>El modelo del motor no está en memoria: vuelve a pulsar su botón para cargarlo.</>
+            ) : (
+              <>
+                <code className="font-mono">{status.configured_model}</code> no está descargado:
+                descárgalo abajo, en «Descargar modelo», antes de usar este motor.
+              </>
+            )
+          )}
+        </p>
 
-        {!status?.installed && status && (
+        {status && !status.installed && (
           <div
             className="mt-3 rounded p-2.5 text-[11.5px] leading-relaxed"
             style={{
@@ -397,10 +287,10 @@ export function OllamaControl() {
               color: "var(--color-text-secondary)",
             }}
           >
-            Ollama no esta instalado (no se encontro <code className="font-mono">ollama.exe</code> en
-            PATH ni en la ruta de instalacion por defecto). Instalalo desde{" "}
-            <code className="font-mono">ollama.com/download</code> y activa la carga en frio tarda
-            hasta ~45 s la primera vez.
+            Ollama no está instalado (no se encontró <code className="font-mono">ollama.exe</code> en
+            PATH ni en la ruta de instalación por defecto). Instálalo desde{" "}
+            <code className="font-mono">ollama.com/download</code>; la primera carga en frío de un
+            modelo tarda hasta ~45 s.
           </div>
         )}
 
@@ -410,44 +300,28 @@ export function OllamaControl() {
           </div>
         )}
 
-        {actionError && (
-          <div className="mt-3 text-[11.5px]" style={{ color: "var(--color-danger)" }}>
-            {actionError}
-          </div>
-        )}
-
-        {/* Motor de autocompletado del editor */}
+        {/* Motor de autocompletado del editor: el único mando */}
         <div className="mt-4">
-          <div className="mb-1.5 flex flex-wrap items-baseline gap-2">
-            <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              Motor del editor:
-            </span>
-            <span className="text-[11.5px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-              {engine ? (engine.active_model ?? ENGINE_OPTIONS.find((o) => o.engine === engine.engine)?.label ?? engine.engine) : "…"}
-            </span>
-            {engineBusy && (
-              <span className="text-[11px]" style={{ color: "var(--color-warn, #facc15)" }}>
-                cambiando…
-              </span>
-            )}
+          <div className="mb-1.5 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            Motor del editor:
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {ENGINE_OPTIONS.map((o) => {
+            {options.map((o) => {
               const active = engine?.engine === o.engine;
               return (
                 <button
                   key={o.engine}
                   type="button"
                   onClick={() => void changeEngine(o.engine)}
-                  disabled={engineBusy || !engine?.available}
-                  title={o.hint}
+                  disabled={engineDisabled}
+                  title={o.title}
                   className="rounded px-2.5 py-1 text-[12px] font-medium transition-colors"
                   style={{
                     background: active ? "var(--color-accent, #58a6ff)" : "var(--color-surface-3)",
                     color: active ? "#04121f" : "var(--color-text-secondary)",
                     border: "1px solid var(--color-border)",
-                    opacity: engineBusy || !engine?.available ? 0.6 : 1,
-                    cursor: engineBusy || !engine?.available ? "not-allowed" : "pointer",
+                    opacity: engineDisabled ? 0.6 : 1,
+                    cursor: engineDisabled ? "not-allowed" : "pointer",
                   }}
                 >
                   {o.label}
@@ -457,7 +331,7 @@ export function OllamaControl() {
           </div>
           {engine && !engine.available && (
             <p className="mt-1.5 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
-              No se encontro el settings.json de VS Code: el motor no se puede cambiar desde aqui.
+              No se encontró el settings.json de VS Code: el motor no se puede cambiar desde aquí.
             </p>
           )}
           {engineError && (
@@ -467,55 +341,33 @@ export function OllamaControl() {
           )}
         </div>
 
-        {/* Selector de modelo */}
-        {status && status.downloaded_models.length > 0 && (
-          <div className="mt-4 flex items-center gap-2">
-            <label className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-              Modelo:
-            </label>
-            <select
-              value={status.configured_model}
-              onChange={(e) => void changeModel(e.target.value)}
-              disabled={busy}
-              className="rounded px-2 py-1 text-[12px]"
-              style={{
-                background: "var(--color-surface-3)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {status.downloaded_models.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.name}
-                  {m.parameter_size ? ` (${m.parameter_size})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
         {/* Latencia */}
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => void runBenchmark()}
-            disabled={benchmarking || !isLoaded}
+            disabled={benchmarkDisabled}
             className="rounded px-3 py-1.5 text-[12px] font-medium"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border)",
-              opacity: benchmarking || !isLoaded ? 0.6 : 1,
-              cursor: benchmarking || !isLoaded ? "not-allowed" : "pointer",
+              opacity: benchmarkDisabled ? 0.6 : 1,
+              cursor: benchmarkDisabled ? "not-allowed" : "pointer",
             }}
-            title={!isLoaded ? "Activa el modelo antes de medir latencia" : undefined}
+            title={benchmarkBlock ?? undefined}
           >
             {benchmarking ? "Midiendo…" : "Medir latencia"}
           </button>
+          {benchmarkBlock && !benchmarking && (
+            <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+              {benchmarkBlock}
+            </span>
+          )}
           {benchmark && (
             <span className="text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
               mediana {benchmark.median_ms} ms · máx {benchmark.max_ms} ms · sugerencia:{" "}
-              <code className="font-mono">{benchmark.suggested_line || "(vacia)"}</code>
+              <code className="font-mono">{benchmark.suggested_line || "(vacía)"}</code>
             </span>
           )}
         </div>
@@ -655,7 +507,7 @@ export function OllamaControl() {
                         opacity: loaded ? 0.5 : 1,
                         cursor: loaded ? "not-allowed" : "pointer",
                       }}
-                      title={loaded ? "Descarga el modelo de memoria antes de borrarlo" : undefined}
+                      title={loaded ? "Está cargado: cambia de motor (Copilot o Apagado lo sueltan) antes de borrarlo" : undefined}
                     >
                       Borrar
                     </button>
@@ -673,7 +525,8 @@ export function OllamaControl() {
       )}
 
       <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-        Interruptor rapido tambien disponible en la bandeja del sistema. Config persistida en{" "}
+        El mismo mando está en la bandeja del sistema: alterna entre el último motor local y
+        Copilot. El último motor local se guarda en{" "}
         <code className="font-mono">~/.ultron/cockpit/ollama/config.json</code>.
       </p>
     </div>

@@ -12,7 +12,13 @@
 //
 // Uso: node scripts/redeploy-memory-sidecar.mjs [--no-build] [--no-relaunch]
 // Sale con 1 si cualquier paso falla o si `version` del binario desplegado no
-// coincide con `git rev-parse --short HEAD`.
+// coincide con `git rev-parse --short HEAD`. Si el binario se compiló con el
+// árbol sucio (`dirty: true`), lo despliega pero lo avisa: su SHA no describe
+// su código y `doctor` dará `versions` en warn hasta recompilar tras commitear.
+//
+// `npm run build:local` termina con `--no-build` (2026-10-23): antes usaba
+// control-center/scripts/deploy-sidecar.mjs, que solo comparaba tamaños, no
+// relanzaba `serve` y salía con 0 si la copia fallaba.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -101,14 +107,36 @@ function deploy() {
   log(`desplegado ${DEPLOYED} (${b} bytes)`);
 }
 
+/**
+ * Veredicto sobre la salida de `ultron-memory version` frente al HEAD.
+ * Puro (sin procesos ni disco) para el selftest. `ok:false` = el despliegue
+ * no es el commit actual; `dirty:true` = es el commit actual más cambios.
+ */
+export function checkVersionOutput(out, head) {
+  let v;
+  try {
+    v = JSON.parse(String(out || '').trim());
+  } catch {
+    return { ok: false, dirty: null, reason: `version no devolvio JSON: ${String(out).slice(0, 120)}` };
+  }
+  const sha = v && typeof v.git_sha === 'string' ? v.git_sha : null;
+  const dirty = v && typeof v.dirty === 'boolean' ? v.dirty : null;
+  if (!sha) return { ok: false, dirty, reason: 'version sin git_sha' };
+  if (head && sha !== head) {
+    return { ok: false, dirty, reason: `el binario desplegado lleva ${sha}, no el HEAD ${head} (build.rs cacheado o copia stale)` };
+  }
+  return { ok: true, dirty, reason: null };
+}
+
 function verifyVersion() {
   const r = run(DEPLOYED, ['version']);
   if (r.status !== 0) fail(`version fallo: ${r.out.slice(0, 200)}`);
-  const head = headSha();
   const out = r.out.trim();
   log(`version => ${out.slice(0, 160)}`);
-  if (head && !out.includes(head)) {
-    fail(`el binario desplegado no lleva el HEAD ${head} (build.rs cacheado o copia stale)`);
+  const verdict = checkVersionOutput(out, headSha());
+  if (!verdict.ok) fail(verdict.reason);
+  if (verdict.dirty === true) {
+    log('AVISO: binario compilado con cambios sin commitear (dirty); doctor dara `versions` en warn hasta recompilar tras commitear');
   }
 }
 
@@ -125,11 +153,17 @@ async function relaunch() {
   log('aviso: el daemon no respondio al ping en 20 s (arranca en frio; los hooks lo relanzan si hace falta)');
 }
 
-(async () => {
+async function main() {
   if (!args.has('--no-build')) build();
+  if (!fs.existsSync(BUILT)) fail(`no existe ${BUILT} (¿build sin la feature qdrant?)`);
   await stopEverything();
   deploy();
   verifyVersion();
   if (!args.has('--no-relaunch')) await relaunch();
   log('OK');
-})().catch((e) => fail(String((e && e.stack) || e)));
+}
+
+// Importable desde el selftest sin ejecutar el despliegue.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => fail(String((e && e.stack) || e)));
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ultron-guardia",
+  "version": "0.1.0",
+  "description": "Guardia de subagentes: quita el model explícito fuera de la familia 5.5, desvía general-purpose al especialista y añade tope de turnos y formato de respuesta"
+}

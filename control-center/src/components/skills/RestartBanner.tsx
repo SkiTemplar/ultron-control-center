@@ -17,7 +17,7 @@ export function RestartBanner({ visible }: RestartBannerProps) {
         className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
         style={{ background: "var(--color-warn, #ca8a04)" }}
       />
-      Restart Claude Code to apply skill changes.
+      Reinicia Claude Code para aplicar los cambios en las skills.
     </div>
   );
 }

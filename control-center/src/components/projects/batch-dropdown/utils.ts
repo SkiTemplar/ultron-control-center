@@ -5,7 +5,7 @@ import type { BatchQueueReason } from "./types";
 export const REASON_LABEL: Record<BatchQueueReason, string> = {
   rejected: "rechazado",
   ai_cannot_execute: "IA no pudo ejecutar",
-  failed: "fallo",
+  failed: "falló",
 };
 
 export const REASON_COLOR: Record<BatchQueueReason, string> = {
@@ -24,14 +24,14 @@ export function formatAge(epoch: number): string {
   if (!epoch) return "-";
   const now = Math.floor(Date.now() / 1000);
   const diff = Math.max(0, now - epoch);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60) return `hace ${diff} s`;
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`;
+  return `hace ${Math.floor(diff / 86400)} d`;
 }
 
 export function clip(s: string, max = 320): string {
   const trimmed = s.trim();
   if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max)}... (+${trimmed.length - max} chars)`;
+  return `${trimmed.slice(0, max)}… (+${trimmed.length - max} caracteres)`;
 }

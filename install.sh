@@ -47,13 +47,12 @@ readonly QDRANT_VERSION="v1.18.0"
 # Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
 readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
 readonly QDRANT_URL="https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/${QDRANT_TARBALL}"
-# TODO: pin Linux Qdrant SHA — fetch from
-#   https://github.com/qdrant/qdrant/releases/tag/v1.18.0
-# Override at runtime with:  ULTRON_QDRANT_SHA=<sha256> ./install.sh
-# When empty we warn + skip verification (current behaviour, matches the
-# zero-check baseline). The verification scaffolding below is wired in
-# install_qdrant() so the moment a SHA is supplied, integrity gating is on.
-QDRANT_SHA256="${ULTRON_QDRANT_SHA:-}"
+# SHA-256 of the v1.18.0 Linux tarball, from the digest GitHub publishes for the
+# release asset (the same source reproduces the hash install.ps1 pins for Windows).
+# Bump it together with QDRANT_VERSION. ULTRON_QDRANT_SHA overrides the pin; there
+# is no way to skip the check.
+readonly QDRANT_SHA256_PINNED="a1d782547c9a5ee3014f969472f64e64603be95ce4cc479d4ec3c91535d63c99"
+readonly QDRANT_SHA256="${ULTRON_QDRANT_SHA:-${QDRANT_SHA256_PINNED}}"
 readonly NODE_MIN_MAJOR=22
 
 # Resolve the directory this script lives in (the repo root) without relying on
@@ -604,9 +603,7 @@ install_claude() {
 # v15.0.2). The tarball ships a single binary; we extract it to
 # ~/.ultron/qdrant-native/qdrant, chmod +x, and seed a minimal config.
 #
-# Unlike install.ps1 we don't pin a SHA256 — the Linux release zip is not yet
-# part of the install.ps1 hardening matrix and pinning one without the
-# maintainer's explicit say-so risks breaking future Qdrant bumps. Flagged in the summary.
+# The tarball is verified against QDRANT_SHA256 before extracting, like install.ps1.
 # ---------------------------------------------------------------------------
 install_qdrant() {
     step "5. Qdrant native (no Docker)"
@@ -627,27 +624,19 @@ install_qdrant() {
         local tmp_tar="/tmp/${QDRANT_TARBALL}"
         info "downloading ${QDRANT_URL}"
         curl -fSL --retry 3 -o "$tmp_tar" "$QDRANT_URL"
-        # Optional SHA256 verification — mirrors install.ps1's pinned check.
-        # When QDRANT_SHA256 is set (env or future hard-coded constant), the
-        # download is verified; mismatch aborts before we extract. When empty,
-        # we warn + continue so the installer keeps working before a maintainer
-        # pins the SHA — same end-state as pre-v15.5.14.
-        if [[ -n "$QDRANT_SHA256" ]]; then
-            local actual_sha
-            actual_sha="$(sha256sum "$tmp_tar" | awk '{print tolower($1)}')"
-            local expected_sha
-            expected_sha="$(printf '%s' "$QDRANT_SHA256" | tr '[:upper:]' '[:lower:]')"
-            if [[ "$actual_sha" != "$expected_sha" ]]; then
-                fail "Qdrant tarball SHA256 mismatch — refusing to extract"
-                fail "  expected: ${expected_sha}"
-                fail "  actual:   ${actual_sha}"
-                rm -f "$tmp_tar"
-                return 1
-            fi
-            ok "Qdrant SHA256 verified: ${actual_sha}"
-        else
-            warn "Qdrant SHA256 not pinned (set ULTRON_QDRANT_SHA=<sha> to gate)"
+        # Mandatory SHA256 verification: a mismatch aborts before extracting.
+        local actual_sha
+        actual_sha="$(sha256sum "$tmp_tar" | awk '{print tolower($1)}')"
+        local expected_sha
+        expected_sha="$(printf '%s' "$QDRANT_SHA256" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$actual_sha" != "$expected_sha" ]]; then
+            fail "Qdrant tarball SHA256 mismatch — refusing to extract"
+            fail "  expected: ${expected_sha}"
+            fail "  actual:   ${actual_sha}"
+            rm -f "$tmp_tar"
+            return 1
         fi
+        ok "Qdrant SHA256 verified: ${actual_sha}"
         info "extracting to ${native_dir}"
         tar -xzf "$tmp_tar" -C "$native_dir"
         rm -f "$tmp_tar"
@@ -817,20 +806,20 @@ init_brain_index() {
 # Hooks and the Control Center look for ~/.ultron/bin/ultron-memory. The
 # prebuilt binary is gitignored, so a fresh clone does NOT ship it. Delegated
 # to scripts/install-memory-sidecar.sh (download prebuilt release asset with
-# SHA-256 check, else cargo build). Non-fatal: hooks are fail-safe and recall
-# degrades to sparse-only (FTS5) until the sidecar exists.
+# SHA-256 check, else cargo build). Without it there is no memory of any kind,
+# so a missing binary is an install error.
 # ---------------------------------------------------------------------------
 install_memory_sidecar() {
     step "7c. memory sidecar (ultron-memory)"
     local script="${REPO_ROOT}/scripts/install-memory-sidecar.sh"
     if [[ ! -f "$script" ]]; then
-        warn "install-memory-sidecar.sh not in repo (older release?) — skip"
+        fail "install-memory-sidecar.sh not in repo: ULTRON has no memory without the sidecar"
         return 0
     fi
-    if bash "$script" --repo-root "$REPO_ROOT"; then
-        ok "ultron-memory sidecar deployed (semantic recall enabled)"
+    if bash "$script" --repo-root "$REPO_ROOT" --dest-dir "${INSTALL_ROOT}/bin" && [[ -x "${INSTALL_ROOT}/bin/ultron-memory" ]]; then
+        ok "ultron-memory sidecar ready: ${INSTALL_ROOT}/bin/ultron-memory"
     else
-        warn "sidecar not installed — recall degrades to sparse-only. Re-run scripts/install-memory-sidecar.sh later."
+        fail "ultron-memory sidecar is NOT installed: ULTRON has no memory without it. Fix the cause above and re-run scripts/install-memory-sidecar.sh."
     fi
 }
 
@@ -1117,7 +1106,7 @@ install_agents() {
     step "10b. agents (copy repo/agents -> ~/.claude/agents)"
     local src="${REPO_ROOT}/agents"
     if [[ ! -d "$src" ]]; then
-        info "no bundled agents/ in repo - install agents from the Agents tab (Install from catalog) after first launch"
+        info "no bundled agents/ in repo - drop agent .md files into ~/.claude/agents and manage them from the Agents tab"
         return 0
     fi
     local dest="${CLAUDE_DIR}/agents"

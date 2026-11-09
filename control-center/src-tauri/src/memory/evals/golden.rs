@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::commands::memory::recall_unified::recall_pack;
+use crate::commands::memory::recall_unified::recall_pack_diagnostic;
 use crate::memory::eval_metrics::{EvalMetrics, GoldenSet};
 
 use super::{classify_leaks, golden_set_path};
@@ -101,7 +101,9 @@ pub fn run_golden_metrics(
     // una regresión real de calidad (audit 08-09: recall 0.823→0.151 "sin
     // motivo" + doctor de 2min pagando timeouts por query). Infra caída se
     // declara como degraded CON CAUSA, nunca como score.
-    if !crate::qdrant::qdrant_healthy_cached() {
+    // Con el denso apagado a proposito (`ULTRON_DENSE=0`) Qdrant no tiene que
+    // estar vivo: se mide el modo sparse, que es el que esta en produccion.
+    if crate::qdrant::dense_enabled() && !crate::qdrant::qdrant_healthy_cached() {
         return GoldenMetricsReport::degraded(
             k,
             "infra_down: Qdrant no responde /healthz — golden omitido (no es regresión de calidad)",
@@ -155,16 +157,17 @@ pub fn run_golden_metrics(
         // metric then scores 0 for it, which is the correct "recovered nothing".
         // Each positive is an independent recall; there is no per-session budget
         // to reset (every recall gets the full per-call cap, never starved).
-        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false, rerank) {
-            Ok(pack) => {
-                returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
-                pack.entries.into_iter().map(|e| e.canonical_id).collect()
-            }
-            Err(e) => {
-                eprintln!("[evals] golden recall failed for '{}': {e}", pos.query);
-                Vec::new()
-            }
-        };
+        let retrieved: Vec<String> =
+            match recall_pack_diagnostic(&pos.query, k, project, false, rerank) {
+                Ok(pack) => {
+                    returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
+                    pack.entries.into_iter().map(|e| e.canonical_id).collect()
+                }
+                Err(e) => {
+                    eprintln!("[evals] golden recall failed for '{}': {e}", pos.query);
+                    Vec::new()
+                }
+            };
 
         let m = EvalMetrics::for_query(&retrieved, &relevant, k);
         per_query.push(m);

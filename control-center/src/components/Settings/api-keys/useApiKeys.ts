@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { confirmDialog } from "../../../lib/dialog";
 import { EMAIL_ENV_VARS, PROVIDER_KEYS, RESEARCH_KEYS } from "./key-catalog";
 import { isPlausibleEmail } from "./validation";
 import type {
@@ -27,6 +28,7 @@ export interface UseApiKeysResult {
   toggleVisible: (envVar: string) => void;
   handleSave: () => Promise<void>;
   handleValidate: () => Promise<void>;
+  handleRemove: (envVar: string) => Promise<void>;
 }
 
 export function useApiKeys(): UseApiKeysResult {
@@ -149,6 +151,26 @@ export function useApiKeys(): UseApiKeysResult {
     }
   }, [fields, loadStatuses]);
 
+  const handleRemove = useCallback(
+    async (envVar: string) => {
+      const ok = await confirmDialog(
+        `Se borrará ${envVar} del entorno de usuario y de los .env de ULTRON. Las sesiones y terminales ya abiertas la conservan hasta que se cierren.`,
+        { title: "Quitar la key", kind: "warning", okLabel: "Quitar", cancelLabel: "Cancelar" },
+      );
+      if (!ok) return;
+      setError(null);
+      setResult(null);
+      try {
+        await invoke<void>("remove_env_key", { key: envVar });
+      } catch (e: unknown) {
+        setError(`No se pudo quitar ${envVar}: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        await loadStatuses();
+      }
+    },
+    [loadStatuses],
+  );
+
   const savedCount = result?.saved.length ?? 0;
   const errorCount = Object.keys(result?.errors ?? {}).length;
 
@@ -166,5 +188,6 @@ export function useApiKeys(): UseApiKeysResult {
     toggleVisible,
     handleSave,
     handleValidate,
+    handleRemove,
   };
 }

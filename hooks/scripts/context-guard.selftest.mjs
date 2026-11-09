@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,13 +92,15 @@ await run('por debajo de 200k (proceso real): sin salida, exit 0 y rapido', asyn
   assert.ok(ms < 1500, `demasiado lento: ${ms} ms`);
 });
 
-await run('LLM caida a 300k: aviso SIN bloquear', async () => {
+await run('LLM caida a 300k: sin bloquear, el juicio pasa al agente', async () => {
   const llm = stub(DOWN);
   const out = await guard.decide(input('s-caida', transcript(300_000)), { llm });
   assert.equal(llm.calls, 1);
-  assert.equal(out.decision, undefined, 'nunca bloquear por un fallo propio');
+  assert.equal(out.decision, undefined, 'nunca bloquear');
   assert.match(out.systemMessage, /300k/);
   assert.match(out.systemMessage, /evaluador no disponible/);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(out.hookSpecificOutput.additionalContext, /Valora tu si conviene compactar/);
 });
 
 await run('LLM caida (proceso real, endpoint cerrado): aviso sin bloquear', async () => {
@@ -118,16 +120,15 @@ await run('LLM caida (proceso real, endpoint cerrado): aviso sin bloquear', asyn
   assert.ok(!log.includes('test-key'), 'la clave nunca llega al log');
 });
 
-await run('compact=true a 300k: bloquea con /compact <focus> y guarda el prompt', async () => {
+await run('compact=true a 300k: NO bloquea; avisa al agente con /compact <focus>', async () => {
   const llm = stub(OK(true, 'conserva el parser de fechas y los tests pendientes'));
-  const out = await guard.decide(input('s-block', transcript(300_000), 'prompt que no debe perderse'), { llm });
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /300k/);
-  assert.match(out.reason, /\/compact conserva el parser de fechas y los tests pendientes/);
-  const dir = join(process.env.ULTRON_CONTEXT_GUARD_STATE_DIR, 'blocked');
-  const saved = readdirSync(dir).filter((f) => f.startsWith('s-block-'));
-  assert.equal(saved.length, 1);
-  assert.equal(readFileSync(join(dir, saved[0]), 'utf8'), 'prompt que no debe perderse');
+  const out = await guard.decide(input('s-advise', transcript(300_000)), { llm });
+  assert.equal(out.decision, undefined);
+  assert.match(out.systemMessage, /300k.*compactar recomendado/);
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.match(ctx, /\/compact conserva el parser de fechas y los tests pendientes/);
+  assert.match(ctx, /Si el trabajo en curso aun depende/);
+  assert.ok(!existsSync(join(process.env.ULTRON_CONTEXT_GUARD_STATE_DIR, 'blocked')), 'ya no guarda prompts bloqueados');
 });
 
 await run('cache: no re-evalua hasta que el contexto crece 40k', async () => {
@@ -149,17 +150,18 @@ await run('NEGATIVO: si el contexto BAJA (hubo /compact) el veredicto viejo no v
   assert.equal(out.decision, undefined);
 });
 
-await run('a 500k bloquea siempre, aunque la LLM diga que no', async () => {
+await run('a 500k recomienda firme siempre, aunque la LLM diga que no (sin bloquear)', async () => {
   const llm = stub(OK(false, 'foco de la llm'));
   const out = await guard.decide(input('s-500', transcript(500_000)), { llm });
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /\/compact foco de la llm/);
+  assert.equal(out.decision, undefined);
+  assert.match(out.hookSpecificOutput.additionalContext, /\/compact foco de la llm/);
+  assert.match(out.hookSpecificOutput.additionalContext, /recomendacion firme/);
 });
 
-await run('a 500k con la LLM caida: bloquea igual con un foco por defecto', async () => {
+await run('a 500k con la LLM caida: recomienda igual con un foco por defecto', async () => {
   const out = await guard.decide(input('s-500-caida', transcript(520_000)), { llm: stub(DOWN) });
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /\/compact conserva la tarea en curso/);
+  assert.equal(out.decision, undefined);
+  assert.match(out.hookSpecificOutput.additionalContext, /\/compact conserva la tarea en curso/);
 });
 
 await run('cruzar 500k invalida el veredicto cacheado (su foco no servia para compactar)', async () => {
@@ -168,10 +170,10 @@ await run('cruzar 500k invalida el veredicto cacheado (su foco no servia para co
   const llm2 = stub(OK(true, 'foco obligatorio'));
   const out = await guard.decide(input('s-cruce', transcript(505_000)), { llm: llm2 });
   assert.equal(llm2.calls, 1, '+25k pero cruzando 500k: se re-evalua');
-  assert.match(out.reason, /\/compact foco obligatorio/);
+  assert.match(out.hookSpecificOutput.additionalContext, /\/compact foco obligatorio/);
 });
 
-await run('proceso real con LLM que responde (servidor local falso): bloquea y sale con 0 sin abortar', async () => {
+await run('proceso real con LLM que responde (servidor local falso): avisa al agente y sale con 0', async () => {
   const server = join(ROOT, 'fake-llm.cjs');
   const portFile = join(ROOT, 'fake-llm.port');
   writeFileSync(server, `
@@ -197,22 +199,29 @@ await run('proceso real con LLM que responde (servidor local falso): bloquea y s
     assert.equal(r.status, 0, `exit ${r.status}: ${r.stderr}`);
     assert.ok(!/Assertion failed/.test(r.stderr), r.stderr);
     const out = JSON.parse(r.stdout);
-    assert.equal(out.decision, 'block');
-    assert.match(out.reason, /tarea cerrada/);
-    assert.match(out.reason, /\/compact conserva los pendientes/);
+    assert.equal(out.decision, undefined);
+    assert.match(out.hookSpecificOutput.additionalContext, /tarea cerrada/);
+    assert.match(out.hookSpecificOutput.additionalContext, /\/compact conserva los pendientes/);
   } finally {
     child.kill();
   }
 });
 
-await run('forzar: deja pasar y silencia el bloqueo hasta +40k', async () => {
+await run('forzar: silencia la recomendacion al agente hasta +40k', async () => {
   const llm = stub(OK(true));
   const f = await guard.decide(input('s-force', transcript(300_000), 'forzar: manda esto'), { llm });
-  assert.equal(f.decision, undefined);
+  assert.equal(f.hookSpecificOutput, undefined);
   const next = await guard.decide(input('s-force', transcript(310_000)), { llm });
-  assert.equal(next.decision, undefined, 'dentro de +40k tras forzar:: solo aviso');
+  assert.equal(next.hookSpecificOutput, undefined, 'dentro de +40k tras forzar:: solo aviso al usuario');
   const later = await guard.decide(input('s-force', transcript(345_000)), { llm });
-  assert.equal(later.decision, 'block', 'pasados +40k vuelve a bloquear');
+  assert.equal(later.decision, undefined);
+  assert.match(later.hookSpecificOutput.additionalContext, /\/compact/, 'pasados +40k vuelve a avisar al agente');
+});
+
+await run('NEGATIVO: compact=false no mete nada en el contexto del agente', async () => {
+  const out = await guard.decide(input('s-no', transcript(300_000)), { llm: stub(OK(false)) });
+  assert.equal(out.hookSpecificOutput, undefined);
+  assert.match(out.systemMessage, /no hace falta compactar/);
 });
 
 await run('ULTRON_CONTEXT_GUARD=0 apaga el hook', async () => {

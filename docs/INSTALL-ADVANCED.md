@@ -13,8 +13,8 @@ Polished narrative walkthrough also lives at [`docs/INSTALL.md`](INSTALL.md).
 
 On first run, `install.ps1` opens a WinForms window with one checkbox per
 optional component, grouped into Core (greyed, always installed), Memory,
-Claude Code integration, Optional UI (Tauri build is **off by default** —
-it's a 3-5 min Rust compile), and Optional features. Your choices are
+Claude Code integration, Control Center (the desktop app build is **on by
+default**: up to ~25 minutes of Rust on a cold build), and Optional features. Your choices are
 saved to `~/.ultron/cockpit/install-profile.json`, so re-runs pre-check
 the same boxes.
 
@@ -42,13 +42,13 @@ wizard — re-running is idempotent and the purge step is safe to re-do.
 
 | Wizard ID            | Feature              | Files removed when unchecked                                                                                                                |
 | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feat_gaming`        | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                                       |
+| `feat_gaming`        | Gaming utilities     | `scripts/cockpit/gaming-enum.ps1`                                                                                                           |
 | `feat_schedules`     | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                                     |
 | `feat_notifications` | Notifications        | `scripts/qdrant/qdrant-notify.ps1`                                                                                                          |
-| `feat_usage`         | Usage tracking       | `scripts/cockpit/usage_report.py`, `scripts/cockpit/token_baseline.py`, `scripts/cockpit/token_budget.py`                                   |
-| `feat_sessions`      | Sessions archive     | `scripts/cockpit/session_compactor.py`, `scripts/cockpit/session_highlights.py`, `scripts/cockpit/session_replay.py`                        |
+| `feat_usage`         | Usage tracking       | `scripts/cockpit/token_baseline.py`, `scripts/cockpit/token_budget.py`                                                                      |
+| `feat_sessions`      | Sessions archive     | none (only the `sessions` flag in `features.json`)                                                                                         |
 | `feat_project`       | Project manager      | `scripts/cockpit/project_editor.py`, `scripts/cockpit/project_notes.py`, `scripts/cockpit/launch_project.py`, `scripts/cockpit/scan_projects.py` |
-| `feat_plans`         | Plans & goals        | `scripts/cockpit/plans_cli.py`                                                                                                              |
+| `feat_plans`         | Plans & goals        | none (only the `plans` flag in `features.json`)                                                                                            |
 
 Core deps (Git, Node, uv, Claude Code CLI, layout) are **always** installed —
 they're hard requirements. Skills, agents, hooks, brain_index and Qdrant
@@ -158,9 +158,10 @@ winget install Rustlang.Rustup --silent --accept-source-agreements --accept-pack
 rustup default stable
 ```
 
-Rust is needed for `tauri build` (step 10). On a fresh install Windows
-may print a notice that the MSVC linker needs a **reboot** to fully
-register — the installer surfaces this but does not force the reboot.
+Rust is needed for the memory sidecar and for `tauri build` (step 10). rustup
+does not install the MSVC linker: step 3c detects `link.exe` and offers the
+MSVC Build Tools by winget (several GB, asks for elevation). Without the linker
+and without a prebuilt release asset, the installer ends with an error.
 
 > [!NOTE]
 > This reboot notice is legacy: it only fires on a truly fresh box where the
@@ -230,9 +231,10 @@ $dirs | ForEach-Object { New-Item -ItemType Directory -Path $_ -Force | Out-Null
 
 ### 7. Claude Code hooks
 
-ULTRON ships hook definitions in `templates/settings-hooks.json`. Merge
-them into `~/.claude/settings.json` by hand if the installer's merge
-step fails:
+ULTRON ships hook definitions in `templates/settings-hooks.json`, generated
+from the maintainer's live `settings.json` by `node hooks/regen-manifest.js`
+(do not edit it by hand). Merge it into `~/.claude/settings.json` by hand if
+the installer's merge step fails:
 
 1. Open `templates\settings-hooks.json` and replace every `{USERPROFILE}`
    with your home path using forward slashes
@@ -244,20 +246,9 @@ step fails:
    `theme`, plugins, etc.).
 4. Restart Claude Code.
 
-Hook list ULTRON registers:
-
-| Phase            | Matcher                       | Script                                |
-| ---------------- | ----------------------------- | ------------------------------------- |
-| SessionStart     | (all)                         | `hooks/scripts/ensure-qdrant.js`, `memory-warmup.js`, `load-cross-project-memory.js`, `session-start-override.js`, `memory-session-resume.js` |
-| UserPromptSubmit | (all)                         | `cockpit/skill-lazy/routing-dispatcher.v2.js` + `hooks/scripts/save-user-prompt.js` + `memory-orchestrate.js` |
-| PreToolUse       | `Read\|Edit\|Write\|NotebookEdit\|Bash` | `hooks/scripts/deny-secrets.js` |
-| PreToolUse       | `Read\|Grep`                  | `hooks/scripts/codegraph-reminder.js` |
-| PostToolUse      | (all)                         | `hooks/scripts/posttoolfail-capture.js` |
-| PreCompact       | (all)                         | `hooks/scripts/precompact-preserve-l0.js` |
-| SubagentStop     | (all)                         | `hooks/scripts/subagent-harvest.js`   |
-| SessionEnd       | (all)                         | `hooks/scripts/session-end-summary.js` |
-| Notification     | (all)                         | `hooks/scripts/notify-relay.js`       |
-| Stop             | (all)                         | `hooks/scripts/stop-compress-session.js` + `kanban-update-reminder.js` + `batch-capture.js` + `qdrant-mirror-sync.js` + `scripts/cockpit/route_quality_aggregator.py` |
+The list of hooks ULTRON registers (event, matcher, timeout, async) is the
+`hooks` block of `templates/settings-hooks.json`; `hooks/manifest.json` and
+`hooks/README.md` describe each one.
 
 ### 8. Skills
 
@@ -278,10 +269,14 @@ Skip skills you don't want — Claude Code only loads what's in
 
 Autonomous subagents live under `~/.claude/agents/`. The **public repo does
 not ship an `agents/` directory** (community agents carry their own licenses),
-so a fresh install copies nothing here. Install the agents you want from the
-**Agents tab** in the Control Center, which reads `cockpit/agent-catalog.json`
-(~70 entries from the VoltAgent, wshobson, and hesreallyhim community sources)
-and pulls each on demand.
+so a fresh install copies nothing here, and there is no catalog to install
+from: bring your own agent files (for example from the VoltAgent, wshobson or
+hesreallyhim community repositories). The **Agents tab** in the Control Center
+lists, previews, edits and enables/disables what is already on disk. It only
+enables, or saves as active, an agent whose frontmatter pins an exact
+5.5-family `model` (`claude-opus-5-5`, `claude-sonnet-5-5` or
+`claude-haiku-5-5`) and a positive `maxTurns`; anything else is refused with
+the reason.
 
 To install an agent by hand:
 
@@ -368,7 +363,7 @@ AtLogon only, not free-form cron).
 The happy path on Linux is the bootstrap one-liner:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron-control-center/main/bootstrap.sh | bash
 ```
 
 If `bootstrap.sh` or `install.sh` aborts at any step, run the equivalent
@@ -546,4 +541,4 @@ Or use the canonical uninstaller that backs everything up first:
 - Bootstrap + manual installer fallback: `INSTALL.md`
 - Polished install walkthrough:   `docs/INSTALL.md`
 - Hook & telemetry reference:     `scripts/hooks/README.md`
-- Issue tracker:                  <https://github.com/SkiTemplar/ultron/issues>
+- Issue tracker:                  <https://github.com/SkiTemplar/ultron-control-center/issues>

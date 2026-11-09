@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Se publica como LienzoDesk.exe: los accesos del dock, Nilesoft y el arranque ya apuntan a ese nombre. -->
+    <AssemblyName>LienzoDesk</AssemblyName>
+    <RootNamespace>LienzoLaunch</RootNamespace>
+    <!-- NativeAOT: sin runtime de .NET que cargar, cada clic del dock arranca en milisegundos (con el lanzador
+         .NET eran ~60 ms en caliente y ~700 ms en frío). -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>

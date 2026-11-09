@@ -28,45 +28,21 @@ export type ButtonPromptsCatalog = {
   buttons: ButtonPrompt[];
 };
 
-let cache: ButtonPromptsCatalog | null = null;
+// Sin caché entre llamadas: `getPrompt` corre al pulsar un botón, el IPC cuesta
+// milisegundos y una caché por ventana ignoraba las ediciones de Settings hasta
+// reiniciar. Solo se comparte la lectura en curso.
 let inflight: Promise<ButtonPromptsCatalog> | null = null;
-const subscribers = new Set<(c: ButtonPromptsCatalog) => void>();
 
-function notify() {
-  if (cache) {
-    subscribers.forEach((cb) => cb(cache as ButtonPromptsCatalog));
-  }
-}
-
-async function loadCatalog(force = false): Promise<ButtonPromptsCatalog> {
-  if (!force && cache) return cache;
+async function loadCatalog(): Promise<ButtonPromptsCatalog> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const c = (await invoke("list_button_prompts")) as ButtonPromptsCatalog;
-      cache = c;
-      notify();
-      return c;
+      return (await invoke("list_button_prompts")) as ButtonPromptsCatalog;
     } finally {
       inflight = null;
     }
   })();
   return inflight;
-}
-
-export function subscribeButtonPrompts(
-  cb: (c: ButtonPromptsCatalog) => void,
-): () => void {
-  subscribers.add(cb);
-  if (cache) cb(cache);
-  else void loadCatalog().catch(() => {});
-  return () => {
-    subscribers.delete(cb);
-  };
-}
-
-export async function refreshButtonPrompts(): Promise<ButtonPromptsCatalog> {
-  return loadCatalog(true);
 }
 
 function renderPrompt(template: string, vars: Record<string, string>): string {
@@ -87,60 +63,6 @@ export async function getPrompt(
     throw new Error(`unknown button prompt key: ${key}`);
   }
   return renderPrompt(entry.prompt, vars);
-}
-
-export async function updateButtonPrompt(
-  key: string,
-  prompt: string,
-): Promise<ButtonPrompt> {
-  const updated = (await invoke("update_button_prompt", {
-    key,
-    prompt,
-  })) as ButtonPrompt;
-  await refreshButtonPrompts();
-  return updated;
-}
-
-export async function resetButtonPrompt(key: string): Promise<ButtonPrompt> {
-  const updated = (await invoke("reset_button_prompt", { key })) as ButtonPrompt;
-  await refreshButtonPrompts();
-  return updated;
-}
-
-export function cachedCatalog(): ButtonPromptsCatalog | null {
-  return cache;
-}
-
-/**
- * Render a prompt template against its vars (no I/O). Useful for previewing
- * what would be sent without touching the backend. Returns the template as-is
- * with missing vars left in `{placeholder}` form.
- */
-export function renderButtonPrompt(
-  entry: ButtonPrompt,
-  vars: Record<string, string> = {},
-): string {
-  return renderPrompt(entry.prompt, vars);
-}
-
-/**
- * Copy a rendered prompt to the system clipboard. Uses `navigator.clipboard`,
- * which is the convention already used elsewhere in the Control Center
- * (InboxModal, PluginsSection, CodexFallbackButton).
- *
- * Throws if the browser denies clipboard access (e.g. when the WebView is
- * focusless). Callers should surface the error to the user.
- */
-export async function copyButtonPromptToClipboard(
-  entry: ButtonPrompt,
-  vars: Record<string, string> = {},
-): Promise<string> {
-  const rendered = renderButtonPrompt(entry, vars);
-  if (!navigator.clipboard || !navigator.clipboard.writeText) {
-    throw new Error("Clipboard API not available in this WebView.");
-  }
-  await navigator.clipboard.writeText(rendered);
-  return rendered;
 }
 
 // ---------------------------------------------------------------------------

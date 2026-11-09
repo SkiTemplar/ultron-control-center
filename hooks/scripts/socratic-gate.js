@@ -47,6 +47,7 @@ const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
 const { isSystemTurnPrompt } = require('./lib/system-turn');
 const { findTrabajoMarker } = require('./lib/uni-trabajo');
+const { socraticMarkerPath } = require('./lib/socratic-marker');
 observe('socratic-gate');
 
 const PROJECTS_REGISTRY_PATH =
@@ -66,7 +67,8 @@ const ACK_WORDS = new Set([
 const DELEGATION_PHRASES = [
   'lo que veas', 'como veas', 'tu decides', 'decide tu', 'elige tu',
   'me da igual', 'lo que sea', 'lo que tu creas', 'tu mismo', 'tu sabras',
-  'lo que prefieras', 'cualquiera vale', 'la que sea',
+  'lo que prefieras', 'cualquiera vale', 'la que sea', 'tu veras', 'en tus manos',
+  'la que recomiendes', 'lo que recomiendes', 'lo que recomiendas', 'la que recomiendas',
 ];
 
 // Eleccion de opcion SIN porque ("la 1", "opcion b", "la primera"): CLAUDE.md
@@ -112,12 +114,29 @@ function looksDecisional(prompt) {
   return DECISION_HINTS.some((h) => norm.includes(h));
 }
 
+// La forma mas habitual de eludir la eleccion razonada: un asentimiento pegado a
+// la opcion, delante o detras ("si, la 2", "vale, la primera", "la 2 dale"). Se
+// quitan los acks de los extremos y lo que queda debe ser solo la eleccion; con una
+// razon detras ("la 2 porque es mas simple") ya no casa.
+function isAckPlusPick(norm) {
+  const tokens = norm.split(' ');
+  let ini = 0;
+  let fin = tokens.length;
+  while (ini < fin && ACK_WORDS.has(tokens[ini])) ini++;
+  while (fin > ini && ACK_WORDS.has(tokens[fin - 1])) fin--;
+  if (ini === 0 && fin === tokens.length) return false;
+  return fin > ini && OPTION_PICK_RE.test(tokens.slice(ini, fin).join(' '));
+}
+
 // True si el prompt es un ack de bajo esfuerzo, una delegacion de decision,
 // o una eleccion de opcion sin porque.
 function isLowEffort(prompt) {
   const norm = normalize(prompt);
-  if (!norm) return false;
+  // Solo emojis o puntuacion (un pulgar arriba): un asentimiento sin palabras. Un
+  // prompt vacio no lo es, y una imagen pegada llega con su marcador de texto.
+  if (!norm) return /\S/.test(String(prompt || ''));
   if (OPTION_PICK_RE.test(norm)) return true;
+  if (isAckPlusPick(norm)) return true;
   // Delegacion solo en respuestas cortas: incrustada en un prompt tecnico
   // largo ("...aunque me da igual el naming...") no es delegar la decision.
   if (norm.length <= 60) {
@@ -193,6 +212,9 @@ const FULL_MSG =
 const LIGHT_SUFFIX =
   ' [modo light en este proyecto: presenta las opciones, pero un "ok" del ' +
   'usuario vale como eleccion; sin escalada.]';
+
+// SHORT_MSG dice "no un ok": en light es lo contrario del modo si va sin esto.
+const LIGHT_SUFFIX_SHORT = ' [light: aqui un "ok" del usuario SI vale como eleccion; sin escalada.]';
 
 // Modo uni (2026-09-14): NO repite el protocolo base (arriba) — solo anade
 // las tres reglas de asignatura. Version larga en el primer prompt/escalada,
@@ -271,7 +293,9 @@ function handle(raw) {
   if ((mode === 'strict' || mode === 'uni') && isLowEffort(prompt)) {
     msg = mode === 'uni' ? ESCALATED_MSG + markerLine(cwd) : ESCALATED_MSG;
   } else {
-    const marker = path.join(os.tmpdir(), `ultron-socratic-${sessionId}`);
+    // El marcador lo borra PreCompact (lib/socratic-marker.js): tras compactar
+    // el primer prompt vuelve a llevar el protocolo completo (hooks-11).
+    const marker = socraticMarkerPath(sessionId);
     let firstTime = false;
     try {
       if (!fs.existsSync(marker)) {
@@ -287,7 +311,9 @@ function handle(raw) {
       else if (mode === 'uni') msg = FULL_MSG + UNI_SUFFIX + markerLine(cwd);
       else msg = FULL_MSG;
     } else if (looksDecisional(prompt)) {
-      msg = mode === 'uni' ? SHORT_MSG + UNI_SUFFIX_SHORT : SHORT_MSG;
+      if (mode === 'uni') msg = SHORT_MSG + UNI_SUFFIX_SHORT;
+      else if (mode === 'light') msg = SHORT_MSG + LIGHT_SUFFIX_SHORT;
+      else msg = SHORT_MSG;
     } else {
       return; // turno sin decision a la vista: cero tokens (recorte 2026-08-13)
     }

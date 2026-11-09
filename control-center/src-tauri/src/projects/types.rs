@@ -92,6 +92,11 @@ pub struct ProjectInfo {
     /// ciegas (mandamiento 11 — nada de no-op silencioso).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_command: Option<String>,
+    /// «Jugar» — motor detectado en disco al listar (`game::detect_game_project`:
+    /// `.uproject` o `Assets/` + `ProjectSettings/` en la ruta o en una subcarpeta
+    /// directa). No se guarda en projects.json. `None` = sin botón «Jugar».
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_engine: Option<super::game::GameEngine>,
 }
 
 /// v2.6.2 — single Quick Launch executable. `name` is the user-facing label;

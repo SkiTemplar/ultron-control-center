@@ -8,73 +8,81 @@ A flat index of everything you can run, organised by surface:
 4. [The `ultron` shell alias](#4-the-ultron-shell-alias)
 5. [Hooks](#5-hooks)
 
-If you only read one section, read **§1** — the command palette is the fastest path to 90 % of what the system does.
+If you only read one section, read **§1**: the command palette is the fastest path to most of what the system does.
 
 > [!NOTE]
-> **Platform notes.** Most things are cross-platform: the
-> command palette, Python cockpit toolkit, the Node.js hooks, the
-> memory pipeline, and the bulk of the `ultron` shell alias all work on
-> both Windows and Linux. Surfaces that are Windows-only are marked with
-> **(Windows-only)** below. On Linux the Control Center hides those
-> entries; running the underlying script directly is a no-op or errors
-> cleanly. PowerShell-only helpers (`*.ps1`) do not run on Linux; their
-> bash siblings (where they exist) are noted inline.
+> **Platform notes.** The command palette, the Python cockpit toolkit, the
+> Node.js hooks and the memory pipeline work on Windows and Linux. Surfaces
+> that are Windows-only are marked **(Windows-only)** below. PowerShell
+> helpers (`*.ps1`) do not run on Linux; their bash siblings (where they
+> exist) are noted inline.
 
 ---
 
 ## 1. Control Center command palette (Ctrl+K)
 
-Press `Ctrl+K` anywhere in the Control Center to open the fuzzy palette. Type a few letters and the right action surfaces. Categories:
+Press `Ctrl+K` anywhere in the Control Center to open the fuzzy palette. Type a few letters and the right action surfaces.
 
-> **Tabs (real layout, `Sidebar.tsx` + `App.tsx`).** Top-level tabs are:
-> **Dashboard, Usage, AI Router, System, MCPs, Library, Memory, Notes,
-> Sessions, Projects, Finance, Settings, Notifications**. **Skills, Agents and
-> Rules are NOT top-level** — they are **sub-tabs of Library** (alongside
-> **Updates**, the plugin update-check panel). System hosts the
-> Hooks/Schedules sub-tabs. Finance is build-gated
-> (`VITE_FINANCE=1`). Each tab is still reachable individually via the command
-> palette and deep-links even when it lives under another tab.
+> **Tabs (real layout, `SECTIONS` in `Sidebar.tsx`).** Top-level tabs:
+> **Dashboard, Usage, AI Router, System, MCPs, Library, Notes, Lab, Session
+> Monitor, Projects, Finance**, plus **Notifications** and **Settings** at the
+> bottom. Finance is build-gated (`VITE_FINANCE=1`); Usage, MCPs, Library,
+> Session Monitor and Projects can be hidden by `features.json`. The sidebar
+> is in English; the palette labels are in Spanish.
+>
+> - **Library** sub-tabs: Skills, Agents, Rules, Plugins, Hooks, Catalog,
+>   Commands, Tones (`LibrarySubTab` in `Library.tsx`).
+> - **System** sub-tabs: Diagnostics, Apps, Tasks, Turn off
+>   (`SystemSubTab` in `system/system-tab/types.ts`). Hooks moved to Library.
+> - **AI Router** is its own tab (sub-tabs Dashboard, Providers, Zones), not a
+>   Settings section.
 
-| Category | Examples |
+| Group | Actions (labels as they appear) |
 |---|---|
-| **Navigate** | Go to Dashboard / Memory / Library (Skills · Agents · Rules · Updates) / Sessions / Projects / MCPs / Settings (and the "More" tier) |
-| **Actions** | Refresh dashboard data · Open Settings · Close Control Center |
-| **Diagnostics** | Run Full Diagnostic · Detect Pending Items · Run Doctor · PC Diagnose (last 24 h) · Codex Adversarial Review · Self-Improve Report |
-| **AI** | Spawn Claude session · Spawn Codex session |
-| **Maintenance** | (dynamic — pulled from `list_maintenance_commands_inner`, see §2) |
-| **Memory** | Qdrant re-embed vault · Embed skills index |
-| **System** | Rebuild Control Center · Uninstall ULTRON · Reset ULTRON mode to autodetect · Purge legacy autostart · Scan projects |
+| **Navegar** | `Ir a <tab>` for every visible sidebar tab, in sidebar order (Dashboard · Usage · AI Router · System · MCPs · Library · Notes · Lab · Session Monitor · Projects · Finance), then `Library · Skills` / `Library · Agentes` / `Library · Reglas`, `Ir a Notifications` and `Ir a Settings` |
+| **Navegar (ocultas)** | `Ir a Notas de versión` · `Ir a Planes` (tabs with no sidebar entry) |
+| **Acciones** | Actualizar los datos del panel · Abrir Ajustes · Mostrar la pantalla de bienvenida · Cerrar Control Center |
+| **Diagnóstico** | Abrir el diagnóstico del sistema |
+| **IA** | Abrir la ventana de ULTRON Sessions · Lanzar una sesión de Claude · Lanzar una sesión de Codex |
+| **Mantenimiento (skills / sistema / PC)** | Dynamic: one entry per command from `list_maintenance_commands_inner` (see §2) |
+| **Sistema** | Recompilar Control Center · Desinstalar ULTRON · Limpiar entradas antiguas de arranque automático · Escanear proyectos |
 
-The palette is fuzzy: `skreg` matches `Skill registry rebuild`, `agreem` matches `Agents re-embed`. `↑↓` to navigate, `Enter` to fire, `Esc` to close.
+Navigation follows the sidebar filters (a tab hidden by `features.json` or
+not built, like Finance without `VITE_FINANCE=1`, has no entry). Sources:
+`buildTabActions` in `src/components/CommandPalette.tsx`, the `extraActions`
+built in `src/App.tsx` and `src/components/palette/systemPaletteActions.ts`
+(maintenance entries and «Recompilar Control Center», which asks for
+confirmation). `↑↓` to navigate, `Enter` to fire, `Esc` to close.
 
 ---
 
 ## 2. Maintenance commands
 
-Surfaced both in the palette (under `Maintenance ·`) and as buttons on the Dashboard. All run from the Tauri backend with `CREATE_NO_WINDOW` (Windows) or a detached spawn (Linux); results land in `~/.ultron/cockpit/audits/`.
+Surfaced in the palette (`Maintenance (<group>)`) and, for the `pc` group, in
+the Dashboard "Fix common issues" strip. The list lives in
+`control-center/src-tauri/src/maintenance/commands.rs`
+(`list_maintenance_commands_inner`, and `build_cmd` maps each `kind` to the
+executable it runs). Entries with `destructive: true` (`doctor-fix`,
+`pc-reset-network`, `pc-restart-explorer`, `pc-clear-temp`) ask for
+confirmation in the palette, and every result is shown: a non-zero exit
+(`success: false`) is reported as a failure with its exit code.
 
-| Kind | Platform | What it does |
-|---|---|---|
-| `skill-registry-rebuild` | cross | Re-scan `~/.claude/skills`, refresh `~/.ultron/skills/registry.json` with security verdicts. |
-| `skill-security-audit` | cross | Run the prompt-injection scanner against every installed skill (JSON report). |
-| `registry-sync` | cross | Rebuild the cross-CLI skill manifest (Claude / Codex / Agents mirrors). |
-| `memory-vault-sync` | cross | Refresh `~/.ultron-vault` highlights + brain_index incremental update. |
-| `brain-index-update` | cross | Incrementally re-index changed notes into `~/.ultron/brain_index`. |
-| `mcp-health` | cross | Probe configured MCP servers and write the latest status snapshot. |
-| `weekly-backup` | cross | Run the weekly mirror backup script (ps1 on Windows, sh on Linux). Updates the Doctor backup status. |
-| `agents-reembed` | cross | Re-vectorize `~/.claude/agents` into Qdrant for semantic discovery. |
-| `deadwood-scan` | cross | Detect orphaned scripts, stale skills, unreferenced data files. |
-| `doctor-fix` | cross | Run doctor with `--fix` to apply only the changes marked safe. |
-| `audit-skills` | cross | Aggregate usage / freshness stats per persona — output to `~/.ultron/cockpit/audits/`. |
-| `nsis-uninstall` | Windows-only | Run the NSIS uninstaller for the desktop app. |
-| `crashdumps-cleanup` | Windows-only | Purge `%LOCALAPPDATA%\CrashDumps`. |
-| `recycle-bin-empty` | Windows-only | Empty the Recycle Bin. |
-| `msi-repair` | Windows-only | `msiexec /fa` against the installed MSI. |
+| Kind | Group | Platform | What it runs |
+|---|---|---|---|
+| `skill-security-audit` | skills | cross | `skill_sync_security.py audit-all --json` |
+| `registry-sync` | skills | cross | `registry_sync.py update-manifest` |
+| `mcp-health` | system | cross | `mcp_health_check.py --quiet` |
+| `weekly-backup` | system | cross | `scripts/backup/weekly-backup.ps1` (Windows) or `.sh` (Linux); errors if the script is missing |
+| `deadwood-scan` | system | cross | `deadwood_scanner.py` |
+| `doctor-fix` | system | cross | `doctor.py --fix --yes`: applies every proposed fix without asking (destructive: the UI confirms first) |
+| `pc-flush-dns`, `pc-reset-network`, `pc-disk-cleanup`, `pc-reliability-monitor`, `pc-task-manager`, `pc-restart-explorer`, `pc-clear-temp`, `pc-windows-update`, `pc-open-hosts` | pc | Windows-only | Hard-coded Windows commands (`ipconfig /flushdns`, `cleanmgr.exe`, `perfmon /rel`, ...) |
 
-Linux builds hide the Windows-only entries automatically via
-`#[cfg(target_os = "windows")]` gates in `maintenance.rs`. Add a new
-command in that file — the palette picks it up through
-`list_maintenance_commands_inner`.
+`build_cmd` also accepts more `pc-*` kinds that are not in the default list
+(`pc-renew-ip`, `pc-winsock-reset`, `pc-restart-*`, `pc-repair-wu`, `pc-sfc`,
+`pc-dism`, `pc-chkdsk`, `pc-reset-firewall`, `pc-wsreset`, ...); the
+Diagnostics panel fires some of them directly. All `pc-*` arms are gated with
+`#[cfg(target_os = "windows")]`; on other hosts they fall through to the
+unknown-kind error.
 
 ---
 
@@ -84,115 +92,127 @@ Scripts under `scripts/cockpit/*.py`. Always run them with `uv run python <scrip
 
 | Script | What it does |
 |---|---|
-| `brain_index.py` | Manage the SQLite + FTS5 keyword index over the vault. |
-| `embed_skills.py` | Vectorise skills metadata into Qdrant (`ultron_skills` collection). |
+| `brain_index.py` | Manage the SQLite + FTS5 keyword index over the vault (`~/.ultron/brain_index/index.db`). |
+| `embed_skills.py` | Vectorise skills metadata into Qdrant (`ultron_skills` collection). Optional: needs a running Qdrant. |
 | `doctor.py` | Full system health check; `--fix` to apply safe auto-fixes; `--json` for machine-readable output. |
 | `registry_sync.py` | Rebuild cross-CLI skill manifests. |
-| `skill_vault.py` | Manage the skill vault: `search` / `restore` / `stats`. |
+| `skill_vault.py` | Manage the skill vault: `search` / `restore` / `stats`. `registry` rewrites `skills/registry.json` (local, gitignored, nothing regenerates it automatically); the Skills tab reads `priority`, `usage_count` and `tags` from it. |
 | `skill_sync_security.py` | Run the prompt-injection scanner over `~/.claude/skills`. |
 | `mcp_health_check.py` | Probe registered MCP servers. |
 | `deadwood_scanner.py` | Find orphan files in the cockpit tree. |
 
 > **Status:** `version_propagate.py` is a **CI-only gate** (not user-facing).
-> It exists at `scripts/cockpit/version_propagate.py` and runs in
-> `.github/workflows/ci.yml` as the `version-drift` job to verify that all
-> version files (Cargo.toml, package.json, pyproject.toml, README badges, etc.)
-> stay synchronized with the canonical version in `pyproject.toml`. Users do
-> **not** call this directly — the Rust `version_drift` module and the release
-> helper `scripts/cut-release.ps1` are the maintainer-facing tools (see
-> `docs/RELEASE-PROCESS.md`). For end-users, version bumps happen transparently
-> via the auto-updater.
+> It runs in `.github/workflows/ci.yml` as the `version-drift` job to verify
+> that the installer versions (`install.ps1`, `install.sh`,
+> `install-wizard.ps1`) and the markdown bodies match the canonical version in
+> `pyproject.toml`. The Control Center manifests (`package.json`, `Cargo.toml`,
+> `tauri.conf.json`, `CC_TARGETS` in the script) carry their own version (15.x):
+> they are only checked against each other, not against `pyproject.toml`, so
+> the two can differ. Maintainers bump versions with `scripts/cut-release.ps1`
+> (see `docs/RELEASE-PROCESS.md`).
 
-The full Python toolkit is ~47 scripts (40 under `scripts/cockpit/`, the rest in `scripts/` and `scripts/hooks/`); the ones above are the ones the UI surfaces directly.
+The Python toolkit is 36 scripts under `scripts/cockpit/` plus 5 in `scripts/`
+and `scripts/hooks/`; the ones above are the ones the UI surfaces directly.
 
 ---
 
 ## 4. The `ultron` shell alias
 
-`scripts/cockpit/ultron.ps1` is the canonical CLI front-end on Windows
-and is wired up as a function in the user's `$PROFILE` by `install.ps1`.
-On Linux the cockpit tools are invoked directly with `uv run python
-~/.ultron/scripts/cockpit/<tool>.py …` — there is currently **no
-`ultron.sh` wrapper**; a Linux-side alias is tracked as a future polish
-item. The Windows wrapper exposes ~60 subcommands (one `switch` branch each
-in `ultron.ps1`); the underlying Python tools they invoke are cross-platform.
-The ones you actually use day-to-day:
+`scripts/cockpit/ultron.ps1` is a manual CLI front-end for the cockpit
+scripts on Windows. The Control Center does not call it (open and scan live
+in Rust). `install.ps1` does **not** add it to `$PROFILE`: run
+`ultron.ps1 alias` to print the function to paste into your profile. On Linux
+call the tools directly with `uv run python ~/.ultron/scripts/cockpit/<tool>.py`.
+
+Since 2026-10-08 it only dispatches subcommands whose target script exists:
 
 | Command | Purpose |
 |---|---|
-| `ultron status` | Print L0/L1/L2 memory size + Qdrant health + recent alerts. |
-| `ultron doctor` | Read-only health check. |
-| `ultron doctor --fix` | Apply safe fixes interactively. |
-| `ultron recall "<query>"` | Hybrid FTS5 + Qdrant search across vault / skills / agents. |
-| `ultron memory sync` | Push memory to the L3 remote mirror. |
-| `ultron memory push` / `pull` | Manual git push/pull on the memory repo. |
-| `ultron osint <username>` / `osint email <email>` | Wrappers around Sherlock / holehe for self-auditing your digital footprint. |
-| `ultron skills vault search "<q>"` | Search the local skill vault (~300 archived skills). |
-| `ultron skills manifest rebuild` | Re-emit `~/.ultron/skills/registry.json`. |
-| `ultron health` | Same as `doctor` but exit-coded for CI. |
-| `ultron verify` | Re-check claims in the verification log. |
-| `ultron jobs` | List background jobs the cockpit owns. |
-| `ultron audit run <persona>` | Re-evaluate a persona's recent usage. |
+| `ultron status` | Projects summary, alerts hint and scheduler state. |
+| `ultron open <project>` / `projects` / `scan` | Launch a project in its IDE, browse or re-scan the registry. |
+| `ultron project ...` / `notes <id> ...` | `project_editor.py` and `project_notes.py` wrappers. |
+| `ultron claude` / `codex` | Spawn an interactive session in the current folder. |
+| `ultron app <name>` / `apps` | GUI app launcher registry. |
+| `ultron skills registry\|vault\|manifest ...` | `registry_sync.py`, `skill_vault.py`, `skill_manifest.py`. |
+| `ultron skill register\|list` | Re-index skills in `brain_index`. |
+| `ultron sync` / `sync-all` | Registry + manifest sync; `sync-all` adds brain index, MCP probe, deadwood and doctor. |
+| `ultron health` / `doctor [--fix\|--json]` / `deadwood` | Health checks. |
+| `ultron mcp health` | Probe all MCP servers and pretty-print the result. |
+| `ultron alerts ...` / `security ...` | Alerts bus and security audits. |
+| `ultron brain ...` / `index ...` / `config ...` | `brain_index.py` and `brain_config.py`. |
+| `ultron schedule install\|status\|uninstall` | Windows scheduled tasks from `cockpit/schedule-config.json`. |
 
-Type `ultron <command> --help` for any of them, or `ultron --help` for the full list.
+`ultron help` prints the full list.
 
 ---
 
 ## 5. Hooks
 
-Hooks live in `~/.ultron/hooks/scripts/*.js` (plain Node.js, no build step).
-They fire on Claude Code lifecycle events and are wired into
-`~/.claude/settings.json`. The canonical, versioned list — with events,
-checksums and writer-path governance — is `~/.ultron/hooks/manifest.json`;
-the table below is a human-readable view of it.
+Hooks live in `~/.ultron/hooks/scripts/*.js` (plain Node.js, no build step)
+and run in place from there. They are wired into `~/.claude/settings.json`,
+the single source of truth. `node hooks/regen-manifest.js` mirrors it into
+`hooks/manifest.json` (events, checksums, writer-path governance) and into
+`templates/settings-hooks.json` (the template `install.ps1` / `install.sh`
+merge); `--check` fails on drift. The table below is a human-readable view of
+the manifest as of 2026-10-08 (31 entries).
 
 Golden rule: hooks **propose** memory candidates, they **never** write the
 source of truth (`brain.db`) directly. The only writer is `MemoryService`
 (the Rust `ultron-memory` sidecar). Hooks that touch memory go through
-`ultron-memory candidate` and land in the governed inbox as pending; nothing
-auto-promotes. The rest are read-only (emit `additionalContext`) or append to
-local scratch files.
+`ultron-memory candidate` / `capture` and land in the governed inbox as
+pending. The inbox is autonomous (since 2026-07-13): after each capture,
+`stop-compress-session.js` spawns `ultron-memory inbox drain --auto`, whose
+policy approves bands A/B and rejects secrets, duplicates, conflicts and
+noise with an auditable reason, without asking the user. Only unverifiable
+candidates and captures the user did not assert stay pending (the latter
+expire after 7 days without human validation). The rest are
+read-only (emit `additionalContext`) or append to local scratch files.
 
 | Hook | Event | What it does |
 |---|---|---|
-| `ensure-qdrant.js` | SessionStart | Auto-launch native Qdrant if `:6333` does not answer. Infra, not memory. |
 | `ensure-codegraph.js` | SessionStart | Keep the CodeGraph daemon/watcher alive (PID checked, relaunch if dead). |
-| `memory-warmup.js` | SessionStart | Detached sidecar spawn to warm the ONNX E5 page cache (~1.3 GB). Non-blocking. |
-| `memory-session-resume.js` | SessionStart | Inject a bounded resume (active workflows, open tasks, decisions, pinned, next action) read from the SoT via `ultron-memory resume`. Read-only. Since 2026-09-04 (ULTRON 4) it also injects: `feedback_pendiente` / `session_feedback` (12.1), `response_meter` (4.2) and the `codegraph` block (8.1: index size, languages, zones with most symbols, hubs used from most files, and the order to query the graph before reading files; from `.codegraph/codegraph.db`, cached in `.codegraph/ultron-summary.json`, skipped above 512 MB). |
-| `load-cross-project-memory.js` | SessionStart | Inject the summarised `MEMORY.md` index of recent projects as context. Read-only. |
-| `session-start-override.js` | SessionStart | Fallback previous-session summary by project name when the ECC worktree match fails. Read-only. |
-| `routing-dispatcher.v3.js` | UserPromptSubmit | Suggest/inject a skill/persona by prompt intent: v2 deterministic scoring + semantic fallback below 0.80 confidence. |
-| `socratic-gate.js` | UserPromptSubmit | Inject the Socratic decision protocol (AI writes all code, the user decides non-trivial calls) on every prompt. Per-project mode (ULTRON 4, F4.3, Q5a): field `socratic` in `cockpit/projects.json` — `strict` (default: protocol + reminder + escalation on low-effort acks), `light` (no escalation), `off` (silent); resolved by the project path that contains the session cwd. Set it with `node scripts/project-socratic.mjs <id> <mode>` or `project-new.mjs --socratic <mode>`. |
-| `session-feedback-capture.js` | UserPromptSubmit | External metric (ULTRON 4, plan 12.1): captures `fb: si|no|estorbo [note]` (explicit prefix, no heuristics) into `logs/session-feedback.jsonl`, clears `cockpit/projects/<id>/feedback-pending.json`, and proposes the note as a `session_summary` candidate through the sidecar (single writer). Returns one context line so the model does not discuss the feedback. Prompts without `fb:`: no output. |
-| `run-project-tests-report.js` | UserPromptSubmit | Reporter for the automatic test runs (ULTRON 4, F4.1): reads `.tmp/run-tests/<project>.result.json` and tells the model, once per result, the failed test names, a timeout (asks for a shorter `test:` command) or, once per session, that no test command exists; announces green only after a reported failure. |
-| `memory-orchestrate.js` | UserPromptSubmit | Route the prompt through `ultron-memory orchestrate` (intent → workflow → agents → relevant memories) as context. Read-only. |
-| `save-user-prompt.js` | UserPromptSubmit | Archive each non-trivial prompt to the daily markdown inbox (candidate for `consolidate-memory`). Does not write the SoT. |
-| `deny-secrets.js` | PreToolUse | BLOCKS tool calls (Read/Edit/Write/NotebookEdit/Bash) that touch secrets. The only blocking hook. Node since 2026-08-11 (was Python via `uv run`). |
-| `codegraph-reminder.js` | PreToolUse | Remind to use `codegraph_explore`/`search` instead of blind exploration (Read/Grep/Glob/Bash). |
-| `posttoolfail-capture.js` | PostToolUse + PostToolUseFailure | On a failed tool result, propose an `error_resolution` candidate via the sidecar. Success path exits fast without writing. |
-| `run-project-tests.js` | PostToolUse (`Edit|Write|MultiEdit|NotebookEdit`, async) | Automatic tests (ULTRON 4, F4.1, decision Q3b deferred): after a code edit inside the session cwd, resolves the project test command — a line `test: <command>` in the project `CLAUDE.md` wins; otherwise `package.json` scripts.test (npm/pnpm/yarn/bun), `Cargo.toml` (`cargo test --quiet`), `pyproject.toml`/pytest (`uv run pytest -q`) or `go.mod` — debounces 60 s and launches a detached runner that runs the FULL suite with a 120 s cap (kills the process tree on timeout) and writes `~/.ultron/.tmp/run-tests/<project>.result.json`. The hook itself never talks to the model. Opt-out: `RUN_TESTS_DISABLED=1`. |
-| `stop-compress-session.js` | Stop | Compress the session into facts and propose them as governed candidates via `ultron-memory capture` (redaction + human-approved inbox). |
-| `response-meter.js` | Stop | Concision meter (ULTRON 4, F4.2/7.3): measures the assistant text of the finished turn (lines, words, headers, bullets, tables, apologies, preambles; over the limit when >12 lines or >220 words, `RESPONSE_METER_MAX_LINES`/`RESPONSE_METER_MAX_WORDS`) into `logs/response-meter.jsonl`. Never talks to the model; `memory-session-resume.js` shows the average, the share over the limit and the trend of the last 3 sessions (`response_meter`). |
-| `kanban-update-reminder.js` | Stop | Only when the turn had Edit/Write inside the session cwd or a `git commit`: closes live cards that match a recent commit and, if the board has In Progress cards, names them once per session (30-min cooldown, `KANBAN_REMINDER_COOLDOWN_MIN`). No work in the turn, no output (v3.0, 2026-09-04). A card reopened by hand is not closed again by the same commit (auto-close memory in `kanban.auto-close.json` beside the board) and the turn boundary is the last prompt, human or system (v3.1, 2026-09-06). |
-| `batch-capture.js` | Stop | Capture REJECTED / FAILED / `ai_cannot_execute` commands to the Run Batch queue. Operational queue, not semantic memory. |
-| `qdrant-mirror-sync.js` | Stop | Sync the derived read-only `ultron_mcp_mirror` collection in Qdrant (the only hook with direct Qdrant writes). |
-| `route_quality_aggregator.py` | Stop | Aggregate the day's routing-quality telemetry into cockpit files. No memory writes. |
-| `subagent-lifecycle.js` | SubagentStart + SubagentStop | Record each subagent's lifecycle (start/stop events) to scratch. |
-| `subagent-harvest.js` | SubagentStop | Record every subagent's result to scratch (falling back to the tail of `agent_transcript_path` when the payload has no text); propose an `agent_note` candidate via the sidecar only for named specialists (never generic wrappers) with >= 400 chars and a title derivable from the content (Q1a, 2026-09-02). |
-| `precompact-preserve-l0.js` | PreCompact | Before compaction, preserve key L0 facts to the scratch file `~/.ultron/.tmp/context.md`. Not governed memory. |
-| `session-end-summary.js` | SessionEnd (Cowork plugin only) | Retired from Claude Code on 2026-09-27: the `summary.md` session log supersedes it. Still packaged in the Cowork plugin, which has no session log. |
-| `lesson-distill.js` | SessionEnd | On session close, distill 0-3 reusable `lesson` candidates (symptom, cause, rule) from the redacted transcript tail via the daemon cmd `lesson_distill` (skill_llm provider chain); proposed through the sidecar, pending in the inbox, never auto-promoted. |
-| `project-profile.js` | SessionEnd | On session close, keep the project profile (`cockpit/projects/<id>/profile.json`: what it is, stack, architecture, state, key decisions) fresh: repo sources (Control Center registry, CLAUDE.md/README head, manifests, kanban, git) go to the daemon cmd `profile_distill`, which merges them with the project's memory and asks the skill_llm provider chain. Freshness gate by HEAD and age; deterministic fallback only when no profile exists. Injected by `memory-session-resume.js` as `project_profile`. Not governed memory. |
-| `session-feedback-mark.js` | SessionEnd | External metric (ULTRON 4, plan 12.1): writes `cockpit/projects/<id>/feedback-pending.json` (minutes, human turns, commits of the closing session) so the next `memory-session-resume.js` in that project asks the user whether ULTRON helped (`feedback_pendiente`) and shows the running share of "yes" over the last 20 project sessions (`session_feedback`, goal >= 80 %). Only registered projects other than `ultron`, sessions with >= 3 human turns; an ignored pending is logged as `sin_respuesta`. Not governed memory. |
-| `notify-relay.js` | Notification | Append each Claude Code notification (idle/permission/etc.) to a rotating scratch log. Local append only. |
+| `memory-session-resume.js` | SessionStart | Inject a bounded resume (active workflows, open tasks, decisions, pinned, next action) read via `ultron-memory resume`. Read-only. Also injects the session-feedback question and the concision meter. |
+| `ensure-project.js` | SessionStart | Register the project in `cockpit/projects.json` and apply the project onboarding rules. |
+| `sessions-rich-format.js` | SessionStart | Only inside ULTRON Sessions (`ULTRON_SESION_ID`): inject the rich format as the daily chat style, also after `/clear` and compaction. |
+| `pupus-permission.js` | PermissionRequest | Send terminal permission requests to the Pupus speech bubble and return allow/deny; with no answer it does not decide and the terminal dialog takes over. |
+| `socratic-gate.js` | UserPromptSubmit | Inject the Socratic decision protocol. Per-project mode in `cockpit/projects.json` (`strict` default, `light`, `off`, `uni`); set it with `node scripts/project-socratic.mjs <id> <mode>`. |
+| `save-user-prompt.js` | UserPromptSubmit | Archive each non-trivial prompt to the daily markdown inbox. Does not write the SoT. |
+| `memory-orchestrate.js` | UserPromptSubmit | Light mode by default (only the tone); `ULTRON_ORCHESTRATE=full` restores recall, routing and delegation hints from `ultron-memory orchestrate`. |
+| `session-feedback-capture.js` | UserPromptSubmit | Capture `fb: si\|no\|estorbo [note]` into `logs/session-feedback.jsonl` and propose the note as a candidate. |
+| `run-project-tests-report.js` | UserPromptSubmit | Tell the model, once per result, which tests broke in the last automatic run. |
+| `context-guard.js` | UserPromptSubmit | From 200k tokens of context, decide with the session log whether to suggest compacting. |
+| `usage-pace-guard.js` | UserPromptSubmit | Warn when the 5 h or weekly usage window runs ahead of elapsed time. |
+| `deny-secrets.js` | PreToolUse (Read/Edit/MultiEdit/Write/NotebookEdit/Bash/PowerShell/Grep) | Block tool calls that touch secrets; the project env file and `.npmrc`/`.pypirc` ask instead. |
+| `document-convert-hint.js` | PreToolUse (Read) | Suggest `markitdown` for binary documents and large PDFs. |
+| `codegraph-first.js` | PreToolUse (Grep, Glob, Read, CodeGraph) | In a project with a CodeGraph index, deny once per session the second Grep/Glob/code Read made without using CodeGraph first. |
+| `guardrails-pre.js` | PreToolUse (Bash/PowerShell/Agent/Task) | Deterministic checks (unknown subagent type, permission-skipping flag, ...). |
+| `uni-deliverable-guard.js` | PreToolUse | Block writes into `borrador/` and `entrega/` of university deliverables. |
+| `posttoolfail-capture.js` | PostToolUse + PostToolUseFailure | On a failed tool result, propose an `error_resolution` candidate via the sidecar. |
+| `guardrails-post.js` | PostToolUse (Write/Edit) | Warn when freshly written text breaks a content rule. |
+| `run-project-tests.js` | PostToolUse (Edit/Write/MultiEdit/NotebookEdit, async) | Run the project test suite in a detached runner after a code edit (120 s cap, 60 s debounce). Opt-out: `RUN_TESTS_DISABLED=1`. |
+| `precompact-preserve-l0.js` | PreCompact | Preserve key L0 facts in `~/.ultron/.tmp/context.md`. Not governed memory. |
+| `model-family-guard.js` | PreModelSwitch + PostModelSwitch | Deny a model switch (`/model`, picker, `/config`, SDK `set_model`) outside the 5.5 family; warn when an automatic fallback or a resume leaves it. Opt-out: `ULTRON_MODEL_GUARD=0`. |
+| `stop-compress-session.js` | Stop | Compress the session into governed candidates via `ultron-memory capture`, then spawn the autonomous `inbox drain --auto`. |
+| `batch-capture.js` | Stop | Queue commands the user rejected or the AI could not run (`ai_cannot_execute`) into `~/.ultron/batches/`, consumed by the "Ejecutar .bat" dropdown in Projects (not the kanban RunBatch retired on 2026-10-17). Commands that merely failed are not queued. |
+| `subagent-lifecycle.js` | SubagentStart + SubagentStop | Record each subagent's start/stop to scratch. |
+| `subagent-harvest.js` | SubagentStop | Record each subagent's result to scratch and propose an `agent_note` candidate for non-trivial results of named specialists. |
+| `session-end-bitacora.js` | SessionEnd | Write the closing session's log (`summary.md`). |
+| `lesson-distill.js` | SessionEnd | Distill 0-3 `lesson` candidates through the daemon. |
+| `project-profile.js` | SessionEnd | Keep `cockpit/projects/<id>/profile.json` fresh. |
+| `session-feedback-mark.js` | SessionEnd | Write `feedback-pending.json` so the next session asks whether ULTRON helped. |
+| `memory-gc.js` | SessionEnd | Weekly 90-day maintenance of `brain.db` (`ultron-memory gc`). |
+| `notify-relay.js` | Notification | Append each notification to a rotating scratch log. |
 
 Every hook is fail-safe: on error, missing transcript or missing sidecar it
 exits 0 without aborting the event. If one misbehaves, remove its entry from
-`~/.claude/settings.json` and the system keeps working.
+`~/.claude/settings.json` and regenerate the manifest.
 
-> **De-registered (historical reference only, NOT live — files removed 2026-08-09):**
-> `mem0-sync.js` (wrote to Mem0 cloud — outside the SoT), `quota-capture.js`
-> (Quota feature removed), `session-recall-inject.js` (superseded by
-> `memory-session-resume.js`), `workday-session-linker.js` (never fired, deleted
-> 2026-06-21), `workday-auto-update.js` (was a Windows scheduled task, not a
-> Claude Code hook). See the `deregistered` block in `manifest.json`.
+> **De-registered (not live):** `codegraph-reminder.js`, `markdown-lint-hint.js`,
+> `ai-text-warn.js`, `load-cross-project-memory.js`, `session-start-override.js`
+> (2026-09-29/30) and `kanban-update-reminder.js` (2026-10-08), all deleted;
+> `routing-dispatcher.v2/v3.js` (kept in `cockpit/skill-lazy/`, not wired);
+> `ensure-qdrant.js`, `memory-warmup.js` and `qdrant-mirror-sync.js` (kept for
+> re-enabling dense recall); `route_quality_aggregator.py` (no longer a Stop
+> hook); `session-end-summary.js` (orphan: the Cowork plugin that packaged it was deleted on 2026-10-28). Older removals
+> (`mem0-sync.js`, `quota-capture.js`, `session-recall-inject.js`,
+> `workday-*`) are listed in the `deregistered` block of `manifest.json`.

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · temas del Explorador</title>
+<style>
+  :root { --bg: #07080b; --text: #F4F5F7; --muted: #9AA0AE; --halo: rgba(255,255,255,.28); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px; background: radial-gradient(circle at 30% 10%, #1b2030, var(--bg) 65%);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; color: var(--text); min-height: 100vh; }
+  h1 { font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; font-weight: 600; margin: 0 0 6px; }
+  p.sub { color: var(--muted); margin: 0 0 28px; max-width: 900px; line-height: 1.5; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 28px; }
+  figure { margin: 0; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.08);
+           background: linear-gradient(180deg, rgba(36,38,46,.7), rgba(10,11,14,.85)); }
+  figure.pick { border-color: var(--halo); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 18px 50px rgba(0,0,0,.5); }
+  img { width: 100%; border-radius: 10px; display: block; background: #111; }
+  figcaption { display: flex; align-items: baseline; gap: 12px; margin-top: 12px; }
+  .num { font-weight: 700; color: var(--bg); background: var(--text); border-radius: 999px; padding: 1px 10px; font-size: 13px; }
+  .name { font-weight: 600; }
+  .note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Elige el Explorador</h1>
+<p class="sub">Capturas oficiales de los temas que trae el mod (las hicieron sus autores con otros fondos y colores;
+  el tinte negro y el desenfoque se ajustan después). Los temas cambian la cabecera (pestañas, dirección, búsqueda y
+  barra de comandos); el panel lateral y la lista de archivos no admiten estilos XAML, solo el fondo translúcido.
+  Los marcados con borde encajan mejor con el «halo glass» del dock. Dime el número.</p>
+<div class="grid" id="grid"></div>
+<script>
+  const base = 'https://raw.githubusercontent.com/ramensoftware/windows-11-file-explorer-styling-guide/main/Themes/';
+  const themes = [
+    ['OS26 Liquid Glass', 'Píldoras de cristal con filo de luz; la más cercana al dock.', true],
+    ['OS26 Liquid Glass_variant_Compact', 'La misma, más compacta.', true],
+    ['TintedGlass', 'Cristal tintado oscuro, sobrio.', true],
+    ['LiquidGlass', 'Cristal con pestañas flotantes.', true],
+    ['Float', 'Barras flotantes sobre fondo oscuro.', false],
+    ['WindowGlass', 'El que se descartó: quitaba las líneas de separación.', false],
+    ['Translucent Explorer11', 'Todo translúcido.', false],
+    ['Matter', 'Superficies mate.', false],
+    ['MicaBar', 'Barra con Mica.', false],
+    ['Minimal Explorer11', 'Mínimo.', false],
+    ['Compact Explorer11', 'Compacto.', false],
+    ['NoCommandBar', 'Sin barra de comandos.', false],
+    ['AddressSearchOnly', 'Solo dirección y búsqueda.', false],
+    ['Tabless', 'Sin pestañas.', false],
+    ['MicaTabless', 'Sin pestañas, con Mica.', false],
+    ['ZEUSosX_044', 'Estilo macOS.', false],
+  ];
+  const grid = document.getElementById('grid');
+  themes.forEach(([name, note, isPick], i) => {
+    const dir = name.replace('_variant_Compact', '');
+    const file = name.endsWith('_variant_Compact') ? 'screenshot-compact.png' : 'screenshot.png';
+    const fig = document.createElement('figure');
+    if (isPick) fig.className = 'pick';
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = name;
+    img.src = base + encodeURIComponent(dir) + '/' + file;
+    // Si no existe la captura grande (o la compacta), se usa la pequeña del README del mod.
+    img.onerror = () => { img.onerror = null; img.src = base + encodeURIComponent(dir) + '/screenshot-small.png'; };
+    const cap = document.createElement('figcaption');
+    cap.innerHTML = `<span class="num">${i + 1}</span><span class="name"></span><span class="note"></span>`;
+    cap.querySelector('.name').textContent = name.replace('_variant_Compact', ' (compacto)');
+    cap.querySelector('.note').textContent = note;
+    fig.append(img, cap);
+    grid.append(fig);
+  });
+</script>
+</body>
+</html>

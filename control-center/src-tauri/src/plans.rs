@@ -5,7 +5,7 @@
 // patch_plan_status — same atomic-write discipline as projects.rs.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 // the same event loop tick) both read the same baseline and the second writer
 // silently clobbers the first writer's mutation. The lock serialises every
 // RMW so the operation is atomic from the caller's point of view.
-// Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK` and
-// `kg::kg_write_lock`. Pure reads (`list_plans_inner`) are excluded.
+// Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`.
+// Pure reads (`list_plans_inner`) are excluded.
 static PLANS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn plans_lock() -> &'static Mutex<()> {
@@ -342,13 +342,28 @@ fn now_iso() -> String {
 
 fn read_plans_root() -> Result<(PathBuf, serde_json::Value), String> {
     let path = plans_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = fs::read_to_string(&path).map_err(|e| format!("read: {}", e))?;
-    let root: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let root = read_plans_root_at(&path)?;
     Ok((path, root))
 }
 
-fn write_plans_root(path: &PathBuf, root: &serde_json::Value) -> Result<(), String> {
+/// Raíz de `PLANS.json` en `path`. Sin fichero devuelve una raíz vacía
+/// (`{ "items": [] }`): la primera alta lo crea. Antes del 2026-10-17 una
+/// instalación sin `PLANS.json` no podía crear ningún plan («read: …»).
+/// Un fichero que existe pero no se puede leer o parsear sigue siendo error:
+/// sobrescribirlo perdería los planes. Por lo mismo se usa `try_exists`: con
+/// `exists()` un error de metadatos (permisos) contaría como «no existe».
+fn read_plans_root_at(path: &Path) -> Result<serde_json::Value, String> {
+    if !path.try_exists().map_err(|e| format!("stat: {}", e))? {
+        return Ok(serde_json::json!({ "items": [] }));
+    }
+    let raw = fs::read_to_string(path).map_err(|e| format!("read: {}", e))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))
+}
+
+fn write_plans_root(path: &Path, root: &serde_json::Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir plans: {}", e))?;
+    }
     let mut value = root.clone();
     if let Some(obj) = value.as_object_mut() {
         obj.insert(
@@ -521,8 +536,12 @@ pub fn clean_resolved_plans_inner() -> Result<u64, String> {
     let archive_path = archive_dir.join(format!("resolved-{}.json", ym));
 
     let mut existing: Vec<serde_json::Value> = if archive_path.exists() {
-        let raw = fs::read_to_string(&archive_path).unwrap_or_else(|_| "[]".into());
-        serde_json::from_str(&raw).unwrap_or_default()
+        // Un archivo ilegible para aquí: leerlo como `[]` lo sobrescribiría y
+        // perdería lo ya archivado.
+        let raw = fs::read_to_string(&archive_path)
+            .map_err(|e| format!("read {}: {}", archive_path.display(), e))?;
+        serde_json::from_str(&raw)
+            .map_err(|e| format!("parse {}: {}", archive_path.display(), e))?
     } else {
         Vec::new()
     };
@@ -650,3 +669,33 @@ fn format_unix_iso(secs: u64) -> String {
 //     ) -> Result<bool, String> {
 //         plans::patch_plan_status_inner_with_emit(&app, id, status)
 //     }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sin_plans_json_la_raiz_es_vacia_y_la_escritura_crea_el_fichero() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("plans").join("PLANS.json");
+        let mut root = read_plans_root_at(&path).expect("raíz vacía");
+        assert_eq!(root["items"].as_array().map(Vec::len), Some(0));
+        root["items"]
+            .as_array_mut()
+            .expect("items[]")
+            .push(serde_json::json!({ "id": "a", "title": "A" }));
+        write_plans_root(&path, &root).expect("crea PLANS.json y su carpeta");
+        let releido = read_plans_root_at(&path).expect("relee");
+        assert_eq!(releido["items"][0]["id"], "a");
+        assert!(releido["updated_at"].is_string());
+    }
+
+    #[test]
+    fn plans_json_corrupto_es_error_y_no_se_trata_como_vacio() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("PLANS.json");
+        fs::write(&path, "{ no es json").expect("escribe");
+        let err = read_plans_root_at(&path).expect_err("debe fallar");
+        assert!(err.starts_with("parse:"), "{err}");
+    }
+}

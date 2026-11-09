@@ -1,7 +1,8 @@
 // Top 5 most recently active projects.
 //
 // v2.7 redesign: bigger typography, 5 rows, hover affordance, path preview
-// when available, navigates into the Projects tab on click.
+// when available. A row opens that project's workspace (not just the
+// Projects list); the header button opens the list.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,9 +11,11 @@ import { Card, SmallButton, relativeTime } from "./Card";
 
 interface RecentProjectsCardProps {
   onOpenProjects?: () => void;
+  /** Abre el espacio de trabajo de ese proyecto. Sin él, la fila abre la lista. */
+  onOpenProject?: (project: { id: string; name: string }) => void;
 }
 
-export function RecentProjectsCard({ onOpenProjects }: RecentProjectsCardProps) {
+export function RecentProjectsCard({ onOpenProjects, onOpenProject }: RecentProjectsCardProps) {
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,20 +49,25 @@ export function RecentProjectsCard({ onOpenProjects }: RecentProjectsCardProps) 
     })
     .slice(0, 5);
 
+  function openRow(p: ProjectInfo) {
+    if (onOpenProject) onOpenProject({ id: p.id, name: p.name ?? p.id });
+    else onOpenProjects?.();
+  }
+
   return (
     <Card
-      title="Recent projects"
-      subtitle={`Last ${recent.length} active`}
+      title="Proyectos recientes"
+      subtitle={`Los ${recent.length} últimos con actividad`}
       loading={loading}
       error={error}
-      empty={!loading && recent.length === 0 ? "No projects yet." : null}
+      empty={!loading && recent.length === 0 ? "Aún no hay proyectos." : null}
       action={
         <SmallButton
           onClick={onOpenProjects}
           size="md"
-          title="Open Projects tab"
+          title="Abrir la pestaña Proyectos"
         >
-          Open
+          Abrir
         </SmallButton>
       }
     >
@@ -70,8 +78,16 @@ export function RecentProjectsCard({ onOpenProjects }: RecentProjectsCardProps) 
             <li
               key={p.id}
               className="flex cursor-pointer items-center gap-3 rounded px-2 py-1.5 transition-colors hover:bg-[var(--color-surface-3)]"
-              onClick={() => onOpenProjects?.()}
-              title={`Open ${p.name ?? p.id} in Projects tab`}
+              role="button"
+              tabIndex={0}
+              onClick={() => openRow(p)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openRow(p);
+                }
+              }}
+              title={onOpenProject ? `Abrir ${p.name ?? p.id}` : `Abrir ${p.name ?? p.id} en la pestaña Proyectos`}
             >
               <div className="min-w-0 flex-1">
                 <div

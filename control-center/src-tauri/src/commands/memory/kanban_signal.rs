@@ -13,9 +13,8 @@
 // weeks was still winning `next_action` by column order alone, only
 // annotated with its age. Cards past `next_action_hard_cutoff_days` (default
 // 14, `ULTRON_NEXT_ACTION_STALE_DAYS`) no longer win outright — they surface
-// via `stale_open_cards` instead, so the resume can list them separately
-// ("estancadas: …") for the user to close or keep, rather than executing them
-// as a live order.
+// via `stale_open_cards` instead, and the resume paints them in its `avisos:`
+// line ("estancadas en el kanban: …") for the user to close or keep.
 
 use serde_json::Value;
 use std::path::Path;
@@ -101,8 +100,15 @@ fn ordered_col_ids(columns: &[Value], role: &str) -> Vec<String> {
         .collect()
 }
 
-/// Card refs in the given columns, ordered by column then by the card's
-/// `order`. Base of `ordered_card_titles` and of the age-aware next-action.
+/// Card refs in the given columns: by column, then the most recently touched
+/// first, then by the card's `order`. Base of `ordered_card_titles` and of the
+/// age-aware next-action.
+///
+/// (Auditoría 2026-11-01) Las tarjetas nuevas se añaden al final de la columna,
+/// así que ordenar por `order` daba un FIFO: `next_action` proponía lo primero que
+/// se apuntó (23 de 23 proyectos con 2 días o más) y lo último tocado podía quedar
+/// fuera del tope de `open_tasks`. Sin `updated_at` parseable la tarjeta va detrás
+/// de las fechadas: no se inventa frescura.
 fn ordered_cards<'a>(cards: &'a [Value], col_ids: &[String]) -> Vec<&'a Value> {
     let mut out = Vec::new();
     for cid in col_ids {
@@ -111,9 +117,11 @@ fn ordered_cards<'a>(cards: &'a [Value], col_ids: &[String]) -> Vec<&'a Value> {
             .filter(|card| card.get("column_id").and_then(|c| c.as_str()) == Some(cid.as_str()))
             .collect();
         in_col.sort_by_key(|card| {
-            card.get("order")
+            let order = card
+                .get("order")
                 .and_then(|o| o.as_i64())
-                .unwrap_or(i64::MAX)
+                .unwrap_or(i64::MAX);
+            (std::cmp::Reverse(card_updated_at_ms(card)), order)
         });
         out.extend(in_col);
     }
@@ -191,8 +199,9 @@ fn is_next_action_eligible(card: &Value, now_ms: i64, cutoff_days: i64) -> bool 
 }
 
 /// Pick the live next-action title from an already-parsed kanban document.
-/// Order: first In-Progress (role == "doing") card by column order, else the
-/// top Backlog (role == "todo") card — pero SOLO entre las elegibles (por
+/// Order: the most recently touched In-Progress (role == "doing") card, else the
+/// most recently touched Backlog (role == "todo") card (see `ordered_cards`) —
+/// pero SOLO entre las elegibles (por
 /// debajo del corte duro de `next_action_hard_cutoff_days`). Si ninguna card
 /// viva es elegible (todas superan el corte), en vez de devolver `None`
 /// (mandamiento 11: nada de no-op silencioso) se elige la MENOS vieja de
@@ -271,21 +280,56 @@ pub fn stale_open_cards(doc: &Value, now_ms: i64, limit: usize) -> Vec<StaleCard
             })
         })
         .collect();
-    stale.sort_by(|a, b| b.age_days.cmp(&a.age_days));
+    stale.sort_by_key(|a| std::cmp::Reverse(a.age_days));
     stale.truncate(limit);
     stale
 }
 
-/// Read the project's kanban and return its stale (>= corte duro) live cards,
-/// capped at `limit`. `None` when there is no kanban or none are stale.
-pub fn kanban_stale_cards(root: &Path, project: &str, limit: usize) -> Option<Vec<StaleCard>> {
+/// Estado del `kanban.json` de un proyecto.
+#[derive(Debug)]
+pub enum KanbanDoc {
+    /// El proyecto no tiene kanban: el resume cae a la memoria, sin aviso.
+    Missing,
+    /// Existe pero no se pudo leer o no es JSON válido. Antes se confundía con
+    /// «no hay kanban» y el resume decía «sin tareas» en silencio (auditoría
+    /// 2026-10-26, L11); ahora el resume lo avisa.
+    Unreadable(String),
+    Loaded(Value),
+}
+
+impl KanbanDoc {
+    fn into_value(self) -> Option<Value> {
+        match self {
+            Self::Loaded(v) => Some(v),
+            Self::Missing | Self::Unreadable(_) => None,
+        }
+    }
+}
+
+/// Lee `<root>/cockpit/projects/<project>/kanban.json` distinguiendo «no
+/// existe» de «ilegible».
+pub fn load_kanban(root: &Path, project: &str) -> KanbanDoc {
     let path = root
         .join("cockpit")
         .join("projects")
         .join(project)
         .join("kanban.json");
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return KanbanDoc::Missing,
+        Err(e) => return KanbanDoc::Unreadable(format!("lectura: {e}")),
+    };
+    match serde_json::from_str(&raw) {
+        Ok(doc) => KanbanDoc::Loaded(doc),
+        Err(e) => KanbanDoc::Unreadable(format!("JSON: {e}")),
+    }
+}
+
+/// Read the project's kanban and return its stale (>= corte duro) live cards,
+/// capped at `limit`. `None` when there is no kanban (or it is unreadable: see
+/// [`load_kanban`]) or none are stale.
+pub fn kanban_stale_cards(root: &Path, project: &str, limit: usize) -> Option<Vec<StaleCard>> {
+    let doc = load_kanban(root, project).into_value()?;
     let stale = stale_open_cards(&doc, crate::memory::model::now_millis(), limit);
     if stale.is_empty() {
         None
@@ -295,7 +339,8 @@ pub fn kanban_stale_cards(root: &Path, project: &str, limit: usize) -> Option<Ve
 }
 
 /// Live OPEN TASKS for the resume: titles of In-Progress (role "doing") then
-/// Backlog (role "todo") cards, ordered, capped at `limit`. Memory Tasks rot
+/// Backlog (role "todo") cards, most recently touched first (see
+/// `ordered_cards`), capped at `limit`. Memory Tasks rot
 /// (no done/stale state), so the kanban is the live source — the same fix that
 /// moved `next_action` off memory. Done/archived cards never appear.
 pub fn open_tasks_from_kanban(doc: &Value, limit: usize) -> Vec<String> {
@@ -317,30 +362,19 @@ pub fn open_tasks_from_kanban(doc: &Value, limit: usize) -> Vec<String> {
 }
 
 /// Read `<root>/cockpit/projects/<project>/kanban.json` and derive the live
-/// next-action. Returns `None` if there is no kanban for the project (caller
-/// falls back to memory). IO is isolated here.
+/// next-action. Returns `None` if there is no (readable) kanban for the project
+/// (caller falls back to memory; an unreadable one is reported by the resume).
 pub fn kanban_next_action(root: &Path, project: &str) -> Option<String> {
-    let path = root
-        .join("cockpit")
-        .join("projects")
-        .join(project)
-        .join("kanban.json");
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let doc = load_kanban(root, project).into_value()?;
     next_action_from_kanban(&doc, crate::memory::model::now_millis())
 }
 
 /// Read the project's kanban and return its LIVE open-task titles (capped).
-/// `None` when there is no kanban for the project or it has no live cards — the
-/// caller then falls back to eligible (recent + not-done) memory tasks.
+/// `None` when there is no (readable) kanban for the project or it has no live
+/// cards — the caller then falls back to eligible (recent + not-done) memory
+/// tasks.
 pub fn kanban_open_tasks(root: &Path, project: &str, limit: usize) -> Option<Vec<String>> {
-    let path = root
-        .join("cockpit")
-        .join("projects")
-        .join(project)
-        .join("kanban.json");
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let doc = load_kanban(root, project).into_value()?;
     let tasks = open_tasks_from_kanban(&doc, limit);
     if tasks.is_empty() {
         None
@@ -603,5 +637,106 @@ mod tests {
              "updated_at": "2026-06-05T00:00:00.000Z"}
         ]));
         assert_eq!(stale_open_cards(&doc, NOW_MS, 1).len(), 1);
+    }
+
+    // --- Auditoría 2026-11-01: recencia, no orden de llegada ---
+
+    // El caso real de `ultron`: la de `order` 0 lleva 6 días y la de `order` 4 es
+    // de ayer. Antes ganaba la vieja y la nueva quedaba fuera del top de tareas.
+    #[test]
+    fn next_action_prefiere_la_tarjeta_tocada_mas_recientemente() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d0", "column_id": "c-doing", "title": "Vieja", "order": 0,
+             "updated_at": "2026-07-07T00:00:00.000Z"},
+            {"id": "d4", "column_id": "c-doing", "title": "De ayer", "order": 4,
+             "updated_at": "2026-07-12T00:00:00.000Z"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("De ayer")
+        );
+    }
+
+    #[test]
+    fn open_tasks_no_recorta_lo_ultimo_tocado() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d0", "column_id": "c-doing", "title": "a", "order": 0,
+             "updated_at": "2026-07-01T00:00:00.000Z"},
+            {"id": "d1", "column_id": "c-doing", "title": "b", "order": 1,
+             "updated_at": "2026-07-02T00:00:00.000Z"},
+            {"id": "d2", "column_id": "c-doing", "title": "c", "order": 2,
+             "updated_at": "2026-07-12T00:00:00.000Z"}
+        ]));
+        assert_eq!(open_tasks_from_kanban(&doc, 2), vec!["c", "b"]);
+    }
+
+    // Caso negativo: la recencia ordena dentro de la columna, no salta entre
+    // columnas. Una backlog de hoy no adelanta a una en curso de hace 3 días.
+    #[test]
+    fn la_recencia_no_salta_de_columna() {
+        let doc = kanban(serde_json::json!([
+            {"id": "b0", "column_id": "c-back", "title": "Backlog de hoy", "order": 0,
+             "updated_at": "2026-07-12T23:00:00.000Z"},
+            {"id": "d0", "column_id": "c-doing", "title": "En curso", "order": 0,
+             "updated_at": "2026-07-10T00:00:00.000Z"}
+        ]));
+        assert_eq!(
+            next_action_from_kanban(&doc, NOW_MS).as_deref(),
+            Some("En curso (kanban: sin tocar hace 3 días — verifica que siga vigente)")
+        );
+    }
+
+    // Caso negativo: una tarjeta sin fecha no gana a una fechada, y entre tarjetas
+    // sin fecha, o con la misma, sigue mandando `order`.
+    #[test]
+    fn sin_fecha_va_detras_y_a_igualdad_manda_el_orden() {
+        let doc = kanban(serde_json::json!([
+            {"id": "d0", "column_id": "c-doing", "title": "Sin fecha", "order": 0},
+            {"id": "d1", "column_id": "c-doing", "title": "Rota", "order": 1,
+             "updated_at": "no-es-una-fecha"},
+            {"id": "d2", "column_id": "c-doing", "title": "Fechada", "order": 2,
+             "updated_at": "2026-07-12T00:00:00.000Z"},
+            {"id": "d3", "column_id": "c-doing", "title": "Misma fecha", "order": 1,
+             "updated_at": "2026-07-12T00:00:00.000Z"}
+        ]));
+        assert_eq!(
+            open_tasks_from_kanban(&doc, 8),
+            vec!["Misma fecha", "Fechada", "Sin fecha", "Rota"]
+        );
+    }
+
+    // --- L11 (auditoría 2026-10-26): «no existe» frente a «ilegible» ---
+
+    fn kanban_root(contenido: Option<&str>) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        if let Some(c) = contenido {
+            let p = dir.path().join("cockpit").join("projects").join("ultron");
+            std::fs::create_dir_all(&p).unwrap();
+            std::fs::write(p.join("kanban.json"), c).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn load_kanban_distingue_ausente_de_ilegible() {
+        let sin = kanban_root(None);
+        assert!(matches!(
+            load_kanban(sin.path(), "ultron"),
+            KanbanDoc::Missing
+        ));
+
+        let roto = kanban_root(Some("{ esto no es json"));
+        assert!(matches!(
+            load_kanban(roto.path(), "ultron"),
+            KanbanDoc::Unreadable(_)
+        ));
+        // Los lectores de siempre siguen devolviendo None (el resume avisa).
+        assert!(kanban_open_tasks(roto.path(), "ultron", 8).is_none());
+
+        let bueno = kanban_root(Some(r#"{"columns": [], "cards": []}"#));
+        assert!(matches!(
+            load_kanban(bueno.path(), "ultron"),
+            KanbanDoc::Loaded(_)
+        ));
     }
 }

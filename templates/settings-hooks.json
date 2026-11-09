@@ -1,6 +1,6 @@
 {
-  "_comment": "ULTRON hook template. Merged into ~/.claude/settings.json by install.ps1 / install.sh. The token {USERPROFILE} is expanded to the user's home (forward-slash form) at install time. These commands mirror the live, working hook wiring: Node hooks live in hooks/scripts/*.js, the routing dispatcher in cockpit/skill-lazy/, and the two surviving Python hooks (deny-secrets.py, route_quality_aggregator.py) run via `uv run python`. Keep this file in sync with the live settings.json — every referenced script MUST exist in the repo.",
-  "_schema_version": 3,
+  "_comment": "ULTRON hook template, GENERADA por hooks/regen-manifest.js desde ~/.claude/settings.json (no editar a mano). install.ps1 / install.sh la fusionan en ~/.claude/settings.json y expanden {USERPROFILE} al home del usuario (barras /). Gate de paridad: node hooks/regen-manifest.js --check.",
+  "_schema_version": 4,
   "permissions": {
     "_comment": "Defense-in-depth deny list. Hooks run AFTER this filter, so this is the cheapest layer to block obvious foot-guns.",
     "deny": [
@@ -21,97 +21,38 @@
     ]
   },
   "hooks": {
-    "SessionStart": [
+    "Notification": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/ensure-qdrant.js",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-warmup.js",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/load-cross-project-memory.js",
-            "timeout": 8
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-start-override.js",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-session-resume.js",
-            "timeout": 12
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/notify-relay.js",
+            "timeout": 15,
+            "async": true
           }
         ]
       }
     ],
-    "UserPromptSubmit": [
+    "PermissionRequest": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/cockpit/skill-lazy/routing-dispatcher.v2.js",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/save-user-prompt.js",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js",
-            "timeout": 90
-          }
-        ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/context-guard.js",
-            "timeout": 15
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/pupus-permission.js",
+            "timeout": 660
           }
         ]
       }
     ],
-    "PreToolUse": [
+    "PostModelSwitch": [
       {
-        "matcher": "Read|Edit|Write|NotebookEdit|Bash",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/deny-secrets.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Grep|Glob|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/codegraph-reminder.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/document-convert-hint.js",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/model-family-guard.js",
             "timeout": 5
           }
         ]
@@ -130,12 +71,36 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/markdown-lint-hint.js",
-            "timeout": 5
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/guardrails-post.js",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/run-project-tests.js",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/posttoolfail-capture.js",
+            "timeout": 15,
+            "async": true
           }
         ]
       }
@@ -152,15 +117,66 @@
         ]
       }
     ],
-    "SubagentStop": [
+    "PreModelSwitch": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/subagent-harvest.js",
-            "timeout": 20,
-            "async": true
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/model-family-guard.js",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|MultiEdit|Write|NotebookEdit|Bash|PowerShell|Monitor|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/deny-secrets.js",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/document-convert-hint.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Grep|Glob|Read|mcp__codegraph__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/codegraph-first.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Monitor|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/guardrails-pre.js",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/uni-deliverable-guard.js",
+            "timeout": 5
           }
         ]
       }
@@ -174,19 +190,72 @@
             "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-end-bitacora.js",
             "timeout": 10,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/lesson-distill.js",
+            "timeout": 60,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/project-profile.js",
+            "timeout": 75,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-feedback-mark.js",
+            "timeout": 10,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-gc.js",
+            "timeout": 120,
+            "async": true
           }
         ]
       }
     ],
-    "Notification": [
+    "SessionStart": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/notify-relay.js",
-            "timeout": 15,
-            "async": true
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/ensure-codegraph.js",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-session-resume.js",
+            "timeout": 12
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/ensure-project.js",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/sessions-rich-format.js",
+            "timeout": 5
           }
         ]
       }
@@ -200,29 +269,121 @@
             "command": "node {USERPROFILE}/.ultron/hooks/scripts/stop-compress-session.js",
             "timeout": 60,
             "async": true
-          },
-          {
-            "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/kanban-update-reminder.js",
-            "timeout": 5
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
           {
             "type": "command",
             "command": "node {USERPROFILE}/.ultron/hooks/scripts/batch-capture.js",
             "timeout": 10,
             "async": true
-          },
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
           {
             "type": "command",
-            "command": "node {USERPROFILE}/.ultron/hooks/scripts/qdrant-mirror-sync.js",
-            "timeout": 30,
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/subagent-lifecycle.js",
+            "timeout": 15,
             "async": true
-          },
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
           {
             "type": "command",
-            "command": "uv run python {USERPROFILE}/.ultron/scripts/cockpit/route_quality_aggregator.py aggregate --today",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/subagent-harvest.js",
             "timeout": 20,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/subagent-lifecycle.js",
+            "timeout": 15,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/socratic-gate.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/save-user-prompt.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/memory-orchestrate.js",
+            "timeout": 90
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/session-feedback-capture.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/run-project-tests-report.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/context-guard.js",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/usage-pace-guard.js",
+            "timeout": 5
           }
         ]
       }

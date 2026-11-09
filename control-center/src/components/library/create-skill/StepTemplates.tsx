@@ -16,8 +16,7 @@ export function StepTemplates(props: StepTemplatesProps) {
   return (
     <div className="space-y-4">
       <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-        Starter templates seed the body editor with a battle-tested scaffold.
-        Pick the closest match — you can rewrite anything later.
+        Las plantillas rellenan el editor del cuerpo con un esqueleto probado. Elige la más parecida: luego puedes reescribir lo que quieras.
       </p>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {templates.map((tpl) => {
@@ -59,17 +58,17 @@ export function StepTemplates(props: StepTemplatesProps) {
       >
         <Sparkles size={14} />
         <span className="flex-1 text-xs">
-          Rather have Claude draft this? This opens a new Claude session and
-          pastes a prompt that launches the{" "}
-          <code>skill-creator</code> skill — it drafts, validates, and packages
-          the skill for you.
+          ¿Prefieres que la redacte Claude? Se abre una sesión nueva de Claude
+          con un prompt que lanza la skill{" "}
+          <code>skill-creator</code>, que redacta, valida y empaqueta la skill
+          por ti.
         </span>
         <button
           className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
           style={{ borderColor: "var(--color-border)" }}
           onClick={onCopyAiPrompt}
         >
-          <Clipboard size={12} /> {aiCopied ? "Copied + session opened" : "Generate with AI"}
+          <Clipboard size={12} /> {aiCopied ? "Enviado a Sessions" : "Generar con IA"}
         </button>
       </div>
     </div>

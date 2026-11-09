@@ -1,5 +1,4 @@
 // Agent CRUD + security findings commands.
-use crate::agent_orchestration;
 use crate::agents;
 // Origin-aware listing for the Control Center 2.0 Agents viewer.
 // Walks global, project, and plugin trees and tags each entry with its
@@ -31,14 +30,4 @@ pub async fn agents_bulk_toggle(
     disabled: bool,
 ) -> Result<agents::BulkToggleResult, String> {
     agents::agents_bulk_toggle_inner(names, disabled)
-}
-
-/// `cwd`: optional exact-match filter applied server-side BEFORE the limit
-/// cap, so one project's rows can't be starved by other projects' activity.
-#[tauri::command]
-pub async fn list_delegations(
-    limit: Option<usize>,
-    cwd: Option<String>,
-) -> Result<Vec<agent_orchestration::DelegationLogEntry>, String> {
-    agent_orchestration::list_delegations_inner(limit.unwrap_or(50), cwd.as_deref())
 }

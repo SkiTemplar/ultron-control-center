@@ -52,6 +52,12 @@ const SECRET_PATTERNS = [
   /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----/g,
   /sk-[A-Za-z0-9_-]{20,}/g, // OpenAI (incl. sk-proj-/sk-ant-) y sk- genericas
   /gh[pousr]_[A-Za-z0-9]{36,}/g, // GitHub PAT / OAuth / refresh / server
+  /github_pat_[A-Za-z0-9_]{22,}/g, // GitHub fine-grained PAT
+  /gsk_[A-Za-z0-9]{20,}/g, // Groq
+  /xai-[A-Za-z0-9]{20,}/g, // xAI
+  /hf_[A-Za-z0-9]{20,}/g, // Hugging Face
+  /sbp_[A-Za-z0-9]{20,}/g, // Supabase personal access token
+  /npm_[A-Za-z0-9]{20,}/g, // npm
   /m0-[A-Za-z0-9_-]{20,}/g, // Mem0 (legacy)
   /AKIA[0-9A-Z]{16}/g, // AWS access key id
   /xox[baprs]-[A-Za-z0-9-]{10,}/g, // Slack

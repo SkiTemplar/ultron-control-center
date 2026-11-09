@@ -4,12 +4,12 @@
 // componente de lanzamiento existente:
 //   - "Monitor" (por defecto): gestor multi-sesión en vivo (SessionsPane) que
 //     lee TODAS las sesiones de Claude Code en disco (estado/modelo/context%) Y
-//     muestra arriba el panel GLOBAL de orquestación en vivo (último turno +
-//     routing + delegaciones + previsualizador). Monitor y Orquestación viven
+//     muestra arriba el panel GLOBAL de orquestación (modo del hook, último turno
+//     full, subagentes y previsualizador). Monitor y Orquestación viven
 //     fundidos en una sola pantalla, con un único poll de live_session_feed.
 //   - "Lanzar": el gestor de spawn/workspaces existente (Sessions).
 //
-// Read-only en Monitor: solo VER. La acción "Abrir en Projects" se delega a la
+// Read-only en Monitor: solo VER. La acción "Abrir en Proyectos" se delega a la
 // prop onOpenProject (cableada en App.tsx a la navegación de Projects).
 
 import { useState } from "react";

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { notify } from "../lib/notify";
+import { runRebuildWithFeedback } from "./palette/systemPaletteActions";
 import { handleExternalClick } from "../lib/openExternal";
 
 // v15.4.2 — surfaces the "new version available" hint that
@@ -14,14 +14,14 @@ import { handleExternalClick } from "../lib/openExternal";
 //      with the full UpdateInfo payload.
 //   2. We listen + memoise the payload. User can dismiss with × (only
 //      until the next backend check on next launch).
-//   3. "Update now" calls `run_app_lifecycle("update")` — same path the
-//      Settings → App lifecycle → Rebuild button uses. Visible terminal
-//      window so the user spots failures in real time.
-//   4. If the user opted into "auto-rebuild on update" via Settings →
-//      Features (key: `auto_rebuild_on_update`, stored locally for now
-//      — backend toggle in features.json comes in v15.4.3) we fire the
-//      rebuild without showing the banner. Stored in localStorage so
-//      the choice survives without round-tripping through Rust.
+//   3. "Update now" runs the canonical Rebuild flow (`startRebuild` via
+//      `runRebuildWithFeedback`), the same one Settings → Recompilar uses:
+//      confirmation first, then a visible terminal; the new binary takes
+//      effect when the app restarts.
+//   4. If localStorage holds `ultron.auto_rebuild_on_update = "1"` we start
+//      that same flow without showing the banner (it still asks before
+//      building). No UI writes that key yet (the Settings → Features
+//      section was never built), so the banner does not advertise it.
 
 type UpdateInfo = {
   has_update: boolean;
@@ -34,6 +34,8 @@ type UpdateInfo = {
 
 const AUTO_REBUILD_KEY = "ultron.auto_rebuild_on_update";
 const DISMISSED_KEY = "ultron.update_banner_dismissed_for";
+const UPDATE_HINT =
+  "«Actualizar ahora» abre una ventana que recompila ULTRON (~3–5 min); el binario nuevo entra al reiniciar la app.";
 
 function autoRebuildEnabled(): boolean {
   try {
@@ -110,17 +112,10 @@ export function UpdateBanner() {
     if (busy) return;
     setBusy(true);
     try {
-      // Same path Settings → App lifecycle → Rebuild uses. Spawns a
-      // visible powershell so the user watches `git pull + npm install +
-      // npm run tauri build`.
-      await invoke("run_app_lifecycle", { kind: "update" });
-    } catch (err) {
-      // Surface app-wide: immediate toast + durable Notifications row.
-      notify({
-        severity: "warn",
-        source: "update-banner",
-        message: `update failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 600),
-      });
+      // Same canonical flow as Settings → Recompilar (rebuildFlow): asks
+      // first, opens the visible terminal (git pull + npm install + npm run
+      // build:local) and reports the outcome or the error app-wide.
+      await runRebuildWithFeedback("update-banner");
     } finally {
       setBusy(false);
     }
@@ -139,7 +134,7 @@ export function UpdateBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="mx-4 mt-3 flex items-center justify-between gap-4 rounded px-4 py-3"
+      className="mx-4 mt-3 flex shrink-0 items-center justify-between gap-4 rounded px-4 py-3"
       style={{
         background: "var(--color-surface-2)",
         border: "1px solid var(--color-accent)",
@@ -152,14 +147,14 @@ export function UpdateBanner() {
         />
         <div className="min-w-0">
           <div className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
-            ULTRON {info.latest_version} is out — you have {info.current_version}.
+            Ya está disponible ULTRON {info.latest_version}; tienes la {info.current_version}.
           </div>
           <div
             className="mt-0.5 truncate text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
+            title={UPDATE_HINT}
           >
-            Click "Update now" to run <code>git pull + npm install + tauri build</code> in a new window
-            (~3–5 min). Or enable auto-rebuild in Settings → Features.
+            {UPDATE_HINT}
           </div>
         </div>
       </div>
@@ -169,15 +164,13 @@ export function UpdateBanner() {
           target="_blank"
           onClick={handleExternalClick}
           rel="noreferrer noopener"
-          className="rounded px-2 py-1 text-[11.5px]"
+          className="rounded px-2 py-1 text-[11.5px] underline-offset-2 hover:underline"
           style={{
             background: "transparent",
-            color: "var(--color-text-tertiary)",
-            border: "1px solid var(--color-border-strong)",
-            textDecoration: "none",
+            color: "var(--color-text-secondary)",
           }}
         >
-          Release notes
+          Notas de la versión
         </a>
         <button
           type="button"
@@ -189,13 +182,13 @@ export function UpdateBanner() {
             color: "var(--color-accent-text)",
           }}
         >
-          {busy ? "Launching…" : "Update now"}
+          {busy ? "Lanzando…" : "Actualizar ahora"}
         </button>
         <button
           type="button"
           onClick={dismiss}
-          aria-label="Dismiss until next version"
-          title="Dismiss until next version"
+          aria-label="Ocultar hasta la próxima versión"
+          title="Ocultar hasta la próxima versión"
           className="flex h-6 w-6 items-center justify-center rounded text-[14px]"
           style={{
             background: "transparent",

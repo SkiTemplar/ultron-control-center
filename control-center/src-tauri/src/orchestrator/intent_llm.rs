@@ -39,13 +39,10 @@ const COOLDOWN_SECS: u64 = 120;
 const MODEL: &str = "openai/gpt-oss-20b";
 const ENDPOINT: &str = "https://api.groq.com/openai/v1/chat/completions";
 
-/// Modelo que consume este camino. Publico porque la cuota de Groq es POR
-/// MODELO y por dia: quien elija proveedor para otro camino (el juez de skills,
-/// sin ir mas lejos) necesita saber cual esta ya ocupado para no compartir
-/// contador sin querer.
-// Hoy solo lo consulta un test de skill_llm (la cadena no comparte modelo con
-// este camino); fuera de tests seria dead_code y ensuciaba el build.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Modelo que consume este camino. La cuota de Groq es POR MODELO y por dia:
+/// el test de skill_llm lo consulta para garantizar que la cadena del juez de
+/// skills no comparte contador con este camino. Solo existe en tests.
+#[cfg(test)]
 pub fn modelo_en_uso() -> &'static str {
     MODEL
 }

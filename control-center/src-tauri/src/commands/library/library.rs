@@ -2,79 +2,10 @@
 
 use crate::library;
 
-#[tauri::command]
-pub async fn library_search_github(
-    query: String,
-    kind: library::LibraryKind,
-    limit: Option<u32>,
-) -> Result<Vec<library::RemoteItem>, String> {
-    let lim = limit.unwrap_or(30);
-    library::search_github_inner(query, kind, lim).await
-}
-
-#[derive(serde::Deserialize)]
-pub struct InstallArgs {
-    pub owner: String,
-    pub repo: String,
-    pub path: String,
-    pub kind: library::LibraryKind,
-    pub target_scope: library::TargetScope,
-    pub target_project_id: Option<String>,
-    pub target_name: Option<String>,
-    #[serde(default)]
-    pub overwrite: bool,
-}
-
-#[tauri::command]
-pub async fn library_install_from_github(args: InstallArgs) -> Result<String, String> {
-    // Capture the data needed for the post-install integration BEFORE the args
-    // are moved into the installer.
-    let repo_label = format!("{}/{}", args.owner, args.repo);
-    let project_id = args.target_project_id.clone();
-    let p = library::install_from_github_inner(
-        args.owner,
-        args.repo,
-        args.path,
-        args.kind,
-        args.target_scope,
-        args.target_project_id,
-        args.target_name,
-        args.overwrite,
-    )
-    .await?;
-
-    // Post-install integration (BEST-EFFORT, never fails the install): the
-    // installed file's stem is the asset slug (e.g. ".../skills/foo/SKILL.md"
-    // → "foo"; ".../agents/foo.md" → "foo"). Auto-syncs the routing catalog and
-    // proposes a memory candidate. Runs on the blocking pool so the synchronous
-    // node spawn + DB write don't stall the async runtime.
-    let asset = installed_asset_slug(&p);
-    let assets = asset.into_iter().collect::<Vec<_>>();
-    let label = repo_label.clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        super::post_install::post_install_integrate(&label, &assets, project_id.as_deref())
-    })
-    .await;
-
-    Ok(p.display().to_string())
-}
-
-/// Derive the skill/agent slug from an installed target path:
-///   `.../skills/<name>/SKILL.md` → `<name>`
-///   `.../agents/<name>.md`       → `<name>`
-fn installed_asset_slug(target: &std::path::Path) -> Option<String> {
-    let file = target.file_name().and_then(|s| s.to_str())?;
-    if file.eq_ignore_ascii_case("SKILL.md") {
-        // Skill folder layout: parent directory name is the slug.
-        return target
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str())
-            .map(str::to_string);
-    }
-    // Agent (or flat) layout: the file stem is the slug.
-    Some(file.trim_end_matches(".md").to_string())
-}
+// La instalación desde GitHub (`library_install_from_github`) se retiró el
+// 2026-10-17: su modal no tenía entrada en la UI y derivaba mal el nombre de
+// las skills. El descubrimiento por GitHub sigue en Catalog (búsqueda de
+// repos + «Integrar con IA»).
 
 #[derive(serde::Deserialize)]
 pub struct AgentCreateArgs {
@@ -89,7 +20,7 @@ pub struct AgentCreateArgs {
 }
 
 #[tauri::command]
-pub fn agent_create(args: AgentCreateArgs) -> Result<String, String> {
+pub async fn agent_create(args: AgentCreateArgs) -> Result<String, String> {
     let spec = library::AgentCreateSpec {
         name: args.name,
         description: args.description,
@@ -111,7 +42,7 @@ pub struct SkillCreateArgs {
 }
 
 #[tauri::command]
-pub fn skill_create(args: SkillCreateArgs) -> Result<String, String> {
+pub async fn skill_create(args: SkillCreateArgs) -> Result<String, String> {
     let spec = library::SkillCreateSpec {
         name: args.name,
         description: args.description,
@@ -119,27 +50,6 @@ pub fn skill_create(args: SkillCreateArgs) -> Result<String, String> {
     };
     let p = library::skill_create_inner(spec, args.target_scope, args.target_project_id)?;
     Ok(p.display().to_string())
-}
-
-#[tauri::command]
-pub fn library_pin_agent(
-    project_id: String,
-    agent_slug: String,
-) -> Result<library::PinnedAgents, String> {
-    library::pin_agent_inner(&project_id, &agent_slug)
-}
-
-#[tauri::command]
-pub fn library_unpin_agent(
-    project_id: String,
-    agent_slug: String,
-) -> Result<library::PinnedAgents, String> {
-    library::unpin_agent_inner(&project_id, &agent_slug)
-}
-
-#[tauri::command]
-pub fn library_list_pinned(project_id: String) -> Result<library::PinnedAgents, String> {
-    library::pinned_load(&project_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -170,9 +80,8 @@ pub struct RepoHit {
     pub topics: Vec<String>,
 }
 
-/// Local `gh` spawn helper mirroring the one in `crate::library` — kept in
-/// this module so we don't need to widen the visibility of the original.
-/// Windows-only `CREATE_NO_WINDOW` (0x0800_0000) keeps the subprocess from
+/// Local `gh` spawn helper (el gemelo de `library/gh_helpers.rs` se retiró
+/// el 2026-10-17 con la instalación desde GitHub). Windows-only `CREATE_NO_WINDOW` (0x0800_0000) keeps the subprocess from
 /// flashing a console window.
 fn gh_command_local(args: &[String]) -> std::process::Command {
     let mut cmd = std::process::Command::new("gh");
@@ -383,61 +292,68 @@ pub struct SiblingFile {
 /// is either the path of the SKILL.md / agent .md itself or the directory
 /// that contains it — both shapes are accepted to match what the frontend
 /// already has in `SkillEntry.path` and `AgentEntry.path`.
+///
+/// Async con `spawn_blocking` (2026-10-23): era un comando síncrono con
+/// `read_dir`, y en Tauri 2 eso corre en el hilo principal y congela la
+/// ventana mientras el disco responde.
 #[tauri::command]
-pub fn list_skill_files(entry_path: String) -> Result<Vec<SiblingFile>, String> {
-    let raw = std::path::PathBuf::from(&entry_path);
+pub async fn list_skill_files(entry_path: String) -> Result<Vec<SiblingFile>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_skill_files_inner(&entry_path))
+        .await
+        .map_err(|e| format!("spawn join: {e}"))?
+}
+
+/// Carpeta a listar: la propia ruta si es un directorio, si no su padre.
+fn skill_dir_of(entry_path: &str) -> Result<std::path::PathBuf, String> {
+    let raw = std::path::PathBuf::from(entry_path);
     if !raw.exists() {
         return Err(format!("path not found: {entry_path}"));
     }
-    let dir = if raw.is_dir() {
-        raw
-    } else {
-        raw.parent()
-            .ok_or_else(|| format!("no parent for: {entry_path}"))?
-            .to_path_buf()
-    };
+    if raw.is_dir() {
+        return Ok(raw);
+    }
+    raw.parent()
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| format!("no parent for: {entry_path}"))
+}
 
-    let mut out: Vec<SiblingFile> = Vec::new();
+/// Una entrada del directorio como `SiblingFile`, o `None` si se omite.
+fn sibling_of(entry: &std::fs::DirEntry) -> Option<SiblingFile> {
+    let name = entry.file_name().to_string_lossy().to_string();
+    // Skip noisy dotfiles that the user almost never wants to open from
+    // the Library UI. `.disabled` is intentionally allowed through —
+    // users do use it to find disabled skills.
+    if name == ".DS_Store" || name == "Thumbs.db" {
+        return None;
+    }
+    let path = entry.path();
+    let metadata = entry.metadata().ok()?;
+    let is_dir = metadata.is_dir();
+    let ext = if is_dir {
+        None
+    } else {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+    };
+    Some(SiblingFile {
+        name,
+        path: path.to_string_lossy().to_string(),
+        is_dir,
+        ext,
+        size_bytes: (!is_dir).then_some(metadata.len()),
+    })
+}
+
+pub(crate) fn list_skill_files_inner(entry_path: &str) -> Result<Vec<SiblingFile>, String> {
+    let dir = skill_dir_of(entry_path)?;
     let read_dir =
         std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
-    for entry in read_dir {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let name = entry.file_name().to_string_lossy().to_string();
-        // Skip noisy dotfiles that the user almost never wants to open from
-        // the Library UI. `.disabled` is intentionally allowed through —
-        // users do use it to find disabled skills.
-        if name == ".DS_Store" || name == "Thumbs.db" {
-            continue;
-        }
-        let path = entry.path();
-        let metadata = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        let is_dir = metadata.is_dir();
-        let ext = if is_dir {
-            None
-        } else {
-            path.extension()
-                .and_then(|e| e.to_str())
-                .map(|s| s.to_ascii_lowercase())
-        };
-        let size_bytes = if is_dir { None } else { Some(metadata.len()) };
-        out.push(SiblingFile {
-            name,
-            path: path.to_string_lossy().to_string(),
-            is_dir,
-            ext,
-            size_bytes,
-        });
-        if out.len() >= 64 {
-            break;
-        }
-    }
-
+    let mut out: Vec<SiblingFile> = read_dir
+        .filter_map(Result::ok)
+        .filter_map(|e| sibling_of(&e))
+        .take(64)
+        .collect();
     // Directories first (so the user sees subfolders at the top), then files.
     // Within each group, sort case-insensitively by name.
     out.sort_by(|a, b| match (a.is_dir, b.is_dir) {
@@ -452,4 +368,43 @@ pub fn list_skill_files(entry_path: String) -> Result<Vec<SiblingFile>, String> 
     // in an external editor, not browsed from inside the Control Center.
     out.truncate(32);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_comando_es_asincrono_y_lista_la_carpeta_de_la_skill() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("SKILL.md"), "x").unwrap();
+        std::fs::write(dir.path().join("b.PY"), "yy").unwrap();
+        std::fs::write(dir.path().join("Thumbs.db"), "").unwrap();
+        std::fs::create_dir(dir.path().join("refs")).unwrap();
+        let skill_md = dir.path().join("SKILL.md").to_string_lossy().to_string();
+        // Caso negativo del hallazgo: con el comando síncrono esto no compila
+        // (no devuelve un Future que bloquear).
+        let files = tauri::async_runtime::block_on(list_skill_files(skill_md)).expect("lista");
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["refs", "b.PY", "SKILL.md"]);
+        assert_eq!(files[1].ext.as_deref(), Some("py"));
+        assert_eq!(files[1].size_bytes, Some(2));
+        assert_eq!(files[0].size_bytes, None);
+    }
+
+    #[test]
+    fn una_ruta_inexistente_es_un_error() {
+        let err = list_skill_files_inner("Z:/no/existe/SKILL.md").unwrap_err();
+        assert!(err.contains("path not found"), "{err}");
+    }
+
+    #[test]
+    fn el_tope_es_de_32_entradas() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for i in 0..40 {
+            std::fs::write(dir.path().join(format!("f{i:02}.md")), "").unwrap();
+        }
+        let files = list_skill_files_inner(&dir.path().to_string_lossy()).expect("lista");
+        assert_eq!(files.len(), 32);
+    }
 }

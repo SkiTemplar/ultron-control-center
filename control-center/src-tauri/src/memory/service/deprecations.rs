@@ -104,9 +104,12 @@ impl MemoryService {
                     let it = item.expect("ArchiveNow implica item presente");
                     match Self::archive_one(conn, &it, now, &reason, actor) {
                         Ok(()) => {
-                            let _ = store::update_deprecation_entry_state(
+                            if let Err(e) = store::update_deprecation_entry_state(
                                 conn, &entry.id, "archived", &now_iso,
-                            );
+                            ) {
+                                res.failed
+                                    .push((entry.artifact.clone(), format!("ledger: {e}")));
+                            }
                             res.archived += 1;
                         }
                         Err(e) => res.failed.push((entry.artifact.clone(), e.to_string())),
@@ -114,17 +117,23 @@ impl MemoryService {
                 }
                 DeprecationOutcome::AlreadyArchived => {
                     if !dry_run {
-                        let _ = store::update_deprecation_entry_state(
+                        if let Err(e) = store::update_deprecation_entry_state(
                             conn, &entry.id, "archived", &now_iso,
-                        );
+                        ) {
+                            res.failed
+                                .push((entry.artifact.clone(), format!("ledger: {e}")));
+                        }
                     }
                     res.archived += 1;
                 }
                 DeprecationOutcome::MissingDeleted => {
                     if !dry_run {
-                        let _ = store::update_deprecation_entry_state(
+                        if let Err(e) = store::update_deprecation_entry_state(
                             conn, &entry.id, "deleted", &now_iso,
-                        );
+                        ) {
+                            res.failed
+                                .push((entry.artifact.clone(), format!("ledger: {e}")));
+                        }
                     }
                     res.missing_closed += 1;
                 }
@@ -283,6 +292,7 @@ mod tests {
             &item.id,
             PAST_DEADLINE_MS,
             "pre-archivado en otra corrida",
+            None,
         )
         .unwrap();
         insert_deprecation_entry(&conn, &overdue_entry("arch-1", "item-arch-1")).unwrap();

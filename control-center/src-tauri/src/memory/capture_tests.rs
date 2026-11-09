@@ -644,3 +644,85 @@ fn echo_rules_catch_the_simple_past_reflexive() {
         Some("echo:aux_participio")
     );
 }
+
+// --- Auditoría 2026-11-01: el motivo del fallo del router se tragaba ---
+
+#[test]
+fn el_motivo_del_router_llega_a_la_nota_sin_filtrar_keys() {
+    let key = ["gs", "k_", "AbCdEfGhIjKlMnOpQrStUvWx0123"].concat();
+    let error = format!(
+        "all providers failed for zone 'chat': [groq/modelo] 401 invalid key {key}; \
+         [gemini/gemini-2.5-flash] skipped — provider has no API key"
+    );
+    let (facts, router_used, strategy, reason) = extraction_outcome(Err(error));
+    assert!(facts.is_empty());
+    assert!(!router_used);
+    assert_eq!(strategy, "router_error->skip");
+
+    let note = capture_note(reason, 0, &[], &[]);
+    assert!(
+        note.starts_with("router error: all providers failed"),
+        "{note}"
+    );
+    assert!(note.contains("provider has no API key"), "{note}");
+    assert!(note.contains("0 candidate(s) proposed"), "{note}");
+    // Caso negativo: la key del error de un proveedor no sale en el informe.
+    assert!(!note.contains(&key), "key en claro: {note}");
+    assert!(note.contains("[REDACTED:groq_key]"), "{note}");
+}
+
+#[test]
+fn el_motivo_del_router_tiene_tope_y_respeta_los_caracteres() {
+    let note = router_error_note(&"ñ".repeat(MAX_ROUTER_ERROR_CHARS + 50));
+    assert!(note.ends_with('…'), "{note}");
+    assert!(note.chars().count() <= MAX_ROUTER_ERROR_CHARS + "router error: …".chars().count());
+    // Caso negativo: un motivo corto no se marca como recortado.
+    assert_eq!(router_error_note("sin red"), "router error: sin red");
+}
+
+#[test]
+fn un_router_sano_no_deja_motivo() {
+    let (facts, used, strategy, reason) =
+        extraction_outcome(Ok("decision | titulo | resumen | 0.9 | user".to_string()));
+    assert_eq!(facts.len(), 1);
+    assert!(used);
+    assert_eq!(strategy, "router");
+    assert!(reason.is_none());
+
+    let (facts, used, strategy, reason) = extraction_outcome(Ok("NADA".to_string()));
+    assert!(facts.is_empty());
+    assert!(used);
+    assert_eq!(strategy, "router_empty->skip");
+    assert!(reason.is_none());
+    assert_eq!(capture_note(reason, 0, &[], &[]), "0 candidate(s) proposed");
+}
+
+#[test]
+fn la_nota_cuenta_descartes_y_candidatos_que_no_entraron() {
+    let discards = [Discard {
+        title: "t".into(),
+        reason: "echo:se_logro".into(),
+        importance: 0.5,
+    }];
+    let fallo = vec![
+        "duplicate".to_string(),
+        "sqlite: database is locked".to_string(),
+    ];
+    assert_eq!(
+        capture_note(None, 1, &discards, &fallo),
+        "1 candidate(s) proposed, 1 discarded (echo:se_logro), \
+         2 not stored (duplicate, sqlite: database is locked)"
+    );
+}
+
+#[test]
+fn un_duplicado_no_cuenta_como_error_y_el_resto_se_redacta() {
+    assert_eq!(
+        candidate_failure(&crate::memory::MemoryError::Duplicate("id-1".into())),
+        "duplicate"
+    );
+    let key = ["gs", "k_", "AbCdEfGhIjKlMnOpQrStUvWx0123"].concat();
+    let otro = crate::memory::MemoryError::ParseError(format!("rechazado {key}"));
+    let motivo = candidate_failure(&otro);
+    assert!(!motivo.contains(&key), "{motivo}");
+}

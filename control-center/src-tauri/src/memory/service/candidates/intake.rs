@@ -1,5 +1,6 @@
 // memory/service/candidates/intake.rs — alta de candidatos (lo que llaman los
-// hooks y los agentes): create_candidate, edit_candidate, list_pending_candidates.
+// hooks y los agentes): create_candidate, list_pending_candidates. (edit_candidate
+// se retiró el 2026-10-23: sin llamantes y sin redacción del texto editado.)
 
 use super::super::super::model::{
     Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, Source,
@@ -7,10 +8,10 @@ use super::super::super::model::{
 };
 use super::super::super::MemoryError;
 use super::super::super::{redaction, sqlite_store as store};
-use super::super::{redact_tags, MemoryService, SECRET_RISK_MARKER};
+use super::super::{raised_sensitivity, redact_tags, MemoryService, SECRET_RISK_MARKER};
 use super::{
-    discard_log, find_exact_duplicate, jaccard_overlap, mark_unverified, paraphrase, pii_scan_text,
-    NEAR_DUP_JACCARD,
+    discard_log, find_exact_duplicate, in_immediate_tx, jaccard_overlap, mark_unverified,
+    paraphrase, pii_scan_text, NEAR_DUP_JACCARD,
 };
 
 impl MemoryService {
@@ -62,7 +63,7 @@ impl MemoryService {
                         cand.id
                     ),
                 );
-                let _ = store::insert_event(&conn, &ev);
+                store::insert_event(&conn, &ev)?;
                 return Err(MemoryError::Duplicate(existing_id));
             }
             Ok(None) => {} // verificado: sin duplicado exacto.
@@ -95,7 +96,7 @@ impl MemoryService {
                         cand.id
                     ),
                 );
-                let _ = store::insert_event(&conn, &ev);
+                store::insert_event(&conn, &ev)?;
                 return Err(MemoryError::Duplicate(original_id));
             }
             Ok(None) => {} // verificado: no es una reformulación reciente.
@@ -112,9 +113,10 @@ impl MemoryService {
 
         // Write-path PII guard (defence-in-depth for items AFTER the credential
         // gate): detect email/phone/user-path in the proposed text. If found,
-        // also apply PII redaction and elevate the risk marker identically to
-        // the credential path — the promoted item will be marked Secret on
-        // approve, excluding it from recall (sensitivity gate in assemble_pack).
+        // also apply PII redaction. Email and phone also elevate the risk marker
+        // identically to the credential path — the promoted item will be marked
+        // Secret on approve, excluding it from recall (sensitivity gate in
+        // assemble_pack). A user path does not: see `pii_requires_quarantine`.
         // 1.7: el scan PII cubre los MISMOS campos que la redacción de credenciales
         // (que ya incluye content_json + tags). Antes excluía content_json y tags →
         // PII ahí (rutas de agentes/import) no elevaba Secret.
@@ -130,23 +132,29 @@ impl MemoryService {
         // the promoted item is marked Secret on approve. `redacted` reuses the
         // same detector as redaction::classify_sensitivity; takes precedence
         // over Merge. PII-only items also get Secret so the recall gate fires.
-        let has_pii = redaction::contains_pii(&proposed_text);
-        if redacted || has_pii {
+        if redacted || pii_requires_quarantine(&proposed_text) {
             cand.recommended_action = CandidateAction::Quarantine;
             cand.risk_level = SECRET_RISK_MARKER.to_string();
         }
 
-        let supersede_target = if redacted {
+        // Un candidato en cuarentena (credencial o PII: risk_level = secret) no
+        // pasa por el juez ni puede auto-superseder: su único camino a ACTIVE es
+        // el approve humano, que lo marca Secret (auditoría 2026-10-23: un
+        // candidato solo-PII juzgado StateUpdate 1:1 entraba ACTIVE e Internal).
+        let judged = if cand.risk_level == SECRET_RISK_MARKER {
             None
         } else {
             judge_contradictions(&mut cand, probe.project_id.as_deref())
         };
+        let supersede_target = auto_supersede_target(&mut cand, judged);
 
-        store::insert_candidate(&conn, &cand)?;
         let ev = MemoryEvent::new(EventType::Created, None, Actor::System)
             .with_reason(created_reason(&cand, redacted))
             .with_after(serde_json::to_string(&cand).unwrap_or_default());
-        let _ = store::insert_event(&conn, &ev);
+        in_immediate_tx(&conn, || {
+            store::insert_candidate(&conn, &cand)?;
+            store::insert_event(&conn, &ev)
+        })?;
 
         // 1.3b AUTO-SUPERSEDE (opt-in, default OFF). El candidato es un state-update
         // 1:1 de `old_id` → lo promovemos a ACTIVE deprecando el viejo, reusando el
@@ -155,13 +163,22 @@ impl MemoryService {
         // PRIMERO; solo si tiene éxito marcamos el candidato Approved. Si falla, el
         // candidato ya está Pending en el inbox — no se pierde ni se corrompe nada.
         if let Some(old_id) = supersede_target {
-            let new_item = cand.to_item(Status::Active, Source::AssistantInferred);
+            let mut new_item = cand.to_item(Status::Active, Source::AssistantInferred);
+            // Paridad con approve_candidate: el marcador de secreto del
+            // write-path sube el item a Secret (monótono, nunca baja).
+            new_item.sensitivity =
+                raised_sensitivity(new_item.sensitivity, cand.risk_level == SECRET_RISK_MARKER);
             drop(conn); // supersede abre su propia conexión.
             match Self::supersede(&old_id, new_item, Actor::System) {
-                Ok(_) => {
-                    if let Ok(c2) = store::open_conn() {
-                        let _ =
-                            store::set_candidate_status(&c2, &cand.id, CandidateStatus::Approved);
+                Ok(item) => {
+                    if let Err(e) = mark_candidate_superseded(&cand.id, &item.id) {
+                        // El item ya está ACTIVE; el candidato se queda Pending y
+                        // el gate anti-dup del approve lo rechazará como duplicado.
+                        tracing::warn!(
+                            candidate = %cand.id,
+                            error = %e,
+                            "auto-supersede: el candidato no pudo marcarse Approved"
+                        );
                     }
                 }
                 Err(e) => {
@@ -178,38 +195,6 @@ impl MemoryService {
         drop(conn); // las ramas de la política abren su propia conexión.
         apply_auto_band(&cand);
         Ok(cand.id.clone())
-    }
-
-    /// Edit a pending candidate's proposed fields before approval. `None` leaves
-    /// a field unchanged.
-    pub fn edit_candidate(
-        id: &str,
-        summary: Option<String>,
-        content: Option<String>,
-        importance: Option<f32>,
-        confidence: Option<f32>,
-    ) -> Result<MemoryCandidate, MemoryError> {
-        let conn = store::open_conn()?;
-        let mut c = store::get_candidate(&conn, id)?
-            .ok_or_else(|| MemoryError::NotFound(format!("candidate {id}")))?;
-        if summary.is_some() {
-            c.proposed_summary = summary;
-        }
-        if content.is_some() {
-            c.proposed_content = content;
-        }
-        if let Some(i) = importance {
-            c.importance = i.clamp(0.0, 1.0);
-        }
-        if let Some(cf) = confidence {
-            c.confidence = cf.clamp(0.0, 1.0);
-        }
-        store::insert_candidate(&conn, &c)?; // INSERT OR REPLACE
-        let ev = MemoryEvent::new(EventType::Edited, None, Actor::User)
-            .with_reason(format!("candidate {id} edited"))
-            .with_after(serde_json::to_string(&c).unwrap_or_default());
-        let _ = store::insert_event(&conn, &ev);
-        Ok(c)
     }
 
     /// List candidates awaiting a human (or policy) decision.
@@ -266,6 +251,19 @@ fn mark_near_dups(conn: &rusqlite::Connection, cand: &mut MemoryCandidate) {
     }
 }
 
+/// `true` si la PII del texto obliga a la cuarentena.
+///
+/// Una ruta de usuario no: la redacción la borra entera (`[REDACTED_PATH]`) y lo
+/// que queda es un hecho técnico limpio. Antes también iba a cuarentena y
+/// `drain --auto` la rechazaba como «secret/PII»: en octubre de 2026, 376 de 1.380
+/// candidatos, con el 86 % de sus marcadores de ruta. Email y teléfono se quedan:
+/// no se sabe qué afirma el texto sobre esa persona. Pura -> unit-tested.
+fn pii_requires_quarantine(text: &str) -> bool {
+    redaction::detect_pii(text)
+        .iter()
+        .any(|hit| hit.kind != redaction::PiiKind::UserPath)
+}
+
 /// Redacta PII en TODOS los campos propuestos (incluidos los de codegraph: una
 /// ruta `C:\Users\name\repo` lleva el username real).
 fn redact_pii_in_place(cand: &mut MemoryCandidate) {
@@ -315,15 +313,18 @@ const CONTRADICTION_BUDGET_MS: u64 = 4_500;
 
 /// Fase D — contradiction detector. Compara la proposición contra los items
 /// ACTIVOS semánticamente cercanos del MISMO proyecto (memory/contradiction.rs:
-/// vecinos densos + juez LLM fail-safe). Con conflicto confirmado solo MARCA:
-/// rellena `contradiction_candidates` y manda a Quarantine para adjudicación
-/// humana. NUNCA auto-resuelve ni descarta, y el detector es CONSERVADOR (el
-/// juez devuelve false ante cualquier duda), así que no puede inundar el inbox.
+/// vecinos densos, o de FTS5 con el denso apagado, + juez LLM fail-safe). Con
+/// conflicto confirmado solo MARCA: rellena `contradiction_candidates` y manda a
+/// Quarantine para adjudicación humana. NUNCA auto-resuelve ni descarta, y el
+/// detector es CONSERVADOR (el juez devuelve false ante cualquier duda), así que
+/// no puede inundar el inbox.
 ///
-/// FAIL-OPEN con latencia acotada (fix CRITICAL #1, 2026-06-05): el juez llama a
-/// `ai_router::route`, que puede bloquear ~6 s si la cuota free-tier se agotó.
+/// FAIL-CLOSED con latencia acotada (fix CRITICAL #1, 2026-06-05; cerrado en 1.7):
+/// el juez llama a `ai_router::route`, que puede bloquear ~6 s si la cuota
+/// free-tier se agotó.
 /// Corre en un hilo con presupuesto de pared; si expira, el candidato se marca
-/// `unjudged` y el hook nunca se cuelga por un juez lento.
+/// `unjudged` (no verificado: no se autoaprueba) y el hook nunca se cuelga por un
+/// juez lento. Lo mismo si la búsqueda falla o el hilo no abre conexión.
 ///
 /// Devuelve el id a deprecar cuando (1.3b) el candidato es un state-update 1:1
 /// CLARO y `auto_supersede` está ON; el llamante lo ejecuta DESPUÉS de insertar.
@@ -345,7 +346,9 @@ fn judge_contradictions(cand: &mut MemoryCandidate, project_id: Option<&str>) ->
     let project_id_owned = project_id.map(str::to_string);
 
     // Hilo del SO (sin runtime async) para poder acotar el tiempo. `conn` no es
-    // `Send`: el hilo abre la suya (open_conn es barato, WAL, sin migración).
+    // `Send`: el hilo abre la suya. `open_conn` pasa por `apply_schema` (unos 20
+    // sondeos de `table_info` y DDL `IF NOT EXISTS`); sobre una base ya migrada
+    // solo lee, no toma el cerrojo de escritura.
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let result = store::open_conn().ok().map(|c| {
@@ -380,6 +383,24 @@ fn judge_contradictions(cand: &mut MemoryCandidate, project_id: Option<&str>) ->
             None
         }
     }
+}
+
+/// Última puerta del auto-supersede: el veredicto del juez (`judged`) solo
+/// promueve a ACTIVE sin humano si el candidato no lleva el marcador de secreto
+/// (credencial o PII) ni una marca de verificación incompleta
+/// (`dedup-unverified`, `unjudged`…). En cualquier otro caso el candidato se
+/// queda en el inbox en cuarentena. Pura: no toca la base.
+pub(super) fn auto_supersede_target(
+    cand: &mut MemoryCandidate,
+    judged: Option<String>,
+) -> Option<String> {
+    let old_id = judged?;
+    let quarantined = cand.risk_level == SECRET_RISK_MARKER;
+    if quarantined || super::super::super::auto_approve::candidate_is_unverified(cand) {
+        cand.recommended_action = CandidateAction::Quarantine;
+        return None;
+    }
+    Some(old_id)
 }
 
 /// Anota los ids en conflicto y decide disposición: state-update 1:1 claro con
@@ -419,33 +440,87 @@ fn apply_contradiction_findings(
 /// SALVAGUARDA: `candidate_is_clean` es FALSE para cualquier candidato con el
 /// marcador de secreto o una contradicción, así que esos SIEMPRE se quedan en el
 /// inbox. FAIL-SAFE: `auto_approve_threshold` lee f32::INFINITY ante cualquier
-/// error de settings y `auto_approve_enabled` por defecto es false. Todos los
-/// errores se tragan: el candidato ya está a salvo en el inbox.
+/// error de settings y `auto_approve_enabled` por defecto es false. Un fallo de
+/// la política no tumba el alta (el candidato ya está a salvo Pending en el
+/// inbox), pero queda en el log.
 fn apply_auto_band(cand: &MemoryCandidate) {
     use super::super::super::auto_approve;
     if !auto_approve::auto_approve_enabled() || !auto_approve::candidate_is_clean(cand) {
         return;
     }
     let threshold = auto_approve::auto_approve_threshold();
-    match auto_approve::classify_band(cand, threshold) {
+    let outcome = match auto_approve::classify_band(cand, threshold) {
         auto_approve::AutoBand::Approve => {
-            let _ = MemoryService::approve_candidate(&cand.id, Actor::System);
+            MemoryService::approve_candidate(&cand.id, Actor::System).map(|_| ())
         }
-        auto_approve::AutoBand::Pending => {
-            // No-op: ya está persistido Pending en el inbox.
-        }
-        auto_approve::AutoBand::Reject => {
-            // Ruido de baja confianza: a `rejected` (fuera del recall) con la
-            // decisión de política en el log. Errores tragados — en el peor caso
-            // se queda Pending, que sigue siendo seguro.
-            let Ok(conn) = store::open_conn() else { return };
-            let _ = store::set_candidate_status(&conn, &cand.id, CandidateStatus::Rejected);
-            let ev =
-                MemoryEvent::new(EventType::Rejected, None, Actor::System).with_reason(format!(
-                    "candidate {} auto-rejected (confidence {:.2} < band-C floor)",
-                    cand.id, cand.confidence
-                ));
-            let _ = store::insert_event(&conn, &ev);
-        }
+        // No-op: ya está persistido Pending en el inbox.
+        auto_approve::AutoBand::Pending => Ok(()),
+        // Ruido de baja confianza: a `rejected` (fuera del recall) con la
+        // decisión de política en el ledger, en la misma transacción.
+        auto_approve::AutoBand::Reject => auto_reject(cand),
+    };
+    if let Err(e) = outcome {
+        tracing::warn!(
+            candidate = %cand.id,
+            error = %e,
+            "auto-approve: la banda no se aplicó; el candidato queda Pending"
+        );
+    }
+}
+
+fn auto_reject(cand: &MemoryCandidate) -> Result<(), MemoryError> {
+    let conn = store::open_conn()?;
+    let ev = MemoryEvent::new(EventType::Rejected, None, Actor::System).with_reason(format!(
+        "candidate {} auto-rejected (confidence {:.2} < band-C floor)",
+        cand.id, cand.confidence
+    ));
+    in_immediate_tx(&conn, || {
+        store::set_candidate_status(&conn, &cand.id, CandidateStatus::Rejected)?;
+        store::insert_event(&conn, &ev)
+    })
+}
+
+/// Cierre del auto-supersede: el candidato pasa a Approved con su evento, en la
+/// misma transacción.
+fn mark_candidate_superseded(cand_id: &str, item_id: &str) -> Result<(), MemoryError> {
+    let conn = store::open_conn()?;
+    let ev = MemoryEvent::new(
+        EventType::Approved,
+        Some(item_id.to_string()),
+        Actor::System,
+    )
+    .with_reason(format!("candidate {cand_id} auto-superseded"));
+    in_immediate_tx(&conn, || {
+        store::set_candidate_status(&conn, cand_id, CandidateStatus::Approved)?;
+        store::insert_event(&conn, &ev)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pii_requires_quarantine;
+    use crate::memory::redaction;
+
+    // Auditoría 2026-11-01: un hecho técnico que citaba una ruta del home se perdía
+    // aunque la redacción ya lo hubiera dejado limpio.
+    #[test]
+    fn una_ruta_de_usuario_se_redacta_sin_cuarentena() {
+        let text = r"el build falla en C:\Users\TestUser\proyecto\src\a.rs por el linker";
+        assert!(!pii_requires_quarantine(text));
+        let clean = redaction::redact_pii(text);
+        assert!(clean.contains("[REDACTED_PATH]"), "{clean}");
+        assert!(!clean.contains("TestUser"), "{clean}");
+    }
+
+    // Caso negativo: email y teléfono siguen yendo a cuarentena, también con una
+    // ruta al lado.
+    #[test]
+    fn email_y_telefono_siguen_en_cuarentena() {
+        assert!(pii_requires_quarantine("escribe a dev@example.com"));
+        assert!(pii_requires_quarantine("llama al +34 600 123 456"));
+        assert!(pii_requires_quarantine(
+            r"C:\Users\TestUser\a.rs y dev@example.com"
+        ));
+        assert!(!pii_requires_quarantine("un hecho sin datos personales"));
     }
 }

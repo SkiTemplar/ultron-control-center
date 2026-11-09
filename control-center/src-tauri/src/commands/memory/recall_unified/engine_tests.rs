@@ -125,3 +125,15 @@ fn recall_floor_env_override_off_and_garbage() {
         "el default es el umbral medido, no un valor cualquiera"
     );
 }
+
+// (2026-10-23) Con el denso apagado a propósito (ULTRON_DENSE=0) o sin pedirlo,
+// un denso vacío no es una avería: no se avisa de «E5/Qdrant unavailable».
+#[test]
+fn denso_vacio_solo_avisa_si_se_pidio_y_esta_encendido() {
+    use super::super::types_model::dense_empty_warning;
+    let aviso = dense_empty_warning(true, true, 0).expect("avería real");
+    assert!(aviso.contains("E5/Qdrant unavailable"), "{aviso}");
+    assert_eq!(dense_empty_warning(true, false, 0), None, "ULTRON_DENSE=0");
+    assert_eq!(dense_empty_warning(false, true, 0), None, "sparse pedido");
+    assert_eq!(dense_empty_warning(true, true, 3), None, "hay hits densos");
+}

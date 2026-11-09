@@ -5,7 +5,7 @@ use rusqlite::{named_params, params, Connection};
 use crate::memory::model::{MemoryItem, MemoryType, Scope, Source, Status};
 use crate::memory::MemoryError;
 
-use super::row_mapping::{item_from_row, sparse_terms, vec_to_json, ITEM_COLS};
+use super::row_mapping::{collect_rows, item_from_row, sparse_terms, vec_to_json, ITEM_COLS};
 use super::schema::fts5_available;
 
 pub fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), MemoryError> {
@@ -268,7 +268,7 @@ pub fn search_items_typed(
                 item_from_row,
             );
             if let Ok(mapped) = rows {
-                for item in mapped.flatten() {
+                for item in collect_rows(mapped, "search FTS") {
                     out.push(item);
                 }
             }
@@ -314,7 +314,7 @@ pub fn search_items_typed(
         let rows = stmt
             .query_map(rusqlite::params_from_iter(binds.iter()), item_from_row)
             .map_err(|e| MemoryError::RemoteUnavailable(format!("search LIKE query: {e}")))?;
-        for item in rows.flatten() {
+        for item in collect_rows(rows, "search LIKE") {
             out.push(item);
         }
     }
@@ -337,7 +337,7 @@ pub fn list_items(
     let rows = stmt
         .query_map(params![status.as_str(), limit as i64], item_from_row)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_items query: {e}")))?;
-    Ok(rows.flatten().collect())
+    Ok(collect_rows(rows, "list_items"))
 }
 
 pub fn count_items_by_status(conn: &Connection, status: Status) -> i64 {
@@ -381,7 +381,7 @@ pub fn list_pinned(conn: &Connection, limit: usize) -> Result<Vec<MemoryItem>, M
     let rows = stmt
         .query_map(params![limit as i64], item_from_row)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_pinned query: {e}")))?;
-    Ok(rows.flatten().collect())
+    Ok(collect_rows(rows, "list_pinned"))
 }
 
 /// Active items of a given type (e.g. open tasks, decisions) — newest first.
@@ -404,7 +404,7 @@ pub fn list_by_type_status(
             item_from_row,
         )
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_by_type query: {e}")))?;
-    Ok(rows.flatten().collect())
+    Ok(collect_rows(rows, "list_by_type"))
 }
 
 /// Memory Browser query — paginated, filterable listing over `memory_items`.
@@ -479,7 +479,7 @@ pub fn query_items(
     let rows = stmt
         .query_map(page_params.as_slice(), item_from_row)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("query_items query: {e}")))?;
-    let items: Vec<MemoryItem> = rows.flatten().collect();
+    let items: Vec<MemoryItem> = collect_rows(rows, "query_items");
     Ok((items, total))
 }
 
@@ -489,17 +489,9 @@ pub fn query_items(
 /// prefix to a full UUID before delegating to `MemoryService::forget`.
 /// The caller validates that exactly one id is returned (ambiguity guard).
 pub fn find_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<String>, MemoryError> {
-    // LIKE pattern: prefix% (case-sensitive for UUIDs — all lower-hex).
-    let pattern = format!("{prefix}%");
-    let mut stmt = conn
-        .prepare("SELECT id FROM memory_items WHERE id LIKE ?1")
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("find_ids_by_prefix prepare: {e}")))?;
-    let ids: Vec<String> = stmt
-        .query_map(params![pattern], |r| r.get(0))
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("find_ids_by_prefix query: {e}")))?
-        .flatten()
-        .collect();
-    Ok(ids)
+    // Comparación literal de los primeros caracteres (sin comodines de LIKE y
+    // sensible a mayúsculas): ver `id_prefix`.
+    super::id_prefix::ids_starting_with(conn, super::id_prefix::IdTable::Items, prefix)
 }
 
 /// Grupos de items ACTIVE con el mismo `content_hash` dentro del mismo
@@ -526,7 +518,7 @@ pub fn list_active_duplicate_groups(
         .query_map([], item_from_row)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("duplicate_groups query: {e}")))?;
     let mut groups: Vec<Vec<MemoryItem>> = Vec::new();
-    for item in rows.flatten() {
+    for item in collect_rows(rows, "duplicate_groups") {
         let same_group = groups.last().is_some_and(|g| {
             g[0].content_hash == item.content_hash
                 && g[0].scope == item.scope

@@ -52,7 +52,7 @@ export class AIRouterErrorBoundary extends Component<Props, State> {
               className="text-[13px] font-semibold"
               style={{ color: "var(--color-danger)" }}
             >
-              AI Router encountered a render error
+              El Router de IA ha fallado al pintarse
             </p>
             <p
               className="text-[12px] font-mono break-all"
@@ -64,9 +64,9 @@ export class AIRouterErrorBoundary extends Component<Props, State> {
               className="text-[11px]"
               style={{ color: "var(--color-text-faint)" }}
             >
-              This is usually caused by unexpected data from the backend
-              (e.g. an empty or malformed metrics.json). The error has been
-              logged to the browser console.
+              Suele deberse a datos inesperados del backend (por ejemplo, un
+              metrics.json vacío o mal formado). El error se ha registrado en
+              la consola del navegador.
             </p>
           </div>
           <button
@@ -79,7 +79,7 @@ export class AIRouterErrorBoundary extends Component<Props, State> {
               border: "1px solid var(--color-border)",
             }}
           >
-            Try again
+            Reintentar
           </button>
         </div>
       );

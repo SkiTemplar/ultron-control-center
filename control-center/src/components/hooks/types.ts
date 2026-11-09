@@ -22,6 +22,8 @@ export type HookMutationResult = {
   success: boolean;
   hook: HookRecord | null;
   backup_path: string | null;
+  /** Resultado de regenerar hooks/manifest.json tras el cambio (hooks-8). */
+  manifest_sync?: string | null;
 };
 
 export type HookTestResult = {

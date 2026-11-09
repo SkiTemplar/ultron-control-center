@@ -14,17 +14,24 @@
 
 use rusqlite::Connection;
 
+use super::sqlite_store::in_immediate_tx;
+use super::sqlite_store::schema::{
+    add_column_if_missing_on, exec, raise_user_version, user_version,
+};
 use super::MemoryError;
 
 /// `PRAGMA user_version` value that marks the v3 structural migration as applied.
-/// Kept in sync with `model::SCHEMA_VERSION`. The bump is monotonic (only raised
-/// when `< 3`) and does not interfere with the v2 derived-column backfill, which
-/// gates on `>= 2`.
+/// (Independiente de `model::SCHEMA_VERSION`, que versiona la forma de cada
+/// fila.) The bump is monotonic (only raised when `< 3`) and does not interfere
+/// with the v2 derived-column backfill, which gates on `>= 2`.
 const USER_VERSION_V3: i64 = 3;
 
+/// `PRAGMA user_version` tras el backfill de `valid_from` (la última migración).
+pub(crate) const USER_VERSION_TEMPORAL: i64 = 6;
+
 /// Apply the additive v3 tables/columns. Idempotent: safe to call on every
-/// `open_conn`. Errors only on a genuinely broken DB (the `IF NOT EXISTS`
-/// statements never fail on a healthy connection).
+/// `open_conn`, and on an up-to-date DB it writes nothing. Any error (DDL,
+/// column probe, `ALTER`, version bump) is returned, never swallowed.
 pub(crate) fn apply_schema_v3(conn: &Connection) -> Result<(), MemoryError> {
     // (a) Control Plane: per-turn trace spans (SPEC-CONTROL-PLANE §4.1).
     conn.execute_batch(
@@ -98,69 +105,73 @@ pub(crate) fn apply_schema_v3(conn: &Connection) -> Result<(), MemoryError> {
     // (d) Control Plane: link each memory_event to the turn that produced it.
     // Guarded ADD COLUMN (SQLite has no ADD COLUMN IF NOT EXISTS). The index is
     // created AFTER the column exists, so a pre-v3 DB does not abort here.
-    if !column_present(conn, "memory_events", "trace_id") {
-        let _ = conn.execute_batch("ALTER TABLE memory_events ADD COLUMN trace_id TEXT;");
-    }
-    let _ = conn
-        .execute_batch("CREATE INDEX IF NOT EXISTS idx_memev_trace ON memory_events(trace_id);");
+    add_column_if_missing_on(conn, "memory_events", "trace_id", "TEXT")?;
+    exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_memev_trace ON memory_events(trace_id);",
+        "schema v3 idx_memev_trace",
+    )?;
 
     // (f) Temporal resolver (additive, reversible): bitemporal-lite validity on
     // memory_items. `valid_from` = when the assertion began (defaults to
     // created_at); `valid_to` = when it stopped being true (NULL = still vigente).
-    // Same guarded ADD COLUMN pattern: SQLite has no ADD COLUMN IF NOT EXISTS.
     // Reverting = ignore both columns (recall falls back to "no end" semantics).
-    if !column_present(conn, "memory_items", "valid_from") {
-        let _ = conn.execute_batch("ALTER TABLE memory_items ADD COLUMN valid_from INTEGER;");
-    }
-    if !column_present(conn, "memory_items", "valid_to") {
-        let _ = conn.execute_batch("ALTER TABLE memory_items ADD COLUMN valid_to INTEGER;");
-    }
-    // One-shot, NULL-only backfill so historical rows get a sensible vigencia
-    // start (created_at) without touching their valid_to. Re-entrant-safe: the
-    // WHERE clause means a second run is a no-op once columns are populated.
-    let _ = conn.execute_batch(
-        "UPDATE memory_items SET valid_from = created_at \
-         WHERE valid_from IS NULL;",
-    );
+    // El backfill de `valid_from` NO va aquí: es la migración versionada
+    // `apply_temporal_backfill_v6`, que corre una sola vez.
+    add_column_if_missing_on(conn, "memory_items", "valid_from", "INTEGER")?;
+    add_column_if_missing_on(conn, "memory_items", "valid_to", "INTEGER")?;
     // Index to keep the recall vigencia filter cheap (valid_to NULL or future).
-    let _ = conn
-        .execute_batch("CREATE INDEX IF NOT EXISTS idx_items_valid_to ON memory_items(valid_to);");
+    exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_items_valid_to ON memory_items(valid_to);",
+        "schema v3 idx_items_valid_to",
+    )?;
 
-    // (e) Mark the structural migration as applied (monotonic). Does not run any
-    // data backfill, so no row scan: pure PRAGMA bump when below v3.
-    let uv: i64 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap_or(0);
-    if uv < USER_VERSION_V3 {
-        let _ = conn.execute_batch(&format!("PRAGMA user_version = {USER_VERSION_V3};"));
-    }
-    Ok(())
+    // (e) Mark the structural migration as applied (monotonic). Pure PRAGMA
+    // bump when below v3; on an up-to-date DB it only reads.
+    raise_user_version(conn, USER_VERSION_V3)
 }
 
-/// Whether `table` already has a column named `col`. On any probe error returns
-/// `true` so the caller never re-issues a failing `ALTER`. `table` is always a
-/// constant code literal (never user input) -> no injection surface.
-fn column_present(conn: &Connection, table: &str, col: &str) -> bool {
-    conn.prepare(&format!("PRAGMA table_info({table})"))
-        .ok()
-        .map(|mut s| {
-            s.query_map([], |r| r.get::<_, String>(1))
-                .map(|it| it.flatten().any(|c| c == col))
-                .unwrap_or(true)
-        })
-        .unwrap_or(true)
+/// Backfill de `valid_from` (user_version 5 → 6, 2026-10-26).
+///
+/// Hasta esta versión el `UPDATE ... WHERE valid_from IS NULL` corría en CADA
+/// `open_conn`, incluidas las aperturas de solo lectura: tomaba el cerrojo de
+/// escritura de la base en WAL y, si chocaba con otro escritor, el error se
+/// tragaba. Ahora corre una vez, en una transacción `BEGIN IMMEDIATE` que
+/// también sube la versión: si el UPDATE falla, la versión no sube y el error
+/// llega al llamante. Las filas nuevas ya traen `valid_from` desde
+/// `MemoryItem::new`.
+pub(crate) fn apply_temporal_backfill_v6(conn: &Connection) -> Result<(), MemoryError> {
+    if user_version(conn)? >= USER_VERSION_TEMPORAL {
+        return Ok(());
+    }
+    in_immediate_tx(conn, || {
+        exec(
+            conn,
+            "UPDATE memory_items SET valid_from = created_at WHERE valid_from IS NULL;",
+            "schema v6 backfill valid_from",
+        )?;
+        raise_user_version(conn, USER_VERSION_TEMPORAL)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::sqlite_store::schema::column_present;
 
-    /// A bare connection with just the `memory_events` table, mirroring the
-    /// shape `apply_schema` creates, so the guarded ADD COLUMN has a target.
+    /// Minimal `memory_items` + `memory_events` shapes (the tables
+    /// `apply_schema` creates before v3), so every guarded ADD COLUMN has a
+    /// real target. Sin `memory_items`, el `ALTER` falla y desde 2026-10-26 ese
+    /// error ya no se traga.
     fn base_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
-            "CREATE TABLE memory_events (
+            "CREATE TABLE memory_items (
+                id TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE memory_events (
                 id TEXT PRIMARY KEY,
                 event_type TEXT NOT NULL,
                 memory_id TEXT,
@@ -180,6 +191,17 @@ mod tests {
         .is_ok()
     }
 
+    fn count_columns(conn: &Connection, table: &str, col: &str) -> usize {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|c| c == col)
+            .count()
+    }
+
     #[test]
     fn creates_all_v3_tables_and_column() {
         let conn = base_conn();
@@ -188,12 +210,8 @@ mod tests {
         assert!(table_exists(&conn, "trace_events"));
         assert!(table_exists(&conn, "deprecation_entries"));
         assert!(table_exists(&conn, "deprecation_events"));
-        assert!(column_present(&conn, "memory_events", "trace_id"));
-
-        let uv: i64 = conn
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(uv, USER_VERSION_V3);
+        assert!(column_present(&conn, "memory_events", "trace_id").unwrap());
+        assert_eq!(user_version(&conn).unwrap(), USER_VERSION_V3);
     }
 
     #[test]
@@ -202,55 +220,23 @@ mod tests {
         apply_schema_v3(&conn).unwrap();
         // Second apply must not error (no duplicate table / duplicate column).
         apply_schema_v3(&conn).unwrap();
-
-        // Exactly one trace_id column (no duplicate ALTER).
-        let trace_cols: usize = {
-            let mut stmt = conn.prepare("PRAGMA table_info(memory_events)").unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(1))
-                .unwrap()
-                .flatten()
-                .filter(|c| c == "trace_id")
-                .count()
-        };
-        assert_eq!(trace_cols, 1);
-    }
-
-    /// A connection with a minimal `memory_items` shape so the temporal
-    /// ADD COLUMN guards have a real target (the base_conn lacks the table, so
-    /// the probe returns `true` and the ALTER is skipped — correct, but we want
-    /// to exercise the success path too).
-    fn items_conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE memory_items (
-                id TEXT PRIMARY KEY,
-                created_at INTEGER NOT NULL
-            );
-            CREATE TABLE memory_events (
-                id TEXT PRIMARY KEY,
-                event_type TEXT NOT NULL,
-                memory_id TEXT,
-                created_at INTEGER NOT NULL
-            );",
-        )
-        .unwrap();
-        conn
+        assert_eq!(count_columns(&conn, "memory_events", "trace_id"), 1);
+        assert_eq!(count_columns(&conn, "memory_items", "valid_to"), 1);
     }
 
     #[test]
-    fn adds_valid_from_valid_to_and_backfills_valid_from() {
-        let conn = items_conn();
+    fn adds_valid_from_valid_to_and_backfills_valid_from_once() {
+        let conn = base_conn();
         conn.execute(
             "INSERT INTO memory_items (id, created_at) VALUES ('m1', 12345)",
             [],
         )
         .unwrap();
         apply_schema_v3(&conn).unwrap();
+        assert!(column_present(&conn, "memory_items", "valid_from").unwrap());
+        assert!(column_present(&conn, "memory_items", "valid_to").unwrap());
 
-        assert!(column_present(&conn, "memory_items", "valid_from"));
-        assert!(column_present(&conn, "memory_items", "valid_to"));
-
-        // valid_from backfilled to created_at; valid_to stays NULL (still vigente).
+        apply_temporal_backfill_v6(&conn).unwrap();
         let (vf, vt): (Option<i64>, Option<i64>) = conn
             .query_row(
                 "SELECT valid_from, valid_to FROM memory_items WHERE id='m1'",
@@ -260,23 +246,35 @@ mod tests {
             .unwrap();
         assert_eq!(vf, Some(12345), "valid_from backfilled from created_at");
         assert!(vt.is_none(), "valid_to NULL means still vigente");
+        assert_eq!(user_version(&conn).unwrap(), USER_VERSION_TEMPORAL);
+
+        // Caso negativo: ya en v6, una fila sin valid_from no se toca.
+        conn.execute(
+            "INSERT INTO memory_items (id, created_at) VALUES ('m2', 999)",
+            [],
+        )
+        .unwrap();
+        apply_temporal_backfill_v6(&conn).unwrap();
+        let vf2: Option<i64> = conn
+            .query_row(
+                "SELECT valid_from FROM memory_items WHERE id='m2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(vf2.is_none(), "el backfill corrió fuera de su migración");
     }
 
     #[test]
-    fn temporal_migration_is_idempotent() {
-        let conn = items_conn();
-        apply_schema_v3(&conn).unwrap();
-        apply_schema_v3(&conn).unwrap(); // second apply must not duplicate columns
-
-        let valid_to_cols: usize = {
-            let mut stmt = conn.prepare("PRAGMA table_info(memory_items)").unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(1))
-                .unwrap()
-                .flatten()
-                .filter(|c| c == "valid_to")
-                .count()
-        };
-        assert_eq!(valid_to_cols, 1);
+    fn a_missing_target_table_is_an_error_not_a_silent_skip() {
+        // Antes el ALTER fallido se tragaba y user_version subía igual.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE memory_events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);",
+        )
+        .unwrap();
+        assert!(apply_schema_v3(&conn).is_err());
+        assert_eq!(user_version(&conn).unwrap(), 0);
     }
 
     #[test]

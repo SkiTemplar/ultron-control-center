@@ -1,0 +1,17 @@
+{
+  "id": "unreal-cpp",
+  "label": "Unreal Engine 5.6 (C++)",
+  "description": "Proyecto de Unreal Engine 5.6 con módulo C++, targets de juego y editor, scripts Tools/build.ps1 y Tools/test.ps1 y un test de humo de Automation.",
+  "kinds": ["asignatura", "personal"],
+  "requires": [],
+  "files": [
+    "{{identifier}}.uproject",
+    "Source/{{identifier}}.Target.cs",
+    "Source/{{identifier}}Editor.Target.cs",
+    "Source/{{identifier}}/",
+    "Tools/",
+    "README.md",
+    "CLAUDE.md",
+    ".gitignore"
+  ]
+}

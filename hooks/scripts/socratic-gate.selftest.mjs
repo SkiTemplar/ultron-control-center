@@ -156,6 +156,37 @@ A(
   m2.ctx.slice(0, 220),
 );
 
+// Auditoria 2026-11-01: 8 de 8 respuestas naturales de bajo esfuerzo no escalaban.
+for (const prompt of ["si, la 2", "vale, la primera", "la 2 dale", "tu veras", "lo dejo en tus manos",
+  "la que recomiendes", "haz lo que recomiendas", "\u{1F44D}", "ok."]) {
+  const r = fire(prompt, DIR_STRICT);
+  A(/GATE/.test(r.ctx), `strict: «${prompt}» escala`, r.ctx.slice(0, 80));
+}
+// Negativos: una eleccion con razon o una frase normal no escalan.
+for (const prompt of ["la 2 porque es mas simple de mantener", "si, la 2 porque no toca el esquema",
+  "vale la pena cambiar el esquema", "ok pero la 2 no compila", "resume el README"]) {
+  const sid = `selftest-socratic-neg-${seq++}`;
+  fire("primer prompt de la sesion", DIR_STRICT, sid);
+  const r = fire(prompt, DIR_STRICT, sid);
+  A(!/GATE/.test(r.ctx), `strict: «${prompt}» no escala`, r.ctx.slice(0, 80));
+}
+const vacio = fire("   ", DIR_STRICT);
+A(!/GATE/.test(vacio.ctx), "strict: un prompt en blanco no escala", vacio.ctx.slice(0, 80));
+
+// light: el recordatorio corto no puede decir lo contrario del modo (abierto desde 2026-10-17).
+// El bloque de uni reescribio el registro sin p-light.
+writeFileSync(REGISTRY, JSON.stringify({
+  projects: [{ id: "p-strict", path: DIR_STRICT }, { id: "p-light", path: DIR_LIGHT, socratic: "light" }],
+}));
+const lightSid = `selftest-socratic-light-${seq++}`;
+fire("primer prompt de la sesion", DIR_LIGHT, lightSid);
+const lightCorto = fire("que opcion prefieres?", DIR_LIGHT, lightSid);
+A(/light/.test(lightCorto.ctx) && /SI vale/.test(lightCorto.ctx), "light: el recordatorio corto dice que un ok vale", lightCorto.ctx.slice(0, 200));
+const strictSid = `selftest-socratic-strict-${seq++}`;
+fire("primer prompt de la sesion", DIR_STRICT, strictSid);
+const strictCorto = fire("que opcion prefieres?", DIR_STRICT, strictSid);
+A(!/SI vale/.test(strictCorto.ctx), "strict: el recordatorio corto no lleva el texto de light", strictCorto.ctx.slice(0, 200));
+
 rmSync(FIXTURE, { recursive: true, force: true });
 for (const sid of SESSIONS) {
   const m = join(tmpdir(), `ultron-socratic-${sid.replace(/[^A-Za-z0-9_-]/g, "")}`);

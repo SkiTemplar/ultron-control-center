@@ -1,29 +1,7 @@
 // ULTRON Control Center — tipos locales del panel LiveSessionMonitor
-// (eventos en vivo de delegación + preview manual de orquestación).
+// (preview manual de orquestación; los eventos de delegación se retiraron el
+// 2026-10-17 por no tener productor).
 // Extraídos de LiveSessionMonitor.tsx (cat7.4: >800 líneas) sin cambiar forma.
-
-// Eventos en vivo emitidos por el backend al delegar/terminar un agente.
-export type DelegatingPayload = {
-  agent: string;
-  task_preview?: string;
-  provider?: string;
-  started_at?: string;
-};
-export type DelegatedPayload = {
-  agent: string;
-  status?: string;
-  task_preview?: string;
-  duration_ms?: number;
-};
-
-export type LiveEvent = {
-  seq: number; // id estable para la key de React (la lista usa prepend)
-  agent: string;
-  status: string; // delegating | done | timeout | launched | failed
-  preview: string;
-  provider?: string;
-  at: string; // ISO
-};
 
 // Espejo de orchestrator::OrchestrationContext (modulo orchestrator/, snake_case sin rename) —
 // respuesta de invoke('orchestrate_prompt') para el preview manual (F2.1).
@@ -46,6 +24,16 @@ export type OrchestrationPreview = {
     clarifying_questions: string[];
     success_criteria: string[];
   } | null;
+  /** cat13.4: encuadre por paso cuando el workflow tiene dos o más pasos. */
+  step_plans?: { agent: string; sub_intent: string; frame: string }[];
+  /** Directiva de delegación que el hook emitiría en modo full. */
+  delegation_directive?: {
+    agent: string;
+    objective: string;
+    return_format: string;
+    model_hint: string | null;
+    reason: string;
+  } | null;
+  /** Tono detectado: lo ÚNICO que el modo ligero inyecta en sesión. */
+  tone?: { id: string; name: string; reason: string; explicit: boolean } | null;
 };
-
-export const MAX_LIVE_EVENTS = 8;

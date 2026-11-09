@@ -25,14 +25,97 @@ use serde::Serialize;
 use super::model::{MemoryCandidate, MemoryType, Scope};
 use super::service::MemoryService;
 
-/// Router zone used for extraction. `chat` is the lightest cloud zone
-/// (claude-haiku primary, groq fallback); both read their key from the process
-/// env at call time, so the sidecar (launched by the Node hook with the system
-/// env) reaches them even when `providers.json` shows a stale "missing".
+/// Router zone used for extraction. `chat` is the lightest cloud zone; its chain
+/// lives in `ai_router` (`seed_zones` and `zones.json`), not here.
 const CAPTURE_ZONE: &str = "chat";
 
 /// Max facts proposed per session (keeps the inbox signal-dense).
 const MAX_FACTS: usize = 5;
+
+/// Tope del motivo de fallo del router en la nota del informe. El hook registra
+/// los primeros 200 caracteres del informe; el motivo va delante para que quepa.
+const MAX_ROUTER_ERROR_CHARS: usize = 400;
+
+/// Motivo observable de un fallo del router, sin credenciales ni datos personales.
+///
+/// El error de `route()` concatena lo que respondió cada proveedor, y un proveedor
+/// puede devolver un trozo de la petición con la key o del prompt con una ruta.
+/// Pura -> unit-tested.
+fn router_error_note(error: &str) -> String {
+    let clean = super::redaction::redact_pii(&super::redaction::redact(error));
+    let mut note: String = clean.chars().take(MAX_ROUTER_ERROR_CHARS).collect();
+    if clean.chars().count() > MAX_ROUTER_ERROR_CHARS {
+        note.push('…');
+    }
+    format!("router error: {note}")
+}
+
+/// Resultado de la extracción: hechos, si sirvió el router, estrategia y, si
+/// falló, el motivo ya saneado. Pura -> unit-tested.
+fn extraction_outcome(
+    routed: Result<String, String>,
+) -> (Vec<Fact>, bool, &'static str, Option<String>) {
+    match routed {
+        Ok(resp) => {
+            let parsed = parse_facts(&resp);
+            let strategy = if parsed.is_empty() {
+                "router_empty->skip"
+            } else {
+                "router"
+            };
+            (parsed, true, strategy, None)
+        }
+        Err(e) => (
+            Vec::new(),
+            false,
+            "router_error->skip",
+            Some(router_error_note(&e)),
+        ),
+    }
+}
+
+/// Nota del informe. Con el router caído manda el motivo: sin él, 255 de 263
+/// capturas medidas decían «0 candidate(s) proposed» y parecían sesiones sin
+/// nada que guardar. Pura -> unit-tested.
+fn capture_note(
+    router_error: Option<String>,
+    created: usize,
+    discards: &[Discard],
+    failures: &[String],
+) -> String {
+    let mut note = router_error.map_or_else(
+        || format!("{created} candidate(s) proposed"),
+        |reason| format!("{reason}; {created} candidate(s) proposed"),
+    );
+    if !discards.is_empty() {
+        let reasons: Vec<&str> = discards.iter().map(|d| d.reason.as_str()).collect();
+        note.push_str(&format!(
+            ", {} discarded ({})",
+            discards.len(),
+            reasons.join(", ")
+        ));
+    }
+    if !failures.is_empty() {
+        note.push_str(&format!(
+            ", {} not stored ({})",
+            failures.len(),
+            failures.join(", ")
+        ));
+    }
+    note
+}
+
+/// Motivo saneado de un candidato que no entró. Un duplicado es el gate haciendo
+/// su trabajo (el hecho ya está guardado) y se dice como tal; el resto es un fallo.
+fn candidate_failure(error: &super::MemoryError) -> String {
+    match error {
+        super::MemoryError::Duplicate(_) => "duplicate".to_string(),
+        other => super::redaction::redact(&other.to_string())
+            .chars()
+            .take(120)
+            .collect(),
+    }
+}
 
 /// Un hecho que llegó al inbox, en el MISMO orden e índice que `created`.
 ///
@@ -143,22 +226,15 @@ pub fn capture_session(
     // transcript como session_summary; 231 de esos llegaron a active (100 en
     // ultron, 93 en procedural-terrain) y salían en el pack como memoria.
     // Un router vacío o caído se registra en la estrategia y no propone nada.
-    let (facts, router_used, strategy): (Vec<Fact>, bool, &str) =
-        match crate::ai_router::route(CAPTURE_ZONE, &extraction_prompt(trimmed)) {
-            Ok(resp) => {
-                let parsed = parse_facts(&resp);
-                if parsed.is_empty() {
-                    (Vec::new(), true, "router_empty->skip")
-                } else {
-                    (parsed, true, "router")
-                }
-            }
-            Err(_) => (Vec::new(), false, "router_error->skip"),
-        };
+    let (facts, router_used, strategy, router_error) = extraction_outcome(crate::ai_router::route(
+        CAPTURE_ZONE,
+        &extraction_prompt(trimmed),
+    ));
 
     let mut created = Vec::new();
     let mut captured: Vec<CapturedFact> = Vec::new();
     let mut discards: Vec<Discard> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     for f in facts.into_iter().take(MAX_FACTS) {
         let scope = scope_for_fact(f.kind, project.is_some());
         // Lo Global no lleva proyecto: es del usuario, no de un repo.
@@ -186,27 +262,17 @@ pub fn capture_session(
         let vista = captured_fact(&f);
         let c = fact_to_candidate(f, scope, fact_project, router_used, session_id);
         // create_candidate applies redaction + dedupe (content_hash / FTS).
-        if let Ok(id) = MemoryService::create_candidate(&c) {
-            created.push(id);
-            captured.push(vista);
+        match MemoryService::create_candidate(&c) {
+            Ok(id) => {
+                created.push(id);
+                captured.push(vista);
+            }
+            Err(e) => failures.push(candidate_failure(&e)),
         }
     }
     log_discards(&discards);
 
-    let note = if discards.is_empty() {
-        format!("{} candidate(s) proposed", created.len())
-    } else {
-        format!(
-            "{} candidate(s) proposed, {} discarded ({})",
-            created.len(),
-            discards.len(),
-            discards
-                .iter()
-                .map(|d| d.reason.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    };
+    let note = capture_note(router_error, created.len(), &discards, &failures);
     CaptureReport {
         created,
         facts: captured,
@@ -364,38 +430,21 @@ fn discard_reason(f: &Fact, importance: f32) -> Option<String> {
     None
 }
 
-/// Best-effort audit trail of discarded facts (jsonl append). A logging failure
-/// never breaks capture.
+/// Best-effort audit trail of discarded facts. El fichero, la redacción del
+/// título (credenciales y PII) y la rotación los pone `memory::discard_log`, el
+/// único escritor del log. A logging failure never breaks capture.
 fn log_discards(discards: &[Discard]) {
-    if discards.is_empty() {
-        return;
-    }
-    let Some(home) = dirs::home_dir() else { return };
-    let dir = home.join(".ultron").join(".tmp");
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("capture-discards.jsonl"))
-    else {
-        return;
-    };
-    use std::io::Write;
-    for d in discards {
-        let line = serde_json::json!({
-            "ts_epoch": epoch,
-            "title": d.title,
-            "reason": d.reason,
-            "importance": d.importance,
-        });
-        let _ = writeln!(file, "{line}");
-    }
+    let entries: Vec<super::discard_log::DiscardEntry<'_>> = discards
+        .iter()
+        .map(|d| super::discard_log::DiscardEntry {
+            title: &d.title,
+            reason: &d.reason,
+            importance: d.importance,
+            duplicate_of: None,
+            candidate_id: None,
+        })
+        .collect();
+    super::discard_log::append_discards(&entries);
 }
 
 /// Build the governed candidate for one extracted fact. Pure (no I/O) so the

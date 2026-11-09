@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mcp-bridge-dev",
+  "description": "Piloto MCP de la GUI (solo desarrollo). Fuera de capabilities/ a proposito: tauri-build no la carga; la registra en runtime mcp_bridge::grant_capability, que solo existe con la feature mcp-bridge en un perfil con debug_assertions.",
+  "windows": ["main", "project_*", "sesiones", "sesiones-*"],
+  "permissions": ["mcp-bridge:default"]
+}

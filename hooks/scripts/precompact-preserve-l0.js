@@ -2,8 +2,16 @@
 // hooks/scripts/precompact-preserve-l0.js — PreCompact hook (iter-10, FASE 6).
 //
 // Before Claude Code compacts the conversation, preserve the L0 working state
-// (the few facts that must survive a compaction) to a SCRATCH file:
-//   ~/.ultron/.tmp/context.md
+// (the few facts that must survive a compaction) to a per-session SCRATCH file:
+//   ~/.ultron/.tmp/l0/<session_id>.md   (lib/l0-scratch.js)
+// Hasta el 2026-10-23 (hooks-4) era una sola ruta global, ~/.ultron/.tmp/
+// context.md, que se escribia aunque no hubiera hechos y el resume inyectaba
+// en cualquier sesion nueva del proyecto. Ahora solo se escribe con hechos y
+// solo lo lee el SessionStart source=compact de la MISMA sesion.
+//
+// Tambien borra el marcador del protocolo socratico de la sesion
+// (lib/socratic-marker.js, hooks-11): tras compactar, el primer prompt vuelve
+// a recibir el protocolo completo.
 //
 // writer_path = NONE. This is a scratch/working file, NOT governed memory. It
 // never touches brain.db / Qdrant / the sidecar. The governed write-path is
@@ -23,15 +31,18 @@ const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
 // PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
 const { readJsonlTail } = require('./lib/jsonl-tail');
+const { writeL0Scratch } = require('./lib/l0-scratch');
+const { resetSocraticMarker } = require('./lib/socratic-marker');
 observe('precompact-preserve-l0');
 
 const HOME = os.homedir();
-const TMP_DIR = path.join(HOME, '.ultron', '.tmp');
-const CONTEXT_MD = path.join(TMP_DIR, 'context.md');
-// Lineas JSONL del tail a escanear — NO turnos: en sesiones con mucho trafico
-// de tools, 30 lineas cubren 2-3 turnos reales y la captura sale vacia
-// (turns_scanned: 0 el 2026-07-13). 400 lineas ~ los ultimos 15-30 turnos.
+// Lineas JSONL del tail a escanear (NO turnos) y bytes del tail. Con el tope
+// por defecto de readJsonlTail (256 KiB) quedaban 14-187 lineas y 1-12 turnos
+// con texto en los transcripts reales (medido el 2026-10-23): las salidas de
+// herramientas llenan el tail. Con 2 MiB se llega a las 400 lineas en la
+// mayoria de sesiones; leerlos cuesta milisegundos.
 const MAX_TURNS = 400;
+const TAIL_BYTES = 2 * 1024 * 1024;
 const MAX_FACTS = 12;
 
 function readStdin() {
@@ -43,7 +54,7 @@ function readStdin() {
 }
 
 function parseTurns(jsonlPath) {
-  const lines = readJsonlTail(jsonlPath).filter((l) => l.trim());
+  const lines = readJsonlTail(jsonlPath, TAIL_BYTES).filter((l) => l.trim());
   const tail = lines.slice(-MAX_TURNS);
   const turns = [];
   for (const line of tail) {
@@ -75,12 +86,16 @@ function parseTurns(jsonlPath) {
 
 // Pull out lines that read like durable working state: decisions, todos,
 // bugs/fixes, file references. Heuristic, no LLM. Keeps the scratch file small.
+// Se recorre desde el final: lo que hay que conservar tras compactar es el estado
+// de trabajo, y hasta el 2026-11-01 se guardaban los MAX_FACTS turnos mas viejos
+// del tail (transcript de 60 turnos: del 1 al 12). La salida va en orden de lectura.
 function extractKeyFacts(turns) {
   const facts = [];
   const seen = new Set();
   const re =
     /(decid|vamos a|usaremos|implement|pendiente|todo|falta|bug|error|fix|arregl|next action|próxim|proxim|importante)/i;
-  for (const t of turns) {
+  for (let i = turns.length - 1; i >= 0 && facts.length < MAX_FACTS; i--) {
+    const t = turns[i];
     const oneLine = t.text.replace(/\s+/g, ' ').trim();
     if (!re.test(oneLine)) continue;
     const clip = oneLine.slice(0, 160);
@@ -88,9 +103,8 @@ function extractKeyFacts(turns) {
     if (seen.has(key)) continue;
     seen.add(key);
     facts.push(`- [${t.role}] ${clip}`);
-    if (facts.length >= MAX_FACTS) break;
   }
-  return facts;
+  return facts.reverse();
 }
 
 function projectName(cwd) {
@@ -140,18 +154,19 @@ function main() {
     '',
     '## Hechos clave preservados',
   ];
-  if (facts.length) {
-    lines.push(...facts);
-  } else {
-    lines.push('- (sin hechos clave extraíbles del tail del transcript)');
-  }
-  lines.push('');
+  lines.push(...facts, '');
 
+  const sessionId = stdin.session_id || stdin.sessionId || '';
   try {
-    fs.mkdirSync(TMP_DIR, { recursive: true });
-    fs.writeFileSync(CONTEXT_MD, lines.join('\n') + '\n', 'utf8');
-  } catch (_) {
-    // scratch write failure is non-fatal
+    // Sin hechos no se escribe: un scratch con solo la cabecera era ruido.
+    writeL0Scratch(sessionId, lines.join('\n') + '\n', { hasFacts: facts.length > 0 });
+  } catch (e) {
+    logHookError('precompact-preserve-l0', e);
+  }
+  try {
+    resetSocraticMarker(sessionId);
+  } catch (e) {
+    logHookError('precompact-preserve-l0', e);
   }
 }
 

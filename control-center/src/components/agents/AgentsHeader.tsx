@@ -29,9 +29,9 @@ export function AgentsHeader({
   return (
     <header className="flex items-center justify-between gap-2">
       <div className="flex items-baseline gap-2">
-        <h2 className="text-lg font-semibold">Agents</h2>
+        <h2 className="text-lg font-semibold">Agentes</h2>
         <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          ~/.claude/agents/**/*.md · {filteredCount} of {totalCount}
+          ~/.claude/agents/**/*.md · {filteredCount} de {totalCount}
         </span>
       </div>
       <div className="flex items-center gap-2">
@@ -41,7 +41,7 @@ export function AgentsHeader({
           className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
           style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
         >
-          <Plus size={12} /> New agent
+          <Plus size={12} /> Nuevo agente
         </button>
         <button
           onClick={onToggleSelectMode}
@@ -51,9 +51,9 @@ export function AgentsHeader({
             background: selectMode ? AGENT_ACCENT_SOFT : "var(--color-surface-2)",
             color: selectMode ? "#c4b5fd" : "var(--color-text)",
           }}
-          title="Toggle multi-select mode to bulk enable/disable global agents"
+          title="Activa o sale de la selección múltiple para activar o desactivar agentes globales en bloque"
         >
-          {selectMode ? "Done selecting" : "Select"}
+          {selectMode ? "Terminar selección" : "Seleccionar"}
         </button>
         <button
           onClick={onReload}
@@ -64,7 +64,7 @@ export function AgentsHeader({
             color: "var(--color-text)",
           }}
         >
-          Refresh
+          Actualizar
         </button>
       </div>
     </header>

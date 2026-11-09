@@ -33,6 +33,11 @@ brain_index/*.db-shm
 # === Backups (may leak secrets/snapshots) ===
 backups/
 
+# === Adjuntos de ULTRON Sessions (capturas y ficheros del usuario), nunca al repo ===
+/adjuntos/
+# Tareas de motores (Codex/Gemini) de Sessions: resultados del usuario
+/cockpit/sesiones/
+
 # === Logs ===
 logs/
 *.log
@@ -55,6 +60,10 @@ integrity/settings.snapshots.jsonl
 
 # === Bus runtime data ===
 bus/
+
+# === Skill pool: pool.json versionado; los clones de terceros, nunca al repo ===
+/skill-pool/repos/
+/skill-pool/bin/
 
 # === Skill vault (only INDEX + keep-list tracked) ===
 skill-vault/*
@@ -101,6 +110,7 @@ cockpit/projects/
 cockpit/memory-portrait/
 cockpit/projects-archive/
 cockpit/projects.json
+cockpit/usage-schedule.json
 # indice del curso academico (scripts/curso.mjs): asignaturas y proyectos del usuario
 cockpit/curso.json
 # raices del creador de proyectos (scripts/project-create.mjs): rutas absolutas del home del usuario
@@ -109,6 +119,13 @@ cockpit/projects-exclusions.json
 cockpit/project-identity.json
 cockpit/identity-migration.json
 cockpit/bridge-index.json
+cockpit/mascot-bridge.json
+cockpit/mascot.json
+cockpit/mascot-chat.json
+cockpit/mascot-chat.json.bad
+# cuarentena del guardarrail de Pupus (mascot/guardrail.rs): copias de
+# ~/.ssh, ~/.ultron/.env, settings… NUNCA al repo
+cockpit/pupus-guardrail/
 cockpit/features.json
 cockpit/features.example.json
 cockpit/apps.json
@@ -123,6 +140,15 @@ cockpit/pending_actions.json
 cockpit/backup-config.json
 # AI Router runtime telemetry (per-install counters; mutates on every run).
 cockpit/ai-router/metrics.json
+# Copia apartada de un metrics.json que no parseaba (store/json_io.rs).
+cockpit/ai-router/metrics.json.corrupt-*
+# Estado del usuario del AI Router: proveedores personalizados y modelos
+# descubiertos (store/provider_overlay.rs) y la configuración de delegación
+# editada desde la UI (el default versionado es delegation.default.json).
+cockpit/ai-router/providers.local.json
+cockpit/ai-router/delegation.json
+# Ledger append-only del delegador multi-motor (scripts/delegate.mjs).
+cockpit/delegations.jsonl
 # ECC skill index disk cache (derived artifact, rebuilt automatically).
 cockpit/skill-lazy/.ecc-index-cache.json
 # Runtime/per-machine state (mutates at runtime; not part of the product).
@@ -362,6 +388,7 @@ secrets/
 **/secrets.*
 # excepcion: codigo fuente del redactor (patrones de DETECCION de secretos, no secretos)
 !control-center/src-tauri/src/memory/redaction/secrets.rs
+!control-center/src-tauri/src/mascot/chat_gate/secrets.rs
 .credentials.json
 **/.credentials.json
 
@@ -411,7 +438,7 @@ cockpit/projects/*/kanban.json
 # qdrant-native: almacen local stale con binario qdrant.exe (85M, huerfano)
 qdrant-native/
 
-# === finance feature: local-only files (KutxaBank personal data path hardcoded) ===
+# === finance feature: local-only files (datos bancarios locales; ruta local fija) ===
 # Build with `cargo build --features finance` + `VITE_FINANCE=1 npm run build` to enable.
 control-center/src-tauri/src/finance.rs
 control-center/src-tauri/src/finance/
@@ -487,6 +514,8 @@ docs/research/corpus/*
 
 # Lista de exclusiones del espejo publico: no debe viajar en el espejo
 .publicignore
+# Patrones personales (email y handle) del gate PII de sync-public: datos reales
+.publicpii
 
 # Corpus de prompts reales del banco A/B de routing: datos personales, no
 # versionables (el gate de PII los marca HIGH). Los scripts del arnes si van.
@@ -499,8 +528,6 @@ cockpit/memory-rework/evals/golden-v2/
 cockpit/memory-rework/evals/golden-v3/
 cockpit/memory-hubs.json
 
-# Paquete del plugin de Cowork: artefacto de build, se regenera desde plugins/ultron-memory-cowork/
-plugins/*.zip
 
 # Perfil de escritura destilado: contenido personal, repo publico
 docs/research/perfil-escritura/
@@ -513,3 +540,42 @@ control-center/vite.config.d.ts
 # Ajustes locales del editor (rutas personales)
 .vscode/
 tools/unreal-mcp/
+
+# Clon de Hunyuan3D-2 con pesos (14 GB); repo de terceros, no se versiona aquí
+tools/hunyuan3d/
+# Estado de ejecucion del apagado programado (no versionable)
+cockpit/turn-off.json
+
+# Estado local del Control Center
+cockpit/alerts.jsonl.migrated
+cockpit/ollama/
+
+# Informes y scratch de sesiones de trabajo (pueden llevar PII)
+tmp/
+
+# === desktop (Lienzo para Windows): copias de registro y logs locales ===
+desktop/backups/
+desktop/windhawk/*.log
+desktop/nilesoft/apps.local.nss
+desktop/nilesoft/*.log
+desktop/nilesoft/*.local.txt
+desktop/lienzo-folders/bin/
+desktop/lienzo-folders/obj/
+desktop/lienzo-desk/bin/
+desktop/lienzo-desk/obj/
+desktop/previews/assets/
+
+# === 2026-11-01 (auditoria calidad-ci): huecos con rutas personales ===
+# Trabajo de sesiones: informes de auditoria, capturas y parches (26 GB, con rutas
+# absolutas del home). `git add -A` lo metia entero.
+/scratch/
+# Salida de `dotnet publish` de LienzoLaunch: project.assets.json y los nuget.* llevan
+# rutas absolutas. El fuente (Program.cs, LienzoLaunch.csproj) si se versiona.
+desktop/lienzo-launch/bin/
+desktop/lienzo-launch/obj/
+# Logs en crudo de Cinebench: cada uno lista las rutas del perfil del usuario. Los
+# resultados y los scripts del banco (RESULTADOS.md, *.py) si se versionan.
+benchmarks/portatil/*.txt
+
+# JDK local descargado para builds Android (no es parte de ULTRON).
+tools/jdk21/

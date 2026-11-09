@@ -1,141 +1,56 @@
 // Settings/api-keys/key-catalog.ts — datos puros: catalogo de claves de
-// provider, claves de investigacion (buscador de papers) y sus tutoriales.
-// Sin estado, sin JSX, sin llamadas invoke.
+// provider (agrupadas: de pago y gratuitas), CLI de suscripcion, claves de
+// investigacion (buscador de papers) y sus tutoriales. Sin estado, sin JSX,
+// sin llamadas invoke.
 
-import type { KeyTutorial, ProviderKeyDef, ResearchKeyDef } from "./types";
+import { FREE_PROVIDER_KEYS } from "./key-catalog-free";
+import { PAID_PROVIDER_KEYS } from "./key-catalog-paid";
+import type { KeyGroup, KeyTutorial, ProviderKeyDef, ResearchKeyDef } from "./types";
 
 // ------------------------------------------------------------------
-// Provider catalog (mirrors ai_router seed_providers)
+// Provider catalog (mirrors ai_router seed_providers + env_keys ALLOWED_KEYS)
 // ------------------------------------------------------------------
 
-export const PROVIDER_KEYS: ProviderKeyDef[] = [
+export const PROVIDER_KEYS: ProviderKeyDef[] = [...PAID_PROVIDER_KEYS, ...FREE_PROVIDER_KEYS];
+
+/** Claves de un grupo concreto, en el orden del catálogo. */
+export function keysOfGroup(group: KeyGroup): ProviderKeyDef[] {
+  return [...PROVIDER_KEYS, ...RESEARCH_KEYS].filter((k) => k.group === group);
+}
+
+// ------------------------------------------------------------------
+// Suscripciones (CLI): sin key. Su estado sale de ai_router_delegation_status.
+// ------------------------------------------------------------------
+
+export interface SubscriptionCliDef {
+  /** Id del motor en delegation.json. */
+  engineId: string;
+  label: string;
+  docsUrl: string;
+  description: string;
+}
+
+export const SUBSCRIPTION_CLIS: SubscriptionCliDef[] = [
   {
-    envVar: "ANTHROPIC_API_KEY",
-    label: "Anthropic",
-    docsUrl: "https://console.anthropic.com/settings/keys",
-    placeholder: "sk-ant-…",
-    tutorial: {
-      steps: [
-        "Entra en console.anthropic.com/settings/keys (crea cuenta o inicia sesión).",
-        "Pulsa \"Create Key\", ponle un nombre y cópiala — solo se muestra una vez.",
-        "Pégala aquí y pulsa \"Save all\".",
-      ],
-      usedFor:
-        "Zonas code-edit y code-review del AI Router (ai_router/seed.rs) — la API de mensajes de Anthropic por HTTP, distinta del CLI de esta sesión.",
-      ifMissing:
-        "Esas dos zonas caen a su primer fallback (codex-cli / gemini). Nada se rompe.",
-      sourceUrl: "https://console.anthropic.com/settings/keys",
-      sourceLabel: "console.anthropic.com",
-    },
+    engineId: "codex",
+    label: "Codex CLI (OpenAI)",
+    docsUrl: "https://developers.openai.com/codex/cli",
+    description:
+      "Usa tu suscripción de ChatGPT con codex login; no necesita OPENAI_API_KEY. Motor de entrada del nivel complejo en la delegación.",
   },
   {
-    envVar: "OPENAI_API_KEY",
-    label: "OpenAI",
-    docsUrl: "https://platform.openai.com/api-keys",
-    placeholder: "sk-…",
-    tutorial: {
-      steps: [
-        "Entra en platform.openai.com/api-keys (cuenta con crédito o método de pago).",
-        "Pulsa \"Create new secret key\" y cópiala — no se vuelve a mostrar.",
-        "Pégala aquí.",
-      ],
-      usedFor:
-        "Provider codex (API HTTP de OpenAI, ai_router/seed.rs) — hoy es solo el último fallback de la zona code-edit.",
-      ifMissing:
-        "Sin efecto funcional hoy: ese fallback queda inactivo y code-edit sigue con Claude / codex-cli / DeepSeek.",
-      sourceUrl: "https://platform.openai.com/api-keys",
-      sourceLabel: "platform.openai.com",
-    },
+    engineId: "agy",
+    label: "Antigravity (agy, Gemini)",
+    docsUrl: "https://antigravity.google",
+    description:
+      "Usa la sesión de tu cuenta de Google en el CLI agy; no necesita GEMINI_API_KEY. Motor de entrada del nivel estándar en la delegación.",
   },
   {
-    envVar: "GEMINI_API_KEY",
-    label: "Google Gemini",
-    docsUrl: "https://aistudio.google.com/app/apikey",
-    placeholder: "AIza…",
-    tutorial: {
-      steps: [
-        "Entra en aistudio.google.com/app/apikey con tu cuenta de Google.",
-        "Pulsa \"Create API key\" (puedes vincularla a un proyecto de Google Cloud existente o dejar que cree uno).",
-        "Copia la key generada y pégala aquí.",
-      ],
-      usedFor:
-        "Relevo de chat, code-review, summarize, utility y light (cockpit/ai-router/zones.json).",
-      ifMissing:
-        "Esas zonas pierden su red de seguridad si Groq falla; light todavía cae a Ollama local.",
-      sourceUrl: "https://aistudio.google.com/app/apikey",
-      sourceLabel: "aistudio.google.com",
-    },
-  },
-  {
-    envVar: "GROQ_API_KEY",
-    label: "Groq",
-    docsUrl: "https://console.groq.com/keys",
-    placeholder: "gsk_…",
-    tutorial: {
-      steps: [
-        "Entra en console.groq.com/keys con tu cuenta.",
-        "Pulsa \"Create API Key\", nómbrala y cópiala — solo se muestra una vez.",
-        "Pégala aquí.",
-      ],
-      usedFor:
-        "Motor primario de chat, summarize, utility y light — el titular del AI Router hoy (cockpit/ai-router/zones.json).",
-      ifMissing: "Esas cuatro zonas caen a Gemini (o a Ollama local en light).",
-      sourceUrl: "https://console.groq.com/keys",
-      sourceLabel: "console.groq.com",
-    },
-  },
-  {
-    envVar: "DEEPSEEK_API_KEY",
-    label: "DeepSeek",
-    docsUrl: "https://platform.deepseek.com/api_keys",
-    placeholder: "sk-…",
-    tutorial: {
-      steps: [
-        "Entra en platform.deepseek.com/api_keys.",
-        "Pulsa \"Create new API key\" y cópiala.",
-        "Pégala aquí.",
-      ],
-      usedFor: "Último fallback de la zona code-edit (cockpit/ai-router/zones.json).",
-      ifMissing:
-        "Sin efecto: esa zona ya tiene Claude como primario y codex-cli/codex como fallbacks anteriores.",
-      sourceUrl: "https://platform.deepseek.com/api_keys",
-      sourceLabel: "platform.deepseek.com",
-    },
-  },
-  {
-    envVar: "NVIDIA_NIM_API_KEY",
-    label: "NVIDIA NIM (free-tier proxy)",
-    docsUrl: "https://build.nvidia.com",
-    placeholder: "nvapi-…",
-    tutorial: {
-      steps: [
-        "Entra en build.nvidia.com con tu cuenta.",
-        "Abre cualquier modelo NIM y pulsa \"Get API Key\".",
-        "Pégala aquí.",
-      ],
-      usedFor:
-        "Backend del proxy free-tier (AI Router → pestaña Proxy, ver comentario en env_keys.rs) — no interviene en las zonas de zones.json.",
-      ifMissing: "El proxy free-tier no puede usar NVIDIA NIM como backend; sigue funcionando con los demás que tenga.",
-      sourceUrl: "https://build.nvidia.com",
-      sourceLabel: "build.nvidia.com",
-    },
-  },
-  {
-    envVar: "OPENROUTER_API_KEY",
-    label: "OpenRouter (free-tier proxy)",
-    docsUrl: "https://openrouter.ai/keys",
-    placeholder: "sk-or-…",
-    tutorial: {
-      steps: [
-        "Entra en openrouter.ai/keys con tu cuenta.",
-        "Pulsa \"Create Key\" y cópiala.",
-        "Pégala aquí.",
-      ],
-      usedFor: "Mismo uso que NVIDIA NIM: backend del proxy free-tier.",
-      ifMissing: "El proxy pierde ese backend concreto; sigue con los demás.",
-      sourceUrl: "https://openrouter.ai/keys",
-      sourceLabel: "openrouter.ai",
-    },
+    engineId: "claude-p",
+    label: "Claude Code (claude -p)",
+    docsUrl: "https://docs.anthropic.com/en/docs/claude-code/cli-reference",
+    description:
+      "claude -p --safe-mode con el login de tu plan Max (créditos API mensuales del plan, sin cifra oficial); no necesita ANTHROPIC_API_KEY. Tope de gasto por intento en AI Router → Delegación.",
   },
 ];
 
@@ -151,6 +66,7 @@ export const RESEARCH_KEYS: ResearchKeyDef[] = [
     docsUrl: "https://www.semanticscholar.org/product/api",
     placeholder: "clave recibida por email…",
     isEmail: false,
+    group: "research",
     tutorial: {
       steps: [
         "Rellena el formulario gratuito en semanticscholar.org/product/api.",
@@ -171,6 +87,7 @@ export const RESEARCH_KEYS: ResearchKeyDef[] = [
     docsUrl: "https://openalex.org/settings/api",
     placeholder: "clave de tu cuenta OpenAlex…",
     isEmail: false,
+    group: "research",
     tutorial: {
       steps: [
         "Crea una cuenta gratuita en openalex.org (unos 30 segundos).",
@@ -190,6 +107,7 @@ export const RESEARCH_KEYS: ResearchKeyDef[] = [
     docsUrl: "https://help.openalex.org/api/authentication/",
     placeholder: "tu-email@dominio.com",
     isEmail: true,
+    group: "research",
     tutorial: {
       steps: ["No hay registro: escribe aquí un email de contacto real tuyo."],
       usedFor:
@@ -206,6 +124,7 @@ export const RESEARCH_KEYS: ResearchKeyDef[] = [
     docsUrl: "https://unpaywall.org/products/api",
     placeholder: "tu-email@dominio.com",
     isEmail: true,
+    group: "research",
     tutorial: {
       steps: [
         "No hay registro ni clave: escribe aquí un email de contacto real tuyo.",

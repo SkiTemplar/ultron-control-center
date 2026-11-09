@@ -5,7 +5,7 @@ import { NO_CATEGORY } from "./types";
 
 /// Derive a category from the on-disk path. Examples:
 ///   ~/.claude/agents/sec/reviewer.md → "sec"
-///   ~/.claude/agents/reviewer.md     → "uncategorized"
+///   ~/.claude/agents/reviewer.md     → "sin categoría"
 ///   .../plugins/cache/<id>/<plugin>/<ver>/agents/foo.md → "<plugin>"
 export function deriveCategory(a: AgentEntry): string {
   const norm = a.path.replace(/\\/g, "/");
@@ -20,7 +20,7 @@ export function deriveCategory(a: AgentEntry): string {
 
 export function deriveTopGroup(a: AgentEntry): string {
   if (a.origin === "global") return "Global";
-  if (a.origin === "project") return "Project";
+  if (a.origin === "project") return "Proyecto";
   return deriveCategory(a);
 }
 
@@ -59,18 +59,18 @@ export function ageFromEpochField(s: string): string {
   const secs = parseInt(m[1], 10);
   if (!Number.isFinite(secs)) return s;
   const diff = Math.max(0, Date.now() / 1000 - secs);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60) return "ahora mismo";
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`;
+  return `hace ${Math.floor(diff / 86400)} d`;
 }
 
 export function statusChip(status: string): { bg: string; fg: string; label: string } {
   if (status === "launched") {
-    return { bg: "rgba(63, 185, 80, 0.14)", fg: "rgb(63, 185, 80)", label: "Launched" };
+    return { bg: "rgba(63, 185, 80, 0.14)", fg: "rgb(63, 185, 80)", label: "Lanzado" };
   }
   if (status === "failed") {
-    return { bg: "rgba(248, 81, 73, 0.14)", fg: "rgb(248, 81, 73)", label: "Failed" };
+    return { bg: "rgba(248, 81, 73, 0.14)", fg: "rgb(248, 81, 73)", label: "Fallido" };
   }
   return { bg: "rgba(125, 133, 144, 0.14)", fg: "rgb(125, 133, 144)", label: status };
 }

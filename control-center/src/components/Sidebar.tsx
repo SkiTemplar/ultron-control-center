@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { GlobalStatus } from "../types";
 import { statusColor, statusLabel } from "../lib/status";
 import { useFeatures, type Features } from "../lib/features";
@@ -12,7 +13,6 @@ export type Tab =
   | "rules"
   | "projects"
   | "finance"
-  | "memory"
   | "notes"
   | "plans"
   | "changelog"
@@ -21,11 +21,10 @@ export type Tab =
   | "usage"
   | "ai-router"
   | "system"
-  | "learn"
   | "lab"
   | "settings";
 
-type Item = {
+export type SidebarItem = {
   id: Tab;
   label: string;
   available: boolean;
@@ -47,7 +46,7 @@ type Item = {
    *
    * Tiering rationale (~/.ultron/sessions/<date>/routing.jsonl, 21 days):
    *   primary  — Dashboard, Usage, Notifications, System, MCPs, Skills,
-   *              Agents, Memory, Sessions, Projects, Plans, Personal,
+   *              Agents, Sessions, Projects, Plans, Personal,
    *              Settings.
    *   more     — Changelog (drawer-style, only opened on releases),
    *              News (toggle retirado de features.json), Gaming
@@ -59,7 +58,8 @@ type Item = {
   tier?: "primary" | "more";
 };
 
-const SECTIONS: { heading: string; items: Item[] }[] = [
+/** Exported so the command palette mirrors the sidebar order and labels. */
+export const SECTIONS: { heading: string; items: SidebarItem[] }[] = [
   {
     heading: "Overview",
     items: [
@@ -82,15 +82,12 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // command palette and deep-links — App.tsx routes them all to
       // <Library initial="..." /> so deep-linking still feels native.
       { id: "library", label: "Library", available: true, featureKey: "skills" },
-      // Memory tab (re-added 2026-06-04): human-in-the-loop validation of the
-      // memory kernel — candidate inbox (approve/reject/edit) + brain.db health
-      // (Memory Trace). The backend kernel was backend-only after fullize
-      // 2026-06-01; this surfaces the inbox + governance commands again.
-      { id: "memory", label: "Memory", available: true },
+      // Las pestañas Memory y Learn se retiraron (2026-10-18): la memoria se
+      // gestiona por hooks y por el sidecar ultron-memory.exe; su estado sigue
+      // en la tarjeta "Sistema de memoria" del Panel.
       // v2.6 (card-v26-fb-005): cross-project markdown notes at
       // ~/.ultron/cockpit/notes/.
       { id: "notes", label: "Notes", available: true },
-      { id: "learn", label: "Learn", available: true },
       // Lab TFG (2026-08-12): deteccion de patrones de texto IA sobre el
       // catalogo de investigacion del usuario (docs/research). Determinista.
       { id: "lab", label: "Lab", available: true },
@@ -99,12 +96,14 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Workspace",
     items: [
-      { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
+      // "Monitor de sesiones" (Monitor + Lanzar) is not the ULTRON Sessions window,
+      // which opens from the footer launcher; distinct names avoid mixing them.
+      { id: "sessions", label: "Session Monitor", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
       // Finance: native read-only dashboard of the Bank/finanzas project
       // (Tío Gilito). Surfaces saldo/fondos/movimientos without launching the
       // separate Streamlit app; the buttons spawn a Tío Gilito CLI session.
-      // Finance is a local-only feature (KutxaBank data). Visible only when
+      // Finance is a local-only feature (datos bancarios locales). Visible only when
       // built with VITE_FINANCE=1; Finance.tsx is excluded from the public repo.
       { id: "finance", label: "Finance", available: import.meta.env.VITE_FINANCE === "1" },
       // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
@@ -117,6 +116,20 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   // a footer block so it anchors at the bottom of the sidebar instead of
   // floating in the middle on tall screens.
 ];
+
+/** Human-readable name of every tab (error boundary, command palette). */
+export const TAB_LABELS: Record<Tab, string> = {
+  ...(Object.fromEntries(
+    SECTIONS.flatMap((s) => s.items).map((it) => [it.id, it.label]),
+  ) as Partial<Record<Tab, string>>),
+  skills: "Skills",
+  agents: "Agentes",
+  rules: "Reglas",
+  plans: "Planes",
+  changelog: "Notas de versión",
+  notifications: "Notifications",
+  settings: "Settings",
+} as Record<Tab, string>;
 
 // v15.3 — persisted toggle for the "More" group. Defaults closed so the
 // new-user surface stays at 12 primary tabs. Stored in localStorage so
@@ -169,7 +182,7 @@ function SidebarButton({
   onSelect,
   badgeCount,
 }: {
-  item: Item;
+  item: SidebarItem;
   active: boolean;
   onSelect: (t: Tab) => void;
   badgeCount?: number;
@@ -180,9 +193,10 @@ function SidebarButton({
     <button
       key={item.id}
       type="button"
+      aria-current={active ? "page" : undefined}
       disabled={dim}
       onClick={() => item.available && onSelect(item.id)}
-      className="flex w-full items-center justify-between rounded-md px-3 py-2.5 text-[16.5px] transition-colors"
+      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-[15px] transition-colors"
       style={{
         background: active ? "var(--color-surface-3)" : "transparent",
         color: active
@@ -201,7 +215,7 @@ function SidebarButton({
         if (!active)
           (e.currentTarget as HTMLButtonElement).style.background = "transparent";
       }}
-      title={showBadge ? `${badgeCount} pending item${badgeCount === 1 ? "" : "s"}` : undefined}
+      title={showBadge ? `${badgeCount} pendiente${badgeCount === 1 ? "" : "s"}` : undefined}
     >
       <span>{item.label}</span>
       {showBadge && (
@@ -221,13 +235,33 @@ function SidebarButton({
           className="text-[10px]"
           style={{ color: "var(--color-text-faint)" }}
         >
-          soon
+          pronto
         </span>
       )}
     </button>
   );
 }
 
+
+/** Abre (o enfoca) la ventana ULTRON Sessions; no es una pestaña del Control Center. */
+function SessionsLauncher() {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setError(null);
+        invoke("sesiones_open_window", { projectId: null }).catch((e) => setError(String(e)));
+      }}
+      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-[15px] transition-colors hover:bg-[var(--color-surface-2)]"
+      style={{ color: error ? "var(--color-danger)" : "var(--color-text-secondary)" }}
+      title={error ?? "Abrir ULTRON Sessions"}
+    >
+      <span>ULTRON Sessions</span>
+      <span aria-hidden="true">↗</span>
+    </button>
+  );
+}
 
 // Quota % UI removed (DR-10): the Claude-quota watchdog backend was deleted in
 // cbb2d5c (false signal). The old QuotaDot invoked the now-missing
@@ -236,6 +270,16 @@ function SidebarButton({
 export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBack }: Props) {
   const { features } = useFeatures();
   const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
+  const navRef = useRef<HTMLElement | null>(null);
+
+  // On short windows the nav scrolls: keep the active entry visible when it
+  // changes (palette, shortcuts, "back to project").
+  useEffect(() => {
+    const current = navRef.current?.querySelector<HTMLElement>("[aria-current='page']");
+    if (current && typeof current.scrollIntoView === "function") {
+      current.scrollIntoView({ block: "nearest" });
+    }
+  }, [active]);
 
   // v15.5.16poll the same detect_gaps source the Dashboard
   // PendingItemsPanel uses, then surface the count as a red chip on the
@@ -257,7 +301,6 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
       setMoreOpen(true);
       saveMoreOpen(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   function toggleMore() {
@@ -297,11 +340,11 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
         >
           U
         </div>
-        <div className="text-[13.5px] font-medium leading-none">ULTRON</div>
+        <div className="text-[15px] font-medium leading-none">ULTRON</div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 pb-2">
+      <nav ref={navRef} className="flex-1 overflow-y-auto px-3 pb-2">
         {SECTIONS.map((section, si) => {
           // v15.3 — split each section into primary + more so the rendered
           // sidebar stays the same shape for primary items while the more
@@ -314,16 +357,16 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
           const primary = visibleItems.filter((it) => (it.tier ?? "primary") === "primary");
           if (primary.length === 0) return null;
           return (
-            <div key={si} className="mb-6">
+            <div key={si} className="mb-4">
               {section.heading && (
                 <div
-                  className="px-2.5 pb-2 text-[12px] font-medium uppercase tracking-[0.08em]"
+                  className="px-3 pb-1.5 text-[12px] font-medium uppercase tracking-[0.08em]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   {section.heading}
                 </div>
               )}
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {primary.map((item) => (
                   <Fragment key={item.id}>
                     <SidebarButton
@@ -336,7 +379,7 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
                       <button
                         type="button"
                         onClick={onGoBack}
-                        className="flex w-full items-center gap-1.5 truncate rounded px-3 py-1 text-[11px] transition-colors"
+                        className="flex w-full items-center gap-1.5 truncate rounded px-3 py-1 text-[12.5px] transition-colors"
                         style={{ color: "var(--color-text-tertiary)", background: "transparent" }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
@@ -369,7 +412,7 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
               <button
                 type="button"
                 onClick={toggleMore}
-                className="flex w-full items-center justify-between rounded px-2 py-1 text-[11.5px] font-medium uppercase tracking-[0.08em] transition-colors"
+                className="flex w-full items-center justify-between rounded px-2 py-1 text-[12px] font-medium uppercase tracking-[0.08em] transition-colors"
                 style={{
                   background: "transparent",
                   color: "var(--color-text-tertiary)",
@@ -384,7 +427,7 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
                     "transparent";
                 }}
                 aria-expanded={moreOpen}
-                title={`Show/hide ${moreItems.length} secondary tab${moreItems.length === 1 ? "" : "s"}`}
+                title={`Mostrar u ocultar ${moreItems.length} pestaña${moreItems.length === 1 ? "" : "s"} secundaria${moreItems.length === 1 ? "" : "s"}`}
               >
                 <span>More ({moreItems.length})</span>
                 <span aria-hidden="true">{moreOpen ? "▾" : "▸"}</span>
@@ -415,9 +458,10 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
           bottom of the sidebar. Separated from the scrollable nav so the
           user always sees them without scrolling on tall screens. */}
       <div
-        className="border-t px-3 py-2 space-y-1"
+        className="border-t px-3 py-2 space-y-0.5"
         style={{ borderColor: "var(--color-border)" }}
       >
+        <SessionsLauncher />
         {features.notifications !== false && (
           <SidebarButton
             item={{ id: "notifications", label: "Notifications", available: true }}
@@ -434,7 +478,7 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
 
       {/* Status footer */}
       <div
-        className="flex items-center gap-2 border-t px-4 py-3 text-[11.5px]"
+        className="flex items-center gap-2 border-t px-4 py-3 text-[12.5px]"
         style={{ borderColor: "var(--color-border)" }}
       >
         <span

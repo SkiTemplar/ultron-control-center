@@ -1,8 +1,8 @@
 // Step 3 — Body editor with live markdown preview side-by-side.
 
 import { Code, Eye } from "../icons";
-import { HelperText } from "./ui-primitives";
-import { MarkdownPreview } from "./MarkdownPreview";
+import { HelperText } from "../wizard-ui";
+import { MarkdownPreview } from "../MarkdownPreview";
 import { MIN_BODY_CHARS } from "../creatorTemplates";
 
 type StepBodyProps = {
@@ -20,8 +20,7 @@ export function StepBody(props: StepBodyProps) {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          Markdown body. The backend wraps this with the YAML frontmatter
-          built from Step 2.
+          Cuerpo en markdown. El backend lo envuelve con el frontmatter YAML del paso 2.
         </p>
         <button
           onClick={togglePreview}
@@ -29,7 +28,7 @@ export function StepBody(props: StepBodyProps) {
           style={{ borderColor: "var(--color-border)" }}
         >
           {previewOpen ? <Code size={12} /> : <Eye size={12} />}
-          {previewOpen ? "Hide preview" : "Show preview"}
+          {previewOpen ? "Ocultar vista previa" : "Mostrar vista previa"}
         </button>
       </div>
       <div className={previewOpen ? "grid grid-cols-2 gap-3" : ""}>
@@ -59,14 +58,13 @@ export function StepBody(props: StepBodyProps) {
       </div>
       {body && !bodyValid && (
         <HelperText error>
-          Body is {body.trim().length} chars; needs at least {MIN_BODY_CHARS}
-          for the skill to be reliable.
+          El cuerpo tiene {body.trim().length} caracteres; necesita al menos {MIN_BODY_CHARS}
+          para que la skill sea fiable.
         </HelperText>
       )}
       {bodyMissingExample && (
         <HelperText>
-          Tip: skills that include a fenced example or an "Example" section
-          trigger more reliably.
+          Consejo: las skills con un ejemplo en bloque de código o una sección «Example» se activan con más fiabilidad.
         </HelperText>
       )}
     </div>

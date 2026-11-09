@@ -7,7 +7,6 @@
 // Step 4: Target scope + final summary.
 
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { agentCreate } from "../../lib/library-client";
 import { getPrompt } from "../../lib/button-prompts";
 import {
@@ -18,13 +17,14 @@ import {
   applyName,
 } from "./creatorTemplates";
 import type { Props, Step, ModelChoice } from "./create-agent/types";
-import { Header, Footer } from "./create-agent/layout";
+import { WizardFooter, WizardHeader } from "./wizard-ui";
 import {
   StepTemplates,
   StepFrontmatter,
   StepBody,
   StepTarget,
 } from "./create-agent/steps";
+import { instructionsCwd, openInSessionsMessage, openPromptInSessions } from "../sessionsLaunch";
 
 const KEBAB_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -115,22 +115,30 @@ export function CreateAgentModal({
       NAME: name || "<agent-name>",
       DESCRIPTION: description || "<one-line goal>",
     });
+    // El prompt va a una sesión de Sessions (antes, Windows Terminal en modo
+    // pegar, con el fallo del lanzamiento tragado en silencio).
+    setErr(null);
     try {
-      await navigator.clipboard.writeText(prompt);
-      setAiCopied(true);
-      setTimeout(() => setAiCopied(false), 2000);
-      // v2.4: spawn a Claude session ready to receive the prompt.
-      try {
-        await invoke("spawn_session", {
-          provider: "claude",
-          prompt: null,
-          flags: { pasteOnly: true, respectClipboard: true },
-        });
-      } catch {
-        // Non-fatal — clipboard already has the prompt.
+      const r = await openPromptInSessions({ cwd: await instructionsCwd("skills"), prompt });
+      // «Enviado a Sessions» solo si el prompt llegó; si no, lo explica el aviso.
+      if (r.sent) {
+        setAiCopied(true);
+        setTimeout(() => setAiCopied(false), 2000);
       }
-    } catch {
-      setErr("Could not copy to clipboard.");
+      if (r.warning) setErr(openInSessionsMessage("Generar con IA", r));
+    } catch (e) {
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(prompt);
+        copied = true;
+      } catch {
+        // Sin portapapeles: el mensaje de abajo lo dice.
+      }
+      setErr(
+        copied
+          ? `No se pudo abrir Sessions (${String(e)}). El prompt está en el portapapeles: pégalo en una sesión de Claude.`
+          : `No se pudo abrir Sessions (${String(e)}) ni copiar el prompt al portapapeles.`,
+      );
     }
   }
 
@@ -165,7 +173,7 @@ export function CreateAgentModal({
           background: "var(--color-surface-1)",
         }}
       >
-        <Header step={step} onClose={onClose} />
+        <WizardHeader step={step} title="Nuevo agente" onClose={onClose} />
 
         <div className="flex-1 overflow-y-auto p-5 text-sm">
           {step === 1 && (
@@ -241,8 +249,9 @@ export function CreateAgentModal({
           )}
         </div>
 
-        <Footer
+        <WizardFooter
           step={step}
+          submitLabel="Crear agente"
           canAdvance={canAdvance[step]}
           canSubmit={nameValid && descriptionValid && bodyValid && targetValid}
           busy={busy}

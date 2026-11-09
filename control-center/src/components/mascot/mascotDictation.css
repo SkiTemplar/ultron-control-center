@@ -1,0 +1,53 @@
+/* Mascota — botón de dictado por voz del chat (MascotInputRow.tsx). Mismo
+   lenguaje que .mascot-send: borde de tinta, sombra dura y 32 px. */
+
+.mascot-mic {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bubble-ink);
+  border-radius: 6px;
+  background: #1a1a19;
+  color: var(--bubble-fg);
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--bubble-ink);
+}
+.mascot-mic:hover {
+  color: var(--bubble-accent);
+}
+.mascot-mic:focus-visible {
+  outline: 2px solid var(--bubble-accent);
+  outline-offset: 1px;
+}
+.mascot-mic[data-state="starting"] {
+  color: var(--bubble-accent);
+  opacity: 0.7;
+}
+.mascot-mic[data-state="listening"] {
+  background: #c2452f;
+  color: #fff;
+  animation: mascot-mic-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes mascot-mic-pulse {
+  50% {
+    box-shadow: 2px 2px 0 var(--bubble-ink), 0 0 0 3px rgba(194, 69, 47, 0.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-mic[data-state="listening"] {
+    animation: none;
+  }
+}
+
+.mascot-dictation-note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--bubble-muted);
+  max-width: 320px;
+}
+.mascot-dictation-note--error {
+  color: var(--bubble-accent);
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ultron-checkpoint",
+  "version": "0.1.0",
+  "description": "Foto del árbol de trabajo en refs/ultron/checkpoints antes de la primera edición de cada turno, sin tocar índice ni árbol; /checkpoints y /checkpoint-diff"
+}

@@ -4,6 +4,7 @@ import type { AgentEntry } from "../../types";
 import { Bot } from "../library/icons";
 import { AGENT_ACCENT, AGENT_ACCENT_SOFT, NO_CATEGORY } from "./types";
 import { deriveCategory } from "./helpers";
+import { skillOriginLabel } from "../skills/helpers";
 
 interface AgentCardProps {
   agent: AgentEntry;
@@ -60,19 +61,19 @@ export function AgentCard({
           disabled={a.origin !== "global"}
           onChange={() => onToggleChecked(a.name)}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Select ${a.name}`}
+          aria-label={`Seleccionar ${a.name}`}
           className="absolute right-2 top-2 h-4 w-4"
           style={{ accentColor: "#a78bfa", cursor: a.origin === "global" ? "pointer" : "not-allowed" }}
         />
       )}
-      {/* Header row: label chip + origin badge */}
+      {/* Cabecera: etiqueta y origen */}
       <div className="flex items-center justify-between gap-1.5">
         <div
           className="flex items-center gap-1 text-[10.5px] uppercase tracking-[0.08em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           <Bot size={12} />
-          Agent
+          Agente
         </div>
         <span
           className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
@@ -82,11 +83,11 @@ export function AgentCard({
             border: "1px solid rgba(167, 139, 250, 0.35)",
           }}
         >
-          {cat !== NO_CATEGORY ? cat : a.origin}
+          {cat !== NO_CATEGORY ? cat : skillOriginLabel(a.origin)}
         </span>
       </div>
 
-      {/* Agent name */}
+      {/* Nombre del agente */}
       <div
         className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
         style={{ color: a.enabled ? "var(--color-text)" : "var(--color-text-secondary)" }}
@@ -94,7 +95,7 @@ export function AgentCard({
         {a.name}
       </div>
 
-      {/* Footer: origin badge + disabled label */}
+      {/* Pie: origen y estado desactivado */}
       <div className="flex items-center justify-between">
         <span
           className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
@@ -104,14 +105,14 @@ export function AgentCard({
             border: "1px solid rgba(167, 139, 250, 0.35)",
           }}
         >
-          {a.origin}
+          {skillOriginLabel(a.origin)}
         </span>
         {!a.enabled && (
           <span
             className="text-[9.5px] uppercase tracking-wide"
             style={{ color: "var(--color-text-faint)" }}
           >
-            disabled
+            desactivado
           </span>
         )}
       </div>

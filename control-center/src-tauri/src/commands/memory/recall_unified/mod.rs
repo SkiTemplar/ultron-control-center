@@ -9,6 +9,10 @@
 //
 // Replaces the old `recall_hybrid` (constant-score union, no RRF) and the
 // retired `recall_semantic` (legacy 384-d path, removed 2026-06-28).
+//
+// Sin comandos Tauri desde el 2026-10-18: `recall_inspect` y `memory_reindex`
+// solo los usaba la pestaña Memory (retirada). La traza y el reindexado siguen
+// disponibles por el sidecar `ultron-memory.exe` (subcomandos recall/reindex).
 
 pub(crate) mod engine;
 pub mod hubs;
@@ -16,52 +20,11 @@ pub(crate) mod pack;
 #[cfg(test)]
 mod tests;
 pub(crate) mod types_model;
+pub(crate) mod usage;
 
 pub use engine::{build_trace, build_trace_typed, recall_pack};
 pub use types_model::{rrf_fuse, rrf_fuse_weighted};
 pub use types_model::{
     DiscardedHit, FusedHit, RecallEntry, RecallPack, RecallTrace, PER_CALL_TOKEN_CAP,
 };
-
-/// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
-/// ranks, RRF scores, discarded+reason, injected+reason, lazy-load, warnings).
-#[tauri::command]
-pub async fn recall_inspect(
-    query: String,
-    limit: Option<u32>,
-    project_id: Option<String>,
-    cross_project: Option<bool>,
-) -> Result<RecallTrace, String> {
-    let final_limit = limit
-        .map(|n| n as usize)
-        .unwrap_or(types_model::DEFAULT_LIMIT);
-    let cross = cross_project.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || {
-        build_trace(
-            &query,
-            final_limit,
-            project_id.as_deref(),
-            cross,
-            true, // manual recall inspection: full hybrid (dense on)
-            true, // calidad: cross-encoder ON (el coste ~2s es aceptable aqui)
-        )
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
-/// Rebuild the dense index (`ultron_memory`) from all ACTIVE items.
-#[tauri::command]
-pub async fn memory_reindex() -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let (indexed, errors) =
-            crate::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;
-        Ok(serde_json::json!({
-            "indexed": indexed,
-            "errors": errors,
-            "collection": crate::memory::qdrant_index::COLLECTION,
-        }))
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
+pub use usage::{build_trace_diagnostic, recall_pack_diagnostic, RecallUse};

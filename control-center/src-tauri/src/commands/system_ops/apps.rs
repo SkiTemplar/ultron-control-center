@@ -52,6 +52,16 @@ pub struct AppCategoriseItem {
     pub publisher: Option<String>,
 }
 
+/// Categorías aceptadas; cualquier otra respuesta del proveedor pasa a `Other`.
+const VALID_CATEGORIES: [&str; 6] = [
+    "Development",
+    "Games",
+    "Media",
+    "Productivity",
+    "System utilities",
+    "Other",
+];
+
 /// Categorise a batch of apps using the AI Router (light zone).
 ///
 /// Returns a JSON object `{ "<name>": "<category>", … }` where category is
@@ -63,42 +73,73 @@ pub struct AppCategoriseItem {
 pub async fn categorize_apps_with_ai(
     items: Vec<AppCategoriseItem>,
 ) -> Result<HashMap<String, String>, String> {
-    if items.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    let valid_categories = [
-        "Development",
-        "Games",
-        "Media",
-        "Productivity",
-        "System utilities",
-        "Other",
-    ];
-
-    let mut result: HashMap<String, String> = HashMap::new();
-
-    // Split into cached vs. novel.
-    let mut novel: Vec<&AppCategoriseItem> = Vec::new();
-    {
-        let cache = category_cache()
-            .lock()
-            .map_err(|_| "category cache poisoned".to_string())?;
-        for item in &items {
-            let key = item.name.to_lowercase();
-            if let Some(cat) = cache.get(&key) {
-                result.insert(item.name.clone(), cat.clone());
-            } else {
-                novel.push(item);
-            }
-        }
-    }
-
+    let (mut result, novel) = split_cached(&items)?;
     if novel.is_empty() {
         return Ok(result);
     }
+    let prompt = build_prompt(&novel);
 
-    // Build a compact prompt listing all novel apps.
+    // route() is blocking: offload so we don't block the async executor.
+    let ai_raw = tokio::task::spawn_blocking(move || crate::ai_router::route("light", &prompt))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?;
+    let ai_text = match ai_raw {
+        Ok(t) => t,
+        Err(e) => {
+            // AI Router unavailable — return the cached part so the frontend
+            // falls back to its own heuristic classifier. Don't hard-fail.
+            tracing::warn!("[categorize_apps_with_ai] route failed: {e}");
+            return Ok(result);
+        }
+    };
+    let assignments = match parse_assignments(&ai_text) {
+        Ok(obj) => obj,
+        Err(why) => {
+            // Misma política que el fallo de ruta (la UI cae a su heurística),
+            // pero con constancia: antes esta rama no dejaba rastro.
+            tracing::warn!(
+                "[categorize_apps_with_ai] respuesta del proveedor descartada ({} caracteres): {why}",
+                ai_text.chars().count()
+            );
+            return Ok(result);
+        }
+    };
+
+    let mut cache = category_cache()
+        .lock()
+        .map_err(|_| "category cache poisoned".to_string())?;
+    for item in &novel {
+        if let Some(cat_val) = assignments.get(&item.name).and_then(|v| v.as_str()) {
+            let cat = normalize_category(cat_val);
+            cache.insert(item.name.to_lowercase(), cat.clone());
+            result.insert(item.name.clone(), cat);
+        }
+    }
+    Ok(result)
+}
+
+/// Separa lo que ya está en la caché (devuelto en el mapa) de lo nuevo.
+fn split_cached(
+    items: &[AppCategoriseItem],
+) -> Result<(HashMap<String, String>, Vec<&AppCategoriseItem>), String> {
+    let cache = category_cache()
+        .lock()
+        .map_err(|_| "category cache poisoned".to_string())?;
+    let mut cached = HashMap::new();
+    let mut novel = Vec::new();
+    for item in items {
+        match cache.get(&item.name.to_lowercase()) {
+            Some(cat) => {
+                cached.insert(item.name.clone(), cat.clone());
+            }
+            None => novel.push(item),
+        }
+    }
+    Ok((cached, novel))
+}
+
+/// Prompt compacto con todas las apps nuevas.
+fn build_prompt(novel: &[&AppCategoriseItem]) -> String {
     let app_list = novel
         .iter()
         .map(|it| {
@@ -107,63 +148,33 @@ pub async fn categorize_apps_with_ai(
         })
         .collect::<Vec<_>>()
         .join("\n");
-
-    let prompt = format!(
+    format!(
         "Classify each application below into EXACTLY one of these categories: \
 Development, Games, Media, Productivity, System utilities, Other.\n\
 Reply with ONLY a JSON object mapping each app name to its category, e.g. \
 {{\"Visual Studio Code\": \"Development\"}}. No prose, no markdown fences.\n\n\
 Apps to classify:\n{app_list}"
-    );
+    )
+}
 
-    // Call the AI Router synchronously (route() is blocking).
-    // We offload to a blocking thread so we don't block the async executor.
-    let ai_raw = tokio::task::spawn_blocking(move || crate::ai_router::route("light", &prompt))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?;
-
-    let ai_text = match ai_raw {
-        Ok(t) => t,
-        Err(e) => {
-            // AI Router unavailable — return empty map so frontend falls back
-            // to its own heuristic classifier. Don't hard-fail.
-            eprintln!("[categorize_apps_with_ai] route failed: {e}");
-            return Ok(result);
-        }
-    };
-
-    // Extract first JSON object from the response.
-    let json_blob = extract_first_json_object(&ai_text).unwrap_or_default();
-    if json_blob.is_empty() {
-        return Ok(result);
+/// El objeto JSON de la respuesta, o el motivo por el que no se pudo leer.
+fn parse_assignments(ai_text: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let blob = extract_first_json_object(ai_text)
+        .ok_or_else(|| "sin objeto JSON en la respuesta".to_string())?;
+    match serde_json::from_str::<serde_json::Value>(&blob) {
+        Ok(serde_json::Value::Object(obj)) => Ok(obj),
+        Ok(_) => Err("el JSON no es un objeto".to_string()),
+        Err(e) => Err(format!("JSON no válido: {e}")),
     }
-    let parsed: serde_json::Value = match serde_json::from_str(&json_blob) {
-        Ok(v) => v,
-        Err(_) => return Ok(result),
-    };
-    let Some(obj) = parsed.as_object() else {
-        return Ok(result);
-    };
+}
 
-    // Validate and cache each assignment.
-    let mut cache = category_cache()
-        .lock()
-        .map_err(|_| "category cache poisoned".to_string())?;
-
-    for item in &novel {
-        if let Some(cat_val) = obj.get(&item.name).and_then(|v| v.as_str()) {
-            // Only accept known categories; fall back to "Other".
-            let cat = if valid_categories.contains(&cat_val) {
-                cat_val.to_string()
-            } else {
-                "Other".to_string()
-            };
-            cache.insert(item.name.to_lowercase(), cat.clone());
-            result.insert(item.name.clone(), cat);
-        }
+/// Solo categorías conocidas; el resto, `Other`.
+fn normalize_category(raw: &str) -> String {
+    if VALID_CATEGORIES.contains(&raw) {
+        raw.to_string()
+    } else {
+        "Other".to_string()
     }
-
-    Ok(result)
 }
 
 /// Pull the first balanced `{…}` block from an arbitrary string.
@@ -192,4 +203,31 @@ fn extract_first_json_object(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_assignments_lee_el_objeto_aunque_venga_con_prosa() {
+        let obj = parse_assignments("Aquí va: {\"Steam\": \"Games\"} fin").unwrap();
+        assert_eq!(obj["Steam"], "Games");
+    }
+
+    #[test]
+    fn parse_assignments_explica_por_que_descarta() {
+        assert!(parse_assignments("sin json")
+            .unwrap_err()
+            .contains("sin objeto"));
+        assert!(parse_assignments("{\"a\": }")
+            .unwrap_err()
+            .contains("no válido"));
+    }
+
+    #[test]
+    fn una_categoria_desconocida_pasa_a_other() {
+        assert_eq!(normalize_category("Games"), "Games");
+        assert_eq!(normalize_category("Juegos"), "Other");
+    }
 }

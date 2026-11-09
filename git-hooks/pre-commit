@@ -1,0 +1,27 @@
+#!/bin/sh
+# ULTRON pre-commit hook: gates propios que necesitan ver el indice y, despues, los
+# gates del framework pre-commit (.pre-commit-config.yaml).
+#
+# - staged-sources-gate: fuente referenciada sin seguimiento, `[patch]` a vendor/ fuera
+#   del indice y manifiesto de selftests incoherente con el indice.
+# - code-size-budget: limite de lineas para ficheros nuevos y tope de las excepciones.
+#
+# Installed by scripts/setup-git-hooks.ps1, que sustituye al hook generado por
+# `pre-commit install`; por eso este hook encadena el framework. Idempotent.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+node "$REPO_ROOT/git-hooks/lib/staged-sources-gate.mjs" || exit 1
+
+if ! budget_out="$(node "$REPO_ROOT/scripts/code-size-budget.selftest.mjs" 2>&1)"; then
+    printf '%s\n' "$budget_out" >&2
+    exit 1
+fi
+
+if command -v pre-commit >/dev/null 2>&1; then
+    exec pre-commit run
+elif command -v uvx >/dev/null 2>&1; then
+    exec uvx pre-commit run
+fi
+echo "[pre-commit] falta el framework pre-commit y uvx: instala uv y reintenta." >&2
+exit 1

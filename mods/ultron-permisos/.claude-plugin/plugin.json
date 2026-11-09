@@ -1,0 +1,5 @@
+{
+  "name": "ultron-permisos",
+  "version": "0.1.0",
+  "description": "Auto-aprobación de permisos seguros (lecturas, shell de solo lectura, build/test, ediciones en el proyecto) y propuesta de reglas aprendidas con /permisos"
+}

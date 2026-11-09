@@ -16,8 +16,3 @@ systems while preserving all existing behavior.)
 1. (First step — characterize behavior with tests before changing anything.)
 2. (Second step — apply small, named refactorings step by step.)
 3. (Final output expectation — same behavior, simpler structure, tests green.)
-
-## Customize
-This file lives at `~/.claude/skills/refactoring-specialist/SKILL.md`. Modify
-it to fit your workflow. The installer's manifest entry points here via
-`repo://skills/refactoring-specialist`.

@@ -1,7 +1,8 @@
 // ULTRON Control Center — MemoryStore trait (KIRKARDO 21 design doc 9/10)
 //
 // Introduces a unified abstraction over the active memory backends:
-//   - KgStore     : local kg.jsonl        (read + write)
+//   - SqliteStore : brain.db (memory_items + FTS5), fuente de verdad
+//   - QdrantStore : indice denso opcional (apagado con ULTRON_DENSE=0)
 //
 // El orquestador `HybridRecall` se eliminó (2026-07-04): el path canónico de
 // recall es `recall_unified::recall_pack`.
@@ -143,7 +144,6 @@ impl Query {
 #[serde(rename_all = "snake_case")]
 pub enum StoreKind {
     Ecc,
-    Kg,
     Mock,
     Sqlite,
     Qdrant,
@@ -155,9 +155,11 @@ pub mod auto_approve;
 pub mod backfill;
 pub mod capture;
 pub mod catalog;
+pub mod catalog_warm;
 pub mod curate;
+// Log de descartes del write-path (captura + gate anti-paráfrasis), redactado y con rotación.
+pub(crate) mod discard_log;
 pub mod doctor;
-pub mod migrations;
 pub mod model;
 pub mod qdrant_index;
 pub mod qdrant_store;
@@ -182,7 +184,6 @@ pub mod redaction;
 pub mod texthash;
 
 // Canonical memory kernel re-exports (Fase A).
-pub use migrations::MigrationReport;
 pub use model::{
     Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
     MemoryType, Scope, Sensitivity, Source, Stability, Status,
@@ -197,6 +198,11 @@ pub struct StoreHealth {
     pub message: String,
     /// Milliseconds taken to perform the health check, if applicable.
     pub latency_ms: Option<u64>,
+    /// Datos estructurados propios del store (p. ej. el estado del FTS5 de
+    /// SQLite: filas, items, integridad). `None` si el store no tiene nada más
+    /// que el mensaje.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 /// Capability flags for a store — drives the UI and routing decisions of
@@ -258,139 +264,6 @@ pub trait MemoryStore: Send + Sync {
 
     /// Return the static capability flags for this store.
     fn capabilities(&self) -> Capabilities;
-}
-
-// ---------------------------------------------------------------------------
-// KgStore adapter  (read + write)
-// ---------------------------------------------------------------------------
-
-/// Read-write adapter over the Control-Center-owned `kg.jsonl` knowledge
-/// graph stored at `~/.ultron/cockpit/kg.jsonl`.
-pub struct KgStore;
-
-impl KgStore {
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for KgStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MemoryStore for KgStore {
-    fn add(&self, doc: MemoryDoc) -> Result<MemoryHit, MemoryError> {
-        let name = doc
-            .tags
-            .iter()
-            .find(|(k, _)| k == "name")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_else(|| {
-                // Use first 60 chars of text as entity name when no explicit
-                // `name` tag is provided.
-                doc.text
-                    .chars()
-                    .take(60)
-                    .collect::<String>()
-                    .trim()
-                    .to_string()
-            });
-        let entity_type = doc
-            .tags
-            .iter()
-            .find(|(k, _)| k == "type")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_else(|| "memory".to_string());
-        let entity = crate::kg::KgEntity {
-            name: name.clone(),
-            entity_type,
-            observations: vec![doc.text.clone()],
-        };
-        crate::kg::create_entities_inner(vec![entity]).map_err(MemoryError::ParseError)?;
-        Ok(MemoryHit {
-            id: format!("kg::{name}"),
-            text: doc.text,
-            score: 1.0,
-            source: StoreKind::Kg,
-            namespace: None,
-        })
-    }
-
-    fn search(&self, query: Query) -> Result<Vec<MemoryHit>, MemoryError> {
-        let graph =
-            crate::kg::search_nodes_inner(query.text.clone()).map_err(MemoryError::ParseError)?;
-        let limit = query.limit.unwrap_or(50) as usize;
-        let hits: Vec<MemoryHit> = graph
-            .entities
-            .iter()
-            .take(limit)
-            .map(|e| {
-                let text = if e.observations.is_empty() {
-                    format!("[{}] {}", e.entity_type, e.name)
-                } else {
-                    format!(
-                        "[{}] {}: {}",
-                        e.entity_type,
-                        e.name,
-                        e.observations.join("; ")
-                    )
-                };
-                MemoryHit {
-                    id: format!("kg::{}", e.name),
-                    text,
-                    score: 0.7,
-                    source: StoreKind::Kg,
-                    namespace: None,
-                }
-            })
-            .collect();
-        Ok(hits)
-    }
-
-    fn delete(&self, id: &str) -> Result<(), MemoryError> {
-        // Strip the "kg::" prefix that `add` inserts.
-        let name = id.strip_prefix("kg::").unwrap_or(id).to_string();
-        crate::kg::delete_entity_inner(name.clone())
-            .map(|_| ())
-            .map_err(|e| {
-                if e.contains("not found") {
-                    MemoryError::NotFound(name)
-                } else {
-                    MemoryError::ParseError(e)
-                }
-            })
-    }
-
-    fn health(&self) -> Result<StoreHealth, MemoryError> {
-        match crate::kg::read_graph_inner() {
-            Ok(g) => Ok(StoreHealth {
-                healthy: true,
-                message: format!(
-                    "KG OK — {} entities, {} relations",
-                    g.entities.len(),
-                    g.relations.len()
-                ),
-                latency_ms: None,
-            }),
-            Err(e) => Ok(StoreHealth {
-                healthy: false,
-                message: format!("KG read error: {e}"),
-                latency_ms: None,
-            }),
-        }
-    }
-
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            writable: true,
-            semantic_search: false,
-            persistent: true,
-            kind: StoreKind::Kg,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +356,7 @@ mod tests {
                     "mock offline".into()
                 },
                 latency_ms: Some(0),
+                details: None,
             })
         }
 

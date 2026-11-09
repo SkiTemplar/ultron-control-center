@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- LienzoDesk.exe es el lanzador nativo (desktop/lienzo-launch); esta es la app residente. -->
+    <AssemblyName>LienzoDesk.App</AssemblyName>
+    <RootNamespace>LienzoDesk</RootNamespace>
+    <!-- Sin InvariantGlobalization: el TextBox de WPF necesita la cultura del teclado (es-ES) o falla al enfocarse. -->
+    <!-- RAM minima: GC de estacion sin concurrencia y sin PGO; el proceso vive siempre en segundo plano. -->
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+    <!-- Sin UseSystemResourceKeys: con él los errores salian como claves crudas ("ErrorStartingProcess, ..."). -->
+  </PropertyGroup>
+
+</Project>

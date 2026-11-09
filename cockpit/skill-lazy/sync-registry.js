@@ -82,7 +82,7 @@ const MD_ONLY = process.argv.includes('--md-only');
 // ---------------------------------------------------------------------------
 const FORCE_KEEP_ACTIVE = new Set([
   'ultron', 'skill-creator', 'docx', 'pdf', 'ui-ux-pro-max', 'senior-engineer',
-  'continuous-learning-v2', 'gamedev-engineer', 'business-strategist',
+  'gamedev-engineer', 'business-strategist',
   'ui-designer', 'hiper-plans',
 ]);
 
@@ -308,6 +308,12 @@ function scanFilesystemAssets(existingRegistry) {
       if (existingRegistry.has(entry)) continue;
       const skillMd = path.join(fullPath, 'SKILL.md');
       if (!fs.existsSync(skillMd)) continue;
+      // Claude Code no carga ~/.ultron/skills: sin copia en ~/.claude la skill no
+      // se puede invocar y registrarla crea un fantasma (check 13.3, 2026-11-01).
+      const hasClaudeCopy = [entry, path.join('_disabled', entry)].some((rel) =>
+        fs.existsSync(path.join(SKILLS_DIR, rel, 'SKILL.md'))
+      );
+      if (!hasClaudeCopy) continue;
       detected.push({
         id: entry,
         registryPath: `~/.ultron/skills/${entry}`,

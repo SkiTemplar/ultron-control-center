@@ -309,6 +309,123 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
 }
 
 // ---------------------------------------------------------------------------
+// Append sin AppHandle (procesos headless) y migración del fichero huérfano
+// ---------------------------------------------------------------------------
+
+/// Normaliza un timestamp a ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`). Acepta el
+/// formato apto para nombres de fichero del diagnóstico (`…T06-30-01Z`) y el
+/// ISO ya correcto; cualquier otra cosa devuelve `None`.
+pub(crate) fn normalize_alert_timestamp(raw: &str) -> Option<String> {
+    const ISO: &str = "%Y-%m-%dT%H:%M:%SZ";
+    let raw = raw.trim();
+    chrono::NaiveDateTime::parse_from_str(raw, ISO)
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H-%M-%SZ"))
+        .ok()
+        .map(|dt| dt.format(ISO).to_string())
+}
+
+/// Construye una entrada con el esquema completo que leen Notifications
+/// (`read_alerts`) y la línea de tiempo: `timestamp` ISO, `source`,
+/// `severity` dentro de {info, warn, critical, blocking} y `message`.
+pub(crate) fn build_alert_entry(
+    timestamp: Option<&str>,
+    source: &str,
+    severity: &str,
+    message: &str,
+) -> serde_json::Value {
+    let sev = match severity {
+        "info" | "warn" | "critical" | "blocking" => severity,
+        "error" => "critical",
+        _ => "warn",
+    };
+    let ts = timestamp
+        .and_then(normalize_alert_timestamp)
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    let msg = message.replace(['\r', '\n'], " ");
+    serde_json::json!({
+        "timestamp": ts,
+        "source": source,
+        "severity": sev,
+        "status": "backend",
+        "message": msg.trim(),
+    })
+}
+
+fn append_entries_at(path: &std::path::Path, entries: &[serde_json::Value]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create alerts dir: {}", e))?;
+    }
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("open alerts: {}", e))?;
+    for entry in entries {
+        writeln!(f, "{}", entry).map_err(|e| format!("append alert: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Añade una alerta a `~/.ultron/alerts.jsonl` bajo el mismo candado que el
+/// borrado y `record_ui_alert`. Pensado para procesos sin `AppHandle`, como
+/// el diagnóstico programado (`--run-diagnostic`).
+pub(crate) fn append_alert_entry(entry: &serde_json::Value) -> Result<(), String> {
+    let _guard = alerts_lock()
+        .lock()
+        .map_err(|e| format!("alerts write lock poisoned: {}", e))?;
+    append_entries_at(&alerts_path()?, std::slice::from_ref(entry))
+}
+
+/// Traduce una línea del antiguo `cockpit/alerts.jsonl` (campos `kind`,
+/// `summary` y timestamp de fichero) al esquema completo.
+fn migrate_orphan_line(line: &str) -> Option<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    let text = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+    let source = text("source")
+        .or_else(|| text("kind"))
+        .unwrap_or_else(|| "diagnostic".to_string());
+    let message = text("message")
+        .or_else(|| text("summary"))
+        .filter(|m| !m.trim().is_empty())?;
+    let severity = text("severity").unwrap_or_else(|| "warn".to_string());
+    Some(build_alert_entry(
+        text("timestamp").as_deref(),
+        &source,
+        &severity,
+        &format!("{} (migrada de cockpit/alerts.jsonl)", message.trim()),
+    ))
+}
+
+/// Mueve las alertas de `orphan` a `target` y renombra el huérfano a
+/// `<orphan>.migrated` para que la migración no se repita. Devuelve cuántas
+/// alertas se copiaron; las líneas ilegibles se quedan en el `.migrated`.
+fn migrate_orphan_at(orphan: &std::path::Path, target: &std::path::Path) -> Result<usize, String> {
+    if !orphan.exists() {
+        return Ok(0);
+    }
+    let raw = fs::read_to_string(orphan).map_err(|e| format!("read orphan alerts: {}", e))?;
+    let entries: Vec<serde_json::Value> = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(migrate_orphan_line)
+        .collect();
+    append_entries_at(target, &entries)?;
+    let done = orphan.with_extension("jsonl.migrated");
+    fs::rename(orphan, &done).map_err(|e| format!("rename orphan alerts: {}", e))?;
+    Ok(entries.len())
+}
+
+/// Migra el `cockpit/alerts.jsonl` que escribía el diagnóstico programado
+/// hasta 2026-10 y que ningún lector consultaba. Idempotente.
+pub(crate) fn migrate_orphan_cockpit_alerts() -> Result<usize, String> {
+    let _guard = alerts_lock()
+        .lock()
+        .map_err(|e| format!("alerts write lock poisoned: {}", e))?;
+    let root = ultron_root()?;
+    migrate_orphan_at(&root.join("cockpit").join("alerts.jsonl"), &alerts_path()?)
+}
+
+// ---------------------------------------------------------------------------
 // LIB_RS_WIRING:
 //
 // To activate `delete_alert_entries` on the Tauri side, paste the following
@@ -425,5 +542,88 @@ mod tests {
             id: Some("a3".into()),
         };
         assert!(!unacked.is_orphan_tombstone());
+    }
+
+    #[test]
+    fn normalize_alert_timestamp_accepts_file_and_iso_forms() {
+        assert_eq!(
+            normalize_alert_timestamp("2026-10-03T06-30-01Z").as_deref(),
+            Some("2026-10-03T06:30:01Z")
+        );
+        assert_eq!(
+            normalize_alert_timestamp("2026-10-03T06:30:01Z").as_deref(),
+            Some("2026-10-03T06:30:01Z")
+        );
+        // Caso negativo: basura no se convierte en una fecha inventada.
+        assert_eq!(normalize_alert_timestamp("ayer por la tarde"), None);
+    }
+
+    #[test]
+    fn build_alert_entry_has_the_fields_read_alerts_needs() {
+        let e = build_alert_entry(Some("2026-10-16T07-42-26Z"), "diagnostic", "error", "a\nb");
+        assert_eq!(e["timestamp"], "2026-10-16T07:42:26Z");
+        assert_eq!(e["source"], "diagnostic");
+        // "error" no existe en la UI: se traduce a critical.
+        assert_eq!(e["severity"], "critical");
+        assert_eq!(e["message"], "a b");
+        // Severidad desconocida: warn, nunca se cuela tal cual.
+        let w = build_alert_entry(None, "x", "loud", "m");
+        assert_eq!(w["severity"], "warn");
+        assert!(normalize_alert_timestamp(w["timestamp"].as_str().unwrap()).is_some());
+    }
+
+    #[test]
+    fn migrate_orphan_moves_legacy_diagnostic_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let orphan = dir.path().join("cockpit").join("alerts.jsonl");
+        let target = dir.path().join("alerts.jsonl");
+        fs::create_dir_all(orphan.parent().unwrap()).unwrap();
+        fs::write(
+            &orphan,
+            concat!(
+                r#"{"kind":"diagnostic","severity":"error","summary":"Diagnostic flagged error severity","timestamp":"2026-10-03T06-30-01Z"}"#,
+                "\n",
+                "no es json\n",
+                r#"{"kind":"diagnostic","severity":"error","timestamp":"2026-10-06T07-23-50Z"}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            &target,
+            "{\"source\":\"prev\",\"severity\":\"info\",\"message\":\"x\"}\n",
+        )
+        .unwrap();
+
+        let moved = migrate_orphan_at(&orphan, &target).unwrap();
+        // Solo la primera línea es una alerta legible con mensaje.
+        assert_eq!(moved, 1);
+        assert!(!orphan.exists());
+        assert!(dir
+            .path()
+            .join("cockpit")
+            .join("alerts.jsonl.migrated")
+            .exists());
+
+        let lines: Vec<serde_json::Value> = fs::read_to_string(&target)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(
+            lines.len(),
+            2,
+            "conserva la alerta previa y añade la migrada"
+        );
+        assert_eq!(lines[1]["source"], "diagnostic");
+        assert_eq!(lines[1]["severity"], "critical");
+        assert_eq!(lines[1]["timestamp"], "2026-10-03T06:30:01Z");
+        assert!(lines[1]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Diagnostic flagged error severity"));
+
+        // Idempotente: sin huérfano no hay nada que mover.
+        assert_eq!(migrate_orphan_at(&orphan, &target).unwrap(), 0);
     }
 }

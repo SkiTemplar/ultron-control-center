@@ -19,10 +19,11 @@ pub struct LoadedModel {
     pub name: String,
     /// VRAM ocupada en bytes (`size_vram` de `/api/ps`).
     pub size_vram: u64,
-    /// Instante RFC3339 hasta el que Ollama mantiene el modelo cargado.
-    /// Ollama lo omite o lo fija muy lejos en el futuro cuando se cargo
-    /// con `keep_alive: -1` — el frontend decide como mostrarlo ("fijado"
-    /// vs. cuenta atras) a partir de este valor crudo.
+    /// Instante RFC3339 en que Ollama soltara el modelo si no recibe otra
+    /// peticion (ultima peticion + `keep_alive`: 5 min en low/mid, 10 min en
+    /// high, ver `editor::keep_alive_for`). Con un `keep_alive: -1` explicito
+    /// lo fija muy lejos en el futuro. El frontend lo muestra como hora de
+    /// descarga a partir de este valor crudo.
     pub expires_at: Option<String>,
 }
 
@@ -42,10 +43,14 @@ pub struct OllamaStatus {
     pub installed: bool,
     pub server_up: bool,
     pub version: Option<String>,
+    /// Modelo del motor local de referencia: el del motor activo si es
+    /// local; si es Copilot o apagado, el del ultimo motor local (ver
+    /// `engine::reference_of`). Su presencia en `loaded_models` dice si esta
+    /// cargado y cuanta VRAM ocupa.
     pub configured_model: String,
-    /// `"env"` | `"config"` | `"default"` — de donde sale `configured_model`
-    /// (ver `toggle::resolve_model_name`).
-    pub configured_model_source: &'static str,
+    /// `"low"` | `"mid"` | `"high"` — motor al que pertenece
+    /// `configured_model`.
+    pub configured_engine: &'static str,
     pub loaded_models: Vec<LoadedModel>,
     pub downloaded_models: Vec<DownloadedModel>,
 }

@@ -51,12 +51,12 @@ export function formatRel(iso: string | null): string {
   if (isNaN(t)) return iso;
   const diff = Date.now() - t;
   const m = Math.floor(diff / 60_000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return "ahora mismo";
+  if (m < 60) return `hace ${m} min`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return `hace ${h} h`;
   const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  return `hace ${d} d`;
 }
 
 export function formatBytes(b: number): string {

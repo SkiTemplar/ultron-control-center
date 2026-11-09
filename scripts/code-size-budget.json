@@ -1,0 +1,102 @@
+{
+  "$comment": "Guardia de tamano (scripts/code-size-budget.selftest.mjs). maxFileLines: limite de cualquier fichero nuevo o que hoy lo cumple. fileExceptions: deuda existente; cada una tiene un tope que no puede crecer y hay que retirarla cuando baja del limite. exclude: terceros vendorizados y datos de prueba. functions: tope de lineas por funcion (trinquete: solo puede bajar).",
+  "maxFileLines": 800,
+  "extensions": [
+    ".ts",
+    ".tsx",
+    ".js",
+    ".mjs",
+    ".rs",
+    ".py",
+    ".ps1",
+    ".sh",
+    ".cs",
+    ".cpp",
+    ".h",
+    ".html",
+    ".css"
+  ],
+  "exclude": [
+    "control-center/src-tauri/vendor/",
+    "scripts/fixtures/",
+    "docs/research/corpus/"
+  ],
+  "fileExceptions": {
+    "cockpit/skill-lazy/routing-dispatcher.v2.js": {
+      "max": 1440,
+      "reason": "Dispatcher desconectado desde 2026-09-29: solo lo ejecutan arneses y CI."
+    },
+    "cockpit/skill-lazy/routing-dispatcher.v3.js": {
+      "max": 931,
+      "reason": "Dispatcher desconectado desde 2026-09-29: solo lo ejecutan arneses y CI."
+    },
+    "control-center/src/sesiones/types.ts": {
+      "max": 852,
+      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
+    },
+    "desktop/windhawk/taskbar-clock-customization.wh.cpp": {
+      "max": 6495,
+      "reason": "Mod de terceros (Windhawk): se actualiza del original y no se parte."
+    },
+    "desktop/windhawk/taskbar-dock-animation.wh.cpp": {
+      "max": 1487,
+      "reason": "Mod de terceros (Windhawk): se actualiza del original y no se parte."
+    },
+    "desktop/windhawk/windows-11-file-explorer-styler.wh.cpp": {
+      "max": 12545,
+      "reason": "Mod de terceros (Windhawk): se actualiza del original y no se parte."
+    },
+    "desktop/windhawk/windows-11-start-menu-styler.wh.cpp": {
+      "max": 16200,
+      "reason": "Mod de terceros (Windhawk): se actualiza del original y no se parte."
+    },
+    "desktop/windhawk/windows-11-taskbar-styler.wh.cpp": {
+      "max": 20769,
+      "reason": "Mod de terceros (Windhawk): se actualiza del original y no se parte."
+    },
+    "docs/web/index.html": {
+      "max": 1760,
+      "reason": "Web estatica de una sola pagina, con su CSS y su JS embebidos."
+    },
+    "install.ps1": {
+      "max": 2044,
+      "reason": "Instalador que debe funcionar como un solo fichero descargado."
+    },
+    "install.sh": {
+      "max": 1427,
+      "reason": "Instalador que debe funcionar como un solo fichero descargado."
+    },
+    "scripts/cockpit/brain_index.py": {
+      "max": 1281,
+      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
+    },
+    "scripts/cockpit/doctor_checks.py": {
+      "max": 1380,
+      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
+    },
+    "scripts/cockpit/registry_sync.py": {
+      "max": 875,
+      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
+    },
+    "scripts/cockpit/skill_manifest.py": {
+      "max": 1030,
+      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
+    },
+    "scripts/cockpit/skill_sync_security.py": {
+      "max": 1343,
+      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
+    }
+  },
+  "functions": [
+    {
+      "file": "hooks/scripts/memory-orchestrate.js",
+      "name": "main",
+      "max": 50
+    },
+    {
+      "file": "control-center/src/sesiones/components/composer/Composer.tsx",
+      "name": "SessionComposer",
+      "max": 150
+    }
+  ]
+}

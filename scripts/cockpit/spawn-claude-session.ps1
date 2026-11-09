@@ -1,4 +1,4 @@
-# ULTRON Control Center — Claude session launcher (PowerShell wrapper).
+# ULTRON Control Center - Claude session launcher (PowerShell wrapper).
 #
 # Why a wrapper script: chaining cmd.exe /C wt.exe ... -- powershell.exe
 # -Command "..." broke when extra flags were present. PowerShell's
@@ -12,12 +12,16 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Payload
+    [Parameter(Mandatory = $true)][string]$Payload,
+    # DryRun: escribe por stdout la linea que se ejecutaria dentro de la
+    # pestana y sale sin tocar el portapapeles, sin crear el script temporal y
+    # sin lanzar wt.exe. Lo usan los tests del contrato del payload.
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
 
-# Force UTF-8 stdout / stderr — required for serde to parse Spanish accents
+# Force UTF-8 stdout / stderr - required for serde to parse Spanish accents
 # coming back through Tauri's shell plugin without U+FFFD substitution.
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
@@ -70,7 +74,7 @@ $continueLast = [bool]$cfg.continueLast
 $forkSession  = [bool]$cfg.forkSession
 # pasteOnly: explicit contract from the caller that the prompt MUST land
 # on the clipboard and NEVER be auto-submitted (no argv -p / positional).
-# Backwards-compatible: missing field → $false. As of v15.1.4+ clipboard is
+# Backwards-compatible: missing field -> $false. As of v15.1.4+ clipboard is
 # already the default for any non-empty prompt, so $pasteOnly is effectively
 # a no-op today; it exists so callers (Dashboard "Diagnose with Claude")
 # can declare the contract and so any future regression that re-introduces
@@ -78,9 +82,9 @@ $forkSession  = [bool]$cfg.forkSession
 $pasteOnly    = [bool]$cfg.pasteOnly
 # respectClipboard: caller has already seeded the clipboard itself (a
 # paste-only flow that placed the *long* prompt there before spawning).
-# When $true, we MUST NOT call Set-Clipboard — otherwise we overwrite the
+# When $true, we MUST NOT call Set-Clipboard - otherwise we overwrite the
 # real prompt with the short `prompt` field (which is only a banner hint).
-# Backwards-compatible: missing field → $false (legacy behaviour).
+# Backwards-compatible: missing field -> $false (legacy behaviour).
 $respectClipboard = [bool]$cfg.respectClipboard
 # freeTier: cuando true, la sesion se enruta por el proxy local (puerto 8082).
 # El inner-script setea ANTHROPIC_BASE_URL y ANTHROPIC_AUTH_TOKEN antes de
@@ -102,13 +106,28 @@ $claudeSettings = [string]$cfg.settingsFile
 # pestana sale con el aspecto por defecto del perfil del usuario.
 $tabColor = [string]$cfg.tabColor
 
-# v15.1.4+: ULTRON spawns terminals for internal flows (news, skill edit, MCP
-# create, diagnose, codex-fallback) where the user already authorized the
-# action by clicking the button. Forcing dangerous=true here saves them from
-# having to click through provider-level confirmations every single time.
-# Claude --dangerously-skip-permissions / Codex --dangerously-bypass
-# map to the same intent: accept everything by default.
-$dangerous    = $true
+# dangerous: saltarse las confirmaciones (Claude --dangerously-skip-permissions,
+# Codex --dangerously-bypass-approvals-and-sandbox). Lo decide sessions.rs
+# (resolve_dangerous) y aqui se obedece tal cual: un false explicito del
+# llamante (p. ej. "Integrar con IA" sobre un repo de GitHub ajeno) arranca con
+# permisos normales. Hasta 2026-10-17 este script fijaba $true sin condicion y
+# anulaba ese false.
+#
+# Campo ausente -> $true: es el valor por defecto de los flujos internos de
+# ULTRON (noticias, edicion de skills, alta de MCP, diagnostico, relevo de
+# Codex), decision de la v15.1.4 porque el clic del usuario ya autoriza la
+# accion. sessions.rs siempre envia el campo; el defecto solo cubre a un
+# llamante antiguo que no lo mande.
+$dangerous = $true
+if ($cfg.PSObject.Properties.Name -contains 'dangerous') {
+    $rawDangerous = $cfg.dangerous
+    if ($rawDangerous -is [bool]) {
+        $dangerous = $rawDangerous
+    } elseif ($null -ne $rawDangerous) {
+        # Tolerancia ante un "false" en texto: [bool]"false" es $true en PowerShell.
+        $dangerous = ([string]$rawDangerous).Trim() -ieq 'true'
+    }
+}
 
 if ($provider -notin @("claude", "codex")) {
     throw "Provider must be one of claude / codex, got '$provider'"
@@ -216,7 +235,7 @@ switch ($provider) {
     }
 }
 
-# Resume / continue ignore the prompt — Claude reuses the prior transcript.
+# Resume / continue ignore the prompt - Claude reuses the prior transcript.
 $resumeActive = ($provider -eq "claude") -and ($continueLast -or $resumeId)
 
 # Prompt strategy (v15.1.4+):
@@ -227,6 +246,11 @@ $resumeActive = ($provider -eq "claude") -and ($continueLast -or $resumeId)
 #   invocations (e.g. lines mentioning activate_skill). Clipboard-paste is
 #   slower for the user by one Ctrl+V but it ALWAYS works, regardless of
 #   prompt length, newlines, or special chars. Saner default.
+if ($DryRun) {
+    Write-Output $inner
+    exit 0
+}
+
 $clipboardSeeded = $false
 if ($respectClipboard) {
     # Caller already primed the clipboard with the real prompt. The
@@ -256,7 +280,7 @@ if ($clipboardSeeded) {
         # the user is choosing whether to send, not just how to send.
         $msg = "Prompt copiado al portapapeles. Pega con Ctrl+V, revisa/edita si quieres, y pulsa Enter para enviar."
     } else {
-        $msg = "El prompt está en tu portapapeles (Ctrl+V para pegar)."
+        $msg = "El prompt esta en tu portapapeles (Ctrl+V para pegar)."
     }
     $inner = "Write-Host '" + ($msg -replace "'", "''") + "' -ForegroundColor Cyan; " + $inner
 }
@@ -266,8 +290,8 @@ if ($clipboardSeeded) {
 # Critical: wt.exe's argv parser treats `;` (and `|`) as tab/pane
 # separators even when they're inside our inner-command. Passing
 # "Set-Location ...; claude ..." via -Command splits the line in TWO new
-# tabs — first one tries to launch `Set-Location` as a program (which is
-# a PowerShell cmdlet, not an exe → ERROR_FILE_NOT_FOUND), and the
+# tabs - first one tries to launch `Set-Location` as a program (which is
+# a PowerShell cmdlet, not an exe -> ERROR_FILE_NOT_FOUND), and the
 # second tab launches `claude` without our cwd. This is exactly the
 # "doble terminal" / "no encuentra Set-Location" symptoms the user saw.
 #
@@ -294,7 +318,7 @@ Write-Host '[ULTRON] Sesion enrutada por proxy free-tier (NVIDIA NIM). Calidad p
 }
 
 $scriptBody = @"
-# auto-generated by spawn-claude-session.ps1 — safe to delete
+# auto-generated by spawn-claude-session.ps1 - safe to delete
 # F7-B encoding fix: force UTF-8 for both output and input so accented
 # characters (tildes, enyes) written by the CLI display correctly in
 # Windows Terminal regardless of the system OEM code page (CP850/CP437).
@@ -354,7 +378,7 @@ $title = "ULTRON-$provider"
 if ($projName) { $title = "ULTRON-$provider [$projName]" }
 
 # BUG FIX 2026-08-13: Start-Process -ArgumentList con un ARRAY une los
-# elementos con espacios SIN quotear — un titulo o scheme con espacios
+# elementos con espacios SIN quotear - un titulo o scheme con espacios
 # ("Tango Dark") rompia el argv de wt.exe, que acababa ejecutando un trozo
 # del titulo como programa (error 0x80070002 visto por el usuario). Se
 # construye UNA linea con quoting explicito de todo lo que lleve espacios.

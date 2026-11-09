@@ -17,9 +17,10 @@
  * project-new.mjs / kanban.mjs) apunta a un projects.json temporal.
  */
 
-import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REGISTRY = process.env.ULTRON_PROJECTS_JSON_OVERRIDE || join(__dirname, '..', 'cockpit', 'projects.json');
@@ -46,7 +47,7 @@ if (!entry) fail(`proyecto "${id}" no registrado (ids: ${projects.map((p) => p.i
 
 const updated = projects.map((p) => (p.id === id ? { ...p, socratic: mode } : p));
 const doc = Array.isArray(raw) ? updated : { ...raw, projects: updated };
-copyFileSync(REGISTRY, `${REGISTRY}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+reportPruneFailures('project-socratic', backupWithRetention(REGISTRY));
 const tmp = `${REGISTRY}.tmp`;
 writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n', 'utf8');
 renameSync(tmp, REGISTRY);

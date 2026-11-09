@@ -1,12 +1,18 @@
 // ULTRON Control Center — Activity Timeline aggregator.
 //
-// Reads the same six hook-signal JSONL sources as `self_improve::read_hook_signals`
-// plus `~/.ultron/alerts.jsonl` (operational alerts), normalises each entry into
-// a `TimelineEvent`, and builds a per-day, per-source heatmap matrix used by the
-// frontend Activity Timeline view.
+// Reads the live activity sources — `~/.ultron/alerts.jsonl` (operational
+// alerts), `~/.ultron/logs/route-decisions.jsonl` (AI Router decisions) and the
+// per-project kanban boards (`cockpit/projects/<id>/kanban.json`) —, normalises
+// each entry into a `TimelineEvent`, and builds a per-day, per-source heatmap
+// matrix used by the frontend Activity Timeline view.
+//
+// 2026-10-17: se retiraron seis fuentes sin escritor vivo (hiper-plans-signals,
+// doctor-fix-log, prompt-feedback y token-usage en `.tmp/`, auto_updater y
+// mcp-audit en `cockpit/`) y `cockpit/workdays/`, que ya no existe. Routing y
+// kanban entran en su lugar.
 //
 // Design choices:
-//   - We tail-read up to 500 lines per source (vs. 200 in self_improve) so the
+//   - We tail-read up to 500 lines per JSONL source so the
 //     30d window has enough density to be meaningful for heavy sources.
 //   - Timestamps are normalised lexically — ISO 8601 in UTC sorts correctly as
 //     a plain string. We do NOT translate to local time: the source files are
@@ -130,7 +136,7 @@ fn cutoff_day(days: u32) -> String {
 /// Extract a normalised ISO-8601-ish timestamp from a JSON value, checking
 /// multiple common field names. Returns the raw string so the frontend can
 /// render it as-is; we don't bother re-formatting because the original is
-/// already ISO 8601 across all six telemetry sources.
+/// already ISO 8601 in every JSONL source.
 fn extract_ts(v: &serde_json::Value) -> Option<String> {
     for key in ["ts", "timestamp", "time", "datetime"] {
         if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
@@ -161,182 +167,146 @@ fn ts_to_day(ts: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Per-source parsers
 //
-// Each parser appends `TimelineEvent`s into `out`. Mirrors the shape of
-// `self_improve::read_hook_signals` so the source names and `kind` fields
-// align with what the user already sees in the table view.
+// Each parser appends `TimelineEvent`s into `out`. A missing or unreadable
+// source yields nothing; malformed lines are skipped.
 // ---------------------------------------------------------------------------
 
-fn ingest_hyper_plans(root: &Path, out: &mut Vec<TimelineEvent>) {
-    for line in read_tail_lines(&root.join(".tmp/hiper-plans-signals.jsonl"), 500) {
+/// AI Router decisions (`logs/route-decisions.jsonl`, one line per routed
+/// call). `kind` is `failed` when the whole chain failed (reason `failed`,
+/// since 2026-10-23), `fallback` when a fallback answered, `primary` otherwise.
+fn ingest_routing(root: &Path, out: &mut Vec<TimelineEvent>) {
+    for line in read_tail_lines(&root.join("logs/route-decisions.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
         let Some(ts) = extract_ts(&v) else { continue };
         let Some(day) = ts_to_day(&ts) else { continue };
-        let kind = v
-            .get("signal")
-            .and_then(|x| x.as_str())
-            .unwrap_or("signal")
-            .to_string();
-        let mode = v.get("mode").and_then(|x| x.as_str()).unwrap_or("");
-        let preview = v
-            .get("prompt_preview")
-            .and_then(|x| x.as_str())
-            .unwrap_or("");
-        let summary = if mode.is_empty() {
-            preview.to_string()
+        let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("?");
+        let fallback = v
+            .get("used_fallback")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
+        let failed = field("reason") == "failed";
+        let summary = if failed {
+            format!("{} · sin respuesta: {}", field("zone"), field("error"))
+        } else if fallback {
+            format!(
+                "{} · {}/{} ({})",
+                field("zone"),
+                field("provider_id"),
+                field("model"),
+                field("reason")
+            )
         } else {
-            format!("[{}] {}", mode, preview)
+            format!(
+                "{} · {}/{}",
+                field("zone"),
+                field("provider_id"),
+                field("model")
+            )
+        };
+        let kind = match (failed, fallback) {
+            (true, _) => "failed",
+            (false, true) => "fallback",
+            (false, false) => "primary",
         };
         out.push(TimelineEvent {
             ts,
             day,
-            source: "hyper-plans".to_string(),
-            kind,
+            source: "routing".to_string(),
+            kind: kind.to_string(),
             summary: truncate_summary(&summary, 160),
         });
     }
 }
 
-fn ingest_doctor(root: &Path, out: &mut Vec<TimelineEvent>) {
-    for line in read_tail_lines(&root.join(".tmp/doctor-fix-log.jsonl"), 500) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+/// Timestamp of a kanban card: ISO 8601 as-is or the legacy `epoch:<secs>`.
+fn card_ts(raw: &str) -> Option<String> {
+    if raw.starts_with("epoch:") {
+        return workday_ts_to_iso(raw);
+    }
+    ts_to_day(raw).map(|_| raw.to_string())
+}
+
+/// Kanban boards (`cockpit/projects/<id>/kanban.json`). Per card: one
+/// `created` event and, when `updated_at` differs, one `updated:<role>` event
+/// with the role (or name) of the column the card sits in now. `updated_at`
+/// se sella tanto al mover la tarjeta como al editarla (`board_io.rs`), así
+/// que el evento no distingue un movimiento de una edición. The board keeps
+/// no history, so only the last change of each card is visible.
+fn ingest_kanban(root: &Path, out: &mut Vec<TimelineEvent>) {
+    let Ok(entries) = fs::read_dir(root.join("cockpit").join("projects")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(text) = fs::read_to_string(entry.path().join("kanban.json")) else {
             continue;
         };
-        let Some(ts) = extract_ts(&v) else { continue };
-        let Some(day) = ts_to_day(&ts) else { continue };
-        let finding = v.get("finding_id").and_then(|x| x.as_str()).unwrap_or("");
-        let action = v.get("fix_action").and_then(|x| x.as_str()).unwrap_or("");
-        let exit_code = v.get("exit_code").and_then(|x| x.as_i64());
-        let exit_part = match exit_code {
-            Some(c) => format!(" (exit {})", c),
-            None => String::new(),
-        };
-        let summary = format!("{} -> {}{}", finding, action, exit_part);
-        out.push(TimelineEvent {
-            ts,
-            day,
-            source: "doctor".to_string(),
-            kind: action.to_string(),
-            summary: truncate_summary(&summary, 160),
-        });
-    }
-}
-
-fn ingest_prompt_feedback(root: &Path, out: &mut Vec<TimelineEvent>) {
-    for line in read_tail_lines(&root.join(".tmp/prompt-feedback.jsonl"), 500) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+        let Ok(board) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
-        let Some(ts) = extract_ts(&v) else { continue };
-        let Some(day) = ts_to_day(&ts) else { continue };
-        let kind = v
-            .get("kind")
-            .and_then(|x| x.as_str())
-            .unwrap_or("feedback")
-            .to_string();
-        let target = v.get("target").and_then(|x| x.as_str()).unwrap_or("");
-        let chars = v.get("output_chars").and_then(|x| x.as_i64()).unwrap_or(0);
-        let summary = format!("{} ({} chars)", target, chars);
-        out.push(TimelineEvent {
-            ts,
-            day,
-            source: "prompt-feedback".to_string(),
-            kind,
-            summary: truncate_summary(&summary, 160),
-        });
+        let project = entry.file_name().to_string_lossy().to_string();
+        ingest_board(&project, &board, out);
     }
 }
 
-fn ingest_token_usage(root: &Path, out: &mut Vec<TimelineEvent>) {
-    for line in read_tail_lines(&root.join(".tmp/token-usage.jsonl"), 500) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
-        };
-        let Some(ts) = extract_ts(&v) else { continue };
-        let Some(day) = ts_to_day(&ts) else { continue };
-        let layer = v
-            .get("layer")
-            .and_then(|x| x.as_str())
-            .unwrap_or("?")
-            .to_string();
-        let tokens = v.get("tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-        let limit = v.get("limit").and_then(|x| x.as_i64()).unwrap_or(0);
-        let summary = if limit > 0 {
-            format!("{} tok / {} limit", tokens, limit)
-        } else {
-            format!("{} tok", tokens)
-        };
-        out.push(TimelineEvent {
-            ts,
-            day,
-            source: "token-usage".to_string(),
-            kind: layer,
-            summary: truncate_summary(&summary, 160),
-        });
+fn ingest_board(project: &str, board: &serde_json::Value, out: &mut Vec<TimelineEvent>) {
+    let str_of =
+        |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+    let columns: HashMap<String, String> = board
+        .get("columns")
+        .and_then(|x| x.as_array())
+        .map(|cols| {
+            cols.iter()
+                .filter_map(|c| {
+                    let id = str_of(c, "id")?;
+                    let label = str_of(c, "role")
+                        .filter(|r| !r.is_empty() && r != "other")
+                        .or_else(|| str_of(c, "name"))
+                        .unwrap_or_else(|| "?".to_string());
+                    Some((id, label))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(cards) = board.get("cards").and_then(|x| x.as_array()) else {
+        return;
+    };
+    for card in cards {
+        let title = str_of(card, "title").unwrap_or_default();
+        let summary = truncate_summary(&format!("{} · {}", project, title), 160);
+        let created = str_of(card, "created_at").and_then(|r| card_ts(&r));
+        let updated = str_of(card, "updated_at").and_then(|r| card_ts(&r));
+        if let Some(ts) = created.clone() {
+            push_event(out, ts, "kanban", "created".to_string(), summary.clone());
+        }
+        if let Some(ts) = updated.filter(|u| Some(u) != created.as_ref()) {
+            let column = str_of(card, "column_id")
+                .and_then(|id| columns.get(&id).cloned())
+                .unwrap_or_else(|| "?".to_string());
+            push_event(out, ts, "kanban", format!("updated:{}", column), summary);
+        }
     }
 }
 
-fn ingest_auto_updater(root: &Path, out: &mut Vec<TimelineEvent>) {
-    for line in read_tail_lines(&root.join("cockpit/auto_updater.jsonl"), 500) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
-        };
-        let Some(ts) = extract_ts(&v) else { continue };
-        let Some(day) = ts_to_day(&ts) else { continue };
-        let action = v
-            .get("action")
-            .and_then(|x| x.as_str())
-            .unwrap_or("update")
-            .to_string();
-        let target = v.get("target").and_then(|x| x.as_str()).unwrap_or("");
-        let model = v.get("model").and_then(|x| x.as_str()).unwrap_or("");
-        let exit_code = v.get("exit_code").and_then(|x| x.as_i64());
-        let exit_part = match exit_code {
-            Some(c) => format!(" exit={}", c),
-            None => String::new(),
-        };
-        let summary = format!("{} via {}{}", target, model, exit_part);
-        out.push(TimelineEvent {
-            ts,
-            day,
-            source: "auto-updater".to_string(),
-            kind: action,
-            summary: truncate_summary(&summary, 160),
-        });
-    }
+fn push_event(
+    out: &mut Vec<TimelineEvent>,
+    ts: String,
+    source: &str,
+    kind: String,
+    summary: String,
+) {
+    let Some(day) = ts_to_day(&ts) else { return };
+    out.push(TimelineEvent {
+        ts,
+        day,
+        source: source.to_string(),
+        kind,
+        summary,
+    });
 }
 
-fn ingest_mcp_audit(root: &Path, out: &mut Vec<TimelineEvent>) {
-    for line in read_tail_lines(&root.join("cockpit/mcp-audit.jsonl"), 500) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
-        };
-        let Some(ts) = extract_ts(&v) else { continue };
-        let Some(day) = ts_to_day(&ts) else { continue };
-        let event = v
-            .get("event")
-            .and_then(|x| x.as_str())
-            .unwrap_or("mutation")
-            .to_string();
-        let server = v.get("server").and_then(|x| x.as_str()).unwrap_or("");
-        let detail = v.get("detail").and_then(|x| x.as_str()).unwrap_or("");
-        let summary = if detail.is_empty() {
-            server.to_string()
-        } else {
-            format!("{} · {}", server, detail)
-        };
-        out.push(TimelineEvent {
-            ts,
-            day,
-            source: "mcp-audit".to_string(),
-            kind: event,
-            summary: truncate_summary(&summary, 160),
-        });
-    }
-}
-
-/// Convert a "epoch:<secs>" string (the workday TS format) to ISO 8601.
+/// Convert a "epoch:<secs>" string (legacy kanban TS format) to ISO 8601.
 /// Self-contained epoch->ISO formatter. Returns None when the value is not a
 /// parseable epoch.
 fn workday_ts_to_iso(raw: &str) -> Option<String> {
@@ -392,105 +362,6 @@ pub(crate) fn epoch_secs_to_iso(secs: u64) -> String {
     )
 }
 
-/// Workdays + kanban events live in `~/.ultron/cockpit/workdays/wd-*.json`.
-/// We walk the directory, parse each file, and emit:
-///   - 1 event per workday "created" (kind = "created:<status>")
-///   - 1 event per workday "completed" (when end_ts is set)
-///   - 1 event per kanban_move context entry (source = "kanban")
-fn ingest_workdays(root: &Path, out: &mut Vec<TimelineEvent>) {
-    let dir = root.join("cockpit").join("workdays");
-    let Ok(entries) = fs::read_dir(&dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-            continue;
-        };
-
-        let title = v
-            .get("title")
-            .and_then(|x| x.as_str())
-            .unwrap_or("workday")
-            .to_string();
-        let status = v
-            .get("status")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // Event: workday created
-        if let Some(raw) = v.get("created_at").and_then(|x| x.as_str()) {
-            if let Some(ts) = workday_ts_to_iso(raw) {
-                if let Some(day) = ts_to_day(&ts) {
-                    out.push(TimelineEvent {
-                        ts,
-                        day,
-                        source: "workdays".to_string(),
-                        kind: if status.is_empty() {
-                            "created".to_string()
-                        } else {
-                            format!("created:{}", status)
-                        },
-                        summary: truncate_summary(&title, 160),
-                    });
-                }
-            }
-        }
-
-        // Event: workday completed (end_ts populated)
-        if let Some(raw) = v.get("end_ts").and_then(|x| x.as_str()) {
-            if let Some(ts) = workday_ts_to_iso(raw) {
-                if let Some(day) = ts_to_day(&ts) {
-                    out.push(TimelineEvent {
-                        ts,
-                        day,
-                        source: "workdays".to_string(),
-                        kind: "completed".to_string(),
-                        summary: truncate_summary(&format!("done: {}", title), 160),
-                    });
-                }
-            }
-        }
-
-        // Event(s): kanban_move entries living in the context buckets.
-        let Some(context) = v.get("context") else {
-            continue;
-        };
-        let buckets = ["notes", "decisions", "file_changes", "agent_messages"];
-        for bname in &buckets {
-            let Some(arr) = context.get(*bname).and_then(|x| x.as_array()) else {
-                continue;
-            };
-            for ent in arr {
-                let kind_field = ent.get("kind").and_then(|x| x.as_str()).unwrap_or("");
-                if !kind_field.starts_with("kanban_move") {
-                    continue;
-                }
-                let raw_created = ent.get("created_at").and_then(|x| x.as_str()).unwrap_or("");
-                let Some(ts) = workday_ts_to_iso(raw_created) else {
-                    continue;
-                };
-                let Some(day) = ts_to_day(&ts) else { continue };
-                let text = ent.get("text").and_then(|x| x.as_str()).unwrap_or("");
-                out.push(TimelineEvent {
-                    ts,
-                    day,
-                    source: "kanban".to_string(),
-                    kind: kind_field.to_string(),
-                    summary: truncate_summary(text, 160),
-                });
-            }
-        }
-    }
-}
-
 fn ingest_alerts(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join("alerts.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -524,6 +395,15 @@ fn ingest_alerts(root: &Path, out: &mut Vec<TimelineEvent>) {
 // Public entry points
 // ---------------------------------------------------------------------------
 
+/// Every live source under `root` (`~/.ultron`), unsorted and unfiltered.
+fn collect_events(root: &Path) -> Vec<TimelineEvent> {
+    let mut events: Vec<TimelineEvent> = Vec::new();
+    ingest_alerts(root, &mut events);
+    ingest_routing(root, &mut events);
+    ingest_kanban(root, &mut events);
+    events
+}
+
 /// Aggregate all timeline sources, clamp to the requested window, sort
 /// descending, and build the day/source count matrix for the heatmap.
 ///
@@ -534,19 +414,7 @@ pub fn compute_activity_timeline_inner(days: u32) -> Result<TimelineSummary, Str
     let window = if days == 0 || days > 365 { 30 } else { days };
     let cutoff = cutoff_day(window);
 
-    let mut events: Vec<TimelineEvent> = Vec::new();
-    ingest_hyper_plans(&root, &mut events);
-    ingest_doctor(&root, &mut events);
-    ingest_prompt_feedback(&root, &mut events);
-    ingest_token_usage(&root, &mut events);
-    ingest_auto_updater(&root, &mut events);
-    ingest_mcp_audit(&root, &mut events);
-    ingest_alerts(&root, &mut events);
-    // 2026-05-27 — workday lifecycle + kanban_move events. These give the
-    // timeline a "what the user actually did" signal alongside the hook
-    // telemetry, so Backlog/Investigar items that already shipped show up
-    // visibly instead of staying invisible.
-    ingest_workdays(&root, &mut events);
+    let mut events = collect_events(&root);
 
     // Drop anything older than the cutoff day. Lexical comparison is safe
     // because both sides are fixed-width YYYY-MM-DD strings.
@@ -564,4 +432,93 @@ pub fn compute_activity_timeline_inner(days: u32) -> Result<TimelineSummary, Str
     }
 
     Ok(TimelineSummary { events, day_counts })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn escribe(root: &Path, rel: &str, contenido: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().expect("padre")).expect("mkdir");
+        fs::write(path, contenido).expect("write");
+    }
+
+    #[test]
+    fn routing_y_kanban_entran_en_la_linea_de_tiempo() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        escribe(
+            root,
+            "logs/route-decisions.jsonl",
+            concat!(
+                r#"{"ts":"2026-10-17T01:03:24Z","zone":"chat","model":"m1","provider_id":"groq","used_fallback":false,"reason":"primary"}"#,
+                "\n",
+                "no es json\n",
+                r#"{"ts":"2026-10-17T02:00:00Z","zone":"light","model":"m2","provider_id":"gemini","used_fallback":true,"reason":"groq 429"}"#,
+                "\n"
+            ),
+        );
+        escribe(
+            root,
+            "cockpit/projects/demo/kanban.json",
+            r#"{"columns":[{"id":"c1","name":"Backlog","role":"todo"},{"id":"c4","name":"Done","role":"done"}],
+               "cards":[{"id":"a","column_id":"c4","title":"Hecha","created_at":"epoch:1791000000","updated_at":"2026-10-16T10:00:00Z"},
+                        {"id":"b","column_id":"c1","title":"Nueva","created_at":"2026-10-16T09:00:00Z","updated_at":"2026-10-16T09:00:00Z"}]}"#,
+        );
+        let events = collect_events(root);
+        let routing: Vec<_> = events.iter().filter(|e| e.source == "routing").collect();
+        assert_eq!(routing.len(), 2, "la línea malformada se salta");
+        assert!(routing
+            .iter()
+            .any(|e| e.kind == "fallback" && e.summary.contains("groq 429")));
+        let kanban: Vec<_> = events.iter().filter(|e| e.source == "kanban").collect();
+        assert_eq!(kanban.len(), 3, "2 altas + 1 cambio (b no cambió)");
+        assert!(kanban
+            .iter()
+            .any(|e| e.kind == "updated:done" && e.summary == "demo · Hecha"));
+        assert!(kanban.iter().all(|e| e.day.len() == 10));
+    }
+
+    /// Una ruta con la cadena agotada sale como `failed`, no como `primary`.
+    #[test]
+    fn una_ruta_fallida_entra_como_failed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        escribe(
+            root,
+            "logs/route-decisions.jsonl",
+            concat!(
+                r#"{"ts":"2026-10-23T08:00:00Z","zone":"chat","model":"","provider_id":"","used_fallback":false,"reason":"failed","error":"all providers failed"}"#,
+                "\n"
+            ),
+        );
+        let events = collect_events(root);
+        let routing: Vec<_> = events.iter().filter(|e| e.source == "routing").collect();
+        assert_eq!(routing.len(), 1);
+        assert_eq!(routing[0].kind, "failed");
+        assert!(
+            routing[0].summary.contains("sin respuesta"),
+            "{}",
+            routing[0].summary
+        );
+    }
+
+    #[test]
+    fn las_fuentes_retiradas_ya_no_se_leen() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let linea = r#"{"ts":"2026-10-17T00:00:00Z","event":"x","tool":"y"}"#;
+        for rel in [
+            ".tmp/hiper-plans-signals.jsonl",
+            ".tmp/doctor-fix-log.jsonl",
+            ".tmp/prompt-feedback.jsonl",
+            ".tmp/token-usage.jsonl",
+            "cockpit/auto_updater.jsonl",
+            "cockpit/mcp-audit.jsonl",
+        ] {
+            escribe(root, rel, linea);
+        }
+        assert!(collect_events(root).is_empty());
+    }
 }

@@ -118,7 +118,6 @@ SKILL_MANIFEST_JSON   = ULTRON_HOME / "skill_manifest.json"
 SKILLS_REGISTRY_JSON  = ULTRON_HOME / "skills-registry.json"
 AGENT_MANIFEST_JSON   = ULTRON_HOME / "agent_manifest.json"   # to be deprecated FIX-3
 INDEX_MD              = ULTRON_HOME / "INDEX.md"
-BACKGROUND_TASKS_JSON = ULTRON_HOME / "background_tasks.json"
 
 # Cockpit data files
 PROJECTS_JSON         = COCKPIT_DIR / "projects.json"
@@ -210,7 +209,6 @@ class _Paths:
     skills_registry_json:    Path = SKILLS_REGISTRY_JSON
     agent_manifest_json:     Path = AGENT_MANIFEST_JSON
     index_md:                Path = INDEX_MD
-    background_tasks_json:   Path = BACKGROUND_TASKS_JSON
     projects_json:           Path = PROJECTS_JSON
     pending_actions_json:    Path = PENDING_ACTIONS_JSON
     audits_index_json:       Path = AUDITS_INDEX_JSON

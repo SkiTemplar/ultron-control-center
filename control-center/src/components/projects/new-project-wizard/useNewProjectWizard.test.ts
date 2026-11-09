@@ -20,6 +20,7 @@ vi.mock("../../../lib/project-create-cli", async (importOriginal) => {
     cliRoots: vi.fn(),
     cliList: vi.fn(),
     cliTemplates: vi.fn(),
+    cliSkills: vi.fn(),
     cliSubjectNew: vi.fn(),
     cliMkdir: vi.fn(),
     cliCreate: vi.fn(),

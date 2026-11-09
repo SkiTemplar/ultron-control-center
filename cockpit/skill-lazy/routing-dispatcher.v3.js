@@ -89,8 +89,8 @@ const v2 = require('./routing-dispatcher.v2.js');
  * Dedupe por sesión de la inyección lazy (2026-09-06, ahorro de tokens).
  * Un SKILL.md inyectado ya vive en el contexto de la sesión: volver a
  * inyectarlo en cada prompt que repite el trigger sumaba ~1,5k tokens por
- * turno sin aportar nada. Marker en temp por session_id (mismo patrón que
- * codegraph-reminder.js). Devuelve { fresh: Map, repeated: string[] }.
+ * turno sin aportar nada. Marker en temp por session_id. Devuelve
+ * { fresh: Map, repeated: string[] }.
  */
 function splitAlreadyInjected(injected, sessionId) {
   const sid = String(sessionId || 'nosession').replace(/[^A-Za-z0-9_-]/g, '');
@@ -619,7 +619,9 @@ async function mainV3() {
   }
 
   // --- Step 1: Run v2 deterministic ranking (synchronous, < 50 ms) ---
-  const ranked = filtrarPersonas(v2.rankCandidates(prompt), prompt);
+  // Validacion al emitir: fuera los ids que no existen en disco (se registran
+  // como phantom_id_dropped en el log).
+  const ranked = v2.dropPhantoms(filtrarPersonas(v2.rankCandidates(prompt), prompt), 'v3:ranking');
   const top = ranked[0] || null;
   const second = ranked[1] || null;
 
@@ -655,7 +657,7 @@ async function mainV3() {
       top: formatLabelV3(top), score: top.score, confidence: topConfidence,
     });
   } else if (top && topConfidence >= MED_THRESHOLD) {
-    deterministicText = buildMediumContextV3(top, second);
+    if (!STRICT_MATCH) deterministicText = buildMediumContextV3(top, second);
     safeLogV3({
       level: 'info', msg: 'medium_confidence_routing',
       top: formatLabelV3(top),
@@ -735,7 +737,10 @@ async function mainV3() {
         // El juez LLM decide primero; el denso queda como respaldo cuando no
         // hay proveedor, no hay clave o se agota el tiempo.
         const veredicto = await judgeSkills(rawPrompt, Math.min(semBudget, JUDGE_TIMEOUT_MS));
-        const judged = filtrarNombresPersona(veredicto.skills, prompt);
+        const judgedRaw = v2.dropPhantoms(filtrarNombresPersona(veredicto.skills, prompt), 'v3:judge');
+        // Modo estricto: el juez solo se inyecta si coincide con el top de las
+        // reglas deterministas (dos senales independientes de acuerdo).
+        const judged = STRICT_MATCH ? agreeWithTop(judgedRaw, top) : judgedRaw;
         if (judged && judged.length) {
           semanticBlock = buildJudgeHint(judged);
           safeLogV3({
@@ -763,11 +768,14 @@ async function mainV3() {
             deterministic_confidence: topConfidence,
           });
         }
-        const semResults = (semanticBlock || juezDijoNinguna)
+        const semResults = (semanticBlock || juezDijoNinguna || STRICT_MATCH)
           ? null
-          : filtrarNombresPersona(
-              await querySemanticSkills(rawPrompt, effectiveSemanticTopN, remainingMs()),
-              prompt,
+          : v2.dropPhantoms(
+              filtrarNombresPersona(
+                await querySemanticSkills(rawPrompt, effectiveSemanticTopN, remainingMs()),
+                prompt,
+              ),
+              'v3:semantic',
             );
         if (semResults && semResults.length > 0) {
           semanticBlock = buildSemanticHint(semResults);
@@ -821,6 +829,23 @@ async function mainV3() {
 // ---------------------------------------------------------------------------
 // Output helper (identical to v2's emitContext but standalone)
 // ---------------------------------------------------------------------------
+
+// Sugerencias de skills solo con alta confianza (decidido 2026-09-28): 24
+// invocaciones reales en 14 dias frente a una sugerencia en casi cada prompt.
+// En modo estricto: se inyecta la confianza alta de las reglas (triggers por
+// nombre, >= HIGH_THRESHOLD) y el juez LLM solo cuando coincide con el top de
+// las reglas; nada de confianza media ni del fallback denso (muerto con
+// ULTRON_DENSE=0). SKILL_MATCH_MODE=all restaura el comportamiento anterior.
+const STRICT_MATCH = process.env.SKILL_MATCH_MODE !== 'all';
+
+function agreeWithTop(judged, top) {
+  if (!Array.isArray(judged) || !top || !top.id) return [];
+  const id = String(top.id).toLowerCase();
+  return judged.filter(function (n) {
+    const name = String(n).toLowerCase();
+    return name === id || name.endsWith(':' + id) || id.endsWith(':' + name);
+  });
+}
 
 function emitContextV3(text) {
   const payload = {

@@ -22,9 +22,10 @@ export type Features = {
   notifications: boolean;
   usage: boolean;
   sessions: boolean;
-  // Opt-in flags (no son items de sidebar). Llegan del backend via read_features.
-  // card-ux-projects-dashboard-minimalista: dashboard de proyecto tipo IDE (v2).
-  projects_dashboard_v2?: boolean;
+  /** Solo lo lee el backend (bypass de permisos por defecto). */
+  claude_safe_mode: boolean;
+  /** Solo lo lee el backend (aviso al salir una sesión PTY con error). */
+  errors_immediate_notify: boolean;
 };
 
 /** All toggles enabled — the safe default for a fresh install. */
@@ -38,6 +39,8 @@ export const ALL_ENABLED: Features = {
   notifications: true,
   usage: true,
   sessions: true,
+  claude_safe_mode: false,
+  errors_immediate_notify: true,
 };
 
 // Module-level cache so multiple consumers share state.
@@ -113,16 +116,3 @@ export function useFeatures(): {
 // Settings→Features nunca se construyó y eran dead code inalcanzable. Los
 // toggles se gobiernan editando ~/.ultron/cockpit/features.json a mano (el
 // installer lo escribe; refresh() lo relee).
-
-/** Keys that map 1:1 to a sidebar item. Used by Sidebar.tsx for filtering. */
-export const FEATURE_KEYS: ReadonlyArray<keyof Features> = [
-  "memory",
-  "plans",
-  "projects",
-  "mcps",
-  "skills",
-  "hooks",
-  "notifications",
-  "usage",
-  "sessions",
-] as const;

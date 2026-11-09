@@ -55,18 +55,18 @@ export function AddItemModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-[14px] font-semibold">
-          Add item — {itemTarget.name ?? itemTarget.id}
+          Añadir elemento — {itemTarget.name ?? itemTarget.id}
         </h3>
         <p className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Pick a kind and supply its path. The item appears as a chip on the project row;
-          clicking "Launch all" fires every item in order.
+          Elige un tipo e indica su ruta. El elemento aparece como chip en la fila del proyecto;
+          «Lanzar todo» lanza todos los elementos en orden.
         </p>
 
         <div className="mt-3 space-y-3">
           {/* Kind selector */}
           <div>
             <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-              Kind
+              Tipo
             </label>
             <select
               value={iKind}
@@ -90,7 +90,7 @@ export function AddItemModal({
           {(iKind === "exe" || iKind === "folder") && (
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Path
+                Ruta
               </label>
               <div className="mt-1 flex gap-2">
                 <input
@@ -117,7 +117,7 @@ export function AddItemModal({
                     border: "1px solid var(--color-border-strong)",
                   }}
                 >
-                  Pick
+                  Elegir
                 </button>
               </div>
             </div>
@@ -127,7 +127,7 @@ export function AddItemModal({
           {iKind === "session" && (
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Provider
+                Proveedor
               </label>
               <select
                 value={iProvider}
@@ -151,7 +151,7 @@ export function AddItemModal({
           {(iKind === "claude" || iKind === "codex" || iKind === "session") && (
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Cwd
+                Directorio de trabajo
               </label>
               <div className="mt-1 flex gap-2">
                 <input
@@ -178,7 +178,7 @@ export function AddItemModal({
                     border: "1px solid var(--color-border-strong)",
                   }}
                 >
-                  Pick
+                  Elegir
                 </button>
               </div>
             </div>
@@ -188,7 +188,7 @@ export function AddItemModal({
           {iKind === "ide" && (
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Project path
+                Carpeta del proyecto
               </label>
               <div className="mt-1 flex gap-2">
                 <input
@@ -215,11 +215,11 @@ export function AddItemModal({
                     border: "1px solid var(--color-border-strong)",
                   }}
                 >
-                  Pick
+                  Elegir
                 </button>
               </div>
               <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-                Opens the directory in the project's preferred IDE. Auto-detects if none is set.
+                Abre la carpeta en el IDE preferido del proyecto. Si no hay ninguno, lo detecta solo.
               </p>
             </div>
           )}
@@ -228,7 +228,7 @@ export function AddItemModal({
           {iKind === "exe" && (
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Args (optional, space-separated; use double-quotes for spaces)
+                Argumentos (opcionales, separados por espacios; comillas dobles si llevan espacios)
               </label>
               <input
                 type="text"
@@ -250,13 +250,13 @@ export function AddItemModal({
           {/* Label */}
           <div>
             <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-              Label (optional)
+              Etiqueta (opcional)
             </label>
             <input
               type="text"
               value={iLabel}
               onChange={(e) => setILabel(e.target.value)}
-              placeholder="e.g. Launch Game"
+              placeholder="p. ej. Lanzar juego"
               className="mt-1 w-full rounded px-2 py-1.5 text-[12px]"
               style={{
                 background: "var(--color-surface-2)",
@@ -286,7 +286,7 @@ export function AddItemModal({
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -295,7 +295,7 @@ export function AddItemModal({
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
-            {itemSaving ? "Saving…" : "Add"}
+            {itemSaving ? "Guardando…" : "Añadir"}
           </button>
         </div>
       </div>

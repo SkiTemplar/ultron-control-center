@@ -5,7 +5,7 @@
  *
  * Uso: npx tsx scripts/smoke.ts [endpoint] [modelo]
  */
-import { buildGenerateRequest, fetchCompletion, sanitizeCompletion } from "../src/logic";
+import { buildGenerateRequest, fetchCompletion, keepAliveFor, sanitizeCompletion } from "../src/logic";
 
 async function main(): Promise<void> {
   const endpoint = process.argv[2] ?? "http://127.0.0.1:11434";
@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     suffix,
     maxPrefixChars: 3000,
     maxSuffixChars: 1000,
+    keepAlive: keepAliveFor("low"),
   });
 
   console.log(`[smoke] endpoint=${endpoint} model=${model}`);

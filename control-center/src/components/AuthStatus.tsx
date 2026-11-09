@@ -1,24 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-
-export type AuthEntry = {
-  provider: string;
-  logged_in: boolean;
-  credential_path: string;
-  last_modified: string | null;
-  age_days: number | null;
-  binary_present: boolean;
-  binary_path: string | null;
-  note: string | null;
-  /** Real validity from the credential file's expiry timestamp. null = the
-   *  file carries no expiry, so validity is genuinely unverified (amber). */
-  expires_at?: string | null;
-  expired?: boolean | null;
-};
-
-export type AuthReport = {
-  entries: AuthEntry[];
-};
+import type { AuthStatusReport } from "../types";
 
 const META: Record<
   string,
@@ -43,10 +25,10 @@ function formatRelativeIso(iso: string | null): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   const diff = Date.now() - d.getTime();
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+  if (diff < 60_000) return "ahora mismo";
+  if (diff < 3_600_000) return `hace ${Math.floor(diff / 60_000)} min`;
+  if (diff < 86_400_000) return `hace ${Math.floor(diff / 3_600_000)} h`;
+  return `hace ${Math.floor(diff / 86_400_000)} d`;
 }
 
 type AuthStatusProps = {
@@ -56,7 +38,7 @@ type AuthStatusProps = {
 };
 
 export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
-  const [report, setReport] = useState<AuthReport | null>(null);
+  const [report, setReport] = useState<AuthStatusReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [recheckCountdown, setRecheckCountdown] = useState<number | null>(null);
@@ -66,7 +48,7 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const r = (await invoke("auth_status")) as AuthReport;
+      const r = (await invoke("auth_status")) as AuthStatusReport;
       setReport(r);
       setError(null);
     } catch (e) {
@@ -113,35 +95,39 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-          Authentication
-        </h3>
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-semibold">Autenticación</h2>
+          <p
+            className="mt-1 text-[12.5px] leading-relaxed"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Estado de los CLIs activos (Claude y Codex). Solo se verifica presencia y
+            antigüedad del fichero de credenciales — los tokens nunca se leen ni se
+            validan contra la API. Para reautenticarte, pulsa <b>Reautenticar</b>: abre
+            el CLI en una terminal (Claude con{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>/login</code> listo para
+            pegar; Codex lanza su propio login).
+          </p>
+        </div>
         <button
           type="button"
           onClick={() => void load()}
           disabled={refreshing}
-          className="text-[11.5px] transition-colors disabled:opacity-50"
-          style={{ color: "var(--color-text-tertiary)" }}
+          className="shrink-0 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
         >
           {recheckCountdown !== null
-            ? `Re-checking in ${recheckCountdown}s…`
+            ? `Nueva comprobación en ${recheckCountdown} s…`
             : refreshing
-              ? "Checking…"
-              : "Recheck"}
+              ? "Comprobando…"
+              : "Volver a comprobar"}
         </button>
       </div>
-      <p
-        className="text-[11.5px] leading-relaxed"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        Estado de los CLIs activos (Claude y Codex). Solo se verifica presencia y
-        antigüedad del fichero de credenciales — los tokens nunca se leen ni se
-        validan contra la API. Para reautenticarte, pulsa <b>Reautenticar</b>: abre
-        el CLI en una terminal (Claude con{" "}
-        <code style={{ fontFamily: "var(--font-mono)" }}>/login</code> listo para
-        pegar; Codex lanza su propio login).
-      </p>
 
       {error && (
         <div
@@ -232,8 +218,8 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
               </div>
               {e.logged_in && (
                 <p
-                  className="mt-1 text-[10.5px] leading-relaxed"
-                  style={{ color: "var(--color-text-faint)" }}
+                  className="mt-1 text-[11.5px] leading-relaxed"
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {expired === true
                     ? `Token caducado el ${e.expires_at}.`
@@ -243,8 +229,8 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
                 </p>
               )}
               <div
-                className="mt-1 truncate text-[10.5px]"
-                style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
+                className="mt-1 truncate text-[11px]"
+                style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}
                 title={e.credential_path}
               >
                 {e.credential_path}
@@ -254,7 +240,7 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
                   className="mt-2 text-[11.5px]"
                   style={{ color: "var(--color-warn)" }}
                 >
-                  Binary not found in PATH.
+                  Binario no encontrado en el PATH.
                 </div>
               )}
               {e.note && (
@@ -265,7 +251,7 @@ export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
                   {e.note}
                 </p>
               )}
-              {!e.logged_in && (
+              {!e.logged_in && m.loginHint && (
                 <p
                   className="mt-1 text-[11.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}

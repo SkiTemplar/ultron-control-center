@@ -486,3 +486,66 @@ fn delete_column_with_reassign_moves_cards_and_removes_column() {
         "all cards must be reassigned to col-b"
     );
 }
+
+// -----------------------------------------------------------------------
+// H12 (auditoría 2026-10-17): runs huérfanos del despacho por PTY
+// -----------------------------------------------------------------------
+
+/// Un run `Running` escrito por el despacho antiguo (sin `error`, formato de
+/// disco previo al 2026-10-17) se cierra como `Failed` con su motivo, y los
+/// runs ya cerrados no se tocan.
+#[test]
+fn close_orphan_runs_cierra_los_running_y_respeta_el_resto() {
+    use super::board_io::{close_orphan_runs, ORPHAN_RUN_REASON};
+    use super::types_model::{CardRun, RunStatus};
+
+    let running: CardRun = serde_json::from_str(
+        r#"{"session_id":"pty-1","started_at":"epoch:1","status":{"kind":"running"}}"#,
+    )
+    .expect("run en el formato antiguo");
+    assert!(running.error.is_none(), "campo ausente -> None");
+    let done: CardRun = serde_json::from_str(
+        r#"{"session_id":"pty-0","started_at":"epoch:0","ended_at":"epoch:5","status":{"kind":"completed"},"exit_code":0}"#,
+    )
+    .unwrap();
+
+    let mut c = make_card("card-1", "col-a");
+    c.runs = vec![done, running];
+    let mut board = KanbanBoard {
+        project_id: "proj".into(),
+        columns: vec![],
+        cards: vec![c],
+        default_agent: None,
+        default_prompt_template: None,
+        schema_version: SCHEMA_VERSION,
+    };
+
+    assert!(
+        close_orphan_runs(&mut board, "epoch:99"),
+        "había un huérfano"
+    );
+    let runs = &board.cards[0].runs;
+    assert_eq!(runs[1].status, RunStatus::Failed);
+    assert_eq!(runs[1].ended_at.as_deref(), Some("epoch:99"));
+    assert_eq!(runs[1].error.as_deref(), Some(ORPHAN_RUN_REASON));
+    // Caso negativo: el run completado queda intacto.
+    assert_eq!(runs[0].status, RunStatus::Completed);
+    assert_eq!(runs[0].ended_at.as_deref(), Some("epoch:5"));
+    assert!(runs[0].error.is_none());
+
+    // Idempotente: una segunda pasada no cambia nada (no hay guardado extra).
+    assert!(!close_orphan_runs(&mut board, "epoch:100"));
+    assert_eq!(board.cards[0].runs[1].ended_at.as_deref(), Some("epoch:99"));
+}
+
+/// El motivo no se serializa cuando no hay: los JSON de runs sanos no cambian.
+#[test]
+fn card_run_sin_error_no_escribe_el_campo() {
+    use super::types_model::CardRun;
+    let run: CardRun = serde_json::from_str(
+        r#"{"session_id":"s","started_at":"epoch:1","status":{"kind":"completed"}}"#,
+    )
+    .unwrap();
+    let json = serde_json::to_string(&run).unwrap();
+    assert!(!json.contains("\"error\""), "{json}");
+}

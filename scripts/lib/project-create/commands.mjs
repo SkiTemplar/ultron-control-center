@@ -4,26 +4,28 @@
 // create, que son los que orquestan varios modulos a la vez.
 
 import {
-  existsSync, mkdirSync, writeFileSync, readdirSync,
+  existsSync, mkdirSync, writeFileSync, readdirSync, rmSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { CliError } from './errors.mjs';
 import {
-  validateName, validateSubSegments, resolveWithinRoot, slugify, DUE_DATE_RE,
+  validateName, validateSubSegments, resolveWithinRoot, slugify, subjectDirName, DUE_DATE_RE,
 } from './validation.mjs';
 import {
   loadRoots, loadRegistrySafe, ensureRootPathExists, findRoot,
 } from './roots.mjs';
-import { resolveTemplate, copyTemplateFiles, isBinaryAvailable } from './templates.mjs';
+import { resolveTemplate, copyTemplateFiles, isBinaryAvailable, toIdentifier, detectUnityVersion } from './templates.mjs';
 import { runGenerator } from './generators.mjs';
 import {
   runStep, runProjectNew, addKanbanCard, setSocraticUni, runResearchSessionNew,
   buildClaudeMd, buildTags, findContainingSubjectProject,
 } from './steps.mjs';
+import { planSkills, applySkillPlan } from './skills.mjs';
 
 export { cmdRoots, cmdRootsSet } from './roots.mjs';
 export { cmdTemplates } from './templates.mjs';
+export { cmdSkills } from './skills.mjs';
 
 // --- list --------------------------------------------------------------------
 
@@ -81,7 +83,8 @@ export function cmdSubjectNew(flags) {
   }
   ensureRootPathExists(root);
 
-  const dirName = `${code} — ${name}`; // em-dash con espacios, como las carpetas existentes
+  const dirName = subjectDirName(code, name); // carpeta solo ASCII, sin espacios
+  const displayName = `${code} — ${name}`; // nombre legible, solo en el registro
   const subjectPath = resolveWithinRoot(root.path, dirName);
   if (existsSync(subjectPath)) throw new CliError('ALREADY_EXISTS', `ya existe: ${subjectPath}`);
 
@@ -90,9 +93,9 @@ export function cmdSubjectNew(flags) {
     mkdirSync(join(subjectPath, sub), { recursive: true });
   }
 
-  const projectId = slugify(dirName);
+  const projectId = slugify(displayName);
   const tags = `asignatura,${code.toLowerCase()}`;
-  runProjectNew(['--name', dirName, '--path', subjectPath, '--id', projectId, '--tags', tags]);
+  runProjectNew(['--name', displayName,'--path', subjectPath, '--id', projectId, '--tags', tags]);
   setSocraticUni(projectId); // raiz "asignatura" -> modo socratico universitario
 
   return { subjectPath, projectId };
@@ -141,15 +144,21 @@ export function cmdCreate(flags, { dryRun }) {
   const projectPath = resolveWithinRoot(root.path, relTarget);
   if (existsSync(projectPath)) throw new CliError('ALREADY_EXISTS', `ya existe: ${projectPath}`);
 
+  // Antes de tocar el disco: un --skills invalido aborta sin crear nada.
+  const skillPlan = planSkills(flags, template.id);
+
   const vars = {
     name,
     name_lower: name.toLowerCase().replace(/\s+/g, '_'),
+    identifier: toIdentifier(name),
+    unity_version: templateId === 'unity' ? detectUnityVersion() : '',
     year: String(new Date().getFullYear()),
     subject: sub ? sub.split('/')[0] : '',
   };
   const steps = [];
   const filesCreated = [];
   const projectId = slugify(name);
+  let skills = [];
 
   try {
     runStep(steps, 'mkdir', dryRun, `crearia la carpeta ${projectPath}`, () => {
@@ -177,6 +186,8 @@ export function cmdCreate(flags, { dryRun }) {
           protegidas: ['borrador', 'entrega'],
           asignatura: root.kind === 'asignatura' && sub ? sub.split('/')[0] : null,
           creado: new Date().toISOString(),
+          // Fecha de entrega: la lee el mod ultron-entregas para avisar de lo próximo.
+          ...(flags.due ? { due: flags.due } : {}),
         };
         const p = join(projectPath, '.ultron-trabajo.json');
         writeFileSync(p, `${JSON.stringify(marker, null, 2)}\n`, 'utf8');
@@ -194,8 +205,13 @@ export function cmdCreate(flags, { dryRun }) {
     });
 
     runStep(steps, 'claude-md', dryRun, flags['no-claude-md'] ? 'se omitiria (--no-claude-md)' : 'crearia CLAUDE.md', () => {
-      if (flags['no-claude-md']) return 'omitido (--no-claude-md)';
       const p = join(projectPath, 'CLAUDE.md');
+      const fromTemplate = existsSync(p); // la plantilla trae su propio CLAUDE.md con contenido real
+      if (flags['no-claude-md']) {
+        if (fromTemplate) rmSync(p);
+        return 'omitido (--no-claude-md)';
+      }
+      if (fromTemplate) return 'CLAUDE.md de la plantilla';
       writeFileSync(p, buildClaudeMd(name, template), 'utf8');
       filesCreated.push(p);
       return 'CLAUDE.md creado';
@@ -213,6 +229,10 @@ export function cmdCreate(flags, { dryRun }) {
         return `socratic=uni aplicado a "${projectId}"`;
       });
     }
+
+    // Tras registrar: `skill-pool link <id>` resuelve el id en el registro.
+    // Un link fallido queda como paso con ok=false y no aborta.
+    skills = applySkillPlan(steps, skillPlan, projectId, dryRun);
 
     if (template.id === 'trabajo-entrega') {
       runStep(steps, 'research-session', dryRun, 'crearia una sesion de investigacion', () => {
@@ -234,6 +254,6 @@ export function cmdCreate(flags, { dryRun }) {
   }
 
   return {
-    projectPath, projectId, template: template.id, steps, filesCreated,
+    projectPath, projectId, template: template.id, steps, filesCreated, skills,
   };
 }

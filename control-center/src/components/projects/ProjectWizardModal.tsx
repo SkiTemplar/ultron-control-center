@@ -71,7 +71,7 @@ export function ProjectWizardModal({
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
-      aria-label={editingId ? "Edit project" : "New project"}
+      aria-label={editingId ? "Editar proyecto" : "Proyecto nuevo"}
       onClick={onClose}
     >
       <div
@@ -85,12 +85,12 @@ export function ProjectWizardModal({
         {/* Header */}
         <div className="mb-3 flex items-center justify-between">
           <div className="text-[12px] font-medium" style={{ color: "var(--color-text)" }}>
-            {editingId ? `Edit project: ${editingId}` : "New project"}
+            {editingId ? `Editar proyecto: ${editingId}` : "Proyecto nuevo"}
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Cerrar"
             className="rounded px-1.5 py-0.5 text-[12px]"
             style={{
               background: "transparent",
@@ -107,13 +107,13 @@ export function ProjectWizardModal({
           {/* Name */}
           <div>
             <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-              Name
+              Nombre
             </label>
             <input
               type="text"
               value={wName}
               onChange={(e) => setWName(e.target.value)}
-              placeholder="e.g. My Game"
+              placeholder="p. ej. Mi juego"
               className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
               style={{
                 background: "var(--color-surface-1)",
@@ -127,14 +127,14 @@ export function ProjectWizardModal({
           {/* Path */}
           <div>
             <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-              Path (optional — leave blank for pure launch group)
+              Ruta (opcional: déjala vacía para un grupo de lanzadores sin carpeta)
             </label>
             <div className="mt-1 flex gap-2">
               <input
                 type="text"
                 value={wPath}
                 onChange={(e) => setWPath(e.target.value)}
-                placeholder="C:\Users\... (or leave empty)"
+                placeholder="C:\Users\... (o déjala vacía)"
                 className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                 style={{
                   background: "var(--color-surface-1)",
@@ -153,9 +153,9 @@ export function ProjectWizardModal({
                   color: "var(--color-text-secondary)",
                   border: "1px solid var(--color-border-strong)",
                 }}
-                title="Pick a folder"
+                title="Elegir una carpeta"
               >
-                Folder
+                Carpeta
               </button>
             </div>
           </div>
@@ -163,7 +163,7 @@ export function ProjectWizardModal({
           {/* IDE */}
           <div>
             <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-              IDE (preferred editor for "Launch all" + IDE button)
+              IDE (editor preferido para «Lanzar todo» y el botón IDE)
             </label>
             <select
               value={wIde}
@@ -176,7 +176,7 @@ export function ProjectWizardModal({
                 outline: "none",
               }}
             >
-              <option value="">(none — auto-detect)</option>
+              <option value="">(ninguno: detección automática)</option>
               <option value="vscode">VS Code</option>
               <option value="cursor">Cursor</option>
               <option value="code-insiders">VS Code Insiders</option>
@@ -197,13 +197,13 @@ export function ProjectWizardModal({
           {/* Tags */}
           <div className="col-span-2">
             <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-              Tags (comma-separated)
+              Etiquetas (separadas por comas)
             </label>
             <input
               type="text"
               value={wTags}
               onChange={(e) => setWTags(e.target.value)}
-              placeholder="e.g. gaming, work, personal"
+              placeholder="p. ej. juegos, trabajo, personal"
               className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
               style={{
                 background: "var(--color-surface-1)",
@@ -218,7 +218,7 @@ export function ProjectWizardModal({
                   className="self-center text-[9.5px] uppercase tracking-[0.06em]"
                   style={{ color: "var(--color-text-faint)" }}
                 >
-                  pool ·
+                  existentes ·
                 </span>
                 {tagPool.map((tag) => {
                   const active = wTagsParsed.some((t) => t.toLowerCase() === tag.toLowerCase());
@@ -233,7 +233,7 @@ export function ProjectWizardModal({
                         color: active ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
                         border: `1px solid ${active ? "var(--color-accent)" : "var(--color-border)"}`,
                       }}
-                      title={active ? `Remove "${tag}" from this project` : `Add "${tag}" to this project`}
+                      title={active ? `Quitar «${tag}» de este proyecto` : `Añadir «${tag}» a este proyecto`}
                     >
                       {tag}
                     </button>
@@ -248,9 +248,9 @@ export function ProjectWizardModal({
             <label
               className="text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
-              title="Provider used when you click the AI button on this project's card."
+              title="Proveedor que se usa al pulsar el botón de IA en la tarjeta de este proyecto."
             >
-              Default provider
+              Proveedor por defecto
             </label>
             <select
               value={wDefaultProvider}
@@ -273,9 +273,9 @@ export function ProjectWizardModal({
             <label
               className="text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
-              title="Shell launched when you open a non-AI terminal in this project's workspace."
+              title="Shell que se abre al lanzar una terminal sin IA en el espacio de trabajo de este proyecto."
             >
-              Default shell
+              Shell por defecto
             </label>
             <select
               value={wDefaultShell}
@@ -288,7 +288,7 @@ export function ProjectWizardModal({
                 outline: "none",
               }}
             >
-              <option value="">(default — global setting)</option>
+              <option value="">(por defecto: ajuste global)</option>
               <option value="powershell">PowerShell</option>
               <option value="powershell-admin">PowerShell (admin)</option>
               <option value="cmd">cmd.exe</option>
@@ -301,9 +301,9 @@ export function ProjectWizardModal({
             <label
               className="text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
-              title="Tints this project's card and colours Claude Code's accents when you open a session here. Never touches the terminal background."
+              title="Tiñe la tarjeta de este proyecto y los acentos de Claude Code al abrir una sesión aquí. Nunca cambia el fondo de la terminal."
             >
-              Color (optional — tinta la tarjeta y el tema de Claude)
+              Color (opcional: tiñe la tarjeta y el tema de Claude)
             </label>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {PROJECT_SWATCHES.map((hex) => {
@@ -329,7 +329,7 @@ export function ProjectWizardModal({
                 type="color"
                 value={/^#[0-9a-fA-F]{6}$/.test(wColor) ? wColor : "#38bdf8"}
                 onChange={(e) => setWColor(e.target.value.toLowerCase())}
-                aria-label="Custom colour"
+                aria-label="Color personalizado"
                 className="h-6 w-8 cursor-pointer rounded"
                 style={{ background: "transparent", border: "1px solid var(--color-border-strong)" }}
               />
@@ -370,16 +370,16 @@ export function ProjectWizardModal({
             <label
               className="text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
-              title="Override the cwd new terminals open in (leave empty to use the project path)."
+              title="Carpeta en la que se abren las terminales nuevas (vacía: la del proyecto)."
             >
-              Parent folder override (optional)
+              Carpeta para terminales (opcional)
             </label>
             <div className="mt-1 flex gap-2">
               <input
                 type="text"
                 value={wParentFolderOverride}
                 onChange={(e) => setWParentFolderOverride(e.target.value)}
-                placeholder="(empty — use the project path)"
+                placeholder="(vacía: se usa la carpeta del proyecto)"
                 className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                 style={{
                   background: "var(--color-surface-1)",
@@ -393,7 +393,7 @@ export function ProjectWizardModal({
                 type="button"
                 onClick={async () => {
                   try {
-                    const picked = await openDialog({ directory: true, multiple: false, title: "Parent folder for new terminals" });
+                    const picked = await openDialog({ directory: true, multiple: false, title: "Carpeta para las terminales nuevas" });
                     if (typeof picked === "string" && picked) setWParentFolderOverride(picked);
                   } catch { /* user cancelled */ }
                 }}
@@ -403,9 +403,9 @@ export function ProjectWizardModal({
                   color: "var(--color-text-secondary)",
                   border: "1px solid var(--color-border-strong)",
                 }}
-                title="Pick a folder"
+                title="Elegir una carpeta"
               >
-                Folder
+                Carpeta
               </button>
             </div>
           </div>
@@ -415,15 +415,15 @@ export function ProjectWizardModal({
             <label
               className="text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
-              title="Free-form notes attached to this project (not the Notes tab)."
+              title="Notas libres de este proyecto (no son la pestaña Notas)."
             >
-              Notes (optional)
+              Notas (opcional)
             </label>
             <textarea
               value={wNotes}
               onChange={(e) => setWNotes(e.target.value)}
               rows={4}
-              placeholder="Project-specific reminders, stack notes, todos that don't deserve a kanban card…"
+              placeholder="Recordatorios del proyecto, notas del stack, pendientes que no merecen una tarjeta del kanban…"
               className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
               style={{
                 background: "var(--color-surface-1)",
@@ -444,7 +444,7 @@ export function ProjectWizardModal({
               style={{ color: "var(--color-text-tertiary)" }}
               title="Comando que lanza la app del proyecto (p. ej. npm run tauri dev), ejecutado en una terminal nueva con cwd = la ruta del proyecto."
             >
-              App command (optional)
+              Comando de arranque (opcional)
             </label>
             <input
               type="text"
@@ -468,9 +468,9 @@ export function ProjectWizardModal({
               <label
                 className="text-[10px] uppercase tracking-wide"
                 style={{ color: "var(--color-text-tertiary)" }}
-                title="Bind .exe / .lnk / .bat shortcuts to this project."
+                title="Asocia accesos .exe, .lnk o .bat a este proyecto."
               >
-                Executables (Quick Launch on Project Home)
+                Ejecutables (lanzadores rápidos del proyecto)
               </label>
               <button
                 type="button"
@@ -481,15 +481,15 @@ export function ProjectWizardModal({
                   color: "var(--color-text-secondary)",
                   border: "1px solid var(--color-border-strong)",
                 }}
-                title="Add a new executable entry"
+                title="Añadir un ejecutable"
               >
-                + Add executable
+                + Añadir ejecutable
               </button>
             </div>
             <div className="mt-1 space-y-1.5">
               {wExecutables.length === 0 && (
                 <p className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
-                  None bound. Click "+ Add executable" to create a Quick Launch button.
+                  Ninguno asociado. Pulsa «+ Añadir ejecutable» para crear un lanzador rápido.
                 </p>
               )}
               {wExecutables.map((exe, idx) => (
@@ -502,7 +502,7 @@ export function ProjectWizardModal({
                         prev.map((row, i) => i === idx ? { ...row, name: e.target.value } : row)
                       )
                     }
-                    placeholder="e.g. Launch Game"
+                    placeholder="p. ej. Lanzar juego"
                     className="min-w-[120px] flex-1 rounded px-2 py-1 text-[11.5px]"
                     style={{
                       background: "var(--color-surface-1)",
@@ -536,8 +536,8 @@ export function ProjectWizardModal({
                         const picked = await openDialog({
                           directory: false,
                           multiple: false,
-                          title: "Pick an executable",
-                          filters: [{ name: "Executables", extensions: ["exe", "lnk", "bat", "cmd"] }],
+                          title: "Elegir un ejecutable",
+                          filters: [{ name: "Ejecutables", extensions: ["exe", "lnk", "bat", "cmd"] }],
                         });
                         if (typeof picked === "string" && picked) {
                           setWExecutables((prev) =>
@@ -559,9 +559,9 @@ export function ProjectWizardModal({
                       color: "var(--color-text-secondary)",
                       border: "1px solid var(--color-border-strong)",
                     }}
-                    title="Pick an .exe / .lnk / .bat / .cmd"
+                    title="Elegir un .exe, .lnk, .bat o .cmd"
                   >
-                    Pick
+                    Elegir
                   </button>
                   <button
                     type="button"
@@ -572,8 +572,8 @@ export function ProjectWizardModal({
                       color: "var(--color-danger)",
                       border: "1px solid rgba(248, 81, 73, 0.32)",
                     }}
-                    title="Remove this executable"
-                    aria-label="Remove executable"
+                    title="Quitar este ejecutable"
+                    aria-label="Quitar ejecutable"
                   >
                     ×
                   </button>
@@ -582,7 +582,7 @@ export function ProjectWizardModal({
             </div>
             {editingId === null && wExecutables.length > 0 && (
               <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-                Save the new project first, then re-open Edit to bind executables.
+                Guarda primero el proyecto nuevo y vuelve a abrir Editar para asociar ejecutables.
               </p>
             )}
           </div>
@@ -603,8 +603,8 @@ export function ProjectWizardModal({
             style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
             {creating
-              ? editingId ? "Saving…" : "Creating…"
-              : editingId ? "Save" : "Create"}
+              ? editingId ? "Guardando…" : "Creando…"
+              : editingId ? "Guardar" : "Crear"}
           </button>
           <button
             type="button"
@@ -616,11 +616,11 @@ export function ProjectWizardModal({
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
         </div>
         <p className="mt-3 text-[11.5px] leading-relaxed" style={{ color: "var(--color-text-tertiary)" }}>
-          After creating the project, use "+ Add item" on the row to attach launcher items.
+          Después de crear el proyecto, usa «+ Añadir elemento» en su fila para asociar lanzadores.
         </p>
       </div>
     </div>

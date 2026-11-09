@@ -4,11 +4,15 @@
 // frontmatter:
 //
 //   ---
-//   name: ultron-arch
+//   name: code-reviewer
 //   description: ...
 //   tools: Read, Glob, Grep
-//   model: claude-sonnet-5
+//   model: claude-opus-5-5
+//   maxTurns: 100
 //   ---
+//
+// An active agent must pin an exact 5.5-family model and carry `maxTurns`
+// (`agents/policy.rs`): enabling or saving one that does not is refused.
 //
 //   <body — system prompt / role description>
 //
@@ -45,15 +49,39 @@ pub struct AgentMutationResult {
 }
 
 pub fn update_agent_md_inner(name: String, content: String) -> Result<AgentMutationResult, String> {
-    validate_slug(&name)?;
     let dir = agents_dir().ok_or_else(|| "no HOME".to_string())?;
-    let path = dir.join(format!("{}.md", name));
-    if !path.is_file() {
-        return Err(format!("agent not found: {}", path.display()));
-    }
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let backup_dir = home.join(".ultron/backups/agent-edits");
-    fs::create_dir_all(&backup_dir).map_err(|e| format!("mkdir backups: {}", e))?;
+    update_agent_md_in(&dir, &backup_dir, name, content)
+}
+
+/// Núcleo de `update_agent_md_inner` sobre directorios explícitos (tests
+/// herméticos). Edita el agente esté activo (`<name>.md`) o desactivado
+/// (`<name>.md.disabled`): antes solo buscaba la ruta activa y un agente
+/// desactivado no se podía editar desde la pestaña (H13).
+fn update_agent_md_in(
+    dir: &Path,
+    backup_dir: &Path,
+    name: String,
+    content: String,
+) -> Result<AgentMutationResult, String> {
+    validate_slug(&name)?;
+    let enabled_path = dir.join(format!("{}.md", name));
+    let disabled_path = dir.join(format!("{}.md.disabled", name));
+    let is_active = enabled_path.is_file();
+    let path = if is_active {
+        enabled_path
+    } else if disabled_path.is_file() {
+        disabled_path
+    } else {
+        return Err(format!("agent not found: {}", enabled_path.display()));
+    };
+    // Un agente activo no puede quedar con un modelo prohibido ni sin tope;
+    // uno desactivado sí se puede editar, para corregirlo antes de activarlo.
+    if is_active {
+        policy::check_active_agent(&name, &content)?;
+    }
+    fs::create_dir_all(backup_dir).map_err(|e| format!("mkdir backups: {}", e))?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -181,15 +209,34 @@ fn plugin_agents_dirs() -> Vec<(bool, PathBuf)> {
     out
 }
 
+/// `(stem, enabled)` de un fichero de agente: `foo.md` → `("foo", true)`,
+/// `foo.md.disabled` → `("foo", false)`. El sufijo se compara sin
+/// distinguir mayúsculas y el stem conserva las del fichero (KIRKARDO 2).
+/// `None` si el fichero no es `.md` ni `.md.disabled`.
+fn agent_stem(path: &Path) -> Option<(&str, bool)> {
+    let fname = path.file_name().and_then(|s| s.to_str())?;
+    let lower = fname.to_ascii_lowercase();
+    let (stem_len, enabled) = if let Some(rest) = lower.strip_suffix(".md.disabled") {
+        (rest.len(), false)
+    } else {
+        (lower.strip_suffix(".md")?.len(), true)
+    };
+    // `to_ascii_lowercase` conserva la longitud en bytes, así que el corte
+    // cae en la misma frontera en el nombre original.
+    Some((&fname[..stem_len], enabled))
+}
+
 /// Parse `(name, description, is_valid_agent)` from an agent .md file.
 /// A real agent is a markdown file whose YAML frontmatter declares at
 /// least `name:` and `description:`. README.md / docs are rejected.
+///
+/// El nombre es el del fichero sin `.md` ni `.md.disabled`. Antes salía de
+/// `file_stem()`, que en `foo.md.disabled` devuelve `foo.md`: la pestaña
+/// pedía reactivar `foo.md` y el backend buscaba `foo.md.md.disabled` (H13).
 fn read_agent_meta(path: &Path) -> (String, String, bool) {
-    let name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("(unnamed)")
-        .to_string();
+    let name = agent_stem(path)
+        .map(|(stem, _)| stem.to_string())
+        .unwrap_or_else(|| "(unnamed)".to_string());
     let contents = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return (name, String::new(), false),
@@ -235,25 +282,11 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin, plugin_disabled: bool) 
             }
             // Accept either <name>.md (enabled) or <name>.md.disabled
             // (disabled via the same suffix convention skills use).
-            //
-            // Case handling: filesystem case-sensitivity differs (NTFS is
-            // case-insensitive but preserving, Linux ext4 is sensitive).
-            // We MATCH the suffix case-insensitively but PRESERVE the
-            // original stem case so the resulting AgentEntry.name lines up
-            // with the markdown frontmatter and the actual file path
-            // (KIRKARDO 2 HIGH — previous lowercasing produced
-            // `MyAgent.md` → stem="myagent" mismatching the frontmatter).
-            let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            let fname_lower = fname.to_ascii_lowercase();
-            let (enabled, stem_len) =
-                if let Some(idx) = fname_lower.strip_suffix(".md.disabled").map(|s| s.len()) {
-                    (false, idx)
-                } else if let Some(idx) = fname_lower.strip_suffix(".md").map(|s| s.len()) {
-                    (true, idx)
-                } else {
-                    continue;
-                };
-            let stem = &fname[..stem_len];
+            // `agent_stem` compara el sufijo sin distinguir mayúsculas y
+            // conserva las del stem (KIRKARDO 2 HIGH).
+            let Some((stem, enabled)) = agent_stem(&p) else {
+                continue;
+            };
             // Skip non-agent files (README.md, CHANGELOG.md, etc.) that
             // happen to share the agents dir. Compare case-insensitively.
             let stem_lower = stem.to_ascii_lowercase();
@@ -303,6 +336,13 @@ pub fn list_agents_with_origin_inner(
 /// Mirrors `skills::skill_toggle_inner` but operates on .md files (agents
 /// are single files, not directories).
 pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, String> {
+    let root = global_agents_dir()?;
+    agent_toggle_in(&root, name, enabled)
+}
+
+/// Núcleo de `agent_toggle_inner` sobre un directorio explícito (tests
+/// herméticos).
+fn agent_toggle_in(root: &Path, name: String, enabled: bool) -> Result<AgentEntry, String> {
     // Reject path separators, `..`, null bytes, control chars, and any
     // non-ASCII-printable character (KIRKARDO 3 MED). The frontend only
     // ever passes slugs derived from filenames we just listed, so the
@@ -321,7 +361,6 @@ pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, Str
             "invalid agent name: only [a-zA-Z0-9_-.] allowed, no leading dot or '..'".to_string(),
         );
     }
-    let root = global_agents_dir()?;
     let path_enabled = root.join(format!("{}.md", name));
     let path_disabled = root.join(format!("{}.md.disabled", name));
 
@@ -335,6 +374,9 @@ pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, Str
         if path_enabled.exists() {
             return Err(format!("agent '{name}' already exists at enabled path"));
         }
+        let contents = fs::read_to_string(&path_disabled)
+            .map_err(|e| format!("read {}: {e}", path_disabled.display()))?;
+        policy::check_active_agent(&name, &contents)?;
         fs::rename(&path_disabled, &path_enabled)
             .map_err(|e| format!("rename {:?} → {:?}: {e}", path_disabled, path_enabled))?;
         let (n, desc, _) = read_agent_meta(&path_enabled);
@@ -427,6 +469,8 @@ pub fn agents_bulk_toggle_inner(
         outcomes,
     })
 }
+
+mod policy;
 
 #[cfg(test)]
 mod tests;

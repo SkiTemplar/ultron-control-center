@@ -3,43 +3,42 @@
 // All commands take a `path` string (absolute dir) and run git
 // in that directory. Returns stdout+stderr merged as String.
 // Errors surface as Err(String) so the frontend shows them directly.
+//
+// Piezas:
+//   * git_ops.rs           — lanzador de git con tope, escrituras, diff y log.
+//   * git_ops/status.rs    — raíz del repo, `git status` y sus cachés.
+//   * git_ops/codegraph.rs — índice de CodeGraph del proyecto.
+//   * git_ops/publish.rs   — publicar un repo o una rama nueva (--set-upstream).
 
-use std::collections::HashMap;
+mod codegraph;
+mod publish;
+mod status;
+
+pub use codegraph::*;
+pub use publish::*;
+pub use status::*;
+
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-// 3.7: cache TTL de git_repo_state. El panel del repo refresca periodicamente;
-// sin cache cada tick spawnea git.exe (`git_ops.rs`). TTL corto: dato fresco pero
-// sin ráfagas de procesos en refrescos seguidos.
-const REPO_STATE_TTL: Duration = Duration::from_millis(1500);
-
-/// path -> (instante de captura, estado). El instante da el TTL.
-type RepoStateCache = HashMap<String, (Instant, GitRepoState)>;
-
-fn repo_state_cache() -> &'static Mutex<RepoStateCache> {
-    static CACHE: OnceLock<Mutex<RepoStateCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Borra la entrada cacheada de `path`. Se llama tras cada operación de
-/// escritura (stage/unstage/commit/pull/push/fetch): sin esto el panel podía
-/// mostrar hasta `REPO_STATE_TTL` de estado viejo justo después de actuar.
-fn invalidate_repo_state(path: &str) {
-    if let Ok(mut cache) = repo_state_cache().lock() {
-        cache.remove(path);
-    }
-}
+use status::{invalidate_repo_root, invalidate_repo_state, repo_root, work_dir};
 
 /// `git` preparado para correr sin ventana de consola en Windows.
 ///
 /// Sin `CREATE_NO_WINDOW` cada invocación crea (y destruye) una consola: coste
 /// fijo por comando y parpadeo visible. El panel dispara varios comandos por
-/// interacción, así que el coste se multiplica. Resto de spawns de la app ya
-/// usan este flag; `git_ops.rs` era el único que faltaba.
+/// interacción, así que el coste se multiplica. Hoy `git_output` lo lanza por
+/// `run_with_timeout`, que ya pone el flag; aquí se repite por si `git_command`
+/// se usa algún día sin pasar por él.
+///
+/// `GIT_TERMINAL_PROMPT=0`: sin terminal no hay quien conteste a una pregunta
+/// de usuario/contraseña, y git se quedaba esperando para siempre. Con la
+/// variable falla en el acto con un mensaje que el panel enseña.
 fn git_command(args: &[&str], cwd: &str) -> Command {
     let mut cmd = Command::new("git");
-    cmd.args(args).current_dir(cwd);
+    cmd.args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -48,14 +47,95 @@ fn git_command(args: &[&str], cwd: &str) -> Command {
     cmd
 }
 
-fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
-    let out = git_command(args, cwd)
-        .output()
-        .map_err(|e| format!("git not found: {e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+// H22 (auditoría 2026-10-17): topes de git. Antes `.output()` sin límite en
+// comandos síncronos: un `push` esperando credenciales (o el diálogo del
+// gestor de credenciales) congelaba Control Center, Sessions y Pupus.
+/// Operaciones locales (status, diff, log, add, reset, init).
+const GIT_LOCAL_TIMEOUT: Duration = Duration::from_secs(30);
+/// pull/push/fetch: red y, si acaso, el diálogo del gestor de credenciales.
+const GIT_NETWORK_TIMEOUT: Duration = Duration::from_secs(180);
+/// commit: los hooks `pre-commit`/`commit-msg` del repo pueden tardar.
+const GIT_COMMIT_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Lanza git con tope de tiempo y traduce el fallo al arrancar o el tope a un
+/// mensaje legible.
+fn git_output(args: &[&str], cwd: &str, timeout: Duration) -> Result<std::process::Output, String> {
+    // Sin esta comprobación, un `cwd` inexistente hace fallar el arranque con
+    // `NotFound` y el mensaje culparía a git de no estar instalado.
+    if cwd.trim().is_empty() || !std::path::Path::new(cwd).is_dir() {
+        return Err(format!("la carpeta del repositorio no existe: {cwd}"));
+    }
+    crate::ai_router::exec::run_with_timeout(git_command(args, cwd), timeout, None)
+        .map_err(|e| git_spawn_error(args, &e, timeout))
+}
+
+fn git_spawn_error(args: &[&str], e: &std::io::Error, timeout: Duration) -> String {
+    let sub = args.first().copied().unwrap_or("git");
+    match e.kind() {
+        std::io::ErrorKind::NotFound => "git no está instalado o no está en el PATH".to_string(),
+        std::io::ErrorKind::TimedOut => format!(
+            "git {sub} superó el tope de {} s y se canceló (¿está pidiendo credenciales o un hook no termina?)",
+            timeout.as_secs()
+        ),
+        _ => format!("no se pudo lanzar git {sub}: {e}"),
+    }
+}
+
+/// Corre una operación de git fuera del hilo principal. Los comandos
+/// síncronos de Tauri se ejecutan en el hilo principal: mientras git trabaja,
+/// la ventana entera queda congelada.
+async fn off_main_thread<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("git: la tarea se interrumpió: {e}"))?
+}
+
+/// Operación de escritura en la raíz del repo que contiene `path` (H7): las
+/// rutas de `git status` son relativas a la raíz, así que stage/unstage/diff
+/// deben correr allí aunque el proyecto esté registrado en una subcarpeta.
+fn write_op(args: &[&str], path: &str, timeout: Duration) -> Result<String, String> {
+    invalidate_repo_state(path);
+    let cwd = work_dir(path)?;
+    write_op_in(args, path, &cwd, timeout)
+}
+
+/// Invalida el estado cacheado de `key` antes y después de correr git en
+/// `cwd`, para que un refresco del panel durante la operación no deje
+/// cacheado el estado previo.
+fn write_op_in(args: &[&str], key: &str, cwd: &str, timeout: Duration) -> Result<String, String> {
+    invalidate_repo_state(key);
+    let result = run_git_with(args, cwd, timeout);
+    invalidate_repo_state(key);
+    result
+}
+
+fn run_git_with(args: &[&str], cwd: &str, timeout: Duration) -> Result<String, String> {
+    let out = git_output(args, cwd, timeout)?;
+    git_outcome(
+        out.status.success(),
+        out.status.code(),
+        &out.stdout,
+        &out.stderr,
+    )
+}
+
+/// Resultado de una orden de git. Solo cuenta el código de salida: antes una
+/// orden fallida con algo en stdout (`commit` sin cambios, un `pull`
+/// rechazado que imprime progreso) se daba por buena.
+fn git_outcome(
+    success: bool,
+    code: Option<i32>,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<String, String> {
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
     let combined = format!("{stdout}{stderr}").trim().to_string();
-    if out.status.success() || !stdout.is_empty() {
+    if success {
         Ok(if combined.is_empty() {
             "OK".to_string()
         } else {
@@ -63,7 +143,7 @@ fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
         })
     } else {
         Err(if combined.is_empty() {
-            format!("git exited with code {:?}", out.status.code())
+            format!("git exited with code {code:?}")
         } else {
             combined
         })
@@ -71,195 +151,29 @@ fn run_git(args: &[&str], cwd: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn git_pull(path: String) -> Result<String, String> {
-    invalidate_repo_state(&path);
-    run_git(&["pull", "--ff-only"], &path)
+pub async fn git_pull(path: String) -> Result<String, String> {
+    off_main_thread(move || write_op(&["pull", "--ff-only"], &path, GIT_NETWORK_TIMEOUT)).await
 }
 
 #[tauri::command]
-pub fn git_push(path: String) -> Result<String, String> {
-    invalidate_repo_state(&path);
-    run_git(&["push"], &path)
+pub async fn git_push(path: String) -> Result<String, String> {
+    off_main_thread(move || write_op(&["push"], &path, GIT_NETWORK_TIMEOUT)).await
 }
 
 #[tauri::command]
-pub fn git_init(path: String) -> Result<String, String> {
-    invalidate_repo_state(&path);
-    run_git(&["init"], &path)
-}
-
-#[tauri::command]
-pub fn git_fetch(path: String) -> Result<String, String> {
-    invalidate_repo_state(&path);
-    run_git(&["fetch", "--quiet"], &path)
-}
-
-/// Parsea la cabecera `## main...origin/main [ahead 2, behind 1]` de
-/// `git status --branch` en (branch, remote, ahead, behind).
-fn parse_branch_header(rest: &str) -> (Option<String>, Option<String>, u32, u32) {
-    // e.g. "main...origin/main [ahead 2, behind 1]" or "main" or "HEAD (no branch)"
-    let (tracking, counts) = match rest.find(" [") {
-        Some(idx) => (&rest[..idx], Some(&rest[idx + 2..rest.len() - 1])),
-        None => (rest, None),
-    };
-    let (branch, remote) = match tracking.split_once("...") {
-        Some((b, r)) => (Some(b.to_string()), Some(r.to_string())),
-        None => (
-            Some(tracking.replace("No commits yet on ", "")),
-            None::<String>,
-        ),
-    };
-    let (mut ahead, mut behind) = (0u32, 0u32);
-    if let Some(counts_str) = counts {
-        for part in counts_str.split(", ") {
-            if let Some(n) = part.strip_prefix("ahead ") {
-                ahead = n.parse().unwrap_or(0);
-            } else if let Some(n) = part.strip_prefix("behind ") {
-                behind = n.parse().unwrap_or(0);
-            }
-        }
-    }
-    (branch, remote, ahead, behind)
-}
-
-/// Parsea una línea `XY path` de `--porcelain=v1`. `None` si no es una línea de
-/// archivo (cabecera de rama, línea vacía o demasiado corta).
-fn parse_change_line(line: &str) -> Option<GitFileChange> {
-    // Los 3 primeros bytes de porcelain=v1 son ASCII (dos codigos de estado y
-    // un espacio). Se leen como bytes para no depender de limites de char: la
-    // RUTA si puede ser UTF-8 multibyte.
-    let bytes = line.as_bytes();
-    if bytes.len() < 4 || !bytes[..3].is_ascii() || line.starts_with("##") {
-        return None;
-    }
-    let x = &line[0..1];
-    let y = &line[1..2];
-    let rest = line[3..].trim_end_matches('\r');
-    // Renames look like "old -> new"; show the destination path. Solo cuando el
-    // estado ES un rename: un archivo llamado "a -> b.txt" no es un rename y
-    // antes se mostraba cortado por el " -> ".
-    let is_rename = x == "R" || y == "R";
-    let disp = match rest.split_once(" -> ") {
-        Some((_, new)) if is_rename => new.to_string(),
-        _ => rest.to_string(),
-    };
-    if disp.is_empty() {
-        return None;
-    }
-    Some(GitFileChange {
-        path: disp,
-        index_status: x.to_string(),
-        worktree_status: y.to_string(),
-        untracked: x == "?",
-        staged: x != " " && x != "?",
+pub async fn git_init(path: String) -> Result<String, String> {
+    // `init` va en la carpeta pedida, no en la raíz de un repo que la contenga.
+    off_main_thread(move || {
+        let r = write_op_in(&["init"], &path, &path, GIT_LOCAL_TIMEOUT);
+        invalidate_repo_root(&path);
+        r
     })
-}
-
-/// Parsea la salida COMPLETA de `status --short --branch --porcelain=v1` en el
-/// estado del repo + la lista de archivos cambiados. Un solo `git` cubre las dos
-/// mitades del panel (antes eran dos procesos con la misma información).
-fn parse_status(raw: &str, path: &str) -> (GitRepoState, Vec<GitFileChange>) {
-    let mut header = (None, None, 0u32, 0u32);
-    let mut changes = Vec::new();
-    for line in raw.split('\n') {
-        match line.strip_prefix("## ") {
-            Some(rest) => header = parse_branch_header(rest.trim_end_matches('\r')),
-            None => {
-                if let Some(c) = parse_change_line(line) {
-                    changes.push(c);
-                }
-            }
-        }
-    }
-    let (branch, remote, ahead, behind) = header;
-    let dirty_count = changes.len() as u32;
-    let state = GitRepoState {
-        is_repo: true,
-        branch,
-        remote,
-        ahead,
-        behind,
-        dirty: dirty_count > 0,
-        dirty_count,
-        path: path.to_string(),
-    };
-    (state, changes)
-}
-
-/// Estado del repo sin abrir git: usado cuando `path` no es un repositorio.
-fn empty_repo_state(path: &str) -> GitRepoState {
-    GitRepoState {
-        is_repo: false,
-        branch: None,
-        remote: None,
-        ahead: 0,
-        behind: 0,
-        dirty: false,
-        dirty_count: 0,
-        path: path.to_string(),
-    }
-}
-
-fn is_repo(path: &str) -> bool {
-    std::path::Path::new(path).join(".git").exists()
-}
-
-/// Lee el estado + los cambios con UN solo `git status`, y cachea el estado.
-fn read_status(path: &str) -> Result<(GitRepoState, Vec<GitFileChange>), String> {
-    if !is_repo(path) {
-        return Ok((empty_repo_state(path), Vec::new()));
-    }
-    let raw = git_stdout(&["status", "--short", "--branch", "--porcelain=v1"], path)?;
-    let (state, changes) = parse_status(&raw, path);
-    if let Ok(mut cache) = repo_state_cache().lock() {
-        cache.insert(path.to_string(), (Instant::now(), state.clone()));
-    }
-    Ok((state, changes))
-}
-
-/// Returns a structured summary for the UI: branch, remote, ahead, behind, dirty.
-/// Parses `git status --short --branch` output.
-#[tauri::command]
-pub fn git_repo_state(path: String) -> Result<GitRepoState, String> {
-    // 3.7: sirve el estado cacheado si es reciente (< TTL) para no spawnear git.exe
-    // en cada refresh del panel.
-    if let Ok(cache) = repo_state_cache().lock() {
-        if let Some((ts, state)) = cache.get(&path) {
-            if ts.elapsed() < REPO_STATE_TTL {
-                return Ok(state.clone());
-            }
-        }
-    }
-    Ok(read_status(&path)?.0)
-}
-
-/// Estado + archivos cambiados en UNA llamada. El modal los pedía por separado
-/// (`git_repo_state` + `git_changes`): dos IPC y dos `git status` para la misma
-/// información. Aquí es un proceso git y un round-trip.
-#[derive(serde::Serialize)]
-pub struct GitRepoSnapshot {
-    pub state: GitRepoState,
-    pub changes: Vec<GitFileChange>,
+    .await
 }
 
 #[tauri::command]
-pub fn git_repo_snapshot(path: String) -> Result<GitRepoSnapshot, String> {
-    let (state, changes) = read_status(&path)?;
-    Ok(GitRepoSnapshot { state, changes })
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct GitRepoState {
-    pub is_repo: bool,
-    pub branch: Option<String>,
-    pub remote: Option<String>,
-    pub ahead: u32,
-    pub behind: u32,
-    pub dirty: bool,
-    pub dirty_count: u32,
-    /// Ruta absoluta del repo. Desambigua el panel (antes parecia "siempre Ultron"
-    /// porque no mostraba de que repo era el estado). 3.7.
-    pub path: String,
+pub async fn git_fetch(path: String) -> Result<String, String> {
+    off_main_thread(move || write_op(&["fetch", "--quiet"], &path, GIT_NETWORK_TIMEOUT)).await
 }
 
 // ---------------------------------------------------------------------------
@@ -271,9 +185,7 @@ pub struct GitRepoState {
 /// spaces). `git diff` exits 1 when there ARE differences — that is not an error,
 /// so a non-empty stdout is always treated as success.
 fn git_stdout(args: &[&str], cwd: &str) -> Result<String, String> {
-    let out = git_command(args, cwd)
-        .output()
-        .map_err(|e| format!("git not found: {e}"))?;
+    let out = git_output(args, cwd, GIT_LOCAL_TIMEOUT)?;
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     if out.status.success() || !stdout.is_empty() {
         Ok(stdout)
@@ -282,24 +194,17 @@ fn git_stdout(args: &[&str], cwd: &str) -> Result<String, String> {
     }
 }
 
-/// One changed file in the working tree, parsed from `git status --porcelain=v1`.
-#[derive(serde::Serialize)]
-pub struct GitFileChange {
-    pub path: String,
-    /// Index (staged) status char: 'M', 'A', 'D', 'R', ' ', '?'…
-    pub index_status: String,
-    /// Worktree status char.
-    pub worktree_status: String,
-    /// Whether the file has staged changes (index side is set and not untracked).
-    pub staged: bool,
-    pub untracked: bool,
-}
-
 /// Unified diff for a single file. `staged=true` shows the index-vs-HEAD diff;
 /// otherwise the worktree diff (falling back to a full --no-index diff for
 /// untracked files, where `git diff` would print nothing).
 #[tauri::command]
-pub fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, String> {
+pub async fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, String> {
+    off_main_thread(move || git_diff_file_blocking(path, file, staged)).await
+}
+
+fn git_diff_file_blocking(path: String, file: String, staged: bool) -> Result<String, String> {
+    // `file` viene de `git status` en la raíz (H7): el diff corre allí.
+    let path = work_dir(&path)?;
     if staged {
         return Ok(cap_diff(git_stdout(
             &["diff", "--cached", "--", &file],
@@ -341,36 +246,41 @@ fn cap_diff(diff: String) -> String {
 
 /// Stage files. Empty list = stage everything (`git add -A`).
 #[tauri::command]
-pub fn git_stage(path: String, files: Vec<String>) -> Result<String, String> {
-    invalidate_repo_state(&path);
-    if files.is_empty() {
-        return run_git(&["add", "-A"], &path);
-    }
-    let mut args: Vec<&str> = vec!["add", "--"];
-    args.extend(files.iter().map(String::as_str));
-    run_git(&args, &path)
+pub async fn git_stage(path: String, files: Vec<String>) -> Result<String, String> {
+    off_main_thread(move || {
+        let mut args: Vec<&str> = vec!["add"];
+        if files.is_empty() {
+            args.push("-A");
+        } else {
+            args.push("--");
+            args.extend(files.iter().map(String::as_str));
+        }
+        write_op(&args, &path, GIT_LOCAL_TIMEOUT)
+    })
+    .await
 }
 
 /// Unstage files (keep working-tree changes). Empty list = unstage everything.
 #[tauri::command]
-pub fn git_unstage(path: String, files: Vec<String>) -> Result<String, String> {
-    invalidate_repo_state(&path);
-    if files.is_empty() {
-        return run_git(&["reset", "-q"], &path);
-    }
-    let mut args: Vec<&str> = vec!["reset", "-q", "--"];
-    args.extend(files.iter().map(String::as_str));
-    run_git(&args, &path)
+pub async fn git_unstage(path: String, files: Vec<String>) -> Result<String, String> {
+    off_main_thread(move || {
+        let mut args: Vec<&str> = vec!["reset", "-q"];
+        if !files.is_empty() {
+            args.push("--");
+            args.extend(files.iter().map(String::as_str));
+        }
+        write_op(&args, &path, GIT_LOCAL_TIMEOUT)
+    })
+    .await
 }
 
 /// Commit the staged changes with `message`. Fails fast on an empty message.
 #[tauri::command]
-pub fn git_commit(path: String, message: String) -> Result<String, String> {
+pub async fn git_commit(path: String, message: String) -> Result<String, String> {
     if message.trim().is_empty() {
         return Err("el mensaje de commit no puede estar vacío".to_string());
     }
-    invalidate_repo_state(&path);
-    run_git(&["commit", "-m", &message], &path)
+    off_main_thread(move || write_op(&["commit", "-m", &message], &path, GIT_COMMIT_TIMEOUT)).await
 }
 
 /// One commit in the history list.
@@ -385,10 +295,14 @@ pub struct GitCommit {
 
 /// Parsed commit history (newest first). `limit` defaults to 50.
 #[tauri::command]
-pub fn git_log_full(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
-    if !std::path::Path::new(&path).join(".git").exists() {
+pub async fn git_log_full(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+    off_main_thread(move || git_log_full_blocking(path, limit)).await
+}
+
+fn git_log_full_blocking(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+    let Some(path) = repo_root(&path)? else {
         return Ok(Vec::new());
-    }
+    };
     let n = format!("-{}", limit.unwrap_or(50));
     // Unit-separator (\x1f) between fields, newline between commits.
     let raw = git_stdout(
@@ -417,225 +331,65 @@ pub fn git_log_full(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, 
     Ok(commits)
 }
 
-/// Returns true if the project at `path` has a `.codegraph/codegraph.db` (already indexed).
-#[tauri::command]
-pub fn codegraph_is_indexed(path: String) -> bool {
-    std::path::Path::new(&path)
-        .join(".codegraph")
-        .join("codegraph.db")
-        .exists()
-}
-
-/// Resumen del grafo de código de un proyecto, leído DIRECTAMENTE del
-/// `.codegraph/codegraph.db` (read-only). Pilar 2 / cat2.5 (2026-06-10):
-/// hasta ahora la app solo comprobaba que el fichero existía y delegaba todo
-/// el consumo al MCP de las sesiones CLI — el dato existía pero la app no lo
-/// usaba (mandamiento 12). Alimenta el panel CodeGraph de ProjectWorkspace.
-#[derive(serde::Serialize)]
-pub struct CodeGraphSummary {
-    pub files: i64,
-    pub nodes: i64,
-    pub edges: i64,
-    /// (lenguaje, nº archivos), descendente.
-    pub languages: Vec<(String, i64)>,
-    /// epoch ms del último `indexed_at` — frescura del índice.
-    pub last_indexed_at: Option<i64>,
-}
-
-#[tauri::command]
-pub fn codegraph_summary(path: String) -> Result<CodeGraphSummary, String> {
-    let db = std::path::Path::new(&path)
-        .join(".codegraph")
-        .join("codegraph.db");
-    if !db.exists() {
-        return Err("proyecto sin indexar (no existe .codegraph/codegraph.db)".to_string());
-    }
-    let conn =
-        rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| format!("abrir codegraph.db: {e}"))?;
-
-    let count = |sql: &str| -> Result<i64, String> {
-        conn.query_row(sql, [], |r| r.get(0))
-            .map_err(|e| format!("query codegraph.db: {e}"))
-    };
-    let files = count("SELECT COUNT(*) FROM files")?;
-    let nodes = count("SELECT COUNT(*) FROM nodes")?;
-    let edges = count("SELECT COUNT(*) FROM edges")?;
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT language, COUNT(*) AS n FROM files \
-             WHERE language IS NOT NULL GROUP BY language ORDER BY n DESC LIMIT 8",
-        )
-        .map_err(|e| e.to_string())?;
-    let languages = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-        .map_err(|e| e.to_string())?
-        .filter_map(Result::ok)
-        .collect();
-
-    let last_indexed_at = conn
-        .query_row("SELECT MAX(indexed_at) FROM files", [], |r| r.get(0))
-        .ok();
-
-    Ok(CodeGraphSummary {
-        files,
-        nodes,
-        edges,
-        languages,
-        last_indexed_at,
-    })
-}
-
-/// Runs `codegraph init -i <path>` to build the initial index.
-/// Blocks until done (may take seconds for large repos).
-#[tauri::command]
-pub fn codegraph_init_project(path: String) -> Result<String, String> {
-    let out = Command::new("codegraph")
-        .args(["init", "-i"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| format!("codegraph not found on PATH: {e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    let combined = format!("{stdout}{stderr}").trim().to_string();
-    if out.status.success() {
-        Ok(if combined.is_empty() {
-            "Proyecto indexado correctamente".to_string()
-        } else {
-            combined
-        })
-    } else {
-        Err(if combined.is_empty() {
-            format!("codegraph init falló (código {:?})", out.status.code())
-        } else {
-            combined
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::status::{empty_repo_state, repo_state_cache};
     use super::*;
+    use std::time::Instant;
+
+    // H22: sin terminal, una pregunta de credenciales dejaba git colgado.
+    #[test]
+    fn git_command_desactiva_las_preguntas_por_terminal() {
+        let cmd = git_command(&["push"], ".");
+        let prompt = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("GIT_TERMINAL_PROMPT"))
+            .and_then(|(_, v)| v);
+        assert_eq!(prompt, Some(std::ffi::OsStr::new("0")));
+    }
 
     #[test]
-    fn repo_state_cache_roundtrip_and_ttl() {
-        // El cache es la unica pieza nueva de 3.7 con logica; git no interviene.
-        let key = "___kirkardo_git_cache_test___".to_string();
-        let st = GitRepoState {
-            is_repo: true,
-            branch: Some("main".to_string()),
-            remote: None,
-            ahead: 1,
-            behind: 0,
-            dirty: false,
-            dirty_count: 0,
-            path: key.clone(),
-        };
+    fn git_spawn_error_distingue_tope_ausencia_y_otros() {
+        let t = Duration::from_secs(180);
+        let tope = std::io::Error::new(std::io::ErrorKind::TimedOut, "x");
+        let msg = git_spawn_error(&["push"], &tope, t);
+        assert!(msg.contains("git push") && msg.contains("180 s"), "{msg}");
+        let falta = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert!(git_spawn_error(&["pull"], &falta, t).contains("PATH"));
+        let otro = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "acceso denegado");
+        let msg = git_spawn_error(&["fetch"], &otro, t);
+        assert!(
+            msg.contains("acceso denegado") && !msg.contains("PATH"),
+            "{msg}"
+        );
+    }
+
+    /// Caso negativo: una carpeta inexistente no se atribuye a «git no
+    /// instalado», no lanza nada y aun así invalida el estado cacheado.
+    #[test]
+    fn write_op_en_carpeta_inexistente_falla_claro_e_invalida_la_cache() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let falta = tmp.path().join("no-existe").to_string_lossy().to_string();
         repo_state_cache()
             .lock()
             .unwrap()
-            .insert(key.clone(), (Instant::now(), st.clone()));
-        let got = repo_state_cache().lock().unwrap().get(&key).cloned();
-        let (ts, cached) = got.expect("estado cacheado presente");
+            .insert(falta.clone(), (Instant::now(), empty_repo_state(&falta)));
+        let err = write_op(&["push"], &falta, GIT_NETWORK_TIMEOUT).unwrap_err();
+        assert!(err.contains("no existe"), "{err}");
         assert!(
-            ts.elapsed() < REPO_STATE_TTL,
-            "recien insertado -> dentro de TTL"
+            !err.contains("PATH"),
+            "no culpa a la instalación de git: {err}"
         );
-        assert_eq!(cached.path, key, "el path desambigua el repo");
-        assert_eq!(cached.branch.as_deref(), Some("main"));
+        assert!(repo_state_cache().lock().unwrap().get(&falta).is_none());
     }
 
     #[test]
-    fn invalidate_repo_state_borra_la_entrada() {
-        let key = "___kirkardo_git_cache_invalidate___".to_string();
-        let st = GitRepoState {
-            is_repo: true,
-            branch: Some("main".to_string()),
-            remote: None,
-            ahead: 0,
-            behind: 0,
-            dirty: false,
-            dirty_count: 0,
-            path: key.clone(),
-        };
-        repo_state_cache()
-            .lock()
-            .unwrap()
-            .insert(key.clone(), (Instant::now(), st));
-        invalidate_repo_state(&key);
-        assert!(
-            repo_state_cache().lock().unwrap().get(&key).is_none(),
-            "tras una escritura el estado cacheado no debe sobrevivir"
-        );
-    }
-
-    #[test]
-    fn parse_status_separa_estado_y_archivos_de_una_sola_salida() {
-        // Salida real de `git status --short --branch --porcelain=v1`.
-        // Sin continuaciones de linea: '\' en un literal Rust se come el
-        // espacio inicial de la siguiente, y en porcelain ese espacio ES el
-        // estado del indice.
-        let raw = concat!(
-            "## main...origin/main [ahead 2, behind 1]\n",
-            "M  src/a.rs\n",
-            " M src/b.rs\n",
-            "?? nuevo.txt\n",
-            "R  viejo.rs -> nuevo.rs\n"
-        );
-        let (state, changes) = parse_status(raw, "C:/repo");
-
-        assert_eq!(state.branch.as_deref(), Some("main"));
-        assert_eq!(state.remote.as_deref(), Some("origin/main"));
-        assert_eq!((state.ahead, state.behind), (2, 1));
-        assert_eq!(state.dirty_count, 4, "la cabecera no cuenta como cambio");
-        assert!(state.dirty);
-
-        assert_eq!(changes.len(), 4);
-        assert!(changes[0].staged, "'M ' = cambio en el indice");
-        assert!(!changes[1].staged, "' M' = solo en el worktree");
-        assert!(
-            changes[2].untracked && !changes[2].staged,
-            "'??' = untracked"
-        );
-        assert_eq!(changes[3].path, "nuevo.rs", "el rename muestra el destino");
-    }
-
-    #[test]
-    fn parse_status_sin_remoto_ni_cambios() {
-        let (state, changes) = parse_status("## main\n", "C:/repo");
-        assert_eq!(state.branch.as_deref(), Some("main"));
-        assert!(state.remote.is_none(), "sin '...' no hay remoto");
-        assert!(!state.dirty && changes.is_empty());
-    }
-
-    #[test]
-    fn parse_change_line_rechaza_lo_que_no_es_un_archivo() {
-        // Caso negativo: cabecera, linea vacia y linea corta no son cambios.
-        assert!(parse_change_line("## main...origin/main").is_none());
-        assert!(parse_change_line("").is_none());
-        assert!(parse_change_line("M").is_none());
-        assert!(
-            parse_change_line("M  ").is_none(),
-            "ruta vacia -> no es cambio"
-        );
-    }
-
-    #[test]
-    fn parse_change_line_solo_parte_por_flecha_si_es_un_rename() {
-        let rename = parse_change_line("R  viejo.rs -> nuevo.rs").expect("rename valido");
-        assert_eq!(rename.path, "nuevo.rs", "R -> se queda el destino");
-
-        // Un archivo cuyo NOMBRE contiene " -> " no es un rename.
-        let raro = parse_change_line("?? a -> b.txt").expect("untracked valido");
-        assert_eq!(raro.path, "a -> b.txt", "el nombre no se parte");
-    }
-
-    #[test]
-    fn parse_change_line_acepta_rutas_utf8_multibyte() {
-        let c = parse_change_line(" M src/año/ñandú.rs").expect("ruta multibyte valida");
-        assert_eq!(c.path, "src/año/ñandú.rs");
-        assert!(!c.staged, "' M' = solo worktree");
+    fn git_output_con_tope_devuelve_la_salida_real() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().to_string_lossy().to_string();
+        let out = git_output(&["--version"], &dir, GIT_LOCAL_TIMEOUT).expect("git disponible");
+        assert!(out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).contains("git version"));
     }
 
     #[test]
@@ -657,5 +411,33 @@ mod tests {
             capped.split('\n').count() < MAX_DIFF_LINES + 500,
             "el diff recortado es mas corto que el original"
         );
+    }
+
+    // Auditoría 2026-10-17 (T-errores): una orden fallida que escribe en
+    // stdout se daba por buena («Pull OK» falso). Manda el código de salida.
+    #[test]
+    fn git_outcome_solo_mira_el_codigo_de_salida() {
+        let err = git_outcome(false, Some(1), b"nothing to commit\n", b"").unwrap_err();
+        assert_eq!(err, "nothing to commit");
+        assert_eq!(
+            git_outcome(false, Some(128), b"", b"").unwrap_err(),
+            "git exited with code Some(128)"
+        );
+        assert_eq!(
+            git_outcome(true, Some(0), b"Already up to date.\n", b"").unwrap(),
+            "Already up to date."
+        );
+        assert_eq!(git_outcome(true, Some(0), b"", b"").unwrap(), "OK");
+    }
+
+    /// Caso real: `git commit` sin cambios sale con 1 y escribe en stdout.
+    #[test]
+    fn commit_sin_cambios_es_un_error() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let raiz = tmp.path().to_string_lossy().to_string();
+        let init = git_output(&["init", "-q"], &raiz, GIT_LOCAL_TIMEOUT).expect("git init");
+        assert!(init.status.success());
+        let r = write_op_in(&["commit", "-m", "vacío"], &raiz, &raiz, GIT_LOCAL_TIMEOUT);
+        assert!(r.is_err(), "commit sin cambios no puede devolver Ok: {r:?}");
     }
 }

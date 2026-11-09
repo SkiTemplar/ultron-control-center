@@ -16,21 +16,6 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "Al cerrar, resume la sesion en hechos estructurados y los guarda en la coleccion Qdrant ultron_sessions para recall semantico.",
         ),
         (
-            "kanban-update-reminder.js",
-            "Recordatorio de Kanban",
-            "Si detecta que se completo una tarea, recuerda actualizar el kanban del proyecto activo antes de cerrar.",
-        ),
-        (
-            "load-cross-project-memory.js",
-            "Cargar memoria cross-proyecto",
-            "Al iniciar, inyecta un indice de las memorias (MEMORY.md) de todos los proyectos recientes, no solo el actual.",
-        ),
-        (
-            "session-start-override.js",
-            "Resumen de sesion previa (fallback por proyecto)",
-            "Al iniciar, inyecta el resumen de la ultima sesion del mismo proyecto cuando el match por worktree del plugin falla.",
-        ),
-        (
             "routing-dispatcher.js",
             "Router de skills y personas",
             "En cada prompt, puntua el texto contra personas y skills y sugiere la mas adecuada (sin LLM).",

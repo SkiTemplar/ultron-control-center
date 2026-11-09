@@ -33,15 +33,15 @@ export function ArchiveDoneModal({
         style={{ border: "1px solid var(--color-border-strong)" }}
       >
         <h3 className="text-[14px] font-semibold text-[var(--color-text)]">
-          Archive Done cards
+          Archivar las tarjetas de Done
         </h3>
         <p className="mt-1 text-[11.5px] text-[var(--color-text-tertiary)]">
-          Move every card currently in a Done column into a named archive
-          group. The cards disappear from the live board but stay accessible
-          via "Show Archived".
+          Mueve todas las tarjetas de las columnas Done a un archivo con
+          nombre. Desaparecen del tablero, pero siguen disponibles en «Ver
+          archivados».
         </p>
         <label className="mt-3 block text-[10.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
-          Archive name
+          Nombre del archivo
         </label>
         <input
           autoFocus
@@ -52,7 +52,7 @@ export function ArchiveDoneModal({
               void archiveDone(archiveName);
             }
           }}
-          placeholder={`e.g. ${new Date().toISOString().slice(0, 10)}-sprint`}
+          placeholder={`p. ej. ${new Date().toISOString().slice(0, 10)}-sprint`}
           className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px] outline-none"
           style={{
             background: "var(--color-surface-2)",
@@ -75,7 +75,7 @@ export function ArchiveDoneModal({
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="button"
@@ -87,7 +87,7 @@ export function ArchiveDoneModal({
               color: "var(--color-accent-text)",
             }}
           >
-            {archiveBusy ? "Archiving…" : "Archive"}
+            {archiveBusy ? "Archivando…" : "Archivar"}
           </button>
         </div>
       </div>

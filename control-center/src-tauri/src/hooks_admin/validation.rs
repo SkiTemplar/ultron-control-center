@@ -1,23 +1,25 @@
 // hooks_admin/validation.rs — Input validation: events, commands, matchers.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
-/// Events Claude Code currently dispatches. Anything outside this list is
-/// rejected by `add_hook_inner` so we never write a typo'd event that
-/// silently never fires.
-pub const ALLOWED_EVENTS: &[&str] = &[
-    "PreToolUse",
-    "PostToolUse",
-    "UserPromptSubmit",
-    "SessionStart",
-    "SessionEnd",
-    "Stop",
-    "SubagentStop",
-    "PreCompact",
-    "Notification",
-];
+/// Catalogo unico de eventos de hook. El frontend importa el MISMO fichero
+/// (`src/components/hooks/constants.ts`), de modo que ambos lados no pueden
+/// desincronizarse: hasta el 2026-09-28 el backend aceptaba 9 y la interfaz
+/// ofrecia 30, y guardar un `PostToolUseFailure` fallaba.
+const EVENTS_JSON: &str = include_str!("../../../src/components/hooks/hook-events.json");
 
-/// Hard cap on the test sandbox — Claude Code itself imposes a 60s ceiling
+/// Eventos que Claude Code despacha. Todo lo que quede fuera lo rechaza
+/// `add_hook_inner`, para no escribir nunca un evento con una errata que jamas
+/// se dispararia.
+pub fn allowed_events() -> &'static [String] {
+    static EVENTS: OnceLock<Vec<String>> = OnceLock::new();
+    EVENTS.get_or_init(|| {
+        serde_json::from_str(EVENTS_JSON).expect("hook-events.json debe ser una lista de strings")
+    })
+}
+
+/// Hard cap on the Test button run (no sandbox) — Claude Code imposes a 60s ceiling
 /// on hook execution; we test for "does this command produce sensible
 /// output quickly" so 5s is plenty and protects against hangs from
 /// commands that try to read stdin interactively.
@@ -61,13 +63,13 @@ pub(crate) fn forbidden_fragments() -> Vec<String> {
 }
 
 pub fn validate_event(event: &str) -> Result<(), String> {
-    if ALLOWED_EVENTS.contains(&event) {
+    if allowed_events().iter().any(|e| e == event) {
         Ok(())
     } else {
         Err(format!(
             "event '{}' is not supported (allowed: {})",
             event,
-            ALLOWED_EVENTS.join(", ")
+            allowed_events().join(", ")
         ))
     }
 }
@@ -123,4 +125,72 @@ pub fn validate_matcher(matcher: Option<&str>) -> Result<(), String> {
         return Err("matcher cannot contain newlines or NUL bytes".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_catalogo_tiene_33_eventos_sin_duplicados() {
+        // Claude Code 2.1.309 (2026-10-23): los 30 de docs/GOAL.md mas
+        // DirectoryAdded, PreModelSwitch y PostModelSwitch.
+        let events = allowed_events();
+        assert_eq!(events.len(), 33);
+        let mut sorted: Vec<&String> = events.iter().collect();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            events.len(),
+            "hay eventos duplicados en hook-events.json"
+        );
+    }
+
+    /// Regresion (2026-09-28): la interfaz ofrecia `PostToolUseFailure` y otros 20
+    /// eventos que el backend rechazaba al guardar.
+    #[test]
+    fn acepta_todos_los_eventos_que_ofrece_la_interfaz() {
+        for e in [
+            "PostToolUseFailure",
+            "StopFailure",
+            "PermissionDenied",
+            "WorktreeCreate",
+            "ElicitationResult",
+            "PreToolUse",
+            "PreModelSwitch",
+            "PostModelSwitch",
+            "DirectoryAdded",
+        ] {
+            assert!(validate_event(e).is_ok(), "deberia aceptar {e:?}");
+        }
+        for e in allowed_events() {
+            assert!(validate_event(e).is_ok(), "deberia aceptar {e:?}");
+        }
+    }
+
+    /// Caso negativo: erratas, mayusculas distintas, espacios y vacio siguen fuera.
+    #[test]
+    fn rechaza_erratas_variantes_de_mayusculas_y_vacio() {
+        for e in [
+            "",
+            "posttooluse",
+            "PostToolUsefailure",
+            "PostToolUse ",
+            "Post Tool Use",
+            "SessionStar",
+            "NoExiste",
+        ] {
+            assert!(validate_event(e).is_err(), "deberia rechazar {e:?}");
+        }
+    }
+
+    #[test]
+    fn el_error_lista_los_eventos_permitidos() {
+        let err = validate_event("Nope").unwrap_err();
+        assert!(
+            err.contains("Nope") && err.contains("PostToolUseFailure"),
+            "{err}"
+        );
+    }
 }

@@ -48,7 +48,6 @@ fn default_bindings() -> HashMap<String, String> {
         ("tab.sessions", "Alt+4"),
         ("tab.projects", "Alt+5"),
         ("tab.plans", "Alt+6"),
-        ("tab.memory", "Alt+7"),
         ("tab.skills", "Alt+8"),
         ("tab.settings", "Alt+0"),
     ];
@@ -62,7 +61,7 @@ fn default_bindings() -> HashMap<String, String> {
 /// malformed JSON is treated as "no overrides" — we never error on read
 /// because the UI should always render with sensible defaults.
 #[tauri::command]
-pub fn get_in_app_shortcuts() -> Result<HashMap<String, String>, String> {
+pub async fn get_in_app_shortcuts() -> Result<HashMap<String, String>, String> {
     let mut out = default_bindings();
     let path = match shortcuts_path() {
         Ok(p) => p,

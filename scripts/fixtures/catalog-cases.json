@@ -204,6 +204,38 @@
       ]
     },
     {
+      "nombre": "Negrita decorativa en prosa",
+      "positivos": [
+        "- **Memoria gobernada** — brain.db como unica fuente de verdad.\n- **Recall hibrido** — denso y sparse fusionados.\n- **Inbox de candidatos** — las capturas proponen y el humano aprueba.\n- **AI Router** — cadena primario y fallbacks por zona.\n- **Orquestador por reglas** — mapea el prompt a agentes."
+      ],
+      "negativos": [
+        "El indice se reconstruye con **fts-rebuild** cuando el doctor detecta filas huerfanas.",
+        "- **Version**: 15.8.0\n- **Plataforma**: Windows 11\n- **Licencia**: MIT\n- **Autor**: un solo mantenedor\n- **Estado**: activo",
+        "| **Campo** | **Valor** |\n|---|---|\n| **palabras** | **543** |\n| **senales** | **6** |"
+      ]
+    },
+    {
+      "nombre": "Contraste negativo 'no X: lo Y' / 'no es X, es Y'",
+      "positivos": [
+        "No reemplaza a Claude Code: lo envuelve con estado persistente. No sustituye al editor: lo complementa con atajos propios.",
+        "La cache no es un adorno, es la pieza que sostiene el rendimiento. El indice no es un lujo, es lo que permite responder en 40 ms."
+      ],
+      "negativos": [
+        "No reemplaza a Claude Code: lo envuelve con estado persistente y versionable.",
+        "El daemon no carga los modelos al arrancar, sino cuando llega la primera consulta."
+      ]
+    },
+    {
+      "nombre": "Metacomentario sobre el propio documento",
+      "positivos": [
+        "Esta documentacion describe el sistema tal y como esta en el disco. A continuacion se detallan los pasos de instalacion."
+      ],
+      "negativos": [
+        "Esta documentacion describe el sistema tal y como esta en el disco.",
+        "El capitulo tres describe el algoritmo de indexacion y sus dos limitaciones."
+      ]
+    },
+    {
       "nombre": "Falsos rangos sin detalle real",
       "positivos": [
         "El enfoque abarca desde la ingenieria de prompts hasta la evaluacion automatica.",

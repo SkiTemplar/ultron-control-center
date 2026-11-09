@@ -1,0 +1,5 @@
+{
+  "name": "ultron-entregas",
+  "version": "0.1.0",
+  "description": "Entregas de las asignaturas (.ultron-trabajo.json): aviso al arrancar de las de los próximos 14 días y /entregas con todas las pendientes"
+}

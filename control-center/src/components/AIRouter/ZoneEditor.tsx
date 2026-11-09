@@ -16,9 +16,10 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Zone, Provider } from "./types";
-import { DEFAULT_ZONES, PROVIDER_CATALOG } from "./types";
+import { PROVIDER_CATALOG } from "./types";
 import { editorReducer, type KeyValidation } from "./zoneEditorReducer";
 import { ZoneCard } from "./ZoneCard";
+import { saveZoneDraft } from "./zoneSave";
 
 export function ZoneEditor() {
   const [zones, setZones] = useState<Zone[]>([]);
@@ -32,11 +33,6 @@ export function ZoneEditor() {
     saving: new Set<string>(),
     saveResults: {},
   });
-
-  // Inicializa los drafts cuando llegan las zonas reales
-  function initDrafts(incoming: Zone[]): Record<string, Zone> {
-    return Object.fromEntries(incoming.map((z) => [z.id, structuredClone(z)]));
-  }
 
   const loadData = useCallback(async () => {
     // 1. Providers
@@ -59,28 +55,17 @@ export function ZoneEditor() {
       // Sin datos de keys — los badges no se muestran
     }
 
-    // 3. Zonas
+    // 3. Zonas. Sin backend no hay zonas que enseñar: se enseña el error y
+    // un reintento, nunca un catálogo inventado que parezca la configuración.
     try {
-      // ai_router_list_zones: registrado en lib.rs (generate_handler!) y
-      // definido en ai_router/mod.rs. Devuelve [] si no hay zonas guardadas.
       const backendZones = (await invoke("ai_router_list_zones")) as Zone[];
-      const validZones = backendZones.length > 0 ? backendZones : DEFAULT_ZONES;
-      setZones(validZones);
-      dispatch({ type: "RESET_DRAFT", zoneId: "__init__", original: DEFAULT_ZONES[0] });
-      // Reinicia todos los drafts con los datos reales
-      const allDrafts = initDrafts(validZones);
-      // Cargamos zona por zona con RESET_DRAFT
-      for (const z of validZones) {
+      setZones(backendZones);
+      for (const z of backendZones) {
         dispatch({ type: "RESET_DRAFT", zoneId: z.id, original: z });
       }
-      // Silencia el warning del linter — allDrafts se usa implícitamente
-      void allDrafts;
       setLoadError(null);
     } catch (err) {
-      setZones(DEFAULT_ZONES);
-      for (const z of DEFAULT_ZONES) {
-        dispatch({ type: "RESET_DRAFT", zoneId: z.id, original: z });
-      }
+      setZones([]);
       setLoadError(err instanceof Error ? err.message : String(err));
     }
   }, []);
@@ -96,19 +81,18 @@ export function ZoneEditor() {
     dispatch({ type: "SET_SAVING", zoneId, saving: true });
     dispatch({ type: "SET_SAVE_RESULT", zoneId, result: undefined as unknown as string });
 
-    try {
-      // ai_router_save_zone: registrado en lib.rs y definido en
-      // ai_router/mod.rs (persiste vía store.rs).
-      await invoke("ai_router_save_zone", { zone: draft });
+    // ai_router_save_zone valida en el backend: rechaza con el motivo lo que
+    // la carga siguiente revertiría y devuelve la zona persistida.
+    const result = await saveZoneDraft(invoke, draft);
+    if (result.ok) {
+      const saved = result.zone;
+      setZones((prev) => prev.map((z) => (z.id === zoneId ? structuredClone(saved) : z)));
+      dispatch({ type: "RESET_DRAFT", zoneId, original: saved });
       dispatch({ type: "SET_SAVE_RESULT", zoneId, result: "ok" });
-      // Actualiza la zona canónica en el estado local
-      setZones((prev) => prev.map((z) => (z.id === zoneId ? structuredClone(draft) : z)));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      dispatch({ type: "SET_SAVE_RESULT", zoneId, result: msg });
-    } finally {
-      dispatch({ type: "SET_SAVING", zoneId, saving: false });
+    } else {
+      dispatch({ type: "SET_SAVE_RESULT", zoneId, result: result.error });
     }
+    dispatch({ type: "SET_SAVING", zoneId, saving: false });
   }
 
   // Agrupa zonas por category para la presentación
@@ -133,58 +117,73 @@ export function ZoneEditor() {
 
   return (
     <div className="p-6 space-y-5">
-      {/* Aviso de backend no disponible */}
+      {/* Backend no disponible: error y reintento, sin zonas */}
       {loadError !== null && (
         <div
-          className="rounded p-3 text-[12px]"
+          role="alert"
+          className="rounded p-3 text-[12px] flex items-start justify-between gap-3"
           style={{
-            background: "rgba(210,153,34,0.08)",
-            color: "var(--color-warn)",
-            border: "1px solid rgba(210,153,34,0.30)",
+            background: "rgba(248,81,73,0.08)",
+            color: "var(--color-danger)",
+            border: "1px solid rgba(248,81,73,0.30)",
           }}
         >
-          <span className="font-semibold">
-            ai_router_list_zones no disponible — mostrando zonas por defecto:{" "}
+          <span>
+            <span className="font-semibold">No se han podido cargar las zonas: </span>
+            {loadError}
           </span>
-          {loadError}
+          <button
+            type="button"
+            onClick={() => void loadData()}
+            className="rounded px-3 py-1 text-[12px] shrink-0"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            Reintentar
+          </button>
         </div>
       )}
 
       {/* Cabecera con resumen */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <span
-            className="text-[13px] font-medium"
-            style={{ color: "var(--color-text)" }}
-          >
-            {zones.length} zonas
-          </span>
-          {warningCount > 0 && (
+      {loadError === null && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
             <span
-              className="ml-2 rounded px-2 py-0.5 text-[11px] font-semibold"
-              style={{
-                background: "rgba(210,153,34,0.15)",
-                color: "var(--color-warn)",
-                border: "1px solid rgba(210,153,34,0.35)",
-              }}
+              className="text-[13px] font-medium"
+              style={{ color: "var(--color-text)" }}
             >
-              {warningCount} con key incompleta
+              {zones.length} zonas
             </span>
-          )}
+            {warningCount > 0 && (
+              <span
+                className="ml-2 rounded px-2 py-0.5 text-[11px] font-semibold"
+                style={{
+                  background: "rgba(210,153,34,0.15)",
+                  color: "var(--color-warn)",
+                  border: "1px solid rgba(210,153,34,0.35)",
+                }}
+              >
+                {warningCount} con key incompleta
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadData()}
+            className="rounded px-3 py-1.5 text-[12px] transition-colors"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            Recargar
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadData()}
-          className="rounded px-3 py-1.5 text-[12px] transition-colors"
-          style={{
-            background: "var(--color-surface-2)",
-            color: "var(--color-text-secondary)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          Recargar
-        </button>
-      </div>
+      )}
 
       {/* Zonas agrupadas por categoría */}
       {categories.map((cat) => (
@@ -223,7 +222,7 @@ export function ZoneEditor() {
         </div>
       ))}
 
-      {zones.length === 0 && (
+      {loadError === null && zones.length === 0 && (
         <p className="text-[12px]" style={{ color: "var(--color-text-faint)" }}>
           No hay zonas configuradas.
         </p>
@@ -233,7 +232,9 @@ export function ZoneEditor() {
       <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
         Los cambios llaman a ai_router_save_zone() y se persisten en
         ~/.ultron/cockpit/ai-router/zones.json. El routing activo usa esos
-        valores en la siguiente invocación.
+        valores en la siguiente invocación. Una edición que la carga revertiría
+        (proveedor retirado o fuera del catálogo, fallback obligatorio del seed)
+        no se guarda y se explica el motivo.
       </p>
     </div>
   );

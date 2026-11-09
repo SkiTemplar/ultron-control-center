@@ -1,6 +1,6 @@
 ---
 name: superpowers
-description: "Mandatory 7-phase discipline + skill discovery."
+description: "Skill discovery and disciplined task execution."
 ---
 
 # Superpowers — ULTRON Skill
@@ -16,8 +16,3 @@ seven-phase workflow.)
 1. (First step — orient: read context, identify mode and applicable skills.)
 2. (Second step — execute under the seven-phase discipline.)
 3. (Final output expectation — verified, documented, and committed change.)
-
-## Customize
-This file lives at `~/.claude/skills/superpowers/SKILL.md`. Modify it to fit
-your workflow. The installer's manifest entry points here via
-`repo://skills/superpowers`.

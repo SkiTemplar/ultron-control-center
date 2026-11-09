@@ -8,13 +8,17 @@
  * (control-center/src-tauri/src/orchestrator/skill_llm.rs): la cuota de Groq
  * es POR MODELO, asi que se relevan dos modelos de Groq antes de Gemini.
  * Claves: GROQ_API_KEY / GEMINI_API_KEY del entorno (Settings -> API Keys las
- * guarda con setx) y, si faltan, ~/.ultron/.env. Nunca se imprimen ni se
- * registran: los errores solo llevan proveedor, modelo y status HTTP.
+ * guarda con setx), si faltan ~/.ultron/.env y, en Windows, las variables de
+ * usuario del registro (HKCU\Environment): un setx no llega a los procesos ya
+ * abiertos, y la sesion de Claude Code hereda ese entorno viejo. Nunca se
+ * imprimen ni se registran: los errores solo llevan proveedor, modelo y status HTTP.
  *
  * Seams de test: SECONDARY_LLM_ENDPOINT fuerza un endpoint unico (servidor
- * local falso) para toda la cadena; SECONDARY_LLM_ENV_FILE redirige el .env.
+ * local falso) para toda la cadena; SECONDARY_LLM_ENV_FILE redirige el .env;
+ * SECONDARY_LLM_NO_REGISTRY=1 desactiva la lectura del registro.
  */
 
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -42,11 +46,30 @@ function envFileKeys() {
   return out;
 }
 
+/** Variable de usuario persistida en el registro (HKCU\Environment), o null. */
+function registryKey(keyVar) {
+  if (process.platform !== 'win32' || process.env.SECONDARY_LLM_NO_REGISTRY === '1') return null;
+  try {
+    const out = execFileSync('reg', ['query', 'HKCU\\Environment', '/v', keyVar], {
+      encoding: 'utf8',
+      timeout: 2000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const m = new RegExp(`^\\s*${keyVar}\\s+REG_(?:EXPAND_)?SZ\\s+(.+?)\\s*$`, 'm').exec(out);
+    return m ? m[1] : null;
+  } catch {
+    return null; // variable ausente: reg sale con codigo 1
+  }
+}
+
 function resolveKey(keyVar, fileKeys) {
   const v = process.env[keyVar];
   if (v && v.trim()) return v.trim();
   const f = fileKeys[keyVar];
-  return f && f.trim() ? f.trim() : null;
+  if (f && f.trim()) return f.trim();
+  const r = registryKey(keyVar);
+  return r && r.trim() ? r.trim() : null;
 }
 
 /** Primer objeto JSON del texto (los modelos a veces lo envuelven en ```json). */
@@ -99,11 +122,11 @@ function postJson(url, headers, payload, timeoutMs) {
 }
 
 /**
- * Pide una respuesta JSON a la cadena Groq -> Gemini con un plazo TOTAL.
- * @returns {Promise<{ok:true, json:object, provider:string, model:string, ms:number}
- *                  |{ok:false, error:string, attempts:string[], ms:number}>}
+ * Recorre la cadena con un plazo TOTAL. `parse(content)` convierte el texto
+ * del modelo en el valor final o devuelve null (respuesta inservible -> se
+ * prueba el siguiente eslabon).
  */
-async function askJson({ system, user, deadlineMs = 9000, maxTokens = 400, chain = DEFAULT_CHAIN }) {
+async function askChain({ system, user, deadlineMs, maxTokens, chain, json, parse }) {
   const t0 = Date.now();
   const fileKeys = envFileKeys();
   const attempts = [];
@@ -122,12 +145,12 @@ async function askJson({ system, user, deadlineMs = 9000, maxTokens = 400, chain
       model: p.model,
       temperature: 0,
       max_tokens: maxTokens,
-      response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
     };
+    if (json) body.response_format = { type: 'json_object' };
     if (p.provider === 'groq') body.reasoning_effort = 'low';
     try {
       const res = await postJson(process.env.SECONDARY_LLM_ENDPOINT || p.endpoint, { authorization: `Bearer ${key}` }, body, left);
@@ -137,12 +160,12 @@ async function askJson({ system, user, deadlineMs = 9000, maxTokens = 400, chain
       }
       const data = JSON.parse(res.body);
       const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      const json = extractJson(content);
-      if (!json) {
-        attempts.push(`${p.provider}/${p.model}: respuesta no JSON`);
+      const value = parse(content);
+      if (value === null) {
+        attempts.push(`${p.provider}/${p.model}: ${json ? 'respuesta no JSON' : 'respuesta vacia'}`);
         continue;
       }
-      return { ok: true, json, provider: p.provider, model: p.model, ms: Date.now() - t0 };
+      return { ok: true, value, provider: p.provider, model: p.model, ms: Date.now() - t0 };
     } catch (e) {
       const name = (e && e.name) || 'Error';
       attempts.push(`${p.provider}/${p.model}: ${name === 'TimeoutError' ? 'timeout' : name === 'SyntaxError' ? 'respuesta ilegible' : 'red'}`);
@@ -151,4 +174,30 @@ async function askJson({ system, user, deadlineMs = 9000, maxTokens = 400, chain
   return { ok: false, error: attempts.join('; ') || 'cadena vacia', attempts, ms: Date.now() - t0 };
 }
 
-module.exports = { askJson, extractJson, DEFAULT_CHAIN };
+/**
+ * Pide una respuesta JSON a la cadena Groq -> Gemini con un plazo TOTAL.
+ * @returns {Promise<{ok:true, json:object, provider:string, model:string, ms:number}
+ *                  |{ok:false, error:string, attempts:string[], ms:number}>}
+ */
+async function askJson({ system, user, deadlineMs = 9000, maxTokens = 400, chain = DEFAULT_CHAIN }) {
+  const r = await askChain({ system, user, deadlineMs, maxTokens, chain, json: true, parse: extractJson });
+  if (!r.ok) return r;
+  const { value, ...rest } = r;
+  return { ...rest, json: value };
+}
+
+/**
+ * Pide texto libre (p.ej. Markdown) a la misma cadena. Sin response_format:
+ * el modelo responde en prosa. Respuesta vacia = fallo de ese eslabon.
+ * @returns {Promise<{ok:true, text:string, provider:string, model:string, ms:number}
+ *                  |{ok:false, error:string, attempts:string[], ms:number}>}
+ */
+async function askText({ system, user, deadlineMs = 9000, maxTokens = 400, chain = DEFAULT_CHAIN }) {
+  const parse = (content) => (typeof content === 'string' && content.trim() ? content.trim() : null);
+  const r = await askChain({ system, user, deadlineMs, maxTokens, chain, json: false, parse });
+  if (!r.ok) return r;
+  const { value, ...rest } = r;
+  return { ...rest, text: value };
+}
+
+module.exports = { askJson, askText, extractJson, DEFAULT_CHAIN };

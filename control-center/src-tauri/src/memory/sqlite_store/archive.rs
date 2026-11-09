@@ -10,11 +10,16 @@
 //! en cada `SELECT ... WHERE status='active'`. Deprecar las dejaba dentro.
 //!
 //! Solo SQL. La sincronización con Qdrant y el evento del ledger los pone el
-//! servicio (`MemoryService::archive_by_type`), único escritor.
+//! servicio (`MemoryService::archive_by_type`), único escritor; el evento se
+//! escribe aquí dentro de la misma transacción que mueve la fila.
 
 use rusqlite::{params, Connection};
 
+use crate::memory::model::MemoryEvent;
 use crate::memory::MemoryError;
+
+use super::events::insert_event;
+use super::tx::in_immediate_tx;
 
 pub const ARCHIVE_TABLE: &str = "memory_items_archive";
 
@@ -33,26 +38,31 @@ pub fn ensure_archive_table(conn: &Connection) -> Result<(), MemoryError> {
 }
 
 fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>, MemoryError> {
+    let err =
+        |e: rusqlite::Error| MemoryError::RemoteUnavailable(format!("table_info {table}: {e}"));
     let mut stmt = conn
         .prepare(&format!("PRAGMA table_info({table})"))
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("table_info {table}: {e}")))?;
+        .map_err(err)?;
     let cols = stmt
         .query_map([], |r| r.get::<_, String>(1))
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("table_info {table}: {e}")))?
-        .flatten()
-        .collect();
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
     Ok(cols)
 }
 
 /// Mueve UNA fila de `memory_items` a `memory_items_archive` en una
 /// transacción: copia (solo las columnas que existen en ambas tablas, así una
 /// migración futura de `memory_items` no rompe el archivo) y borra el origen.
-/// `NotFound` si el id no está en `memory_items`.
+/// `NotFound` si el id no está en `memory_items`. `event` (el `MemoryEvent` de
+/// auditoría del archivado) entra en la MISMA transacción: si no se puede
+/// registrar, la fila no se mueve.
 pub fn archive_item(
     conn: &Connection,
     id: &str,
     archived_at_ms: i64,
     reason: &str,
+    event: Option<&MemoryEvent>,
 ) -> Result<(), MemoryError> {
     ensure_archive_table(conn)?;
     let src = table_columns(conn, "memory_items")?;
@@ -68,28 +78,17 @@ pub fn archive_item(
         "INSERT INTO {ARCHIVE_TABLE} ({list}, archived_at, archive_reason) \
          SELECT {list}, ?1, ?2 FROM memory_items WHERE id = ?3"
     );
-    conn.execute_batch("BEGIN IMMEDIATE;")
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_item begin: {e}")))?;
-    let copied = conn
-        .execute(&sql, params![archived_at_ms, reason, id])
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_item copy: {e}")));
-    let outcome = match copied {
-        Ok(0) => Err(MemoryError::NotFound(id.to_string())),
-        Ok(_) => conn
-            .execute("DELETE FROM memory_items WHERE id = ?1", params![id])
-            .map(|_| ())
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_item delete: {e}"))),
-        Err(e) => Err(e),
-    };
-    match outcome {
-        Ok(()) => conn
-            .execute_batch("COMMIT;")
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_item commit: {e}"))),
-        Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK;");
-            Err(e)
+    in_immediate_tx(conn, || {
+        let copied = conn
+            .execute(&sql, params![archived_at_ms, reason, id])
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_item copy: {e}")))?;
+        if copied == 0 {
+            return Err(MemoryError::NotFound(id.to_string()));
         }
-    }
+        conn.execute("DELETE FROM memory_items WHERE id = ?1", params![id])
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("archive_item delete: {e}")))?;
+        event.map_or(Ok(()), |ev| insert_event(conn, ev))
+    })
 }
 
 /// Si `id` ya está en `memory_items_archive` (archivado en una corrida

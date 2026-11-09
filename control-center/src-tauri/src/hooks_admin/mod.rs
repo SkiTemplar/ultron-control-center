@@ -4,16 +4,24 @@
 //
 // Module layout:
 //   types.rs        — Public DTOs (Hook, HooksList, HookMutationResult, ...)
-//   validation.rs   — Input validation: ALLOWED_EVENTS, validate_command/event/matcher
+//   validation.rs   — Input validation: allowed_events (hook-events.json), validate_command/event/matcher
 //   io.rs           — Settings I/O: read, flatten, mutate, discover plugin hooks
 //   commands.rs     — Public inner functions called from Tauri command wrappers
+//   disabled.rs     — Almacén de hooks desactivados fuera de settings.json
+//   toggle.rs       — Activar/desactivar sin escribir un tipo que Claude Code rechaza
+//   manifest_sync.rs — Regenera hooks/manifest.json tras cada cambio
+//   test_runner.rs  — Botón «Test»: comando del hook con el payload por stdin
 //   naming.rs       — Auto-naming: analyze_hook_name, bulk_analyze, cache helpers
 //   descriptions.rs — get_hook_descriptions_inner, curated catalog, script header parser
 
 pub(crate) mod commands;
 pub(crate) mod descriptions;
+pub(crate) mod disabled;
 pub(crate) mod io;
+pub(crate) mod manifest_sync;
 pub(crate) mod naming;
+pub(crate) mod test_runner;
+pub(crate) mod toggle;
 pub(crate) mod types;
 pub(crate) mod validation;
 
@@ -25,9 +33,10 @@ pub(crate) mod validation;
 pub use commands::{
     add_hook_inner, delete_hook_inner, hooks_last_fired_inner, list_hooks_inner,
     recent_hook_fires_inner, request_hook_via_ai_inner, test_hook_inner, toggle_hook_inner,
-    update_hook_inner,
+    update_hook_inner, HookUpdate,
 };
 pub use descriptions::get_hook_descriptions_inner;
+pub use manifest_sync::sync_manifest;
 pub use naming::{
     analyze_hook_name_inner, bulk_analyze_hook_names_inner, get_hook_names_cache_inner,
 };

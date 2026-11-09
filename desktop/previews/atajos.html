@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Lienzo · los mejores atajos</title>
+<style>
+  :root { --bg: #050608; --text: #F4F5F7; --muted: #9AA0AE; --line: rgba(255,255,255,.08); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 48px; background: radial-gradient(circle at 25% 0%, #161922, var(--bg) 60%);
+         font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif; color: var(--text); min-height: 100vh; }
+  h1 { font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; font-weight: 600; font-size: 30px; margin: 0 0 6px; }
+  p.sub { color: var(--muted); margin: 0 0 32px; max-width: 860px; line-height: 1.55; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 22px; }
+  section { padding: 20px 22px 14px; border-radius: 18px; background: rgba(14,15,18,.72); border: 1px solid var(--line); }
+  h2 { font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .why { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+  .row { display: flex; align-items: center; gap: 14px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .keys { flex: none; width: 170px; display: flex; gap: 5px; flex-wrap: wrap; }
+  kbd { font-family: 'JetBrainsMono NF', 'Cascadia Mono', monospace; font-size: 12px; padding: 3px 8px; border-radius: 7px;
+        background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-bottom-width: 2px; }
+  .what { font-size: 13.5px; line-height: 1.4; }
+  .what small { display: block; color: var(--muted); font-size: 12px; }
+  .top { outline: 1px solid rgba(255,255,255,.22); }
+  .tag { font-size: 11px; color: var(--bg); background: var(--text); border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<h1>Los atajos que de verdad merecen la pena</h1>
+<p class="sub">Ordenados por lo que más tiempo ahorran en tu día a día. Los marcados con <span class="tag">top</span>
+  son los diez que conviene meter en los dedos primero. Al final, lo propio de tu escritorio (dock, carpetas y reloj).</p>
+<div class="grid" id="grid"></div>
+<script>
+  const sections = [
+    ['Lo esencial', 'Abrir, cambiar y cerrar sin tocar el ratón.', [
+      [['Win', 'S'], 'Buscar en Windows (apps, archivos, ajustes)', 'Lo mismo que tu acceso «Buscar» del dock.', true],
+      [['Alt', 'Tab'], 'Cambiar de ventana', 'Mantén Alt y pulsa Tab varias veces; Shift+Tab va hacia atrás.', true],
+      [['Win', '1…9'], 'Abrir o cambiar a la app del dock en esa posición', 'Cuenta desde la izquierda del dock: con Apagado delante, Win+1 es Apagado. Pulsa varias veces para recorrer sus ventanas.', true],
+      [['Win', 'E'], 'Abrir el Explorador', '', true],
+      [['Win', 'L'], 'Bloquear el equipo', 'Más rápido que el menú de Apagado al levantarte.', true],
+      [['Ctrl', 'Shift', 'Esc'], 'Administrador de tareas directo', 'Sin pasar por Ctrl+Alt+Supr.', false],
+      [['Win', 'X'], 'Menú de administración', 'Dispositivos, discos, terminal de administrador…', false],
+      [['Win', 'I'], 'Configuración', '', false],
+    ]],
+    ['Ventanas y monitores', 'Con tres pantallas, estos son los que más rinden.', [
+      [['Win', 'Shift', '← →'], 'Mandar la ventana al monitor de al lado', 'Conserva tamaño y posición relativa.', true],
+      [['Win', '← → ↑ ↓'], 'Encajar a media pantalla, maximizar o minimizar', 'Tras encajar una, Windows te ofrece rellenar el otro lado.', true],
+      [['Win', 'Z'], 'Diseños de ajuste', 'Rejillas de 2, 3 o 4 ventanas; el número elige el hueco.', false],
+      [['Win', 'D'], 'Mostrar el escritorio', 'Tus carpetas de Lienzo se quedan visibles; vuelve a pulsar para recuperar las ventanas.', false],
+      [['Win', 'Home'], 'Minimizar todo menos la ventana activa', '', false],
+      [['Win', 'Tab'], 'Vista de tareas y escritorios virtuales', 'Lo mismo que tu acceso «Vistas».', false],
+      [['Win', 'Ctrl', '← →'], 'Cambiar de escritorio virtual', 'Win+Ctrl+D crea uno nuevo y Win+Ctrl+F4 cierra el actual.', false],
+    ]],
+    ['Capturas y portapapeles', 'Para pasarme capturas y texto más rápido.', [
+      [['Win', 'Shift', 'S'], 'Recorte de pantalla', 'Queda en el portapapeles: Ctrl+V en Sessions para adjuntarlo.', true],
+      [['Win', 'V'], 'Historial del portapapeles', 'Lo copiado antes sigue ahí; también puedes fijar elementos.', true],
+      [['Win', '.'], 'Emojis, símbolos y kaomojis', 'También sirve para tildes y signos raros.', false],
+      [['Win', 'H'], 'Dictado por voz', 'Escribe donde esté el cursor.', false],
+      [['Win', 'Alt', 'R'], 'Grabar la pantalla (Game Bar)', 'Win+G abre la Game Bar entera; Win+Alt+Impr Pant hace una captura del juego.', false],
+    ]],
+    ['Explorador', 'Moverse por carpetas sin buscar botones.', [
+      [['Ctrl', 'L'], 'Ir a la barra de dirección', 'Escribe una ruta o «cmd» / «wt» para abrir una terminal ahí.', true],
+      [['Alt', '↑'], 'Subir a la carpeta superior', 'Alt+← y Alt+→ van atrás y adelante.', false],
+      [['Ctrl', 'T'], 'Pestaña nueva', 'Ctrl+W la cierra y Ctrl+Tab cambia entre pestañas.', false],
+      [['Ctrl', 'Shift', 'N'], 'Carpeta nueva', '', false],
+      [['F2'], 'Cambiar nombre', 'Con varios archivos seleccionados, los numera en serie.', false],
+      [['Alt', 'Enter'], 'Propiedades', '', false],
+      [['Shift', 'Supr'], 'Borrar sin pasar por la papelera', 'Cuidado: no se puede deshacer.', false],
+    ]],
+    ['Bandeja y avisos', '', [
+      [['Win', 'A'], 'Ajustes rápidos (wifi, volumen, Bluetooth)', '', false],
+      [['Win', 'N'], 'Notificaciones y calendario', '', false],
+      [['Win', 'B'], 'Ir a la bandeja (iconos ocultos)', 'Luego flechas y Enter.', false],
+    ]],
+    ['Tu escritorio (Lienzo)', 'Lo que hemos montado y no tiene menú que lo explique.', [
+      [['Clic'], 'Abrir o plegar una carpeta', 'Se abre hacia el lado que cabe en pantalla; un clic fuera, o abrir una app, la pliega.', false],
+      [['Arrastrar'], 'Mover una carpeta', 'Encaja en una rejilla de 16 px y recuerda su sitio.', false],
+      [['Soltar encima'], 'Añadir apps o archivos a una carpeta', 'Arrastra un .exe, un acceso o un archivo sobre la carpeta.', false],
+      [['Clic dcho.'], 'Opciones de una app o carpeta', 'Abrir como administrador, mover a otra carpeta, cambiar nombre, eliminar…', false],
+      [['Ratón', 'reloj'], 'Ver los segundos', 'Pasa el ratón por la hora del dock.', false],
+      [['Clic dcho.', 'escritorio'], 'Nueva carpeta Lienzo y menús Desarrollo / Apps / Juegos', '', false],
+    ]],
+  ];
+  const grid = document.getElementById('grid');
+  for (const [title, why, rows] of sections) {
+    const sec = document.createElement('section');
+    sec.innerHTML = `<h2></h2><p class="why"></p>`;
+    sec.querySelector('h2').textContent = title;
+    sec.querySelector('.why').textContent = why;
+    for (const [keys, what, note, isTop] of rows) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const k = document.createElement('div');
+      k.className = 'keys';
+      keys.forEach(key => { const el = document.createElement('kbd'); el.textContent = key; if (isTop) el.classList.add('top'); k.append(el); });
+      const w = document.createElement('div');
+      w.className = 'what';
+      w.textContent = what;
+      if (isTop) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'top'; w.append(t); }
+      if (note) { const s = document.createElement('small'); s.textContent = note; w.append(s); }
+      row.append(k, w);
+      sec.append(row);
+    }
+    grid.append(sec);
+  }
+</script>
+</body>
+</html>
