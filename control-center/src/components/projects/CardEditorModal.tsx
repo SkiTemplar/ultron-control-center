@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Play, Save, X } from "./icons";
 import type { Card, KanbanBoard } from "../../types";
+import { LinkedProjectField, useBoardExtensions } from "./project-board/BoardExtensions";
 
 type Props =
   | {
@@ -62,6 +63,11 @@ export default function CardEditorModal(props: Props) {
       return "";
     },
   );
+  // Solo en el tablero Portfolio (`linkableProjects` del contexto): en el
+  // resto de tableros el campo ni se pinta ni se envía.
+  const { linkableProjects } = useBoardExtensions();
+  const [linkedProject, setLinkedProject] = useState(initial?.project ?? "");
+  const projectField = linkableProjects ? { project: linkedProject || null } : {};
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -106,6 +112,7 @@ export default function CardEditorModal(props: Props) {
             prompt_template: promptTemplate || null,
             cwd: cwd || null,
             tags: tagList,
+            ...projectField,
           },
         });
       } else {
@@ -119,6 +126,7 @@ export default function CardEditorModal(props: Props) {
             prompt_template: promptTemplate || null,
             cwd: cwd || null,
             tags: tagList,
+            ...projectField,
           },
         });
       }
@@ -241,6 +249,13 @@ export default function CardEditorModal(props: Props) {
               placeholder="bug, p1, docs"
             />
           </div>
+          {linkableProjects && (
+            <LinkedProjectField
+              projects={linkableProjects}
+              value={linkedProject}
+              onChange={setLinkedProject}
+            />
+          )}
           {/* v2.6 Advanced section — collapsed by default. Holds the
               power-user fields (agent override, cwd override, prompt
               template). Each label has a `title` tooltip explaining the

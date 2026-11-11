@@ -14,10 +14,23 @@ import { BoardColumnsArea } from "./project-board/BoardColumnsArea";
 import { ArchiveGrid } from "./project-board/ArchiveGrid";
 import { ArchiveDoneModal } from "./project-board/ArchiveDoneModal";
 import { ArchiveViewerModal } from "./project-board/ArchiveViewerModal";
+import { BoardExtensionsContext, type BoardExtensions } from "./project-board/BoardExtensions";
+import type { ReactNode } from "react";
+import type { KanbanBoard } from "../../types";
 
-type Props = { projectId: string };
+export type BoardHeaderContext = { board: KanbanBoard; reload: () => Promise<void> };
 
-export default function ProjectBoard({ projectId }: Props) {
+type Props = {
+  projectId: string;
+  /** Extras de un tablero concreto (Portfolio); sin ellos se pinta como siempre. */
+  extensions?: BoardExtensions;
+  /** Sustituye la miga «Proyecto / Tablero» por una cabecera propia. */
+  renderHeader?: (ctx: BoardHeaderContext) => ReactNode;
+};
+
+const NO_EXTENSIONS: BoardExtensions = {};
+
+export default function ProjectBoard({ projectId, extensions = NO_EXTENSIONS, renderHeader }: Props) {
   const {
     board,
     error,
@@ -77,17 +90,21 @@ export default function ProjectBoard({ projectId }: Props) {
   }
 
   return (
-    <>
+    <BoardExtensionsContext.Provider value={extensions}>
       {/* v2.x: lightweight breadcrumb so it's clear this kanban is scoped to
           the project — distinct from the global Plans tab (which lives at
           ~/.ultron/plans/PLANS.json). The Plans tab now holds cross-project
           personal items only. */}
       <div className="flex h-full flex-col">
-        <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
-          <span>Proyecto</span>
-          <span className="text-[var(--color-text-faint)]">/</span>
-          <span className="text-[var(--color-text-secondary)]">Tablero</span>
-        </div>
+        {renderHeader ? (
+          renderHeader({ board, reload: load })
+        ) : (
+          <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+            <span>Proyecto</span>
+            <span className="text-[var(--color-text-faint)]">/</span>
+            <span className="text-[var(--color-text-secondary)]">Tablero</span>
+          </div>
+        )}
         {/* v2.6: board toolbar — search + priority filter chips. Persists
             per-project so the user's view survives reloads. */}
         <BoardToolbar
@@ -190,6 +207,6 @@ export default function ProjectBoard({ projectId }: Props) {
           onClose={() => setOpenedArchive(null)}
         />
       )}
-    </>
+    </BoardExtensionsContext.Provider>
   );
 }

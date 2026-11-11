@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toIdentifier } from './lib/project-create/templates.mjs';
+import { generatorCommand, npmPackageName } from './lib/project-create/generators.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
@@ -93,7 +94,7 @@ test('roots set + roots: refleja exists por raiz', () => {
 
 // --- templates -----------------------------------------------------------
 
-test('templates: incluye las 3 plantillas locales + 3 generadores', () => {
+test('templates: incluye las 3 plantillas locales + 5 generadores', () => {
   const ws = makeWorkspace();
   const r = run(['templates'], ws.env);
   assert.equal(r.status, 0);
@@ -104,7 +105,26 @@ test('templates: incluye las 3 plantillas locales + 3 generadores', () => {
   assert.ok(ids.includes('python-uv'));
   assert.ok(ids.includes('web-vite-react-ts'));
   assert.ok(ids.includes('rust-cargo'));
+  assert.ok(ids.includes('web-nextjs-supabase'));
+  assert.ok(ids.includes('app-expo'));
   rmSync(ws.dir, { recursive: true, force: true });
+});
+
+test('generatorCommand: Next.js y Expo son no interactivos y no tocan git ni .claude', () => {
+  const next = generatorCommand('web-nextjs-supabase', 'cliente-web', 'cliente-web').args;
+  assert.ok(next.includes('next-app@latest') && next.includes('cliente-web'));
+  for (const flag of ['--yes', '--disable-git', '--app', '--use-pnpm', '--no-agent-feedback', '--skip-install']) assert.ok(next.includes(flag), flag);
+  const expo = generatorCommand('app-expo', 'cliente-app', 'cliente-app').args;
+  assert.ok(expo.includes('expo-app@latest') && expo.includes('cliente-app'));
+  for (const flag of ['--yes', '--no-agents-md']) assert.ok(expo.includes(flag), flag);
+  assert.throws(() => generatorCommand('no-existe', 'x', 'x'), /generador desconocido/);
+});
+
+test('npmPackageName: sin mayusculas ni espacios para los generadores npm', () => {
+  assert.equal(npmPackageName('ClassicCars-Web'), 'classiccars-web');
+  assert.equal(npmPackageName('Mi Web Nueva'), 'mi-web-nueva');
+  assert.equal(npmPackageName('_.raro--'), 'raro');
+  assert.equal(npmPackageName('***'), 'app');
 });
 
 // --- create: caso feliz por plantilla local ---------------------------------

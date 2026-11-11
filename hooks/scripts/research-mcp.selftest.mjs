@@ -24,7 +24,7 @@ const msgs = [
   { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'tool_inexistente', arguments: {} } },
 ];
 
-const child = spawn('node', [SERVER], { stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, RESEARCH_ROOT_OVERRIDE: tmpRoot } });
+const child = spawn('node', [SERVER], { stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, RESEARCH_ROOT_OVERRIDE: tmpRoot, RESEARCH_NO_USER_ENV: '1' } });
 const byId = new Map();
 let buf = '';
 child.stdout.on('data', (d) => {

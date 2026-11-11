@@ -56,6 +56,8 @@
 //   proyecto       — bitácora del proyecto
 //   ventana        — creación y foco de la ventana, protocolos propios
 //   abrir_carpeta  — argumentos `--sesiones` y `--sesiones-cwd <ruta>`
+//   remoto         — `claude remote-control` oculto mientras haya una ventana
+//                    de Sessions (sesiones desde el móvil)
 //   cli_info       — CLI de claude fuera del PTY (mcp, plugins, auth)
 //   workflows      — tarjeta en vivo de los runs de `Workflow` (journal,
 //                    actividad de agentes, meta del script y JSON final)
@@ -153,6 +155,7 @@ pub mod opencode_modelos;
 pub mod opencode_parse;
 pub mod proto_rpc;
 pub mod proyecto;
+pub mod remoto;
 pub mod ruta_fichero;
 #[cfg(test)]
 mod tests_opencode_real;

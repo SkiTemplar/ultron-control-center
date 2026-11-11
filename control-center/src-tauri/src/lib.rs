@@ -648,6 +648,10 @@ pub fn run() {
                 // externos (Codex, Gemini) lanzados desde Sessions.
                 pty::kill_all_inner();
                 sesiones::motor::matar_todos();
+                // Remote Control con Ctrl+C (como mucho 5 s): matarlo deja la
+                // carpeta registrada en el servidor y el siguiente arranque
+                // recibe 409 durante minutos (sesiones/remoto.rs).
+                sesiones::remoto::cerrar();
             }
         });
 }

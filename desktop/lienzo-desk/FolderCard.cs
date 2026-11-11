@@ -104,6 +104,18 @@ public sealed class FolderCard : Window
         else FitOnScreen();
     }
 
+    /// <summary>
+    /// Devuelve la tarjeta a su sitio si el sistema la ha movido (monitor que se apaga o reconecta, vuelta de
+    /// suspensión, cambio del área de trabajo). Devuelve dónde estaba si hubo que moverla; null si ya estaba bien.
+    /// </summary>
+    public Point? ReturnHome()
+    {
+        var before = new Point(Left, Top);
+        PlaceAtHome();
+        if (_isCollapsed) Native.SendToBottom(this);
+        return Math.Abs(Left - before.X) + Math.Abs(Top - before.Y) >= 1 ? before : null;
+    }
+
     private void Place(double x, double y)
     {
         Left = x;
@@ -111,7 +123,7 @@ public sealed class FolderCard : Window
         Native.MoveTo(this, x, y);
     }
 
-    private string FolderName => Path.GetFileName(_folder);
+    public string FolderName => Path.GetFileName(_folder);
 
     public static double Snap(double value) => Math.Round(value / GridStep) * GridStep;
 
@@ -137,8 +149,7 @@ public sealed class FolderCard : Window
             {
                 if (!_isCollapsed) return;
                 Rebuild();
-                Left = _home.X;
-                Top = _home.Y;
+                Place(_home.X, _home.Y);
                 Native.SendToBottom(this);
                 if (_host.Content is FrameworkElement folded) Glass.Enter(folded, fromScale: 0.9, fromY: 0, durationMs: 90);
             });

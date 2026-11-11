@@ -156,6 +156,7 @@ fn apply_update(u: CardUpdate) -> Result<(), String> {
         agent: None,
         prompt_template: None,
         cwd: None,
+        project: None,
         tags: Some(u.tags),
     };
     kanban::update_card(&u.project, &u.card_id, patch).map(|_| ())
@@ -253,6 +254,7 @@ fn create(card: &NewCard) -> Result<(), String> {
             agent: None,
             prompt_template: None,
             cwd: None,
+            project: None,
             tags: card.tags.clone(),
         },
     )

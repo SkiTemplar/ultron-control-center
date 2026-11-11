@@ -259,6 +259,25 @@ test('lo excluido y lo modificado no van a la papelera', { skip: !isWindows }, (
   assert.equal(r.status.results.Documents.trash_moved, 0);
 });
 
+test('una exclusión con ruta (a/b/) se ancla en USERPROFILE y no afecta a otras carpetas con ese nombre', { skip: !isWindows }, (t) => {
+  // Antes «.ultron/.tmp/» llegaba tal cual a /XD, robocopy no lo casaba con
+  // nada y la carpeta se copiaba entera (16 GB en el espejo real).
+  const sb = sandbox(t);
+  const docs = join(sb.home, 'Documents');
+  mkdirSync(join(docs, 'cache'), { recursive: true });
+  mkdirSync(join(docs, 'otro', 'cache'), { recursive: true });
+  writeFileSync(join(docs, 'cache', 'fuera.bin'), 'x\n', 'utf8');
+  writeFileSync(join(docs, 'otro', 'cache', 'dentro.bin'), 'y\n', 'utf8');
+  const exDir = join(sb.home, '.ultron', 'config');
+  mkdirSync(exDir, { recursive: true });
+  writeFileSync(join(exDir, 'backup-exclusions.txt'), 'Documents/cache/\n', 'utf8');
+
+  const r = runBackup(sb, 'Documents');
+  assert.equal(r.code, 0, r.out);
+  assert.equal(existsSync(join(sb.root, 'Documents', 'cache')), false, `la ruta excluida se copió\n${r.out}`);
+  assert.ok(existsSync(join(sb.root, 'Documents', 'otro', 'cache', 'dentro.bin')), 'excluyó por nombre, no por ruta');
+});
+
 test('poda las carpetas de la papelera más viejas que -TrashDays', { skip: !isWindows }, (t) => {
   const sb = sandbox(t);
   const src = makeSource(sb);

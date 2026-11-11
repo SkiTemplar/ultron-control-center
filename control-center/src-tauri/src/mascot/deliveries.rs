@@ -130,6 +130,7 @@ mod tests {
             agent: None,
             prompt_template: None,
             cwd: None,
+            project: None,
             tags: tags.iter().map(|t| t.to_string()).collect(),
             order: 0,
             created_at: String::new(),

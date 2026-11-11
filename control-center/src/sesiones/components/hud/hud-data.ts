@@ -4,12 +4,14 @@
 import type { Effort, EngineTask, EnginesPlanUsage, PermissionMode, RelayState, SessionId, SocraticMode } from "../../types";
 import type { DropdownOption } from "../Dropdown";
 
-/** Solo familia 5.5 (contrato v2, `sesiones_set_model`). */
+/** Familia 5.5 y Fable 5.2 (contrato v2, `sesiones_set_model`). */
 export const MODEL_OPTIONS: DropdownOption[] = [
   { value: "claude-opus-5-5", label: "Opus 5.5", description: "Código, revisión, depuración y diseño" },
   { value: "claude-opus-5-5[1m]", label: "Opus 5.5 · 1M", description: "Ventana de contexto de un millón de tokens" },
   { value: "claude-sonnet-5-5", label: "Sonnet 5.5", description: "Más barato: specs, tests, contenido y lectura" },
   { value: "claude-haiku-5-5", label: "Haiku 5.5", description: "El más barato y rápido: consultas y tareas sencillas" },
+  { value: "claude-fable-5-2", label: "Fable 5.2", description: "El más capaz y el más caro: el doble que Opus 5.5" },
+  { value: "claude-fable-5-2[1m]", label: "Fable 5.2 · 1M", description: "Fable 5.2 con la ventana de un millón de tokens" },
 ];
 
 export const EFFORT_OPTIONS: DropdownOption<Effort>[] = [

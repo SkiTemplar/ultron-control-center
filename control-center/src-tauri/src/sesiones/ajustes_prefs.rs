@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{valid_model_55, EFFORTS};
+use super::{valid_session_model, EFFORTS};
 use crate::sesiones::types::{PermissionMode, SessionPrefs};
 
 const IDENTIFICADOR: &str = "io.github.skitemplar.ultron";
@@ -50,7 +50,7 @@ pub fn guardar_en(path: &Path, p: &SessionPrefs) -> Result<SessionPrefs, String>
         return Err("el umbral de colgado va de 60 a 600 s".into());
     }
     if let Some(m) = p.launch_model.as_deref().filter(|m| !m.is_empty()) {
-        if !valid_model_55(m) {
+        if !valid_session_model(m) {
             return Err(format!("modelo no permitido: '{m}'"));
         }
     }

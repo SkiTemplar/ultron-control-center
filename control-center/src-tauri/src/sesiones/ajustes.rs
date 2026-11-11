@@ -258,11 +258,15 @@ pub fn confirma(r: &OpResult, valor: &str) -> bool {
     r.ok && !r.pending && texto.contains(&valor.to_lowercase())
 }
 
-/// Solo la familia 5.5: Opus y Sonnet con o sin la ventana de 1M; Haiku sin
-/// ella (decisión del 2026-10-21: Haiku 5.5 para sesiones baratas).
-pub fn valid_model_55(model: &str) -> bool {
+/// Modelos admitidos en Sessions: la familia 5.5 (Opus y Sonnet con o sin la
+/// ventana de 1M; Haiku sin ella, decisión del 2026-10-21) y Fable 5.2 con o
+/// sin 1M (decisión del 2026-11-11: solo a mano, por su precio).
+pub fn valid_session_model(model: &str) -> bool {
     model == "claude-haiku-5-5"
-        || matches!(model_key(model), "claude-opus-5-5" | "claude-sonnet-5-5")
+        || matches!(
+            model_key(model),
+            "claude-opus-5-5" | "claude-sonnet-5-5" | "claude-fable-5-2"
+        )
 }
 
 /// `/model <id>`: `SessionInfo.model` cambia cuando el puente lo confirma
@@ -271,9 +275,9 @@ pub fn valid_model_55(model: &str) -> bool {
 /// `status` del puente lo repite si el texto no lo nombra).
 pub fn set_model(id: &str, model: &str) -> Result<OpResult, String> {
     let model = model.trim();
-    if !valid_model_55(model) {
+    if !valid_session_model(model) {
         return Err(format!(
-            "modelo no permitido: '{model}' (solo claude-opus-5-5 o claude-sonnet-5-5, con [1m] opcional, o claude-haiku-5-5)"
+            "modelo no permitido: '{model}' (solo claude-opus-5-5, claude-sonnet-5-5 o claude-fable-5-2, con [1m] opcional, o claude-haiku-5-5)"
         ));
     }
     let r = comando_run::ajuste(id, "model", model)?;
@@ -365,15 +369,19 @@ mod tests {
     }
 
     #[test]
-    fn solo_modelos_de_la_familia_5_5() {
-        assert!(valid_model_55("claude-opus-5-5"));
-        assert!(valid_model_55("claude-sonnet-5-5[1m]"));
-        assert!(valid_model_55("claude-haiku-5-5"));
-        assert!(!valid_model_55("claude-haiku-5-5[1m]"), "Haiku sin 1M");
-        assert!(!valid_model_55("claude-haiku-4-5"));
-        assert!(!valid_model_55("claude-opus-5"));
-        assert!(!valid_model_55("opus"));
-        assert!(!valid_model_55("claude-opus-5-5; rm"));
+    fn solo_modelos_de_la_familia_5_5_y_fable_5_2() {
+        assert!(valid_session_model("claude-opus-5-5"));
+        assert!(valid_session_model("claude-sonnet-5-5[1m]"));
+        assert!(valid_session_model("claude-haiku-5-5"));
+        assert!(valid_session_model("claude-fable-5-2"));
+        assert!(valid_session_model("claude-fable-5-2[1m]"));
+        assert!(!valid_session_model("claude-fable-5-1"), "solo Fable 5.2");
+        assert!(!valid_session_model("claude-fable-5"));
+        assert!(!valid_session_model("claude-haiku-5-5[1m]"), "Haiku sin 1M");
+        assert!(!valid_session_model("claude-haiku-4-5"));
+        assert!(!valid_session_model("claude-opus-5"));
+        assert!(!valid_session_model("opus"));
+        assert!(!valid_session_model("claude-opus-5-5; rm"));
     }
 
     #[test]

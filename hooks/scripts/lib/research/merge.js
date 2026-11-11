@@ -29,7 +29,7 @@
  * Un retractado nunca sale primero, tenga la puntuacion que tenga.
  */
 
-const { embedQuery, embedPassage, cosineSimilarity } = require('./embed');
+const { embedQuery, embedPassage, cosineSimilarity, isDenseDisabled } = require('./embed');
 
 const TYPE_PRIORITY = { review: 3, preprint: 2, article: 1, other: 0 };
 const BASE_WEIGHTS = { rel: 0.20, lex: 0.25, sem: 0.45, cit: 0.10 };
@@ -244,7 +244,9 @@ async function rankAndFilter(papers, { minCitations, type, query = '' } = {}) {
   prelim.sort((a, b) => (b.relevance.value + b.lex.score) - (a.relevance.value + a.lex.score));
 
   let semanticScores = new Map();
-  if (String(query).trim()) {
+  if (String(query).trim() && isDenseDisabled()) {
+    warnings.push('re-rank semantico desactivado (ULTRON_DENSE=0); orden calculado solo con relevancia+lexico(IDF)+citas.');
+  } else if (String(query).trim()) {
     const queryEmbedding = await embedQuery(query);
     if (!queryEmbedding) {
       warnings.push('re-rank semantico no disponible: el daemon de memoria (ultron-memory serve) no respondio; orden calculado solo con relevancia+lexico(IDF)+citas.');

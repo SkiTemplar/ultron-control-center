@@ -275,6 +275,9 @@
     "scripts/memory-verify.selftest.mjs": {
       "ci": true
     },
+    "scripts/portfolio-link.selftest.mjs": {
+      "ci": true
+    },
     "scripts/posttoolfail-capture.selftest.mjs": {
       "ci": true
     },

@@ -24,11 +24,37 @@ export type Card = {
   agent: string | null;
   prompt_template: string | null;
   cwd: string | null;
+  /** Id del proyecto registrado al que apunta la tarjeta (tablero Portfolio).
+   *  Ausente en los tableros normales: el backend no lo serializa si está vacío. */
+  project?: string | null;
   tags: string[];
   order: number;
   created_at: string;
   updated_at: string;
   runs: CardRun[];
+};
+
+/** Cuerpo de `kanban_create_card` (espejo de `CardPartial` en Rust). */
+export type CardPartial = {
+  title: string;
+  description?: string;
+  agent?: string | null;
+  prompt_template?: string | null;
+  cwd?: string | null;
+  project?: string | null;
+  tags?: string[];
+};
+
+/** Cuerpo de `kanban_update_card` (espejo de `CardPatch`): un campo ausente no
+ *  se toca; `null` en los anulables lo borra. */
+export type CardPatch = {
+  title?: string;
+  description?: string;
+  agent?: string | null;
+  prompt_template?: string | null;
+  cwd?: string | null;
+  project?: string | null;
+  tags?: string[];
 };
 
 export type ColumnRole = "todo" | "doing" | "blocked" | "done" | "other";

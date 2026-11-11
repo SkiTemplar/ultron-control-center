@@ -436,6 +436,8 @@ fn build(
         .map_err(|e| format!("no se pudo crear la ventana de ULTRON Sessions: {e}"))?;
     permitir_microfono(&window);
     ventana_icono::decorar_y_mostrar(app, &window, look);
+    // Sesiones desde el móvil mientras haya una ventana de Sessions (idempotente).
+    super::remoto::abrir();
     let app2 = app.clone();
     let own = label.to_string();
     window.on_window_event(move |event| {
@@ -471,11 +473,13 @@ fn al_cargar_pagina(app: &AppHandle, own: &str, evento: PageLoadEvent) {
 /// Efectos de cerrar una ventana de Sessions. Las preguntas pendientes no se
 /// tocan (siguen en el `Broker` y otra ventana las recupera); al cerrar la
 /// última se sueltan las vistas previas y las terminales del bloque de menú
-/// que sigan enganchadas (su cola estaría en pausa y su PTY, pequeño).
+/// que sigan enganchadas (su cola estaría en pausa y su PTY, pequeño), y se
+/// para Remote Control.
 fn al_cerrar_ventana(quedan_otras: bool) {
     if !quedan_otras {
         vaciar_previews();
         comandos_pty::soltar_terminales();
+        super::remoto::cerrar();
     }
 }
 

@@ -36,7 +36,8 @@
       "kind": "skill",
       "license": "Apache-2.0",
       "templates": [
-        "web-vite-react-ts"
+        "web-vite-react-ts",
+        "web-nextjs-supabase"
       ],
       "review": {
         "fecha": "2026-10-18",
@@ -53,7 +54,9 @@
       "kind": "skill",
       "license": "MIT",
       "templates": [
-        "web-vite-react-ts"
+        "web-vite-react-ts",
+        "web-nextjs-supabase",
+        "app-expo"
       ],
       "review": {
         "fecha": "2026-10-18",
@@ -70,7 +73,8 @@
       "kind": "skill",
       "license": "MIT",
       "templates": [
-        "web-vite-react-ts"
+        "web-vite-react-ts",
+        "web-nextjs-supabase"
       ],
       "review": {
         "fecha": "2026-10-18",
@@ -110,6 +114,207 @@
       "repo": "https://github.com/roboflow/supervision.git",
       "version": "0.31.0",
       "path": null
+    },
+    {
+      "name": "composition-patterns",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "web-nextjs-supabase"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+        "notas": "APTA. Solo Markdown, sin scripts ni red. AGENTS.md (~8K tokens) solo bajo demanda."
+      },
+      "repo": "https://github.com/vercel-labs/agent-skills.git",
+      "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "path": "skills/composition-patterns",
+      "ref": null
+    },
+    {
+      "name": "react-native-skills",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+        "notas": "APTA. Solo Markdown; como mucho sugiere npx expo prebuild. AGENTS.md (~25K tokens) solo bajo demanda."
+      },
+      "repo": "https://github.com/vercel-labs/agent-skills.git",
+      "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "path": "skills/react-native-skills",
+      "ref": null
+    },
+    {
+      "name": "supabase-postgres-best-practices",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "web-nextjs-supabase",
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+        "notas": "APTA. Los alter system/drop son ejemplos. Descripción amplia: se carga ante cualquier tarea Postgres."
+      },
+      "repo": "https://github.com/supabase/agent-skills.git",
+      "sha": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+      "path": "skills/supabase-postgres-best-practices",
+      "ref": null
+    },
+    {
+      "name": "stripe-best-practices",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "web-nextjs-supabase"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "5091f72943e6cb4ca439c98ee4783d6085de1318",
+        "notas": "APTA CON CONDICIONES. LOW: sugiere npm i -g @stripe/cli sin versión y tax.md lanza cálculos de Tax con el token disponible. Condiciones: solo claves sandbox o restringidas (rk_test)."
+      },
+      "repo": "https://github.com/stripe/ai.git",
+      "sha": "5091f72943e6cb4ca439c98ee4783d6085de1318",
+      "path": "providers/claude/plugin/skills/stripe-best-practices",
+      "ref": null
+    },
+    {
+      "name": "shadcn",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "4aaea19d9cff3e0908e12a8c1d504b8c5ec34610",
+        "notas": "APTA CON CONDICIONES. HIGH: ejecuta npx shadcn@latest info al cargarse (sin versión fijada) y allowed-tools preaprueba add owner/repo, --force y mcp init. Condiciones: fuera de las sugeridas, enlace explícito; no añadir registries de terceros ni --force sin confirmar."
+      },
+      "repo": "https://github.com/shadcn-ui/ui.git",
+      "sha": "4aaea19d9cff3e0908e12a8c1d504b8c5ec34610",
+      "path": "skills/shadcn",
+      "ref": null
+    },
+    {
+      "name": "expo-overview",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+        "notas": "APTA CON CONDICIONES. MEDIUM: bloque Submitting Feedback con npx --yes @expo/agent-cli@latest que envía contexto a Expo sin confirmar. Mitigado con deny global en ~/.claude/settings.json."
+      },
+      "repo": "https://github.com/expo/skills.git",
+      "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+      "path": "plugins/expo/skills/expo-overview",
+      "ref": null
+    },
+    {
+      "name": "expo-router",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+        "notas": "APTA CON CONDICIONES. MEDIUM: bloque Submitting Feedback con npx --yes @expo/agent-cli@latest que envía contexto a Expo sin confirmar. Mitigado con deny global en ~/.claude/settings.json."
+      },
+      "repo": "https://github.com/expo/skills.git",
+      "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+      "path": "plugins/expo/skills/expo-router",
+      "ref": null
+    },
+    {
+      "name": "expo-native-ui",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+        "notas": "APTA CON CONDICIONES. MEDIUM: bloque Submitting Feedback con npx --yes @expo/agent-cli@latest que envía contexto a Expo sin confirmar. Mitigado con deny global en ~/.claude/settings.json."
+      },
+      "repo": "https://github.com/expo/skills.git",
+      "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+      "path": "plugins/expo/skills/expo-native-ui",
+      "ref": null
+    },
+    {
+      "name": "expo-data-fetching",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+        "notas": "APTA CON CONDICIONES. MEDIUM: bloque Submitting Feedback con npx --yes @expo/agent-cli@latest que envía contexto a Expo sin confirmar. Mitigado con deny global en ~/.claude/settings.json."
+      },
+      "repo": "https://github.com/expo/skills.git",
+      "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+      "path": "plugins/expo/skills/expo-data-fetching",
+      "ref": null
+    },
+    {
+      "name": "eas-app-stores",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "app-expo"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+        "notas": "APTA CON CONDICIONES. MEDIUM: --auto-submit a producción sin confirmar, eas secret:create con el JSON de la service account y feedback a Expo. Mitigado con deny global de eas submit, --auto-submit y agent-cli; los submits los lanza el usuario."
+      },
+      "repo": "https://github.com/expo/skills.git",
+      "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+      "path": "plugins/expo/skills/eas-app-stores",
+      "ref": null
+    },
+    {
+      "name": "eas-update",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+        "notas": "APTA CON CONDICIONES. HIGH: allowed-tools Bash(eas *) preaprueba OTA a producción, channel:edit y submit. Condiciones: fuera de las sugeridas; deny global de eas update a production y channel:edit."
+      },
+      "repo": "https://github.com/expo/skills.git",
+      "sha": "a9e5bd3fa00b4e61f632e43f85da73aee1942582",
+      "path": "plugins/expo/skills/eas-update",
+      "ref": null
+    },
+    {
+      "name": "react-view-transitions",
+      "kind": "skill",
+      "license": "MIT",
+      "templates": [
+        "web-nextjs-supabase"
+      ],
+      "review": {
+        "fecha": "2026-11-03",
+        "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+        "notas": "APTA. Solo Markdown (SKILL.md, AGENTS.md ~25K tokens bajo demanda y referencias), sin scripts, red ni allowed-tools. Recomendada por la guía oficial de Next 16."
+      },
+      "repo": "https://github.com/vercel-labs/agent-skills.git",
+      "sha": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "path": "skills/react-view-transitions",
+      "ref": null
     }
   ]
 }

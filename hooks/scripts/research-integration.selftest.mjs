@@ -24,6 +24,8 @@ process.env.RESEARCH_CACHE_DIR_OVERRIDE = mkdtempSync(join(tmpdir(), 'research-s
 // verifica el camino de degradacion explicita (ver research-ranking.selftest
 // para el semantico real end-to-end contra el daemon vivo).
 process.env.RESEARCH_DISABLE_SEMANTIC = '1';
+// ULTRON_DENSE=0 de la maquina cambiaria el aviso esperado: fuera del entorno.
+delete process.env.ULTRON_DENSE;
 
 const { installMockFetch } = require(join(LIB, '__fixtures__', 'mock-fetch.js'));
 const openalexFixture = require(join(LIB, '__fixtures__', 'openalex-search.json'));

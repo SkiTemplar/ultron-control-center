@@ -306,6 +306,7 @@ pub fn create_card(
         agent: partial.agent,
         prompt_template: partial.prompt_template,
         cwd: partial.cwd,
+        project: partial.project,
         tags: partial.tags,
         order: next_order,
         created_at: now.clone(),
@@ -325,6 +326,16 @@ pub fn update_card(project_id: &str, card_id: &str, patch: CardPatch) -> Result<
         .iter_mut()
         .find(|c| c.id == card_id)
         .ok_or_else(|| format!("card {card_id} not found"))?;
+    apply_patch(card, patch);
+    card.updated_at = now_iso();
+    let out = card.clone();
+    save(&board)?;
+    Ok(out)
+}
+
+/// Aplica un parche en memoria: los campos ausentes no se tocan y los
+/// anulables admiten `Some(None)` para borrarse (ver `de_patch_field`).
+pub(super) fn apply_patch(card: &mut Card, patch: CardPatch) {
     if let Some(v) = patch.title {
         card.title = v;
     }
@@ -340,13 +351,12 @@ pub fn update_card(project_id: &str, card_id: &str, patch: CardPatch) -> Result<
     if let Some(v) = patch.cwd {
         card.cwd = v;
     }
+    if let Some(v) = patch.project {
+        card.project = v;
+    }
     if let Some(v) = patch.tags {
         card.tags = v;
     }
-    card.updated_at = now_iso();
-    let out = card.clone();
-    save(&board)?;
-    Ok(out)
 }
 
 pub fn move_card(

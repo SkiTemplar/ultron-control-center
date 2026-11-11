@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Bot } from "../icons";
 import { useDraggableCard } from "../../../hooks/useKanbanDnd";
 import type { CardProps } from "./types";
+import { useBoardExtensions } from "./BoardExtensions";
 
 export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
   const { draggableProps, dragging } = useDraggableCard({
@@ -14,6 +15,8 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
     [card.runs],
   );
   const lastRun = card.runs.length > 0 ? card.runs[card.runs.length - 1] : null;
+  const { renderCardActions } = useBoardExtensions();
+  const extraActions = renderCardActions?.(card);
 
   return (
     <div
@@ -116,6 +119,7 @@ export function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
           </span>
         )}
       </div>
+      {extraActions && <div className="mt-1.5 flex items-center gap-1.5">{extraActions}</div>}
     </div>
   );
 }

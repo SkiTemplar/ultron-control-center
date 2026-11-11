@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'keys.js')).hydrateResearchEnv();
 const research = require(join(__dirname, '..', 'hooks', 'scripts', 'lib', 'research', 'index.js'));
 
 function fail(msg) {

@@ -24,6 +24,7 @@ import type {
   KanbanBoard,
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
+import { PORTFOLIO_PROJECT_ID } from "./portfolio/portfolioModel";
 import { NewProjectWizard } from "./projects/NewProjectWizard";
 import { ProjectCard } from "./projects/ProjectCard";
 import { ProjectRow } from "./projects/ProjectRow";
@@ -157,7 +158,10 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   async function load() {
     setLoading(true);
     try {
-      const r = (await invoke("list_projects")) as ProjectInfo[];
+      // El tablero macro `proyectos` tiene su propia sección (Portfolio).
+      const r = ((await invoke("list_projects")) as ProjectInfo[]).filter(
+        (p) => p.id !== PORTFOLIO_PROJECT_ID,
+      );
       setProjects(r);
       setError(null);
       void refreshStats(r);

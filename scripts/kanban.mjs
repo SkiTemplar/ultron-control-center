@@ -16,7 +16,7 @@
  *
  * Uso:
  *   node scripts/kanban.mjs list   [proyecto]
- *   node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]
+ *   node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b] [--project <id>]
  *   node scripts/kanban.mjs mv     <proyecto> "<id|substr-id|substr-titulo>" <rol|nombre-columna>
  *   node scripts/kanban.mjs rm     <proyecto> "<id|substr-id|substr-titulo>"
  *   node scripts/kanban.mjs archive-done <proyecto>   (mueve las Done a archives/<fecha>.json)
@@ -91,8 +91,12 @@ function resolveColumn(board, ref) {
     const byRole = cols.find((c) => c.role === ref);
     if (byRole) return byRole;
   }
-  // 2) nombre de columna por substring (case-insensitive)
+  // 2) id o nombre exacto (case-insensitive): «Activo» no puede quedar
+  //    ambiguo solo porque también exista «Activo Universidad».
   const low = ref.toLowerCase();
+  const exact = cols.find((c) => c.id === ref) || cols.find((c) => (c.name || '').toLowerCase() === low);
+  if (exact) return exact;
+  // 3) nombre de columna por substring (case-insensitive)
   const matches = cols.filter((c) => (c.name || '').toLowerCase().includes(low));
   if (matches.length === 1) return matches[0];
   if (matches.length === 0) {
@@ -129,6 +133,18 @@ function nowIso() {
 
 function newId() {
   return `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * `--project <id>`: vincula la tarjeta a un proyecto registrado (campo
+ * `project`, lo usa el tablero Portfolio). Sin valor es un error, no un no-op.
+ */
+function parseProject(args) {
+  const i = args.indexOf('--project');
+  if (i === -1) return null;
+  const v = (args[i + 1] || '').trim();
+  if (!v || v.startsWith('--')) fail('--project necesita el id del proyecto');
+  return v;
 }
 
 function parseTags(args) {
@@ -171,13 +187,19 @@ function cmdList(proj) {
   console.log(`\ntotal: ${(board.cards || []).length} cards en "${proj}"`);
 }
 
-function cmdAdd(proj, role, title, desc, tags) {
-  withLockedBoard(proj, () => cmdAddLocked(proj, role, title, desc, tags));
+function cmdAdd(proj, role, title, desc, tags, project) {
+  withLockedBoard(proj, () => cmdAddLocked(proj, role, title, desc, tags, project));
 }
 
-function cmdAddLocked(proj, role, title, desc, tags) {
+function cmdAddLocked(proj, role, title, desc, tags, project) {
   const { path, board } = loadBoard(proj);
   const col = resolveColumn(board, role);
+  // Idempotente con --project: una tarjeta por proyecto vinculado.
+  const linked = project ? (board.cards || []).find((c) => c.project === project) : null;
+  if (linked) {
+    console.log(`[kanban] = ya existe la tarjeta de "${project}": ${linked.title}  (${linked.id})`);
+    return;
+  }
   const ts = nowIso();
   const card = {
     id: newId(),
@@ -187,6 +209,7 @@ function cmdAddLocked(proj, role, title, desc, tags) {
     agent: null,
     prompt_template: null,
     cwd: null,
+    ...(project ? { project } : {}),
     tags: tags || [],
     order: (board.cards || []).filter((c) => c.column_id === col.id).length,
     created_at: ts,
@@ -280,8 +303,8 @@ switch (cmd) {
     break;
   case 'add': {
     const [proj, role, title, desc] = rest;
-    if (!proj || !role || !title) fail('uso: add <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]');
-    cmdAdd(proj, role, title, desc && !desc.startsWith('--') ? desc : '', parseTags(rest));
+    if (!proj || !role || !title) fail('uso: add <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b] [--project <id>]');
+    cmdAdd(proj, role, title, desc && !desc.startsWith('--') ? desc : '', parseTags(rest), parseProject(rest));
     break;
   }
   case 'mv': {
@@ -306,7 +329,7 @@ switch (cmd) {
   default:
     console.log('kanban.mjs - CRUD del Kanban de ULTRON\n');
     console.log('  node scripts/kanban.mjs list   [proyecto]');
-    console.log('  node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b]');
+    console.log('  node scripts/kanban.mjs add    <proyecto> <rol|nombre-columna> "titulo" ["desc"] [--tags a,b] [--project <id>]');
     console.log('  node scripts/kanban.mjs mv     <proyecto> "<id|substr>" <rol|nombre-columna>');
     console.log('  node scripts/kanban.mjs rm     <proyecto> "<id|substr>"');
     console.log('  node scripts/kanban.mjs archive-done <proyecto>');

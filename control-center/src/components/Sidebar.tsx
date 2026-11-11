@@ -12,6 +12,7 @@ export type Tab =
   | "agents"
   | "rules"
   | "projects"
+  | "portfolio"
   | "finance"
   | "notes"
   | "plans"
@@ -100,6 +101,10 @@ export const SECTIONS: { heading: string; items: SidebarItem[] }[] = [
       // which opens from the footer launcher; distinct names avoid mixing them.
       { id: "sessions", label: "Session Monitor", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
+      // Portfolio (2026-11-10): tablero macro de todos los proyectos (el
+      // kanban del proyecto `proyectos`), con cada tarjeta enlazada al
+      // proyecto registrado. Comparte el toggle de Projects.
+      { id: "portfolio", label: "Portfolio", available: true, featureKey: "projects" },
       // Finance: native read-only dashboard of the Bank/finanzas project
       // (Tío Gilito). Surfaces saldo/fondos/movimientos without launching the
       // separate Streamlit app; the buttons spawn a Tío Gilito CLI session.
@@ -156,6 +161,7 @@ const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
   agents: "skills",
   rules: "skills",
   projects: "projects",
+  portfolio: "projects",
   plans: "plans",
   // hooks: gating moved inside System tab — no top-level redirect needed.
 };

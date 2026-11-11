@@ -19,6 +19,14 @@ const EMBED_TIMEOUT_MS = 8_000;
 const EMBED_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30d: el vector de un texto no cambia
 const MAX_EMBED_CHARS = 2_000; // titulo+abstract recortado: mas no mejora la senal y encarece la llamada
 
+/**
+ * Denso apagado por configuracion (ULTRON_DENSE=0, decision del 2026-09-28):
+ * el daemon no tiene embeddings que dar y preguntarle solo cuesta su timeout.
+ */
+function isDenseDisabled() {
+  return process.env.ULTRON_DENSE === '0';
+}
+
 /** Embedding E5 de `text` via el daemon, o null si no responde (nunca lanza). */
 async function embedText(text) {
   // Interruptor explicito (selftests herméticos y despliegues sin daemon):
@@ -65,4 +73,4 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-module.exports = { embedText, embedTextCached, embedQuery, embedPassage, cosineSimilarity };
+module.exports = { embedText, embedTextCached, embedQuery, embedPassage, cosineSimilarity, isDenseDisabled };

@@ -47,6 +47,7 @@ function installS2Routes() {
 function installFallbackRoutes() {
   return installMockFetch([
     { test: (u) => u.includes(`/paper/DOI:${encodeURIComponent(UNKNOWN_TO_S2_DOI)}/`), handler: { status: 404, body: 'not found' } },
+    { test: (u) => u.includes('/paper/search/match?'), handler: { status: 404, body: 'Title match not found' } },
     { test: (u) => u.startsWith('https://api.openalex.org/works/https://doi.org/') && u.includes(encodeURIComponent(UNKNOWN_TO_S2_DOI)), handler: { status: 200, body: oaSeedWork, isText: false } },
     { test: (u) => u.startsWith('https://api.openalex.org/works?') && u.includes('filter=openalex_id%3A'), handler: { status: 200, body: oaBatchWorks, isText: false } },
     { test: (u) => u.startsWith('https://api.openalex.org/works?') && u.includes('filter=cites%3A'), handler: { status: 200, body: oaCitingWorks, isText: false } },
@@ -104,6 +105,50 @@ async function testFallbackToOpenAlex() {
     const { candidates, warnings } = await fetchSnowball(UNKNOWN_TO_S2_DOI, { direction: 'both', limit: 25 });
     A(warnings.length === 2 && warnings.every((w) => w.includes('OpenAlex como fallback')), 'fallback: avisa explicitamente que S2 fallo y se uso OpenAlex, en ambas direcciones', JSON.stringify(warnings));
     A(candidates.some((c) => c.doi === '10.9001/oa-ref-1') && candidates.some((c) => c.doi === '10.9001/oa-citing-1'), 'fallback: trae candidatos de OpenAlex para backward y forward', JSON.stringify(candidates.map((c) => c.doi)));
+  } finally {
+    mock.restore();
+  }
+}
+
+// S2 no indexa el DOI de la revista pero si un registro con el mismo titulo
+// (caso real 2026-11-08: el articulo solo existia en S2 como preprint de arXiv).
+function installAliasRoutes(matchTitle) {
+  return installMockFetch([
+    { test: (u) => u.includes(`/paper/DOI:${encodeURIComponent(UNKNOWN_TO_S2_DOI)}/`), handler: { status: 404, body: 'not found' } },
+    { test: (u) => u.includes('/paper/search/match?'), handler: { status: 200, body: { data: [{ paperId: 'S2ALIAS', title: matchTitle, externalIds: { DOI: '10.48550/arXiv.0000.00001' } }] }, isText: false } },
+    { test: (u) => u.includes('/paper/S2ALIAS/references'), handler: { status: 200, body: s2References, isText: false } },
+    { test: (u) => u.includes('/paper/S2ALIAS/citations'), handler: { status: 200, body: s2Citations, isText: false } },
+    { test: (u) => u.startsWith('https://api.openalex.org/works/https://doi.org/') && u.includes(encodeURIComponent(UNKNOWN_TO_S2_DOI)), handler: { status: 200, body: oaSeedWork, isText: false } },
+    { test: (u) => u.startsWith('https://api.openalex.org/works?') && u.includes('filter=openalex_id%3A'), handler: { status: 200, body: oaBatchWorks, isText: false } },
+    { test: (u) => u.startsWith('https://api.openalex.org/works?') && u.includes('filter=cites%3A'), handler: { status: 200, body: oaCitingWorks, isText: false } },
+  ]);
+}
+
+async function testAliasByTitle() {
+  rateLimiter._reset();
+  // Mismo titulo salvo mayusculas y puntuacion: titleKey() los iguala.
+  const mock = installAliasRoutes('Seed paper: unknown to Semantic Scholar');
+  try {
+    const { fetchSnowball } = require(join(LIB, 'snowball.js'));
+    const { candidates, warnings } = await fetchSnowball(UNKNOWN_TO_S2_DOI, { direction: 'both', limit: 25 });
+    A(candidates.some((c) => c.doi === '10.9000/ref-a') && candidates.some((c) => c.doi === '10.9000/cite-b'), 'alias: referencias y citas salen de S2 por el registro con el mismo titulo', JSON.stringify(candidates.map((c) => c.doi)));
+    A(!candidates.some((c) => c.doi === '10.9001/oa-ref-1'), 'alias: no cae a OpenAlex si S2 tiene el registro', JSON.stringify(candidates.map((c) => c.doi)));
+    A(warnings.length === 2 && warnings.every((w) => w.includes('mismo titulo') && w.includes('10.48550/arxiv.0000.00001')), 'alias: avisa en cada direccion del registro usado', JSON.stringify(warnings));
+    const matches = mock.calls.filter((u) => u.includes('/paper/search/match?')).length;
+    A(matches === 1, 'alias: una sola busqueda por titulo para las dos direcciones', String(matches));
+  } finally {
+    mock.restore();
+  }
+}
+
+async function testAliasRejectsDifferentTitle() {
+  rateLimiter._reset();
+  const mock = installAliasRoutes('A different paper about something else');
+  try {
+    const { fetchSnowball } = require(join(LIB, 'snowball.js'));
+    const { candidates, warnings } = await fetchSnowball(UNKNOWN_TO_S2_DOI, { direction: 'backward', limit: 25 });
+    A(!mock.calls.some((u) => u.includes('/paper/S2ALIAS/')), 'alias: un titulo distinto no se acepta (caso negativo)', JSON.stringify(mock.calls));
+    A(candidates.some((c) => c.doi === '10.9001/oa-ref-1') && warnings.some((w) => w.includes('OpenAlex como fallback')), 'alias: sin coincidencia exacta cae a OpenAlex y lo avisa', JSON.stringify(warnings));
   } finally {
     mock.restore();
   }
@@ -168,6 +213,8 @@ async function main() {
   await testForwardRanking();
   await testExcludesSeedAndSession();
   await testFallbackToOpenAlex();
+  await testAliasByTitle();
+  await testAliasRejectsDifferentTitle();
   testLimitOutOfRangeRejected();
   await testSessionNotFound();
   await testPersistenceIdempotent();

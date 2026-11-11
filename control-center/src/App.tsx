@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirmDialog } from "./lib/dialog";
@@ -19,6 +19,7 @@ import { Projects } from "./components/Projects";
 import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsContext";
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
+import { PortfolioView } from "./components/portfolio/PortfolioView";
 import { System } from "./components/System";
 import { Plans } from "./components/Plans";
 // Finance is a local-only feature (datos bancarios locales; Finance.tsx is
@@ -87,6 +88,16 @@ function AppInner() {
     }
     prevTabRef.current = tab;
   }, [tab, currentId, tabs]);
+
+  // Abre el workspace de un proyecto igual que la rejilla de Projects: pestaña
+  // del proyecto en la tira y salto a Projects (lo usa Portfolio → «Abrir»).
+  const openProjectWorkspace = useCallback(
+    (id: string, title: string) => {
+      open({ id, title });
+      setTab("projects");
+    },
+    [open],
+  );
 
   function goBackToProject() {
     if (!lastProjectCtx) return;
@@ -572,6 +583,8 @@ function AppInner() {
         return <Settings />;
       case "projects":
         return <ProjectsPane />;
+      case "portfolio":
+        return <PortfolioView onOpenProject={openProjectWorkspace} />;
       case "finance":
         return FINANCE_ENABLED && FinanceLazy ? (
           <React.Suspense fallback={null}>

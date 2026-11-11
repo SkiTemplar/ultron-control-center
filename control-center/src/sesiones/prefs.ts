@@ -9,7 +9,7 @@ import type { Effort, EngineId } from "./types";
 
 export const SCALES = [90, 100, 110, 120] as const;
 export type Scale = (typeof SCALES)[number];
-export const NEW_SESSION_MODELS = ["claude-opus-5-5", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-haiku-5-5"] as const;
+export const NEW_SESSION_MODELS = ["claude-opus-5-5", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2", "claude-fable-5-2[1m]"] as const;
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface Prefs {

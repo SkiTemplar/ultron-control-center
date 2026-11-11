@@ -30,6 +30,7 @@ export const PRICES = {
   'claude-sonnet-5-5': [2, 10, 0.2],
   'claude-sonnet-5': [2, 10, 0.2],
   'claude-sonnet-4-6': [3, 15, 0.3],
+  'claude-fable-5-2': [8, 40, 0.2],
   'claude-fable-5-1': [10, 50, 0.25],
   'claude-fable-5': [10, 50, 0.25],
   'claude-haiku-4-5': [1, 5, 0.1],

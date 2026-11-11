@@ -23,7 +23,7 @@ interface Props {
 
 export function prettyModel(model: string | null | undefined): string {
   if (!model) return "—";
-  const m = /claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
+  const m = /claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)/.exec(model);
   if (!m) return model;
   return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}`;
 }

@@ -8,7 +8,8 @@
 #
 # Patterns are split into /XD (dir names) and /XF (file globs) by
 # weekly-backup.ps1. Anything that doesn't fit either bucket is treated as a
-# directory name.
+# directory name. A directory pattern with a separator (`.ultron/.tmp/`) is a
+# path relative to USERPROFILE, not a name: it excludes only that folder.
 
 # === Unreal Engine 5 ===
 Binaries/
@@ -104,10 +105,14 @@ coverage/
 .ultron/.uv-cache-rescue/
 .claude/plugins/cache/
 .claude/file-history/
-.claude/projects/
+# .claude/projects/ NO se excluye: guarda los transcripts y la memoria
+# automatica de cada proyecto, que no se pueden regenerar.
 .claude/sessions/
 .claude/session-env/
 .claude/skills/ultron/.venv/
+
+# === Instaladores descargables (se vuelven a bajar) ===
+PERSONAL/Instaladores/
 
 # === UE5 cache & temp extras ===
 Saved/Autosaves/

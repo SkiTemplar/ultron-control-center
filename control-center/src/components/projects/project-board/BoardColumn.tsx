@@ -5,6 +5,7 @@ import { isBacklogColumn, columnAccent } from "./utils";
 import type { ColumnProps, DeleteState } from "./types";
 import { BoardCard } from "./BoardCard";
 import { ScrollableCardList } from "./ScrollableCardList";
+import { useBoardExtensions } from "./BoardExtensions";
 
 export function BoardColumn({
   columnId,
@@ -27,6 +28,7 @@ export function BoardColumn({
     ({ payload, beforeCardId }) => onDropCard(payload.card_id, beforeCardId),
   );
   const accent = columnAccent(name);
+  const { showColumnFooterAdd } = useBoardExtensions();
 
   // Column action menu (three-dot)
   const [colMenuOpen, setColMenuOpen] = useState(false);
@@ -324,6 +326,16 @@ export function BoardColumn({
             onDelete={() => onDeleteCard(card.id)}
           />
         ))}
+        {showColumnFooterAdd && cards.length > 0 && (
+          <button
+            type="button"
+            onClick={onAddCard}
+            className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-1.5 text-center text-[11.5px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+          >
+            <Plus size={11} className="mr-1 inline-block align-text-bottom" />
+            Añadir
+          </button>
+        )}
       </ScrollableCardList>
     </div>
   );

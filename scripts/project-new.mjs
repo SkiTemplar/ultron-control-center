@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from '
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
+import { ensurePortfolioCard } from './lib/portfolio-board.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
@@ -163,6 +164,19 @@ function ensureBoard(id, cards, dryRun) {
   return { created: true, added: board.cards.length };
 }
 
+// Tarjeta del proyecto en el tablero Portfolio (`proyectos`). Nunca es
+// fatal: el registro ya está escrito y un fallo aquí solo se avisa.
+function syncPortfolio(entry, dryRun) {
+  try {
+    const r = ensurePortfolioCard({ id: entry.id, name: entry.name, path: entry.path }, { dryRun });
+    const verb = dryRun ? { added: 'se anadiria', linked: 'se vincularia' } : { added: 'tarjeta anadida', linked: 'tarjeta existente vinculada' };
+    if (r.status === 'added') console.log(`[project-new] portfolio: ${verb.added} en "${r.column}"`);
+    if (r.status === 'linked') console.log(`[project-new] portfolio: ${verb.linked} ("${r.card.title}")`);
+  } catch (e) {
+    console.warn(`[project-new] AVISO: no se pudo actualizar el tablero Portfolio: ${e.message}`);
+  }
+}
+
 function makeCard(id, columnId, title) {
   const rand = Math.random().toString(36).slice(2, 8);
   return {
@@ -232,6 +246,7 @@ const board = ensureBoard(id, args.cards, args.dryRun);
 if (args.dryRun) {
   console.log(`[project-new] DRY RUN — ${existing ? 'actualizaria' : 'crearia'} "${id}"`);
   console.log(`[project-new] tablero: ${board.created ? 'se crearia' : 'ya existe'}, tarjetas nuevas: ${board.added}`);
+  syncPortfolio({ id, name: args.name || existing?.name || id, path: resolve(args.path) }, true);
   process.exit(0);
 }
 
@@ -241,4 +256,5 @@ writeJsonAtomic(REGISTRY, registry);
 
 console.log(`[project-new] ${existing ? 'actualizado' : 'registrado'}: ${id} -> ${resolve(args.path)}`);
 console.log(`[project-new] tablero: ${board.created ? 'creado' : 'existente'}${board.added ? `, +${board.added} tarjeta(s)` : ''}`);
+syncPortfolio(registry.projects.find((p) => p.id === id), false);
 console.log('[project-new] si ULTRON esta abierto, recarga la pestana Projects para verlo.');

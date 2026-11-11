@@ -96,3 +96,56 @@ test('CASO NEGATIVO: needle que no matchea nada falla y no mueve nada', () => {
   const board = readBoard(boardPath);
   assert.ok(board.cards.every((c) => c.column_id !== 'c-done'));
 });
+
+test('BUG (2026-11-10): un nombre de columna exacto gana aunque sea substring de otra («Activo» frente a «Activo Universidad»)', () => {
+  const { boardPath, env } = makeBoard();
+  const board0 = readBoard(boardPath);
+  board0.columns = [
+    { id: 'c-act', name: 'Activo', order: 0, role: 'doing' },
+    { id: 'c-uni', name: 'Activo Universidad', order: 1, role: 'doing' },
+    { id: 'c-done', name: 'Done', order: 2, role: 'done' },
+  ];
+  board0.cards.forEach((c) => { c.column_id = 'c-done'; });
+  writeFileSync(boardPath, JSON.stringify(board0, null, 2) + '\n', 'utf8');
+
+  assert.equal(run(['mv', PROJ, 'b7kug3', 'activo'], env).status, 0);
+  assert.equal(readBoard(boardPath).cards.find((c) => c.id.endsWith('b7kug3')).column_id, 'c-act');
+  assert.equal(run(['mv', PROJ, 'aaaaaa', 'c-uni'], env).status, 0, 'el id de columna también vale');
+  assert.equal(readBoard(boardPath).cards.find((c) => c.id.endsWith('aaaaaa')).column_id, 'c-uni');
+
+  // Caso negativo: un substring que casa con las dos sigue siendo ambiguo.
+  const r = run(['mv', PROJ, 'b7kug3', 'Activ'], env);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /ambiguo entre columnas/);
+});
+
+test('add --project vincula la tarjeta y es idempotente (una tarjeta por proyecto)', () => {
+  const { boardPath, env } = makeBoard();
+  const r1 = run(['add', PROJ, 'todo', 'Arcadia', 'C:/p/Arcadia', '--project', 'arcadia'], env);
+  assert.equal(r1.status, 0, r1.stderr);
+  const card = readBoard(boardPath).cards.find((c) => c.title === 'Arcadia');
+  assert.equal(card.project, 'arcadia');
+  assert.equal(card.description, 'C:/p/Arcadia');
+  assert.equal(card.column_id, 'c-back');
+
+  const r2 = run(['add', PROJ, 'todo', 'Arcadia otra vez', '--project', 'arcadia'], env);
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.match(r2.stdout, /ya existe/);
+  assert.equal(readBoard(boardPath).cards.filter((c) => c.project === 'arcadia').length, 1);
+});
+
+test('add sin --project no escribe el campo project (tableros normales intactos)', () => {
+  const { boardPath, env } = makeBoard();
+  assert.equal(run(['add', PROJ, 'todo', 'Tarea normal'], env).status, 0);
+  const card = readBoard(boardPath).cards.find((c) => c.title === 'Tarea normal');
+  assert.equal('project' in card, false);
+});
+
+test('CASO NEGATIVO: --project sin valor falla y no añade nada', () => {
+  const { boardPath, env } = makeBoard();
+  const before = readBoard(boardPath).cards.length;
+  const r = run(['add', PROJ, 'todo', 'Sin id', '--project'], env);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /--project necesita/);
+  assert.equal(readBoard(boardPath).cards.length, before);
+});

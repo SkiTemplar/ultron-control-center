@@ -17,6 +17,8 @@
 
 const readline = require('node:readline');
 const path = require('node:path');
+// Antes de cargar las fuentes: las claves de un setx posterior al arranque de la sesion.
+require(path.join(__dirname, 'lib', 'research', 'keys.js')).hydrateResearchEnv();
 const research = require(path.join(__dirname, 'lib', 'research', 'index.js'));
 
 const SERVER_INFO = { name: 'research', version: '1.0.0' };

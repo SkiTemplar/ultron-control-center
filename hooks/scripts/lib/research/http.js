@@ -17,6 +17,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_RETRIES = 3;
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 8_000;
+const MAX_RETRY_AFTER_MS = 30_000; // por encima, fallar ya: nadie espera horas a una herramienta
 
 // Parametros de query que llevan credenciales o datos personales: OpenAlex
 // (api_key, mailto), Crossref (mailto), Unpaywall (email). Nunca pueden salir
@@ -55,9 +56,9 @@ function retryAfterMs(headers) {
   return Number.isFinite(when) ? Math.max(0, when - Date.now()) : null;
 }
 
-function backoffMs(attempt) {
-  const exp = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
-  return exp + Math.floor(Math.random() * BASE_BACKOFF_MS); // jitter: evita reintentos sincronizados
+function backoffMs(attempt, baseMs = BASE_BACKOFF_MS, maxMs = MAX_BACKOFF_MS) {
+  const exp = Math.min(baseMs * 2 ** attempt, maxMs);
+  return exp + Math.floor(Math.random() * baseMs); // jitter: evita reintentos sincronizados
 }
 
 async function fetchOnce(url, { method, headers, timeoutMs }) {
@@ -80,6 +81,11 @@ async function fetchOnce(url, { method, headers, timeoutMs }) {
  * Peticion HTTP con rate limit + reintentos + timeout. `responseType`
  * controla como se parsea el cuerpo ('json' | 'text'). Lanza HttpError para
  * cualquier 4xx no reintentable o tras agotar reintentos en 429/5xx.
+ * `abortCheck()` se consulta antes de cada intento, ya con turno en la cola:
+ * si devuelve un Error, se lanza sin llamar a la fuente (cortocircuito de
+ * una fuente que el llamador sabe saturada). `onRateLimited()` se llama con
+ * cada 429 recibido, antes de decidir si se reintenta. `headers` puede ser una
+ * funcion: se evalua en cada intento, ya con turno (la clave pudo caer en la cola).
  */
 async function request(url, opts = {}) {
   const {
@@ -90,18 +96,25 @@ async function request(url, opts = {}) {
     responseType = 'json',
     timeoutMs = DEFAULT_TIMEOUT_MS,
     retries = DEFAULT_RETRIES,
+    backoffBaseMs = BASE_BACKOFF_MS,
+    backoffMaxMs = MAX_BACKOFF_MS,
+    abortCheck = null,
+    onRateLimited = null,
   } = opts;
 
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    if (namespace) await rateLimiter.acquire(namespace, minIntervalMs);
+    if (namespace) await rateLimiter.acquire(namespace, minIntervalMs, { skipIf: abortCheck && (() => Boolean(abortCheck())) });
+    const aborted = abortCheck?.();
+    if (aborted) throw aborted;
     let res;
     try {
-      res = await fetchOnce(url, { method, headers, timeoutMs });
+      const attemptHeaders = typeof headers === 'function' ? headers() : headers;
+      res = await fetchOnce(url, { method, headers: attemptHeaders, timeoutMs });
     } catch (e) {
       lastErr = e; // timeout o fallo de red: reintentable igual que un 5xx
       if (attempt < retries) {
-        await sleep(backoffMs(attempt));
+        await sleep(backoffMs(attempt, backoffBaseMs, backoffMaxMs));
         continue;
       }
       throw e;
@@ -115,16 +128,25 @@ async function request(url, opts = {}) {
       return { status: res.status, headers: res.headers, body };
     }
 
+    if (res.status === 429) onRateLimited?.();
     const retryable = res.status === 429 || res.status >= 500;
-    if (retryable && attempt < retries) {
-      const wait = retryAfterMs(res.headers) ?? backoffMs(attempt);
-      await sleep(wait);
+    const askedWait = retryAfterMs(res.headers);
+    // 2026-11-08: OpenAlex sin clave, con el presupuesto diario agotado, pide
+    // Retry-After de horas (8592 s): obedecerlo colgaba la busqueda.
+    const tooLong = askedWait != null && askedWait > MAX_RETRY_AFTER_MS;
+    if (retryable && attempt < retries && !tooLong) {
+      const wait = askedWait ?? backoffMs(attempt, backoffBaseMs, backoffMaxMs);
+      // Con namespace, la pausa vale para toda la cola de esa fuente: si solo
+      // esperase esta peticion, las demas seguirian saliendo y alargarian el 429.
+      if (namespace) rateLimiter.defer(namespace, wait);
+      else await sleep(wait);
       continue;
     }
 
     const bodyText = await res.text().catch(() => '');
     const safeUrl = redactUrl(url);
-    throw new HttpError(`HTTP ${res.status} en ${safeUrl}`, { status: res.status, url: safeUrl, body: bodyText.slice(0, 500) });
+    const suffix = tooLong ? ` (Retry-After ${Math.round(askedWait / 1000)} s: no se espera tanto)` : '';
+    throw new HttpError(`HTTP ${res.status} en ${safeUrl}${suffix}`, { status: res.status, url: safeUrl, body: bodyText.slice(0, 500) });
   }
   throw lastErr ?? new HttpError(`fallo desconocido en ${redactUrl(url)}`, { url: redactUrl(url) });
 }

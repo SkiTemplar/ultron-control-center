@@ -15,7 +15,7 @@
 const semanticScholar = require('./semantic-scholar');
 const openalex = require('./openalex');
 const { normalizeS2Paper, normalizeOpenAlexWork, normalizeDoi } = require('./normalize');
-const { dedupeKey } = require('./merge');
+const { dedupeKey, titleKey } = require('./merge');
 const { NotFoundError } = require('./errors');
 const session = require('./session');
 
@@ -43,14 +43,55 @@ function relationFromS2(item, key) {
   };
 }
 
-async function backwardViaS2(doi, limit) {
-  const items = await semanticScholar.getReferences(doi, { limit });
+async function backwardViaS2(doi, limit, paperId) {
+  const items = await semanticScholar.getReferences(doi, { limit, paperId });
   return items.map((it) => relationFromS2(it, 'citedPaper')).filter(Boolean);
 }
 
-async function forwardViaS2(doi, limit) {
-  const items = await semanticScholar.getCitations(doi, { limit });
+async function forwardViaS2(doi, limit, paperId) {
+  const items = await semanticScholar.getCitations(doi, { limit, paperId });
   return items.map((it) => relationFromS2(it, 'citingPaper')).filter(Boolean);
+}
+
+/**
+ * Registro de S2 para un DOI que S2 no indexa (2026-11-08: el articulo de
+ * revista 10.1016/j.infrared.2025.105745 solo existe en S2 como su preprint
+ * de arXiv). Titulo desde OpenAlex y /paper/search/match en S2; se acepta
+ * solo si el titulo coincide tras normalizar, nunca una coincidencia aproximada.
+ */
+async function findS2Alias(doi) {
+  const work = await openalex.getWorkByDoi(doi);
+  const title = work?.title ?? work?.display_name;
+  if (!title) return null;
+  const match = await semanticScholar.matchPaperByTitle(title);
+  if (!match?.paperId || titleKey(match.title) !== titleKey(title)) return null;
+  return { paperId: match.paperId, title: match.title, doi: normalizeDoi(match.externalIds?.DOI) };
+}
+
+/** Resolucion perezosa y compartida por las dos direcciones de una misma bola de nieve. */
+function aliasResolver(doi) {
+  let pending = null;
+  return () => {
+    pending ??= findS2Alias(doi);
+    return pending;
+  };
+}
+
+/** S2 por DOI y, si S2 no lo conoce, por el registro equivalente localizado por titulo. */
+async function viaS2WithAlias(viaS2, doi, limit, resolveAlias) {
+  try {
+    return { items: await viaS2(doi, limit) };
+  } catch (e) {
+    if (!(e instanceof NotFoundError)) throw e;
+    let alias;
+    try {
+      alias = await resolveAlias();
+    } catch (aliasErr) {
+      throw new Error(`${e.message}; busqueda por titulo fallida: ${String(aliasErr.message ?? aliasErr)}`);
+    }
+    if (!alias) throw new Error(`${e.message} ni hay un registro con el mismo titulo`);
+    return { items: await viaS2(doi, limit, alias.paperId), alias };
+  }
 }
 
 async function backwardViaOpenAlex(doi, limit) {
@@ -65,12 +106,13 @@ async function forwardViaOpenAlex(doi, limit) {
 }
 
 /** Un nivel de bola de nieve en una direccion: S2 primero, OpenAlex si S2 falla o no conoce el DOI. */
-async function fetchDirection(doi, direction, limit) {
+async function fetchDirection(doi, direction, limit, resolveAlias = aliasResolver(doi)) {
   const [viaS2, viaOpenAlex] = direction === 'backward'
     ? [backwardViaS2, backwardViaOpenAlex]
     : [forwardViaS2, forwardViaOpenAlex];
   try {
-    return { items: await viaS2(doi, limit), source: 'semanticscholar' };
+    const { items, alias } = await viaS2WithAlias(viaS2, doi, limit, resolveAlias);
+    return { items, source: 'semanticscholar', alias };
   } catch (e) {
     const items = await viaOpenAlex(doi, limit);
     return { items, source: 'openalex', fallbackReason: String(e.message ?? e) };
@@ -99,9 +141,13 @@ async function fetchSnowball(doi, { direction = 'both', limit = DEFAULT_LIMIT, e
 
   const warnings = [];
   const byKey = new Map();
+  const resolveAlias = aliasResolver(seedDoi);
   for (const dir of dirsToFetch) {
     const relation = dir === 'backward' ? 'reference' : 'citation';
-    const { items, source, fallbackReason } = await fetchDirection(seedDoi, dir, safeLimit);
+    const { items, source, fallbackReason, alias } = await fetchDirection(seedDoi, dir, safeLimit, resolveAlias);
+    if (alias) {
+      warnings.push(`${dir}: Semantic Scholar no indexa el DOI ${seedDoi}; se uso su registro con el mismo titulo (${alias.doi ?? alias.paperId})`);
+    }
     if (source === 'openalex') {
       warnings.push(`${dir}: Semantic Scholar no respondio (${fallbackReason}); se uso OpenAlex como fallback`);
     }

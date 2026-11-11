@@ -22,6 +22,16 @@ export const GENERATORS = [
     kinds: ['asignatura', 'personal'], requires: ['npm'],
   },
   {
+    id: 'web-nextjs-supabase', label: 'Web/SaaS (Next.js + Supabase)',
+    description: 'create-next-app (App Router, TS, Tailwind, src/, pnpm, AGENTS.md); Supabase se conecta despues con su CLI.',
+    kinds: ['personal'], requires: ['npm', 'pnpm'],
+  },
+  {
+    id: 'app-expo', label: 'App movil (Expo + React Native)',
+    description: 'create-expo-app con la plantilla default (Expo Router, TS); sin AGENTS.md ni .claude/settings.json propios.',
+    kinds: ['personal'], requires: ['npm'],
+  },
+  {
     id: 'rust-cargo', label: 'Rust (Cargo)',
     description: 'Proyecto Rust inicializado con "cargo new".',
     kinds: ['asignatura', 'personal'], requires: ['cargo'],

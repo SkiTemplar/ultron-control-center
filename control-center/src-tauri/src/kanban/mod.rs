@@ -11,6 +11,8 @@ pub(crate) mod board_io;
 pub(crate) mod file_lock;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_project;
 pub(crate) mod types_model;
 
 pub use archive::{archive_done, list_archives, load_archive};

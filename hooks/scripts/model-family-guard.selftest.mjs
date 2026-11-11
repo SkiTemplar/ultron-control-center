@@ -59,10 +59,10 @@ function post(payload) {
 const { isAllowedModel } = require('./model-family-guard.js');
 
 run('isAllowedModel acepta la familia 5.5 y rechaza el resto', () => {
-  for (const m of ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5-20260901', 'CLAUDE-OPUS-5-5']) {
+  for (const m of ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5-20260901', 'CLAUDE-OPUS-5-5', 'claude-fable-5-2', 'claude-fable-5-2[1m]']) {
     assert.strictEqual(isAllowedModel(m), true, `deberia aceptar ${m}`);
   }
-  for (const m of ['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-6', 'claude-haiku-4-5', 'claude-fable-1', 'claude-opus-5-50', 'gpt-6-astra', 'opus']) {
+  for (const m of ['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-6', 'claude-haiku-4-5', 'claude-fable-1', 'claude-fable-5-1', 'claude-fable-5', 'claude-fable-5-20', 'claude-opus-5-50', 'gpt-6-astra', 'opus']) {
     assert.strictEqual(isAllowedModel(m), false, `deberia rechazar ${m}`);
   }
 });

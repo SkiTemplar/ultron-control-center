@@ -131,7 +131,14 @@ function Read-Exclusions {
         $trim = $line.Trim()
         if (-not $trim -or $trim.StartsWith("#")) { continue }
         if ($trim.EndsWith("/")) {
-            $dirs.Add($trim.TrimEnd("/"))
+            $dir = $trim.TrimEnd("/")
+            # robocopy /XD only matches a bare name or a full path, so a
+            # pattern with a separator (".ultron/.tmp/") is anchored on
+            # USERPROFILE; passed as-is it matched nothing.
+            if ($dir -match "[/\\]") {
+                $dir = Join-Path $env:USERPROFILE ($dir -replace "/", "\")
+            }
+            $dirs.Add($dir)
         } elseif ($trim -like "*.*") {
             $files.Add($trim)
         } else {

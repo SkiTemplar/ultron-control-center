@@ -86,6 +86,12 @@ pub struct Card {
     pub prompt_template: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Id del proyecto registrado (`cockpit/projects.json`) al que apunta la
+    /// tarjeta. Lo usa el tablero Portfolio (`proyectos`) para abrir el
+    /// workspace del proyecto; los tableros normales lo dejan vacío y no se
+    /// escribe en el JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     /// Relative sort index within its column. Signed (`i32`) on purpose: legacy
@@ -210,6 +216,8 @@ pub struct CardPartial {
     #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
     pub tags: Vec<String>,
 }
 
@@ -255,12 +263,27 @@ pub struct CardPatch {
     pub title: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_patch_field")]
     pub agent: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_patch_field")]
     pub prompt_template: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_patch_field")]
     pub cwd: Option<Option<String>>,
+    /// Vínculo con un proyecto registrado: ausente = no tocar, `null` = quitar
+    /// el vínculo, cadena = fijarlo.
+    #[serde(default, deserialize_with = "de_patch_field")]
+    pub project: Option<Option<String>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+}
+
+/// Campo anulable de un parche con tres estados: ausente (`None`, por el
+/// `#[serde(default)]`), `null` (`Some(None)`, borrar) y valor (`Some(Some)`).
+/// Sin esto serde lee `null` como `None` y el editor de tarjetas no podía
+/// vaciar el agente, la plantilla ni el directorio.
+fn de_patch_field<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
 }

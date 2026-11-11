@@ -6,7 +6,8 @@ namespace LienzoDesk;
 
 /// <summary>
 /// Un solo proceso residente con una tarjeta por carpeta de %LOCALAPPDATA%\Lienzo\Carpetas. Instancia única.
-/// Crear o borrar una carpeta ahí añade o quita su tarjeta en caliente. Tras dibujar y cada pocos minutos
+/// Crear o borrar una carpeta ahí añade o quita su tarjeta en caliente. Si Windows mueve las tarjetas (monitor que
+/// se apaga o reconecta, suspensión), las devuelve a su sitio y lo anota en desk-moves.log. Tras dibujar y cada pocos minutos
 /// recorta su memoria para quedarse en lo mínimo. La del Explorador no se toca: recortarla no libera RAM (las
 /// páginas pasan a la lista en espera) y cada clic derecho tardaba ~15 ms más en volver a cargarlas (medido el
 /// 2026-10-28: 62 frente a 77 ms).
@@ -14,7 +15,17 @@ namespace LienzoDesk;
 public static class Program
 {
     private const double Margin = 16;
+    private const int WmDisplayChange = 0x007E, WmSettingChange = 0x001A, WmPowerBroadcast = 0x0218;
+    private const int SpiSetWorkArea = 0x002F, PbtResumeAutomatic = 0x0012;
+    // Tras un cambio de pantallas Windows recoloca las ventanas en ráfagas y a veces con segundos de retraso:
+    // primera pasada al calmarse los avisos y una segunda por si el sistema las vuelve a mover.
+    private static readonly TimeSpan[] RealignDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(6)];
     private static readonly Dictionary<string, FolderCard> Cards = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly string MovesLog = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lienzo", "desk-moves.log");
+    private static readonly DispatcherTimer Realign = new();
+    private static string _realignReason = "";
+    private static int _realignPass;
     private static DeskConfig _config = new();
     private static double _nextY;
     private static PowerWindow? _power;
@@ -78,6 +89,7 @@ public static class Program
         {
             if (msg == taskbarCreated) app.Dispatcher.BeginInvoke(DispatcherPriority.Background, () => RecreateAll(store));
             if (msg == powerMessage) app.Dispatcher.BeginInvoke(TogglePower);
+            if (RealignReason(msg, w) is { } reason) ScheduleRealign(reason);
             if (Native.ReadResidentText(msg, l) is { } text)
             {
                 handled = true;
@@ -87,6 +99,8 @@ public static class Program
             return IntPtr.Zero;
         });
 
+        Realign.Tick += (_, _) => RealignTick();
+
         var trim = new DispatcherTimer { Interval = TimeSpan.FromMinutes(3) };
         trim.Tick += (_, _) => Native.TrimMemory();
 
@@ -94,6 +108,47 @@ public static class Program
         app.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, Native.TrimMemory);
         app.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, AppCatalog.RefreshInBackground);
         return app.Run();
+    }
+
+    /// <summary>Avisos del sistema tras los que Windows puede haber movido las tarjetas; null si el mensaje no lo es.</summary>
+    private static string? RealignReason(int msg, IntPtr w) => msg switch
+    {
+        WmDisplayChange => "cambio de pantallas",
+        WmSettingChange when w.ToInt64() == SpiSetWorkArea => "cambio del área de trabajo",
+        WmPowerBroadcast when w.ToInt64() == PbtResumeAutomatic => "vuelta de suspensión",
+        _ => null,
+    };
+
+    /// <summary>Cada aviso nuevo reinicia la cuenta: se recoloca cuando el sistema deja de mover ventanas.</summary>
+    private static void ScheduleRealign(string reason)
+    {
+        _realignReason = reason;
+        _realignPass = 0;
+        Realign.Stop();
+        Realign.Interval = RealignDelays[0];
+        Realign.Start();
+    }
+
+    private static void RealignTick()
+    {
+        foreach (var card in Cards.Values)
+        {
+            if (card.ReturnHome() is not { } from) continue;
+            var line = $"{DateTime.Now:s} {_realignReason}: {card.FolderName} estaba en {from.X:0},{from.Y:0}; vuelve a {card.Left:0},{card.Top:0}";
+            try
+            {
+                File.AppendAllText(MovesLog, line + Environment.NewLine);
+            }
+            catch (IOException)
+            {
+                // El registro es diagnóstico: si el fichero está bloqueado, la tarjeta ya ha vuelto igualmente.
+            }
+        }
+        _realignPass++;
+        Realign.Stop();
+        if (_realignPass >= RealignDelays.Length) return;
+        Realign.Interval = RealignDelays[_realignPass];
+        Realign.Start();
     }
 
     /// <summary>

@@ -3,9 +3,9 @@
 
 /**
  * model-family-guard.js — PreModelSwitch y PostModelSwitch (matcher "*").
- * Aplica la regla de modelos de ULTRON: solo la familia 5.5
- * (claude-opus-5-5, claude-sonnet-5-5 y claude-haiku-5-5, con o sin sufijo
- * [1m] o fecha).
+ * Aplica la regla de modelos de ULTRON: la familia 5.5 (claude-opus-5-5,
+ * claude-sonnet-5-5 y claude-haiku-5-5) y claude-fable-5-2 (a mano, decision
+ * del 2026-11-11), con o sin sufijo [1m] o fecha.
  *
  * - PreModelSwitch: un cambio pedido con /model, el selector, /config o un
  *   set_model del SDK hacia cualquier otro modelo se DENIEGA
@@ -31,9 +31,9 @@ const fs = require('fs');
 const { observe, annotate, logHookError } = require('./lib/hook-obs');
 
 const HOOK_ID = 'model-family-guard';
-// Familia 5.5; el lookahead evita que "5-50" pase por "5-5".
-const ALLOWED_MODEL_RE = /^claude-(?:opus|sonnet|haiku)-5-5(?![0-9])/i;
-const FAMILY = 'claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5';
+// Familia 5.5 y Fable 5.2; el lookahead evita que "5-50" pase por "5-5".
+const ALLOWED_MODEL_RE = /^claude-(?:(?:opus|sonnet|haiku)-5-5|fable-5-2)(?![0-9])/i;
+const FAMILY = 'claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2';
 
 function isAllowedModel(model) {
   return ALLOWED_MODEL_RE.test(String(model || '').trim());
