@@ -213,14 +213,48 @@ fn git_diff_file_blocking(path: String, file: String, staged: bool) -> Result<St
     }
     let d = git_stdout(&["diff", "--", &file], &path)?;
     if d.trim().is_empty() {
-        // Likely untracked — show the whole file as additions. `/dev/null` es
-        // válido también en Git for Windows (verificado en runtime).
-        return Ok(cap_diff(git_stdout(
-            &["diff", "--no-index", "--", "/dev/null", &file],
-            &path,
-        )?));
+        return Ok(cap_diff(untracked_diff(&path, &file)?));
     }
     Ok(cap_diff(d))
+}
+
+/// Ficheros de una carpeta sin seguimiento que entran en su diff.
+const MAX_UNTRACKED_DIR_FILES: usize = 50;
+
+/// Diff de algo sin seguimiento: el fichero entero como altas. `/dev/null` es
+/// válido también en Git for Windows (verificado en runtime). Una carpeta
+/// (`git status` la da como `carpeta/`) se recorre fichero a fichero: con
+/// `--no-index` contra una carpeta, git busca `carpeta/null` y falla.
+fn untracked_diff(path: &str, file: &str) -> Result<String, String> {
+    if !std::path::Path::new(path).join(file).is_dir() {
+        return git_stdout(&["diff", "--no-index", "--", "/dev/null", file], path);
+    }
+    let listed = git_stdout(
+        &[
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            file,
+        ],
+        path,
+    )?;
+    let files: Vec<&str> = listed.split('\0').filter(|f| !f.is_empty()).collect();
+    let mut out = String::new();
+    for f in files.iter().take(MAX_UNTRACKED_DIR_FILES) {
+        out.push_str(&git_stdout(
+            &["diff", "--no-index", "--", "/dev/null", f],
+            path,
+        )?);
+    }
+    if files.len() > MAX_UNTRACKED_DIR_FILES {
+        out.push_str(&format!(
+            "\n… y {} ficheros más en {file} (solo se muestran los {MAX_UNTRACKED_DIR_FILES} primeros)\n",
+            files.len() - MAX_UNTRACKED_DIR_FILES
+        ));
+    }
+    Ok(out)
 }
 
 /// Máximo de líneas de diff que cruzan el IPC y llegan al DOM. Un diff de

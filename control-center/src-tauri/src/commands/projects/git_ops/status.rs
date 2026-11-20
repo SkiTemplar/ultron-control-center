@@ -558,4 +558,29 @@ mod tests {
         let diff = git_diff_file_blocking(dir.clone(), "a b.txt".into(), true).expect("diff");
         assert!(diff.contains("+espacio"), "{diff}");
     }
+
+    /// `git status` da una carpeta sin seguimiento como `carpeta/`; el diff
+    /// `--no-index` contra `/dev/null` buscaba `carpeta/null` y fallaba con
+    /// «Could not access 'carpeta/null'». Ahora muestra cada fichero de dentro.
+    #[test]
+    fn el_diff_de_una_carpeta_sin_seguimiento_muestra_sus_ficheros() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().to_string_lossy().to_string();
+        let init = git_output(&["init", "-q"], &dir, GIT_LOCAL_TIMEOUT).expect("git init");
+        assert!(init.status.success());
+        let carpeta = tmp.path().join("continuacion-codex");
+        std::fs::create_dir_all(carpeta.join("sub")).expect("carpeta");
+        std::fs::write(carpeta.join("a.md"), "uno\n").expect("a.md");
+        std::fs::write(carpeta.join("sub").join("b.md"), "dos\n").expect("b.md");
+
+        let (_, changes) = read_status(&dir).expect("status");
+        let entrada = changes
+            .iter()
+            .find(|c| c.path.starts_with("continuacion-codex"))
+            .expect("carpeta en el estado");
+        let diff = git_diff_file_blocking(dir.clone(), entrada.path.clone(), false).expect("diff");
+        assert!(!diff.contains("Could not access"), "{diff}");
+        assert!(diff.contains("+uno") && diff.contains("+dos"), "{diff}");
+        assert!(diff.contains("continuacion-codex/sub/b.md"), "{diff}");
+    }
 }
